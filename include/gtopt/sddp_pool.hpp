@@ -7,10 +7,11 @@
  *
  * This header provides the work-pool specialisation used by the SDDP solver:
  *
- *  - `SDDPTaskKey` – a 3-tuple `(iteration, is_backward, kind)` used as
- *    the secondary sort key so LP solves in the earliest iteration,
- *    with forward strictly ahead of backward at the same iteration,
- *    are always scheduled first.
+ *  - `SDDPTaskKey` – a 4-tuple `(iteration, is_backward, phase_rank, kind)`
+ *    used as the sort key so LP solves in the earliest iteration, with
+ *    forward strictly ahead of backward at the same iteration, are always
+ *    scheduled first; `phase_rank` is a non-negative laggard-first tie-break
+ *    for per-phase backward aperture chunks (0 for phase-agnostic drivers).
  *  - `SDDPPassDirection` – enum class (`forward` / `backward`) used by
  *    callers to identify the pass; converted to `is_backward` (0 / 1)
  *    by the factory.
@@ -23,9 +24,10 @@
  *
  * ## SDDPTaskKey semantics
  *
- * The tuple `(iteration_index, is_backward, kind)`:
+ * The tuple `(iteration_index, is_backward, phase_rank, kind)`:
  *  - `iteration_index`: SDDP iteration number (0, 1, …)
  *  - `is_backward`:     0 = forward pass, 1 = backward pass
+ *  - `phase_rank`:      non-negative laggard-first tie-break (0 = driver)
  *  - `kind`:            `lp` (0) = LP solve/resolve, `non_lp` (1) = other
  *
  * With the default `std::less<SDDPTaskKey>` lexicographic comparison
@@ -40,17 +42,24 @@
  *    been submitted.  Draining the late forward first lets the slow
  *    scene catch up; flipping the order would widen the spread
  *    instead.
+ *  - **Smaller `phase_rank`** wins among per-phase backward aperture
+ *    chunks tied on `(iteration, is_backward)`.  The backward sweep
+ *    visits phases N-1…1, so a scene at a smaller phase index has MORE
+ *    phases left this iteration (the laggard); the chunk submitter sets
+ *    `phase_rank = (n_phases-1) - phase` so that larger-remaining scene
+ *    gets the smaller rank and drains first.  Scene-driver tasks run all
+ *    their phases as one task and leave `phase_rank = 0`.  The field is
+ *    kept NON-NEGATIVE so it can never reorder forward ahead of backward
+ *    (which `-phase` would, by sorting before any positive rank).
  *  - **`lp` (0) wins over `non_lp` (1)** so write_lp / dump tasks never
  *    block a solve worker.
  *
- * **No per-phase field**: every async forward/backward submission runs all
- * phases internally as one pool task, so per-phase priority was unused
- * dead code at the four top-level submission sites.  The sync
- * phase-by-phase backward path submits one task per phase but waits
- * between phases (only one phase's tasks ever in flight), so per-phase
- * priority would not change scheduling there either.  Aperture chunks
- * use the same key but compete only across scenes at the same phase
- * level (which ties on the key — FIFO).  Removed 2026-05.
+ * `phase_rank` matters only in the async path: there two scenes can be in
+ * the same iteration's backward sweep at different phases at once.  In the
+ * synchronous coordinator path (the default) apertures run inline on each
+ * scene's own driver thread, so chunks never funnel through this pool and
+ * `phase_rank` is moot — but the key stays correct for the opt-in async /
+ * cascade path and any future engine that schedules chunks here.
  */
 
 #pragma once
@@ -98,43 +107,60 @@ enum class SDDPTaskKind : int
 
 /// @brief SDDP solver task priority key.
 ///
-/// A 3-tuple `(iteration_index, is_backward, kind)`:
+/// A 4-tuple `(iteration_index, is_backward, phase_rank, kind)`:
 ///  - `IterationIndex`: SDDP iteration number (0, 1, …)
 ///  - `int is_backward`: `0` for forward, `1` for backward.  Lexicographic
 ///    comparison keeps the forward pass strictly ahead of the backward
 ///    pass within the same iteration.
+///  - `int phase_rank`: NON-NEGATIVE laggard-first tie-break for per-phase
+///    backward aperture chunks (`(n_phases-1) - phase`); `0` for the
+///    phase-agnostic scene-driver tasks (forward / backward / sim).
 ///  - `SDDPTaskKind`: `lp` (0) or `non_lp` (1)
 ///
 /// Tuple comparison with `std::less<SDDPTaskKey>` (lexicographic, smaller
 /// → higher dequeue priority):
-///   - lower iteration  → higher priority
-///   - forward (0)      → higher priority than backward (1)
+///   - lower iteration   → higher priority
+///   - forward (0)       → higher priority than backward (1)
+///   - smaller phase_rank → higher priority (laggard scene's chunks first)
 ///   - lp (0) < non_lp (1)
 ///
-/// **Per-phase ordering is not encoded** — every async forward/backward
-/// submission runs all phases internally as one pool task, so a
-/// per-phase priority field would never differentiate live tasks (the
-/// sync phase-by-phase backward path also serialises phase steps with
-/// futures, so only one phase's tasks are ever in flight there).  See
-/// the header comment block for the full rationale.
-using SDDPTaskKey =
-    std::tuple<IterationIndex, int /*is_backward*/, SDDPTaskKind>;
+/// `phase_rank` differentiates live tasks only in the async path, where
+/// two scenes can be in the same iteration's backward sweep at different
+/// phases at once.  Scene-driver submissions run all their phases as one
+/// task (rank 0); only the backward aperture-chunk tasks set a positive
+/// rank.  See the header comment block for the full rationale.
+using SDDPTaskKey = std::tuple<IterationIndex,
+                               int /*is_backward*/,
+                               int /*phase_rank*/,
+                               SDDPTaskKind>;
 
 /// @brief Build an SDDPTaskKey from strongly-typed SDDP parameters.
 ///
-/// Produces `(iteration_index, is_backward, kind)` where
+/// Produces `(iteration_index, is_backward, phase_rank, kind)` where
 /// `is_backward = (direction == backward) ? 1 : 0`.
+///
+/// `phase_rank` is a NON-NEGATIVE laggard-first tie-break used only by the
+/// per-phase backward aperture-chunk tasks (see `make_aperture_submit_fn`):
+/// in the async path two scenes can be in the same iteration's backward
+/// sweep at different phases at once, and the scene with MORE phases still
+/// to process (the laggard) should drain first.  Scene-driver tasks
+/// (forward / backward / sim), which run all their phases internally as a
+/// single pool task, leave it at the default `0` (highest within their
+/// `(iteration, is_backward)` class).  Kept non-negative so it never inverts
+/// the `is_backward` ordering above it in the tuple.
 ///
 /// @param iteration_index SDDP iteration index
 /// @param direction       Forward or backward pass
 /// @param kind            LP solve or non-LP task
+/// @param phase_rank      Laggard-first tie-break (0 = phase-agnostic driver)
 [[nodiscard]] constexpr auto make_sddp_task_key(IterationIndex iteration_index,
                                                 SDDPPassDirection direction,
-                                                SDDPTaskKind kind) noexcept
+                                                SDDPTaskKind kind,
+                                                int phase_rank = 0) noexcept
     -> SDDPTaskKey
 {
   const int is_backward = (direction == SDDPPassDirection::backward) ? 1 : 0;
-  return {iteration_index, is_backward, kind};
+  return {iteration_index, is_backward, phase_rank, kind};
 }
 
 // ─── Task-requirement builders (LP solves) ───────────────────────────────────

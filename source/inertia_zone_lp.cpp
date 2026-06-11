@@ -54,7 +54,7 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     // The priced branch would also create a fixed-zero slack column
     // (uppb = block_rreq = 0).  Skip both.  Write-out rule: the absent
     // requirement column reads 0 and the absent row dual is 0.
-    if (*block_rreq == 0.0) {
+    if (sc.options().lp_reduction() && *block_rreq == 0.0) {
       continue;
     }
 

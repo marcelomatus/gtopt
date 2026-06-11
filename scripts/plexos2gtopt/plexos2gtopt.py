@@ -613,6 +613,38 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 carbon_price=options.get("carbon_price"),
             )
 
+        # Topology-driven reservoir extraction-flow estimate (shared with
+        # plp2gtopt): replace the generic C++ ReservoirLP -9000/6000 m³/s
+        # extraction defaults with tight, per-reservoir bounds derived from
+        # the hydraulic network.  Inflows are inline arrays here so no
+        # input_dir is required; ``output_dir`` is passed for parity.  On
+        # by default; ``--no-reservoir-flow-estimate`` disables it.
+        if options.get("reservoir_flow_estimate", True):
+            from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
+                apply_reservoir_flow_estimates,
+            )
+
+            # Size the reservoir extraction ``fmax`` from the PHYSICAL
+            # turbine nameplate, NOT the maintenance-reduced weekly
+            # dispatch ``pmax``.  PLEXOS zeroes ``Gen_Rating`` for units
+            # it holds offline (COLBUN_U2, PEHUENCHE_U1, RALCO_U2, …) so
+            # their JSON ``pmax`` is 0; ``case.generator_nameplates``
+            # carries their full ``Max Capacity`` so the estimator does
+            # not under-size the reservoir bound.  The dispatch ``pmax``
+            # in the JSON is unchanged (offline units stay 0).
+            # ``case.extra_turbines`` carries the JSON turbine dicts for units
+            # PLEXOS holds offline (dropped from ``turbine_array`` to avoid a
+            # free-drain artefact); the estimator counts them for the reservoir
+            # extraction ``fmax`` BOUND only, so a maintenance-offline second
+            # unit (COLBUN_U2, PEHUENCHE_U1, RALCO_U2, …) still contributes its
+            # nameplate to the bound without re-entering the dispatch JSON.
+            apply_reservoir_flow_estimates(
+                planning,
+                input_dir=output_dir,
+                generator_capacities=case.generator_nameplates or None,
+                extra_turbines=case.extra_turbines or None,
+            )
+
         write_planning(planning, output_file)
 
         # Conversion-provenance sidecar (F5): documents each gtopt

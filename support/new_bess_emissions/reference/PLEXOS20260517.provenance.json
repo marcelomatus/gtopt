@@ -121,7 +121,7 @@
     },
     "Waterway": {
       "plexos_source": "Waterway",
-      "count": 19,
+      "count": 31,
       "units": {
         "fmax": "m\u00b3/s",
         "fcost": "$/(m\u00b3/s)/h"
@@ -243,7 +243,7 @@
     },
     "DecisionVariable": {
       "plexos_source": "Decision Variable",
-      "count": 44,
+      "count": 43,
       "units": {
         "value": "per PLEXOS definition",
         "cost": "$/unit"

@@ -311,6 +311,19 @@ struct MainOptions
    * leaves unset). */
   std::optional<bool> no_scale {};
 
+  /** @brief Enable SOURCE zero-column/row elimination (default OFF).
+   * Bound to the CLI flag `--lp-reduction`; shorthand for
+   * `--set model_options.lp_reduction=true`.  For weak-presolve backends
+   * (CLP / CBC / HiGHS); CPLEX/Gurobi presolve reduces the un-reduced LP
+   * equivalently so they gain nothing. */
+  std::optional<bool> lp_reduction {};
+
+  /** @brief Force-disable the SOURCE zero-column/row elimination (the
+   * default behaviour).  Bound to `--no-lp-reduction`; shorthand for
+   * `--set model_options.lp_reduction=false`.  Useful to override a JSON
+   * file that sets `lp_reduction=true`. */
+  std::optional<bool> no_lp_reduction {};
+
   /** @brief LP-relax every phase (`continuous_phases = "all"`).
    *
    * Bound to the CLI flag `--no-mip`.  When set, every integer / binary

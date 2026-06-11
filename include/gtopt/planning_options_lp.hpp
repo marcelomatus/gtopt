@@ -400,6 +400,18 @@ public:
     return m_options_.model_options.demand_fail_rhs_shift.value_or(false);
   }
 
+  /// @brief Whether SOURCE elements eliminate their provably-zero LP
+  /// columns/rows.  Default `false` — the un-reduced LP is the honest
+  /// model, and modern solver presolve (CPLEX/Gurobi) reduces it to the
+  /// same core (often marginally faster).  Enable with `--lp-reduction`
+  /// (or `model_options.lp_reduction = true`) for weak-presolve backends
+  /// (CLP / CBC / HiGHS) that benefit from the smaller LP up front.
+  /// See `ModelOptions::lp_reduction`.
+  [[nodiscard]] constexpr bool lp_reduction() const
+  {
+    return m_options_.model_options.lp_reduction.value_or(false);
+  }
+
   /// @brief Gets the objective function scaling factor.
   ///
   /// Default depends on planning method:
@@ -1011,11 +1023,14 @@ public:
     return m_options_.sddp_options.aperture_chunk_size.value_or(0);
   }
 
-  /// Opt-in warm-start of in-chunk aperture re-solves.  Default false.
-  /// See `SddpOptions::aperture_warm_start` for documentation.
-  [[nodiscard]] constexpr auto sddp_aperture_warm_start() const noexcept
+  /// Aperture solve / cut-recovery mode.  Default `reduced_cost`
+  /// (barrier without crossover; cut from interior-point reduced costs —
+  /// ~35% faster per aperture than `cold`).  See
+  /// `SddpOptions::aperture_solve_mode` for documentation.
+  [[nodiscard]] constexpr auto sddp_aperture_solve_mode() const noexcept
   {
-    return m_options_.sddp_options.aperture_warm_start.value_or(false);
+    return m_options_.sddp_options.aperture_solve_mode.value_or(
+        ApertureSolveMode::reduced_cost);
   }
 
   /**
@@ -1619,32 +1634,32 @@ public:
         CompressionCodec::auto_select);
   }
 
-  /** @brief Maximum async iteration spread (default: 2).
+  /** @brief Maximum async iteration spread (default: 0 = synchronous).
    *
-   * When > 0 and ``cut_sharing == none``, the SDDP solver runs scenes
-   * asynchronously: each scene progresses through its own
-   * forward / backward iteration loop, the work pool's
-   * ``SDDPTaskKey`` priority schedules the slowest-iter scenes first,
-   * and the spread between the fastest and slowest scene is bounded
-   * by this value.  Eliminates the inter-iteration synchronisation
-   * barrier that otherwise blocks every scene from starting iter
-   * ``i+1`` until all scenes have finished iter ``i``.
+   * When > 0 and ``cut_sharing == none``, the SDDP solver takes the
+   * **async** path (``solve_async``): each scene progresses through its
+   * own forward / backward iteration loop as ``SDDPWorkPool`` tasks, the
+   * pool's ``SDDPTaskKey`` priority schedules the slowest-iter scenes
+   * first, and the spread between the fastest and slowest scene is
+   * bounded by this value.
    *
-   * Default 1 (lock-step + 1 iter slack) is the tightest non-trivial
-   * spread: it lets a fast scene advance by exactly one iteration
-   * past the slowest active scene, eliminating most of the
-   * post-convergence drain-pass race while still hiding short
-   * per-iter timing jitter behind the 1-iter buffer.  Earlier
-   * default of 2 let scenes race further ahead, which translated
-   * directly into longer drains and more race-condition cuts on
-   * the full_network level (juan/IPLP: 71s drain at L3 with
-   * `max_async_spread=2`).  Set to 0 for fully synchronous; set
-   * higher only when in-flight task heterogeneity (e.g. heavily
-   * unbalanced scene complexity) actually justifies the trade-off.
+   * Default **0** routes to the synchronous coordinator path instead:
+   * one driver thread per scene per pass, lockstep across iterations.
+   * Benchmarking on juan/IPLP (2026-06) found the coordinator/lockstep
+   * path faster at every level (warmup −19 %, uninodal −35 %, transport
+   * −38 %, bounds identical) because the async path pays an
+   * after-convergence overshoot — once a level converges every scene
+   * computes and discards a full extra iteration — and funnels all
+   * solves through the shared pool's burst-submit dispatch.  In the
+   * lockstep path scene-level priority is moot (all scenes share an
+   * iteration per pass), so nothing is lost by retiring async as the
+   * default.  Set ``> 0`` only when in-flight task heterogeneity (e.g.
+   * heavily unbalanced scene complexity) actually justifies overlapping
+   * iterations; ``1`` is the tightest non-trivial spread.
    */
   [[nodiscard]] constexpr auto sddp_max_async_spread() const
   {
-    return m_options_.sddp_options.max_async_spread.value_or(1);
+    return m_options_.sddp_options.max_async_spread.value_or(0);
   }
 
   /** @brief SDDP work pool CPU over-commit factor (default: 4.0). */

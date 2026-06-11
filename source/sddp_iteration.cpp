@@ -1528,30 +1528,29 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 m_cut_store_.at(scene).size();
             // Submit simulation forward pass for this scene.
             //
-            // Priority is `High`.  An earlier change demoted this to
-            // `Medium` thinking that would prevent sim tasks from
-            // preempting still-training peers — but the iteration_index
-            // in the `SDDPTaskKey` tuple already gives older iterations
-            // strict precedence under the lexicographic comparator, so
-            // a sim task at iter N+k is **never** scheduled ahead of a
-            // training task at iter N+1 (since k > 1 in the typical
-            // drain scenario).  The `Medium` setting just opened a
-            // CPU-gate head-of-line block: under sustained 100 % CPU
-            // the `Medium` sim task's queue head fails the gate check
-            // and parks every worker on `cv_.wait`, blocking dispatch
-            // of lower-priority chunk tasks underneath that *could*
-            // run.  Observed as the juan/IPLP scene-12 wedge on
-            // 2026-05-16 (gtopt_142.log: 6 min stall at 0 % CPU).
-            // Restoring `High` keeps the tuple-ordering invariant and
-            // gives the sim task gate-bypass at `max_cpu_threshold + 5
-            // %` (work_pool.hpp:1167), matching the chunk-task class.
+            // Ordering is `Medium` like every other SDDP task — the
+            // `iteration_index` in the `SDDPTaskKey` tuple already gives
+            // older iterations strict precedence under the lexicographic
+            // comparator, so a sim task at iter N+k is never scheduled
+            // ahead of a training task at iter N+1.  The sim task's *only*
+            // special need was to bypass the CPU-saturation gate: under
+            // sustained 100 % CPU a gated sim task at the queue head parks
+            // every worker on `cv_.wait`, blocking lower-priority chunk
+            // tasks underneath that *could* run (the juan/IPLP scene-12
+            // wedge, 2026-05-16, gtopt_142.log: 6 min stall at 0 % CPU).
+            // Historically that need was met with `TaskPriority::High`,
+            // which also reordered sim ahead of same-iteration training
+            // peers (the overload trap).  We now express it with the
+            // independent `gate_bypass` flag: Medium ordering + CPU-gate
+            // bypass, no reordering side effect.
             m_in_simulation_ = true;
             const auto sim_iteration_index = sp.current_iteration_index;
             const BasicTaskRequirements<SDDPTaskKey> sim_req {
-                .priority = TaskPriority::High,
+                .priority = TaskPriority::Medium,
                 .priority_key = make_sddp_task_key(sim_iteration_index,
                                                    SDDPPassDirection::forward,
                                                    SDDPTaskKind::lp),
+                .gate_bypass = true,
                 .name = {},
             };
             auto fut = pool.submit(

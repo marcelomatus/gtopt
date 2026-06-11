@@ -6,8 +6,11 @@
  * @copyright BSD-3-Clause
  *
  * One LP column per (scenario, stage, block) per DecisionVariable
- * object.  Bounds default to the LP free range (``[-DblMax, DblMax]``);
- * an optional ``cost`` adds the column to the LP objective via
+ * object.  The column defaults to non-negative (``[0, DblMax]``) so it
+ * never emits a *free* (unbounded-below) column that would break GPU
+ * first-order solvers; an explicit ``lower_bound`` opts out, and an
+ * α-rebased column (``obj_constant`` set) auto-stays free below.
+ * An optional ``cost`` adds the column to the LP objective via
  * ``CostHelper::block_ecost`` so the units match the other gtopt LP
  * elements.  Registered with the AMPL resolver under
  * ``decision_variable("X").value`` so UserConstraint expressions can
@@ -42,7 +45,19 @@ bool DecisionVariableLP::add_to_lp(const SystemContext& sc,
   static constexpr auto ampl_name = Element::class_name.snake_case();
   static constexpr auto cname = Element::class_name.full_name();
 
-  const auto lower = decision_variable().lower_bound.value_or(-DblMax);
+  // Default-non-negative columns: a bare DecisionVariable (no explicit
+  // `lower_bound`) defaults to `x >= 0` so it never emits a *free*
+  // (unbounded-below) LP column — free columns break GPU first-order /
+  // heuristic solvers (cuOpt feasibility-jump, PDLP) which cannot project
+  // an unbounded column.  The element opts out by setting `lower_bound`
+  // explicitly (free or negative).
+  //
+  // The FCF cost-to-go `alpha` is NOT a DecisionVariable — it is the native
+  // boundary-cut state variable registered by the monolithic / SDDP
+  // boundary-cut loader from `boundary_cuts.csv`.  Nothing FCF/α-related is
+  // special-cased here; any `alpha_fcf` DecisionVariable appearing in a
+  // bundle is a stale converter artifact (current plexos2gtopt filters it).
+  const auto lower = decision_variable().lower_bound.value_or(0.0);
   const auto upper = decision_variable().upper_bound.value_or(DblMax);
   const auto cost = decision_variable().cost.value_or(0.0);
 

@@ -25,6 +25,7 @@ import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .entities import (
     BatterySpec,
@@ -1734,7 +1735,12 @@ def _recover_csv_only_thermals(
 _PMAX_DEGENERATE_FLOOR_MW = 1.0e-3
 
 
-def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpec, ...]:
+def extract_generators(
+    db: PlexosDb,
+    bundle: PlexosBundle,
+    *,
+    nameplates_out: dict[str, float] | None = None,
+) -> tuple[GeneratorSpec, ...]:
     """One :class:`GeneratorSpec` per Generator object.
 
     Bus resolved via ``Generator → Nodes`` collection. Fuel-memberships
@@ -1745,6 +1751,17 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
     fields).  Fuel transport charge ($/MWh) comes from
     ``Gen_FuelTransportCharge.csv`` and is matched per-(generator, fuel)
     via the PLEXOS ``<gen_name><fuel_name>`` key convention.
+
+    :param nameplates_out: optional dict populated in place with
+        ``{gen.name: Max Capacity [MW]}`` for every generator whose
+        PLEXOS ``Max Capacity`` static property is positive and finite.
+        This is the PHYSICAL nameplate — read UNCONDITIONALLY, even for
+        units PLEXOS holds offline (``Gen_Rating = 0`` → dispatch
+        ``pmax = 0``).  It feeds the reservoir extraction-flow estimator
+        (``apply_reservoir_flow_estimates(generator_capacities=...)``) so
+        the reservoir ``fmax`` bound reflects full turbine capacity, NOT
+        the maintenance-reduced weekly dispatch.  It is NOT written into
+        the output JSON and never alters the dispatch ``pmax``.
     """
     bus_map = _gen_bus_map(db)
     fuel_map = _gen_fuel_map(db)
@@ -2067,6 +2084,19 @@ def extract_generators(db: PlexosDb, bundle: PlexosBundle) -> tuple[GeneratorSpe
             # objects, …). Drop them silently.
             continue
         profile = tuple(pmax_profiles.get(gen.name, ()))
+
+        # Capture the PHYSICAL nameplate (PLEXOS ``Max Capacity``, all
+        # units) UNCONDITIONALLY — independent of the dispatch ``pmax``
+        # computed below.  PLEXOS zeroes ``Gen_Rating`` (→ ``pmax = 0``)
+        # for units it holds offline for the week (COLBUN_U2,
+        # PEHUENCHE_U1, RALCO_U2, …); those stay ``pmax = 0`` for
+        # PLEXOS-faithful dispatch, but the reservoir extraction-flow
+        # estimator still needs the full turbine capacity to size the
+        # ``fmax`` bound.  Skip None / non-positive / non-finite ratings.
+        if nameplates_out is not None:
+            nameplate = db.static_property("Generator", gen.object_id, "Max Capacity")
+            if math.isfinite(nameplate) and nameplate > 0.0:
+                nameplates_out[gen.name] = float(nameplate)
 
         # ``Gen_UnitsOut.csv`` is PLEXOS's authoritative outage signal
         # (Generator.Units Out, integer # of units offline).  It is
@@ -3846,6 +3876,7 @@ def extract_waterways(
     ocean_sources_out: set[str] | None = None,
     junction_drain_configs_out: dict[str, dict[str, float | None]] | None = None,
     real_reservoir_names: frozenset[str] | None = None,
+    reservoir_drain_enabled: bool = True,
 ) -> tuple[WaterwaySpec, ...]:
     """One :class:`WaterwaySpec` per PLEXOS Waterway object.
 
@@ -3900,6 +3931,12 @@ def extract_waterways(
     # physical.  Routing to an ocean drain removes that arbitrage
     # path and matches PLP's "spill leaves the basin" convention.
     synthetic_ocean_sources: set[str] = set()
+    # Spill-out ``Vert_*`` arcs dropped because the per-storage internal
+    # drain (``Reservoir.spillway_cost``) is enabled and now provides the
+    # single way out of the basin — keeping the ocean arc too would give the
+    # LP a redundant escape path to arbitrage.  In-basin cascade arcs are
+    # NOT dropped (they route water to a real downstream junction).
+    dropped_spill_out: list[str] = []
     # Waterways to drop entirely.  ``Vert_ELTORO`` is the operator-
     # controlled spillway from ELTORO → POLCURA in the Laja cascade,
     # but it is **physically inactive**: ELTORO's reservoir is far too
@@ -4204,8 +4241,36 @@ def extract_waterways(
                 # mass-conservation fix above: a zero-storage source spilling
                 # into another pass-through must route the water downstream,
                 # never to ocean (which would re-introduce the lost-water bug).
+                #
+                # IN-BASIN CASCADE arcs (``Vert_PANGUE → ANGOSTURA``,
+                # ``Vert_RUCUE → LAJA_I``, …) are genuine downstream routing,
+                # not an escape path: they MUST be kept even when the
+                # per-storage internal drain is enabled.
                 pass
+            elif reservoir_drain_enabled and not kept_default_cascade:
+                # SPILL-OUT arc (sink-bound): this branch is reached only when
+                # the arc was NOT routed in-basin above — i.e. it would have
+                # been rewritten to a synthetic ``<source>_ocean`` drain that
+                # carries water OUT of the basin.  With the per-storage
+                # internal drain re-enabled (the new default, set on every
+                # reservoir except ELTORO by ``build_reservoir_array``), that
+                # ocean arc is a SECOND, redundant escape path — keeping both
+                # gives the LP two equivalent valves to arbitrage between under
+                # degeneracy.  Drop the spill-out arc entirely (and never
+                # synthesise its ``<source>_ocean`` junction) so the reservoir's
+                # own ``spillway_cost`` column is the single way out of the
+                # basin.  Net: exactly ONE escape path per reservoir.
+                #
+                # EXCEPTION: UC-referenced arcs (``keep_as_waterway``) are NOT
+                # dropped even when terminal — a PLEXOS UserConstraint Flow
+                # Coefficient term (``waterway("Vert_<X>").flow``) needs the LP
+                # column to bind to.  Those fall through to the ocean-redirect
+                # else branch so the Waterway (and its ocean junction) survive.
+                dropped_spill_out.append(ww.name)
+                continue
             else:
+                # Drain DISABLED (legacy ``Vert_*`` → ocean topology): emit the
+                # spill-out arc and synthesise its ocean drain junction.
                 t_name = f"{f_name}_ocean"
                 synthetic_ocean_sources.add(f_name)
         if f_name is None or t_name is None:
@@ -4218,6 +4283,19 @@ def extract_waterways(
             continue
         fmin = db.static_property("Waterway", ww.object_id, "Min Flow")
         fmax = db.static_property("Waterway", ww.object_id, "Max Flow")
+        # A ``Max Flow`` of the PLEXOS ``1e+30`` sentinel means UNBOUNDED
+        # (no cap), NOT zero — it folds to 0.0 above.  Capture the raw value
+        # so the "inactive diversion" rule below does not mistake an
+        # uncapped extraction arc (e.g. ``Ext_Maule``: L_Maule -> LA_MINA,
+        # Max Flow 1e+30) for a genuinely-zero one and close it.
+        fmax_is_unbounded = (
+            abs(
+                db.static_property(
+                    "Waterway", ww.object_id, "Max Flow", keep_sentinel=True
+                )
+            )
+            >= 1.0e20
+        )
         # PLEXOS Max Flow Penalty: -1.0 sentinel = "feature deactivated"
         # (matches PLEXOS convention for negative-default flags); only
         # positive values translate into a real fcost.  CEN PCP uses
@@ -4328,6 +4406,7 @@ def extract_waterways(
             and not has_forced
             and not (fmin and fmin > 0.0)
             and not (fmax and fmax > 0.0)
+            and not fmax_is_unbounded  # 1e30-sentinel = uncapped, not zero
         )
         if inactive:
             fmin = 0.0
@@ -4378,6 +4457,15 @@ def extract_waterways(
             "relieve pressure on downstream storage rows; sources: %s",
             len(synthetic_ocean_sources),
             ", ".join(sorted(synthetic_ocean_sources)),
+        )
+    if dropped_spill_out:
+        logger.info(
+            "extract_waterways: dropped %d spill-out Vert_* arc(s) (sink-bound "
+            "<source>_ocean) because the per-storage internal drain is enabled "
+            "— the reservoir's own spillway_cost column is the single basin "
+            "exit, so the ocean arc would be a redundant escape path; arcs: %s",
+            len(dropped_spill_out),
+            ", ".join(sorted(dropped_spill_out)),
         )
     if junction_drain_configs_out:
         logger.info(
@@ -10571,7 +10659,12 @@ def extract_case(
     )
     known_junction_names = frozenset(j.name for j in junctions)
     reserves = extract_reserves(db, bundle)
-    generators = extract_generators(db, bundle)
+    # ``generator_nameplates``: PHYSICAL ``Max Capacity`` [MW] per gen,
+    # captured here so the reservoir extraction-flow estimator can size
+    # ``fmax`` from full turbine capacity even for units PLEXOS holds
+    # offline (dispatch ``pmax = 0``).  Never written into the JSON.
+    generator_nameplates: dict[str, float] = {}
+    generators = extract_generators(db, bundle, nameplates_out=generator_nameplates)
     fuels = extract_fuels(db, bundle)
     turbines = extract_turbines(db, bundle)
     # Pre-filter snapshot — discharge UCs (``extract_hydro_discharge_
@@ -10604,6 +10697,11 @@ def extract_case(
         return g.pmax or 0.0
 
     inactive_gens = frozenset(g.name for g in generators if _gen_max_pmax(g) <= 0.0)
+    # Turbines dropped because their generator is offline for the whole horizon
+    # (``pmax = 0``).  Kept here so the reservoir extraction-flow estimator can
+    # still size the ``fmax`` bound from the offline unit's nameplate (via
+    # ``case.extra_turbines``) without re-admitting them to ``turbine_array``.
+    dropped_turbs: tuple[TurbineSpec, ...] = ()
     if inactive_gens:
         dropped_turbs = tuple(t for t in turbines if t.generator_name in inactive_gens)
         if dropped_turbs:
@@ -10828,6 +10926,34 @@ def extract_case(
     # silently (matches PLEXOS's own zero-flow contribution) instead of
     # raising the fail-hard unresolved-ref error.
     shadow_lines_all_off: set[str] = set()
+
+    # Reservoir extraction-flow bound contribution from offline units.
+    # ``dropped_turbs`` (turbines of generators PLEXOS holds offline for the
+    # week, ``pmax = 0``) are absent from the emitted ``turbine_array`` to avoid
+    # a free-drain LP artefact, but their nameplate must still size the upstream
+    # reservoir ``fmax``.  Build the SAME JSON turbine dicts the writer emits —
+    # via ``build_turbine_array`` in built-in-waterway mode (selected by passing
+    # ``extra_waterways``) so ``junction_a`` / ``junction_b`` / ``generator`` /
+    # ``production_factor`` are populated identically to the online turbines —
+    # and hand them to the estimator as ``extra_turbines`` (BOUND-only; never
+    # written into the JSON).  Deferred import: ``gtopt_writer`` imports this
+    # module, so a top-level import would be circular.
+    extra_turbines: list[dict[str, Any]] = []
+    if dropped_turbs:
+        from .gtopt_writer import (  # noqa: PLC0415
+            build_turbine_array,
+            build_waterway_array,
+        )
+
+        waterway_array = build_waterway_array(
+            waterways, block_layout=bundle_spec.block_layout
+        )
+        extra_turbines = build_turbine_array(
+            dropped_turbs,
+            waterways,
+            extra_waterways=waterway_array,
+        )
+
     case = PlexosCase(
         bundle=bundle_spec,
         nodes=extract_nodes(db),
@@ -11063,6 +11189,8 @@ def extract_case(
         user_constraints=(tuple(base_ucs) + tuple(hydro_ucs)),
         uc_stats=uc_stats,
         raw_class_counts=raw_class_counts,
+        generator_nameplates=generator_nameplates,
+        extra_turbines=extra_turbines,
     )
     logger.info(
         "parsed bundle %s: nodes=%d fuels=%d gens=%d lines=%d demands=%d "

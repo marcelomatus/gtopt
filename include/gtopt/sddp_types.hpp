@@ -760,12 +760,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// the JSON-facing field documentation.
   int aperture_chunk_size {0};
 
-  /// Opt-in warm-start of in-chunk aperture re-solves: the first aperture
-  /// in a chunk seeds a basis (barrier + crossover) and every subsequent
-  /// aperture re-optimizes it with a warm simplex solve instead of a cold
-  /// barrier.  See `sddp_options.hpp::aperture_warm_start` for the full
-  /// rationale.  Default false (cold barrier each aperture).
-  bool aperture_warm_start {false};
+  /// Aperture solve / cut-recovery mode: `cold` (barrier + crossover,
+  /// vertex reduced-cost cuts; default), `warm` (warm simplex off the
+  /// resident chunk basis), or `reduced_cost` (barrier without crossover,
+  /// interior-point reduced-cost cuts).  See
+  /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
+  ApertureSolveMode aperture_solve_mode {ApertureSolveMode::reduced_cost};
 
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
@@ -1253,10 +1253,26 @@ void apply_terminal_alpha_floor(PlanningLP& planning_lp,
 /// @param seed_phys   Weak universal floor used to seed the
 ///                    cut-driven max.  Defaults to ``0`` (valid under
 ///                    non-negative stage costs).
+/// @param bound_above When true, ALSO clamp α's column UPPER bound to the
+///                    cut-derived ceiling
+///                    ``ceil = rhs − Σⱼ min(coefⱼ·vⱼ_max, coefⱼ·vⱼ_min)``
+///                    (symmetric to the floor), turning α from a one-sided
+///                    / free column into a finite box ``[floor, ceil]``.
+///                    Only safe where the full cut set is already installed
+///                    (monolithic boundary-cut load) — NOT the SDDP
+///                    per-cut path, where a later cut can legitimately push
+///                    α above a ceiling derived from earlier cuts.  Both
+///                    bounds are in the rebased-physical frame (``cut.lowb``
+///                    already carries the mean-shift offset ``c``) and are
+///                    written via ``set_col_low/upp`` which divide by the
+///                    α column's ``col_scale`` (= ``scale_alpha``), so the
+///                    offset and α-scale are both accounted for.  Defaults
+///                    to false (SDDP behaviour unchanged: upper stays +∞).
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
                        PhaseIndex phase_index,
-                       SystemKind kind = SystemKind::forward);
+                       SystemKind kind = SystemKind::forward,
+                       bool bound_above = false);
 
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 

@@ -232,10 +232,11 @@ TEST_CASE("WorkPool Critical priority tasks execute")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value().get() == 123);
 
-  // High priority adds +5% to max_cpu_threshold
+  // gate_bypass adds +5% to max_cpu_threshold (the CPU-gate relaxation
+  // formerly tied to TaskPriority::High)
   auto result2 = pool.submit([] { return 456; },
                              TaskRequirements {
-                                 .priority = TaskPriority::High,
+                                 .gate_bypass = true,
                                  .name = "high_task",
                              });
   REQUIRE(result2.has_value());

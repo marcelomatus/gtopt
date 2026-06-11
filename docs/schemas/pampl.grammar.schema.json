@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gtopt.dev/schemas/pampl.grammar.schema.json",
+  "title": "gtopt PAMPL document grammar",
+  "description": "Structure the gtopt PAMPL reader (source/pampl_parser.cpp) accepts: a document of param/var declarations + linear constraints.  Valid element classes / attributes / shapes live in the companion data file ampl_registry.data.json \u2014 load both in the editor.",
+  "type": "object",
+  "properties": {
+    "params": {
+      "type": "array",
+      "title": "params",
+      "items": {
+        "$ref": "#/$defs/param"
+      }
+    },
+    "vars": {
+      "type": "array",
+      "title": "vars",
+      "items": {
+        "$ref": "#/$defs/var"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "title": "constraints",
+      "items": {
+        "$ref": "#/$defs/constraint"
+      }
+    }
+  },
+  "required": [
+    "constraints"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "param": {
+      "type": "object",
+      "title": "param  \u00b7  param <name> [month] = <value>;",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "name"
+        },
+        "month": {
+          "type": "boolean",
+          "default": false,
+          "title": "month-indexed",
+          "description": "calendar/month index dimension (param <name>[month])"
+        },
+        "value": {
+          "title": "value",
+          "description": "constant, or arithmetic expression over earlier params (+ - * / and parentheses)",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "var": {
+      "type": "object",
+      "title": "var  \u00b7  var <name>;   (var slack_<C>;  \u2192  visible slack on constraint C)",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "name"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "sense": {
+      "title": "sense",
+      "enum": [
+        "<=",
+        ">=",
+        "="
+      ]
+    },
+    "term": {
+      "type": "object",
+      "title": "term  \u00b7  coefficient * class(\"uid\").attribute",
+      "properties": {
+        "coefficient": {
+          "type": "number",
+          "default": 1.0,
+          "title": "coefficient"
+        },
+        "class": {
+          "type": "string",
+          "title": "element class",
+          "description": "one of ampl_registry.data.json#/element_classes"
+        },
+        "element": {
+          "type": "string",
+          "title": "element uid"
+        },
+        "attribute": {
+          "type": "string",
+          "title": "attribute",
+          "description": "an attribute of <class> \u2014 see ampl_registry.data.json#/attributes_by_class"
+        }
+      },
+      "required": [
+        "class",
+        "element",
+        "attribute"
+      ],
+      "additionalProperties": false
+    },
+    "constraint": {
+      "type": "object",
+      "title": "constraint  \u00b7  [inactive] constraint <name>: \u03a3 term <sense> rhs [penalty p];",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "name"
+        },
+        "active": {
+          "type": "boolean",
+          "default": true,
+          "title": "active",
+          "description": "false \u2192 emitted as 'inactive constraint' (parsed but disabled)"
+        },
+        "terms": {
+          "type": "array",
+          "title": "\u03a3 terms (LHS)",
+          "items": {
+            "$ref": "#/$defs/term"
+          },
+          "minItems": 1
+        },
+        "sense": {
+          "$ref": "#/$defs/sense"
+        },
+        "rhs": {
+          "title": "rhs",
+          "description": "scalar, or per-block (scheduled) values",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              }
+            }
+          ]
+        },
+        "penalty": {
+          "type": "number",
+          "title": "penalty (soft)",
+          "description": "omit \u2192 hard constraint; present \u2192 soft row with this penalty"
+        },
+        "slack_name": {
+          "type": "string",
+          "title": "visible slack name",
+          "description": "names the LP slack column; declared as 'var slack_<name>;'"
+        }
+      },
+      "required": [
+        "name",
+        "terms",
+        "sense",
+        "rhs"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

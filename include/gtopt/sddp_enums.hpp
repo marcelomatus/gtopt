@@ -311,6 +311,69 @@ inline constexpr auto aperture_selection_mode_entries =
   return std::span {aperture_selection_mode_entries};
 }
 
+// ─── ApertureSolveMode ─────────────────────────────────────────────────────
+
+/**
+ * @brief How each backward-pass aperture subproblem is solved and how its
+ *        optimality cut's coefficients are recovered.
+ *
+ * Apertures differ only in column (flow) bounds, so the three modes trade
+ * off per-solve cost against the quality / determinism of the reduced costs
+ * that become the cut coefficients:
+ *
+ * - `cold`: each aperture is an independent **cold barrier solve with
+ *   crossover**.  Crossover lands a vertex basis, so the reduced costs
+ *   feeding the cut are the exact vertex duals.  Byte-for-byte the legacy
+ *   behaviour.
+ *
+ * - `warm`: only meaningful with `aperture_chunk_size > 1`.  The first
+ *   aperture in a chunk seeds a basis (cold barrier + crossover); every
+ *   subsequent aperture re-optimizes that resident basis with a **warm
+ *   simplex** solve (a few pivots off the previous optimum) instead of a
+ *   fresh barrier.  Fastest on small LPs; on large cut-laden LPs the stale
+ *   basis after large bound changes makes it net-slower than `cold` (see
+ *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`).
+ *
+ * - `reduced_cost` (default): each aperture is a **cold barrier solve
+ *   WITHOUT crossover**.  No vertex basis is formed; the cut coefficients
+ *   are taken directly from the interior-point (analytic-center) reduced
+ *   costs, whose tolerance-level noise is filtered by `cut_coeff_eps`.
+ *   ~35% faster per aperture than `cold` on big cut-laden LPs by skipping
+ *   the crossover, at the price of approximate (to barrier tolerance)
+ *   duals — see the cut-validity caveat in
+ *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`.
+ */
+enum class ApertureSolveMode : uint8_t
+{
+  cold = 0,  ///< Cold barrier + crossover; cut from vertex reduced costs.
+  warm = 1,  ///< Warm simplex off the resident chunk basis (chunk_size > 1).
+  reduced_cost = 2,  ///< Cold barrier, NO crossover; cut from interior-point
+                     ///< reduced costs (filtered by cut_coeff_eps).  Default.
+};
+
+/// Includes "warm_start" / "barrier" as back-compatible aliases.
+inline constexpr auto aperture_solve_mode_entries =
+    std::to_array<EnumEntry<ApertureSolveMode>>({
+        {.name = "cold", .value = ApertureSolveMode::cold},
+        {.name = "warm", .value = ApertureSolveMode::warm},
+        {
+            .name = "warm_start",
+            .value = ApertureSolveMode::warm,
+            .is_alias = true,
+        },
+        {.name = "reduced_cost", .value = ApertureSolveMode::reduced_cost},
+        {
+            .name = "barrier",
+            .value = ApertureSolveMode::reduced_cost,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(ApertureSolveMode /*tag*/) noexcept
+{
+  return std::span {aperture_solve_mode_entries};
+}
+
 // ─── HotStartMode ──────────────────────────────────────────────────────────
 
 /**

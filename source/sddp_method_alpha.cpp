@@ -226,16 +226,28 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 // coefficients; it is also strictly above ``−∞`` whenever at least
 // one cut is installed, so the column is never left unbounded below.
 //
-// Per-cut floor formula (derived from `α + Σⱼ coefⱼ · vⱼ ≥ rhs`):
+// ── State-variable formulation ──────────────────────────────────────
+// A cut couples α to a set S of STATE VARIABLES `s` — NOT only reservoir
+// `efin`: any registered state column (battery energy, etc.) can appear,
+// each with a SIGNED subgradient `g_s` and a SIGNED feasible value range
+// `x_s ∈ [x_s_min, x_s_max]` (x_s_min may be < 0).  The cut is
 //
-//     floor_cut = rhs − Σⱼ max(coefⱼ · vⱼ_max, coefⱼ · vⱼ_min)
+//     α + Σ_{s∈S} g_s · x_s ≥ rhs        ⇒   α ≥ rhs − Σ_s g_s · x_s.
 //
-// The ``max(...)`` picks the largest subtrahend, making the floor
-// weakest (most conservative): for ``coefⱼ > 0`` it's ``coefⱼ · vⱼ_max``,
-// for ``coefⱼ < 0`` it's ``coefⱼ · vⱼ_min``.  The floor prevents α
-// from drifting to −∞ (LP unboundedness) without forcing a tighter
-// bound than the cuts themselves impose.  α can be negative — the seed
-// is only a fallback when no cut references α.
+// Taking the extremes of `g_s · x_s` over the state box gives a CONSTANT
+// (state-independent) signed box on the α column:
+//
+//     floor_cut = rhs − Σ_s max(g_s·x_s_min, g_s·x_s_max)
+//     ceil_cut  = rhs − Σ_s min(g_s·x_s_min, g_s·x_s_max)     [bound_above]
+//
+// Per state variable, by the SIGN of `g_s` (correct for any sign of x_s):
+//   g_s > 0 →  max = g_s·x_s_max,  min = g_s·x_s_min
+//   g_s < 0 →  max = g_s·x_s_min,  min = g_s·x_s_max
+// `max(...)` (the largest subtrahend) makes the floor weakest/safest;
+// `min(...)` (smallest subtrahend) makes the ceiling loosest.  Across
+// multiple cuts: floor = min_k floor_cut (rows enforce the tight max),
+// ceil = max_k ceil_cut.  α is SIGNED — floor may be < 0, ceil > 0; the
+// seed-0 floor is only a fallback when no cut references α.
 //
 // ── Unit conventions ────────────────────────────────────────────────
 // All arithmetic runs in physical-space units.  ``active_cuts()``
@@ -252,7 +264,8 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 void apply_alpha_floor(PlanningLP& planning_lp,
                        SceneIndex scene_index,
                        PhaseIndex phase_index,
-                       SystemKind kind)
+                       SystemKind kind,
+                       bool bound_above)
 {
   const auto& sim = planning_lp.simulation();
   const auto* alpha_svar =
@@ -283,6 +296,15 @@ void apply_alpha_floor(PlanningLP& planning_lp,
 
   double tightest_floor_phys = 0.0;
   bool any_cut_floor = false;
+  // Symmetric CEILING accumulator (only used when `bound_above`).  The
+  // ceiling is the LOOSEST (largest) upper bound across cuts:
+  //   ceil_cut = rhs − Σⱼ min(coefⱼ·vⱼ)   with min(coefⱼ·vⱼ) over [vⱼ_min,
+  //   vⱼ_max] = coefⱼ·vⱼ_min for coefⱼ>0, coefⱼ·vⱼ_max for coefⱼ<0.
+  // At the optimum α equals the highest binding cut floor, which never
+  // exceeds that cut's own ceiling — so α ≤ max_k ceil_k is valid and
+  // does not cut the optimum.  Taking the MAX across cuts keeps it loose.
+  double loosest_ceil_phys = 0.0;
+  bool any_cut_ceil = false;
   [[maybe_unused]] std::size_t cuts_with_alpha = 0;
   for (const auto& cut : li.active_cuts()) {
     const auto alpha_it = cut.cmap.find(alpha_col);
@@ -291,8 +313,10 @@ void apply_alpha_floor(PlanningLP& planning_lp,
     }
     ++cuts_with_alpha;
 
-    double sup_sum_phys = 0.0;
-    bool unbounded = false;
+    double sup_sum_phys = 0.0;  // Σ max(coef·v) → floor = rhs − sup_sum
+    double inf_sum_phys = 0.0;  // Σ min(coef·v) → ceil  = rhs − inf_sum
+    bool sup_unbounded = false;
+    bool inf_unbounded = false;
     for (const auto& [col, coef_phys] : cut.cmap) {
       if (col == alpha_col) {
         continue;
@@ -302,35 +326,64 @@ void apply_alpha_floor(PlanningLP& planning_lp,
       }
       const double v_min_phys = col_low_phys[col];
       const double v_max_phys = col_upp_phys[col];
+      const auto c = static_cast<size_t>(col);
       if (coef_phys > 0.0) {
-        if (li.is_pos_inf(col_upp_raw[static_cast<size_t>(col)])) {
-          unbounded = true;
-          break;
+        // max(coef·v) = coef·v_max ; min(coef·v) = coef·v_min
+        if (li.is_pos_inf(col_upp_raw[c])) {
+          sup_unbounded = true;
+        } else {
+          sup_sum_phys += coef_phys * v_max_phys;
         }
-        sup_sum_phys += coef_phys * v_max_phys;
+        if (li.is_neg_inf(col_low_raw[c])) {
+          inf_unbounded = true;
+        } else {
+          inf_sum_phys += coef_phys * v_min_phys;
+        }
       } else {
-        if (li.is_neg_inf(col_low_raw[static_cast<size_t>(col)])) {
-          unbounded = true;
-          break;
+        // max(coef·v) = coef·v_min ; min(coef·v) = coef·v_max
+        if (li.is_neg_inf(col_low_raw[c])) {
+          sup_unbounded = true;
+        } else {
+          sup_sum_phys += coef_phys * v_min_phys;
         }
-        sup_sum_phys += coef_phys * v_min_phys;
+        if (li.is_pos_inf(col_upp_raw[c])) {
+          inf_unbounded = true;
+        } else {
+          inf_sum_phys += coef_phys * v_max_phys;
+        }
       }
     }
-    if (unbounded) {
-      continue;
+    if (!sup_unbounded) {
+      const double cut_floor_phys = cut.lowb - sup_sum_phys;
+      tightest_floor_phys = any_cut_floor
+          ? std::min(tightest_floor_phys, cut_floor_phys)
+          : cut_floor_phys;
+      any_cut_floor = true;
     }
-    const double cut_floor_phys = cut.lowb - sup_sum_phys;
-    tightest_floor_phys = any_cut_floor
-        ? std::min(tightest_floor_phys, cut_floor_phys)
-        : cut_floor_phys;
-    any_cut_floor = true;
+    if (bound_above && !inf_unbounded) {
+      const double cut_ceil_phys = cut.lowb - inf_sum_phys;
+      loosest_ceil_phys = any_cut_ceil
+          ? std::max(loosest_ceil_phys, cut_ceil_phys)
+          : cut_ceil_phys;
+      any_cut_ceil = true;
+    }
   }
 
-  // Always lift the upper bound from the bootstrap pin's 0 to +∞
-  // so that cuts can be satisfied.  The lower bound defaults to 0
-  // (weak α ≥ 0) when no cuts reference α, or the min cut-derived
-  // floor when cuts exist.
-  li.set_col_upp_raw(alpha_col, LinearProblem::DblMax);
+  // Upper bound: default +∞ (lift from the bootstrap pin's 0 so cuts can
+  // be satisfied — and so future SDDP cuts can push α up).  When
+  // `bound_above` is requested AND at least one cut produced a bounded
+  // ceiling, clamp α from above to the loosest cut-derived ceiling,
+  // turning α into a finite box `[floor, ceil]` (the GPU-clean form, no
+  // free column).  `set_col_upp` divides by α's col_scale (= scale_alpha)
+  // just like `set_col_low`, and `ceil` is in the rebased-physical frame
+  // (`cut.lowb` already carries the mean-shift offset `c`).
+  const double upper_phys =
+      (bound_above && any_cut_ceil) ? loosest_ceil_phys : LinearProblem::DblMax;
+  if (li.is_pos_inf(upper_phys) || li.is_neg_inf(upper_phys)) {
+    li.set_col_upp_raw(alpha_col, upper_phys);
+  } else {
+    li.set_col_upp(alpha_col, upper_phys);
+  }
   // Use the raw setter for ±∞ sentinel floor values to avoid
   // set_col_low's internal division by col_scale on sentinels.
   if (li.is_pos_inf(tightest_floor_phys) || li.is_neg_inf(tightest_floor_phys))
@@ -342,7 +395,7 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   sys.update_dynamic_col_bounds(sddp_alpha_class_name,
                                 sddp_alpha_col_name,
                                 tightest_floor_phys,
-                                LinearProblem::DblMax);
+                                upper_phys);
 
   SPDLOG_DEBUG("SDDP: α floor at (s{} p{}) → {:.6e} from {} cut(s)",
                sim.uid_of(scene_index),

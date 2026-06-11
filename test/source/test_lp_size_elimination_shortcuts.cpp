@@ -22,7 +22,7 @@
 // Shortcuts covered:
 //   1. ReservoirLP        — fmin == fmax == 0  → no extraction column
 //   2. CommitmentLP       — generator elided every gen column → no u/v/w
-//   3. ReserveZoneLP      — zero effective requirement → no requirement row
+//   3. ReserveZoneLP      — req-row KEPT at req==0 (downstream provision dep)
 //   4. ReserveProvisionLP — rmax == rmin == 0   → no provision column
 //   5. InertiaProvisionLP — provision_max == 0  → no provision column
 //   6. InertiaZoneLP      — zero requirement     → no requirement row
@@ -211,6 +211,7 @@ TEST_CASE("LP-size: ReservoirLP skips zero-extraction blocks (fmin==fmax==0)")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -308,6 +309,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
@@ -420,6 +422,7 @@ TEST_CASE("LP-size: CommitmentLP skips u/v/w when generator is fully OFF")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     auto sim_lp = std::make_unique<SimulationLP>(simulation, options);
@@ -440,8 +443,13 @@ TEST_CASE("LP-size: CommitmentLP skips u/v/w when generator is fully OFF")
     CHECK(status->size() == 2);  // one u per block
   }
 
-  // Skip: capacity == 0 → generator elides every gen column → the
-  // commitment returns early, creating no u/v/w binaries at all.
+  // Fully OFF (capacity == 0 → generator elides every gen column): the
+  // commitment returns early, creating NO u/v/w binaries at all.  A unit
+  // with no generation column cannot be dispatched, so it cannot be
+  // committed — there is no physical `u`.  Consumers of `u` (the inertia
+  // floor Σ Hᵢ·uᵢ ≥ R, reserve, UserConstraints) are robust to its
+  // absence (the AMPL resolver silent-zeros the missing term), and the
+  // requirement is met by the genuinely-present (gcol-bearing) units.
   {
     auto [sim_lp, sys_lp] = build(/*uc_gen_capacity=*/0.0);
     const auto& cmt_lps = sys_lp->elements<CommitmentLP>();
@@ -450,7 +458,7 @@ TEST_CASE("LP-size: CommitmentLP skips u/v/w when generator is fully OFF")
     const auto& stage_lp = sim_lp->stages().front();
     const auto* status =
         cmt_lps.front().find_status_cols(scenario_lp, stage_lp);
-    CHECK(status == nullptr);  // write-out rule: status == 0 (OFF unit)
+    CHECK(status == nullptr);  // no gcol → no u (write-out rule: 0)
   }
 }
 
@@ -512,6 +520,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
@@ -548,7 +557,7 @@ TEST_CASE(  // NOLINT
   CHECK(find_column(*base_table, "uid:1") >= 0);
 
   // Skip: the orphan-binary elimination leaves no status column for the
-  // OFF generator.  Dataset may be absent entirely (single commitment).
+  // OFF generator (no gcol → no u).  Dataset may be absent entirely.
   const auto zero_dataset = zero_dir / "Commitment" / "status_sol.parquet";
   const auto zero_pq = leaf_parquet(zero_dataset);
   if (std::filesystem::exists(zero_pq)) {
@@ -565,7 +574,7 @@ TEST_CASE(  // NOLINT
 // 3. ReserveZoneLP: zero effective requirement → no `Σ pf·prov ≥ 0` row.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("LP-size: ReserveZoneLP skips zero-requirement rows")
+TEST_CASE("LP-size: ReserveZoneLP KEEPS zero-requirement rows (provision dep)")
 {
   const Array<Bus> bus_array = {
       {
@@ -626,6 +635,7 @@ TEST_CASE("LP-size: ReserveZoneLP skips zero-requirement rows")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -640,9 +650,11 @@ TEST_CASE("LP-size: ReserveZoneLP skips zero-requirement rows")
     return it == rows.end() ? std::size_t {0} : it->second.size();
   };
 
-  // urreq == 50 -> one requirement row per block (2); urreq == 0 -> none.
+  // Elimination REMOVED: the requirement row is now KEPT even at urreq == 0
+  // (2 per block, same as the non-zero case), so a UserConstraint / slack
+  // consumer referencing it never silently loses the row.
   CHECK(req_row_count(/*urreq=*/50.0) == 2);
-  CHECK(req_row_count(/*urreq=*/0.0) == 0);
+  CHECK(req_row_count(/*urreq=*/0.0) == 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -707,6 +719,7 @@ TEST_CASE("LP-size: ReserveProvisionLP skips zero-bound provision columns")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 1000.0;
     popts.model_options.reserve_shortage_cost = 10000.0;
     const PlanningOptionsLP options(popts);
@@ -721,6 +734,106 @@ TEST_CASE("LP-size: ReserveProvisionLP skips zero-bound provision columns")
 
   // One provision column per block disappears when urmax == urmin == 0.
   CHECK(base_cols - zero_cols == 2);
+}
+
+// ---------------------------------------------------------------------------
+// 4b. Robustness: ReserveProvisionLP vs a missing generation column.
+//   - no gcol (pmax == 0): the provision is correctly SKIPPED — a unit that
+//     cannot generate cannot offer up-reserve ("no gcol → no service").
+//   - gcol present but NO explicit urmax: the provision is KEPT, capped by
+//     the generator's own capacity (the capacity fallback).  It must NOT be
+//     silently dropped, since reserve-zone requirements and UserConstraints
+//     reference it (the PLEXOS 20260517 csf_rs_min_bat_del_desierto
+//     regression: an undefined-urmax BESS provision was dropped, rewriting
+//     the UserConstraint → infeasible LP).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Robust: ReserveProvisionLP skips no-gcol, keeps capacity-backed")
+{
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 100.0,
+      },
+  };
+  const auto simulation = make_two_block_sim();
+
+  auto build = [&](double gen_capacity, bool set_urmax)
+  {
+    const Array<Generator> generator_array = {
+        {
+            .uid = Uid {1},
+            .name = "g1",
+            .bus = Uid {1},
+            .gcost = 50.0,
+            .capacity = gen_capacity,
+        },
+        {
+            .uid = Uid {2},
+            .name = "g_backup",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 1000.0,
+        },
+    };
+    const Array<ReserveZone> reserve_zone_array = {
+        {
+            .uid = Uid {1},
+            .name = "rz1",
+            .urreq = 10.0,
+            .urcost = 1000.0,
+        },
+    };
+    ReserveProvision rp = {
+        .uid = Uid {1},
+        .name = "rp1",
+        .generator = Uid {1},
+        .reserve_zones = {SingleId {Uid {1}}},
+        .ur_provision_factor = 1.0,
+    };
+    if (set_urmax) {
+      rp.urmax = 60.0;  // else urmax stays unset → capacity fallback path
+    }
+    const Array<ReserveProvision> reserve_provision_array = {rp};
+    const System system = {
+        .name = "ReserveNoGcolTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .reserve_zone_array = reserve_zone_array,
+        .reserve_provision_array = reserve_provision_array,
+    };
+    PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
+    popts.model_options.demand_fail_cost = 1000.0;
+    popts.model_options.reserve_shortage_cost = 10000.0;
+    const PlanningOptionsLP options(popts);
+    SimulationLP sim_lp(simulation, options);
+    SystemLP sys_lp(system, sim_lp);
+    return sys_lp.linear_interface().get_numcols();
+  };
+
+  // Capacity-backed generator, NO explicit urmax → provision KEPT via the
+  // capacity fallback: same column count as an explicit urmax.  An
+  // undefined max must never silently drop the provision.
+  const auto undefined_urmax =
+      build(/*gen_capacity=*/300.0, /*set_urmax=*/false);
+  const auto explicit_urmax = build(/*gen_capacity=*/300.0, /*set_urmax=*/true);
+  CHECK(undefined_urmax == explicit_urmax);
+
+  // pmax == 0 → no generation column → provision correctly skipped (no gcol
+  // → no service): fewer columns than the capacity-backed case (the missing
+  // g1 generation columns AND its provision columns).
+  const auto no_gcol = build(/*gen_capacity=*/0.0, /*set_urmax=*/false);
+  CHECK(no_gcol < undefined_urmax);
 }
 
 // ---------------------------------------------------------------------------
@@ -785,6 +898,7 @@ TEST_CASE("LP-size: InertiaProvisionLP skips zero-ceiling provision columns")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -862,6 +976,7 @@ TEST_CASE("LP-size: InertiaZoneLP skips zero-requirement rows")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 1000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -978,6 +1093,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -998,6 +1114,108 @@ TEST_CASE(  // NOLINT
   // silent-zeros (`0 <= 50`), the build does not throw, and the LP
   // still solves with the thermal backup carrying the load.
   build_and_solve(/*rsv_fmax=*/0.0);
+}
+
+// ---------------------------------------------------------------------------
+// 8. model_options.lp_reduction (CLI `--no-lp-reduction`): the diagnostic
+//    switch that bypasses the SOURCE elimination.  A pmax==pmin==0
+//    generator keeps its generation column when the flag is off, and the
+//    commitment CONSUMER cascades — it creates u purely by reacting to the
+//    now-present column (no flag at the consumer).  The default (flag on)
+//    eliminates both.  This pins the "switch lives only at the source,
+//    consumers are robust to col-or-no-col" contract.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+    "LP-reduction: lp_reduction=false keeps pmax=0 source col, cascades u")
+{
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 20.0,
+      },
+  };
+  const auto simulation = make_two_block_sim(/*chronological=*/true);
+
+  auto build = [&](bool reduction)
+  {
+    const Array<Generator> generator_array = {
+        // pmax == pmin == 0 (capacity 0) → the SOURCE elimination target.
+        {
+            .uid = Uid {1},
+            .name = "g_off",
+            .bus = Uid {1},
+            .gcost = 50.0,
+            .capacity = 0.0,
+        },
+        {
+            .uid = Uid {2},
+            .name = "g_backup",
+            .bus = Uid {1},
+            .gcost = 100.0,
+            .capacity = 1000.0,
+        },
+    };
+    const Array<Commitment> commitment_array = {
+        {
+            .uid = Uid {1},
+            .name = "g_off_commit",
+            .generator = Uid {1},
+            .startup_cost = 100.0,
+            .noload_cost = 5.0,
+            .relax = true,
+        },
+    };
+    const System system = {
+        .name = "LpReductionFlagTest",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+        .commitment_array = commitment_array,
+    };
+    PlanningOptions popts;
+    popts.model_options.demand_fail_cost = 10000.0;
+    popts.model_options.lp_reduction = reduction;  // the switch under test
+    const PlanningOptionsLP options(popts);
+    auto sim_lp = std::make_unique<SimulationLP>(simulation, options);
+    auto sys_lp = std::make_unique<SystemLP>(system, *sim_lp);
+    const auto ncols = sys_lp->linear_interface().get_numcols();
+    return std::tuple {std::move(sim_lp), std::move(sys_lp), ncols};
+  };
+
+  // Default (reductions ON): the offline generator's column is skipped at
+  // the source, and the commitment consumer cascades to NO u.
+  auto [sim_lp, sys_lp, reduced_cols] = build(/*reduction=*/true);
+  {
+    const auto& cmt = sys_lp->elements<CommitmentLP>();
+    REQUIRE(cmt.size() == 1);
+    const auto* status = cmt.front().find_status_cols(
+        sim_lp->scenarios().front(), sim_lp->stages().front());
+    CHECK(status == nullptr);  // no gen col → no u (consumer robust)
+  }
+
+  // Un-reduced (flag off): the source keeps the generation column, and the
+  // SAME consumer code now creates u — purely by reacting to its presence.
+  auto [sim_lp2, sys_lp2, full_cols] = build(/*reduction=*/false);
+  {
+    const auto& cmt2 = sys_lp2->elements<CommitmentLP>();
+    REQUIRE(cmt2.size() == 1);
+    const auto* status2 = cmt2.front().find_status_cols(
+        sim_lp2->scenarios().front(), sim_lp2->stages().front());
+    REQUIRE(status2 != nullptr);  // gen col kept → consumer creates u
+    CHECK(status2->size() == 2);  // one u per block, no flag at consumer
+  }
+
+  // Un-reduced LP is strictly larger (kept gen cols + cascaded u/v/w).
+  CHECK(full_cols > reduced_cols);
 }
 
 }  // namespace elim_shortcuts_test

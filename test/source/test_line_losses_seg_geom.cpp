@@ -131,9 +131,10 @@ TEST_CASE("loss_segment_geometry: scales linearly with envelope")
 {
   // Doubling the envelope doubles widths and doubles slopes (linear
   // in B), so all per-MW loss coefficients (slope × R/V²) double too.
-  // This is the EL=0 "lifted" envelope behaviour: when a line is
-  // demoted to enforce_level = 0 the segment geometry is rebuilt on
-  // [0, 2·tmax] instead of [0, tmax].
+  // (Historically this was the EL=0 "lifted" envelope path; that lift
+  // was removed and ``enforce_level`` is now a no-op, but the linear-
+  // in-B scaling property of the geometry itself still holds and is
+  // what this test pins.)
   for (const int K : {3, 5}) {
     for (int k = 1; k <= K; ++k) {
       const auto a = line_losses::loss_segment_geometry(

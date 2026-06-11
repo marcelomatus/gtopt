@@ -117,11 +117,22 @@ std::expected<void, Error> add_provision(
     const auto gcol = gcol_it->second;
     auto block_rmax = rp.max.optval(stage.uid(), buid);
     if (!block_rmax) {
-      if (use_capacity) {
-        block_rmax = lp.get_col_uppb(gcol);
-      } else {
-        continue;
-      }
+      // No explicit provision max for this (stage, block).  A wired
+      // provision (it reached here past the positive-provision_factor
+      // gate above, and its generator HAS a generation column — the
+      // `gcol_it == end()` guard above already skipped the no-gcol case)
+      // can offer up to the generator's own headroom, so fall back to the
+      // gcol upper bound regardless of whether a separate
+      // `capacity_factor` row is wired.  The previous `else continue`
+      // SILENTLY DROPPED the provision column when `max` was unset and no
+      // `capacity_factor` was present — even though the generator has
+      // capacity (e.g. a BESS with `ur_provision_factor` but no explicit
+      // `urmax`).  That dropped column is referenced by reserve-zone
+      // requirements and UserConstraints (`csf_rs_*`), so silently
+      // removing it rewrote those constraints and made the LP infeasible
+      // (PLEXOS 20260517: `csf_rs_min_bat_del_desierto` lost its
+      // `uprovision` term → forced a committed unit OFF → infeasible).
+      block_rmax = lp.get_col_uppb(gcol);
     }
     // PLEXOS Min Provision floor — when set, clamp the provision col's
     // lower bound to the per-block value.  This is an unconditional
@@ -141,7 +152,9 @@ std::expected<void, Error> add_provision(
     // is identically 0.  Skip the fixed-zero column and its rows.
     // Write-out rule: an absent provision column reads 0 (no reserve
     // provided this block).
-    if (block_rmax.value() == 0.0 && block_rmin == 0.0) {
+    if (sc.options().lp_reduction() && block_rmax.value() == 0.0
+        && block_rmin == 0.0)
+    {
       continue;
     }
 

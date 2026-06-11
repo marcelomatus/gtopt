@@ -318,21 +318,37 @@ bool LineLP::add_to_lp(SystemContext& sc,
     const auto block_tcost =
         CostHelper::block_ecost(scenario, stage, block, block_tcost_phys);
 
-    // ``Line.enforce_level`` mirrors PLEXOS ``Line.Enforce Limits``:
-    //   0 = never enforce  → pass ``enforce_capacity = false`` to
-    //       ``line_losses::add_block`` so the loss model relaxes
-    //       BOTH the directional flow columns AND the per-segment
-    //       column upper bounds (DblMax instead of seg_width).
-    //       Crucially the loss coefficients (which use ``seg_width
-    //       × R × (2k−1) / V²``) still see the REAL ``seg_width``,
-    //       so the PWL approximation stays numerically well-formed
-    //       — relaxing seg_width itself would blow up loss-row
-    //       coefficients to ~1e+306 and break solver presolve.
-    //   1 = voltage-conditional (PLEXOS) → treated identically to
-    //       level 2 in our LP (no AC iteration available).
-    //   2 = always enforce → hard cap (historical behaviour, schema
-    //       default).
-    const auto enforce_lvl = line().enforce_level.value_or(2);
+    // The flow cap is ALWAYS enforced (``enforce_capacity = true``).
+    //
+    // ``Line.enforce_level`` (added 2026-05-22, ``feat(line): Line.
+    // enforce_level``) was a short-lived attempt to mirror PLEXOS
+    // ``Enforce Limits`` (0 = never, 1 = post-solve, 2 = always) by
+    // passing ``enforce_capacity = false`` for level 0, which freed the
+    // directional flow columns AND relaxed the per-segment upper bounds to
+    // ``DblMax`` while the loss coefficients kept using the REAL
+    // ``seg_width``.  That half-relaxed state is ill-posed for the loss
+    // model (a free flow column with finite loss-row coefficients) and
+    // leaves a genuinely FREE LP column — the dominant source of free
+    // variables, which defeats GPU first-order / heuristic solvers (cuOpt
+    // / PDLP cannot project an unbounded column).
+    //
+    // It is also obsolete: plexos2gtopt no longer relies on a gtopt-side
+    // ``enforce_level`` toggle — it expresses every limit directly as
+    // ``tmax`` (hard cap) + ``tmax_normal`` (soft band).  Passing
+    // ``enforce_capacity = true`` here simply RESTORES the original
+    // pre-2026-05-22 behaviour: every flow column is bound by
+    // ``block_tmax`` (= ``tmax`` if set, else the capacity ceiling), and a
+    // flow column is NEVER left free.  Two representations, both covered:
+    //   - signed flow (``add_none``'s ``flowp``, ``add_tangent_signed_flow``):
+    //     a single column over ``[−tmax_ba, +tmax_ab]`` — free on BOTH
+    //     sides unless bounded, so both bounds are set here.
+    //   - ``flowp`` / ``flown`` (linear / piecewise / bidirectional): two
+    //     columns already pinned ``lowb = 0``, so only the ``tmax`` upper
+    //     bound is added.
+    // The overload columns still apply the soft ``tmax_normal → tmax``
+    // penalty, and capacity-*expansion* lines additionally carry the
+    // installed-capacity row.  ``Line.enforce_level`` is retained in the
+    // schema for backward compatibility but is now a no-op.
     auto result = line_losses::add_block(loss_config,
                                          scenario,
                                          stage,
@@ -345,7 +361,7 @@ bool LineLP::add_to_lp(SystemContext& sc,
                                          block_tcost,
                                          capacity_col,
                                          uid(),
-                                         /*enforce_capacity=*/enforce_lvl > 0);
+                                         /*enforce_capacity=*/true);
 
     // Compress the eight near-identical "if present, store" clauses.
     const auto store_opt = [&](auto& dst, const auto& src)
@@ -711,13 +727,11 @@ bool LineLP::add_to_output(OutputContext& out) const
         // column.  ``flown_extras_cost`` carries the NOT-selected rc.
         if (has_flown_cell && dst_fn_p != nullptr) {
           (*dst_fn_p)[buid] = fn;
-          if (signed_flow > 0.0) {
-            (*dst_fn_c)[buid] = rcn;
-          } else if (signed_flow < 0.0) {
-            (*dst_fn_c)[buid] = rcp;
-          } else {
-            (*dst_fn_c)[buid] = rcn;
-          }
+          // The NOT-selected direction's rc: reverse flow active
+          // (``signed_flow < 0``) selects flown, so the unselected is
+          // flowp → ``rcp``; otherwise (forward active OR zero flow) the
+          // unselected is flown → ``rcn``.
+          (*dst_fn_c)[buid] = signed_flow < 0.0 ? rcp : rcn;
         }
       }
     }

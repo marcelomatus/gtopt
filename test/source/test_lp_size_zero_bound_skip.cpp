@@ -195,6 +195,7 @@ TEST_CASE("LP-size: GeneratorLP skips zero-pmax blocks (P1)")
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -407,6 +408,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions popts;
+  popts.model_options.lp_reduction = true;  // tests the elimination feature
   popts.model_options.demand_fail_cost = 10000.0;
   const PlanningOptionsLP options(popts);
   SimulationLP sim_lp(simulation, options);
@@ -735,6 +737,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -883,6 +886,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions popts;
+    popts.model_options.lp_reduction = true;  // tests the elimination feature
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
@@ -1204,6 +1208,7 @@ TEST_CASE(  // NOLINT
   std::filesystem::create_directories(outdir);
 
   PlanningOptions popts;
+  popts.model_options.lp_reduction = true;  // tests the elimination feature
   popts.model_options.demand_fail_cost = 10000.0;
   popts.output_directory = outdir.string();
   popts.output_format = DataFormat::parquet;

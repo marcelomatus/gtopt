@@ -358,6 +358,24 @@ template<typename T>
        "lp_matrix_options.equilibration_method=none).  Intended for "
        "debug / physical-unit validation of coefficients and RHS.  "
        "Overrides JSON values for the affected fields.")  //
+      ("lp-reduction",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "eliminate provably-zero LP columns/rows at the SOURCE element "
+       "(generator pmax==pmin==0, reservoir zero extraction, "
+       "reserve/inertia zero-ceiling provision, inertia zero requirement). "
+       "Shorthand for `--set model_options.lp_reduction=true`.  DEFAULT "
+       "OFF: the un-reduced LP is the honest model and CPLEX/Gurobi "
+       "presolve reduces it equivalently.  Enable for weak-presolve "
+       "backends (CLP / CBC / HiGHS) that benefit from the smaller LP up "
+       "front.  Note: enabling it drops commitment u/v/w for pmax=0 units "
+       "(no ancillary participation), which can shift the optimum "
+       "slightly.")  //
+      ("no-lp-reduction",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "force-disable the SOURCE zero-column/row elimination (the default "
+       "already-OFF behaviour) — useful to override a JSON file that sets "
+       "`model_options.lp_reduction=true`.  Shorthand for "
+       "`--set model_options.lp_reduction=false`.")  //
       // `--no-presolve` and `--no-crossover` removed (2026-05-21):
       // too solver-specific for the top-level CLI surface.  The
       // generic `--set solver_options.presolve=false` and
@@ -930,6 +948,20 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.model_options.auto_scale = false;
   }
 
+  if (opts.lp_reduction.value_or(false)) {
+    // `--lp-reduction` turns ON the SOURCE zero-column/row elimination
+    // (default is OFF).  Intended for weak-presolve backends (CLP / CBC /
+    // HiGHS) that benefit from the smaller LP; CPLEX/Gurobi presolve
+    // reduces the un-reduced LP equivalently so they gain nothing.
+    planning.options.model_options.lp_reduction = true;
+  }
+  if (opts.no_lp_reduction.value_or(false)) {
+    // `--no-lp-reduction` force-disables it (the default), overriding a
+    // JSON `model_options.lp_reduction=true`.  Applied last so it wins if
+    // both flags are passed.
+    planning.options.model_options.lp_reduction = false;
+  }
+
   if (opts.memory_saving) {
     // Map the string to the LowMemoryMode enum and apply to the SDDP
     // side of the equation.
@@ -1134,6 +1166,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       }(),
       .threads = get_opt<int>(vm, "threads"),
       .no_scale = get_opt<bool>(vm, "no-scale"),
+      .lp_reduction = get_opt<bool>(vm, "lp-reduction"),
+      .no_lp_reduction = get_opt<bool>(vm, "no-lp-reduction"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
@@ -1427,6 +1461,8 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
   merge(opts.memory_saving, defaults.memory_saving);
   merge(opts.no_scale, defaults.no_scale);
+  merge(opts.lp_reduction, defaults.lp_reduction);
+  merge(opts.no_lp_reduction, defaults.no_lp_reduction);
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
   merge(opts.mip_gap, defaults.mip_gap);

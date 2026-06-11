@@ -13,6 +13,7 @@ dict keys / set members when building topology indexes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -1059,3 +1060,20 @@ class PlexosCase:
     # show a conversion drop funnel (e.g. Line 344 → 317 emitted).  Empty
     # until populated by ``extract_case``.
     raw_class_counts: dict[str, int] = field(default_factory=dict)
+    # PHYSICAL nameplate (PLEXOS ``Max Capacity`` [MW], all units) keyed by
+    # generator name — captured UNCONDITIONALLY, even for units PLEXOS holds
+    # offline for the week (whose dispatch ``pmax`` is 0).  Feeds the
+    # reservoir extraction-flow estimator so the ``fmax`` bound reflects full
+    # turbine capacity; NOT written into the output JSON.  Empty until
+    # populated by ``extract_case``.
+    generator_nameplates: dict[str, float] = field(default_factory=dict)
+    # Turbine JSON dicts (same shape as ``system["turbine_array"]`` entries:
+    # ``name`` / ``generator`` / ``junction_a`` / ``junction_b`` /
+    # ``production_factor`` / ``uid`` / optional ``waterway``) for units PLEXOS
+    # holds offline for the week (dispatch ``pmax = 0``) whose turbines were
+    # dropped from ``turbines`` to avoid a free-drain LP artefact.  Fed to the
+    # reservoir extraction-flow estimator (counted for the ``fmax`` BOUND only)
+    # so a maintenance-offline second unit's nameplate still sizes the reservoir
+    # bound; NEVER written into the output JSON ``turbine_array``.  Empty until
+    # populated by ``extract_case``.
+    extra_turbines: list[dict[str, Any]] = field(default_factory=list)

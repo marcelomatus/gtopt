@@ -241,25 +241,27 @@ def test_pasada_in_hydro_mode_drain_on_source():
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_mode_emits_ver_waterway_and_no_drain():
-    """``drop_spillway_waterway = False`` keeps the spillway arc; for
-    ``ser_ver = 0`` the spill rides an explicit ``_ver`` waterway to a
-    synthetic ``<central>_ocean`` drain (mass conservation).  The
-    central's own junction stays a pure balance node — never a self-drain.
+def test_legacy_mode_collapses_spill_to_source_drain():
+    """``drop_spillway_waterway = False`` keeps the spill, but for
+    ``ser_ver = 0`` it is now collapsed onto the SOURCE junction's own
+    drain column rather than synthesising a ``<central>_ocean`` node + a
+    ``_ver`` arc.  The spill cap (``VertMax``) lands on ``drain_capacity``
+    (mass conservation: the surplus still exits).  No ``*_ocean`` junction
+    and no ``_ver`` waterway are emitted for the spill-to-sea case.
     """
     cent = _serie("CentA", 1, ser_hid=0, ser_ver=0, vert_max=50.0)
     system = _run([cent], drop=False)
 
     ver_arcs = [w for w in system["waterway_array"] if "_ver_" in w["name"]]
-    # The ``_ver`` arc now routes the spill to the ocean drain.
-    assert len(ver_arcs) == 1
-    assert ver_arcs[0]["junction_b"] == "CentA_ocean"
-    assert ver_arcs[0]["fmax"] == 50.0
+    # No ``_ver`` arc is emitted: the spill rides the source self-drain.
+    assert len(ver_arcs) == 0
+    # No synthetic ocean junction is created.
+    assert not [j for j in system["junction_array"] if j["name"].endswith("_ocean")]
     junctions = {j["name"]: j for j in system["junction_array"]}
     src = junctions["CentA"]
-    assert src["drain"] is False
-    assert "drain_capacity" not in src
-    assert junctions["CentA_ocean"]["drain"] is True
+    # The source junction itself drains, carrying the VertMax spill cap.
+    assert src["drain"] is True
+    assert src["drain_capacity"] == 50.0
 
 
 # ---------------------------------------------------------------------------
@@ -459,23 +461,19 @@ def _convert(input_dir: Path, out_dir: Path, name: str, *, drop: bool) -> dict:
 
 @pytest.mark.integration
 def test_integration_compare_modes_on_spillway_case(tmp_path):
-    """Same patched case → legacy emits a ``_ver`` arc, default suppresses it.
+    """Drained embalse carries its spill on the storage-drain column.
 
-    Round-trip comparison on a minimal, hand-patched case where the
-    spillway is *actually* exercised:
-
-      * Legacy run (``--no-drop-spillway-waterway``) emits exactly one
-        ``Reservoir1_ver_1_2`` waterway from Reservoir1 to TurbineGen,
-        with a CVert/fallback ``fcost`` on it, and Reservoir1 is NOT a
-        drain (it has both ``_gen`` and ``_ver`` outlets).
-      * Default run (suppress mode) drops the ``_ver`` arc entirely,
-        carries no ``fcost`` on any waterway, and marks Reservoir1's
-        junction as a drain so spill leaves the system through the
-        junction itself.
-
-    Everything else (gen waterway, turbine, reservoir, junction count
-    excluding the dropped ``_ver`` arc) must remain identical between
-    the two runs — only the spillway side differs.
+    ``Reservoir1`` is an ``embalse`` and NOT a never-drain sentinel, so it
+    now carries its spill on the reservoir storage-drain column
+    (``spillway_cost = 0``, ``spillway_capacity`` omitted → C++ +6000 m³/s
+    default) in BOTH modes.  No ``_ver`` arc is emitted in either mode —
+    keeping a draining ``_ver`` arc next to the drain column would be a
+    double escape path.  ``--drop-spillway-waterway`` therefore no longer
+    changes the spill topology for a drained reservoir; the patched
+    ``VertMax = 50`` / ``Vertim = 2`` fixture no longer yields a legacy
+    ``_ver`` arc.  (A NEVER-drain reservoir like ELTORO is the only case
+    that still rides a ``_ver`` arc — covered by the unit-level
+    ``test_embalse_no_ver_waterway_junction_is_drain``.)
     """
     case_dir = _make_spillway_fixture(tmp_path)
 
@@ -485,48 +483,27 @@ def test_integration_compare_modes_on_spillway_case(tmp_path):
     legacy_ver = [w for w in legacy["waterway_array"] if "_ver_" in w["name"]]
     default_ver = [w for w in suppress["waterway_array"] if "_ver_" in w["name"]]
 
-    # Legacy must emit the spillway arc.  Default must not.
-    assert len(legacy_ver) == 1, (
-        f"legacy mode missing _ver arc on patched fixture: {legacy_ver}"
-    )
+    # The drain column carries the spill in both modes → no ``_ver`` arc.
+    assert legacy_ver == [], f"drained reservoir leaked a legacy _ver arc: {legacy_ver}"
     assert default_ver == [], f"default mode leaked _ver arc(s): {default_ver}"
 
-    # Legacy _ver arc routes Reservoir1 → TurbineGen with fmax = VertMax.
-    # No fcost is attached here because the patched fixture has no
-    # ``plpmat.dat`` (so ``cvert_default`` is None) and Reservoir1 is
-    # not in plpvrebemb.dat — both fcost sources unavailable.  This
-    # still proves the structural difference: the arc itself disappears
-    # in suppress mode.  The "no fcost ever sneaks into suppress mode"
-    # invariant is covered separately by
-    # ``test_no_spillway_fcost_in_suppress_mode``.
-    arc = legacy_ver[0]
-    assert arc["junction_a"] == "Reservoir1"
-    assert arc["junction_b"] == "TurbineGen"
-    assert arc.get("fmax") == 50.0, (
-        f"legacy _ver arc must use VertMax=50 from the patched fixture, got {arc!r}"
-    )
+    # The spill lives on the reservoir storage-drain column (cost 0, finite
+    # C++ default capacity) in both modes.
+    for system in (legacy, suppress):
+        res = next(r for r in system["reservoir_array"] if r["name"] == "Reservoir1")
+        assert res.get("spillway_cost") == 0.0
+        assert "spillway_capacity" not in res
 
-    # Default mode: no fcost on any waterway, since fcost only ever
-    # decorated the (now-suppressed) _ver path.
+    # No fcost on any waterway in either mode — fcost only ever decorated
+    # the now-removed ``_ver`` spill path.
+    assert all("fcost" not in w for w in legacy["waterway_array"])
     assert all("fcost" not in w for w in suppress["waterway_array"])
 
-    # Drain flag: legacy False (gen + ver outlets), default True (gen only).
-    legacy_jct = {j["name"]: j for j in legacy["junction_array"]}
-    suppress_jct = {j["name"]: j for j in suppress["junction_array"]}
-    assert legacy_jct["Reservoir1"]["drain"] is False
-    assert suppress_jct["Reservoir1"]["drain"] is True
-
-    # Everything except the spillway arc and the drain flag should
-    # match — same gen waterway count, same turbine, same reservoir.
+    # The two modes are now topologically identical for a drained reservoir:
+    # same gen waterways, turbines, reservoirs and total waterway count.
     legacy_gen = [w for w in legacy["waterway_array"] if "_gen_" in w["name"]]
     default_gen = [w for w in suppress["waterway_array"] if "_gen_" in w["name"]]
     assert len(legacy_gen) == len(default_gen)
     assert len(legacy["turbine_array"]) == len(suppress["turbine_array"])
     assert len(legacy["reservoir_array"]) == len(suppress["reservoir_array"])
-
-    # Default has exactly one fewer waterway than legacy (the dropped _ver).
-    assert len(legacy["waterway_array"]) - len(suppress["waterway_array"]) == 1, (
-        f"expected exactly 1 fewer waterway in suppress mode "
-        f"(legacy={len(legacy['waterway_array'])}, "
-        f"default={len(suppress['waterway_array'])})"
-    )
+    assert len(legacy["waterway_array"]) == len(suppress["waterway_array"])

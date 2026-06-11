@@ -480,6 +480,10 @@ def build_options(args: argparse.Namespace) -> dict:
         # plpvrebemb.dat, route ``_ver`` to a synthetic ocean drain and drop
         # ``fmax``/``fcost``.  See JunctionWriter._process_central.
         "vrebemb_as_sink": args.vrebemb_as_sink,
+        # ``--reservoir-flow-estimate`` (default True): topology-driven
+        # per-reservoir extraction-flow bounds (gtopt_shared.reservoir_flow).
+        # ``getattr`` keeps minimal-Namespace test fixtures working.
+        "reservoir_flow_estimate": getattr(args, "reservoir_flow_estimate", True),
         # Plexos overlay: source of heat-rate / Fuel data to merge into
         # the PLP-derived planning.  Resolved by _plexos_overlay.
         "plexos_overlay": getattr(args, "plexos_overlay", None),

@@ -278,7 +278,13 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
     // zero — the LP column, the bus-balance coefficient, and the
     // (gen ≤ capacity) capacity row are all degenerate.  Skip the
     // whole block (saves 1 col + up to 1 row per offline-gen block).
-    if (block_pmax == 0.0 && block_pmin == 0.0) [[unlikely]] {
+    // This is the SOURCE elimination: dropping the generation column
+    // here cascades into the robust consumers (commitment, reserve,
+    // inertia) creating no u/v/w/provision for the unit.  Gated by
+    // `--no-lp-reduction` for un-reduced diagnostic LPs.
+    if (sc.options().lp_reduction() && block_pmax == 0.0 && block_pmin == 0.0)
+        [[unlikely]]
+    {
       continue;
     }
 

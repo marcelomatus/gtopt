@@ -63,8 +63,18 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   auto&& balance_rows = junction.balance_rows_at(scenario, stage);
   auto&& blocks = stage.blocks();
 
+  // No artificial extraction default.  The extraction column is the net flow
+  // into the reservoir junction (``+1`` in the balance row): the positive /
+  // ``fmax`` direction is the RELEASE sent downstream, the negative /
+  // ``fmin`` direction is the reservoir ACCEPTING (storing) incoming water.
+  // The finite bounds come solely from reservoir data (``fmin``/``fmax``),
+  // which the topology flow estimator now sets for every reservoir.  When a
+  // bound is unset the column is left UNBOUNDED (±DblMax) rather than clamped
+  // to a magic ±6000/9000 m³/s — the previous default removed here.  A free
+  // (or one-sided-infinite) column is acceptable; per-reservoir data, when
+  // present, tightens it.
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
-  const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
+  const auto fmax = reservoir().fmax.value_or(LinearProblem::DblMax);
 
   // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
   const double energy_scale =
@@ -88,7 +98,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     // ``has_fout`` / ``has_finp`` ``.contains(buid)`` checks tolerate
     // the missing block.  Write-out rule: an absent extraction column
     // reads 0 (no water extracted this block).
-    if (fmin == 0.0 && fmax == 0.0) [[unlikely]] {
+    if (sc.options().lp_reduction() && fmin == 0.0 && fmax == 0.0) [[unlikely]]
+    {
       continue;
     }
 

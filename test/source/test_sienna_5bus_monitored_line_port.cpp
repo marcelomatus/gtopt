@@ -7,20 +7,19 @@
 //
 // PowerSimulations.jl ships ``MonitoredLine`` to model branches
 // whose thermal limit is enforced; sibling ``Line`` rows on the
-// same case are treated as unconstrained.  gtopt mirrors this knob
-// with ``Line.enforce_level``:
+// same case are treated as unconstrained.  gtopt ONCE mirrored this
+// knob with ``Line.enforce_level`` (level=0 = unconstrained,
+// level=2 = hard cap).
 //
-//   * level=2 (default) — hard cap binds (``|flow| ≤ tmax``).
-//   * level=0           — cap NOT enforced; ``tmax`` is carried only
-//                          for loss-segment discretization.
-//
-// The c_sys5_ml fixture marks ONE branch (the first row of the
-// upstream 5-bus ``branch.csv`` — ``branch4``, bus 2 → bus 3,
-// rated 80 MW) as monitored; the other 6 branches stay
-// unconstrained.  This test pins the contract: the LP must allow
-// flow > rating on the un-monitored lines while the monitored
-// line's cap binds whenever the dispatch otherwise wants to push
-// past 80 MW across it.
+// RETIRED 2026-06-10: ``Line.enforce_level`` is now a NO-OP.
+// ``source/line_lp.cpp`` passes ``enforce_capacity = true``
+// unconditionally, so EVERY line's ``tmax`` ALWAYS binds regardless
+// of the (ignored) ``enforce_level`` value — there is no longer an
+// "unconstrained" line.  This test was originally written to prove
+// EL=0 freed the cap; it is repurposed here to pin the post-retirement
+// invariant: ``enforce_level`` no longer changes the LP, and the hard
+// cap binds on every branch.  The all-hard-cap throughput limit is the
+// only outcome the LP can produce now.
 //
 // Topology numerics (matches `_monitored_line.py`):
 //
@@ -192,12 +191,26 @@ constexpr Real kDemandFailCost = 1.0e6;
 
 }  // namespace
 
+// Max bus_1→bus_3 throughput under hard caps (transport model, every
+// branch's tmax binds).  Each of the three bus-1 export routes is
+// throttled to 13.3 MW by its tightest leg:
+//   - branch1 (1→2, cap 13.3) → branch4 (2→3, cap 80)   limited by 13.3
+//   - branch2 (1→4, cap 13.3) → branch5/6 (3→4 reverse) limited by 13.3
+//   - branch3 (1→5, cap 66.6) → branch7 (4→5 reverse, cap 13.3) → 3
+//                                                         limited by 13.3
+// ⇒ total served = 39.9 MW; the rest hits demand_fail at $1e6/MWh.
+constexpr Real kMaxServed = 13.3 + 13.3 + 13.3;
+constexpr Real kHardCapObj =
+    (kMaxServed * kGenCost) + ((kLoadBus3 - kMaxServed) * kDemandFailCost);
+
 TEST_CASE(
-    "Sienna c_sys5_ml port — all-relaxed baseline: full 200 MW served")  // NOLINT
+    "Sienna c_sys5_ml port — enforce_level=0 is a no-op: caps still bind")  // NOLINT
 {
-  // Sanity: with EVERY line at enforce_level=0 the LP has zero
-  // transmission constraints, so the 200 MW load is served entirely
-  // from g1 at $10/MWh.
+  // RETIRED-flag invariant: even with EVERY line at enforce_level=0,
+  // the caps ALL bind (enforce_level no longer frees the flow column).
+  // The 200 MW load CANNOT be served — bus-1 export is throttled to
+  // 39.9 MW by the three 13.3-MW route bottlenecks, identical to the
+  // all-hard-cap (level=2) outcome below.
   const auto sys = make_system(/*monitor_branch4=*/false);
   const auto sim = make_simulation();
   const PlanningOptionsLP options(make_options());
@@ -209,21 +222,18 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // 200 MW × $10/MWh = $2 000.
-  CHECK(lp.get_obj_value_raw() == doctest::Approx(2000.0).epsilon(1e-6));
+  // enforce_level=0 binds exactly like level=2: served = 39.9 MW, the
+  // remaining 160.1 MW is unserved at $1e6/MWh.
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(kHardCapObj).epsilon(1e-3));
 }
 
 TEST_CASE(
-    "Sienna c_sys5_ml port — monitored branch4 cap binds but only on its leg")  // NOLINT
+    "Sienna c_sys5_ml port — monitored branch4 no longer differs from EL=0")  // NOLINT
 {
-  // With branch4 monitored (cap=80) and EVERY other branch
-  // unconstrained, the LP routes power around bus 2 (since the
-  // branch1+branch4 path would now cap at 80 MW total).  The
-  // routes via bus 4 / bus 5 (all enforce_level=0) carry the rest
-  // unrestricted, so the 200 MW load still gets served at
-  // $10/MWh.  The monitored cap does NOT change the objective in
-  // this fixture (g1 unchanged at 200 MW) — its effect is
-  // purely on the flow split.
+  // With branch4 "monitored" (enforce_level=2) and every other branch
+  // at enforce_level=0, the result is IDENTICAL to the all-EL=0 case:
+  // since enforce_level is a no-op, all seven caps bind either way.
+  // The monitored/un-monitored distinction has no effect on the LP.
   const auto sys = make_system(/*monitor_branch4=*/true);
   const auto sim = make_simulation();
   const PlanningOptionsLP options(make_options());
@@ -235,23 +245,20 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // 200 MW × $10/MWh = $2 000 — same as the baseline.  The
-  // monitored cap binds the branch4 flow at ≤ 80 MW but the
-  // unmonitored siblings absorb the rest.
-  CHECK(lp.get_obj_value_raw() == doctest::Approx(2000.0).epsilon(1e-6));
+  // Same throughput as the all-EL=0 case — enforce_level is ignored.
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(kHardCapObj).epsilon(1e-3));
 
   // Pin the line count = 7 (CSV preserved end-to-end).
   CHECK(system_lp.elements<LineLP>().size() == 7);
 }
 
 TEST_CASE(
-    "Sienna c_sys5_ml port — monitored cap differentiates from full-hard-cap")  // NOLINT
+    "Sienna c_sys5_ml port — explicit all-level=2 matches the no-op result")  // NOLINT
 {
-  // Cross-check: if we instead enforce EVERY line (level=2 on
-  // every branch), the 200 MW load CANNOT be carried because the
-  // total cap-respecting bus-1 outflow is bounded by branch1 (13.3
-  // MW) + branch2 (13.3 MW) + branch3 (66.6 MW) = 93.2 MW.  The
-  // remaining 106.8 MW is unserved at $1e6/MWh.
+  // Cross-check: explicitly setting EVERY line to enforce_level=2
+  // produces the SAME objective as the EL=0 cases above — confirming
+  // enforce_level is inert.  The 200 MW load is throttled to 39.9 MW
+  // by the three 13.3-MW route bottlenecks.
   auto sys = make_system(/*monitor_branch4=*/false);
   for (auto& line : sys.line_array) {
     line.enforce_level = 2;
@@ -266,19 +273,8 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // Max bus_1→bus_3 throughput under hard caps:
-  //   - branch1 (1→2, cap 13.3) → branch4 (2→3, cap 80)   limited by 13.3
-  //   - branch2 (1→4, cap 13.3) → branch5/6 (3→4 reverse) limited by 13.3
-  //   - branch3 (1→5, cap 66.6) → branch7 (4→5 reverse, cap 13.3) → 3 limited
-  //   by 13.3
-  // Each route caps at 13.3 MW ⇒ total served = 39.9 MW, the
-  // rest hits demand_fail at $1e6/MWh.
-  constexpr Real kMaxServed = 13.3 + 13.3 + 13.3;
-  constexpr Real kGenCostObj = kMaxServed * kGenCost;
-  constexpr Real kUnserved = kLoadBus3 - kMaxServed;
-  constexpr Real kDemandFailObj = kUnserved * kDemandFailCost;
-  CHECK(lp.get_obj_value_raw()
-        == doctest::Approx(kGenCostObj + kDemandFailObj).epsilon(1e-3));
+  // Same 39.9-MW throughput limit derived at file scope (kHardCapObj).
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(kHardCapObj).epsilon(1e-3));
 }
 
 }  // namespace test_sienna_5bus_monitored_line_port

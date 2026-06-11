@@ -67,8 +67,14 @@ TEST_CASE(
     CHECK(low_prio < high_prio);
   }
 
-  SUBCASE("TaskPriority tier overrides key ordering")
+  SUBCASE("key ordering ignores TaskPriority tier")
   {
+    // `TaskPriority` no longer participates in queue ordering (it only
+    // controls the dispatch gate).  A `High`-tier task with a LARGER key
+    // therefore orders AFTER a `Medium`-tier task with a smaller key —
+    // the opposite of the old tier-shadowing behaviour.  This is the
+    // invariant that dissolves the SDDP sim⇄wedge trap: gate-bypass via
+    // `TaskPriority` no longer reorders the queue.
     Task<void, int64_t, std::less<>> medium {
         [] {},
         TaskRequirements {
@@ -83,9 +89,34 @@ TEST_CASE(
                                                .name = {},
                                            }};
 
-    // High priority always beats medium, regardless of key value
-    CHECK(medium < high);  // medium has lower priority
-    CHECK_FALSE(high < medium);
+    // Smaller key wins regardless of tier: medium(key=0) outranks
+    // high(key=999), so `high < medium` (high is lower in the max-heap).
+    CHECK(high < medium);  // high has lower priority (larger key)
+    CHECK_FALSE(medium < high);
+  }
+
+  SUBCASE("gate_bypass is independent of ordering and defaults false")
+  {
+    // The gate-bypass admission flag must NOT affect queue ordering.
+    Task<void, int64_t, std::less<>> bypass {[] {},
+                                             TaskRequirements {
+                                                 .priority_key = 50,
+                                                 .gate_bypass = true,
+                                                 .name = {},
+                                             }};
+    Task<void, int64_t, std::less<>> plain {[] {},
+                                            TaskRequirements {
+                                                .priority_key = 10,
+                                                .name = {},
+                                            }};
+
+    // Default is false.
+    CHECK_FALSE(plain.requirements().gate_bypass);
+    CHECK(bypass.requirements().gate_bypass);
+    // Smaller key still wins: plain(10) outranks bypass(50) despite the
+    // bypass flag — ordering and admission are fully decoupled.
+    CHECK(bypass < plain);  // bypass has lower priority (larger key)
+    CHECK_FALSE(plain < bypass);
   }
 
   SUBCASE("std::greater semantics: larger key = higher priority")
@@ -186,8 +217,10 @@ TEST_CASE("WorkPool basic functionality")
 
   SUBCASE("Task priority ordering")
   {
-    // Use a single-threaded pool so tasks actually queue up and
-    // priority ordering is observable (with many threads all tasks
+    // Ordering is driven by `priority_key` ALONE (smaller key dequeues
+    // first) — `TaskPriority` no longer participates in queue order, it
+    // only gates dispatch.  Use a single-threaded pool so tasks actually
+    // queue up and ordering is observable (with many threads all tasks
     // get fast-dispatched concurrently, bypassing the priority queue).
     AdaptiveWorkPool prio_pool(WorkPoolConfig {
         1,  // max_threads
@@ -209,51 +242,54 @@ TEST_CASE("WorkPool basic functionality")
     std::promise<void> gate;
     auto gate_future = gate.get_future().share();
 
-    auto blocker = prio_pool.submit(
-        [&gate_future] { gate_future.wait(); },
-        {.priority = TaskPriority::High, .name = "blocker_task"});
+    auto blocker =
+        prio_pool.submit([&gate_future] { gate_future.wait(); },
+                         {.priority_key = 0, .name = "blocker_task"});
 
-    // Submit tasks with different priorities — they will queue
-    auto low_task = prio_pool.submit(
+    // Submit tasks out of key order — they queue behind the blocker and
+    // dispatch by ascending `priority_key`, NOT submission order or tier.
+    // The (intentionally inverted) `TaskPriority` tiers below must have no
+    // effect on the observed order.
+    auto last_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(3);
           counter++;
         },
-        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+        {.priority = TaskPriority::High, .priority_key = 30, .name = "k30"});
 
-    auto high_task = prio_pool.submit(
+    auto first_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(1);
           counter++;
         },
-        {.priority = TaskPriority::High, .name = "high_priority_task"});
+        {.priority = TaskPriority::Low, .priority_key = 10, .name = "k10"});
 
-    auto medium_task = prio_pool.submit(
+    auto mid_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
           execution_order.push_back(2);
           counter++;
         },
-        {.priority = TaskPriority::Medium, .name = "medium_priority_task"});
-    REQUIRE(medium_task.has_value());
+        {.priority = TaskPriority::Medium, .priority_key = 20, .name = "k20"});
+    REQUIRE(mid_task.has_value());
 
-    // Release the blocker — queued tasks now dispatch in priority order
+    // Release the blocker — queued tasks now dispatch in key order.
     gate.set_value();
 
     blocker.value().wait();
-    high_task.value().wait();
-    medium_task.value().wait();
-    low_task.value().wait();
+    first_task.value().wait();
+    mid_task.value().wait();
+    last_task.value().wait();
 
     CHECK(counter == 3);
-    // High priority should execute first
+    // Smallest key (10) executes first despite its Low tier.
     CHECK(execution_order[0] == 1);
-    // Medium should execute before low
+    // key 20 before key 30 (Medium-tier task ahead of High-tier task).
     CHECK(std::ranges::find(execution_order, 2)
           < std::ranges::find(execution_order, 3));
   }

@@ -934,6 +934,29 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=None,
         help="cost penalty for reserve shortfall in $/MWh (default: not set)",
     )
+    # ``--reservoir-flow-estimate`` (default True): replace the generic
+    # C++ ReservoirLP -9000/6000 m³/s extraction defaults with tight,
+    # per-reservoir fmin/fmax estimated from the hydraulic network
+    # (downstream waterway + turbine release caps for fmax; a NetworkX
+    # max-flow bottleneck on natural inflows for fmin).  Tight bounds
+    # remove free-below extraction columns that block GPU first-order /
+    # heuristic LP solvers.  Disable with ``--no-reservoir-flow-estimate``.
+    _default_rfe = conf.get("reservoir_flow_estimate")
+    parser.add_argument(
+        "--reservoir-flow-estimate",
+        dest="reservoir_flow_estimate",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_rfe.lower() not in ("false", "0", "no")
+            if _default_rfe is not None
+            else True
+        ),
+        help=(
+            "estimate per-reservoir extraction-flow bounds (fmin/fmax) from "
+            "the hydraulic network topology instead of the generic gtopt "
+            "-9000/6000 m³/s defaults (default: %(default)s)"
+        ),
+    )
     add_scale_objective_argument(
         parser, default=float(conf.get("scale_objective", "1.0"))
     )

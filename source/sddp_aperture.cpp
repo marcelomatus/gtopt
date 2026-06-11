@@ -237,23 +237,28 @@ auto solve_apertures_for_phase(
     int chunk_size,
     SDDPWorkPool* pool_for_slot_release,
     std::span<const StateVarLink> cut_links,
-    bool aperture_warm_start) -> std::optional<SparseRow>
+    ApertureSolveMode aperture_solve_mode) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
 
   // Apply aperture timeout to solver options if configured.
-  // Crossover policy:
-  //   - simplex (primal/dual/default): crossover is a no-op for the
-  //     simplex solution path, leave whatever the user set.
-  //   - barrier: aperture cuts are built from reduced costs
-  //     (`get_col_cost_raw`); barrier-without-crossover RC noise is
-  //     at solver tolerance and filtered by `cut_coeff_eps`.  We
-  //     used to hard-clear crossover here, but that prevented users
-  //     from explicitly requesting vertex duals (e.g. for diagnosis
-  //     or for stricter cut precision).  Honour the user's setting.
+  // Crossover policy (see `ApertureSolveMode`):
+  //   - `cold` / `warm`: honour the user's crossover setting.  Aperture
+  //     cuts are built from reduced costs (`get_col_cost_raw`); the cold
+  //     seed defaults to barrier + crossover so the cut comes from a
+  //     vertex.  Simplex (the warm re-solve) always has a basis, so
+  //     crossover is a no-op there.
+  //   - `reduced_cost`: force barrier WITHOUT crossover.  The cut takes
+  //     the interior-point (analytic-center) reduced costs directly;
+  //     their tolerance-level noise is filtered by `cut_coeff_eps`.  This
+  //     skips the crossover cost on big cut-laden LPs where it dominates.
   auto aperture_opts = opts;
   if (aperture_timeout > 0.0) {
     aperture_opts.time_limit = aperture_timeout;
+  }
+  if (aperture_solve_mode == ApertureSolveMode::reduced_cost) {
+    aperture_opts.algorithm = LPAlgo::barrier;
+    aperture_opts.crossover = false;
   }
 
   // Build the effective aperture list for this phase
@@ -437,7 +442,7 @@ auto solve_apertures_for_phase(
           std::vector<MemoEntry> seen;
           seen.reserve(chunk.size());
 
-          // ── Warm-start state (opt-in via `aperture_warm_start`) ──────
+          // ── Warm-start state (aperture_solve_mode == warm) ──────────
           // The FIRST solved aperture in this chunk runs cold (barrier +
           // crossover, leaving an optimal basis on the shared clone);
           // every subsequent aperture re-optimizes that resident basis
@@ -617,7 +622,8 @@ auto solve_apertures_for_phase(
             clone.relax_integers();
             // Warm-start the re-solve once the shared clone already holds
             // an optimal basis from a previous aperture in this chunk.
-            const bool use_warm = aperture_warm_start && clone_has_basis;
+            const bool use_warm = aperture_solve_mode == ApertureSolveMode::warm
+                && clone_has_basis;
             const auto solve_t0 = std::chrono::steady_clock::now();
             [[maybe_unused]] auto solve_result =
                 clone.resolve(use_warm ? warm_opts : aperture_opts);
@@ -733,8 +739,8 @@ auto solve_apertures_for_phase(
           // ── Warm-start timing summary (opt-in path only) ────────────
           // Reports the cold-seed vs warm-resolve cost so the speedup is
           // measurable from the logs without a profiler.
-          if (aperture_warm_start && n_warm_solves > 0
-              && spdlog::should_log(spdlog::level::debug))
+          if (aperture_solve_mode == ApertureSolveMode::warm
+              && n_warm_solves > 0 && spdlog::should_log(spdlog::level::debug))
           {
             const double cold_avg_ms =
                 n_cold_solves > 0 ? (cold_solve_s / n_cold_solves) * 1e3 : 0.0;

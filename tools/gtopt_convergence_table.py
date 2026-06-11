@@ -163,6 +163,12 @@ class IterRow:
     converged: bool = False
     cuts_added: int | None = None
     kappa: float | None = None
+    # Seconds since the solve started, parsed from the log's
+    # ``iter N (async) … elapsed= Xs`` clause.  Used to give the FIRST
+    # iteration of the first level a real wall time (it has no previous
+    # cut/level boundary to subtract from).  ``None`` when no log line
+    # carried an elapsed token (e.g. cut-file-only fallback).
+    elapsed_s: float | None = None
 
 
 @dataclass
@@ -496,6 +502,7 @@ def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
                     delta_gap=delta_gap,
                     converged=meta.get("converged", False),
                     kappa=kappa,
+                    elapsed_s=meta.get("elapsed_s"),
                 )
             )
             continue
@@ -602,7 +609,8 @@ def render_table(
 
     # Header line with solve-start / now / elapsed.
     if stats and stats[0].rows:
-        start_ts = stats[0].rows[0].mtime
+        # True solve start = first iter's timestamp minus its logged elapsed.
+        start_ts = stats[0].rows[0].mtime - (stats[0].rows[0].elapsed_s or 0.0)
         now_ts = max(r.mtime for s in stats for r in s.rows)
         elapsed = now_ts - start_ts
         start_dt = datetime.fromtimestamp(start_ts)
@@ -630,11 +638,18 @@ def render_table(
         f"{'iter_wall':>10}   {'level_wall':>11}   {'total_wall':>11}    note"
     )
 
-    # Establish absolute zero for `total_wall` = mtime of the first iter we saw.
+    # Establish absolute zero for `total_wall`.  The first iteration's
+    # cut/log timestamp is when it *finished*, not when the solve began,
+    # so anchor at the true solve start = first-iter timestamp minus its
+    # logged elapsed.  This makes the FIRST iteration of the first level
+    # show its real wall time instead of 0 (falls back to the first
+    # timestamp when no elapsed token is available).
     if not stats or not stats[0].rows:
         out.append("  (no cut files yet — run hasn't produced an iteration)")
         return "\n".join(out)
-    t0 = stats[0].rows[0].mtime
+    first_row = stats[0].rows[0]
+    solve_start = first_row.mtime - (first_row.elapsed_s or 0.0)
+    t0 = solve_start
 
     prev_level_end_mtime: float | None = None
     cum_serialised = 0
@@ -651,6 +666,16 @@ def render_table(
     # the 2026-05-15 conversation for why we do not seed the
     # solver itself.
     cross_level_prev_ub: float | None = None
+    # Display-only contiguous iteration numbering across cascade levels.
+    # The C++ solver tags each cut at iteration `display+1`, and at every
+    # level boundary `load_cuts` advances the offset to
+    # `next(max_cut_iteration)` — one past the inherited cuts — so the
+    # raw async indices skip a number per boundary (warmup 0-3, uninodal
+    # 5-9, transport 11-16, …).  That gap is a cut-store accounting
+    # artifact, not a missed iteration: the bounds are correct.  Renumber
+    # contiguously here for presentation only; `r.iter` (used for the
+    # kappa lookup and log matching) is left untouched.
+    display_iter = stats[0].rows[0].iter
     for lvl in stats:
         c = lvl.cfg
         out.append(f"  {bar}")
@@ -679,7 +704,15 @@ def render_table(
                 f"transition ≈ {transition_s:.0f}s"
             )
 
-        level_start = lvl.rows[0].mtime
+        # Anchor the level's wall clock at its boundary, not at its first
+        # iteration's timestamp — otherwise the first iteration's iter_wall
+        # is `mtime - mtime = 0`.  For a non-first level the boundary is the
+        # previous level's last iteration (so the first iter_wall captures
+        # the inter-level transition + cold first iteration).  For the first
+        # level it is the true solve start.
+        level_start = (
+            prev_level_end_mtime if prev_level_end_mtime is not None else solve_start
+        )
         prev_ub: float | None = None
         prev_mtime: float | None = None
         new_cuts = 0
@@ -754,7 +787,7 @@ def render_table(
             note = "[CONVERGED]" if r.converged else ""
 
             out.append(
-                f"  {r.iter:>4d}   {fmt_money(r.upper_bound):>7}    "
+                f"  {display_iter:>4d}   {fmt_money(r.upper_bound):>7}    "
                 f"{fmt_money(r.lower_bound):>7}    "
                 f"{fmt_pct(r.gap):>11}   "
                 f"{fmt_pct(delta_gap_gt):>11}   "
@@ -764,9 +797,13 @@ def render_table(
                 f"{fmt_wall(level_wall):>11}   "
                 f"{fmt_wall(total_wall):>11}    {note}"
             )
+            display_iter += 1
 
         if lvl.rows:
-            level_total = lvl.rows[-1].mtime - lvl.rows[0].mtime
+            # Measure from the level boundary (matches level_wall above), so
+            # the level total includes the inter-level transition + cold
+            # first iteration rather than only the iteration-to-iteration span.
+            level_total = lvl.rows[-1].mtime - level_start
             # Prefer the level-summary `new_cuts=` from the log when
             # available — it's authoritative and includes the post-
             # iter-12 simulation pass that the per-row `cuts_added`
