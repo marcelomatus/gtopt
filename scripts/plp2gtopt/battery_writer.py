@@ -202,6 +202,15 @@ class BatteryWriter(BaseWriter):
                 # plpcenbat path below for rationale.
                 if source_gen == name:
                     source_gen = None
+                # ``<battery>_LOAD`` phantom centrals are PLP's charge-side
+                # artefacts — gtopt creates its own ``_dem`` element via
+                # ``expand_batteries()``, so drop the reference.
+                if (
+                    source_gen is not None
+                    and source_gen.endswith("_LOAD")
+                    and source_gen[: -len("_LOAD")] in batteries
+                ):
+                    source_gen = None
 
                 entries.append(
                     {
@@ -257,6 +266,17 @@ class BatteryWriter(BaseWriter):
                 # auto-expand path runs cleanly.
                 source_gen = injections[0]["name"] if injections else None
                 if source_gen == name:
+                    source_gen = None
+                # ``<battery>_LOAD`` phantom centrals are PLP's charge-side
+                # artefacts — gtopt creates its own ``_dem`` element via
+                # ``expand_batteries()``, so these must not be referenced
+                # as ``source_generator`` (central_writer already filters
+                # them out of generator_array).
+                if (
+                    source_gen is not None
+                    and source_gen.endswith("_LOAD")
+                    and source_gen[: -len("_LOAD")] in batteries
+                ):
                     source_gen = None
 
                 entries.append(
