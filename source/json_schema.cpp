@@ -40,7 +40,7 @@
 // daw_json_link issue).  Silence `-Wtemplate-body` for this whole
 // translation unit; no other gtopt code instantiates the schema
 // generator, so the suppression is fully local to this file.
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
 #  pragma GCC diagnostic ignored "-Wtemplate-body"
 #endif
 
