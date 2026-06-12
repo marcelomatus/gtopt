@@ -208,7 +208,7 @@ TEST_CASE("CplexEnvLp default ctor is silent (no cplex.log)")  // NOLINT
 }
 
 TEST_CASE(
-    "set_log_filename with level<=0 or empty name stays silent")  // NOLINT
+    "CPLEX set_log_filename with level<=0 or empty name stays silent")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -232,7 +232,8 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(file));
 }
 
-TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+TEST_CASE(
+    "CPLEX set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -345,7 +346,7 @@ TEST_CASE(  // NOLINT
 // B. load_problem cycles the env+lp and replays prep
 // ---------------------------------------------------------------------------
 
-TEST_CASE("load_problem destroys previous LP state")  // NOLINT
+TEST_CASE("CPLEX load_problem destroys previous LP state")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -409,7 +410,7 @@ TEST_CASE("CPLEX apply_options survives load_problem cycle")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(2.0));
 }
 
-TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
+TEST_CASE("CPLEX set_prob_name survives load_problem cycle")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {
@@ -515,7 +516,7 @@ TEST_CASE("clone owns its own env+lp: source may be destroyed")  // NOLINT
   CHECK(cloned->get_num_rows() == 1);
 }
 
-TEST_CASE("clone preserves options and prob_name")  // NOLINT
+TEST_CASE("CPLEX clone preserves options and prob_name")  // NOLINT
 {
   auto backend = make_cplex_or_skip();
   if (!backend) {

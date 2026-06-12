@@ -253,7 +253,8 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(file));
 }
 
-TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+TEST_CASE(
+    "HiGHS set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 {
   auto backend = make_highs_or_skip();
   if (!backend) {
@@ -318,7 +319,7 @@ TEST_CASE("load_problem replaces the previous model")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(3.0));
 }
 
-TEST_CASE("apply_options survives a load_problem call")  // NOLINT
+TEST_CASE("HiGHS apply_options survives a load_problem call")  // NOLINT
 {
   auto backend = make_highs_or_skip();
   if (!backend) {
@@ -388,7 +389,7 @@ TEST_CASE(
   CHECK(cloned->get_num_rows() == 1);
 }
 
-TEST_CASE("clone preserves options and prob_name")  // NOLINT
+TEST_CASE("HiGHS clone preserves options and prob_name")  // NOLINT
 {
   auto backend = make_highs_or_skip();
   if (!backend) {

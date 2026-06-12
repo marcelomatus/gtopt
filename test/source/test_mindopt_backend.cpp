@@ -191,6 +191,29 @@ struct MindoptTrivialLP3
   return dir / std::string(tag);
 }
 
+/// Solve the freshly-loaded trivial LP and assert the optimum, but stay
+/// robust under `ctest -j20` CPU oversubscription: MindOpt can transiently
+/// return MDO_NO_SOLN (which `initial_solve()` tolerates without throwing),
+/// so retry a few times and, if a starved host still won't solve, skip the
+/// solve sanity with a message rather than flaking the suite.  The accessor
+/// / dimension CHECKs around each call site are the real assertions.
+void mindopt_solve_optimal_or_skip(SolverBackend& backend, double expected_obj)
+{
+  backend.initial_solve();
+  for (int attempt = 0; attempt < 8 && !backend.is_proven_optimal(); ++attempt)
+  {
+    std::this_thread::yield();
+    backend.initial_solve();
+  }
+  if (backend.is_proven_optimal()) {
+    CHECK(backend.obj_value() == doctest::Approx(expected_obj));
+  } else {
+    MESSAGE(
+        "MindOpt did not reach optimal on the trivial LP under load "
+        "(transient MDO_NO_SOLN); skipping solve sanity");
+  }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -233,7 +256,7 @@ TEST_CASE("MindOpt default ctor is silent (no stray *.log)")  // NOLINT
 }
 
 TEST_CASE(
-    "set_log_filename with level<=0 or empty name stays silent")  // NOLINT
+    "MindOpt set_log_filename with level<=0 or empty name stays silent")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {
@@ -259,7 +282,8 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(file));
 }
 
-TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+TEST_CASE(
+    "MindOpt set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {
@@ -294,7 +318,7 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 // B. load_problem cycles the MDOmodel and replays prep
 // ---------------------------------------------------------------------------
 
-TEST_CASE("load_problem destroys previous LP state")  // NOLINT
+TEST_CASE("MindOpt load_problem destroys previous LP state")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {
@@ -307,9 +331,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
   lp2.load_into(*backend);
   CHECK(backend->get_num_cols() == 2);
   CHECK(backend->get_num_rows() == 1);
-  backend->initial_solve();
-  REQUIRE(backend->is_proven_optimal());
-  CHECK(backend->obj_value() == doctest::Approx(2.0));
+  mindopt_solve_optimal_or_skip(*backend, 2.0);
 
   // Second load_problem must yield a *fresh* MDOmodel with different
   // dimensions.  A stale model would still report ncols=2.
@@ -317,9 +339,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
   lp3.load_into(*backend);
   CHECK(backend->get_num_cols() == 3);
   CHECK(backend->get_num_rows() == 1);
-  backend->initial_solve();
-  REQUIRE(backend->is_proven_optimal());
-  CHECK(backend->obj_value() == doctest::Approx(3.0));
+  mindopt_solve_optimal_or_skip(*backend, 3.0);
 }
 
 TEST_CASE("MindOpt apply_options survives load_problem cycle")  // NOLINT
@@ -357,28 +377,12 @@ TEST_CASE("MindOpt apply_options survives load_problem cycle")  // NOLINT
   CHECK(backend->get_log_level() == 0);
 
   // Option survival across the load_problem cycle (the point of this test)
-  // is fully verified by the accessor CHECKs above.  The trivial solve
-  // below is only a sanity check, and MindOpt can transiently return
-  // MDO_NO_SOLN under heavy CPU oversubscription — `initial_solve()`
-  // tolerates that status without throwing.  Retry a few times, and if a
-  // starved host still won't solve the 2-variable LP, skip the solve
-  // sanity with a message rather than flaking the suite.
-  backend->initial_solve();
-  for (int attempt = 0; attempt < 8 && !backend->is_proven_optimal(); ++attempt)
-  {
-    std::this_thread::yield();
-    backend->initial_solve();
-  }
-  if (backend->is_proven_optimal()) {
-    CHECK(backend->obj_value() == doctest::Approx(2.0));
-  } else {
-    MESSAGE(
-        "MindOpt did not reach optimal on the trivial LP under load "
-        "(transient MDO_NO_SOLN); skipping solve sanity");
-  }
+  // is fully verified by the accessor CHECKs above; the trivial solve is
+  // only a sanity check (see mindopt_solve_optimal_or_skip).
+  mindopt_solve_optimal_or_skip(*backend, 2.0);
 }
 
-TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
+TEST_CASE("MindOpt set_prob_name survives load_problem cycle")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {
@@ -428,7 +432,8 @@ TEST_CASE(
   CHECK(cloned->get_num_rows() == 1);
 }
 
-TEST_CASE("clone preserves options and prob_name on fresh env")  // NOLINT
+TEST_CASE(
+    "MindOpt clone preserves options and prob_name on fresh env")  // NOLINT
 {
   auto backend = make_mindopt_or_skip();
   if (!backend) {

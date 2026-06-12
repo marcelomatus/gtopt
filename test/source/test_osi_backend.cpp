@@ -219,7 +219,7 @@ TEST_CASE("OsiSolverBackend default ctor is silent (no stray log)")  // NOLINT
 }
 
 TEST_CASE(
-    "set_log_filename with level<=0 or empty name stays silent")  // NOLINT
+    "OSI/CLP set_log_filename with level<=0 or empty name stays silent")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
@@ -249,7 +249,8 @@ TEST_CASE(
   CHECK_FALSE(fs::exists(file_empty));
 }
 
-TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
+TEST_CASE(
+    "OSI/CLP set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
@@ -285,7 +286,7 @@ TEST_CASE("set_log_filename(level>0) writes a log; clear stops it")  // NOLINT
 // B. load_problem cycles the OsiSolverInterface instance (reset_solver_)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("load_problem destroys previous LP state")  // NOLINT
+TEST_CASE("OSI/CLP load_problem destroys previous LP state")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
@@ -351,7 +352,7 @@ TEST_CASE("OSI/CLP apply_options survives load_problem cycle")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(2.0));
 }
 
-TEST_CASE("set_prob_name survives load_problem cycle")  // NOLINT
+TEST_CASE("OSI/CLP set_prob_name survives load_problem cycle")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
@@ -401,7 +402,7 @@ TEST_CASE("clone owns its own solver: source may be destroyed")  // NOLINT
   CHECK(cloned->get_num_rows() == 1);
 }
 
-TEST_CASE("clone preserves options and prob_name")  // NOLINT
+TEST_CASE("OSI/CLP clone preserves options and prob_name")  // NOLINT
 {
   auto backend = make_osi_clp_or_skip();
   if (!backend) {
