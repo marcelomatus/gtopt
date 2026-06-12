@@ -810,6 +810,7 @@ class TestGtoptIndicators:
             total_gen_capacity_mw: float = 100.0
             hydro_capacity_mw: float = 40.0
             thermal_capacity_mw: float = 60.0
+            renewable_capacity_mw: float = 35.0
             total_line_capacity_mw: float = 200.0
             first_block_demand_mw: float = 80.0
             last_block_demand_mw: float = 70.0
@@ -834,6 +835,7 @@ class TestGtoptIndicators:
         assert result["total_gen_capacity_mw"] == 100.0
         assert result["hydro_capacity_mw"] == 40.0
         assert result["thermal_capacity_mw"] == 60.0
+        assert result["renewable_capacity_mw"] == 35.0
         assert result["total_line_capacity_mw"] == 200.0
         assert result["first_block_demand_mw"] == 80.0
         assert result["last_block_demand_mw"] == 70.0
@@ -857,6 +859,7 @@ class TestGtoptIndicators:
             total_gen_capacity_mw: float = 0.0
             hydro_capacity_mw: float = 0.0
             thermal_capacity_mw: float = 0.0
+            renewable_capacity_mw: float = 0.0
             total_line_capacity_mw: float = 0.0
             first_block_demand_mw: float = 0.0
             last_block_demand_mw: float = 0.0
@@ -887,6 +890,7 @@ class TestGtoptIndicators:
             total_gen_capacity_mw: float = 0.0
             hydro_capacity_mw: float = 0.0
             thermal_capacity_mw: float = 0.0
+            renewable_capacity_mw: float = 0.0
             total_line_capacity_mw: float = 0.0
             first_block_demand_mw: float = 0.0
             last_block_demand_mw: float = 0.0
@@ -910,6 +914,7 @@ class TestGtoptIndicators:
             "total_gen_capacity_mw",
             "hydro_capacity_mw",
             "thermal_capacity_mw",
+            "renewable_capacity_mw",
             "total_line_capacity_mw",
             "first_block_demand_mw",
             "last_block_demand_mw",

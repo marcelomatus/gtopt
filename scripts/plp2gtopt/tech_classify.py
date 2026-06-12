@@ -115,6 +115,11 @@ def classify_type(gtype: str) -> str:
 
     Categories: ``"hydro"``, ``"thermal"``, ``"renewable"``,
     ``"storage"``, ``"curtailment"``, or ``"other"``.
+
+    Hierarchical types of the form ``"<top>:<sub>"`` (``thermal:diesel``,
+    ``thermal:gas``, ``thermal:cogen``, ``renewable:solar``,
+    ``renewable:hydro``, …) are classified by their ``<top>`` prefix
+    when the full string is not a known leaf.
     """
     gtype = gtype.lower()
     if gtype in HYDRO_TYPES:
@@ -127,7 +132,27 @@ def classify_type(gtype: str) -> str:
         return "storage"
     if gtype in CURTAILMENT_TYPES:
         return "curtailment"
+    if ":" in gtype:
+        return classify_type(gtype.split(":", 1)[0])
     return "other"
+
+
+def plp_category(gtype: str) -> str | None:
+    """Map a gtopt generator type back to its PLP raw category.
+
+    Hierarchical ``"<top>:<sub>"`` types fall back to ``<top>`` when the
+    full string isn't in :data:`PLP_CATEGORY_MAP`, so plexos2gtopt /
+    plp2gtopt refined types (``thermal:diesel``, ``renewable:hydro`` …)
+    bucket back into PLP ``termica`` / ``embalse`` / ``serie`` for the
+    PLP-vs-gtopt row-count comparison.  Returns ``None`` if neither the
+    exact type nor its prefix is known.
+    """
+    g = gtype.lower()
+    if g in PLP_CATEGORY_MAP:
+        return PLP_CATEGORY_MAP[g]
+    if ":" in g:
+        return PLP_CATEGORY_MAP.get(g.split(":", 1)[0])
+    return None
 
 
 # ---------------------------------------------------------------------------

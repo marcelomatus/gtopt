@@ -137,6 +137,21 @@ class CentralWriter(BaseWriter):
         input_dir = self.options.get("input_dir", "") if self.options else ""
         centipo_overrides = load_centipo_csv(input_dir) if input_dir else {}
 
+        # Build set of bateria names so we can recognise their phantom
+        # ``<bateria>_LOAD`` twins emitted by PLP as ``termica`` entries
+        # with ``pmax == 0`` and a large negative ``pmin`` (the battery
+        # charge side).  The Battery LP object already models both
+        # discharge and charge via ``pmax_discharge`` / ``pmax_charge``,
+        # so these phantoms must not be emitted as separate generators —
+        # otherwise the catch-all later promotes them to
+        # ``renewable:hydro`` and leaves their negative pmin pinning the
+        # LP column to a fake "consumer" generator (pmax=0 so it's
+        # solver-presolved away, but the JSON shows up in indicators and
+        # breaks gen-min-stable parity with PLP).
+        bateria_names = {
+            str(c["name"]) for c in items if str(c.get("type", "")).lower() == "bateria"
+        }
+
         json_centrals: List[Dict[str, Any]] = []
         for central in items:
             central_name = central["name"]
@@ -145,6 +160,14 @@ class CentralWriter(BaseWriter):
             # skip centrals that are "falla" or "bateria" type –
             # falla is a modelling artefact; bateria is handled by BessWriter
             if central["type"] in ("falla", "bateria"):
+                continue
+
+            # skip ``<bateria>_LOAD`` phantoms — the battery charge side
+            # is owned by the Battery LP object.
+            if (
+                central_name.endswith("_LOAD")
+                and central_name[: -len("_LOAD")] in bateria_names
+            ):
                 continue
 
             # Skip centrals without a bus or with bus 0

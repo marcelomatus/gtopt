@@ -12,6 +12,7 @@ from plp2gtopt.tech_classify import (
     STORAGE_TYPES,
     THERMAL_TYPES,
     classify_type,
+    plp_category,
     type_color,
     type_label,
 )
@@ -69,6 +70,20 @@ class TestClassifyType:
         assert classify_type("Battery") == "storage"
         assert classify_type("FALLA") == "curtailment"
 
+    def test_hierarchical_types_prefix_fallback(self) -> None:
+        """``<top>:<sub>`` types classify by the ``<top>`` prefix."""
+        # plexos2gtopt / plp2gtopt hierarchical convention
+        assert classify_type("thermal:diesel") == "thermal"
+        assert classify_type("thermal:gas") == "thermal"
+        assert classify_type("thermal:cogen") == "thermal"
+        assert classify_type("thermal:otros") == "thermal"
+        assert classify_type("renewable:solar") == "renewable"
+        assert classify_type("renewable:hydro") == "renewable"
+        # case-insensitive prefix fallback
+        assert classify_type("Renewable:Hydro") == "renewable"
+        # unknown prefix still falls through to "other"
+        assert classify_type("foo:bar") == "other"
+
 
 class TestTypeLabel:
     """Tests for type_label()."""
@@ -122,6 +137,31 @@ class TestPlpCategoryMap:
 
     def test_embalse_maps_to_embalse(self) -> None:
         assert PLP_CATEGORY_MAP["embalse"] == "embalse"
+
+
+class TestPlpCategoryFn:
+    """Tests for plp_category() — handles hierarchical types."""
+
+    def test_exact_match_passthrough(self) -> None:
+        assert plp_category("solar") == "termica"
+        assert plp_category("hydro_ror") == "serie"
+        assert plp_category("embalse") == "embalse"
+
+    def test_hierarchical_prefix_fallback(self) -> None:
+        # PLP's plpcnfce.dat lumps all of these into "termica"
+        assert plp_category("thermal:diesel") == "termica"
+        assert plp_category("thermal:gas") == "termica"
+        assert plp_category("thermal:cogen") == "termica"
+        assert plp_category("renewable:solar") == "termica"
+        assert plp_category("renewable:hydro") == "termica"
+
+    def test_case_insensitive(self) -> None:
+        assert plp_category("Renewable:Hydro") == "termica"
+        assert plp_category("THERMAL:DIESEL") == "termica"
+
+    def test_unknown_returns_none(self) -> None:
+        assert plp_category("notavalidtype") is None
+        assert plp_category("foo:bar") is None
 
 
 class TestAllKnownTypes:

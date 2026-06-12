@@ -172,6 +172,7 @@ def _plp_active_hydrology_indices(parser: PLPParser) -> list[int] | None:
 def _plp_indicators(
     parser: PLPParser,
     hydrology_indices: list[int] | None = None,
+    gtopt_planning: dict[str, Any] | None = None,
 ) -> dict[str, float]:
     """Compute aggregate PLP indicators from parsed data for comparison.
 
@@ -208,13 +209,46 @@ def _plp_indicators(
             if central.get("bus", 0) > 0:
                 _bus_gt0_names.add(str(central.get("name", "")))
 
+    # --- Symmetric bucketing: prefer the gtopt JSON's type field over PLP's ---
+    # The gtopt converter reclassifies PLP centrals (e.g. small distributed
+    # ROR → ``renewable:hydro``, solar/wind via name patterns, BAT_*_LOAD
+    # absorbed into batteries).  When a planning dict is supplied we use
+    # that name-keyed type map so the PLP-side hydro / thermal / renewable
+    # buckets tie out against gtopt's :func:`compute_indicators` by
+    # construction.  ``absorbed_names`` lists PLP centrals that gtopt's
+    # converter folded into a Battery (twin ``<name>_LOAD`` pmax=0 entries)
+    # — these must be dropped from gen_min_stable so PLP's catch-all
+    # ``termica`` sum doesn't double-count battery-charge ghosts.
+    name_to_gtopt_type: dict[str, str] = {}
+    name_to_gtopt_pmin: dict[str, Any] = {}
+    res_name_to_gtopt_emin: dict[str, Any] = {}
+    absorbed_names: set[str] = set()
+    if gtopt_planning is not None:
+        psys = gtopt_planning.get("system", {})
+        for g in psys.get("generator_array", []):
+            gname = str(g.get("name", ""))
+            name_to_gtopt_type[gname] = str(g.get("type", ""))
+            name_to_gtopt_pmin[gname] = g.get("pmin")
+        for r in psys.get("reservoir_array", []):
+            rname = str(r.get("name", ""))
+            res_name_to_gtopt_emin[rname] = r.get("emin")
+        for b in psys.get("battery_array", []):
+            bname = str(b.get("name", ""))
+            absorbed_names.add(bname)
+            absorbed_names.add(bname + "_LOAD")
+
     # --- Total generation capacity from plpcnfce.dat (bus > 0 only) ---
     # Exclude "falla" (failure generators) to match gtopt.  Batteries
     # (type "bateria") are included because gtopt counts their discharge
-    # capacity via battery_array.pmax_discharge.
+    # capacity via battery_array.pmax_discharge.  When a planning dict is
+    # supplied, use the gtopt-side type classifier for hydro / thermal /
+    # renewable bucketing so the sub-totals tie out exactly.
+    from .tech_classify import classify_type  # noqa: PLC0415
+
     total_cap = 0.0
     hydro_cap = 0.0
     thermal_cap = 0.0
+    renewable_cap = 0.0
     if central_parser:
         hydro_types = {"embalse", "serie", "pasada"}
         for central in central_parser.centrals:
@@ -224,16 +258,30 @@ def _plp_indicators(
             if central.get("bus", 0) <= 0:
                 continue
             pmax = central.get("pmax", 0.0)
-            if isinstance(pmax, (int, float)):
-                pmw = float(pmax)
-                total_cap += pmw
-                if ctype in hydro_types:
-                    hydro_cap += pmw
-                elif ctype == "termica":
-                    thermal_cap += pmw
+            if not isinstance(pmax, (int, float)):
+                continue
+            pmw = float(pmax)
+            total_cap += pmw
+            cname = str(central.get("name", ""))
+            if cname in name_to_gtopt_type:
+                # Authoritative: classify by gtopt's emitted type
+                category = classify_type(name_to_gtopt_type[cname])
+            elif ctype in hydro_types:
+                category = "hydro"
+            elif ctype == "termica":
+                category = "thermal"
+            else:
+                category = "other"
+            if category == "hydro":
+                hydro_cap += pmw
+            elif category == "thermal":
+                thermal_cap += pmw
+            elif category == "renewable":
+                renewable_cap += pmw
     indicators["total_gen_capacity_mw"] = total_cap
     indicators["hydro_capacity_mw"] = hydro_cap
     indicators["thermal_capacity_mw"] = thermal_cap
+    indicators["renewable_capacity_mw"] = renewable_cap
 
     # Read receipts for input columns that no other indicator reflects:
     #   * plpcnfce PotMin → Generator.pmin (gen min-stable level)
@@ -241,6 +289,13 @@ def _plp_indicators(
     # Without these, a PotMin / Vmin column silently read as zero would be
     # invisible in the comparison.  Both tie out against the gtopt side's
     # Tier-5 aggregates (compute_indicators), which sum the same JSON fields.
+    # ``absorbed_names`` filters out PLP BAT_*_LOAD twins absorbed by the
+    # battery converter — their large negative pmin (charge max) is already
+    # represented on the gtopt side as Battery.pmax_charge.  For centrals
+    # that gtopt does emit, prefer the emitted pmin so the sum mirrors
+    # what the LP actually sees — ``pmin_as_flowright`` and similar soft
+    # constraints zero the generator pmin field and re-express the floor
+    # as a FlowRight, so summing PLP raw pmin would over-count.
     gen_min_stable = 0.0
     if central_parser:
         for central in central_parser.centrals:
@@ -248,17 +303,39 @@ def _plp_indicators(
                 continue
             if central.get("bus", 0) <= 0:
                 continue
-            pmin = central.get("pmin", 0.0)
-            if isinstance(pmin, (int, float)):
-                gen_min_stable += float(pmin)
+            cname = str(central.get("name", ""))
+            if cname in absorbed_names:
+                continue
+            if cname in name_to_gtopt_pmin:
+                gpmin = name_to_gtopt_pmin[cname]
+                if isinstance(gpmin, (int, float)):
+                    gen_min_stable += float(gpmin)
+                # else: profile / Parquet reference → 0 (mirrors gtopt
+                # _info.py:_first_scalar which yields None for refs).
+            else:
+                pmin = central.get("pmin", 0.0)
+                if isinstance(pmin, (int, float)):
+                    gen_min_stable += float(pmin)
     indicators["total_gen_min_stable_mw"] = gen_min_stable
 
+    # Reservoir min vol: when gtopt has the reservoir but its emin field
+    # is a string profile / Parquet reference (time-varying min vol from
+    # plpminembh.dat), gtopt's ``compute_indicators`` uses ``_first_scalar``
+    # which yields None for refs and silently excludes the reservoir from
+    # the sum.  Mirror that here so the row ties out — skip the PLP
+    # central's scalar emin when its gtopt twin has a non-scalar emin.
     reservoir_min_vol = 0.0
     if central_parser:
         for central in central_parser.centrals:
             emin = central.get("emin")
-            if isinstance(emin, (int, float)):
-                reservoir_min_vol += float(emin)
+            if not isinstance(emin, (int, float)):
+                continue
+            rname = str(central.get("name", ""))
+            if rname in res_name_to_gtopt_emin:
+                gemin = res_name_to_gtopt_emin[rname]
+                if not isinstance(gemin, (int, float)):
+                    continue  # profile ref → mirror gtopt's silent skip
+            reservoir_min_vol += float(emin)
     indicators["total_reservoir_min_vol"] = reservoir_min_vol
 
     # --- Total line capacity from plplin.dat ---
@@ -464,6 +541,7 @@ def _gtopt_indicators(
         "total_gen_capacity_mw": ind.total_gen_capacity_mw,
         "hydro_capacity_mw": ind.hydro_capacity_mw,
         "thermal_capacity_mw": ind.thermal_capacity_mw,
+        "renewable_capacity_mw": ind.renewable_capacity_mw,
         "total_line_capacity_mw": ind.total_line_capacity_mw,
         "first_block_demand_mw": ind.first_block_demand_mw,
         "last_block_demand_mw": ind.last_block_demand_mw,
@@ -661,6 +739,7 @@ def compute_comparison_indicators(
     plp_ind = _plp_indicators(
         parser,
         hydrology_indices=hydrology_indices,
+        gtopt_planning=planning,
     )
     gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
     return plp_ind, gtopt_ind
@@ -848,8 +927,10 @@ def _log_comparison(
     g_stateless_res = gtopt_counts.get("stateless_reservoirs", 0)
 
     # gtopt generator type breakdown — group new tech types back to PLP
-    # categories using the shared classification map.
-    from .tech_classify import PLP_CATEGORY_MAP  # noqa: PLC0415
+    # categories using the shared classification map.  ``plp_category``
+    # handles hierarchical ``"<top>:<sub>"`` types (e.g. ``renewable:hydro``)
+    # by falling back to the prefix.
+    from .tech_classify import plp_category  # noqa: PLC0415
 
     _plp_cat_counts: dict[str, int] = {
         "embalse": 0,
@@ -860,7 +941,7 @@ def _log_comparison(
     for key, val in gtopt_counts.items():
         if key.startswith("gen_"):
             tech = key[4:]
-            plp_cat = PLP_CATEGORY_MAP.get(tech)
+            plp_cat = plp_category(tech)
             if plp_cat and plp_cat in _plp_cat_counts:
                 _plp_cat_counts[plp_cat] += val
     g_gen_embalse = _plp_cat_counts["embalse"]
@@ -1122,10 +1203,19 @@ def _log_comparison(
             plp_ind.get("hydro_capacity_mw", 0.0),
             gtopt_ind.get("hydro_capacity_mw", 0.0),
         )
+        # Both PLP and gtopt indicators bucket centrals using the
+        # gtopt-side type classifier (``_plp_indicators`` consults the
+        # planning dict), so the hydro / thermal / renewable rows tie
+        # out by construction.
         _ind_row(
             "  thermal capacity (MW)",
             plp_ind.get("thermal_capacity_mw", 0.0),
             gtopt_ind.get("thermal_capacity_mw", 0.0),
+        )
+        _ind_row(
+            "  renewable capacity (MW)",
+            plp_ind.get("renewable_capacity_mw", 0.0),
+            gtopt_ind.get("renewable_capacity_mw", 0.0),
         )
         _ind_row(
             "gen min-stable (Σ MW)",
