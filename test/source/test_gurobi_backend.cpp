@@ -303,7 +303,7 @@ TEST_CASE("load_problem destroys previous LP state")  // NOLINT
   CHECK(backend->obj_value() == doctest::Approx(3.0));
 }
 
-TEST_CASE("apply_options survives load_problem cycle")  // NOLINT
+TEST_CASE("Gurobi apply_options survives load_problem cycle")  // NOLINT
 {
   auto backend = make_gurobi_or_skip();
   if (!backend) {

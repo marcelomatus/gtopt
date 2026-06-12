@@ -1103,7 +1103,20 @@ TEST_CASE(  // NOLINT
   // After guard exit, slot is re-acquired (count == 1 inside the task);
   // after task completes, worker_loop decrements back to 0.
   CHECK(active_after_guard == 1);
-  CHECK(pool.get_statistics().tasks_active == 0);
+  // The final decrement happens in worker_loop *after* task.execute()
+  // fulfils the future (work_pool.hpp runs tasks_active_.fetch_sub(1) on
+  // a later line), so fut.get() can unblock a hair before the counter
+  // drops — under CPU oversubscription that lag is observable.  Poll for
+  // the drain instead of reading the counter eagerly.
+  bool drained = false;
+  for (int i = 0; i < 2000 && !drained; ++i) {
+    if (pool.get_statistics().tasks_active == 0) {
+      drained = true;
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds {1});
+    }
+  }
+  CHECK(drained);
 }
 
 TEST_CASE(  // NOLINT
