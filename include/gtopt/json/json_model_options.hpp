@@ -20,36 +20,64 @@ using gtopt::ModelOptions;
 template<>
 struct json_data_contract<ModelOptions>
 {
-  using type =
-      json_member_list<json_bool_null<"use_single_bus", OptBool>,
-                       json_bool_null<"use_kirchhoff", OptBool>,
-                       json_bool_null<"use_line_losses", OptBool>,
-                       json_string_null<"line_losses_mode", OptName>,
-                       json_number_null<"kirchhoff_threshold", OptReal>,
-                       json_number_null<"loss_segments", OptInt>,
-                       json_number_null<"scale_objective", OptReal>,
-                       json_number_null<"scale_theta", OptReal>,
-                       json_number_null<"demand_fail_cost", OptReal>,
-                       json_number_null<"reserve_fail_cost", OptReal>,
-                       json_number_null<"hydro_fail_cost", OptReal>,
-                       json_number_null<"hydro_use_value", OptReal>,
-                       json_number_null<"state_fail_cost", OptReal>>;
+  using type = json_member_list<
+      json_bool_null<"use_single_bus", OptBool>,
+      json_bool_null<"use_kirchhoff", OptBool>,
+      json_string_null<"kirchhoff_mode", OptName>,
+      json_bool_null<"use_line_losses", OptBool>,
+      json_string_null<"line_losses_mode", OptName>,
+      json_number_null<"kirchhoff_threshold", OptReal>,
+      json_number_null<"dc_line_reactance_threshold", OptReal>,
+      json_number_null<"dc_line_resistance_threshold", OptReal>,
+      json_number_null<"loss_segments", OptInt>,
+      json_number_null<"scale_objective", OptReal>,
+      json_number_null<"scale_theta", OptReal>,
+      json_number_null<"scale_loss_link", OptReal>,
+      json_number_null<"loss_cost_eps", OptReal>,
+      json_number_null<"loss_secant_segments", OptInt>,
+      json_bool_null<"loss_use_sos2", OptBool>,
+      json_number_null<"theta_max", OptReal>,
+      json_bool_null<"auto_scale", OptBool>,
+      json_number_null<"demand_fail_cost", OptReal>,
+      json_number_null<"reserve_shortage_cost", OptReal>,
+      json_number_null<"hydro_spill_cost", OptReal>,
+      json_number_null<"hydro_use_value", OptReal>,
+      json_number_null<"state_violation_cost", OptReal>,
+      json_bool_null<"demand_fail_rhs_shift", OptBool>,
+      json_string_null<"continuous_phases", OptName>,
+      json_string_null<"naming_dialect", OptName>,
+      json_string_null<"objective_mode", OptName>,
+      json_bool_null<"strict_storage_emin", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
     return std::forward_as_tuple(opt.use_single_bus,
                                  opt.use_kirchhoff,
+                                 opt.kirchhoff_mode,
                                  opt.use_line_losses,
                                  opt.line_losses_mode,
                                  opt.kirchhoff_threshold,
+                                 opt.dc_line_reactance_threshold,
+                                 opt.dc_line_resistance_threshold,
                                  opt.loss_segments,
                                  opt.scale_objective,
                                  opt.scale_theta,
+                                 opt.scale_loss_link,
+                                 opt.loss_cost_eps,
+                                 opt.loss_secant_segments,
+                                 opt.loss_use_sos2,
+                                 opt.theta_max,
+                                 opt.auto_scale,
                                  opt.demand_fail_cost,
-                                 opt.reserve_fail_cost,
-                                 opt.hydro_fail_cost,
+                                 opt.reserve_shortage_cost,
+                                 opt.hydro_spill_cost,
                                  opt.hydro_use_value,
-                                 opt.state_fail_cost);
+                                 opt.state_violation_cost,
+                                 opt.demand_fail_rhs_shift,
+                                 opt.continuous_phases,
+                                 opt.naming_dialect,
+                                 opt.objective_mode,
+                                 opt.strict_storage_emin);
   }
 };
 

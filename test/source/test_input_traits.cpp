@@ -249,9 +249,12 @@ TEST_CASE("InputTraits FileSched double - TBRealSched via Parquet")
   const TBRealFieldSched fsched {std::string("gcost")};
   const TBRealSched sched {ic, "TestGen", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(10.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(20.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(30.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(10.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(20.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(30.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -290,11 +293,11 @@ TEST_CASE("InputTraits FileSched double - STBRealSched via Parquet")
   const STBRealFieldSched fsched {std::string("profile")};
   const STBRealSched sched {ic, "TestGen", id, fsched};
 
-  CHECK(sched.at(ScenarioUid {1}, StageUid {1}, BlockUid {1})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1))
         == doctest::Approx(100.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {2})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(2))
         == doctest::Approx(200.0));
-  CHECK(sched.at(ScenarioUid {1}, StageUid {2}, BlockUid {3})
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3))
         == doctest::Approx(300.0));
 
   std::filesystem::remove_all(tmp_root);
@@ -351,8 +354,8 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
   const TRealFieldSched fsched {std::string("cap")};
   const TRealSched sched {ic, "TestCap", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == doctest::Approx(42.5));
-  CHECK(sched.at(StageUid {2}) == doctest::Approx(99.9));
+  CHECK(sched.at(make_uid<Stage>(1)) == doctest::Approx(42.5));
+  CHECK(sched.at(make_uid<Stage>(2)) == doctest::Approx(99.9));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -390,8 +393,8 @@ TEST_CASE("InputTraits FileSched int32 - ActiveSched via Parquet")
   const IntBoolFieldSched fsched {std::string("active")};
   const ActiveSched sched {ic, "TestAct", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == 1);
-  CHECK(sched.at(StageUid {2}) == 0);
+  CHECK(sched.at(make_uid<Stage>(1)) == 1);
+  CHECK(sched.at(make_uid<Stage>(2)) == 0);
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -433,11 +436,11 @@ TEST_CASE("InputTraits FileSched - OptSchedule via Parquet")
   const OptTBRealSched sched {ic, "TestOpt", id, fsched_opt};
 
   REQUIRE(sched.has_value());
-  CHECK(sched.at(StageUid {1}, BlockUid {1}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
         == doctest::Approx(5.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(-1.0)
         == doctest::Approx(15.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}).value_or(-1.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3)).value_or(-1.0)
         == doctest::Approx(25.0));
 
   std::filesystem::remove_all(tmp_root);
@@ -454,7 +457,7 @@ TEST_CASE("InputTraits OptSchedule empty returns nullopt")
   const OptTBRealSched sched;
 
   CHECK_FALSE(sched.has_value());
-  CHECK_FALSE(sched.at(StageUid {1}, BlockUid {1}).has_value());
+  CHECK_FALSE(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
 }
 
 // ---------------------------------------------------------------------------
@@ -493,9 +496,12 @@ TEST_CASE("InputTraits FileSched - column found by name")
   const TBRealFieldSched fsched {std::string("field1")};
   const TBRealSched sched {ic, "TestName", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(7.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(8.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(9.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(7.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(8.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(9.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -509,8 +515,10 @@ TEST_CASE("InputTraits scalar path via Schedule")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const TBRealSched sched {5.5};
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(5.5));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(5.5));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(5.5));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(5.5));
 }
 
 TEST_CASE("InputTraits vector path via Schedule with InputContext")
@@ -531,9 +539,12 @@ TEST_CASE("InputTraits vector path via Schedule with InputContext")
   const TBRealFieldSched fsched {vec};
   const TBRealSched sched {ic, "VecClass", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(1.1));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(2.2));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(3.3));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(1.1));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(2.2));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(3.3));
 }
 
 // ---------------------------------------------------------------------------
@@ -588,8 +599,8 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
   const TRealFieldSched fsched {std::string("fval")};
   const TRealSched sched {ic, "TestF32", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == doctest::Approx(1.5));
-  CHECK(sched.at(StageUid {2}) == doctest::Approx(2.5));
+  CHECK(sched.at(make_uid<Stage>(1)) == doctest::Approx(1.5));
+  CHECK(sched.at(make_uid<Stage>(2)) == doctest::Approx(2.5));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -646,8 +657,8 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
   const IntBoolFieldSched fsched {std::string("ival")};
   const ActiveSched sched {ic, "TestI16", id, fsched};
 
-  CHECK(sched.at(StageUid {1}) == 10);
-  CHECK(sched.at(StageUid {2}) == 20);
+  CHECK(sched.at(make_uid<Stage>(1)) == 10);
+  CHECK(sched.at(make_uid<Stage>(2)) == 20);
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -694,9 +705,12 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
   const TBRealFieldSched fsched {std::string("cost")};
   const TBRealSched sched {ic, "TestCSV", id, fsched};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}) == doctest::Approx(11.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}) == doctest::Approx(22.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {3}) == doctest::Approx(33.0));
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(11.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
+        == doctest::Approx(22.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
+        == doctest::Approx(33.0));
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -723,9 +737,9 @@ TEST_CASE("InputTraits scalar OptTBRealSched returns constant")
   const OptReal scalar_value {42.0};
   const OptTBRealSched sched {ic, "Scalar", id, scalar_value};
 
-  CHECK(sched.at(StageUid {1}, BlockUid {1}).value_or(0.0)
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(0.0)
         == doctest::Approx(42.0));
-  CHECK(sched.at(StageUid {2}, BlockUid {2}).value_or(0.0)
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(0.0)
         == doctest::Approx(42.0));
 }
 
@@ -751,5 +765,220 @@ TEST_CASE("InputTraits nullopt OptTBRealSched returns nullopt")
   const OptReal null_value;
   const OptTBRealSched sched {ic, "Null", id, null_value};
 
-  CHECK_FALSE(sched.at(StageUid {1}, BlockUid {1}).has_value());
+  CHECK_FALSE(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Per-stage Parquet → OptTBRealSched broadcasts across blocks (the 2026-05-18
+// promotion of Battery/Reservoir/VolumeRight/LngTerminal `emin`/`emax` from
+// per-stage to per-(stage, block) must still accept PLP-shape `(stage, value)`
+// files and broadcast the value across every block of the stage).
+// ---------------------------------------------------------------------------
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Write a double Parquet schedule indexed by (stage) only — no `block`
+/// column.  The loader should broadcast each stage's value across every
+/// block of that stage when this file is consumed as an OptTBRealSched.
+void write_t_only_double_parquet(const std::filesystem::path& input_dir,
+                                 std::string_view class_name,
+                                 std::string_view field_name,
+                                 std::string_view col_name,
+                                 double v_stage_1,
+                                 double v_stage_2)
+{
+  arrow::Int32Builder stage_b;
+  REQUIRE(stage_b.AppendValues({1, 2}).ok());
+  std::shared_ptr<arrow::Array> stages;
+  REQUIRE(stage_b.Finish(&stages).ok());
+
+  arrow::DoubleBuilder val_b;
+  REQUIRE(val_b.AppendValues({v_stage_1, v_stage_2}).ok());
+  std::shared_ptr<arrow::Array> vals;
+  REQUIRE(val_b.Finish(&vals).ok());
+
+  auto schema = arrow::schema({
+      arrow::field("stage", arrow::int32()),
+      arrow::field(std::string(col_name), arrow::float64()),
+  });
+
+  write_schedule_parquet(
+      input_dir, class_name, field_name, schema, {stages, vals});
+}
+
+/// Variant of write_stb_double_parquet that omits the `scenario` and
+/// `block` columns — only `stage` and the value column are written.  The
+/// loader is expected to broadcast each stage's value across every
+/// (scenario, block) tuple.
+void write_t_only_stb_double_parquet(const std::filesystem::path& input_dir,
+                                     std::string_view class_name,
+                                     std::string_view field_name,
+                                     std::string_view col_name,
+                                     double v_stage_1,
+                                     double v_stage_2)
+{
+  arrow::Int32Builder stage_b;
+  REQUIRE(stage_b.AppendValues({1, 2}).ok());
+  std::shared_ptr<arrow::Array> stages;
+  REQUIRE(stage_b.Finish(&stages).ok());
+
+  arrow::DoubleBuilder val_b;
+  REQUIRE(val_b.AppendValues({v_stage_1, v_stage_2}).ok());
+  std::shared_ptr<arrow::Array> vals;
+  REQUIRE(val_b.Finish(&vals).ok());
+
+  auto schema = arrow::schema({
+      arrow::field("stage", arrow::int32()),
+      arrow::field(std::string(col_name), arrow::float64()),
+  });
+
+  write_schedule_parquet(
+      input_dir, class_name, field_name, schema, {stages, vals});
+}
+
+}  // namespace
+
+TEST_CASE(
+    "InputTraits per-stage Parquet broadcasts across blocks (OptTBRealSched)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto tmp_root =
+      std::filesystem::temp_directory_path() / "test_input_traits_t_broadcast";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  // Per-stage file: stage=1 → 7.5, stage=2 → 9.25.  No `block` column.
+  write_t_only_double_parquet(
+      input_dir, "TestStorage", "emin", "uid:1", 7.5, 9.25);
+
+  const auto sim = make_test_simulation();
+  const PlanningOptions opts {
+      .input_directory = input_dir.string(),
+  };
+  const PlanningOptionsLP options {
+      opts,
+  };
+  SimulationLP simulation {sim, options};
+
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  // OptTBRealSched is the new shape for Battery/Reservoir/VolumeRight/
+  // LngTerminal emin/emax.  A FileSched pointing at `emin` (which on disk
+  // only has `stage` + `uid:1`) must load cleanly and broadcast.
+  const Id id {Uid {1}, "emin"};
+  const OptTBRealFieldSched fsched {std::string("emin")};
+  const OptTBRealSched sched {ic, "TestStorage", id, fsched};
+
+  // Stage 1, block 1 → 7.5 (the per-stage value broadcast).
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
+        == doctest::Approx(7.5));
+  // Stage 2: blocks 2 and 3 must both see 9.25 — same broadcast value.
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(-1.0)
+        == doctest::Approx(9.25));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3)).value_or(-1.0)
+        == doctest::Approx(9.25));
+
+  // optval form must also see the broadcast value (not nullopt).
+  CHECK(sched.optval(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
+        == doctest::Approx(7.5));
+
+  std::filesystem::remove_all(tmp_root);
+}
+
+TEST_CASE("InputTraits per-(stage, block) Parquet still works (OptTBRealSched)")
+{
+  // Regression: when the parquet DOES have a `block` column the per-block
+  // indexing must continue to work exactly as before the broadcast change.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto tmp_root =
+      std::filesystem::temp_directory_path() / "test_input_traits_tb_unchanged";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  // Full per-(stage, block) shape: (1,1)→1.0, (2,2)→2.0, (2,3)→3.0.
+  write_tb_double_parquet(
+      input_dir, "TestStorage", "emax", "uid:1", 1.0, 2.0, 3.0);
+
+  const auto sim = make_test_simulation();
+  const PlanningOptions opts {
+      .input_directory = input_dir.string(),
+  };
+  const PlanningOptionsLP options {
+      opts,
+  };
+  SimulationLP simulation {sim, options};
+
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const Id id {Uid {1}, "emax"};
+  const OptTBRealFieldSched fsched {std::string("emax")};
+  const OptTBRealSched sched {ic, "TestStorage", id, fsched};
+
+  // Per-block values must differ — broadcast must NOT collapse them.
+  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1)).value_or(-1.0)
+        == doctest::Approx(1.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2)).value_or(-1.0)
+        == doctest::Approx(2.0));
+  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3)).value_or(-1.0)
+        == doctest::Approx(3.0));
+
+  std::filesystem::remove_all(tmp_root);
+}
+
+TEST_CASE(
+    "InputTraits per-stage Parquet broadcasts over scenario+block "
+    "(OptSTBRealSched)")
+{
+  // Symmetric 3-D case: only `stage` on disk; the loader must broadcast
+  // across both the scenario and block axes.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto tmp_root = std::filesystem::temp_directory_path()
+      / "test_input_traits_stb_broadcast";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  write_t_only_stb_double_parquet(
+      input_dir, "TestStorage", "emin", "uid:1", 11.0, 22.0);
+
+  const auto sim = make_test_simulation();
+  const PlanningOptions opts {
+      .input_directory = input_dir.string(),
+  };
+  const PlanningOptionsLP options {
+      opts,
+  };
+  SimulationLP simulation {sim, options};
+
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const Id id {Uid {1}, "emin"};
+  const OptSTBRealFieldSched fsched {std::string("emin")};
+  const OptSTBRealSched sched {ic, "TestStorage", id, fsched};
+
+  // Single scenario in fixture (uid=1); each block of each stage must
+  // see the per-stage broadcast value.
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1))
+            .value_or(-1.0)
+        == doctest::Approx(11.0));
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(2))
+            .value_or(-1.0)
+        == doctest::Approx(22.0));
+  CHECK(sched.at(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3))
+            .value_or(-1.0)
+        == doctest::Approx(22.0));
+
+  std::filesystem::remove_all(tmp_root);
 }

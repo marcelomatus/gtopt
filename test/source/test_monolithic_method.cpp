@@ -98,8 +98,8 @@ auto make_monolithic_test_planning(
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
   options.output_compression = CompressionCodec::uncompressed;
 
   return Planning {
@@ -176,8 +176,8 @@ auto make_multi_scenario_planning() -> Planning
   };
 
   PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {true};
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
   options.output_compression = CompressionCodec::uncompressed;
 
   return Planning {
@@ -251,7 +251,7 @@ TEST_CASE(  // NOLINT
   CHECK(result.value_or(0) >= 1);
 
   const auto& summary = planning_lp.sddp_summary();
-  CHECK(summary.max_kappa == doctest::Approx(1.0));
+  CHECK(summary.max_kappa == doctest::Approx(-1.0));
 }
 
 // ---------------------------------------------------------------
@@ -405,6 +405,7 @@ TEST_CASE("SolveMode enum_entries - all entries present")  // NOLINT
 TEST_CASE("SolveMode enum_from_name round-trip")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-optional-value-conversion)
 
   const auto mono = enum_from_name<SolveMode>("monolithic");
   CHECK(mono == SolveMode::monolithic);
@@ -412,3 +413,5 @@ TEST_CASE("SolveMode enum_from_name round-trip")  // NOLINT
   const auto seq = enum_from_name<SolveMode>("sequential");
   CHECK(seq == SolveMode::sequential);
 }
+
+// NOLINTEND(bugprone-optional-value-conversion)

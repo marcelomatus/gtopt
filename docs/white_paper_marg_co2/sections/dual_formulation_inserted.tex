@@ -1,0 +1,203 @@
+% =====================================================================
+% dual_formulation.tex --- D4 --- LP-duality derivation of lambda <-> eps.
+% Inserted into sections/methodology.tex AFTER the operational-state
+% subsection and BEFORE the marginal-emission-factor subsection.
+% =====================================================================
+
+\subsection{Dual-LP Formulation: From $\lambda$ to $\varepsilon$}
+\label{sec:dual-formulation}
+
+The closest-CV picker introduced in
+Section~\ref{sec:scvic-ladder} can be reinterpreted as the empirical
+realisation of a chain of linear-programming dualities.  Stating the
+chain explicitly serves three purposes: (i)~it pins down the
+sufficient conditions under which the reconstructed
+$\hat\varepsilon_t$ is provably equal to the true marginal emission
+factor of the underlying physical dispatch, (ii)~it isolates the
+assumptions that fail when the merit stack is non-strict, and
+(iii)~it provides the analytical scaffold for the BESS case study of
+Section~\ref{sec:bess-case}, in which a carbon adder
+$p_{\mathrm{CO}_2}$ is folded into the arbitrage signal.  The
+schematic of the three primal/dual pairs developed below is given in
+Fig.~\ref{fig:lp-duality}.
+
+\begin{figure}[t]
+  \centering
+  \input{diagrams/lp_duality}
+  \caption{Cost, emission, and joint primal/dual LPs.
+    Strong duality and the swap $c_g\!\leftrightarrow\!e_g$ produce the
+    parallelism that justifies reconstructing $\varepsilon_t$ from a
+    published $\lambda_t$ without re-solving an LP.}
+  \label{fig:lp-duality}
+\end{figure}
+
+\paragraph{(a) Cost-minimising primal and its dual.}
+Consider an instantaneous economic dispatch at block $t$, ignoring
+transmission for clarity.  The primal LP is
+\begin{align}
+  \min_{p \in \R^{|\setG|}_{\geq 0}}
+    \quad & \sum_{g \in \setG} c_g\, p_g
+        \label{eq:cost-primal} \\
+  \text{s.t.}\quad
+    & \sum_{g \in \setG} p_g \;=\; D_t
+        \quad &&[\lambda_t]
+        \label{eq:cost-balance}\\
+    & p_g \;\le\; \bar p_g
+        \quad \forall g\in\setG
+        \quad &&[\mu_g\!\geq\!0]
+        \label{eq:cost-bound}\\
+    & p_g \;\geq\; 0 \;\;\forall g.\nonumber
+\end{align}
+The associated dual LP is
+\begin{align}
+  \max_{\lambda,\,\mu\geq 0}
+  \quad &  D_t\,\lambda \;-\; \sum_{g} \bar p_g\, \mu_g
+  \quad
+  \text{s.t.}\quad \lambda - \mu_g \le c_g \;\forall g.
+  \label{eq:cost-dual}
+\end{align}
+Strong duality holds because~\eqref{eq:cost-primal}--\eqref{eq:cost-bound}
+is a feasible bounded LP.  At the optimum the
+Karush--Kuhn--Tucker conditions yield, for any generator $g$ that is
+strictly interior to its bounds ($0<p_g^\star<\bar p_g$),
+\begin{equation}
+  \mu_g^\star = 0
+  \quad\Longrightarrow\quad
+  \lambda_t^\star = c_g.
+  \label{eq:lambda-equals-cm}
+\end{equation}
+Denoting by $m(t)$ the index of any such interior unit (the
+\emph{cost-marginal} unit), \eqref{eq:lambda-equals-cm} reads
+$\lambda_t^\star = c_{m(t)}$.  This is the textbook merit-order
+identity~\cite{SchweppeBook1988,Hogan1992}.
+
+\paragraph{(b) Emission-minimising primal and its dual.}
+Replacing the cost coefficient $c_g$ by an emission coefficient
+$e_g\!=\!\mathrm{EF}_{\mathrm{fuel}(g)}\!\cdot\!\mathrm{HR}_g$
+(tCO$_2$/MWh) leaves the constraint structure of
+\eqref{eq:cost-balance}--\eqref{eq:cost-bound} intact and produces the
+\emph{emission primal}
+\begin{align}
+  \min_{p}
+    \quad & \sum_{g} e_g\, p_g
+    \quad
+    \text{s.t.}\quad
+    \sum_{g} p_g = D_t \;\,[\varepsilon_t],\;\;
+    p_g \le \bar p_g \;\,[\nu_g],\;\;
+    p_g \ge 0.
+        \label{eq:emis-primal}
+\end{align}
+By the same derivation as in (a), the dual variable on the demand
+balance reads
+\begin{equation}
+  \varepsilon_t^\star = e_{m'(t)},
+  \label{eq:eps-equals-em}
+\end{equation}
+where $m'(t)$ is the \emph{emission-marginal} unit.  In general
+$m(t)\neq m'(t)$: when, for example, an inexpensive coal unit and a
+more expensive gas unit both lie at the cost margin in different
+hours, the cost-marginal stack rotates between coal and gas while
+the emission-marginal stack rotates only between fuels of distinct
+$e$-coefficient.
+
+\paragraph{(c) Joint primal with a carbon adder.}
+Adding a carbon price $p_{\mathrm{CO}_2}$ (USD/tCO$_2$) to every
+generator cost converts the cost coefficient into the
+\emph{social cost}
+$\tilde c_g \;=\; c_g + p_{\mathrm{CO}_2}\,e_g$.
+The joint primal is
+\begin{align}
+  \min_{p}
+  \quad & \sum_{g} \big(c_g + p_{\mathrm{CO}_2}\, e_g\big)\, p_g
+    \quad
+  \text{s.t.}\quad
+  \sum_g p_g = D_t \;\,[\tilde\lambda_t],\;\;
+  p_g \le \bar p_g.
+  \label{eq:joint-primal}
+\end{align}
+Its dual produces, for any interior generator $g\!=\!m''(t)$,
+\begin{equation}
+  \tilde\lambda_t^\star
+    \;=\; c_{m''(t)} \;+\; p_{\mathrm{CO}_2}\, e_{m''(t)}.
+  \label{eq:joint-lambda}
+\end{equation}
+The marginal unit $m''(t)$ is in general distinct from both $m(t)$
+and $m'(t)$, and the substitution between two competing units
+$g\!=\!1$ and $g\!=\!2$ (with $c_1<c_2$ but $e_1>e_2$) admits an
+analytical \emph{switching carbon price}
+\begin{equation}
+  p^\star \;=\; \frac{c_2 - c_1}{e_1 - e_2},
+  \label{eq:switching-price}
+\end{equation}
+above which unit~2 displaces unit~1 in the merit order.  For the
+representative Chilean coal-versus-gas pair
+($c_{\rm coal}\!\approx\!\SI{45}{\dollar/\mega\watt\hour}$,
+$e_{\rm coal}\!\approx\!\SI{0.94}{tCO_2/\mega\watt\hour}$;
+$c_{\rm gas}\!\approx\!\SI{75}{\dollar/\mega\watt\hour}$,
+$e_{\rm gas}\!\approx\!\SI{0.40}{tCO_2/\mega\watt\hour}$),
+\eqref{eq:switching-price} yields
+$p^\star\!\approx\!\SI{56}{\dollar/tCO_2}$, a value squarely inside
+the EU~ETS~2025 trading range.
+
+\paragraph{(d) Practical reading.}
+In the \cenpipe{} reconstruction, the dual pair
+\eqref{eq:cost-primal}--\eqref{eq:cost-dual} is \emph{not} solved in
+either direction.  The published $\lambda_t^{\mathrm{CEN}}$ is taken as
+the realised optimal dual on \eqref{eq:cost-balance} and the
+closest-CV picker recovers $m(t)$ from the data.  Once $m(t)$ is
+identified, the emission-marginal value follows directly:
+\begin{equation}
+  \hat\varepsilon_t \;=\; e_{\,\mathrm{fuel}(m(t))},
+  \label{eq:eps-from-m}
+\end{equation}
+under the sufficient assumption that the emission-marginal unit
+coincides with the cost-marginal unit, i.e.\ $m(t)\!=\!m'(t)$.  This
+assumption holds whenever the marginal unit is the only generator
+strictly interior to its bounds at block $t$ and is what justifies
+treating $\hat\varepsilon_t$ as the true emission-marginal rate
+without re-solving an emission-LP.  Two regimes break the
+assumption: (i)~degenerate cost ties between two fuels (e.g.\ two gas
+units of identical CV but different heat-rate-derived $e$), in which
+case~\eqref{eq:eps-from-m} returns the $e_g$ of an arbitrary
+representative; and (ii)~must-run units in their interior, which by
+construction the picker excludes from the candidate pool but which
+would otherwise compete for the emission margin.  Both pathologies
+are flagged in the
+\texttt{tier\_uncertainty} column of the output parquet and trigger a
+\texttt{discrepancy\_flag} in the audit oracle.
+
+\paragraph{Per-bus extension.}
+The transmission-aware per-bus version of
+\eqref{eq:cost-primal}--\eqref{eq:cost-dual} replaces the
+single-bus balance with a vector balance plus DC power-flow
+constraints.  The per-bus dual variable is
+\begin{equation}
+  \lambda_b
+  \;=\; \lambda_{\mathrm{ref}} \;+\; \mathrm{LMC}_b \;+\; \mathrm{LCC}_b,
+  \label{eq:lmp-decomp-cited}
+\end{equation}
+in the standard Hogan~\cite{Hogan1992} decomposition, where
+$\mathrm{LMC}_b$ is the marginal-loss component and
+$\mathrm{LCC}_b$ the marginal-congestion component.  The
+\cenpipe{} pipeline absorbs $\mathrm{LMC}_b$ into the
+empirical or PID-derived loss factor $\mathrm{MLF}_b$ and
+$\mathrm{LCC}_b$ into the island partition itself: two buses are
+placed in the same island if and only if their $\lambda$ differs
+by less than the tolerance and the cumulative spread along the
+chain remains under the cap, conditions that are tantamount to
+$\mathrm{LCC}_b\!=\!\mathrm{LCC}_{b'}$ to within the tolerance.
+The per-bus emission factor then inherits the same decomposition
+\begin{equation}
+  \varepsilon_b \;=\; \varepsilon_{\mathrm{ref}}
+                    \;+\; \mathrm{EMC}_b
+                    \;+\; \mathrm{ECC}_b,
+  \label{eq:eps-decomp}
+\end{equation}
+where $\mathrm{EMC}_b$ is the emission-marginal-loss component
+($\varepsilon_{\mathrm{ref}}\!\cdot\!(\mathrm{MLF}_b\!-\!1)$ to first
+order) and $\mathrm{ECC}_b$ vanishes inside any coherent island by
+construction.  Equation~\eqref{eq:eps-decomp} is the parallel of
+Hogan's LMP decomposition in the emission domain, and is, to the
+best of our knowledge, the only published formulation that does so
+without recourse to implicit-differentiation
+co-simulation~\cite{ValenzuelaASL2022}.

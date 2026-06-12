@@ -40,15 +40,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import get_version
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 
 # ---------------------------------------------------------------------------

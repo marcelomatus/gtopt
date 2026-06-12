@@ -1,0 +1,1892 @@
+/**
+ * @file      sddp_method_iteration.cpp
+ * @brief     SDDPMethod per-iteration coordination + diagnostics
+ * @date      2026-04-28
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * Sibling translation unit of ``sddp_method.cpp``; carries a
+ * focused subset of ``SDDPMethod``'s member functions to keep
+ * each TU under ~700 LoC.  Split landed in commit referenced by
+ * Phase B of the gtopt-hygiene refactor.  See
+ * ``include/gtopt/sddp_method.hpp`` for the class declaration
+ * and ``source/sddp_method.cpp`` for the constructor / solver
+ * lifecycle helpers.
+ */
+
+// SPDLOG_ACTIVE_LEVEL must be set BEFORE any header that transitively
+// includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
+// baked to `(void)0` for this whole translation unit and runtime
+// `set_level(trace)` cannot recover the compiled-out calls.
+#ifndef SPDLOG_ACTIVE_LEVEL
+#  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
+#endif
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <format>
+#include <map>
+#include <ranges>
+#include <set>
+#include <span>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include <gtopt/as_label.hpp>
+#include <gtopt/lp_context.hpp>
+#include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/memory_compress.hpp>
+#include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
+#include <gtopt/sddp_cut_io.hpp>
+#include <gtopt/sddp_cut_sharing.hpp>
+#include <gtopt/sddp_method.hpp>
+#include <gtopt/sddp_pool.hpp>
+#include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_status.hpp>
+#include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
+#include <spdlog/spdlog.h>
+
+namespace gtopt
+{
+
+void SDDPMethod::update_max_kappa(SceneIndex scene_index,
+                                  PhaseIndex phase_index,
+                                  const LinearInterface& li,
+                                  IterationIndex iteration_index)
+{
+  const auto kappa_opt = li.get_kappa();
+
+  // No value means the backend doesn't support the query (e.g. MindOpt)
+  // or the native query failed (e.g. no basis after barrier w/o
+  // crossover).  In that case leave the grid cell untouched: the
+  // internal -1.0 "unset" storage sentinel is fine, and no downstream
+  // consumer sees it because gtopt_lp_runner guards with `> 0.0`.
+  if (!kappa_opt.has_value()) {
+    return;
+  }
+  const double kappa = *kappa_opt;
+
+  m_max_kappa_[scene_index][phase_index] =
+      std::max(m_max_kappa_[scene_index][phase_index], kappa);
+  // Track which iter this observation belongs to so the per-iter log
+  // clause can filter to "kappa observed *this iter*" instead of
+  // re-displaying the historical max every iteration (the CPLEX
+  // barrier-no-crossover case where only the LP-construction probe
+  // ever returned a value).
+  m_max_kappa_iter_[scene_index][phase_index] = iteration_index;
+
+  const auto& sim = planning_lp().planning().simulation;
+  const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);
+  if (mode == KappaWarningMode::none) {
+    return;
+  }
+
+  constexpr double default_kappa_threshold = 1e9;
+  const double threshold =
+      sim.kappa_threshold.value_or(default_kappa_threshold);
+  if (kappa <= threshold) {
+    return;
+  }
+
+  spdlog::warn("SDDP Kappa [i{} s{} p{}]: high kappa {:.2e} (threshold {:.2e})",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
+               kappa,
+               threshold);
+
+  const bool should_save_lp =
+      (mode == KappaWarningMode::save_lp || mode == KappaWarningMode::diagnose);
+  if (should_save_lp && !m_options_.log_directory.empty()) {
+    std::filesystem::create_directories(m_options_.log_directory);
+    const auto stem = (std::filesystem::path(m_options_.log_directory)
+                       / as_label("kappa",
+                                  uid_of(scene_index),
+                                  uid_of(phase_index),
+                                  iteration_index))
+                          .string();
+    if (auto r = li.write_lp(stem)) {
+      spdlog::warn("Saved high-kappa LP to {}.lp", stem);
+    }
+  }
+
+  if (mode == KappaWarningMode::diagnose) {
+    diagnose_kappa(scene_index, phase_index, li, iteration_index);
+  }
+}
+
+void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
+                                PhaseIndex phase_index,
+                                const LinearInterface& li,
+                                IterationIndex iteration_index)
+{
+  const auto prefix = sddp_log("Kappa",
+                               gtopt::uid_of(iteration_index),
+                               uid_of(scene_index),
+                               uid_of(phase_index));
+
+  // Collect cut rows for this (scene, phase) from the cut store
+  const auto& scene_cuts = m_cut_store_.scene_cuts();
+  const auto phase_uid_val = uid_of(phase_index);
+
+  std::vector<RowDiagnostics> cut_diags;
+
+  // Check per-scene cuts
+  if (scene_index < std::ssize(scene_cuts)) {
+    for (const auto& cut : scene_cuts[scene_index]) {
+      if (cut.phase_uid != phase_uid_val) {
+        continue;
+      }
+      cut_diags.push_back(li.diagnose_row(cut.row));
+    }
+  }
+
+  // Also check other scenes' cuts for the same (phase) — under
+  // CutSharingMode::max / expected / accumulate, cuts from other
+  // scenes are also present on this scene's LP row span.  Walk every
+  // scene's vector, dedup by row index.
+  for (auto&& [other_si, other_cuts] :
+       enumerate<SceneIndex>(m_cut_store_.scene_cuts()))
+  {
+    if (other_si == scene_index) {
+      continue;  // already covered above
+    }
+    for (const auto& cut : other_cuts) {
+      if (cut.phase_uid != phase_uid_val) {
+        continue;
+      }
+      const bool already = std::ranges::any_of(
+          cut_diags, [&](const auto& d) { return d.row == cut.row; });
+      if (!already) {
+        cut_diags.push_back(li.diagnose_row(cut.row));
+      }
+    }
+  }
+
+  if (cut_diags.empty()) {
+    spdlog::warn("{}: no cut rows found for diagnosis", prefix);
+    return;
+  }
+
+  // Sort by worst coefficient ratio (descending)
+  std::ranges::sort(cut_diags,
+                    [](const auto& a, const auto& b)
+                    { return a.coeff_ratio > b.coeff_ratio; });
+
+  spdlog::warn("{}: diagnosing {} cut rows...", prefix, cut_diags.size());
+
+  // Report top 5 worst cuts
+  constexpr int max_report = 5;
+  const auto report_count =
+      std::min(max_report, static_cast<int>(cut_diags.size()));
+  for (int i = 0; i < report_count; ++i) {
+    const auto& d = cut_diags[static_cast<size_t>(i)];
+    spdlog::warn(
+        "{}:   #{} {} ratio={:.2e} [{:.2e}, {:.2e}] rhs={:.2e} nnz={}"
+        " min_col={} max_col={}",
+        prefix,
+        i + 1,
+        d.name,
+        d.coeff_ratio,
+        d.min_abs_coeff,
+        d.max_abs_coeff,
+        d.rhs_lb,
+        d.num_nonzeros,
+        d.min_col_name,
+        d.max_col_name);
+  }
+
+  // Summary: overall cut coefficient range
+  double global_min = std::numeric_limits<double>::max();
+  double global_max = 0.0;
+  for (const auto& d : cut_diags) {
+    if (d.num_nonzeros > 0) {
+      global_min = std::min(global_min, d.min_abs_coeff);
+      global_max = std::max(global_max, d.max_abs_coeff);
+    }
+  }
+  if (global_max > 0.0 && global_min < std::numeric_limits<double>::max()) {
+    spdlog::warn("{}:   cut coeff range: [{:.2e}, {:.2e}] ratio={:.2e}",
+                 prefix,
+                 global_min,
+                 global_max,
+                 global_max / global_min);
+  }
+
+  // Report LP matrix stats (from initial build) for comparison
+  spdlog::warn("{}:   LP matrix stats: nnz={} |coeff| in [{:.2e}, {:.2e}]",
+               prefix,
+               li.lp_stats_nnz(),
+               li.lp_stats_min_abs(),
+               li.lp_stats_max_abs());
+}
+
+// ─── Free-function building blocks ──────────────────────────────────────────
+// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
+
+// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
+
+// ── Helper: local utilities ─────────────────────────────────────────────────
+
+bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration_index) const
+{
+  // Three-way logic from the preallocated iteration vector:
+  //  - update_lp == false  → explicitly skip
+  //  - update_lp == true   → force dispatch (bypass skip count)
+  //  - not specified        → default behaviour (respect global skip count)
+  if (std::cmp_less(Index {iteration_index}, m_iterations_.size())) {
+    const auto& iter_lp = m_iterations_[iteration_index];
+
+    if (iter_lp.has_explicit_update_lp()) {
+      return iter_lp.should_update_lp();
+    }
+    // Default: apply global skip count using relative iteration
+    const auto skip = planning_lp().options().sddp_update_lp_skip();
+    const auto rel = iteration_relative(iteration_index, m_iteration_offset_);
+    if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+int SDDPMethod::update_lp_for_phase(SceneIndex scene_index,
+                                    PhaseIndex phase_index)
+{
+  auto& sys = planning_lp().system(scene_index, phase_index);
+
+  // Set previous phase's SystemLP unconditionally so that update_lp
+  // elements (seepage, production factor, discharge limit) can look up
+  // the previous phase's optimal efin when re-evaluating volume-
+  // dependent linearisations via physical_eini.
+  //
+  // The pointer is consumed read-only — solely for segment selection
+  // during LP coefficient updates — and physical_eini only follows the
+  // cross-phase branch when the predecessor LP is_optimal().  It does
+  // not change state-variable propagation, which is governed by the
+  // separate sddp_state_variable_lookup_mode option (warm_start vs
+  // cross_phase) handled in propagate_trial_values.
+  //
+  // Previously this pointer was only set when lookup == cross_phase,
+  // leaving warm_start (the default) with prev_phase_sys = nullptr.
+  // physical_eini then fell through to its JSON `eini` fallback (e.g.
+  // 1731 Hm³ for ELTORO), pinning the seepage segment to the
+  // construction-time volume regardless of the actual forward-pass
+  // trajectory.  Observed on juan/gtopt_iplp p38 where the resulting
+  // 15.09 m³/s seepage baseflow exceeded the scheduled affluent and
+  // structurally broke the LP after the forward pass had drained the
+  // reservoir to zero.
+  if (phase_index) {
+    const auto prev_phase_index = previous(phase_index);
+    auto& prev_sys = planning_lp().system(scene_index, prev_phase_index);
+    sys.set_prev_phase_sys(&prev_sys);
+    // NOTE: we deliberately do NOT rebuild prev_sys's collections here.
+    //
+    // The cross-phase reservoir-eini lookup is served by the
+    // `ReservoirRefCache` path (`physical_eini_from_cache`), which reads
+    // the predecessor's final volume directly from its cached solver
+    // solution — `prev_li.get_col_sol()[efin_col]` — using a column index
+    // bound at build time.  It never traverses
+    // `prev_sys->element<ReservoirLP>` on any production path (see the
+    // `HasUpdateLP` doc in system_lp.hpp:163-171).  The element-walking
+    // `physical_eini` overload in storage_lp.hpp has no production callers.
+    //
+    // The previous `prev_sys.rebuild_collections_if_needed()` here was the
+    // single dominant memory allocator under `--memory-saving compress`
+    // with a memory limit (eviction on): it re-inflated the predecessor's
+    // FULL ~50-type collection tuple (~250 MB on the 2-year case, measured
+    // via jemalloc heap profiling) on every forward/backward phase, purely
+    // to protect a code path nothing uses — and the rebuilt collections
+    // then stayed resident, pinning RSS at ~num_cells × per-cell.  Dropping
+    // it is numerically identical (same `get_col_sol()[efin_col]` value)
+    // and is the keystone that lets collection-eviction actually bound the
+    // resident floor.
+  } else {
+    sys.set_prev_phase_sys(nullptr);
+  }
+
+  const auto updated = sys.update_lp();
+  // Plan §5 trace — fires per (scene, phase, iter) when SDDP
+  // dispatches `update_lp_for_phase`.  Useful for tracing whether
+  // forward and backward agree on the coefficient updates under
+  // compress; a backward call that reports `updated=0` is the
+  // smoking gun for a missed `ensure_lp_built` reload.
+  spdlog::trace("SDDP UpdateLP [s{} p{}]: updated={} elements (prev_sys={})",
+                uid_of(scene_index),
+                uid_of(phase_index),
+                updated,
+                sys.prev_phase_sys() != nullptr ? 1 : 0);
+  return updated;
+}
+
+// ── Forward pass ────────────────────────────────────────────────────────────
+
+// ── SDDP task priority helpers ───────────────────────────────────────────────
+
+// `make_forward_lp_task_req` and `make_backward_lp_task_req` are now declared
+// in `<gtopt/sddp_pool.hpp>` (next to `make_sddp_task_key`) so the priority-
+// key ordering invariant can be covered by unit tests.  The previous
+// anonymous-namespace duplicates were removed in the audit pass.
+
+// ── forward_pass() — now in sddp_forward_pass.cpp ───────────────────────────
+
+// ── Helper: store a cut for sharing and persistence (thread-safe) ───────────
+
+auto SDDPMethod::resolve_via_pool(
+    LinearInterface& li,
+    const SolverOptions& opts,
+    const BasicTaskRequirements<SDDPTaskKey>& task_req)
+    -> std::expected<int, Error>
+{
+  if (m_pool_ == nullptr) {
+    // No pool available — fall back to direct solve
+    return li.resolve(opts);
+  }
+
+  auto fut =
+      m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
+  if (fut.has_value()) {
+    return fut->get();
+  }
+  // Pool submission failed — fall back to direct solve
+  SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
+  return li.resolve(opts);
+}
+
+// ── Helper: resolve a clone via the work pool ───────────────────────────────
+
+auto SDDPMethod::resolve_clone_via_pool(
+    LinearInterface& clone,
+    const SolverOptions& opts,
+    const BasicTaskRequirements<SDDPTaskKey>& task_req)
+    -> std::expected<int, Error>
+{
+  if (m_pool_ == nullptr) {
+    return clone.resolve(opts);
+  }
+
+  // Submit resolve to the pool.  The clone reference is safe because we
+  // call future.get() synchronously before this scope exits.
+  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
+                             task_req);
+  if (fut.has_value()) {
+    return fut->get();
+  }
+  // Pool submission failed — fall back to direct solve
+  SPDLOG_WARN(
+      "resolve_clone_via_pool: pool submit failed, falling back to direct");
+  return clone.resolve(opts);
+}
+
+// ── feasibility_backpropagate() removed — forward pass installs fcuts ──────
+
+// ── Per-phase backward-pass step (optimality cut only; no feasibility sharing)
+
+auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
+                                            PhaseIndex phase_index,
+                                            int cut_offset,
+                                            const SolverOptions& opts,
+                                            IterationIndex iteration_index)
+    -> std::expected<int, Error>
+{
+  // Fine-grained stage timing for the backward-cut step.  Each pair of
+  // chrono::steady_clock::now() calls is O(100ns); the stages they
+  // bracket dominate by 3-5 orders of magnitude (LP resolve, kappa
+  // query) so the overhead is irrelevant.  The counters land on the
+  // previous-phase LP's SolverStats so end-of-run aggregation and
+  // per-iteration diffing both fall out of the existing infrastructure.
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+
+  auto& phase_states = m_scene_phase_states_[scene_index];
+  int cuts_added = 0;
+
+  const auto prev_phase_index = previous(phase_index);
+  auto& src_sys = planning_lp().system(scene_index, prev_phase_index);
+  const auto& src_state = phase_states[prev_phase_index];
+
+  // Ensure the previous-phase LP is built.  No-op when backend is live
+  // (mode=off, or a prior task already rebuilt it); otherwise reloads
+  // from snapshot (snapshot/compress) or re-flattens from collections
+  // (rebuild).
+  const auto t_rebuild = Clock::now();
+  src_sys.ensure_lp_built();
+  const auto dt_rebuild = elapsed_s(t_rebuild);
+
+  auto& src_li = src_sys.linear_interface();
+
+  // ── Optional: re-solve target LP_t before extracting cut data ──────
+  //
+  // When `backward_resolve_target` is on, refresh the cached forward-
+  // pass values used for cut construction by re-solving LP_t at the
+  // forward-pass trial state v̂_{t-1} (still pinned via the bound-fix
+  // on dep_col).  Cuts on α_t added earlier in this backward pass —
+  // when the loop processed phase t+1 — are now reflected in z_t and
+  // π_t, producing a one-iter-tight Benders cut on α_{t-1} (textbook
+  // SDDP), versus the looser forward-cached cut otherwise.
+  //
+  // Cost: one extra LP resolve per (scene, phase) per backward pass.
+  // Failure mode (rare): non-optimal re-solve falls through to the
+  // forward-cached values — a freshly-added Benders cut cannot make
+  // a previously-optimal LP infeasible, only numerics can.
+  double dt_tgt_resolve = 0.0;
+  // Total phases visited by the backward pass (matches the dispatch
+  // banner's "× T phase(s)" denominator); used for per-(scene, phase)
+  // INFO logging below so the prefix mirrors `SDDP Forward [iN sM pK/T]`.
+  const auto bwd_total_phases = planning_lp().simulation().phase_count() - 1;
+  if (m_options_.backward_resolve_target) {
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    auto& tgt_li = tgt_sys.linear_interface();
+
+    // Re-apply volume-dependent LP coefficient updates after the
+    // reconstruct.  Under `LowMemoryMode::compress`,
+    // `ensure_lp_built()` reloads the construction-time structural
+    // matval from the snapshot and the forward pass's
+    // `update_lp_for_phase` mutations (turbine
+    // production factor, seepage, discharge limit, …) are NOT in the
+    // snapshot — they live only on the volatile backend that was
+    // dropped at the previous `release_backend()`.  Without this call
+    // the backward re-solve runs on stale construction-time matval
+    // (e.g. juan/iplp `turbine_conversion_*_54_*` coefficient stayed
+    // pinned at 0.97522 vs the forward's 0.97612), producing cuts
+    // whose value-function geometry is inconsistent with the forward
+    // model.  Observed plateau: gap=133.78%, LB=-695M from iter 2.
+    // Under `LowMemoryMode::off` `update_lp_for_phase` is idempotent
+    // (same coefficient re-written), so this is a no-op cost.
+    update_lp_for_phase(scene_index, phase_index);
+
+    tgt_li.set_log_tag(sddp_log("Backward",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(phase_index)));
+    const auto z_old = phase_states[phase_index].forward_full_obj_physical;
+
+    // Optional LP dump for off↔compress diff debugging.  Activated by
+    // setting `lp_debug=true` AND including `backward` (or `all`) in
+    // `lp_debug_passes`.  The `--lp-dump-backward <dir>` CLI flag and
+    // the `GTOPT_DUMP_BACKWARD_LP=<dir>` env var are translation
+    // shims that toggle the same path (see `main_options.cpp`).
+    //
+    // Writes
+    //   <log_dir>/gtopt_backward_<mode>_s<scene>_p<phase>_i<iter>.lp
+    // immediately before `tgt_li.resolve(opts)`, capturing the LP
+    // exactly as the solver will see it (post-`update_lp_for_phase`,
+    // post-`apply_post_load_replay` under compress).  Diff'ing the
+    // off and compress dumps for the same `(iter, scene, phase)`
+    // localises any non-replayed mutation that survives off but
+    // gets dropped by compress's reconstruct.  The selective scene/
+    // phase filter window (`lp_debug_*_min/max`) applies as on the
+    // other passes.  Cost: one async-compressed disk write per
+    // phase per backward step when active; zero overhead otherwise.
+    if (m_options_.lp_debug
+        && lp_debug_passes_includes(m_options_.lp_debug_passes,
+                                    LpDebugPass::backward)
+        && in_lp_debug_range(uid_of(scene_index),
+                             uid_of(phase_index),
+                             m_options_.lp_debug_scene_min,
+                             m_options_.lp_debug_scene_max,
+                             m_options_.lp_debug_phase_min,
+                             m_options_.lp_debug_phase_max)
+        && m_lp_debug_writer_.is_active())
+    {
+      const auto stem = (std::filesystem::path(m_options_.log_directory)
+                         / std::format(sddp_file::debug_backward_lp_fmt,
+                                       uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index)))
+                            .string();
+      m_lp_debug_writer_.write(tgt_li, stem);
+    }
+
+    const auto t_tgt_resolve = Clock::now();
+    auto r = tgt_li.resolve(opts);
+    dt_tgt_resolve = elapsed_s(t_tgt_resolve);
+
+    if (r.has_value() && tgt_li.is_optimal()) {
+      const auto obj_phys = tgt_li.get_obj_value();
+      const auto sol_phys = tgt_li.get_col_sol();
+      const auto rc = tgt_li.get_col_cost_raw();
+      capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
+      phase_states[phase_index].forward_full_obj_physical = obj_phys;
+      // Read kappa before `update_max_kappa` so the per-step value is
+      // logged regardless of whether it raises the recorded maximum.
+      const auto kappa_val = tgt_li.get_kappa().value_or(0.0);
+      update_max_kappa(scene_index, phase_index, tgt_li, iteration_index);
+
+      // Per-(scene, phase) INFO log mirroring the forward pass's
+      // `[iN sM pK/T]` prefix; fires only when the optional re-solve
+      // succeeds (the failure branch already logs at DEBUG below).
+      spdlog::debug(
+          "SDDP Backward [i{} s{} p{}/{}]: tgt re-solve z={}->{} (delta={}, "
+          "kappa={:.2e})",
+          gtopt::uid_of(iteration_index),
+          uid_of(scene_index),
+          uid_of(phase_index),
+          bwd_total_phases,
+          format_si(z_old),
+          format_si(obj_phys),
+          format_si(obj_phys - z_old),
+          kappa_val);
+    } else {
+      SPDLOG_DEBUG(
+          "{}: backward_resolve_target re-solve non-optimal "
+          "(status {}) — falling back to forward-cached cut data",
+          sddp_log("Backward",
+                   gtopt::uid_of(iteration_index),
+                   uid_of(scene_index),
+                   uid_of(phase_index)),
+          tgt_li.get_status());
+    }
+  }
+
+  // Use cached forward-pass solution for cut generation (refreshed
+  // above when ``backward_resolve_target`` is enabled).
+  const auto& target_state = phase_states[phase_index];
+
+  const auto ceps = m_options_.cut_coeff_eps;
+  // Physical-space builder: reduced costs and trial values come from
+  // each link's back-pointer StateVariable (mirrored by the last
+  // forward pass via `capture_state_variable_values`).  `add_row` on
+  // the source LP folds `col_scales` and runs per-row row-max
+  // equilibration, so no post-hoc `rescale_benders_cut` pass is needed.
+  //
+  // Resolve the α column freshly from the state-variable registry so
+  // low_memory reconstruct paths never see a stale cached index.
+  const auto* src_alpha_svar = find_alpha_state_var(
+      planning_lp().simulation(), scene_index, prev_phase_index);
+  const auto src_alpha_col = (src_alpha_svar != nullptr)
+      ? src_alpha_svar->col()
+      : ColIndex {unknown_index};
+
+  const auto scale_obj = planning_lp().options().scale_objective();
+  const auto t_build = Clock::now();
+  auto cut = build_benders_cut_physical(src_alpha_col,
+                                        src_state.outgoing_links,
+                                        target_state.forward_full_obj_physical,
+                                        scale_obj,
+                                        ceps);
+  sddp_scut_tag.apply_to(cut);
+  cut.variable_uid = uid_of(prev_phase_index);
+  cut.context = make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       cut_offset);
+  const auto dt_build = elapsed_s(t_build);
+
+  // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
+  // cut references α, then adds + records the row for low-memory
+  // replay in one call.
+  const auto t_add_row = Clock::now();
+  const auto cut_row = gtopt::add_cut_row(planning_lp(),
+                                          scene_index,
+                                          prev_phase_index,
+                                          CutType::Optimality,
+                                          cut,
+                                          ceps);
+  const auto dt_add_row = elapsed_s(t_add_row);
+
+  const auto t_store = Clock::now();
+  store_cut(scene_index, prev_phase_index, cut, CutType::Optimality, cut_row);
+  const auto dt_store = elapsed_s(t_store);
+
+  ++cuts_added;
+  m_phase_grid_.record(gtopt::uid_of(iteration_index),
+                       uid_of(scene_index),
+                       uid_of(phase_index),
+                       GridCell::Backward);
+
+  SPDLOG_TRACE("SDDP Backward [i{} s{} p{}]: cut for phase {} rhs={:.4f}",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
+               uid_of(prev_phase_index),
+               cut.lowb);
+
+  // Per-(scene, phase) backward INFO line — mirrors the forward pass's
+  // `SDDP Forward [iN sM pK/T]: opex=…` cadence so a `tail -f` of the
+  // log shows mid-pass progress when apertures are disabled (the
+  // aperture path emits its own per-aperture detail).
+  //
+  // Fields:
+  //   * z   = z_t = forward_full_obj_physical (RHS *before* the linear
+  //           correction Σ rc·v̂); equals the target subproblem optimum
+  //           the cut underestimates.
+  //   * α≥  = cut.lowb (RHS *after* subtracting Σ rc·v̂); the value
+  //           α_{t-1} is constrained to be ≥ in the source LP.
+  //   * links = number of state-variable terms surviving the
+  //             |rc| ≥ cut_coeff_eps filter (cmap.size()-1 since
+  //             cmap[alpha_col]=1.0 is always present).
+  //   * /Ltot = total candidate links (non-null state_var entries).
+  //   * resolve = whether `backward_resolve_target` re-solved LP_t in
+  //               this step (the resolve branch above).
+  const auto links_total = static_cast<std::size_t>(std::ranges::count_if(
+      src_state.outgoing_links,
+      [](const auto& link) noexcept { return link.state_var != nullptr; }));
+  const auto links_used =
+      !cut.cmap.empty() ? cut.cmap.size() - 1 : std::size_t {0};
+  // Compact INFO line — one per (scene, phase) backward step,
+  // formatted to mirror the forward per-phase line at
+  // `sddp_forward_pass.cpp:833`:
+  //
+  //    SDDP Forward  [iN sM pK]:    opex=A  (obj=B,  α=C)
+  //    SDDP Backward [iN sM pK/T]:  cut z=B (α≥X,    links=K/L)
+  //
+  // `z` and `obj` carry the same physical quantity (the target
+  // phase's full optimum incl. α), so the two key-value cells line
+  // up vertically when grepped.  The trailing `/T` is preserved so
+  // run_gtopt's TUI grid parser can pre-allocate phase columns from
+  // the first backward line (see `_tui.py::_SDDP_LOG_RE`).
+  // `(resolve=yes/no)` is no longer in this INFO line — it's
+  // constant within a run once `backward_resolve_target` is fixed;
+  // the DEBUG line below preserves it for diagnostics.
+  spdlog::info("SDDP Backward [i{} s{} p{}/{}]: cut z={} (α≥{}, links={}/{})",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               uid_of(phase_index),
+               bwd_total_phases,
+               format_si(target_state.forward_full_obj_physical),
+               format_si(cut.lowb),
+               links_used,
+               links_total);
+  spdlog::debug(
+      "SDDP Backward [i{} s{} p{}/{}]: cut z={} -> alpha>={} (links={}/{}, "
+      "resolve={})",
+      gtopt::uid_of(iteration_index),
+      uid_of(scene_index),
+      uid_of(phase_index),
+      bwd_total_phases,
+      format_si(target_state.forward_full_obj_physical),
+      format_si(cut.lowb),
+      links_used,
+      links_total,
+      m_options_.backward_resolve_target ? "yes" : "no");
+
+  // Iter-0 diagnostic dump: the iter-0 backward sweep is where SDDP
+  // bootstraps the cut chain, and where any "α driven unbounded
+  // negative" pathology shows up first.  Dump the cut row's structure
+  // (α coeff in physical units, link coeffs and v̂ values, RHS) and
+  // every state column's bounds in src_li so we can spot a column with
+  // (-∞, +∞) and a non-zero cut coefficient — that's the kind of
+  // configuration that lets the master drive α arbitrarily negative.
+  // Gated on iter 0 only; with 50 phases this adds ~50 log lines per
+  // iter-0 backward and zero overhead afterwards.
+  if (iteration_index == IterationIndex {0}) {
+    const auto col_low_view = src_li.get_col_low();
+    const auto col_upp_view = src_li.get_col_upp();
+    const auto src_alpha_lb = col_low_view[src_alpha_col];
+    const auto src_alpha_ub = col_upp_view[src_alpha_col];
+    spdlog::debug(
+        "SDDP Backward [i0 s{} p{}/{}]: dump α col={} bounds=[{:.3e}, {:.3e}] "
+        "cut.cmap.size={} cut.lowb={:.6e} cut.uppb={:.6e}",
+        uid_of(scene_index),
+        uid_of(phase_index),
+        bwd_total_phases,
+        static_cast<int>(src_alpha_col),
+        src_alpha_lb,
+        src_alpha_ub,
+        cut.cmap.size(),
+        cut.lowb,
+        cut.uppb);
+    for (const auto& [i, link] :
+         std::views::enumerate(src_state.outgoing_links))
+    {
+      if (link.state_var == nullptr) {
+        continue;
+      }
+      const auto col_idx = link.source_col;
+      const auto col_lb = col_low_view[col_idx];
+      const auto col_ub = col_upp_view[col_idx];
+      const auto coef_it = cut.cmap.find(col_idx);
+      const double coef = (coef_it != cut.cmap.end()) ? coef_it->second : 0.0;
+      const double v_hat = link.state_var->col_sol_physical();
+      const double rc_phys = link.state_var->reduced_cost_physical(scale_obj);
+      spdlog::debug(
+          "SDDP Backward [i0 s{} p{}/{}]:   link[{}] col={} bounds=[{:.3e},"
+          " {:.3e}] coef={:.4e} rc_phys={:.4e} v_hat={:.4e}",
+          uid_of(scene_index),
+          uid_of(phase_index),
+          bwd_total_phases,
+          i,
+          col_idx,
+          col_lb,
+          col_ub,
+          coef,
+          rc_phys,
+          v_hat);
+    }
+  }
+
+  // Re-solve src_li so downstream code (the async iteration's
+  // per-scene LB read at sddp_iteration.cpp:929 — `lower_bound =
+  // first_phase.linear_interface().get_obj_value()`) sees a fresh
+  // post-cut optimum, and kappa tracking can run.
+  //
+  // NOTE: src_li was optimal when this backward step was entered, and
+  // the cut is a valid Benders underestimator — adding it cannot make
+  // the LP infeasible.  If the resolve still reports non-optimal it is
+  // a numerical artifact (cut coefficients pushing the solver into a
+  // degenerate basis); we log it but do NOT fail the iteration.  The
+  // cut row is already installed and the next forward pass will re-
+  // solve from a fresh basis.  Mirrors the bcut-path simplification in
+  // sddp_aperture_pass.cpp where we removed the corresponding resolve
+  // entirely (the bcut path doesn't feed into async LB computation).
+  double dt_resolve = 0.0;
+  double dt_kappa = 0.0;
+  if (phase_index) {
+    src_li.set_log_tag(sddp_log("Backward",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(prev_phase_index)));
+    const auto t_resolve = Clock::now();
+    auto r = src_li.resolve(opts);
+    dt_resolve = elapsed_s(t_resolve);
+    if (r.has_value() && src_li.is_optimal()) {
+      const auto t_kappa = Clock::now();
+      update_max_kappa(scene_index, prev_phase_index, src_li, iteration_index);
+      dt_kappa = elapsed_s(t_kappa);
+    } else {
+      SPDLOG_DEBUG(
+          "{}: post-cut resolve non-optimal (status {}) — keeping "
+          "cut, next forward pass will re-solve",
+          sddp_log("Backward",
+                   gtopt::uid_of(iteration_index),
+                   uid_of(scene_index),
+                   uid_of(prev_phase_index)),
+          src_li.get_status());
+    }
+  }
+
+  // Fold this step's timings into the previous-phase LP's SolverStats.
+  // Single-writer per-LP invariant holds: phase access within a scene
+  // is serial during the backward pass (both the async and
+  // phase-synchronised variants obey this), so no atomics are needed.
+  auto& sstats = src_li.mutable_solver_stats();
+  ++sstats.bwd_step_count;
+  sstats.bwd_lp_rebuild_s += dt_rebuild;
+  sstats.bwd_cut_build_s += dt_build;
+  sstats.bwd_add_row_s += dt_add_row;
+  sstats.bwd_store_cut_s += dt_store;
+  // The optional ``backward_resolve_target`` re-solve at LP_t is
+  // accounted on the source LP's bwd_resolve_s for simplicity; a
+  // separate counter is also fine but adds noise to the per-iter
+  // step-avg log.
+  sstats.bwd_resolve_s += dt_resolve + dt_tgt_resolve;
+  sstats.bwd_kappa_s += dt_kappa;
+
+  return cuts_added;
+}
+
+// ── Backward pass with iterative feasibility backpropagation ────────────────
+
+auto SDDPMethod::backward_pass(SceneIndex scene_index,
+                               const SolverOptions& opts,
+                               IterationIndex iteration_index)
+    -> std::expected<int, Error>
+{
+  const auto num_phases = planning_lp().simulation().phase_count();
+  int total_cuts = 0;
+
+  SPDLOG_DEBUG("SDDP Backward [i{} s{}]: starting ({} phases)",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               num_phases);
+
+  // Iterate backward from last phase to phase 1
+  for (const auto phase_index :
+       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
+  {
+    if (should_stop()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format("{}: cancelled",
+                                 sddp_log("Backward",
+                                          gtopt::uid_of(iteration_index),
+                                          uid_of(scene_index),
+                                          uid_of(phase_index))),
+      });
+    }
+
+    auto step_result = backward_pass_single_phase(
+        scene_index, phase_index, total_cuts, opts, iteration_index);
+    if (!step_result.has_value()) {
+      return std::unexpected(std::move(step_result.error()));
+    }
+    total_cuts += *step_result;
+
+    // ── Per-cell release: drop (scene, phase_index - 1) backend now ──
+    //
+    // `backward_pass_single_phase` operates on
+    // `prev_phase = phase_index - 1`: it `ensure_lp_built`s the cell,
+    // adds an optimality cut, and resolves it.  In this non-
+    // synchronized path (cut_sharing == none) there is no cross-scene
+    // share step that would re-touch the cell after the loop body
+    // returns, so the LP is no longer needed in this scene's
+    // backward pass — the next loop iteration's call uses
+    // `phase_index - 2`.  Release synchronously inside the worker
+    // (single-threaded per scene) and let the scheduler overlap the
+    // release with other scenes' tasks.  Mirrors the synchronised-
+    // path release after `share_cuts_for_phase` so both paths converge
+    // to the same end-state ahead of the bulk safety-net loop.
+    if (m_options_.low_memory_mode != LowMemoryMode::off) {
+      const auto prev_phase_index = previous(phase_index);
+      planning_lp().system(scene_index, prev_phase_index).release_backend();
+    }
+  }
+
+  SPDLOG_DEBUG("SDDP Backward [i{} s{}]: done, {} cuts added",
+               gtopt::uid_of(iteration_index),
+               uid_of(scene_index),
+               total_cuts);
+  return total_cuts;
+}
+
+// ── Cut sharing (delegated to sddp_cut_sharing.hpp free function) ───────────
+
+auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
+                                             const SolverOptions& opts,
+                                             IterationIndex iteration_index)
+    -> std::expected<ForwardPassOutcome, Error>
+{
+  const auto num_scenes = planning_lp().simulation().scene_count();
+
+  m_current_pass_.store(1);
+  m_scenes_done_.store(0);
+
+  // The user-facing INFO dispatch banner is emitted lower down, after
+  // the skip pass has computed how many scenes are terminal-skipped
+  // this iteration.  Keep a DEBUG marker here for trace-level tailers
+  // who want to see the function entry timestamp.
+  SPDLOG_DEBUG("SDDP Forward [i{}]: starting forward dispatch ({} scene(s))",
+               gtopt::uid_of(iteration_index),
+               num_scenes);
+
+  // Stall-stop guard for `forward_infeas_rollback` — see
+  // `docs/analysis/investigations/scene_infeasibility/scene_infeasibility_rollback_plan_2026-04-30.md`
+  // §2.4. For every scene that failed last iteration (and had its cuts rolled
+  // back), check whether the global stored-cut count has grown since the
+  // failure.  If it has (peers contributed cuts via cut sharing or their own
+  // backward pass), the scene retries this iter: clear the failure marker so
+  // the post-pass hook below can flag a *new* failure if it happens again.  If
+  // the global count has not grown, the scene is "stalled" — cuts that arrive
+  // only from peers via share_cuts_for_phase aren't tracked in
+  // m_cut_store_.scene_cuts (they live as LP rows + replay buffer
+  // only), so the global cut count is the right proxy: if zero new
+  // cuts have entered the cut store across every scene, no recovery
+  // path exists for this stalled scene and we abort cleanly to
+  // avoid an infinite-loop.
+  // ── Pre-dispatch terminal-skip + restart hook ────────────────────────
+  //
+  // ``terminal`` is set after a configurable number of consecutive
+  // iterations of structurally-infeasible failures (Chinneck filter
+  // produces no useful fcut at the same (scene, phase) pair).  When
+  // set, the scene's forward pass is skipped this iteration UNLESS
+  // fresh cuts have arrived globally since the terminal declaration.
+  // This is the cheap proxy for "the LP changed enough to maybe
+  // unlock the previously infeasible phase":
+  //   * cut_sharing == none: only the failed scene's own backward
+  //     pass could change its master, but a terminal scene's backward
+  //     never runs — so global growth here ALWAYS means peers added
+  //     cuts (which don't help structurally, hence the skip stays
+  //     useful in the steady-state).
+  //   * cut_sharing != none: peer cuts ARE broadcast to this scene's
+  //     master via ``share_cuts_for_phase`` — those cuts can in
+  //     principle alter the trial state and unlock the structural
+  //     infeasibility.  Restart triggers immediately on global growth
+  //     so the scene gets a fresh attempt with the new cuts.
+  //
+  // ``skip_scene[i]`` controls both dispatch (we don't submit a task)
+  // and result-collection (we synthesise an infeasible result).
+  // Counts the skipped scenes for the headline log line.
+  //
+  // Inactive scenes (``"active": 0`` in the JSON) are not skipped
+  // here because they have already been filtered out by
+  // ``enumerate_active`` in ``simulation_lp.cpp::create_scene_array``
+  // — they don't appear in ``m_scene_array_`` and therefore never
+  // enter ``iota_range<SceneIndex>(0, num_scenes)``.  The bound
+  // math sees only the active subset and the renormalised
+  // probabilities (see
+  // ``PlanningLP::renormalize_scenario_probabilities``) already
+  // sum to 1.0 over that subset.
+  std::vector<bool> skip_scene(num_scenes, false);
+  std::ptrdiff_t n_skipped_terminal = 0;
+  if (m_options_.forward_infeas_rollback) {
+    // Under `cut_sharing != none`, peer cuts ARE broadcast to this
+    // scene's master via `share_cuts_for_phase`, so the global
+    // stored-cut count is a valid proxy for "did anything change in
+    // this scene's LP since its last failure".
+    //
+    // Under `cut_sharing == none`, peer cuts are NOT broadcast — the
+    // global count grows linearly with peer activity, but none of those
+    // rows reach this scene's master.  Comparing against the global
+    // count made the un-terminal trigger fire every iteration, causing
+    // a 2-iter ping-pong between TERMINAL and un-terminal that wasted
+    // ~7 s of forward-solve per cycle without any chance of success.
+    // Compare against this scene's *own* cut store size instead:
+    // that's the only delta that can change its master LP outcome
+    // under `cut_sharing == none`, and it can only grow if the scene
+    // itself solved a backward pass (which terminal-skip prevents),
+    // so a TERMINAL-marked scene stays terminal until the run ends —
+    // as it should.
+    const bool peer_cuts_broadcast =
+        m_options_.cut_sharing != CutSharingMode::none;
+    const auto current_global_cuts = m_cut_store_.num_stored_cuts();
+    const auto cut_count_for = [&](SceneIndex si) -> std::ptrdiff_t
+    {
+      return peer_cuts_broadcast ? current_global_cuts
+                                 : std::ssize(m_cut_store_.at(si));
+    };
+    std::ptrdiff_t failed_last = 0;
+    std::ptrdiff_t stalled = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      auto& rs = m_scene_retry_state_[si];
+
+      // ── Terminal-skip restart trigger ──
+      if (rs.terminal) {
+        const auto snapshot =
+            rs.global_cuts_at_last_failure.value_or(std::ptrdiff_t {0});
+        const auto current = cut_count_for(si);
+        if (current > snapshot) {
+          SPDLOG_INFO(
+              "SDDP Forward [i{} s{}]: un-terminal — {} new {} cut(s) since "
+              "last failure (was at {}, now {}); retrying forward pass",
+              gtopt::uid_of(iteration_index),
+              uid_of(si),
+              current - snapshot,
+              peer_cuts_broadcast ? "global" : "own-scene",
+              snapshot,
+              current);
+          rs.terminal = false;
+          rs.consecutive_structural_failures = 0;
+          rs.global_cuts_at_last_failure.reset();
+        } else {
+          skip_scene[si] = true;
+          ++n_skipped_terminal;
+        }
+      }
+
+      // ── Existing rollback stall-stop logic ──
+      if (!rs.global_cuts_at_last_failure.has_value()) {
+        continue;
+      }
+      ++failed_last;
+      if (cut_count_for(si) > *rs.global_cuts_at_last_failure) {
+        rs.global_cuts_at_last_failure.reset();  // scene retries
+      } else {
+        ++stalled;
+      }
+    }
+    // Only abort if every failed-last-iter scene is *non-terminal* and
+    // stalled.  Terminal scenes contribute to the skip count instead;
+    // the abort path here is the original "no progress at all on any
+    // scene" guard, which only fires when we still expect retries to
+    // help.
+    if (failed_last > 0 && stalled == failed_last && n_skipped_terminal == 0) {
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message =
+              std::format("SDDP: {} scene(s) infeasible at iter {} and "
+                          "zero new cuts since their last failure — no "
+                          "recovery path (forward_infeas_rollback stall)",
+                          stalled,
+                          iteration_index),
+      });
+    }
+    if (n_skipped_terminal > 0) {
+      SPDLOG_DEBUG(
+          "SDDP Forward [i{}]: skipping {} terminal-infeasible scene(s) "
+          "(structurally infeasible, no new cuts since last failure)",
+          gtopt::uid_of(iteration_index),
+          n_skipped_terminal);
+    }
+  }
+
+  // Rich INFO dispatch banner that mirrors the backward-pass one
+  // (`SDDP Backward [iN]: dispatching K/N feasible scene(s) × P
+  // phase(s) (cut_sharing=…, apertures=…)`).  Rolling the
+  // terminal-skip count + cut_sharing/apertures flags into the same
+  // line lets a user tailing the trace immediately see the workload
+  // shape without scrolling for the matching backward banner.
+  const auto num_phases = planning_lp().simulation().phase_count();
+  const auto active_scenes_this_iter =
+      static_cast<std::ptrdiff_t>(num_scenes) - n_skipped_terminal;
+  SPDLOG_INFO(
+      "SDDP Forward [i{}]: dispatching {}/{} active scene(s) × {} phase(s) "
+      "(cut_sharing={}, apertures={})",
+      gtopt::uid_of(iteration_index),
+      active_scenes_this_iter,
+      num_scenes,
+      num_phases,
+      enum_name(m_options_.cut_sharing),
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
+
+  const auto fwd_start = std::chrono::steady_clock::now();
+  // Snapshot total stored cuts before the pass.  Forward passes only
+  // install feasibility cuts (`store_cut(..., CutType::Feasibility, ...)`
+  // at sddp_forward_pass.cpp), so the post-pass delta is exactly the
+  // count of fcuts installed across all scenes this attempt.  Used by
+  // the simulation retry loop to detect "no progress" attempts.
+  const auto cuts_before_pass = m_cut_store_.num_stored_cuts();
+
+  std::vector<std::future<std::expected<double, Error>>> futures;
+  futures.reserve(num_scenes);
+
+  // Forward-pass scene tasks: lower iteration = higher priority via
+  // `SDDPTaskKey`; all sit at TaskPriority::Medium.
+  const auto fwd_req = make_forward_lp_task_req(iteration_index);
+
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    if (skip_scene[scene_index]) {
+      // Terminal-skip: no task submitted; the result-collection loop
+      // below distinguishes this case via ``skip_scene[i]`` and
+      // synthesises an infeasible outcome without calling ``.get()``
+      // on the (default-constructed, invalid) future.
+      futures.emplace_back();
+      continue;
+    }
+    auto fut = pool.submit(
+        [this, scene_index, iteration_index, &opts]
+        { return forward_pass(scene_index, opts, iteration_index); },
+        fwd_req);
+    futures.push_back(std::move(fut.value()));
+  }
+
+  ForwardPassOutcome out;
+  out.scene_upper_bounds.resize(num_scenes, 0.0);
+  out.scene_feasible.resize(num_scenes, 1);
+
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    // Terminal-skip path: scene was declared structurally infeasible
+    // on a prior iteration and no fresh cuts have arrived since.  We
+    // synthesise an infeasible result without solving any LP — the
+    // future at this index is a default-constructed (invalid) one.
+    if (skip_scene[scene_index]) {
+      out.has_feasibility_issue = true;
+      out.scene_feasible[scene_index] = 0;
+      m_scenes_done_.fetch_add(1);
+      continue;
+    }
+
+    auto fwd = futures[scene_index].get();
+    auto& rs = m_scene_retry_state_[scene_index];
+    if (!fwd.has_value()) {
+      // Demoted to DEBUG: the per-(scene, phase) elastic-filter WARN
+      // already emitted by `forward_pass` carries the same message;
+      // this outer wrapper used to repeat it once per failed scene
+      // for an extra 16 redundant lines per iteration on juan/iplp.
+      // The aggregated rollback summary in `run_backward_pass_*`
+      // (`SDDP Forward [iN]: rolled back M cut row(s) across K
+      // infeasible scene(s) [s1=8 s3=8 …]`) is the user-facing
+      // signal; this DEBUG line preserves the per-scene tag for
+      // post-mortem with `-T`/`spdlog::set_level(debug)`.
+      spdlog::debug("SDDP Forward [i{} s{}]: failed: {}",
+                    gtopt::uid_of(iteration_index),
+                    uid_of(scene_index),
+                    fwd.error().message);
+      out.has_feasibility_issue = true;
+      out.scene_feasible[scene_index] = 0;
+      m_scenes_done_.fetch_add(1);
+
+      // ── Terminal-skip detection ──
+      // Match on the marker phrase emitted by ``forward_pass`` when
+      // the Chinneck filter fails to produce any useful fcut.
+      // Substring search is robust to the trailing context (LP file
+      // saved markers etc.) and avoids leaking another error code
+      // through the public API.
+      const bool is_structural = fwd.error().message.contains(
+          "elastic filter produced no feasibility cut");
+      if (is_structural) {
+        ++rs.consecutive_structural_failures;
+        const int threshold = m_options_.terminal_failure_threshold > 0
+            ? m_options_.terminal_failure_threshold
+            : 2;
+        if (!rs.terminal && rs.consecutive_structural_failures >= threshold) {
+          rs.terminal = true;
+          SPDLOG_WARN(
+              "SDDP Forward [i{} s{}]: marking TERMINAL after {} consecutive "
+              "structural infeasibilities — will skip until new cuts arrive "
+              "globally (current cut store size: {})",
+              gtopt::uid_of(iteration_index),
+              uid_of(scene_index),
+              rs.consecutive_structural_failures,
+              m_cut_store_.num_stored_cuts());
+        }
+      } else {
+        // Non-structural failure (e.g. solver timeout, unrecoverable
+        // numerical error): reset the counter so a single transient
+        // event does not push the scene towards terminal.
+        rs.consecutive_structural_failures = 0;
+      }
+      continue;
+    }
+    // Success path: forward pass solved through to the last phase.
+    // Reset both the consecutive-structural counter (one good run
+    // erases the terminal credit) and the terminal flag itself —
+    // the scene is healthy.
+    rs.consecutive_structural_failures = 0;
+    rs.terminal = false;
+    // Per-scene UB = Σ forward_objective + α-rebase offset (zero
+    // unless `SDDPOptions::boundary_cuts_mean_shift` is enabled,
+    // see `source/sddp_boundary_cuts.cpp` and
+    // `SDDPMethod::scene_alpha_offset`).  Same adjustment lives in
+    // the async path at `sddp_iteration.cpp:1577`; both must agree
+    // so the sync ↔ async UBs stay symmetric.
+    out.scene_upper_bounds[scene_index] =
+        *fwd + scene_alpha_offset(scene_index);
+    ++out.scenes_solved;
+    m_scenes_done_.fetch_add(1);
+  }
+
+  // Per-scene rollback hook for `forward_infeas_rollback` — see
+  // `docs/analysis/investigations/scene_infeasibility/scene_infeasibility_rollback_plan_2026-04-30.md`
+  // §2.3. For every scene S declared infeasible this iteration, drop every cut
+  // S has accumulated in the global cut store (both forward-pass fcuts
+  // installed during PLP-style backtrack chains and earlier backward-pass
+  // optcuts).  Snapshot the global cut count *after* rollback so the next
+  // iteration's stall-stop guard measures only new cuts contributed by peers.
+  if (m_options_.forward_infeas_rollback) {
+    std::ptrdiff_t total_rollback_rows = 0;
+    int n_rolled_back = 0;
+    // Build a per-scene breakdown for the user-facing log so a 10-
+    // scene rollback shows exactly which scenes lost how many cut
+    // rows.  Format: "s1=8 s3=8 s6=8 …"
+    std::string per_scene_breakdown;
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      if (out.scene_feasible[scene_index] != 0) {
+        continue;
+      }
+      const auto deleted =
+          m_cut_store_.clear_scene_cuts(scene_index, planning_lp());
+      if (deleted > 0) {
+        ++n_rolled_back;
+        total_rollback_rows += deleted;
+        if (!per_scene_breakdown.empty()) {
+          per_scene_breakdown += ' ';
+        }
+        per_scene_breakdown +=
+            std::format("s{}={}", uid_of(scene_index), deleted);
+      }
+      // Snapshot the cut count consumable by this scene's master at
+      // failure time, so the next iter's restart trigger measures the
+      // RIGHT delta (see the symmetric read site in
+      // `run_forward_pass_all_scenes`'s skip-pass).  Under
+      // `cut_sharing != none`, peer cuts ARE broadcast → snapshot the
+      // global count.  Under `cut_sharing == none`, only this scene's
+      // own backward cuts can change its master → snapshot its own
+      // store size (which after `clear_scene_cuts` is 0).
+      const bool peer_cuts_broadcast =
+          m_options_.cut_sharing != CutSharingMode::none;
+      m_scene_retry_state_[scene_index].global_cuts_at_last_failure =
+          peer_cuts_broadcast ? m_cut_store_.num_stored_cuts()
+                              : std::ssize(m_cut_store_.at(scene_index));
+    }
+    if (n_rolled_back > 0) {
+      SPDLOG_INFO(
+          "SDDP Forward [i{}]: rolled back {} cut row(s) across {} "
+          "infeasible scene(s) [{}] (forward_infeas_rollback)",
+          gtopt::uid_of(iteration_index),
+          total_rollback_rows,
+          n_rolled_back,
+          per_scene_breakdown);
+    }
+  }
+
+  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                                - fwd_start)
+                      .count();
+
+  // Post-pass cut count - pre-pass snapshot = fcuts installed this pass.
+  // Non-negative because cuts are only added (never removed) during a
+  // forward pass under the legacy path; under
+  // `forward_infeas_rollback` the rollback hook above may also delete
+  // cuts, in which case `cuts_after_pass < cuts_before_pass` is
+  // possible — the `max(..., 0)` keeps `n_fcuts_installed` non-negative
+  // (the field is consumed only by the simulation retry loop's
+  // "no progress" check, where a negative delta should still register
+  // as zero progress).
+  const auto cuts_after_pass = m_cut_store_.num_stored_cuts();
+  out.n_fcuts_installed = static_cast<std::size_t>(
+      std::max<std::ptrdiff_t>(0, cuts_after_pass - cuts_before_pass));
+
+  m_current_pass_.store(0);
+
+  // Only declare the run unrecoverably stuck when ZERO scenes survived AND
+  // ZERO feasibility cuts were installed.  When fail-stop scenes installed
+  // fcuts on predecessor phases (the documented "scene-level fail-stop"
+  // path in sddp_forward_pass.cpp:528-558), those cuts persist in the
+  // global cut store and can make the master produce different state
+  // outputs in the next iteration.  Aborting here would discard them and
+  // contradict the fail-stop design comment ("the next iteration restarts
+  // every scene's forward pass from p1 with the freshly accumulated cuts").
+  if (out.scenes_solved == 0 && out.n_fcuts_installed == 0) {
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message = "SDDP: all scenes infeasible in forward pass "
+                   "and no recoverable feasibility cuts were installed",
+    });
+  }
+
+  return out;
+}
+
+auto SDDPMethod::run_backward_pass_all_scenes(
+    std::span<const uint8_t> scene_feasible,
+    SDDPWorkPool& pool,
+    const SolverOptions& opts,
+    IterationIndex iteration_index) -> BackwardPassOutcome
+{
+  const auto& bwd_opts = opts;
+
+  m_current_pass_.store(2);
+  m_scenes_done_.store(0);
+
+  // When cut sharing is enabled, use the phase-synchronized backward pass:
+  // all scenes complete a phase before cuts are shared and the next phase
+  // is processed.  When sharing is disabled (None), scenes run their full
+  // backward pass independently in parallel with no synchronization.
+  if (m_options_.cut_sharing != CutSharingMode::none) {
+    auto result = run_backward_pass_synchronized(
+        scene_feasible, pool, bwd_opts, iteration_index);
+    m_current_pass_.store(0);
+    return result;
+  }
+
+  const auto num_scenes = planning_lp().simulation().scene_count();
+
+  SPDLOG_INFO(
+      "SDDP Backward [i{}]: dispatching {} scene(s) to work pool "
+      "(cut_sharing=none, apertures={})",
+      gtopt::uid_of(iteration_index),
+      num_scenes,
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
+
+  const auto bwd_start = std::chrono::steady_clock::now();
+  std::vector<std::future<std::expected<int, Error>>> futures;
+  futures.reserve(num_scenes);
+
+  // Backward-pass scene tasks at TaskPriority::Medium; lower iteration
+  // = higher priority via `SDDPTaskKey`.  All scenes in this submission
+  // burst share the same key (one (iter, is_backward, kind) tuple) so
+  // dequeue order across scenes is FIFO.
+  const auto bwd_req = make_backward_lp_task_req(iteration_index);
+
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    if (scene_feasible[scene_index] == 0U) {
+      continue;
+    }
+    const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
+    auto fut = use_ap
+        ? pool.submit(
+              [this, scene_index, &bwd_opts, iteration_index]
+              {
+                return backward_pass_with_apertures(
+                    scene_index, bwd_opts, iteration_index);
+              },
+              bwd_req)
+        : pool.submit(
+              [this, scene_index, &bwd_opts, iteration_index]
+              { return backward_pass(scene_index, bwd_opts, iteration_index); },
+              bwd_req);
+    futures.push_back(std::move(fut.value()));
+  }
+
+  BackwardPassOutcome out;
+  for (auto& fut : futures) {
+    auto bwd = fut.get();
+    if (!bwd.has_value()) {
+      SPDLOG_WARN("SDDP Backward [i{}]: failed: {}",
+                  gtopt::uid_of(iteration_index),
+                  bwd.error().message);
+      out.has_feasibility_issue = true;
+      m_scenes_done_.fetch_add(1);
+      continue;
+    }
+    out.total_cuts += *bwd;
+    m_scenes_done_.fetch_add(1);
+  }
+
+  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                                - bwd_start)
+                      .count();
+
+  m_current_pass_.store(0);
+  return out;
+}
+
+// ── Phase-synchronized backward pass (for cut sharing) ──────────────────────
+
+auto SDDPMethod::run_backward_pass_synchronized(
+    std::span<const uint8_t> scene_feasible,
+    SDDPWorkPool& pool,
+    const SolverOptions& opts,
+    IterationIndex iteration_index) -> BackwardPassOutcome
+{
+  const auto num_scenes = planning_lp().simulation().scene_count();
+  const auto num_phases = planning_lp().simulation().phase_count();
+  const auto feasible_scenes = static_cast<std::ptrdiff_t>(
+      std::ranges::count(scene_feasible, uint8_t {1}));
+
+  // INFO-level start log so users tailing trace logs see the
+  // backward pass kick off (the non-synchronized path has the
+  // matching log at line ~764).  Without this the log goes silent
+  // between "Forward [i0] rolled back N cuts" and the next
+  // iteration summary, which on juan-scale runs is several
+  // minutes of aperture solves.
+  SPDLOG_INFO(
+      "SDDP Backward [i{}]: dispatching {}/{} feasible scene(s) × "
+      "{} phase(s) (cut_sharing={}, apertures={})",
+      gtopt::uid_of(iteration_index),
+      feasible_scenes,
+      num_scenes,
+      num_phases - 1,
+      enum_name(m_options_.cut_sharing),
+      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
+                                                              : "disabled");
+
+  const auto bwd_start = std::chrono::steady_clock::now();
+  BackwardPassOutcome out;
+
+  // Per-scene cumulative cut count for unique cut labels across phase steps
+  std::vector<int> per_scene_cut_count(static_cast<std::size_t>(num_scenes), 0);
+
+  // Apertures enabled unless explicitly set to empty array
+  const bool use_apertures =
+      !m_options_.apertures || !m_options_.apertures->empty();
+
+  // Aggregate per-scene cut-receive counts across the whole pass so
+  // we can tell, at end-of-pass, whether infeasible scenes (which
+  // were skipped at dispatch) actually receive shared cuts from
+  // their feasible peers via `share_cuts_for_phase`.  A scene with
+  // `feasible[s] == 0` should still see this counter grow under any
+  // `cut_sharing != none` mode — that's the evidence the rollback
+  // stall-stop guard reads next iteration.
+  std::vector<std::ptrdiff_t> per_scene_cuts_received(
+      static_cast<std::size_t>(num_scenes), 0);
+
+  // Process phases backward: all scenes complete one phase before
+  // sharing cuts and moving to the previous phase.
+  for (const auto phase_index :
+       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
+  {
+    // Snapshot each scene's cut-count before this phase step so we
+    // can identify newly-added cuts below for cross-scene sharing.
+    std::vector<std::size_t> per_scene_before(
+        static_cast<std::size_t>(num_scenes), 0);
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      per_scene_before[static_cast<std::size_t>(si)] =
+          m_cut_store_.at(si).size();
+    }
+
+    // Submit all feasible scenes for this phase step in parallel
+    std::vector<std::pair<SceneIndex, std::future<std::expected<int, Error>>>>
+        futures;
+    futures.reserve(num_scenes);
+
+    // The phase-by-phase synchronised path serialises phase steps with
+    // futures (line ~1405) — only one phase's tasks are ever in flight
+    // — so `SDDPTaskKey` has no per-phase field to differentiate them.
+    const auto bwd_req = make_backward_lp_task_req(iteration_index);
+
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      if (scene_feasible[scene_index] == 0U) {
+        continue;
+      }
+      const int offset = per_scene_cut_count[scene_index];
+
+      auto fut = use_apertures
+          ? pool.submit(
+                [this, scene_index, phase_index, offset, &opts, iteration_index]
+                {
+                  return backward_pass_with_apertures_single_phase(
+                      scene_index, phase_index, offset, opts, iteration_index);
+                },
+                bwd_req)
+          : pool.submit(
+                [this, scene_index, phase_index, offset, &opts, iteration_index]
+                {
+                  return backward_pass_single_phase(
+                      scene_index, phase_index, offset, opts, iteration_index);
+                },
+                bwd_req);
+      futures.emplace_back(scene_index, std::move(fut.value()));
+    }
+
+    // Wait for all scenes to complete this phase step
+    for (auto& [scene_index, fut] : futures) {
+      auto step_result = fut.get();
+      if (!step_result.has_value()) {
+        SPDLOG_WARN("SDDP backward synchronized: scene {} phase {} failed: {}",
+                    scene_index,
+                    phase_index,
+                    step_result.error().message);
+        out.has_feasibility_issue = true;
+        m_scenes_done_.fetch_add(1);
+        continue;
+      }
+      out.total_cuts += *step_result;
+      per_scene_cut_count[scene_index] += *step_result;
+      m_scenes_done_.fetch_add(1);
+    }
+
+    // Share optimality cuts generated in this phase step across all scenes.
+    // Feasibility cuts are stored but only optimality cuts are shared.
+    const auto src_phase_index = previous(phase_index);
+
+    StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+    scene_cuts.resize(num_scenes);
+
+    // Collect newly-added optimality cuts on src_phase_index from
+    // each scene's vector using the per-scene-before offsets
+    // snapshotted above.  No lock needed — the scene-step barrier
+    // (fut.get() loop above) already synchronises.
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto& cuts = m_cut_store_.at(si);
+      for (std::size_t ci = per_scene_before[si]; ci < cuts.size(); ++ci) {
+        const auto& sc = cuts[ci];
+        if (sc.type != CutType::Optimality) {
+          continue;
+        }
+        if (sc.phase_uid != uid_of(src_phase_index)) {
+          continue;
+        }
+        auto row = SparseRow {
+            .lowb = sc.rhs,
+            .uppb = LinearProblem::DblMax,
+            .scale = sc.scale,
+        };
+        for (const auto& [col, coeff] : sc.coefficients) {
+          row[col] = coeff;
+        }
+        scene_cuts[si].push_back(std::move(row));
+      }
+    }
+
+    // Periodic INFO progress every 10 phases on long backward
+    // passes — juan-scale runs have 50 phases × ~80 cells per
+    // phase × 2-3s per aperture solve, so the synchronized loop
+    // can take many minutes silent.  10 phases ≈ once per minute
+    // on juan, frequent enough for users to see progress without
+    // flooding the log on smaller fixtures.
+    if (uid_of(phase_index) % 10 == 0) {
+      const auto elapsed = std::chrono::duration<double>(
+                               std::chrono::steady_clock::now() - bwd_start)
+                               .count();
+      SPDLOG_INFO(
+          "SDDP Backward [i{}]: phase p{} done — {} cut(s) so far, "
+          "{:.1f}s elapsed",
+          gtopt::uid_of(iteration_index),
+          uid_of(phase_index),
+          out.total_cuts,
+          elapsed);
+    }
+
+    // Snapshot post-share row counts on each scene's
+    // (scene, src_phase_index) cell so we can attribute newly-added
+    // rows to the share broadcast.  `share_cuts_for_phase` adds
+    // rows to every destination's LP via `add_cut_row`; the delta
+    // tells us how many cuts each scene received.
+    std::vector<std::size_t> rows_before_share(
+        static_cast<std::size_t>(num_scenes), 0);
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      rows_before_share[static_cast<std::size_t>(si)] =
+          planning_lp()
+              .system(si, src_phase_index)
+              .linear_interface()
+              .get_numrows();
+    }
+
+    share_cuts_for_phase(src_phase_index, scene_cuts, iteration_index);
+
+    // Per-scene receive count = post - pre on the destination
+    // (scene, src_phase_index) cell.
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(si);
+      const auto rows_after = planning_lp()
+                                  .system(si, src_phase_index)
+                                  .linear_interface()
+                                  .get_numrows();
+      const auto delta = static_cast<std::ptrdiff_t>(rows_after)
+          - static_cast<std::ptrdiff_t>(rows_before_share[si_sz]);
+      if (delta > 0) {
+        per_scene_cuts_received[si_sz] += delta;
+      }
+    }
+
+    // ── Per-cell release for src_phase = first phase (last loop iter) ──
+    //
+    // Cells `(scene, k)` are touched twice in the backward pass: once
+    // at iter `phase_index = k+1` as `src` (cut added + resolved +
+    // peer cuts via share), and once at iter `phase_index = k` as
+    // `target` (apertures clone from it).  The optimal release point
+    // is the end of iter k's per-scene worker — handled inside
+    // `backward_pass_with_apertures_single_phase`.  The exception is
+    // `(scene, 0)`: phase 0 is never a target (the loop stops at
+    // `phase_index = 1`), so it must be released here, after
+    // `share_cuts_for_phase` writes the last batch of peer cuts.
+    if (m_options_.low_memory_mode != LowMemoryMode::off
+        && uid_of(src_phase_index) == uid_of(first_phase_index()))
+    {
+      std::vector<std::future<int>> rel_futures;
+      rel_futures.reserve(static_cast<std::size_t>(num_scenes));
+      for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+        auto fut = pool.submit(
+            [this, si, src_phase_index]() -> int
+            {
+              planning_lp().system(si, src_phase_index).release_backend();
+              return 0;
+            },
+            bwd_req);
+        if (fut.has_value()) {
+          rel_futures.push_back(std::move(*fut));
+        }
+      }
+      for (auto& f : rel_futures) {
+        f.get();
+      }
+    }
+
+    SPDLOG_TRACE(
+        "SDDP backward synchronized: phase {} cuts shared across {} scenes",
+        src_phase_index,
+        num_scenes);
+  }
+
+  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
+                                                - bwd_start)
+                      .count();
+
+  // INFO summary: per-scene cut-receive counts.  Distinguishes
+  // feasible (own cuts + peer broadcasts) from infeasible (peer
+  // broadcasts only) so the user can verify the rollback
+  // stall-stop guard's "global cuts grew" condition will be
+  // satisfied for the infeasible scenes at the next iteration.
+  if (m_options_.cut_sharing != CutSharingMode::none) {
+    std::ptrdiff_t infeas_total = 0;
+    std::ptrdiff_t infeas_count = 0;
+    std::ptrdiff_t feas_total = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto si_sz = static_cast<std::size_t>(si);
+      if (scene_feasible[si] == 0U) {
+        infeas_total += per_scene_cuts_received[si_sz];
+        ++infeas_count;
+      } else {
+        feas_total += per_scene_cuts_received[si_sz];
+      }
+    }
+    SPDLOG_INFO(
+        "SDDP Backward [i{}]: cut sharing — feasible scenes received "
+        "{} cut row(s), {} infeasible scene(s) received {} cut row(s) "
+        "(rollback stall-stop guard reads global count next iter)",
+        gtopt::uid_of(iteration_index),
+        feas_total,
+        infeas_count,
+        infeas_total);
+  }
+
+  return out;
+}
+
+void SDDPMethod::compute_iteration_bounds(
+    SDDPIterationResult& ir,
+    std::span<const uint8_t> scene_feasible,
+    std::span<const double> /*weights — vestigial, see note below*/) const
+{
+  // ── Bounds aggregation (post-2026-05-02 fix) ──
+  //
+  // Each per-scene UB / LB already has scenario probability baked
+  // in via ``CostHelper::block_ecost`` (cost × probability_factor ×
+  // discount × duration applied to every LP cost coefficient — see
+  // include/gtopt/cost_helper.hpp).  The forward pass returns
+  // ``scene_upper_bounds[s] = li.get_obj_value() ≈ p_s × physical_cost(s)``
+  // and the master LP's phase-0 ``get_obj_value()`` likewise carries
+  // ``p_s`` baked in.  The cross-scene aggregation is therefore
+  // a plain SUM — multiplying by another ``weights[s] = p_s``
+  // (whether renormalised or not) double-counts probability and
+  // shrinks the bounds by a factor of ``p_s`` per scene.  The
+  // reported gap ratio happens to be invariant to this scaling
+  // (the factor cancels in numerator and denominator), which is
+  // why the bug went undetected for a long time — but the
+  // absolute UB / LB printed in the log were wrong.
+  //
+  // Infeasible scenes contribute 0 (skipped from the loop).  This
+  // is the correct semantic ``E[cost · 1_{feasible}]``: the LP for
+  // those scenes did not solve, so they have no cost to add to
+  // the expectation.  The missing probability mass is surfaced via
+  // the ``feasible=K/N`` headline clause (Layer 1, commit 4dd87e17)
+  // and the ``scene_probability_lost`` field below.
+  //
+  // The ``weights`` parameter is now vestigial — it is still
+  // produced by ``compute_scene_weights`` for cut-sharing
+  // aggregation but is no longer consulted here.  Keeping the
+  // signature stable avoids touching every caller.
+  //
+  // Physical ($) units — must match the physical-space UB
+  // aggregated in ``sddp_forward_pass`` (which uses
+  // ``get_obj_value()`` after commit dd5c88ee).  Reading
+  // ``get_obj_value_raw()`` here would put UB and LB in different
+  // unit spaces, producing a gap = (UB − LB) / |UB| ≈
+  // ``(scale_objective − 1) / scale_objective`` that never closes
+  // regardless of cut quality (juan/gtopt_iplp at
+  // ``scale_objective = 1000``: a permanent ≈ 0.999 gap).
+  const auto num_scenes = planning_lp().simulation().scene_count();
+  ir.scene_lower_bounds.resize(num_scenes, 0.0);
+
+  double upper = 0.0;
+  double lower = 0.0;
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    if (scene_feasible[scene] == 0U) {
+      continue;
+    }
+    upper += ir.scene_upper_bounds[scene];
+    // Per-scene LB = master.get_obj_value() + α-rebase offset.
+    // Mirrors the UB site above and the async path at
+    // `sddp_iteration.cpp:1663`: when the mean-shift opt-in fired,
+    // the master LP's `get_obj_value()` is short by `c̄_scene`, so
+    // we add it back here so the displayed LB matches the
+    // algebraically-original physical objective.  Zero when no
+    // shift was applied.
+    const double lb_si = planning_lp()
+                             .system(scene, first_phase_index())
+                             .linear_interface()
+                             .get_obj_value()
+        + scene_alpha_offset(scene);
+    ir.scene_lower_bounds[scene] = lb_si;
+    lower += lb_si;
+  }
+  ir.upper_bound = upper;
+  ir.lower_bound = lower;
+
+  // Layer 3 diagnostic: fraction of original probability mass
+  // missing from the bounds (i.e. mass on infeasible scenes).
+  // Always populated; equals 0 when every scene is feasible.
+  const auto& scenes = planning_lp().simulation().scenes();
+  double total_p = 0.0;
+  double lost_p = 0.0;
+  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
+    const double p = scenes[scene].probability_factor();
+    total_p += p;
+    if (scene_feasible[scene] == 0U) {
+      lost_p += p;
+    }
+  }
+  ir.scene_probability_lost = (total_p > 0.0) ? lost_p / total_p : 0.0;
+}
+
+void SDDPMethod::apply_cut_sharing_for_iteration(IterationIndex iteration_index)
+{
+  m_cut_store_.apply_cut_sharing_for_iteration(
+      iteration_index, m_options_, planning_lp(), m_label_maker_);
+}
+
+void SDDPMethod::finalize_iteration_result(
+    SDDPIterationResult& ir,
+    IterationIndex iteration_index,
+    const std::vector<SDDPIterationResult>& results)
+{
+  ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
+
+  // Compute gap_change against the stationary look-back window so the
+  // mid-iteration log below reports the same value carried forward to
+  // the downstream "Iter [iN]: done" and stationary-convergence logs.
+  // Keep the 1.0 sentinel when stationarity tracking is disabled or no
+  // prior results exist (and no cross-level seed is installed) — the
+  // same default used when constructing ir.
+  if (m_options_.stationary_window > 0 && m_options_.stationary_tol > 0.0) {
+    // Walk a combined index over ``[seed ⧺ results]`` (seed entries
+    // are oldest-first; last seed entry is the previous cascade
+    // level's most recent iter).  This lets a ``stationary_window=N``
+    // configuration exercise a real N-iter lookback at iter 1 of a
+    // new cascade level — previously the seed was a single point,
+    // so a window > 1 silently degraded to a 1-iter lookback at
+    // every cascade transition.  See :func:`seed_prior_bounds`
+    // for the seed-array rationale and convergence-safety pairing
+    // with ``min_iterations >= 2``.
+    const auto window = static_cast<std::size_t>(m_options_.stationary_window);
+    const std::size_t seed_n = m_seed_prior_history_.size();
+    const std::size_t avail = seed_n + results.size();
+    const std::size_t lookback = std::min(window, avail);
+    if (lookback > 0) {
+      // Index counted from the OLDEST entry in the combined sequence.
+      const std::size_t pos = avail - lookback;
+      // Stationarity tracked on UB, not on the (UB-LB) gap — UB is the
+      // unbiased Monte-Carlo estimate of the realised policy cost and
+      // is the quantity we are optimising.  Δgap_relative computed on a
+      // signed gap was confounded by zero-crossings (the denominator
+      // shrinks to 0 right when the cuts overshoot, blowing the
+      // relative metric up to thousands of percent).  See
+      // :member:`SDDPIterationResult::gap_change`.
+      const double old_ub = (pos < seed_n)
+          ? m_seed_prior_history_[pos].upper_bound
+          : results[pos - seed_n].upper_bound;
+      ir.gap_change =
+          std::abs(ir.upper_bound - old_ub) / std::max(1e-10, std::abs(old_ub));
+    }
+  }
+
+  // Convergence semantics (after 2026-05-14 rewrite):
+  //
+  //   The signed-gap (|UB-LB|/max(1,|UB|)) is **not** a convergence
+  //   trigger.  Under the multi-cut + aperture regime the LB
+  //   routinely overshoots the optimum and the signed gap zero-
+  //   crosses well before the policy has stabilised — declaring
+  //   converged at gap < 1 % then would either fire prematurely on
+  //   the descent or be unreachable once gap goes negative.
+  //
+  //   UB is the unbiased Monte-Carlo estimate of the realised policy
+  //   cost — the quantity we are optimising — so the convergence
+  //   signal is ΔUB stationarity: the relative change of UB over the
+  //   stationary look-back window drops below ``stationary_tol``.
+  //   That decision is taken downstream in ``evaluate_stationary_check``
+  //   /``StationaryCheck`` (sddp_iteration.cpp).
+  //
+  //   The negative-gap WARN below still fires on pathological |gap|
+  //   so post-mortem readers see the LB-overshoot in the trace, and
+  //   the ``|gap| < stationary_gap_ceiling`` (default 0.5) safety net
+  //   in ``evaluate_stationary_check`` refuses to declare converged
+  //   on a wild bound asymmetry.  Pre-2026-05-14 this site also set
+  //   ``ir.converged = (ir.gap < convergence_tol && past_min_iter)``;
+  //   that exit has been removed.
+  const auto tol = m_options_.convergence_tol;
+
+  // WARN threshold is more lenient than the convergence-decision
+  // threshold.  A negative gap of order 1e-3 to 1e-2 is typical
+  // dual-noise compounding from high-κ basis (cuts overshoot UB by
+  // ~0.1-1% relative on κ ≈ 10⁹ runs) and isn't actionable — the
+  // bounds are essentially co-incident.  Only WARN when the negative
+  // gap is large enough to indicate a genuine cut-construction
+  // pathology, not just numerical noise.  Threshold scales with
+  // convergence_tol so the warn matches the user's accuracy
+  // expectation: 5× tol means "out of normal numerical noise band
+  // by 5× the convergence target".  Falls back to kSddpGapFpEpsilon
+  // for users who set tol very small.
+  const auto neg_gap_warn_threshold =
+      std::max(kSddpGapFpEpsilon, 5.0 * std::abs(tol));
+  if (ir.gap < -neg_gap_warn_threshold) {
+    SPDLOG_WARN(
+        "SDDP Iter [i{}]: SIGNIFICANT negative gap = {:.6f} "
+        "(ub={}, lb={}) — lb > ub by more than {:.4f} of ub; "
+        "cuts likely overshoot the optimum. Refusing to declare "
+        "[CONVERGED] until the bound asymmetry resolves.",
+        gtopt::uid_of(iteration_index),
+        ir.gap,
+        format_si(ir.upper_bound),
+        format_si(ir.lower_bound),
+        neg_gap_warn_threshold);
+  } else if (ir.gap < -kSddpGapFpEpsilon) {
+    // Within the dual-noise band — log at DEBUG so post-mortem can
+    // see it but normal operators don't get woken up by it.
+    SPDLOG_DEBUG(
+        "SDDP Iter [i{}]: negative gap = {:.6f} within numerical noise "
+        "(threshold {:.4f}); treating as non-converging without WARN",
+        gtopt::uid_of(iteration_index),
+        ir.gap,
+        neg_gap_warn_threshold);
+  }
+  // ``ir.converged`` is intentionally left at its default ``false``
+  // here.  The sole convergence path is the stationary check applied
+  // downstream by the caller (``SDDPMethod::iterate()`` and
+  // ``solve_async()``) via ``evaluate_stationary_check`` —
+  // ``past_min_iter`` is recomputed inside that helper.
+
+  publish_live_metrics_(LiveMetrics {
+      .iteration = iteration_index,
+      .gap = ir.gap,
+      .lower_bound = ir.lower_bound,
+      .upper_bound = ir.upper_bound,
+      .converged = ir.converged,
+  });
+
+  // Per-iteration end-of-iteration summary is emitted from
+  // sddp_iteration.cpp (`SDDP Iter [i{}]: done in ...`).  Keep only the
+  // TRACE breakdown here for very-verbose post-mortem analysis; the
+  // INFO-level subset duplicated the iteration-summary line.
+  SPDLOG_TRACE(
+      "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} gap_change={:.6f} "
+      "cuts={} infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
+      iteration_index,
+      ir.lower_bound,
+      ir.upper_bound,
+      ir.gap,
+      ir.gap_change,
+      ir.cuts_added,
+      ir.infeasible_cuts_added,
+      ir.forward_pass_s,
+      ir.backward_pass_s,
+      ir.iteration_s,
+      ir.converged ? " [CONVERGED]" : "");
+}
+
+void SDDPMethod::maybe_write_api_status(
+    const std::string& status_file,
+    const std::vector<SDDPIterationResult>& results,
+    std::chrono::steady_clock::time_point solve_start,
+    const SolverMonitor& monitor) const
+{
+  if (!m_options_.enable_api || status_file.empty()) {
+    return;
+  }
+  const double elapsed = std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - solve_start)
+                             .count();
+  // Query the actual solver identity from the first available LP
+  std::string solver_id;
+  if (!planning_lp().systems().empty()
+      && !planning_lp().systems().front().empty())
+  {
+    solver_id =
+        planning_lp().systems().front().front().linear_interface().solver_id();
+  }
+
+  // Read the 5 per-iteration metrics from a single coherent snapshot
+  // so `iteration` can never come from a different step than `gap`.
+  const auto metrics = live_metrics_();
+  const SolverStatusSnapshot snapshot {
+      .iteration_index = metrics->iteration,
+      .gap = metrics->gap,
+      .lower_bound = metrics->lower_bound,
+      .upper_bound = metrics->upper_bound,
+      .converged = metrics->converged,
+      .max_iterations = m_options_.max_iterations,
+      .min_iterations = m_options_.min_iterations,
+      .current_pass = m_current_pass_.load(),
+      .scenes_done = m_scenes_done_.load(),
+      .solver = std::move(solver_id),
+      .method = "sddp",
+      .phase_grid = &m_phase_grid_,
+  };
+  write_solver_status(status_file, results, elapsed, snapshot, monitor);
+}
+
+void SDDPMethod::save_cuts_for_iteration(
+    IterationIndex iteration_index, std::span<const uint8_t> scene_feasible)
+{
+  // Pass `m_pool_` so the per-scene cut writes can be dispatched in
+  // parallel (sequential fallback when null — only happens before
+  // `solve()` has constructed the pool).
+  m_cut_store_.save_cuts_for_iteration(iteration_index,
+                                       scene_feasible,
+                                       m_options_,
+                                       planning_lp(),
+                                       m_label_maker_,
+                                       m_scene_phase_states_,
+                                       m_pool_);
+}
+
+// ── solve() — now in sddp_iteration.cpp ─────────────────────────────────────
+
+// ─── SDDPPlanningMethod ─────────────────────────────────────────────────────
+
+SDDPPlanningMethod::SDDPPlanningMethod(SDDPOptions opts) noexcept
+    : m_sddp_opts_(std::move(opts))
+{
+}
+
+}  // namespace gtopt

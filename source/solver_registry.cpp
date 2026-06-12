@@ -15,6 +15,7 @@
 
 #include <dlfcn.h>
 #include <gtopt/solver_registry.hpp>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -58,7 +59,8 @@ std::string join_strings(const std::vector<std::string>& strs,
 SolverRegistry::SolverRegistry()
 {
   discover_default_paths();
-  validate_loaded_solvers();
+  // Plugins are NOT loaded here — loading is deferred until a solver
+  // is actually requested (lazy loading).
 }
 
 // Intentionally do NOT dlclose() plugin handles.
@@ -77,8 +79,7 @@ SolverRegistry& SolverRegistry::instance()
 void SolverRegistry::discover_default_paths()
 {
   // 1. $GTOPT_PLUGIN_DIR environment variable
-  if (const auto* env =
-          std::getenv("GTOPT_PLUGIN_DIR");  // NOLINT(concurrency-mt-unsafe)
+  if (const auto* env = std::getenv("GTOPT_PLUGIN_DIR");
       env != nullptr && *env != '\0')
   {
     discover_plugins(env);
@@ -124,9 +125,17 @@ void SolverRegistry::discover_plugins(const std::filesystem::path& dir)
     const auto& path = entry.path();
     const auto filename = path.filename().string();
 
-    // Match libgtopt_solver_*.so
+    // Match libgtopt_solver_*.so — record path for lazy loading
     if (filename.starts_with("libgtopt_solver_") && filename.ends_with(".so")) {
-      load_plugin(path);
+      // Avoid recording duplicates (same canonical path)
+      const auto canon = std::filesystem::weakly_canonical(path, ec);
+      const auto& to_store = ec ? path : canon;
+      if (std::ranges::none_of(m_pending_paths_,
+                               [&to_store](const auto& p)
+                               { return p == to_store; }))
+      {
+        m_pending_paths_.push_back(to_store);
+      }
     }
   }
 }
@@ -136,8 +145,7 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // dlopen with RTLD_LOCAL so symbols don't leak between plugins
   auto* handle = ::dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (handle == nullptr) {
-    const auto* err = ::dlerror();  // NOLINT(concurrency-mt-unsafe) - called
-                                    // single-threaded at init
+    const auto* err = ::dlerror();
     const auto msg = std::format("Failed to load plugin {}: {}",
                                  path.string(),
                                  (err != nullptr) ? err : "unknown");
@@ -146,13 +154,17 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     return false;
   }
 
-  // Resolve required symbols
-  auto* name_fn = reinterpret_cast<solver_plugin_name_fn>(  // NOLINT
+  // Resolve required symbols.  reinterpret_cast is unavoidable here:
+  // POSIX dlsym returns void* and the C++ standard provides no other
+  // way to convert that to a function pointer.
+  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* name_fn = reinterpret_cast<solver_plugin_name_fn>(
       ::dlsym(handle, "gtopt_plugin_name"));
-  auto* names_fn = reinterpret_cast<solver_plugin_names_fn>(  // NOLINT
+  auto* names_fn = reinterpret_cast<solver_plugin_names_fn>(
       ::dlsym(handle, "gtopt_solver_names"));
-  auto* factory_fn = reinterpret_cast<solver_backend_factory_fn>(  // NOLINT
+  auto* factory_fn = reinterpret_cast<solver_backend_factory_fn>(
       ::dlsym(handle, "gtopt_create_backend"));
+  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
   if (name_fn == nullptr || names_fn == nullptr || factory_fn == nullptr) {
     const auto msg =
@@ -163,10 +175,19 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
     return false;
   }
 
+  // Optional symbol: `gtopt_solver_infinity` lets the registry expose
+  // the solver's +infinity value without instantiating a backend.
+  // Plugins built before this entry existed report nullptr; callers
+  // fall back to instance-level query.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* infinity_fn = reinterpret_cast<solver_plugin_infinity_fn>(
+      ::dlsym(handle, "gtopt_solver_infinity"));
+
   // Check ABI version compatibility.  Plugins built against a different
   // SolverBackend vtable layout would crash at runtime; reject them
   // early with a clear diagnostic instead.
-  auto* abi_fn = reinterpret_cast<solver_plugin_abi_version_fn>(  // NOLINT
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* abi_fn = reinterpret_cast<solver_plugin_abi_version_fn>(
       ::dlsym(handle, "gtopt_plugin_abi_version"));
   const int plugin_abi = (abi_fn != nullptr) ? abi_fn() : 0;
   if (plugin_abi != k_solver_abi_version) {
@@ -196,13 +217,13 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
 
   // Collect solver names
   std::vector<std::string> solver_names;
-  for (const auto* names = names_fn(); *names != nullptr;
-       ++names)  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  {
+  for (const auto* names = names_fn(); *names != nullptr; ++names) {
     solver_names.emplace_back(*names);
   }
 
-  SPDLOG_INFO("Loaded solver plugin '{}' from {} (solvers: {})",
+  // Indent two spaces so the message sits under the "Building LP model"
+  // section when plugin loading is triggered as a side effect of LP build.
+  SPDLOG_INFO("  Loaded solver plugin '{}' from {} (solvers: {})",
               plugin_name,
               path.string(),
               join_strings(solver_names, ", "));
@@ -210,11 +231,49 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   m_plugins_.push_back(PluginHandle {
       .dl_handle = handle,
       .create_fn = factory_fn,
+      .infinity_fn = infinity_fn,  // may be nullptr (older plugins)
       .plugin_name = plugin_name,
       .solver_names = std::move(solver_names),
   });
 
   return true;
+}
+
+// ── Plugin-level infinity query ─────────────────────────────────────────────
+
+std::optional<double> SolverRegistry::plugin_infinity(
+    std::string_view solver_name)
+{
+  // Resolve empty solver_name to the default solver (loads its plugin
+  // as a side effect via default_solver()).  This matches the
+  // convention in `LinearInterface`'s default-solver constructor.
+  std::string resolved;
+  if (solver_name.empty()) {
+    resolved = std::string(default_solver());
+    solver_name = resolved;
+  } else {
+    // Ensure the plugin providing this solver is loaded.
+    const std::scoped_lock lock(m_mutex_);
+    if (!has_solver_unlocked(solver_name)) {
+      ensure_solver_loaded(solver_name);
+    }
+  }
+
+  const std::scoped_lock lock(m_mutex_);
+  for (const auto& plugin : m_plugins_) {
+    for (const auto& sn : plugin.solver_names) {
+      if (sn == solver_name) {
+        if (plugin.infinity_fn != nullptr) {
+          // Plugin built with the new entry point — fast path.
+          return plugin.infinity_fn(std::string(solver_name).c_str());
+        }
+        // Older plugin without the entry point.  Caller falls back
+        // to creating a backend instance and calling infinity().
+        return std::nullopt;
+      }
+    }
+  }
+  return std::nullopt;
 }
 
 bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
@@ -234,39 +293,107 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
   }
 
   if (pid == 0) {
-    // Child process: create a backend and call minimal virtual methods.
-    // Any crash here terminates only the child, not the parent.
-    // NOLINTNEXTLINE(concurrency-mt-unsafe) - single-threaded child
-    auto* backend = plugin.create_fn(solver_name.c_str());
-    if (backend == nullptr) {
-      ::_exit(1);  // NOLINT(concurrency-mt-unsafe)
+    // Child process: create a backend and exercise it end-to-end.
+    // Any crash here (SIGSEGV, SIGABRT, etc.) terminates only the child.
+    // This catches both vtable ABI mismatches AND solvers that crash during
+    // actual LP solving (e.g. COIN-OR compiled with GCC in a Clang binary).
+    //
+    // ── async-logger fork race ─────────────────────────────────────────
+    // The parent installs `gtopt_async` as the default logger at the top
+    // of `main()`.  `fork()` duplicates the parent's address space but
+    // does NOT replicate threads — so the inherited `async_logger` here
+    // has a queue + handle but no worker thread to drain it.  Any
+    // `spdlog::*(...)` call from this branch would enqueue into a dead
+    // queue (and, under the `block` policy, deadlock forever; under
+    // `overrun_oldest`, silently lose every message including the
+    // diagnostic that should help the user understand what went wrong).
+    //
+    // Mitigation: replace the default logger with a fresh synchronous
+    // stderr logger before any logging happens.  We deliberately don't
+    // call `spdlog::shutdown()` — that walks the registry and tries to
+    // flush every async logger (including ours), which would just hang.
+    // Setting a new default logger and dropping the global reference
+    // table is the minimum we can do safely from a post-fork context.
+    try {
+      auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+      auto child_logger =
+          std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
+      child_logger->set_level(spdlog::level::warn);
+      spdlog::set_default_logger(std::move(child_logger));
+      spdlog::drop_all();  // detach any inherited async logger handles
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+      // Best effort — if logger swap fails, validation continues without
+      // logging.  We must NOT propagate exceptions across the fork barrier.
     }
-    // Exercise the vtable with low-cost accessors.
-    const auto name = backend->solver_name();
-    const auto inf = backend->infinity();
-    (void)name;
-    (void)inf;
-    delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
-    ::_exit(0);  // NOLINT(concurrency-mt-unsafe)
+
+    // Reset signal handlers so doctest's crash-recovery logic (inherited
+    // from the parent via fork) does not fire inside the child — without
+    // this, an uncaught exception → abort → doctest's SIGABRT handler
+    // → spurious crash output that confuses doctest's test-rerun loop.
+    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+    ::signal(SIGABRT, SIG_DFL);
+    ::signal(SIGSEGV, SIG_DFL);
+    ::signal(SIGFPE, SIG_DFL);
+    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+
+    try {
+      auto* backend = plugin.create_fn(solver_name.c_str());
+      if (backend == nullptr) {
+        ::_exit(1);
+      }
+      // Step 1: exercise basic vtable accessors.
+      const auto bname = backend->solver_name();
+      const auto inf = backend->infinity();
+      (void)bname;
+
+      // Step 2: solve a minimal LP to confirm the solver works end-to-end.
+      // LP: min x  s.t.  x >= 1,  0 <= x <= 10
+      // This catches solvers that can be created but SEGFAULT during solving.
+      const int nc = 1;
+      const int nr = 1;
+      const std::array<int, 2> matbeg {0, 1};
+      const std::array<int, 1> matind {0};
+      const std::array<double, 1> matval {1.0};
+      const std::array<double, 1> collb {0.0};
+      const std::array<double, 1> colub {10.0};
+      const std::array<double, 1> objv {1.0};
+      const std::array<double, 1> rowlb {1.0};
+      const std::array<double, 1> rowub {inf};
+      backend->load_problem(nc,
+                            nr,
+                            matbeg.data(),
+                            matind.data(),
+                            matval.data(),
+                            collb.data(),
+                            colub.data(),
+                            objv.data(),
+                            rowlb.data(),
+                            rowub.data());
+      backend->initial_solve();
+      if (!backend->is_proven_optimal()) {
+        ::_exit(2);
+      }
+      delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
+      ::_exit(0);
+    } catch (...) {
+      ::_exit(1);
+    }
   }
 
   // Parent: wait for the child to finish.
   int status = 0;
   ::waitpid(pid, &status, 0);
 
-  // NOLINTNEXTLINE(hicpp-signed-bitwise) - POSIX macros use bitwise ops
+  //  - POSIX macros use bitwise ops
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
     return true;
   }
 
   // Build a diagnostic message.
   std::string detail;
-  // NOLINTNEXTLINE(hicpp-signed-bitwise)
   if (WIFSIGNALED(status)) {
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     detail = std::format("signal {}", WTERMSIG(status));
   } else {
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
     detail = std::format("exit code {}", WEXITSTATUS(status));
   }
   const auto msg = std::format(
@@ -303,25 +430,156 @@ void SolverRegistry::validate_loaded_solvers()
                 [](const PluginHandle& p) { return p.solver_names.empty(); });
 }
 
-std::unique_ptr<SolverBackend> SolverRegistry::create(
-    std::string_view solver_name) const
+void SolverRegistry::load_all_plugins()
 {
-  for (const auto& plugin : m_plugins_) {
-    for (const auto& name : plugin.solver_names) {
-      if (name == solver_name) {
-        auto* backend = plugin.create_fn(std::string(solver_name).c_str());
-        if (backend == nullptr) {
-          throw std::runtime_error(
-              std::format("Plugin '{}' failed to create solver '{}'",
-                          plugin.plugin_name,
-                          solver_name));
+  const std::scoped_lock lock(m_mutex_);
+  if (m_all_loaded_) {
+    return;
+  }
+  for (const auto& path : m_pending_paths_) {
+    load_plugin(path);
+  }
+  m_pending_paths_.clear();
+  validate_loaded_solvers();
+  m_all_loaded_ = true;
+}
+
+bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
+                                          bool filename_only)
+{
+  const std::scoped_lock lock(m_mutex_);
+
+  // Already loaded?
+  if (has_solver_unlocked(solver_name)) {
+    return true;
+  }
+
+  // Try loading pending plugins one by one until we find the solver.
+  // We infer the solver name from the plugin filename to try the most
+  // likely candidate first (e.g., "highs" → libgtopt_solver_highs.so).
+  const auto target = std::format("libgtopt_solver_{}.so", solver_name);
+
+  // First pass: try the best-match filename.
+  for (auto it = m_pending_paths_.begin(); it != m_pending_paths_.end(); ++it) {
+    if (it->filename() == target) {
+      auto path = std::move(*it);
+      m_pending_paths_.erase(it);
+      load_plugin(path);
+      // Validate only the newly loaded plugin.
+      if (!m_plugins_.empty()) {
+        auto& last = m_plugins_.back();
+        std::erase_if(last.solver_names,
+                      [this, &last](const std::string& name)
+                      {
+                        if (!validate_solver_subprocess(last, name)) {
+                          m_load_errors_.push_back(std::format(
+                              "Solver '{}' removed: failed subprocess "
+                              "validation",
+                              name));
+                          return true;
+                        }
+                        return false;
+                      });
+        if (last.solver_names.empty()) {
+          m_plugins_.pop_back();
         }
-        return std::unique_ptr<SolverBackend>(backend);
+      }
+      if (has_solver_unlocked(solver_name)) {
+        return true;
       }
     }
   }
 
-  // Build helpful error message
+  // Second pass: try all remaining pending plugins.
+  // Skip if caller only wants filename-based matching (e.g. default_solver
+  // probing — avoids loading every plugin when a name isn't found).
+  if (filename_only) {
+    return false;
+  }
+  while (!m_pending_paths_.empty()) {
+    const auto path = m_pending_paths_.back();
+    m_pending_paths_.pop_back();
+    load_plugin(path);
+    // Validate the newly loaded plugin.
+    if (!m_plugins_.empty()) {
+      auto& last = m_plugins_.back();
+      std::erase_if(last.solver_names,
+                    [this, &last](const std::string& name)
+                    {
+                      if (!validate_solver_subprocess(last, name)) {
+                        m_load_errors_.push_back(std::format(
+                            "Solver '{}' removed: failed subprocess "
+                            "validation",
+                            name));
+                        return true;
+                      }
+                      return false;
+                    });
+      if (last.solver_names.empty()) {
+        m_plugins_.pop_back();
+      }
+    }
+    if (has_solver_unlocked(solver_name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+std::unique_ptr<SolverBackend> SolverRegistry::create(
+    std::string_view solver_name)
+{
+  // We must NOT hold `m_mutex_` across `plugin.create_fn()`: for
+  // heavyweight backends (notably CPLEX → `CPXopenCPLEX()`) that call
+  // can take several milliseconds per invocation, and the
+  // `PlanningLP::create_systems` parallel build fires one
+  // `LinearInterface(...)` per (scene, phase) cell (`linear_interface.
+  // cpp:75-80`).  With 16×51 = 816 cells and CPLEX's per-create cost,
+  // the old hold-lock-across-create_fn pattern serialized 5–8 s of
+  // wall time onto a single mutex, capping pool efficiency around
+  // 78 %.
+  //
+  // Lookup runs under the lock — `m_plugins_` is a vector and would
+  // be UB to read unlocked if a concurrent `ensure_solver_loaded`
+  // could grow it — but we copy the function pointer and plugin name
+  // out of the lookup, release the lock, and *then* call `create_fn`.
+  // Each plugin is a DSO whose text segment is stable once loaded, so
+  // concurrent calls into `create_fn` are safe by construction.
+  solver_backend_factory_fn create_fn {};
+  std::string plugin_name;
+  {
+    const std::scoped_lock lock(m_mutex_);
+    ensure_solver_loaded(solver_name);
+    for (const auto& plugin : m_plugins_) {
+      for (const auto& name : plugin.solver_names) {
+        if (name == solver_name) {
+          create_fn = plugin.create_fn;
+          plugin_name = plugin.plugin_name;
+          break;
+        }
+      }
+      if (create_fn != nullptr) {
+        break;
+      }
+    }
+  }  // ← lock released here, before the heavy create_fn call.
+
+  if (create_fn != nullptr) {
+    auto* backend = create_fn(std::string(solver_name).c_str());
+    if (backend == nullptr) {
+      throw std::runtime_error(
+          std::format("Plugin '{}' failed to create solver '{}'",
+                      plugin_name,
+                      solver_name));
+    }
+    return std::unique_ptr<SolverBackend>(backend);
+  }
+
+  // Unknown solver — load everything so the error message can list
+  // every available alternative.  Re-acquires the lock inside
+  // `load_all_plugins` / `available_solvers`.
+  load_all_plugins();
   const auto available = available_solvers();
   throw std::runtime_error(
       std::format("Solver '{}' not available. Available solvers: {}",
@@ -332,28 +590,27 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
 
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
-  std::vector<std::string> result;
-  for (const auto& plugin : m_plugins_) {
-    for (const auto& name : plugin.solver_names) {
-      result.push_back(name);
-    }
-  }
-  return result;
+  const std::scoped_lock lock(m_mutex_);
+  return m_plugins_
+      | std::views::transform([](const auto& p) -> const auto&
+                              { return p.solver_names; })
+      | std::views::join | std::ranges::to<std::vector>();
 }
 
-std::string_view SolverRegistry::default_solver() const
+std::string_view SolverRegistry::default_solver()
 {
+  const std::scoped_lock lock(m_mutex_);
+
   // GTOPT_SOLVER env var overrides the default priority.
-  if (const auto* env =
-          std::getenv("GTOPT_SOLVER"))  // NOLINT(concurrency-mt-unsafe)
-  {
-    if (has_solver(env)) {
+  if (const auto* env = std::getenv("GTOPT_SOLVER")) {
+    if (ensure_solver_loaded(env)) {
       return env;
     }
     SPDLOG_WARN("GTOPT_SOLVER='{}' not available, falling back to auto", env);
   }
 
   // Priority order: cplex > highs > mindopt > cbc > clp
+  // First pass: try filename-based matching only (fast, no exhaustive scan).
   static constexpr std::array preferred = {
       "cplex",
       "highs",
@@ -362,7 +619,16 @@ std::string_view SolverRegistry::default_solver() const
       "clp",
   };
   for (const auto* name : preferred) {
-    if (has_solver(name)) {
+    if (ensure_solver_loaded(name, /*filename_only=*/true)) {
+      return name;
+    }
+  }
+
+  // Second pass: some solvers live in differently-named plugins
+  // (e.g. "clp" in libgtopt_solver_osi.so).  Load all and pick best.
+  load_all_plugins();
+  for (const auto* name : preferred) {
+    if (has_solver_unlocked(name)) {
       return name;
     }
   }
@@ -376,10 +642,10 @@ std::string_view SolverRegistry::default_solver() const
       "installed\n"
       "  - Install COIN-OR (coinor-libcbc-dev) for CLP/CBC support\n"
       "  - Install HiGHS for HiGHS support\n"
-      "  - Run 'gtopt --lp-solvers' to list available LP solvers");
+      "  - Run 'gtopt --solvers' to list available LP solvers");
 }
 
-bool SolverRegistry::has_solver(std::string_view name) const
+bool SolverRegistry::has_solver_unlocked(std::string_view name) const
 {
   return std::ranges::any_of(m_plugins_,
                              [name](const PluginHandle& plugin)
@@ -389,6 +655,32 @@ bool SolverRegistry::has_solver(std::string_view name) const
                                    [name](const std::string& s)
                                    { return s == name; });
                              });
+}
+
+bool SolverRegistry::has_solver(std::string_view name) const
+{
+  const std::scoped_lock lock(m_mutex_);
+  return has_solver_unlocked(name);
+}
+
+bool SolverRegistry::supports_mip(std::string_view name)
+{
+  // Use the public create() path so that lazy-load semantics match
+  // the call-site that would actually instantiate the backend.
+  try {
+    auto backend = create(name);
+    return backend && backend->supports_mip();
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+bool SolverRegistry::has_mip_solver()
+{
+  load_all_plugins();
+  const auto solvers = available_solvers();
+  return std::ranges::any_of(
+      solvers, [this](const std::string& s) { return supports_mip(s); });
 }
 
 const std::vector<std::string>& SolverRegistry::searched_directories() const

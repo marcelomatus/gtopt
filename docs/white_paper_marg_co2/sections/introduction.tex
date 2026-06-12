@@ -1,0 +1,108 @@
+% ===========================================================
+% introduction.tex
+% ===========================================================
+\section{Introduction}
+\label{sec:introduction}
+
+The decarbonisation of electricity grids has elevated the marginal
+emission factor (MEF) from a research curiosity into an operational
+signal used for demand-response orchestration, electric-vehicle
+charging optimisation, hydrogen-production scheduling, and corporate
+scope-2 carbon accounting~\cite{Hawkes2010,SilerEvans2012,
+Callaway2018}.  In hubs that publish nodal marginal prices, the MEF
+is increasingly being constructed as a direct analogue of the
+Locational Marginal Price (LMP): per pricing node, per dispatch
+interval, with the same energy/loss/congestion decomposition that
+Schweppe~\textit{et al.}~\cite{Schweppe1988} formalised for spot
+prices and Hogan~\cite{Hogan1992} extended to nodal pricing.  PJM
+Interconnection now publishes five-minute Locational Marginal
+Emissions (LME) for CO$_2$, NO$_x$, and SO$_2$ across approximately
+\num{1200} pricing nodes~\cite{PJMLME2024}; CAISO offers an
+emissions tab on its operator dashboard~\cite{CAISOOutlook};
+WattTime broadcasts a per-balancing-area Marginal Operating Emission
+Rate with a 72-hour forecast~\cite{WattTime2024}.
+
+\paragraph{Chilean context}
+The Chilean Coordinador El\'ectrico Nacional (CEN) clears the
+Sistema El\'ectrico Nacional (SEN) every 15 minutes via a PLEXOS-based
+day-ahead Programa de Coordinaci\'on de la Producci\'on (PCP) plus
+intra-day Programa Intra-Diario (PID).  CEN publishes the resulting
+nodal marginal cost $\lambda^{\mathrm{CEN}}$ for over \num{1300}
+substation buses through its public Sistema de Informaci\'on
+P\'ublica (SIP) API~\cite{CENSIP2024}.  Generators submit the
+Sistema de Costos Variables Informados de Centrales (SCVIC) — a
+piecewise-linear declaration of variable cost by configuration,
+fuel, and load tier — and the Coordinador publishes the resulting
+ladders as parquet datasets.  Finally, the PLEXOS solution
+databases (\texttt{.accdb}) for both PCP and PID are publicly
+archived, exposing per-period Marginal Loss Factors (MLFs), nodal
+loads, and unit dispatch.
+
+\paragraph{The gap}
+What CEN does \emph{not} publish is a per-bus, per-quarter marginal
+emission factor $\varepsilon$.  The Ministry of Energy's
+\textit{Indicadores Ambientales} page only releases an
+\emph{annual} average emission factor for the SEN
+(2020-base, updated yearly)~\cite{MinEnergiaIndAmb}.  The Comisi\'on
+Nacional de Energ\'ia (CNE) hosts a legacy SIC/SING zonal
+visualisation that pre-dates the 2017 unification of Chile's
+two former subsystems.  The \textit{Reporte Anual Art.~72} of the
+Coordinador~\cite{CENArt722024} does report annual emissions, but
+neither at locational nor at marginal granularity.  Yet the Chilean
+carbon tax under Law~20.780 — currently
+$\tau_{\mathrm{CO}_2}=\SI{5}{\USD\per\tonne\mathrm{CO}_2}$ with
+escalation under discussion~\cite{Bonvallet2016} — and the proposed
+European Carbon Border Adjustment Mechanism are both bus-resolved,
+marginal-unit-resolved instruments.  A locationally and temporally
+disaggregated $\varepsilon$ is therefore a regulatory and commercial
+necessity, not a research nicety.
+
+\paragraph{Contribution}
+This paper presents \texttt{cen2gtopt}, a Python pipeline that
+reconstructs $\varepsilon$ at \num{29} CEN-published transmission
+buses for any operating day from public data alone.  The
+contributions are:
+
+\begin{enumerate}
+\item A \emph{merit-ladder picker}: $\hat\lambda$ at each island is
+  reconstructed by selecting, among the dispatched non-forced
+  generators, the one whose SCVIC-declared CV is closest in
+  absolute distance to the published median $\lambda^{\mathrm{CEN}}$
+  (Section~\ref{sec:methodology}, Algorithm~\ref{alg:identify}).
+\item A \emph{chained-tolerance with cumulative-spread cap} for
+  island clustering, parameterised by the pair
+  $(\Delta_{\mathrm{tol}}, S_{\max}) = (\$0.5, \$0.8)$\,/MWh, which
+  cures the chained-clustering pathology inherent in pure pairwise
+  $\lambda$-grouping (Section~\ref{sec:island}).
+\item A \emph{per-bus MLF correction} that uses CEN's exact
+  PLEXOS-solver-output MLF table (extracted from the PCP/PID
+  \texttt{.accdb}) when available, falling back to an empirical
+  $\lambda_b/\lambda_{\mathrm{ref}}$ ratio
+  (Section~\ref{sec:mlf}).
+\item A \emph{cross-validation oracle}: the same PLEXOS
+  \texttt{.accdb} is parsed for the published per-unit dispatch
+  and per-bus marginal cost, allowing an end-to-end check against
+  the LP-cleared values rather than the publication price only
+  (Section~\ref{sec:oracle}).
+\item An open-source release, available as a
+  \texttt{pip}-installable Python package, with a hash-keyed parquet
+  cache that makes per-day re-runs idempotent and a multi-day
+  orchestrator with Hive-partitioned output for back-testing.
+\end{enumerate}
+
+The remainder of the paper is organised as follows.
+Section~\ref{sec:related} reviews the state of the art and the
+methodological choice points specific to a public-data
+reconstruction.  Section~\ref{sec:methodology} develops the
+\texttt{cen2gtopt} pipeline (with its three operating modes
+\texttt{simulated}, \texttt{real}, \texttt{real-reconstruct}) and
+the LP-duality justification of the closest-CV picker under the
+PLEXOS PID overlay.  Section~\ref{sec:cases} reports a pedagogical
+IEEE 9-bus example, the production application to the
+\num{29}-bus CEN system on 2026-04-22, and a sensitivity analysis.
+Section~\ref{sec:results} consolidates the validation numbers
+against $\lambda^{\mathrm{CEN}}$ and the PLEXOS oracle.
+Section~\ref{sec:discussion} surveys structural limitations and
+the carbon-credit implications of a per-bus per-quarter
+$\varepsilon$ signal.  Section~\ref{sec:conclusions} closes with the
+forward-looking integration into the \texttt{gtopt} SDDP solver.

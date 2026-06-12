@@ -483,6 +483,41 @@ class TestConvertOutputFile:
         assert data["system"]["name"] == "custom"
 
 
+class TestConvertSolverType:
+    def test_default_is_cascade(self, ieee30b_json):
+        """convert() defaults to method='cascade' with cascade_options."""
+        opts = ieee30b_json["options"]
+        assert opts["method"] == "cascade"
+        assert "cascade_options" in opts
+        levels = opts["cascade_options"]["level_array"]
+        assert [lv["name"] for lv in levels] == [
+            "uninodal",
+            "transport",
+            "full_network",
+        ]
+
+    def test_cascade_levels_inherit_targets_and_cuts(self, ieee30b_json):
+        """Transitions on level 2 and 3 inherit state targets + Benders cuts."""
+        levels = ieee30b_json["options"]["cascade_options"]["level_array"]
+        for lv in levels[1:]:
+            tr = lv["transition"]
+            assert tr["inherit_targets"] == -1
+            assert tr["inherit_optimality_cuts"] == -1
+
+    def test_sddp_omits_cascade_options(self, tmp_path):
+        out = tmp_path / "sddp.json"
+        convert(out, solver_type="sddp")
+        with open(out, encoding="utf-8") as fh:
+            data = json.load(fh)
+        assert data["options"]["method"] == "sddp"
+        assert "cascade_options" not in data["options"]
+
+    def test_unsupported_solver_raises(self, tmp_path):
+        out = tmp_path / "bad.json"
+        with pytest.raises(ValueError, match="unsupported solver_type"):
+            convert(out, solver_type="monolithic")
+
+
 # ---------------------------------------------------------------------------
 # main.py — CLI argument parsing and entry point
 # ---------------------------------------------------------------------------
@@ -609,13 +644,32 @@ class TestLoadNetwork:
         assert len(net.bus) == 9
 
     def test_load_excel(self, tmp_path):
-        """load_network() reads a pandapower Excel file."""
+        """load_network() reads a pandapower Excel file.
+
+        Pandapower 3.4.0 has an upstream regression in
+        ``from_dict_of_dfs`` that tries to deserialise a non-existent
+        ``parameter`` table's ``geo`` column when round-tripping a
+        ``pn.case9()`` through ``to_excel``/``from_excel`` — surfacing
+        as ``KeyError: 'parameter'``.  We exercise the dispatch
+        (``.xlsx`` → ``pp.from_excel``) regardless, and skip only the
+        round-trip assertion when the upstream bug fires so this
+        test passes again once pandapower fixes it.
+        """
         pytest.importorskip("xlsxwriter", reason="xlsxwriter not installed")
         net_orig = pn.case9()
         src = tmp_path / "case9.xlsx"
         pp.to_excel(net_orig, str(src))
 
-        net = load_network(src)
+        try:
+            net = load_network(src)
+        except KeyError as exc:
+            if "parameter" in str(exc):
+                pytest.skip(
+                    "pandapower upstream bug: from_excel round-trip "
+                    "fails with KeyError('parameter') — "
+                    f"installed pandapower {getattr(pp, '__version__', '?')}"
+                )
+            raise
         assert len(net.bus) == 9
 
     def test_file_not_found(self, tmp_path):

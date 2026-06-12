@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "id_central": 47,
+      "central": "BOCAMINA II",
+      "tipoTecnologia": "Carbon",
+      "fecha": "2025-12-01",
+      "hra": 0,
+      "min": 0,
+      "fecha_hora": "2025-12-01 00:00",
+      "generacion_mwh": 310.0,
+      "version": "REAL"
+    },
+    {
+      "id_central": 21,
+      "central": "Ventanas N°1",
+      "tipoTecnologia": "Carbon",
+      "fecha": "2025-12-01",
+      "hra": 0,
+      "min": 0,
+      "fecha_hora": "2025-12-01 00:00",
+      "generacion_mwh": 120.5,
+      "version": "REAL"
+    },
+    {
+      "id_central": 2436,
+      "central": "PMGD BESS LAS VIOLETAS",
+      "tipoTecnologia": "Solares",
+      "fecha": "2025-12-01",
+      "hra": 0,
+      "min": 0,
+      "fecha_hora": "2025-12-01 00:00",
+      "generacion_mwh": 0.0,
+      "version": "REAL"
+    }
+  ]
+}

@@ -39,15 +39,20 @@
 
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/iteration.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/sddp_cut_store_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/state_variable.hpp>
 
 namespace gtopt
 {
 
 // Forward declaration for compute_scene_weights()
 class SceneLP;
+class SimulationLP;
+class PlanningLP;
 
 // ─── Cut sharing mode ───────────────────────────────────────────────────────
 // CutSharingMode is now defined in <gtopt/sddp_enums.hpp>.
@@ -63,26 +68,58 @@ class SceneLP;
 /// File naming patterns for per-scene cut files
 namespace sddp_file
 {
-/// Combined cut file name
-constexpr auto combined_cuts = "sddp_cuts.csv";
+/// Combined cut file name (Parquet — typed schema with
+/// list<struct<key,val>> coefficients; bit-exact float64 storage).
+constexpr auto combined_cuts = "sddp_cuts.parquet";
 /// Versioned cut file pattern: format with iteration number
-constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.csv";
+constexpr auto versioned_cuts_fmt = "sddp_cuts_{}.parquet";
 /// Per-scene cut file pattern: format with scene UID
-constexpr auto scene_cuts_fmt = "scene_{}.csv";
+constexpr auto scene_cuts_fmt = "scene_{}.parquet";
 /// Error-prefixed cut file pattern for infeasible scenes (scene UID)
-constexpr auto error_scene_cuts_fmt = "error_scene_{}.csv";
-/// Error LP file pattern for infeasible scene/phase (scene UID, phase UID)
-constexpr auto error_lp_fmt = "error_scene_{}_phase_{}";
-/// Debug LP file pattern: format with iteration, scene UID, phase UID
-constexpr auto debug_lp_fmt = "gtopt_iter_{}_scene_{}_phase_{}";
+constexpr auto error_scene_cuts_fmt = "error_scene_{}.parquet";
+/// Error LP file pattern for unrecoverable-infeasibility dumps.
+/// Arguments, in order: scene UID, phase UID, iteration index.  Written
+/// under `SDDPOptions::log_directory` when the forward pass can produce
+/// no feasibility cut (phase 0, or relaxed clone still infeasible) AND
+/// `SDDPOptions::lp_debug` is true.  Without `lp_debug` the dump is
+/// suppressed (each LP can be ~10 MB on a CEN-sized case and a stalled
+/// run can emit dozens per iteration).
+/// `LinearInterface::write_lp` appends the `.lp` extension.
+constexpr auto error_lp_fmt = "error_s{}_p{}_i{}";
+/// Debug LP file pattern: scene UID, phase UID, iteration index,
+/// attempt counter.  The attempt counter distinguishes successive
+/// writes of the same `(scene, phase, iter)` cell under the PLP-style
+/// backtracking forward pass — every time the loop re-enters a phase
+/// (after a backtrack from p → p-1), the LP snapshot carries the
+/// accumulated fcuts installed since the last visit, so a separate
+/// file is needed to preserve the chronology.  `attempt=1` is the
+/// first visit of that phase in this iteration; subsequent values
+/// reflect backtrack re-entries.  Uses `s{}_p{}_i{}_a{}` short form
+/// matching `error_lp_fmt`.
+constexpr auto debug_lp_fmt = "gtopt_s{}_p{}_i{}_a{}";
+/// Debug LP file pattern for aperture clones: scene UID, target phase
+/// UID, aperture UID, iteration index.  Used by the aperture backward
+/// pass when `lp_debug` is enabled and the current (scene, phase)
+/// falls inside the `lp_debug_*_min/max` filter window.  The aperture
+/// UID disambiguates the N clones built from the same target phase.
+constexpr auto debug_aperture_lp_fmt = "gtopt_aperture_s{}_p{}_a{}_i{}";
+/// Debug LP file pattern for backward-pass tgt LPs (one .lp file per
+/// `(iter, scene, phase)`) immediately before each
+/// `tgt_li.resolve(opts)`.  Captures the LP exactly as the solver
+/// sees it (post-`update_lp_for_phase`, post-`apply_post_load_replay`
+/// under compress).  Active when `lp_debug=true` AND `lp_debug_passes`
+/// includes `backward` (or `all`).  No mode tag in the filename —
+/// users that want to diff off↔compress dumps configure two
+/// separate `log_directory` paths and diff in bulk.
+constexpr auto debug_backward_lp_fmt = "gtopt_backward_s{}_p{}_i{}";
 /// Sentinel file name: if this file exists in the output directory, the
 /// SDDP solver stops gracefully after the current iteration and saves
 /// cuts.  Created externally (e.g. by the webservice stop endpoint).
 constexpr auto stop_sentinel = "sddp_stop";
-/// State variable column solution (latest)
-constexpr auto state_cols = "sddp_state.csv";
-/// Versioned state column solution: format with iteration number
-constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
+// State-variable column file names were removed (2026-05-14) — the
+// per-iter `sddp_state.csv` writer (and its retired `_<iter>` /
+// `.json` siblings) had no readers anywhere; policy state is
+// reconstructed from the versioned cut files at recovery time.
 /// Monitoring API stop-request file name: if this file exists, the solver
 /// stops gracefully after the current iteration (same behaviour as the
 /// sentinel file).  Written by the webservice soft-stop endpoint as part
@@ -93,6 +130,233 @@ constexpr auto versioned_state_fmt = "sddp_state_{}.csv";
 constexpr auto stop_request = "sddp_stop_request.json";
 }  // namespace sddp_file
 
+// ─── Alpha (future-cost) variable naming ────────────────────────────────────
+//
+// Alpha is the method-owned cost-to-go variable added to every phase
+// except the last.  It is registered in `sim.state_variables()` like any
+// other state variable so that state/cut CSV I/O and cross-level
+// resolution treat it uniformly.
+//
+// `sddp_alpha_lp_class` is the canonical `LPClassName` carrying both
+// the PascalCase full_name ("Sddp") and precomputed snake_case
+// short_name ("sddp").  `StateVariable::Key::class_name` and
+// `StateVarLink::class_name` store `const LPClassName*` pointing at
+// this constant (or at another LP class's static `ClassName`) so cut
+// builders and AMPL lookups hit the right form without any runtime
+// string conversion.  `sddp_alpha_class_name` (string_view) is kept
+// as a convenience alias for `SparseRow`/`SparseCol` metadata, which
+// store only the PascalCase view.
+inline constexpr LPClassName sddp_alpha_lp_class {"Sddp"};
+constexpr std::string_view sddp_alpha_class_name =
+    sddp_alpha_lp_class.full_name();
+constexpr std::string_view sddp_alpha_col_name = "alpha";
+
+/// Variable-name tags for the elastic filter's slack columns added
+/// by `relax_fixed_state_variable`.  Carried on `SparseCol` metadata
+/// so serialised LPs (`CoinLpIO`, `LinearInterface::write_lp`) emit
+/// distinct non-empty column labels — a hard requirement for the
+/// COIN LP writer, which replaces every row/col name with generic
+/// defaults when it encounters even one unnamed column.
+constexpr std::string_view sddp_elastic_sup_col_name = "elastic_sup";
+constexpr std::string_view sddp_elastic_sdn_col_name = "elastic_sdn";
+
+/// Constraint-name tags carried on LP row metadata for each kind
+/// of Benders cut emitted by SDDP.  Paired with
+/// `sddp_alpha_class_name` so the eager duplicate detector in
+/// `LinearInterface::add_row` keys SDDP cuts on
+/// `("Sddp", <tag>, uid, IterationContext)` — the tag distinguishes
+/// the pass that produced the cut.  Multi-cuts (`mcut`) are the only
+/// SDDP cut family tagged with the *source state-variable's* class
+/// name instead of `sddp_alpha_class_name`, since each multi-cut row
+/// is a per-link bound constraint on a single state variable.
+constexpr std::string_view sddp_scut_constraint_name = "scut";
+constexpr std::string_view sddp_aperture_cut_constraint_name = "aperture_cut";
+constexpr std::string_view sddp_ecut_constraint_name = "ecut";
+constexpr std::string_view sddp_share_cut_constraint_name = "share_cut";
+constexpr std::string_view sddp_bcut_constraint_name = "bcut";
+constexpr std::string_view sddp_fcut_constraint_name = "fcut";
+constexpr std::string_view sddp_mcut_constraint_name = "mcut";
+
+/// Class tags for cuts brought in by the loaders.  Each loader path
+/// sets a distinct class_name so mixing loader sources never produces
+/// identical metadata:
+///   * `sddp_loaded_cut_class_name`   – generic `load_cuts_parquet`
+///   * `sddp_boundary_cut_class_name` – `load_boundary_cuts_csv`
+/// Both share a single constraint-name constant
+/// (`sddp_loaded_cut_constraint_name`) since they describe the
+/// same kind of Benders optimality row.  The legacy
+/// ``sddp_named_cut_class_name`` ("NamedHs") was retired in 2026-05
+/// alongside ``load_named_cuts_csv``.
+constexpr std::string_view sddp_loaded_cut_class_name = "Loaded";
+constexpr std::string_view sddp_boundary_cut_class_name = "Boundary";
+constexpr std::string_view sddp_loaded_cut_constraint_name = "cut";
+
+/// A `(class_name, constraint_name)` pair that identifies the kind
+/// of cut a SparseRow represents.  Bundling the two metadata strings
+/// makes them move together at every cut-construction site —
+/// previously each builder hand-set the two fields independently,
+/// which produced subtle mismatches when one rename forgot the
+/// other.  All concrete tags are declared as namespace-scope
+/// `constexpr CutTag sddp_*_tag` constants below; call sites use
+/// `sddp_<x>_tag.apply_to(row)` instead of two assignments.
+struct CutTag
+{
+  std::string_view class_name {};
+  std::string_view constraint_name {};
+
+  /// Stamp this tag's identity onto a SparseRow.  Returns the row
+  /// reference for fluent chaining at call sites that also set
+  /// `variable_uid` / `context` immediately after.
+  constexpr auto apply_to(SparseRow& row) const noexcept -> SparseRow&
+  {
+    row.class_name = class_name;
+    row.constraint_name = constraint_name;
+    return row;
+  }
+};
+
+/// SDDP-class cut tags: every Benders cut produced by an SDDP pass
+/// is keyed under `(sddp_alpha_class_name, <pass-tag>)` so the eager
+/// duplicate detector in `LinearInterface::add_row` distinguishes
+/// the seven pass types at the row-metadata level.  These instances
+/// replace the `cut.class_name = …; cut.constraint_name = …;` pair
+/// at every cut-construction site.
+inline constexpr CutTag sddp_scut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_scut_constraint_name,
+};
+inline constexpr CutTag sddp_fcut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_fcut_constraint_name,
+};
+inline constexpr CutTag sddp_bcut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_bcut_constraint_name,
+};
+inline constexpr CutTag sddp_ecut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_ecut_constraint_name,
+};
+inline constexpr CutTag sddp_aperture_cut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_aperture_cut_constraint_name,
+};
+inline constexpr CutTag sddp_share_cut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_share_cut_constraint_name,
+};
+
+/// Loader-class cut tags: cuts loaded from disk use a distinct
+/// class_name per source so a hot-start that mixes loaders produces
+/// unique row-metadata keys for the duplicate detector, while sharing
+/// the single `sddp_loaded_cut_constraint_name` constraint name (they
+/// describe the same kind of optimality row).
+inline constexpr CutTag sddp_loaded_cut_tag {
+    .class_name = sddp_loaded_cut_class_name,
+    .constraint_name = sddp_loaded_cut_constraint_name,
+};
+inline constexpr CutTag sddp_boundary_cut_tag {
+    .class_name = sddp_boundary_cut_class_name,
+    .constraint_name = sddp_loaded_cut_constraint_name,
+};
+
+namespace detail
+{
+/// Compile-time check: returns true iff @p prefix matches the
+/// runtime row label produced by `LabelMaker::make_row_label`,
+/// which emits `<lowercase(class_name)>_<constraint_name>_…`.  Used
+/// in the `static_assert`s below to pin every `sddp_*_row_prefix`
+/// to its `(class_short, constraint_name)` pair so a rename of
+/// either constant fails the build instead of silently de-syncing
+/// the cut-row dispatcher in `extract_iteration_from_name`.
+[[nodiscard]] consteval bool prefix_matches(
+    std::string_view prefix,
+    std::string_view class_short,
+    std::string_view constraint) noexcept
+{
+  if (prefix.size() != class_short.size() + 1 + constraint.size() + 1) {
+    return false;
+  }
+  if (!prefix.starts_with(class_short)) {
+    return false;
+  }
+  if (prefix[class_short.size()] != '_') {
+    return false;
+  }
+  const auto rest = prefix.substr(class_short.size() + 1);
+  return rest.starts_with(constraint) && rest[constraint.size()] == '_';
+}
+}  // namespace detail
+
+/// Row-name prefixes for the four SDDP pass-tagged cut types,
+/// consumed by `extract_iteration_from_name` (`sddp_cut_io.cpp`)
+/// to dispatch on row-name shape without re-parsing the
+/// (class, constraint) pair.  Each prefix is verified at compile
+/// time against the corresponding `sddp_alpha_lp_class.short_name()`
+/// + `sddp_<x>_constraint_name` pair via the `static_assert`s below.
+constexpr std::string_view sddp_scut_row_prefix {"sddp_scut_"};
+constexpr std::string_view sddp_fcut_row_prefix {"sddp_fcut_"};
+constexpr std::string_view sddp_bcut_row_prefix {"sddp_bcut_"};
+constexpr std::string_view sddp_ecut_row_prefix {"sddp_ecut_"};
+
+static_assert(detail::prefix_matches(sddp_scut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_scut_constraint_name));
+static_assert(detail::prefix_matches(sddp_fcut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_fcut_constraint_name));
+static_assert(detail::prefix_matches(sddp_bcut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_bcut_constraint_name));
+static_assert(detail::prefix_matches(sddp_ecut_row_prefix,
+                                     sddp_alpha_lp_class.short_name(),
+                                     sddp_ecut_constraint_name));
+/// Fixed uid used in the alpha `StateVariable::Key`.  The state-variable
+/// map is partitioned by `(scene_index, phase_index)` and there is at
+/// most one alpha per cell, so any constant uid disambiguates the key.
+/// `Uid{0}` keeps the structured cut-key label as `Sddp:alpha:0`.
+constexpr Uid sddp_alpha_uid {0};
+
+/// Bootstrap lower bound on α at iter-0 cold start, in **physical ($)**
+/// units.  Divided by `scale_alpha` at the call site.
+///
+/// Value 0.0 matches the project's pre-existing default (proven across
+/// all integration tests).  α has a positive objective coefficient, so
+/// without a lower bound the cold-start iter-0 LP would be unbounded;
+/// a loose bound (e.g. −1e10) admits negative-cost futures but
+/// produces very weak LB estimates that trigger premature stationary
+/// convergence in tight-tolerance tests.  α ≥ 0 is a mild bias for
+/// problems where future cost is positive (almost all dispatch), and
+/// users with net-revenue phases can override via a custom cut.
+///
+/// A cleaner "lazy α" (create α only at first cut install) was tried
+/// and abandoned: it interacted badly with the low-memory cached
+/// col_sol/col_cost/col_scales vectors, producing out-of-bounds
+/// access in the aperture path and a convergence slowdown on the
+/// 3-phase hydro test.  Revisit only with proper cached-vector
+/// invalidation work.
+constexpr double sddp_alpha_bootstrap_min = 0.0;
+
+/// Floating-point noise floor for the convergence gap.
+///
+/// SDDP theory says `LB ≤ optimum ≤ UB`, so the gap `(UB-LB)/|UB|`
+/// is non-negative at the optimum.  A *tiny* negative gap (e.g.
+/// `-1e-16` when `UB ≈ LB` exactly) is just IEEE-754 rounding
+/// noise and must NOT trigger the "cuts overshoot the optimum"
+/// guard.  A *significant* negative gap (`gap < -kSddpGapFpEpsilon`)
+/// IS a real SDDP-theory violation that the convergence checks
+/// refuse to declare `[CONVERGED]` on.
+///
+/// Distinct from `SDDPOptions::convergence_tol` (the user-facing
+/// gap tolerance for declaring convergence): `convergence_tol`
+/// sets the upper bound of the converged band and may be set to a
+/// negative sentinel (e.g. `-1.0`) to disable the primary gap test
+/// in favour of the stationary criterion.  `kSddpGapFpEpsilon` is
+/// a fixed lower bound for the same band, expressed in absolute
+/// terms because IEEE-754 rounding noise on `(UB - LB)/|UB|` for
+/// values up to ~1e9 stays comfortably below `1e-9`.
+constexpr double kSddpGapFpEpsilon = 1.0e-9;
+
 // ─── Elastic filter mode ────────────────────────────────────────────────────
 // ElasticFilterMode is now defined in <gtopt/sddp_enums.hpp>.
 // The generic enum_from_name<ElasticFilterMode>() replaces the old
@@ -100,58 +364,178 @@ constexpr auto stop_request = "sddp_stop_request.json";
 
 /// Parse an elastic filter mode from a string (backward-compatible
 /// wrapper).  Accepts "single_cut" / "cut" (= single_cut), "multi_cut",
-/// "backpropagate".
+/// "chinneck" / "iis" (= chinneck).  Unknown strings — including the
+/// retired "backpropagate" — fall back to the default mode (chinneck).
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
+  // ── Convergence policy (single coherent story) ────────────────────────
+  //
+  // Aim for a 1 % relative gap (``convergence_tol``).  If the gap stops
+  // moving (gap_change < ``stationary_tol`` = 0.5 %) AND the gap is
+  // already inside ``stationary_gap_ceiling`` (5 %), accept it as
+  // converged.  Otherwise keep iterating up to ``max_iterations``.
+  // The statistical CI test (``convergence_confidence``) is opt-in
+  // (default 0) because it is too easily fooled by σ scatter when scene
+  // UBs are heterogeneous (e.g. Maule/juan).  ``min_iterations`` = 1
+  // is the minimum that still lets the convergence check fire — set
+  // higher (e.g. 3) only at noisy bootstrap levels (cascade L0) where
+  // the very-first iter's gap is structurally meaningless; cascade L1+
+  // inherit a converged envelope and may legitimately exit on their
+  // first qualifying iter.
+  //
+  // Override individually only when you know what you're doing — the
+  // defaults are deliberately consistent so most users never set them.
   int max_iterations {100};  ///< Maximum forward/backward iterations
-  int min_iterations {2};  ///< Minimum iterations before convergence
-  double convergence_tol {1e-4};  ///< Relative gap tolerance for convergence
+  int min_iterations {1};  ///< Minimum iterations before convergence
+  double convergence_tol {0.01};  ///< Relative gap tolerance for convergence
   double elastic_penalty {1e3};  ///< Penalty for elastic slack variables
-  double alpha_min {0.0};  ///< Lower bound for future cost variable a ($)
-  double alpha_max {1e15};  ///< Upper bound for future cost variable a ($)
-  double scale_alpha {0};  ///< Scale for α (0 = auto: max state var_scale)
-  CutSharingMode cut_sharing {CutSharingMode::none};  ///< Cut sharing mode
+  /// Scale for α (0 = auto: max state var_scale).  α itself is a free
+  /// variable (no explicit bounds): per-row row-max equilibration on
+  /// every Benders cut already controls LP conditioning, and α can
+  /// legitimately go negative (net-revenue phases, mid-convergence
+  /// cuts that haven't yet tightened LB above zero).
+  double scale_alpha {0};
+  /// Cut sharing mode across scenes.  WARNING: only `none` is
+  /// mathematically valid for HETEROGENEOUS scenes (scenes with
+  /// different probabilities or different dynamics).  Modes
+  /// `accumulate`, `expected`, and `max` broadcast a cut from scene S
+  /// to every other scene's α LP, which is only valid when all scenes
+  /// are mathematically identical (cuts from any scene coincide).
+  /// Otherwise the broadcast cut over-tightens α at scenes whose
+  /// actual future cost is below the broadcast bound, producing
+  /// LB > UB ("LB overshoot") that compounds across iterations and
+  /// can grow by orders of magnitude (juan/gtopt_iplp regressed at
+  /// 7225× before this was diagnosed).  See
+  /// `test/source/test_sddp_bounds_sanity.cpp` for the regression
+  /// guard.  Default `none` is the only safe choice for production
+  /// runs with non-uniform hydrology / probability scenarios.
+  CutSharingMode cut_sharing {CutSharingMode::none};
 
-  /// Elastic filter mode: how to handle backward-pass infeasibility.
-  /// `single_cut` (default) adds a single Benders feasibility cut to the
-  /// previous phase.  `multi_cut` adds the same cut plus one
-  /// bound-constraint cut per activated slack variable.
-  /// `backpropagate` updates the source column bounds to match the
-  /// elastic-clone solution (PLP mechanism).
+  /// How to drain in-flight cuts after the aggregate-convergence stop
+  /// signal fires in `SDDPMethod::solve_async`.  See `CutDrainMode`
+  /// in `sddp_enums.hpp` for the full rationale.  Default `iteration`:
+  /// symmetric across scenes, run-to-run reproducible.
+  CutDrainMode cut_drain_mode {CutDrainMode::iteration};
+
+  /// Elastic filter mode: how the FORWARD pass emits feasibility
+  /// cuts when a phase LP is infeasible at the trial state.  Only
+  /// the forward pass has an elastic branch; the backward pass
+  /// produces optimality cuts exclusively.
+  ///   `single_cut` (default): one classical PLP/Birge-Louveaux
+  ///                 Benders feasibility cut from row duals of the
+  ///                 state-fixing equations at the elastic clone's
+  ///                 Phase-1 optimum.  Matches `plp-agrespd.f`.
+  ///   `multi_cut` : `single_cut` plus one bound-constraint cut per
+  ///                 activated slack variable.
+  ///   `chinneck`  : IIS-filtered multi-cut — runs an extra re-fix
+  ///                 pass to narrow the cut set to the irreducible
+  ///                 infeasible subset of relaxed bounds.  Not
+  ///                 re-validated against the row-dual fcut builder
+  ///                 introduced in commit 0307c58e.
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
-
-  /// How Benders cut coefficients are extracted from solved subproblems.
-  /// `reduced_cost` (default): reduced costs of fixed dependent columns.
-  /// `row_dual`: row duals of explicit coupling constraint rows
-  /// (PLP-style).
-  CutCoeffMode cut_coeff_mode {CutCoeffMode::reduced_cost};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
   /// 0.0 = no filtering (default).
   double cut_coeff_eps {0.0};
 
-  /// Maximum allowed absolute coefficient in a Benders cut row.
-  /// When max|coeff| exceeds this, the entire row is rescaled uniformly.
-  /// 0.0 = disabled (default).
-  double cut_coeff_max {0.0};
-
   /// Forward-pass infeasibility counter threshold for automatic switching
-  /// from single_cut to multi_cut.  When the forward pass has encountered
-  /// infeasibility at (scene, phase) more than this many times without
-  /// recovery, the backward-pass infeasibility handler switches to
-  /// multi_cut mode for that (scene, phase).
+  /// from single_cut / chinneck-fcut-only to multi_cut.  When the forward
+  /// pass has encountered infeasibility at (scene, phase) this many times
+  /// without recovery, the elastic branch additionally installs
+  /// `build_multi_cuts` bound cuts alongside the Benders fcut.
   ///  = 0  always use multi_cut for any infeasibility (force multi_cut).
-  ///  > 0  switch to multi_cut after the counter exceeds this threshold.
+  ///  > 0  switch to multi_cut after the counter reaches this threshold.
   ///  < 0  never auto-switch (disabled; use explicit mode only).
-  /// Default: 10.
-  int multi_cut_threshold {10};
+  /// Default: 100.  Raised from 10 because `build_multi_cuts` emits
+  /// `source_col {<=,>=} dep_val_phys` bound cuts from the Chinneck
+  /// Phase-1 LP, whose `dep_val_phys` may exceed the source phase's
+  /// physically reachable set (observed on juan/gtopt_iplp after ~3
+  /// iterations: phase 0 gets `reservoir_energy_1 >= 330.33` while its
+  /// physical cap is ~207.78 + small inflow).  Keeping the IIS-filtered
+  /// fcut alone for longer avoids the structurally-infeasible cuts that
+  /// mcut mode can install before the master has found a good trial.
+  int multi_cut_threshold {100};
 
-  /// Save cuts to CSV after each training iteration (default: true).
+  /// Forward-pass backtracking cap: maximum cumulative LP solves per
+  /// scene per iteration.  When an elastic branch fires at phase p,
+  /// gtopt (PLP-style) installs the feasibility cut on phase p-1 and
+  /// BACKTRACKS to phase p-1, re-solving it under the new cut.  If
+  /// p-1 is also infeasible, an fcut is installed on p-2 and the
+  /// backtrack continues until a feasible phase is reached, after
+  /// which the pass resumes forward.  `forward_max_attempts` caps
+  /// the total number of solves to prevent an infinite
+  /// backtrack/retry loop — when exceeded, the scene is declared
+  /// infeasible for this iteration and excluded from UB aggregation.
+  /// Matches PLP's `FactMXC` knob in `plp-faseprim.f` (`getopts.f:257`,
+  /// default **5000**).  Prior gtopt default was 100 — too tight for
+  /// pathological cases whose iter-0 forward pass needs to backtrack
+  /// across many phases to build the initial cut set (observed on
+  /// juan/gtopt_iplp: every scene hits 100 before phase 1 master has
+  /// enough cuts to be feasible).  Default now matches PLP's 5000.
+  int forward_max_attempts {5000};
+
+  /// Scene-level fail-stop forward pass (default: true).
+  ///
+  /// When true, an infeasible phase that produces a feasibility cut on
+  /// its predecessor causes the scene's forward pass to STOP for the
+  /// current iteration: the fcut is installed on phase p-1, the scene
+  /// is marked failed (returned Error → caller sets scene_feasible=0),
+  /// and the next iteration starts fresh from p1 with the newly
+  /// accumulated cuts (preserved in the global cut store).  Other
+  /// scenes continue uninterrupted.  Avoids the iter-0 cascade that
+  /// walks back through many stages and produces degenerate cuts.
+  ///
+  /// When false, restores the legacy PLP-style backtracking forward
+  /// pass: after installing the fcut on p-1, `phase_idx` is decremented
+  /// and p-1 is re-solved under the new cut.  If p-1 is still
+  /// infeasible, a fresh fcut is installed on p-2 and the cascade
+  /// continues — bounded by `forward_max_attempts`.  Kept available
+  /// for regression tests and academic fixtures that depend on the
+  /// cascade dynamics.
+  // Default flipped 2026-04-29 — see planning_options_lp.hpp's
+  // ``default_sddp_forward_fail_stop`` for rationale.  PLP-style
+  // backtracking cascade is the natural-intuition default; the
+  // single-fcut-and-exit coordination strategy is opt-in.
+  bool forward_fail_stop {false};
+
+  /// Per-scene rollback on forward-pass infeasibility (default: false).
+  ///
+  /// When `true` and a scene S is declared infeasible at iteration k's
+  /// forward pass (`scene_feasible[S] == 0`):
+  ///   1. Every cut S has accumulated in `m_cut_store_.scene_cuts()[S]`
+  ///      is deleted (rows removed from S's LP cells via
+  ///      `LinearInterface::delete_rows` + `record_cut_deletion`,
+  ///      vector cleared).  Both forward-pass fcuts and earlier
+  ///      backward-pass optcuts are dropped — the bad trajectory that
+  ///      produced any of them is no longer trusted.
+  ///   2. The global stored-cut count is snapshot in
+  ///      `m_scene_retry_state_[S].global_cuts_at_last_failure`.
+  ///   3. At iteration k+1's forward dispatch, S retries iff the
+  ///      global cut count grew (peers contributed cuts via cut sharing
+  ///      or their own backward pass).  Otherwise S is "stalled" — and
+  ///      if every previously-failed scene is stalled, the run aborts
+  ///      with `Error{SolverError, "no recovery path"}` to avoid an
+  ///      infinite-loop on degenerate single-scene / no-progress runs.
+  ///
+  /// When `false` (legacy default): cuts S installed on its own bad
+  /// trajectory persist across iterations, and the run loops until
+  /// `max_iterations` without rollback or stall detection.
+  bool forward_infeas_rollback {false};
+
+  /// Re-solve target phase t LP at v̂_{t-1} before extracting cut data
+  /// (default: true).  When true, cuts on α_t added earlier in this
+  /// backward pass (when the loop processed phase t+1) are reflected
+  /// in z_t and reduced costs, producing a one-iter-tight Benders
+  /// cut on α_{t-1}.  See `SDDPOptions::backward_resolve_target` for
+  /// the full rationale and cost analysis.
+  bool backward_resolve_target {true};
+
+  /// Save cuts after each training iteration (default: true).
   /// When false, cuts are only saved at the end of the solve or on stop.
   bool save_per_iteration {true};
 
@@ -159,6 +543,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// false).  When false, only training-iteration cuts are persisted,
   /// ensuring hot-start reproducibility.
   bool save_simulation_cuts {false};
+
+  /// Skip the post-training **simulation pass** entirely (default:
+  /// false → sim pass runs).  When `true`, `solve()` returns immediately
+  /// after the last training iteration: no final forward pass with
+  /// `crossover=true`, no per-cell `SystemLP::write_out()`, no sim-pass
+  /// feasibility-cut bookkeeping.
+  ///
+  /// Set to `true` for **non-final** cascade levels — their sim-pass
+  /// output would be overwritten by the next level's sim pass anyway,
+  /// and their crossover-quality duals are not consumed by anything
+  /// (state-variable targets are read from the last training forward
+  /// pass via `svar.col_sol_physical()`, and stored optimality cuts
+  /// come from the training backward passes).  See
+  /// `CascadePlanningMethod::solve` for the orchestration.  On
+  /// juan-scale this saves the ~9 s/cell × 816 cells / 16-way
+  /// parallel ≈ 7 min per intermediate level.
+  bool skip_simulation_pass {false};
 
   /// Global solve timeout in seconds (0 = no timeout).
   /// When non-zero, each forward-pass LP solve is given this time limit;
@@ -183,6 +584,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// - `full`:  recover cuts + state variable solutions (default)
   RecoveryMode recovery_mode {RecoveryMode::full};
 
+  /// Caller-supplied lower bound for the iteration index at which this
+  /// solver should start counting.  Composed with the hot-start offset
+  /// via `std::max`, so hot-start cuts always win when they demand a
+  /// higher offset.  Used by CascadePlanningMethod to place each level's
+  /// iteration indices in a disjoint global range (avoids in-memory cut
+  /// store collisions and gives log lines a globally monotonic index).
+  /// Absent = solver starts at iteration 0 (or at the hot-start offset,
+  /// whichever is higher).
+  std::optional<IterationIndex> iteration_offset_hint {};
+
   /// Path to a sentinel file: if the file exists, the solver stops
   /// gracefully after the current iteration (analogous to PLP's userstop).
   /// All accumulated cuts are saved before stopping.
@@ -193,16 +604,23 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   std::string log_directory {"logs"};
 
   /// When true, save a debug LP file for every (iteration, scene, phase)
-  /// during the forward pass to log_directory.
-  /// Files are named using sddp_file::debug_lp_fmt.
+  /// in the SDDP passes selected by `lp_debug_passes`.
+  /// Files land in `log_directory` and are named using
+  /// `sddp_file::debug_lp_fmt` (forward) /
+  /// `debug_backward_lp_fmt` (backward) /
+  /// `debug_aperture_lp_fmt` (aperture).
   bool lp_debug {false};
 
-  /// When true, build all scene x phase LP matrices and exit immediately
-  /// -- no solving of any kind is performed.  Applies to both the
-  /// monolithic and SDDP solvers.  If lp_debug is also true, every LP
-  /// file is saved before returning.  Useful for profiling LP build time
-  /// without solver overhead.
-  bool lp_only {false};
+  /// Comma-separated list of SDDP passes whose LP-debug dump is
+  /// active when `lp_debug=true`.  Empty / unset selects the legacy
+  /// default `"forward,aperture"`.  Tokens (case-insensitive,
+  /// comma-separated): `forward`, `backward`, `aperture`, `all`.
+  /// Inspected at debug-write time via
+  /// `lp_debug_passes_includes(...)` from `lp_debug_passes.hpp` —
+  /// kept as a string (rather than parsed enum bitmask) to mirror
+  /// the sister field `lp_debug_compression`, which is also a
+  /// pass-through JSON string.
+  std::string lp_debug_passes {};
 
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").
   /// Empty or "uncompressed" means no compression; any other value uses
@@ -215,6 +633,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptInt lp_debug_scene_max {};
   OptInt lp_debug_phase_min {};
   OptInt lp_debug_phase_max {};
+
+  /// When true, every LP-debug dump is gated on the SDDP method being
+  /// in its simulation pass (``m_in_simulation_ == true``).  Training
+  /// iterations produce no LP files.  Useful for diagnosing residual
+  /// infeasibilities that surface only on the simulation pass after
+  /// the training cuts have matured — without flooding the log
+  /// directory with hundreds of intermediate iter-N forward LPs that
+  /// the training loop already considered "transient" and recovered
+  /// from.  Combine with `lp_debug_scene_min/max` and
+  /// `lp_debug_phase_min/max` for a tightly scoped capture.
+  bool lp_debug_simulation_only {false};
 
   /// Enable the monitoring API: write a JSON status file after each
   /// iteration and periodically update real-time workpool statistics.
@@ -265,6 +694,32 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// trial values.
   std::optional<std::vector<Uid>> apertures {};
 
+  /// First-N selector applied to each phase's `Phase::apertures` list.
+  ///
+  /// - `nullopt`  – no truncation; use the full per-phase list (default).
+  /// - `0`        – no apertures (pure Benders).
+  /// - `N > 0`    – take `Phase::apertures.first(N)` per phase.
+  ///
+  /// Pairs with the wettest-first sort applied by `plp2gtopt` to
+  /// `Phase::apertures`: `num_apertures = N` picks the N wettest
+  /// apertures per phase.  Each cascade level can override this value
+  /// (e.g. L0 = 4, L1 = 8, L2 absent → all).
+  ///
+  /// `apertures` and `num_apertures` compose: truncation happens on
+  /// `Phase::apertures` first, then each surviving UID is resolved
+  /// against the (possibly whitelisted) aperture pool.
+  std::optional<int> num_apertures {};
+
+  /// Selection rule used by `num_apertures` to pick a subset from
+  /// each phase's `Phase::apertures` list.
+  ///
+  /// - `head` (default): first N entries = N wettest per phase.
+  /// - `stride`: N entries evenly spaced across the full list.
+  ///
+  /// See `ApertureSelectionMode` for details.  Ignored when
+  /// `num_apertures` is `nullopt` or ≥ the per-phase list length.
+  ApertureSelectionMode aperture_selection_mode {ApertureSelectionMode::head};
+
   /// Timeout in seconds for individual aperture LP solves in the backward
   /// pass.  When an aperture LP exceeds this time, it is treated as
   /// infeasible (skipped), a WARNING is logged, and the solver continues
@@ -274,6 +729,43 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Save LP files for infeasible apertures to log_directory (default:
   /// false).
   bool save_aperture_lp {false};
+
+  /// Use the manual `clone_from_flat` route for aperture clones instead
+  /// of the backend's native `clone()` (`CPXcloneprob`).  Manual route
+  /// uses only env-local solver calls and does NOT acquire
+  /// `s_global_clone_mutex`, so 80 aperture clones can be built in
+  /// parallel rather than one-at-a-time under the lock.  Pre-condition:
+  /// the source phase LP must hold a decompressed `FlatLinearProblem`
+  /// snapshot (typical for `low_memory_mode = compress` SDDP runs).
+  /// When the pre-condition is not met, the call site falls back to
+  /// the native route.  Default: false (preserve legacy behaviour).
+  bool aperture_use_manual_clone {false};
+
+  /// Apertures solved serially per backward-pass task (chunked aperture
+  /// pass).  Each chunk is one work-pool task that clones the phase LP
+  /// once and solves its inner apertures in series with warm-start
+  /// reuse on the shared clone.
+  ///
+  /// Sentinel values (resolved at SDDPMethod setup):
+  ///
+  ///   *  0 → auto.  Picked by
+  ///         `compute_auto_aperture_chunk_size(A_max, S, C,
+  ///         parallel_factor=2.0)`.
+  ///   *  1 → legacy: one task per aperture (no chunking).
+  ///   * >1 → use exactly this many apertures per task.
+  ///   * -1 → cap at A_max per phase (single task per scene, fully
+  ///         serial inside).
+  ///
+  /// Default 0 (auto).  See `sddp_options.hpp::aperture_chunk_size` for
+  /// the JSON-facing field documentation.
+  int aperture_chunk_size {0};
+
+  /// Opt-in warm-start of in-chunk aperture re-solves: the first aperture
+  /// in a chunk seeds a basis (barrier + crossover) and every subsequent
+  /// aperture re-optimizes it with a warm simplex solve instead of a cold
+  /// barrier.  See `sddp_options.hpp::aperture_warm_start` for the full
+  /// rationale.  Default false (cold barrier each aperture).
+  bool aperture_warm_start {false};
 
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
@@ -309,12 +801,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// each iteration.  Default: 0 (no cap).
   int max_stored_cuts {0};
 
-  /// Reuse a cached LP clone for aperture solves instead of cloning
-  /// anew each time.  The clone's column bounds are reset from the
-  /// source LP before each solve; rows beyond the base count are
-  /// deleted.  Avoids repeated heap allocations for the CLP solver
-  /// internal matrix.  Default: true.
-  bool use_clone_pool {true};
+  /// Low memory mode: off (default), snapshot, compress, or rebuild.
+  /// Trades CPU time (reconstruction + optional decompression, or full
+  /// re-flatten under `rebuild`) for significant memory savings on
+  /// large problems.  Under `rebuild` the initial up-front build loop
+  /// is skipped and each per-(scene, phase) LP is built lazily inside
+  /// the same task that solves or clones it.
+  LowMemoryMode low_memory_mode {LowMemoryMode::off};
+
+  /// In-memory compression codec for low_memory compress mode.
+  /// Default: auto_select (picks best available: lz4 > snappy > zstd > gzip).
+  CompressionCodec memory_codec {CompressionCodec::auto_select};
 
   /// CSV file with boundary (future-cost) cuts for the last phase.
   ///
@@ -345,21 +842,27 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// How to handle cut rows referencing state variables not in the model.
   MissingCutVarMode missing_cut_var_mode {MissingCutVarMode::skip_coeff};
 
-  /// CSV file with named-variable hot-start cuts for all phases.
+  /// Apply an α-rebase (mean-shift) to boundary cuts on load.
   ///
-  /// Unlike boundary cuts (which apply only to the last phase), these
-  /// cuts include a `phase` column indicating which phase they belong to.
-  /// The solver resolves named state-variable headers (reservoir /
-  /// battery / junction) to LP column indices in the specified phase,
-  /// then adds each cut as a lower-bound constraint on the corresponding
-  /// a variable:
-  ///   a_phase >= rhs + S_i coeff_i . state_var_i[phase]
-  ///
-  /// Format:
-  ///   name,iteration,scene,phase,rhs,StateVar1,StateVar2,...
-  ///
-  /// Empty = no named hot-start cuts.
-  std::string named_cuts_file {};
+  /// When `true`, per scene: subtract the per-scene mean from every
+  /// boundary cut's `lowb`, and carry the offset via
+  /// `LinearInterface::add_obj_constant` so `get_obj_value()` stays
+  /// algebraically equivalent to the unshifted formulation.
+  /// Mathematically exact (α' = α − c̄); LP-side α is centred near
+  /// zero so equilibration sees comparable RHS magnitudes for
+  /// boundary vs. runtime cuts.  See `SddpOptions::boundary_cuts_mean_shift`
+  /// (input-side option, defaulted to true via
+  /// `planning_options_lp.hpp::sddp_boundary_cuts_mean_shift`) and
+  /// `source/sddp_boundary_cuts.cpp` for the implementation.  Plain-bool
+  /// storage default is `true` so callers that construct an
+  /// `SddpOptions` directly (test fixtures, etc.) inherit the same
+  /// default as the input-option path.
+  bool boundary_cuts_mean_shift {true};
+
+  // ``named_cuts_file`` was retired in 2026-05.  Internal hot-start
+  // cuts now use the typed Parquet path (``cuts_input_file``); the
+  // legacy CSV-with-column-per-state-variable format is no longer
+  // supported.
 
   // ── Secondary (stationary gap) convergence ────────────────────────────
 
@@ -378,23 +881,67 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///              / max(1e-10, gap[i - window])
   ///   gap_change < stationary_tol -> declare convergence
   ///
-  /// Convergence criterion mode.  Default: statistical (PLP-style).
-  ConvergenceMode convergence_mode {ConvergenceMode::statistical};
+  /// Convergence criterion mode.  Default: gap_stationary — the
+  /// primary gap test plus the stationary safety net are enough for
+  /// most users.  The statistical CI test (``ConvergenceMode::statistical``)
+  /// is opt-in because heterogeneous-scene σ scatter (Maule/juan) can
+  /// trivially fire it at large %gap.
+  ConvergenceMode convergence_mode {ConvergenceMode::gap_stationary};
 
-  /// Default: 0.01 (1%).  Set to 0.0 to disable.
-  double stationary_tol {0.01};
+  /// Tolerance for "gap stopped moving" detection (gap_change < tol).
+  /// Tighter than ``convergence_tol`` so the safety net only fires when
+  /// the gap has *clearly* stalled, not while it is still trending.
+  /// Default: 0.005 (0.5%).  Set to 0.0 to disable.
+  double stationary_tol {0.005};
 
   /// Number of iterations to look back when checking gap stationarity.
-  /// Only used when stationary_tol > 0.0.  Default: 10.
-  int stationary_window {10};
+  /// Only used when stationary_tol > 0.0.  Default: 4 (one season).
+  int stationary_window {4};
+
+  /// Absolute gap ceiling above which the secondary tests (stationary +
+  /// statistical CI) are SUPPRESSED.  Even when ``gap_change <
+  /// stationary_tol`` or the CI bound passes, convergence will NOT be
+  /// declared while ``gap >= stationary_gap_ceiling`` — only the primary
+  /// ``convergence_tol`` test can close the run at high gaps.
+  ///
+  /// Defends against two known pathologies:
+  ///  * Frozen-LB (LB stuck near 0, UB > 0 → gap = 1 flat) where
+  ///    gap_change = 0 used to spuriously declare convergence at 100 %.
+  ///  * Heterogeneous-scene σ explosion where the CI threshold z·σ
+  ///    swallows the absolute gap even at 25 % relative (juan run
+  ///    2026-05-02 trace_28 — see ``z_score_for_alpha`` doc).
+  ///
+  /// Default: 0.05 (5 %) — refuse to declare "converged via stationary
+  /// or CI" until we are at least within 5 %.  Set to 1.0 to disable
+  /// the ceiling (legacy behaviour).
+  double stationary_gap_ceiling {0.05};
 
   /// Confidence level for statistical convergence criterion (0-1).
-  /// When > 0 and multiple scenes exist, convergence is also checked via
-  /// confidence interval: UB - LB <= z_{a/2} * s (PLP-style).
-  /// Combined with stationary_tol, also declares convergence when the
-  /// gap stabilises above the CI threshold (non-zero gap case).
-  /// Default: 0.95 (95% CI).
-  double convergence_confidence {0.95};
+  /// When > 0 and multiple scenes exist, convergence is also checked
+  /// via confidence interval: UB - LB <= z_{α/2} · σ (PLP-style).
+  /// Combined with ``stationary_tol``, declares convergence when the
+  /// gap stabilises above the CI threshold (non-zero-gap case).
+  ///
+  /// Default: 0.0 (DISABLED) — the CI test is opt-in because under
+  /// heterogeneous-scene scatter (σ ≈ 50 % of mean on juan) z·σ
+  /// trivially exceeds the absolute gap at 25 % relative, declaring
+  /// premature convergence.  Set to 0.95 to enable the standard 95 %
+  /// CI test, or 0.50 for a much tighter narrow-CI variant.
+  double convergence_confidence {0.0};
+
+  /// Number of consecutive iterations of structural infeasibility
+  /// (Chinneck filter produces no useful fcut at the same scene)
+  /// before the scene is marked terminal and skipped at dispatch
+  /// until fresh cuts arrive globally.  Set to 0 to disable the
+  /// terminal-skip mechanism entirely (legacy behaviour: every
+  /// failed scene is re-dispatched every iteration).  Default: 2 —
+  /// one bad iteration may be transient (state still settling), but
+  /// two identical structural failures in a row indicate an
+  /// LP-level issue that more iterations of the same forward-pass
+  /// cannot resolve.  Observed on juan/gtopt_iplp 2026-05-02
+  /// trace_29: 10 of 16 scenes wasted ~33 min before this guard
+  /// existed.
+  int terminal_failure_threshold {2};
 
   /// Optional LP solver options for the forward pass.
   /// When set, these override the global solver options for forward-pass
@@ -407,6 +954,16 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// backward-pass solves.  The options are pre-merged with the global
   /// solver options at construction time (backward takes precedence).
   std::optional<SolverOptions> backward_solver_options {};
+
+  /// SDDP work pool CPU over-commit factor.  Multiplied by
+  /// hardware_concurrency to set max pool threads.  Default 4.0 — extra
+  /// threads keep CPUs busy while others block on the clone mutex.
+  double pool_cpu_factor {4.0};
+
+  /// Process memory limit in MB for the SDDP work pool.
+  /// When non-zero, the pool blocks task dispatch if process RSS exceeds
+  /// this value.  0 = no limit (default).
+  double pool_memory_limit_mb {0.0};
 
   /// Maximum iteration spread between fastest and slowest scene when
   /// cut_sharing == none and multiple scenes exist.  When > 0, the
@@ -423,13 +980,27 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 /// Result of a single SDDP iteration (forward + backward pass)
 struct SDDPIterationResult
 {
-  IterationIndex iteration {};  ///< Iteration number (0-based)
+  IterationIndex iteration_index {};  ///< Iteration number (0-based)
   double lower_bound {};  ///< Lower bound (phase 0 obj including a)
   double upper_bound {};  ///< Upper bound (sum of actual phase costs)
   double gap {};  ///< Relative gap: (UB - LB) / max(1, |UB|)
-  /// Relative change in gap vs. `stationary_window` iterations ago.
-  /// Populated only when `stationary_tol > 0` and enough iterations have
-  /// elapsed; 1.0 otherwise (meaning "not yet checked / not applicable").
+  /// Relative change in **UB** vs. ``stationary_window`` iterations ago:
+  ///
+  ///     gap_change = |UB[i] - UB[i - window]| / max(eps, |UB[i - window]|)
+  ///
+  /// Under multi-cut / aperture-mode SDDP the cuts can over-tighten the
+  /// master LB above the true optimum, producing a negative ``gap``
+  /// (LB > UB) that oscillates while the cut family is still being
+  /// refined.  The relative-Δgap stationarity test that previously
+  /// drove this field was confounded by the LB drift (Δgap_relative
+  /// explodes near gap = 0 because of the small denominator).  UB is
+  /// the unbiased Monte-Carlo estimate of the realised policy cost —
+  /// it is what we are optimising — so stationarity of **UB** is the
+  /// signal that actually says "the policy has stopped moving".
+  /// Populated only when ``stationary_tol > 0`` and enough iterations
+  /// have elapsed; 1.0 otherwise (meaning "not yet checked / not
+  /// applicable"), so the convergence test naturally skips early
+  /// iters that do not yet have a usable look-back window.
   double gap_change {1.0};
   bool converged {};  ///< True if gap < convergence tolerance
   /// True when convergence was declared by the stationary-gap criterion
@@ -459,6 +1030,26 @@ struct SDDPIterationResult
   /// Per-scene lower bounds (phase-0 objective values).  Size =
   /// num_scenes.
   std::vector<double> scene_lower_bounds {};
+  /// Per-scene feasibility flag (1 = feasible, 0 = infeasible).
+  /// Mirror of ``ForwardPassOutcome::scene_feasible``.  Size =
+  /// num_scenes when populated, empty otherwise (e.g. async mode
+  /// where scenes complete out-of-order).  Surfaces in the
+  /// per-iteration headline as ``feasible=K/N`` so operators see
+  /// the fraction of the original problem the bounds actually
+  /// cover — UB / LB are computed *only over feasible scenes*
+  /// (renormalising probability weights), so a low K/N means the
+  /// gap reflects a sub-problem, not the original N-scene SDDP.
+  std::vector<uint8_t> scene_feasible {};
+
+  /// Total original probability mass of scenes that were marked
+  /// infeasible this iteration.  Computed as
+  /// ``Σ_{infeasible i} p_orig_i / Σ_all p_orig_j`` so the value is
+  /// always in [0, 1] regardless of how the user normalised the
+  /// scenario probability_factors.  Lets downstream tooling and
+  /// solver-status JSON readers see "47 % of probability mass is
+  /// missing from this iteration's bounds" without recomputing
+  /// from scene_feasible.  Stays 0 when every scene is feasible.
+  double scene_probability_lost {};
 
   /// Per-scene iteration at the time this result was computed.
   /// Populated only in async mode (max_async_spread > 0).  Shows the
@@ -487,33 +1078,204 @@ struct SDDPIterationResult
 [[nodiscard]] std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
     std::span<const uint8_t> scene_feasible,
-    ProbabilityRescaleMode rescale_mode =
-        ProbabilityRescaleMode::runtime) noexcept;
+    ProbabilityRescaleMode rescale_mode = ProbabilityRescaleMode::runtime);
 
 /// Compute relative convergence gap: (UB - LB) / max(1.0, |UB|).
 /// Always returns a non-negative value.
 [[nodiscard]] double compute_convergence_gap(double upper_bound,
                                              double lower_bound) noexcept;
 
+/// Look up the alpha (future-cost) state variable registered by
+/// `SDDPMethod::initialize_alpha_variables` for the given (scene, phase).
+/// Returns `nullptr` for any phase that has not yet been initialised.
+///
+/// Callers should read the alpha column index freshly via
+/// `svar->col()` and the forward-pass trial value via `svar->col_sol()`,
+/// which is populated by `capture_state_variable_values` after every
+/// successful solve.  This replaces the former `PhaseStateInfo::alpha_col`
+/// cache, which could become stale on low_memory reconstruct/clone paths.
+/// @param kind  Which registry to look in — `forward` (default) for the
+///              regular system's α, `aperture` for the backward-pass
+///              aperture system's α (registered in parallel).
+[[nodiscard]] const StateVariable* find_alpha_state_var(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    SystemKind kind = SystemKind::forward) noexcept;
+
+/// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
+/// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
+/// on the live LP backend and mirrors the change into the
+/// `m_dynamic_cols_` entry so release+reload replay preserves the
+/// freed bounds.  Idempotent and safe to call on a cell whose α
+/// has not been registered (no-op).  Shared by the SDDPMethod
+/// backward/feasibility paths and the boundary-cut loader in
+/// `source/sddp_cut_io.cpp` so every cut-install site uses the
+/// same free-α semantics.
+void bound_alpha(PlanningLP& planning_lp,
+                 SceneIndex scene_index,
+                 PhaseIndex phase_index,
+                 SystemKind kind = SystemKind::forward);
+
+/// Release α's bootstrap pin at `(scene, phase)` ONLY when @p cut
+/// actually references α — i.e., α is registered on the cell AND
+/// the cut's sparse coefficient map contains the α column.  No-op
+/// otherwise.  Meant to be called at every optimality-cut install
+/// site (backward-pass aperture expected-cut, aperture bcut fallback,
+/// and cut-file loaders for CSV/JSON optimality cuts) so a cut that
+/// does not constrain α — e.g. α coefficient filtered by
+/// `cut_coeff_eps` at save time, or a pure state-coupling cut —
+/// does not prematurely release the bootstrap pin.  Feasibility cuts
+/// should never call this (they carry no lower-bound information on
+/// the future-cost variable); callers must gate on cut type upstream.
+void bound_alpha_for_cut(PlanningLP& planning_lp,
+                         SceneIndex scene_index,
+                         PhaseIndex phase_index,
+                         const SparseRow& cut,
+                         SystemKind kind = SystemKind::forward);
+
+/// Install an SDDP cut (feasibility or optimality) on the LP backend
+/// at `(scene, phase)`.  Single unified entry point for every cut
+/// install site:
+///   1. For optimality cuts that reference α, release α's bootstrap
+///      pin via `bound_alpha_for_cut`.  Feasibility cuts, and
+///      optimality cuts with no α term, leave the pin intact.
+///   2. Add the row to the live LP backend and record it for
+///      low-memory replay via `LinearInterface::add_cut_row`.
+/// Callers that also persist the cut into `SDDPCutManager` should call
+/// `SDDPMethod::store_cut(...)` afterwards using the returned
+/// `RowIndex` — `store_cut` no longer re-records the cut for replay
+/// (that now happens once inside this function).
+[[nodiscard]] RowIndex add_cut_row(PlanningLP& planning_lp,
+                                   SceneIndex scene_index,
+                                   PhaseIndex phase_index,
+                                   CutType cut_type,
+                                   const SparseRow& cut,
+                                   double eps = 0.0);
+
+/// Register the α (future-cost) column on every (scene, phase)
+/// cell of @p planning_lp that does not already have it.  Each α
+/// is added as a `SparseCol` pinned at `lowb = uppb = 0` (bootstrap)
+/// with `cost = scale_alpha`, mirrored into `m_dynamic_cols_` for
+/// low-memory replay, and registered in the simulation-level
+/// `StateVariable` map so cross-level / cut I/O machinery treats α
+/// uniformly.  Cut-install sites (backward pass, boundary/named
+/// cut loaders) subsequently call `bound_alpha(...)` to release the
+/// pin.  Called once per scene during `SDDPMethod::initialize_solver`;
+/// exposed here so isolated callers (tests, direct cut-loader
+/// harnesses) can establish the same precondition without standing
+/// up a full `SDDPMethod`.
+void register_alpha_variables(PlanningLP& planning_lp,
+                              SceneIndex scene_index,
+                              double scale_alpha);
+
+/// Apply a derived lower-bound floor on α_T at the last phase by
+/// projecting every installed boundary cut onto the worst-case
+/// trial-state box.  For each cut
+///
+///     α + Σⱼ coefⱼ · vⱼ ≥ rhs
+///
+/// the universal floor over the feasible state-variable box
+/// ``[vⱼ_min, vⱼ_max]`` is
+///
+///     floor_cut = rhs − Σⱼ max(coefⱼ · vⱼ_max, coefⱼ · vⱼ_min)
+///
+/// (when ``coefⱼ > 0`` the maximiser is ``vⱼ_max``; when ``coefⱼ < 0``
+/// it is ``vⱼ_min``).  Taking the ``max`` of ``floor_cut`` across every
+/// cut and clamping at ``0`` (cost-to-go is non-negative under
+/// non-negative stage costs) gives the tightest universal lower bound
+/// on α_T implied by the cuts alone, independent of which trial state
+/// the master / aperture clones pick.
+///
+/// The motivation is the juan/gtopt_iplp_plain pathology: boundary
+/// cuts cover only the trial-state regions they were generated at,
+/// and aperture-perturbed trial states can fall outside that
+/// polyhedral approximation, leaving α_T effectively unbounded below
+/// in the aperture clone (CPLEX returns ``CPX_STAT_UNBOUNDED``,
+/// logged as "infeasible (status 2)" by the aperture pass).  Pinning
+/// the column at the cut-derived floor closes that hole without
+/// over-tightening (boundary cuts that produce a tighter row-based
+/// bound still dominate).
+///
+/// The floor is seeded at ``0`` before any cut is examined and only
+/// ratchets UP from there, so the function is safe to call even when
+/// no cuts (or no α-referencing cuts) are installed at the last phase
+/// — the result in that case is the weak universal floor ``α_T ≥ 0``,
+/// which always holds under non-negative stage costs and prevents
+/// α_T from going unbounded below in aperture clones.  No-op only
+/// when α is not registered at the last phase on @p scene_index (a
+/// pre-`register_alpha_variables` call site).  The mirror
+/// `update_dynamic_col_bounds` is called so the floor survives a
+/// `release_backend` + `ensure_backend` cycle under
+/// `LowMemoryMode::compress`.
+///
+/// **Unit convention.** All arithmetic in this helper runs in
+/// **physical-space** units:
+///   * `LinearInterface::active_cuts()` returns rows captured by
+///     `record_cut_row` BEFORE `compose_physical` mutated them — so
+///     ``cut.lowb`` is ``rhs_phys`` and ``cut.cmap[col]`` is
+///     ``coef_phys``.
+///   * State-variable column bounds are read via
+///     `get_col_low()` / `get_col_upp()` (ScaledView returning
+///     ``raw × col_scale``), so the multiplication
+///     ``coef_phys · v_phys`` lands in the same units as
+///     ``rhs_phys``.
+///   * The floor is written via the **physical** setter
+///     `set_col_low(α_col, floor_phys)` (which divides by α's
+///     ``col_scale = scale_alpha`` internally to land raw in the
+///     backend) and mirrored to `update_dynamic_col_bounds` with the
+///     same physical floor (``SparseCol.lowb`` is physical — see
+///     `LinearProblem::flatten`).  Both representations stay
+///     coherent across `release_backend` / `ensure_backend` cycles.
+void apply_terminal_alpha_floor(PlanningLP& planning_lp,
+                                SceneIndex scene_index);
+
+/// Generalised cut-derived α floor for an arbitrary phase.
+///
+/// Same projection logic as `apply_terminal_alpha_floor` but
+/// parametrised on the phase index and on the seed (universal weak
+/// floor that always holds before any cut is examined).  The terminal
+/// helper is a one-line wrapper around this with
+/// ``phase_index = sim.last_phase_index()`` and ``seed_phys = 0.0``.
+///
+/// Exposed so a follow-up can refresh the floor at every interior
+/// (scene, phase) cell after a new optimality cut is installed —
+/// closing the same `CPX_STAT_UNBOUNDED` window at intermediate
+/// phases whose backward cuts cover only a sub-region of the
+/// post-aperture trial-state polytope.  See plan §4 in the issue
+/// thread for the wiring proposal (`SDDPOptions::alpha_floor_mode`).
+///
+/// @param planning_lp Owning planning LP carrying the per-cell
+///                    LinearInterface / SystemContext.
+/// @param scene_index Target scene cell.
+/// @param phase_index Target phase cell.  No-op when α is not
+///                    registered on (scene_index, phase_index).
+/// @param seed_phys   Weak universal floor used to seed the
+///                    cut-driven max.  Defaults to ``0`` (valid under
+///                    non-negative stage costs).
+void apply_alpha_floor(PlanningLP& planning_lp,
+                       SceneIndex scene_index,
+                       PhaseIndex phase_index,
+                       SystemKind kind = SystemKind::forward);
+
 // ─── Per-phase tracking ─────────────────────────────────────────────────────
 
-/// Per-phase SDDP state: a variable, outgoing links, forward-pass cost
+/// Per-phase SDDP state: a variable, outgoing links, forward-pass cost.
+///
+/// Per-state-variable trial values (consumed by cut building and
+/// next-phase propagation) live on `StateVariable::col_sol()`, populated
+/// by `capture_state_variable_values` after every forward solve.
 struct PhaseStateInfo
 {
-  ColIndex alpha_col {unknown_index};  ///< a column (unknown for last)
   std::vector<StateVarLink> outgoing_links {};  ///< Links TO next phase
   size_t base_nrows {0};  ///< Row count before any Benders cuts
   double forward_objective {0.0};  ///< Opex from last forward pass
-  /// Full LP objective from last forward solve (including a).
-  /// Cached for the backward pass so the original LP need not be
-  /// re-queried.
-  double forward_full_obj {0.0};
-  /// Reduced costs from last forward solve (cached for backward pass).
-  std::vector<double> forward_col_cost {};
-  /// Primal solution from last forward solve (warm-start for apertures).
-  std::vector<double> forward_col_sol {};
-  /// Dual solution from last forward solve (warm-start for apertures).
-  std::vector<double> forward_row_dual {};
+  /// Full objective from last forward solve (including α), in physical
+  /// ($) space — i.e. `LinearInterface::get_obj_value()`, not
+  /// the scaled LP raw value.  Cached here so the backward pass can
+  /// call `build_benders_cut_physical` without re-querying the
+  /// original LP.
+  double forward_full_obj_physical {0.0};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────
@@ -530,6 +1292,11 @@ struct ForwardPassOutcome
   std::vector<uint8_t> scene_feasible {};
   int scenes_solved {0};
   bool has_feasibility_issue {false};
+  /// Total feasibility cuts (including multi-cut bound rows) installed
+  /// across all scenes in this pass.  When zero and
+  /// has_feasibility_issue is true, retrying will produce the same
+  /// result — the caller's retry loop should break.
+  std::size_t n_fcuts_installed {0};
   double elapsed_s {0.0};
 };
 

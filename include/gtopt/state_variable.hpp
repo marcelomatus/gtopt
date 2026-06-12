@@ -21,12 +21,16 @@
 
 #pragma once
 
+#include <cstdint>
 #include <span>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
@@ -34,10 +38,28 @@
 
 namespace gtopt
 {
+/// Which of a (scene, phase) cell's two LPs a state variable belongs to.
+///
+/// `forward` is the regular full-detail system used by the SDDP forward
+/// pass and the monolithic/cascade solves.  `aperture` is the optional,
+/// simplified *aperture system* solved per aperture in the SDDP backward
+/// pass (see `aperture_system_file`).  The two LPs have different column
+/// layouts, so their state variables are kept in physically separate
+/// registries and never collide — `LPKey::kind` selects which.
+enum class SystemKind : std::uint8_t
+{
+  forward = 0,
+  aperture = 1,
+};
+
 struct LPKey
 {
   SceneIndex scene_index {unknown_index};
   PhaseIndex phase_index {unknown_index};
+  /// Selects the forward vs aperture state-variable registry.  Defaults to
+  /// `forward` so every existing key, lookup, and serialisation path is
+  /// unchanged; only the aperture-system build stamps `aperture`.
+  SystemKind kind {SystemKind::forward};
 
   [[nodiscard]] constexpr auto operator<=>(const LPKey&) const noexcept =
       default;
@@ -87,25 +109,54 @@ public:
 
   struct Key
   {
-    ScenarioUid scenario_uid {unknown_uid};
-    StageUid stage_uid {unknown_uid};
+    ScenarioUid scenario_uid = unknown_uid_of<Scenario>();
+    StageUid stage_uid = unknown_uid_of<Stage>();
     Uid uid {unknown_uid};
     std::string_view col_name;
-    std::string_view class_name;
+    /// LP class identity stored by value.  `LPClassName` is a
+    /// trivially-copyable 72-byte aggregate carrying both the
+    /// PascalCase `full_name()` and precomputed snake_case
+    /// `short_name()`, so call sites get zero-runtime access to
+    /// either form.  Comparisons against string literals (e.g.
+    /// `key.class_name == "Reservoir"`) work via LPClassName's
+    /// implicit conversion to `std::string_view` (returns
+    /// `full_name()`).
+    LPClassName class_name {};
     LPKey lp_key;
 
     constexpr auto operator<=>(const Key&) const noexcept = default;
   };
 
-  [[nodiscard]] static constexpr auto key(
-      std::string_view class_name,
-      Uid uid,
-      std::string_view col_name,
-      PhaseIndex phase_index,
-      StageUid stage_uid,
-      SceneIndex scene_index = SceneIndex {unknown_index},
-      ScenarioUid scenario_uid = ScenarioUid {unknown_uid}) noexcept -> Key
+  [[nodiscard]] static auto key(LPClassName class_name,
+                                Uid uid,
+                                std::string_view col_name,
+                                PhaseIndex phase_index,
+                                StageUid stage_uid,
+                                SceneIndex scene_index,
+                                ScenarioUid scenario_uid) -> Key
   {
+    // Every state variable must carry a valid element uid so that
+    // cross-phase cuts (fcut/scut/bcut/ecut/aper_cut) serialise with
+    // parseable names.  `unknown_uid = -1` slips into LP labels as
+    // `-1_…`, whose embedded `-` char is rejected by CoinLpIO's name
+    // validator (see master #426 / a8a0e452, PR #429) and causes CBC
+    // to strip every col/row label from the written LP file.  Catch
+    // the root cause here — throw in both debug and release builds
+    // so an unknown uid is never silently embedded into LP labels.
+    // scene/scenario/stage uids must also be concrete; silent defaults
+    // to `unknown_*` produce the same `-1_…` pattern in labels.
+    if (uid == unknown_uid) {
+      throw std::invalid_argument(
+          "StateVariable::key: uid must not be unknown_uid");
+    }
+    if (scenario_uid == unknown_uid_of<Scenario>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: scenario_uid must not be unknown");
+    }
+    if (stage_uid == unknown_uid_of<Stage>()) {
+      throw std::invalid_argument(
+          "StateVariable::key: stage_uid must not be unknown");
+    }
     return {
         .scenario_uid = scenario_uid,
         .stage_uid = stage_uid,
@@ -118,11 +169,11 @@ public:
 
   template<typename ScenarioLP, typename StageLP>
   [[nodiscard]]
-  static constexpr auto key(const ScenarioLP& scenario,
-                            const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
+  static auto key(const ScenarioLP& scenario,
+                  const StageLP& stage,
+                  LPClassName class_name,
+                  Uid element_uid,
+                  std::string_view col_name) -> Key
   {
     return key(class_name,
                element_uid,
@@ -133,24 +184,15 @@ public:
                scenario.uid());
   }
 
-  template<typename StageLP>
-  [[nodiscard]]
-  static constexpr auto key(const StageLP& stage,
-                            std::string_view class_name,
-                            Uid element_uid,
-                            std::string_view col_name) noexcept -> Key
-  {
-    return key(
-        class_name, element_uid, col_name, stage.phase_index(), stage.uid());
-  }
-
   constexpr explicit StateVariable(LPKey lp_key,
                                    ColIndex col,
-                                   double scost = 0.0,
-                                   double var_scale = 1.0) noexcept
+                                   double scost,
+                                   double var_scale,
+                                   LpContext context)
       : LPVariable(lp_key, col)
       , m_scost_(scost)
       , m_var_scale_(var_scale)
+      , m_context_(std::move(context))
   {
   }
 
@@ -159,9 +201,34 @@ public:
   [[nodiscard]] constexpr auto scost() const noexcept { return m_scost_; }
 
   /// Physical-to-LP scale: physical = LP × var_scale.
+  ///
+  /// At construction, set from the user `var_scale` parameter (= the
+  /// pre-equilibration col_scale).  After LP flatten, ruiz
+  /// equilibration may have multiplied an additional `ruiz_factor`
+  /// into `LinearInterface::m_col_scales_[col()]`.  Call
+  /// `set_var_scale()` post-flatten to sync this cached value to the
+  /// authoritative `LinearInterface::get_col_scale(col())`, so that
+  /// `col_sol_physical()` and `reduced_cost_physical()` agree with
+  /// the LP's internal scaling.  See
+  /// `SDDPMethod::capture_state_variable_values` for the sync site.
   [[nodiscard]] constexpr auto var_scale() const noexcept
   {
     return m_var_scale_;
+  }
+
+  /// Update the cached `var_scale` to match the post-equilibration
+  /// `col_scale` from the owning `LinearInterface`.  Called from
+  /// `capture_state_variable_values` so the value seen by
+  /// `col_sol_physical()` / `reduced_cost_physical()` is always the
+  /// authoritative LP-side scale.  Mutable through const because
+  /// `m_var_scale_` is a runtime cache, like `m_col_sol_` and
+  /// `m_reduced_cost_` already are.
+  constexpr void set_var_scale(double s) const noexcept { m_var_scale_ = s; }
+
+  /// LP hierarchy context (scenario, stage, block, ...).
+  [[nodiscard]] constexpr const auto& context() const noexcept
+  {
+    return m_context_;
   }
 
   using DependentVariable = LPVariable;
@@ -192,10 +259,114 @@ public:
         col);
   }
 
+  // ── Runtime SDDP values (mutable — written during solve passes) ────────
+  //
+  // These carry the per-state-variable post-solve values consumed by
+  // next-phase trial propagation and backward-pass cut construction.
+  //
+  //   - col_sol       : always set after a forward solve (free — just a
+  //                     primal read).  Used to propagate trial values to
+  //                     the next phase's dependent column.
+  //   - reduced_cost  : always set after a forward solve (free — just a
+  //                     reduced-cost read on the dependent column).
+  //
+  // Cut construction uses reduced costs only.  See docs/methods/sddp.md
+  // for why the row-dual (PLP-style) formulation was removed.
+  //
+  // `mutable` allows mutation via `const StateVariable*` pointers stored
+  // on `StateVarLink`, keeping the const-correctness of the registry map
+  // iteration at link-build time.
+
+  /// Forward-pass primal solution of this state variable's source column,
+  /// in **raw LP** space.  Multiply by `var_scale()` to obtain the
+  /// physical value, or use `col_sol_physical()` below.
+  [[nodiscard]] constexpr auto col_sol() const noexcept { return m_col_sol_; }
+  constexpr void set_col_sol(double v) const noexcept { m_col_sol_ = v; }
+
+  /// Physical-space primal solution:  `LP × var_scale`.
+  ///
+  /// For the alpha future-cost column this equals `LP × scale_alpha`,
+  /// matching the `alpha_svar->col_sol() * sa` idiom at the forward-
+  /// pass call sites.  For state variables with `var_scale = 1.0`
+  /// (bare primal columns without a flatten-time semantic scale) this
+  /// returns the same value as `col_sol()`.
+  [[nodiscard]] constexpr double col_sol_physical() const noexcept
+  {
+    return m_col_sol_ * m_var_scale_;
+  }
+
+  /// Reduced cost of the dependent column in the target phase's last
+  /// solve, in **raw LP** space.  Use `reduced_cost_physical()` below
+  /// when building physical-space Benders cuts.
+  [[nodiscard]] constexpr auto reduced_cost() const noexcept
+  {
+    return m_reduced_cost_;
+  }
+  constexpr void set_reduced_cost(double v) const noexcept
+  {
+    m_reduced_cost_ = v;
+  }
+
+  /// LP-space reduced cost scaled by `scale_objective / var_scale`:
+  ///   `rc_LP × scale_objective / var_scale`.
+  ///
+  /// **Important**: despite the name, this is NOT a truly physical
+  /// reduced cost in $/[physical-unit]/hour.  The per-(scenario, stage,
+  /// block) `cost_factor = probability × discount × duration` baked
+  /// into the LP cost coefficient via `CostHelper::block_ecost` is
+  /// still folded in.  The naming matches the `LinearInterface::get_col_cost()`
+  /// convention (also LP-folded despite "physical" in its docstring),
+  /// so the Benders cut builder (`build_benders_cut_physical`) can
+  /// consume either source with identical semantics — both rely on
+  /// `cost_factor` cancelling at the destination master LP.
+  ///
+  /// To recover truly physical $/[unit]/hour, additionally divide by
+  /// `CostHelper::cost_factor(scenario, stage[, block])` for the
+  /// state-variable's source-column context.
+  ///
+  /// `scale_objective` is passed as an argument because it's a global
+  /// option, not a per-state-variable property.
+  [[nodiscard]] constexpr double reduced_cost_physical(
+      double scale_objective) const noexcept
+  {
+    return m_reduced_cost_ * scale_objective / m_var_scale_;
+  }
+
 private:
   double m_scost_ {0.0};
-  double m_var_scale_ {1.0};
+  // mutable: synced post-flatten from `LinearInterface::get_col_scale`
+  // (see `set_var_scale`).
+  mutable double m_var_scale_ {1.0};
+  LpContext m_context_ {};
   std::vector<DependentVariable> m_dependent_variables_;
+
+  mutable double m_col_sol_ {0.0};
+  mutable double m_reduced_cost_ {0.0};
+};
+
+/// Deferred state-variable link record.
+///
+/// Recorded by phase N+1's `add_to_lp` so that the eventual
+/// `add_dependent_variable` call on phase N's matching `StateVariable`
+/// can be performed in a sequential tightening pass *after* all phases
+/// of a scene have been built — possibly in parallel.
+///
+/// The structured `prev_key` uniquely identifies the producing
+/// `StateVariable` in the global `(scene, phase)`-partitioned registry,
+/// so the tightening pass needs no reference to phase N's `SystemLP` to
+/// resolve the link.  `(here_key, here_col)` names the dependent column
+/// to register on the resolved `StateVariable`.
+///
+/// `prev_key.col_name` and `prev_key.class_name` are `std::string_view`s
+/// — they must point to storage that outlives this record.  In practice
+/// they always point at the `static constexpr` literals declared by the
+/// element classes (e.g. `StorageLP::EfinName`, the class name constant)
+/// so the lifetime requirement is satisfied trivially.
+struct PendingStateLink
+{
+  StateVariable::Key prev_key;
+  LPKey here_key;
+  ColIndex here_col {unknown_index};
 };
 
 }  // namespace gtopt

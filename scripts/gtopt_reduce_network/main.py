@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: BSD-3-Clause
+"""gtopt-net — bus/line reducer + solution projector for gtopt cases.
+
+Subcommands:
+
+* ``reduce``               collapse a gtopt JSON case to K buses
+* ``project-results``      map reduced dispatch parquets back to nodal
+* ``project-investment``   map per-cluster expansion deltas back to nodal
+* ``cascade-run``          orchestrate reduce → run gtopt → project
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Any
+
+from gtopt_reduce_network._busmap import (
+    save_aggregator,
+    save_busmap,
+    save_linemap,
+    save_reducer_config,
+)
+from gtopt_reduce_network._cascade_run import cascade_run
+from gtopt_reduce_network._io import load_case, save_case
+from gtopt_reduce_network._project_dispatch import project_results
+from gtopt_reduce_network._project_investment import (
+    ProjectInvestmentConfig,
+    project_investment,
+    write_audit_csv,
+    write_patch_json,
+)
+from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
+
+_LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="gtopt-net",
+        description="Bus/line reducer and solution projector for gtopt cases.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "-l",
+        "--log-level",
+        default="INFO",
+        choices=_LOG_LEVELS,
+        help="logging verbosity (default: INFO)",
+    )
+
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    _add_reduce_parser(sub.add_parser("reduce", help="reduce a gtopt JSON case"))
+    _add_project_results_parser(
+        sub.add_parser(
+            "project-results",
+            help="project dispatch parquets from reduced → nodal",
+        )
+    )
+    _add_project_investment_parser(
+        sub.add_parser(
+            "project-investment",
+            help="project capacity expansion outcomes from reduced → nodal",
+        )
+    )
+    _add_cascade_run_parser(
+        sub.add_parser(
+            "cascade-run",
+            help="reduce → run gtopt on reduced → project results",
+        )
+    )
+
+    args = parser.parse_args(argv)
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    try:
+        if args.cmd == "reduce":
+            _cmd_reduce(args)
+        elif args.cmd == "project-results":
+            _cmd_project_results(args)
+        elif args.cmd == "project-investment":
+            _cmd_project_investment(args)
+        elif args.cmd == "cascade-run":
+            _cmd_cascade_run(args)
+        else:
+            parser.error(f"unknown subcommand {args.cmd!r}")
+    except (FileNotFoundError, ValueError, KeyError) as exc:
+        logging.error("%s", exc)
+        sys.exit(1)
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# reduce
+# ---------------------------------------------------------------------------
+
+
+def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
+    p.add_argument("input", type=Path, help="input gtopt JSON case")
+    p.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="output JSON path (default: <input>.reduced.K{K}.json)",
+    )
+    p.add_argument(
+        "-K",
+        "--target-buses",
+        type=int,
+        required=True,
+        help="target bus count after reduction",
+    )
+    p.add_argument(
+        "--distance",
+        choices=["reactance-shortest-path", "zbus", "ptdf"],
+        default="reactance-shortest-path",
+        help="distance metric for clustering (default: reactance-shortest-path)",
+    )
+    p.add_argument(
+        "--reactance-rule",
+        choices=["series-parallel"],
+        default="series-parallel",
+        help="equivalent-reactance rule for aggregated lines",
+    )
+    p.add_argument(
+        "--anchor-uid",
+        type=int,
+        action="append",
+        default=[],
+        metavar="UID",
+        help="bus uid to pin as anchor (may be passed multiple times)",
+    )
+    p.add_argument(
+        "--min-load-mw",
+        type=float,
+        default=None,
+        help="also pin buses with peak load above this threshold (MW)",
+    )
+    p.add_argument(
+        "--min-gen-capacity-mw",
+        type=float,
+        default=None,
+        help="also pin buses with gen capacity above this threshold (MW)",
+    )
+    p.add_argument(
+        "--no-reservoir-anchors",
+        action="store_true",
+        help="do not pin reservoir-host buses",
+    )
+    p.add_argument(
+        "--skip-local-simplify",
+        action="store_true",
+        help="skip parallel-merge + degree-2 elimination passes",
+    )
+    p.add_argument(
+        "--drop-lines-below-mw",
+        type=float,
+        default=None,
+        help="drop equivalent lines with capacity below this threshold (MW)",
+    )
+    p.add_argument(
+        "--transport-only",
+        action="store_true",
+        help=(
+            "produce a transport-only (no-KVL) reduced case by setting "
+            "options.use_kirchhoff=false; line capacities still bind, "
+            "but flows are not constrained by reactance"
+        ),
+    )
+    p.add_argument(
+        "--loss-mode",
+        choices=["keep", "linear", "off", "uplift"],
+        default="keep",
+        help=(
+            "loss formulation in the reduced case: "
+            "'keep' (no change), "
+            "'linear' (options.loss_segments=1, one PWL segment per line), "
+            "'off' (use_line_losses=false, no loss vars/rows), "
+            "'uplift' (use_line_losses=false and scale every demand's lmax by "
+            "1+loss_uplift_pct/100 to represent losses as extra load)"
+        ),
+    )
+    p.add_argument(
+        "--loss-uplift-pct",
+        type=float,
+        default=3.0,
+        help=(
+            "percent uplift applied to every demand's lmax when "
+            "--loss-mode=uplift (default: 3.0%%)"
+        ),
+    )
+    p.add_argument(
+        "--reduced-tag",
+        type=str,
+        default="",
+        metavar="TAG",
+        help=(
+            "when set, aggregate per-line parquet schedules from "
+            "<input_dir>/Line/<field>.parquet into sibling "
+            "<input_dir>/Line/<field>_<TAG>.parquet files and rewrite each "
+            "reduced line's JSON field to the new stem.  Aggregates "
+            "active / tmax_ab / tmax_ba / voltage / reactance / resistance; "
+            "other fields are warned + skipped."
+        ),
+    )
+    p.add_argument(
+        "--summary",
+        action="store_true",
+        help="print before/after bus and line counts",
+    )
+
+
+def _cmd_reduce(args: argparse.Namespace) -> None:
+    case = load_case(args.input)
+    config = ReduceConfig(
+        target_buses=args.target_buses,
+        distance=args.distance,
+        reactance_rule=args.reactance_rule,
+        user_anchor_uids=tuple(args.anchor_uid),
+        min_load_mw=args.min_load_mw,
+        min_gen_capacity_mw=args.min_gen_capacity_mw,
+        include_reservoir_hosts=not args.no_reservoir_anchors,
+        skip_local_simplify=args.skip_local_simplify,
+        drop_lines_below_mw=args.drop_lines_below_mw,
+        transport_only=args.transport_only,
+        loss_mode=args.loss_mode,
+        loss_uplift_pct=args.loss_uplift_pct,
+        reduced_tag=args.reduced_tag,
+        parquet_case_dir=str(args.input.resolve().parent) if args.reduced_tag else None,
+    )
+    result = reduce_case(case, config)
+
+    out_path: Path = args.output or args.input.with_suffix(
+        f".reduced.K{args.target_buses}.json"
+    )
+    base = out_path.with_suffix("")
+    save_case(result.case, out_path)
+    save_busmap(result.busmap, base.with_name(base.name + ".busmap.csv"))
+    save_linemap(result.linemap, base.with_name(base.name + ".linemap.csv"))
+    save_aggregator(result.aggregator, base.with_name(base.name + ".aggregator.csv"))
+    save_reducer_config(
+        config.as_dict(), base.with_name(base.name + ".reducer_config.json")
+    )
+
+    if args.summary:
+        n_orig_buses = len(case.array("bus_array"))
+        n_orig_lines = len(case.array("line_array"))
+        n_red_buses = len(result.case.array("bus_array"))
+        n_red_lines = len(result.case.array("line_array"))
+        print(
+            f"buses: {n_orig_buses} → {n_red_buses}    "
+            f"lines: {n_orig_lines} → {n_red_lines}    "
+            f"anchors: {len(result.anchor_uids)}",
+            file=sys.stderr,
+        )
+    print(str(out_path))
+
+
+# ---------------------------------------------------------------------------
+# project-results
+# ---------------------------------------------------------------------------
+
+
+def _add_project_results_parser(p: argparse.ArgumentParser) -> None:
+    p.add_argument("reduced_dir", type=Path, help="reduced run output directory")
+    p.add_argument("-o", "--output-dir", type=Path, required=True)
+    p.add_argument("--busmap", type=Path, required=True)
+    p.add_argument("--linemap", type=Path, required=True)
+    p.add_argument("--aggregator", type=Path, required=True)
+
+
+def _cmd_project_results(args: argparse.Namespace) -> None:
+    project_results(
+        args.reduced_dir,
+        busmap=args.busmap,
+        linemap=args.linemap,
+        aggregator=args.aggregator,
+        output_dir=args.output_dir,
+    )
+    print(str(args.output_dir))
+
+
+# ---------------------------------------------------------------------------
+# project-investment
+# ---------------------------------------------------------------------------
+
+
+def _add_project_investment_parser(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "reduced_investment", type=Path, help="JSON of per-cluster expansion deltas"
+    )
+    p.add_argument("--original-case", type=Path, required=True)
+    p.add_argument("--busmap", type=Path, required=True)
+    p.add_argument("--linemap", type=Path, required=True)
+    p.add_argument("--aggregator", type=Path, required=True)
+    p.add_argument(
+        "--share-mode",
+        choices=["existing", "load", "resource", "nodal_lp", "manual"],
+        default="existing",
+    )
+    p.add_argument("--share-csv", type=Path, default=None)
+    p.add_argument(
+        "--line-share-mode",
+        choices=["capacity"],
+        default="capacity",
+    )
+    p.add_argument("-o", "--output", type=Path, required=True)
+    p.add_argument(
+        "--audit-csv",
+        type=Path,
+        default=None,
+        help="optional path for the per-bus audit CSV",
+    )
+
+
+def _cmd_project_investment(args: argparse.Namespace) -> None:
+    with args.reduced_investment.open("r", encoding="utf-8") as f:
+        reduced: dict[str, Any] = json.load(f)
+    cfg = ProjectInvestmentConfig(
+        share_mode=args.share_mode,
+        share_csv=args.share_csv,
+        line_share_mode=args.line_share_mode,
+    )
+    patch, audit = project_investment(
+        reduced,
+        original_case=args.original_case,
+        busmap=args.busmap,
+        aggregator=args.aggregator,
+        linemap=args.linemap,
+        config=cfg,
+    )
+    write_patch_json(patch, args.output)
+    if args.audit_csv is not None:
+        write_audit_csv(audit, args.audit_csv)
+    print(str(args.output))
+
+
+# ---------------------------------------------------------------------------
+# cascade-run
+# ---------------------------------------------------------------------------
+
+
+def _add_cascade_run_parser(p: argparse.ArgumentParser) -> None:
+    p.add_argument("input", type=Path, help="input gtopt JSON case")
+    p.add_argument("-K", "--target-buses", type=int, required=True)
+    p.add_argument("-o", "--output-dir", type=Path, required=True)
+    p.add_argument("--gtopt-bin", type=Path, default=None)
+    p.add_argument(
+        "--distance",
+        choices=["reactance-shortest-path", "zbus", "ptdf"],
+        default="reactance-shortest-path",
+    )
+    p.add_argument(
+        "--also-run-full",
+        action="store_true",
+        help="also run gtopt on the original full case for comparison",
+    )
+    p.add_argument(
+        "extra_gtopt_args",
+        nargs=argparse.REMAINDER,
+        help="extra arguments forwarded to gtopt after '--'",
+    )
+
+
+def _cmd_cascade_run(args: argparse.Namespace) -> None:
+    extras = list(args.extra_gtopt_args or [])
+    if extras and extras[0] == "--":
+        extras = extras[1:]
+    paths = cascade_run(
+        args.input,
+        target_buses=args.target_buses,
+        output_dir=args.output_dir,
+        gtopt_bin=args.gtopt_bin,
+        distance=args.distance,
+        extra_gtopt_args=extras,
+        skip_full=not args.also_run_full,
+    )
+    for k, v in paths.items():
+        print(f"{k}: {v}")
+
+
+if __name__ == "__main__":
+    main()

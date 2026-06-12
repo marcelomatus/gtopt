@@ -21,67 +21,104 @@
 #include <string_view>
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 // clang-format off
-static constexpr std::string_view unified_battery_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 1}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "unified_battery_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[100, 100]]}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bess1",
-        "bus": 1,
-        "input_efficiency": 0.95,
-        "output_efficiency": 0.95,
-        "emin": 0, "emax": 200,
-        "pmax_charge": 60,
-        "pmax_discharge": 60,
-        "gcost": 0,
-        "capacity": 200,
-        "use_state_variable": true,
-        "daily_cycle": false
+static constexpr std::string_view unified_battery_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "unified_battery_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              100,
+              100
+            ]
+          ]
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bess1",
+          "bus": 1,
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "emin": 0,
+          "emax": 200,
+          "pmax_charge": 60,
+          "pmax_discharge": 60,
+          "discharge_cost": 0,
+          "capacity": 200,
+          "use_state_variable": true,
+          "daily_cycle": true
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE("Unified battery JSON parse")  // NOLINT
 {
   using namespace gtopt;
-  auto planning = daw::json::from_json<Planning>(unified_battery_json);
+  auto planning = parse_planning_json(unified_battery_json);
 
   CHECK(planning.system.name == "unified_battery_test");
 
@@ -102,7 +139,7 @@ TEST_CASE("Unified battery JSON parse")  // NOLINT
 TEST_CASE("Unified battery LP solve")  // NOLINT
 {
   Planning base;
-  base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  base.merge(parse_planning_json(unified_battery_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -119,7 +156,7 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
   //   than charging + round-trip loss + discharging).
   //   Objective = 100 MW × $10/MWh × 1 h × 2 blocks / 1000 = 2.0
   Planning base;
-  base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  base.merge(parse_planning_json(unified_battery_json));
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -132,7 +169,7 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
   const auto& lp = systems.front().front().linear_interface();
 
   // Objective: 100 MW × $10/MWh × 1 h × 2 blocks ÷ 1000 = 2.0
-  CHECK(lp.get_obj_value() == doctest::Approx(2.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(2.0));
 }
 
 // -----------------------------------------------------------------------
@@ -142,62 +179,112 @@ TEST_CASE("Unified battery solution correctness")  // NOLINT
 // clang-format off
 /// Traditional definition: separate Generator (discharge), Demand (charge),
 /// Converter, plus a bare Battery without `bus`.
-static constexpr std::string_view traditional_battery_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_compression": "uncompressed",
-    "use_single_bus": true,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 1}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 2}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "traditional_battery_test",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200},
-      {"uid": 2, "name": "bess1_gen", "bus": 1, "gcost": 0, "capacity": 60}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "lmax": [[100, 100]]},
-      {"uid": 2, "name": "bess1_dem", "bus": 1, "capacity": 60}
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bess1",
-        "input_efficiency": 0.95,
-        "output_efficiency": 0.95,
-        "emin": 0, "emax": 200,
-        "capacity": 200,
-        "use_state_variable": true,
-        "daily_cycle": false
+static constexpr std::string_view traditional_battery_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "converter_array": [
-      {
-        "uid": 1, "name": "bess1_conv",
-        "battery": 1,
-        "generator": 2,
-        "demand": 2,
-        "capacity": 200
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 2
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "traditional_battery_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10,
+          "capacity": 200
+        },
+        {
+          "uid": 2,
+          "name": "bess1_gen",
+          "bus": 1,
+          "gcost": 0,
+          "capacity": 60
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "lmax": [
+            [
+              100,
+              100
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "bess1_dem",
+          "bus": 1,
+          "capacity": 60,
+          "fcost": 0
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bess1",
+          "input_efficiency": 0.95,
+          "output_efficiency": 0.95,
+          "emin": 0,
+          "emax": 200,
+          "capacity": 200,
+          "use_state_variable": true,
+          "daily_cycle": true
+        }
+      ],
+      "converter_array": [
+        {
+          "uid": 1,
+          "name": "bess1_conv",
+          "battery": 1,
+          "generator": 2,
+          "demand": 2,
+          "capacity": 200
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 TEST_CASE(
@@ -205,7 +292,7 @@ TEST_CASE(
 {
   // Parse and solve the traditional definition
   Planning trad_base;
-  trad_base.merge(daw::json::from_json<Planning>(traditional_battery_json));
+  trad_base.merge(parse_planning_json(traditional_battery_json));
   PlanningLP trad_lp(std::move(trad_base));
   auto trad_result = trad_lp.resolve();
   REQUIRE(trad_result.has_value());
@@ -213,7 +300,7 @@ TEST_CASE(
 
   // Parse and solve the unified definition (reuse unified_battery_json)
   Planning uni_base;
-  uni_base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  uni_base.merge(parse_planning_json(unified_battery_json));
   PlanningLP uni_lp(std::move(uni_base));
   auto uni_result = uni_lp.resolve();
   REQUIRE(uni_result.has_value());
@@ -224,7 +311,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
 {
   // Traditional
   Planning trad_base;
-  trad_base.merge(daw::json::from_json<Planning>(traditional_battery_json));
+  trad_base.merge(parse_planning_json(traditional_battery_json));
   PlanningLP trad_lp(std::move(trad_base));
   auto trad_result = trad_lp.resolve();
   REQUIRE(trad_result.has_value());
@@ -232,11 +319,11 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
   REQUIRE(!trad_sys.empty());
   REQUIRE(!trad_sys.front().empty());
   const auto trad_obj =
-      trad_sys.front().front().linear_interface().get_obj_value();
+      trad_sys.front().front().linear_interface().get_obj_value_raw();
 
   // Unified
   Planning uni_base;
-  uni_base.merge(daw::json::from_json<Planning>(unified_battery_json));
+  uni_base.merge(parse_planning_json(unified_battery_json));
   PlanningLP uni_lp(std::move(uni_base));
   auto uni_result = uni_lp.resolve();
   REQUIRE(uni_result.has_value());
@@ -244,7 +331,7 @@ TEST_CASE("Battery definitions equivalence – same objective value")  // NOLINT
   REQUIRE(!uni_sys.empty());
   REQUIRE(!uni_sys.front().empty());
   const auto uni_obj =
-      uni_sys.front().front().linear_interface().get_obj_value();
+      uni_sys.front().front().linear_interface().get_obj_value_raw();
 
   // Both definitions must produce the same optimal objective value
   CHECK(trad_obj == doctest::Approx(uni_obj));

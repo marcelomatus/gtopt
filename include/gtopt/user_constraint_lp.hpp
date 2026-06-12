@@ -36,6 +36,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/object_lp.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/schedule.hpp>
 #include <gtopt/user_constraint.hpp>
 
 namespace gtopt
@@ -55,13 +56,32 @@ namespace gtopt
 class UserConstraintLP : public ObjectLP<UserConstraint>
 {
 public:
-  static constexpr LPClassName ClassName {"UserConstraint", "uc"};
+  static constexpr std::string_view ConstraintName {"constraint"};
+  /// Slack column emitted for one-sided soft constraints (`<=` / `>=`).
+  static constexpr std::string_view SlackName {"slack"};
+  /// Positive-deviation slack for soft equality constraints
+  /// (`expr = rhs`).  Sign convention: row gets `+1.0 * slack_pos`.
+  static constexpr std::string_view SlackPosName {"slack_pos"};
+  /// Negative-deviation slack for soft equality constraints
+  /// (`expr = rhs`).  Sign convention: row gets `-1.0 * slack_neg`.
+  static constexpr std::string_view SlackNegName {"slack_neg"};
 
   explicit UserConstraintLP(const UserConstraint& uc, InputContext& ic);
 
   [[nodiscard]] constexpr auto&& user_constraint(this auto&& self) noexcept
   {
     return self.object();
+  }
+
+  /// PAMPL parameter accessor for `user_constraint("X").rhs` references
+  /// in other constraints' expressions.  Returns the per-(stage, block)
+  /// override when the schedule is set and resolves at that key;
+  /// otherwise ``std::nullopt`` so the call site can fall back to the
+  /// expression's scalar.
+  [[nodiscard]] auto param_rhs(StageUid s, BlockUid b) const
+      -> std::optional<Real>
+  {
+    return m_rhs_.optval(s, b);
   }
 
   /**
@@ -96,8 +116,52 @@ private:
   std::optional<ConstraintExpr> m_expr_ {};
   /// How the LP dual should be scaled for output
   ConstraintScaleType m_scale_type_ {ConstraintScaleType::Power};
+  /// How the `penalty` scalar is converted to the slack-column cost.
+  /// Parsed once at construction; per-block conversion is applied inside
+  /// the `add_to_lp` block loop when the constraint is soft.
+  PenaltyClass m_penalty_class_ {PenaltyClass::Raw};
   /// Per-(scenario, stage) row indices produced by add_to_lp
   STBIndexHolder<RowIndex> m_rows_ {};
+  /// Per-(scenario, stage) slack columns for soft constraints.
+  /// Used by `LESS_EQUAL` / `GREATER_EQUAL` (single slack) and as the
+  /// `+` slack for soft `EQUAL` constraints.  Empty when `penalty` is
+  /// not set on the underlying `UserConstraint`.
+  STBIndexHolder<ColIndex> m_slack_cols_ {};
+  /// Per-(scenario, stage) negative-deviation slack columns used only
+  /// for soft `EQUAL` constraints (the `−` half of the absolute-value
+  /// relaxation).  Empty for one-sided soft constraints.
+  STBIndexHolder<ColIndex> m_slack_neg_cols_ {};
+  /// Per-(stage, block) override for the constraint's RHS.  When the
+  /// underlying ``UserConstraint`` ships a ``rhs`` field, this schedule
+  /// stores the resolved per-(stage, block) values; ``add_to_lp``
+  /// consults it via ``m_rhs_.optval(stage, block)`` and only falls
+  /// back to the expression's parsed scalar when the schedule returns
+  /// ``std::nullopt`` for that key.  Empty (``has_value() == false``)
+  /// when the source ``UserConstraint`` left ``rhs`` unset.
+  OptTBRealSched m_rhs_ {};
+
+  /// Stable storage for the user-supplied slack column label (the
+  /// ``slack_name`` field on the underlying ``UserConstraint``, populated
+  /// by PAMPL ``var slack_<NAME>;`` declarations or by JSON callers
+  /// directly).  Empty when the source ``UserConstraint`` left
+  /// ``slack_name`` unset, in which case the LP falls back to the static
+  /// ``SlackName`` / ``SlackPosName`` / ``SlackNegName`` constants.
+  ///
+  /// Owned by the LP instance so the ``std::string_view`` published into
+  /// ``SparseCol::variable_name`` is valid for the entire LP lifecycle
+  /// (the LinearInterface's label_string_pool only needs the view to be
+  /// valid at ``add_col`` time, but downstream label compression code
+  /// reads it again).
+  std::string m_slack_label_ {};
+  std::string m_slack_pos_label_ {};
+  std::string m_slack_neg_label_ {};
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `UserConstraint::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"UserConstraint"`).
+static_assert(UserConstraintLP::Element::class_name
+                  == LPClassName {"UserConstraint"},
+              "UserConstraint::class_name must remain \"UserConstraint\"");
 
 }  // namespace gtopt

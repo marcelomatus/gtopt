@@ -18,10 +18,28 @@ and Python utility scripts.
 ```bash
 bash tools/setup_sandbox.sh          # install deps only
 bash tools/setup_sandbox.sh --build  # install deps + build + test (PREFERRED)
+bash tools/setup_sandbox.sh --build --debug  # full symbols when actually debugging
 ```
 
 The script is idempotent, tries Clang 21 first (falls back to GCC 14), uses
 conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
+
+> **Default build type: `CIFast`** — `-O0 -g1` with `-fno-standalone-debug`
+> (Clang) and `--gc-sections`. No optimisation, minimal line-only debug info
+> (backtraces on test failures still point at a source line). This is the
+> right default for both CI and agent-driven iteration: the only signals
+> we need are "did it compile" and "did the tests pass". Reconfigure with
+> `-DCMAKE_BUILD_TYPE=Debug` (or `setup_sandbox.sh --debug`) when you
+> actually need to step through code in gdb.
+
+> **Scratch builds**: when building outside the canonical `./build` dir
+> (e.g. comparing flags, testing a sanitizer variant, or when another agent
+> is already using `./build`), allocate a fresh dir via
+> `BUILD_DIR=$(bash tools/mk_scratch_build.sh)`. The helper wraps
+> `mktemp -d -p /tmp gtopt-build-XXXX` so concurrent agent sessions never
+> corrupt each other's Ninja state. Pass `"$BUILD_DIR"` to every
+> `cmake -S ... -B`, `cmake --build`, and `ctest` call, then `rm -rf` it
+> when done.
 
 ### Local development (no conda needed)
 
@@ -29,14 +47,22 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
-  zlib1g-dev libzstd-dev zstd lcov libcairo2-dev
+  libjemalloc-dev \
+  zlib1g-dev libzstd-dev zstd liblz4-dev lcov libcairo2-dev \
+  mdbtools         # required by scripts/cen2gtopt.pcp_solution
 
-cmake -S all -B build -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DCMAKE_BUILD_TYPE=CIFast \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc)
 cd build && ctest --output-on-failure
 ```
+
+Use `-DCMAKE_BUILD_TYPE=Debug` instead when you need full symbols for gdb.
+
+> **Ninja recommended**: `-G Ninja` enables file-level dependency tracking,
+> allowing test sources to compile in parallel with library sources. Install
+> via `pip install ninja` or `apt install ninja-build`.
 
 > **Critical**: install `ccache` **before** `cmake configure` — CMake bakes the
 > launcher path at configure time. If ccache was missing, delete build dir and
@@ -66,11 +92,30 @@ binary (`build/standalone/gtopt`), and tests (run via `ctest`).
 ./build/test/gtoptTests -tc="test name pattern"
 
 # Unit + integration tests
-cmake -S all -B build -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=Debug \
+cmake -S all -B build -G Ninja -DGTOPT_BUILD_INTEGRATION_TESTS=ON -DCMAKE_BUILD_TYPE=CIFast \
   -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc) && cd build && ctest --output-on-failure
 ```
+
+> **C++ only by default**: the Python pytest suite is registered as CTest
+> entries only when `-DGTOPT_REGISTER_PYTHON_TESTS=ON` is passed at
+> configure time (default OFF in the `all/` super-project).  A plain
+> `ctest -j20` therefore runs only the fast C++ unit tests (~45 s vs
+> ~150 s with Python included).
+>
+> Opt in for local runs with:
+>
+> ```bash
+> cmake -S all -B build -DGTOPT_REGISTER_PYTHON_TESTS=ON ...
+> ctest -L script -j20    # only Python tests
+> ctest -LE script -j20   # only C++ tests
+> ```
+>
+> CI (`.github/workflows/ubuntu.yml`) sets the flag explicitly so the
+> Python side keeps catching C++ regressions that change JSON output.
+> The standalone `scripts.yml` workflow runs the Python suite directly
+> via pytest regardless of the CMake option.
 
 ## Obtaining the gtopt Binary
 
@@ -92,10 +137,15 @@ git diff --name-only --diff-filter=d HEAD \
   | grep -E '\.(cpp|hpp|h|cc|cxx|hxx)$' \
   | xargs -r clang-format -i
 
-# Step 2 — clang-tidy (ONLY on *.cpp files, NEVER on *.hpp)
-git diff --name-only --diff-filter=d HEAD \
-  | grep -E '\.cpp$' \
-  | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
+# Step 2 — clang-tidy (ONLY on *.cpp files, NEVER on *.hpp).
+# Uses run-clang-tidy for parallel execution (-j $(nproc)).  Pass the
+# changed files as a pipe-joined regex to restrict analysis.
+CHANGED_CPP=$(git diff --name-only --diff-filter=d HEAD | grep -E '\.cpp$' || true)
+if [ -n "$CHANGED_CPP" ]; then
+  FILE_REGEX=$(printf '%s\n' $CHANGED_CPP | paste -sd'|' -)
+  run-clang-tidy -p tools/compile_commands.json -j "$(nproc)" -quiet \
+    -header-filter='' -warnings-as-errors='*' "$FILE_REGEX"
+fi
 ```
 
 ### Python files
@@ -106,9 +156,9 @@ ruff format scripts/ guiservice/
 
 # Lint + type-check (from scripts/ directory)
 cd scripts
-ruff check cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
-pylint --jobs=0 cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt
-mypy cvs2parquet gtopt_check_output gtopt_compare gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
+ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_expand gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
 ```
 
 > **CRITICAL — pylint exit code**: pylint prints `10.00/10` even with warnings.
@@ -225,6 +275,15 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 - **CAPEX**: annualized investment for expansion modules
 - **Time**: `Scenario` → `Stage` → `Block` (duration in hours)
 
+### Compression codecs
+
+- **File I/O** (Parquet output): **snappy** (default `output_compression`)
+  — fast encode/decode for the per-(scene, phase) solution files;
+  set `output_compression: zstd` for archival ratio.
+- **In-memory** (LP snapshots in `low_memory` / SDDP): **lz4** (fast
+  compress/decompress, preferred for transient data)
+- `liblz4-dev` is a required build dependency; `libzstd-dev` likewise
+
 ### Key options
 
 | Option | Default | Effect |
@@ -235,6 +294,8 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 | `scale_objective` | 1000 | Divides obj coefficients for numerics |
 | `input_format` / `output_format` | `"parquet"` | I/O format |
 | `method` | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
+| `aperture_chunk_size` | `0` (auto = 1) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto (currently resolves to `1`, empirically fastest under the parallel-safe manual-clone path on juan/IPLP-scale workloads), `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the **wettest → driest** sort applied to `Phase.apertures` by `plp2gtopt`. CLI: `--aperture-chunk-size`. |
+| `num_apertures` | unset | First-N selector applied to each phase's `Phase.apertures`. Combined with the wettest-first sort emitted by `plp2gtopt`, `num_apertures = N` picks the N wettest apertures per phase. Cascade defaults: L0 = 4, L1 = 8, L2 = unset (full per-phase list). CLI: `--sddp-num-apertures`. Per-level override: `--set cascade_options.level_array.N.sddp_options.num_apertures=K`. |
 
 ### LP solver backends
 

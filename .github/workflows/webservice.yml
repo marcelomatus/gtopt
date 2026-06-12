@@ -17,7 +17,7 @@ concurrency:
 permissions:
   contents: read
 
-# Binary-dependent webservice tests (webservice, install-and-test-gtopt-websrv)
+# Binary-dependent webservice tests (webservice, test-installed-integrations)
 # run as jobs in the Ubuntu workflow (needs: build) so they can reliably access
 # the gtopt binary artifact uploaded in the same run.
 # This file is kept for pure Node.js unit/type checks that do not need gtopt.

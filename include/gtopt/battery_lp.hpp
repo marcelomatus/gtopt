@@ -33,7 +33,16 @@ using BatteryLPSId = ObjectSingleId<class BatteryLP>;
 class BatteryLP : public StorageLP<CapacityObjectLP<Battery>>
 {
 public:
-  static constexpr LPClassName ClassName {"Battery", "bat"};
+  static constexpr std::string_view FinpName {"finp"};
+  static constexpr std::string_view FoutName {"fout"};
+  // User-facing attribute aliases used by PAMPL expression resolution.
+  // "charge" resolves to finp_cols, "discharge" resolves to fout_cols.
+  static constexpr std::string_view ChargeName {"charge"};
+  static constexpr std::string_view DischargeName {"discharge"};
+  /// Filter metadata key published by `add_to_lp` for `sum(...)`
+  /// predicate matching.  Battery `bus` is optional, so only `type`
+  /// is registered (see `add_to_lp` for the rationale).
+  static constexpr std::string_view TypeKey {"type"};
 
   using CapacityBase = CapacityObjectLP<Battery>;
   using StorageBase = StorageLP<CapacityObjectLP<Battery>>;
@@ -92,22 +101,28 @@ public:
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
-  [[nodiscard]] auto param_input_efficiency(StageUid s) const
+  [[nodiscard]] auto param_input_efficiency(StageUid s, BlockUid b) const
   {
-    return input_efficiency.at(s);
+    return input_efficiency.at(s, b);
   }
-  [[nodiscard]] auto param_output_efficiency(StageUid s) const
+  [[nodiscard]] auto param_output_efficiency(StageUid s, BlockUid b) const
   {
-    return output_efficiency.at(s);
+    return output_efficiency.at(s, b);
   }
   /// @}
 
 private:
-  OptTRealSched input_efficiency;
-  OptTRealSched output_efficiency;
+  OptTBRealSched input_efficiency;
+  OptTBRealSched output_efficiency;
 
   STBIndexHolder<ColIndex> finp_cols;
   STBIndexHolder<ColIndex> fout_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Battery::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Battery"`).
+static_assert(BatteryLP::Element::class_name == LPClassName {"Battery"},
+              "Battery::class_name must remain \"Battery\"");
 
 }  // namespace gtopt

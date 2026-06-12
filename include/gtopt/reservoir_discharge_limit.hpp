@@ -27,24 +27,42 @@
  * This element generalises the PLP "Ralco" constraint (`plpralco.dat`,
  * `genpdralco.f`).
  *
- * ### JSON Example
+ * ### JSON Example (waterway-referenced — classic Reservoir → Waterway)
  * ```json
  * {
  *   "uid": 1,
  *   "name": "ddl_ralco",
  *   "reservoir": "RALCO",
+ *   "waterway": "ww_ralco",
  *   "segments": [
  *     { "volume": 0.0,   "slope": 0.069868, "intercept": 15.787 },
  *     { "volume": 757.0, "slope": 0.13985,  "intercept": 57.454 }
  *   ]
  * }
  * ```
+ *
+ * ### JSON Example (turbine-referenced — built-in waterway turbine)
+ * ```json
+ * {
+ *   "uid": 2,
+ *   "name": "ddl_ralco_turb",
+ *   "reservoir": "RALCO",
+ *   "turbine": "turbine_RALCO_U1",
+ *   "segments": [
+ *     { "volume": 0.0, "slope": 0.069868, "intercept": 15.787 }
+ *   ]
+ * }
+ * ```
+ * Exactly one of ``waterway`` / ``turbine`` must be set; the LP caps
+ * the per-block flow of the referenced element against the reservoir's
+ * volume.
  */
 
 #pragma once
 
 #include <vector>
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/single_id.hpp>
 
@@ -82,13 +100,35 @@ struct ReservoirDischargeLimitSegment
  */
 struct ReservoirDischargeLimit
 {
-  Uid uid {unknown_uid};  ///< Unique identifier
-  Name name {};  ///< Human-readable name
-  OptActive active {};  ///< Operational status (default: active)
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ReservoirDischargeLimitLP` exposes no separate `ClassName` member;
+  /// callers reach the constant via `ReservoirDischargeLimit::class_name`
+  /// directly (or `ReservoirDischargeLimitLP::Element::class_name` in
+  /// generic contexts).
+  static constexpr LPClassName class_name {"ReservoirDischargeLimit"};
 
-  SingleId waterway {
-      unknown_uid};  ///< ID of the waterway whose flow is limited
-  SingleId reservoir {unknown_uid};  ///< ID of the reservoir (volume source)
+  Uid uid {unknown_uid};  ///< Unique discharge-limit identifier.
+  Name name {};  ///< Human-readable name (used in LP row labels and CSV
+                 ///< outputs).
+  OptActive active {};  ///< Operational status (default: active when unset).
+
+  /// Source of the flow being limited.  Exactly one of ``waterway`` /
+  /// ``turbine`` must be set (enforced by ``validate_planning``).
+  /// ``waterway`` is the legacy reference for the classic Reservoir →
+  /// Waterway → drain topology; ``turbine`` is the reference for
+  /// built-in waterway turbines (``Turbine.junction_a/b``) that own
+  /// their own flow column instead of going through a Waterway.  In
+  /// both cases the discharge piecewise row caps the per-block flow
+  /// [m³/s] of the referenced element against the reservoir volume.
+  OptSingleId waterway {};  ///< Waterway uid or name whose flow is limited.
+  OptSingleId
+      turbine {};  ///< Turbine uid or name whose built-in flow is limited.
+  /// Reservoir uid or name providing the volume reference (REQUIRED).
+  /// The piecewise-linear cap is parameterised by this reservoir's
+  /// ``efin`` volume [hm³] at LP-build time (see
+  /// ``select_rdl_coeffs``).
+  SingleId reservoir {unknown_uid};
 
   /// Piecewise-linear segments (sorted ascending by volume breakpoint).
   /// At least one segment is required.
@@ -123,12 +163,20 @@ struct ReservoirDischargeLimit
 /**
  * @brief LP constraint coefficients for the drawdown limit
  *
- * The stage-level constraint is:
+ * The stage-level constraint (efin-only formulation since
+ * 2026-05-04 — see `reservoir_discharge_limit_lp.cpp::add_to_lp`
+ * for rationale) is:
  *
  * ```text
- * qeh - slope × ScaleVol × 0.5 × eini
- *     - slope × ScaleVol × 0.5 × efin ≤ intercept
+ * qeh − slope · efin  ≤  intercept
  * ```
+ *
+ * Equivalently `qeh ≤ intercept + slope · efin`.  At the segment
+ * boundary `efin = emin` the constraint reduces to
+ * `qeh ≤ intercept + slope · emin`, which is feasible (qeh has
+ * lb 0) iff the lowest segment satisfies
+ * `intercept + slope · emin ≥ 0`.  `add_to_lp` warns when the
+ * input data violates that invariant.
  */
 struct ReservoirDischargeLimitCoeffs
 {

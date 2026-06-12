@@ -21,8 +21,8 @@ external time-series data.
 7. [Example 5 – Simple hydro cascade (2-bus, 2 stages)](#7-example-5--simple-hydro-cascade-2-bus-2-stages)
 8. [Numerical Scaling for Large Systems](#8-numerical-scaling-for-large-systems)
    - [`scale_objective` and `scale_theta`](#81-scale_objective-and-scale_theta)
-   - [`energy_scale` for Large Reservoirs](#82-energy_scale-for-large-reservoirs)
-   - [Battery `energy_scale`](#83-battery-energy_scale)
+   - [`variable_scales` for Large Reservoirs](#82-variable_scales-for-large-reservoirs)
+   - [Battery energy scaling](#83-battery-energy-scaling)
 9. [Working with time-series schedules](#9-working-with-time-series-schedules)
    - [Inline schedules in JSON](#91-inline-schedules-in-json)
    - [External CSV files](#92-external-csv-files)
@@ -48,6 +48,7 @@ external time-series data.
     - [Example: 2-level cascade (uninodal warm-start)](#142-example-2-level-cascade-uninodal-warm-start)
     - [Example: 3-level progressive refinement](#143-example-3-level-progressive-refinement)
     - [Monitoring cascade progress](#144-monitoring-cascade-progress)
+15. [LP Fingerprint — Formulation Audit](#15-lp-fingerprint--formulation-audit)
 
 ---
 
@@ -784,27 +785,29 @@ voltage-angle variables.
 
 These defaults are adequate for most power systems.
 
-### 8.2 `energy_scale` for Large Reservoirs
+### 8.2 `variable_scales` for Large Reservoirs
 
-For large hydroelectric reservoirs, the default `energy_scale = 1.0` creates
+For large hydroelectric reservoirs, the default scale `1.0` creates
 LP variable bounds in the tens of millions (dam³), which produces a coefficient
 ratio far exceeding $10^8$ when combined with generator costs in the range 0.01–1.
 
-**Set `energy_scale ≈ emax / 1000`** to keep LP volume variables in the
-$[0, 1000]$ range (matching the PLP `ScaleVol` convention):
+**Set the energy scale ≈ emax / 1000** via `variable_scales` to keep LP volume
+variables in the $[0, 1000]$ range (matching the PLP `ScaleVol` convention):
 
 ```json
 {
-  "reservoir_array": [
-    {"uid": 1, "name": "Laja",   "emax": 6000000,  "energy_scale": 6000},
-    {"uid": 2, "name": "Colbun", "emax": 1500000,  "energy_scale": 1500},
-    {"uid": 3, "name": "Rapel",  "emax":  200000,  "energy_scale":  200}
-  ]
+  "options": {
+    "variable_scales": [
+      {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 6000.0},
+      {"class_name": "Reservoir", "variable": "energy", "uid": 2, "scale": 1500.0},
+      {"class_name": "Reservoir", "variable": "energy", "uid": 3, "scale":  200.0}
+    ]
+  }
 }
 ```
 
-Or use a uniform `variable_scales` entry to apply a default to all reservoirs
-(and then override individually for very small or very large ones):
+Or use a uniform entry to apply a default to all reservoirs (with `uid = -1`)
+and then override individually for very small or very large ones:
 
 ```json
 {
@@ -824,14 +827,19 @@ that scaling should be reviewed.
 gtopt my_case.json --stats 2>&1 | grep -i "coeff.*ratio\|coefficient.*ratio"
 ```
 
-### 8.3 Battery `energy_scale`
+### 8.3 Battery energy scaling
 
 For batteries, the same principle applies.  A battery with
-`emax = 10000 MWh` should use `energy_scale = 10`:
+`emax = 10000 MWh` should use an energy scale of 10:
 
 ```json
-{"uid": 1, "name": "BESS1", "emax": 10000, "energy_scale": 10}
-```
+{
+  "options": {
+    "variable_scales": [
+      {"class_name": "Battery", "variable": "energy", "uid": 1, "scale": 10.0}
+    ]
+  }
+}
 
 ---
 
@@ -1089,7 +1097,7 @@ In summary tables below, ✱ marks required fields.
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **Block** | `uid`✱, `duration`✱ (h) | Smallest time unit; `energy = power × duration` |
-| **Stage** | `uid`✱, `first_block`, `count_block`, `discount_factor` | Investment period grouping consecutive blocks |
+| **Stage** | `uid`✱, `first_block`, `count_block`, `discount_factor`, `chronological` | Investment period grouping consecutive blocks; `chronological: true` enables unit commitment |
 | **Scenario** | `uid`✱, `probability_factor` | One realization of uncertain inputs |
 | **Phase** | `uid`✱, `first_stage`, `count_stage` | Groups consecutive stages (advanced) |
 | **Scene** | `uid`✱, `first_scenario`, `count_scenario` | Cross-products scenarios with phases |
@@ -1099,7 +1107,7 @@ In summary tables below, ✱ marks required fields.
 | Element | Key fields | Description |
 |---------|-----------|-------------|
 | **Bus** | `uid`✱, `name`✱, `voltage` (kV), `reference_theta` | Electrical node |
-| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `annual_capcost` | Generation unit |
+| **Generator** | `uid`✱, `name`✱, `bus`✱, `pmax`, `gcost` ($/MWh), `capacity`, `expcap`, `expmod`, `capmax`, `annual_capcost`, `annual_derating`, `integer_expmod`, `emission_rate` | Generation unit |
 | **Demand** | `uid`✱, `name`✱, `bus`✱, `lmax`, `capacity`, `expcap`, `expmod`, `annual_capcost` | Electrical load |
 | **Line** | `uid`✱, `name`✱, `bus_a`✱, `bus_b`✱, `reactance`, `tmax_ab`, `tmax_ba`, `expcap`, `expmod` | Transmission branch |
 
@@ -1812,8 +1820,7 @@ the solver strategy:
             "max_iterations": 20
           },
           "transition": {
-            "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true
+            "inherit_optimality_cuts": true
           }
         }
       ]
@@ -1864,6 +1871,8 @@ after the solve completes.
 
 ## See also
 
+- **[Unit Commitment Guide](unit-commitment.md)** — Three-bin UC
+  formulation, emission framework, startup tiers, and worked examples
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with LaTeX notation, JSON-to-symbol
   mapping, and academic references
@@ -1883,3 +1892,49 @@ after the solve completes.
   solver, boundary cuts, and sequential mode
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables
   from C++ headers
+- **[LP Fingerprint](lp-fingerprint.md)** — LP formulation audit and
+  structural integrity verification
+
+---
+
+## 15. LP Fingerprint — Formulation Audit
+
+The **LP Fingerprint** captures which types of variables and constraints exist
+in the LP formulation, producing a structural hash that is independent of
+element counts.  Use it to detect regressions in the LP formulation across
+code changes.
+
+### Enabling the fingerprint
+
+```json
+{ "options": { "lp_fingerprint": true } }
+```
+
+Or via CLI: `--set options.lp_fingerprint=true`
+
+This writes `lp_fingerprint_scene_{S}_phase_{P}.json` to the output directory.
+
+### Comparing against a baseline
+
+```bash
+python -m gtopt_check_fingerprint compare \
+  --actual output/lp_fingerprint_scene_0_phase_0.json \
+  --expected golden/lp_fingerprint_scene_0_phase_0.json
+```
+
+The comparison ignores element counts (stats section) and only checks the
+structural template — which (class, variable, context_type) triples are
+present.
+
+### External verification from LP files
+
+The Python tool can also compute a fingerprint directly from a solver-generated
+LP file, verifying that what gtopt assembles is exactly what the solver sees:
+
+```bash
+python -m gtopt_check_fingerprint verify \
+  --lp-file logs/lp_scene_0_phase_0.lp \
+  --golden golden/lp_fingerprint_scene_0_phase_0.json
+```
+
+For full details, see the [LP Fingerprint Guide](lp-fingerprint.md)

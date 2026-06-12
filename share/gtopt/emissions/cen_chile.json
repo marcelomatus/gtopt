@@ -1,0 +1,380 @@
+{
+  "$schema": "gtopt-emission-defaults-v1",
+  "description": "COMPLETE emissions file for CEN-Chile (SEN). Carries the full IPCC 2006 defaults (15 fuels from the bundled file) PLUS Chile-specific overrides (sub-bituminous coal, LNG upstream chain, pipeline-NG split, Noracid sulfur cogen). Pass via --emissions-file for CEN bundles.",
+  "source": "Same IPCC 2006 Vol 2 base values as scripts/gtopt_shared/data/ipcc_emission_factors.json + CEN-Chile project-specific overrides. The Gas-LNG-vs-pipeline split is handled by plexos2gtopt::extract_fuels via the _GN_ name-suffix detection (sets FuelSpec.subtype).",
+  "units": {
+    "co2_combustion": "tCO2 / GJ",
+    "co2_upstream": "tCO2 / GJ — LNG upstream is non-zero (median 10 kgCO2/GJ = 0.01); pipeline NG keeps IPCC default 0.",
+    "ch4_combustion": "tCH4 / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "n2o_combustion": "tN2O / GJ (IPCC 2006 Vol 2 Ch 2 Table 2.2)",
+    "heat_content": "GJ per fuel-unit (NCV / LHV)"
+  },
+  "notes": [
+    "ALL Chilean coal plants burn sub-bituminous coal (Andean + Colombian imports — NOT bituminous). The `coal` alias here points at sub-bituminous (0.0961 tCO2/GJ) rather than IPCC `coal_bituminous` default (0.0946) — ~1.5% upward correction.",
+    "LNG carries a CEN-specific upstream chain: GNL Quintero + GNL Mejillones both source from international LNG via tanker. co2_upstream = 0.01 (= 10 kgCO2/GJ) is a market-median estimate.",
+    "Pipeline natural gas (Gas_*_GN_*) keeps co2_upstream = 0 per IPCC default — domestic Argentine + Magallanes pipelines have minimal upstream beyond extraction.",
+    "coal_sub_bituminous.heat_content = 25.8 GJ/t (Chilean operational reality) NOT 18.9 (IPCC sub-bit textbook). Colombian-import coal procurement specs run 24-26 GJ/t.",
+    "Otros_Noracid -> sulfur_cogen (mineral-zero CO2): 26 MW cogen at Noracid's Mejillones sulfuric-acid plant, burning elemental sulfur (no carbon -> zero CO2 at burner tip). Other Otros_* fuels stay unmatched until each case is reviewed individually — the bare `otros` prefix is CEN's catch-all and would mis-route real CO2 emitters if blanket-aliased."
+  ],
+  "fuels": [
+    {
+      "name": "diesel",
+      "aliases": [
+        "diesel oil",
+        "diesel-b",
+        "gas oil",
+        "gas/diesel oil",
+        "gasoil",
+        "petroleo diesel",
+        "petroleo_diesel",
+        "petrodiesel",
+        "die"
+      ],
+      "co2_combustion": 0.0741,
+      "co2_upstream": 0.0,
+      "heat_content": 43.0,
+      "ipcc_reference": "Table 1.4 — Gas/Diesel Oil (74100 kg CO2/TJ); Table 1.2 NCV 43.0 TJ/Gg; Table 2.2 — Gas/Diesel Oil (3 kg CH4/TJ, 0.6 kg N2O/TJ)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "fuel_oil",
+      "aliases": [
+        "fuel oil",
+        "residual fuel oil",
+        "heavy fuel oil",
+        "hfo",
+        "ifo",
+        "petroleo ifo",
+        "petroleo_ifo",
+        "bunker",
+        "bunker oil"
+      ],
+      "co2_combustion": 0.0774,
+      "co2_upstream": 0.0,
+      "heat_content": 40.4,
+      "ipcc_reference": "Table 1.4 — Residual Fuel Oil (77400 kg CO2/TJ); Table 1.2 NCV 40.4 TJ/Gg; Table 2.2 — Residual Fuel Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "natural_gas",
+      "aliases": [
+        "natural gas",
+        "gas natural",
+        "gas-natural",
+        "gn",
+        "ng",
+        "gas",
+        "pipeline gas",
+        "gas tubería"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 — Natural Gas (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: distinguishes pipeline gas (this, upstream=0) from LNG (above, upstream=0.01). Combustion identical at burner tip."
+    },
+    {
+      "name": "lng",
+      "aliases": [
+        "gnl",
+        "liquefied natural gas",
+        "regasified lng",
+        "regasified-lng",
+        "gnl regasificado",
+        "lng-regas"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.01,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 — Natural Gas at burner tip (56100 kg CO2/TJ); Table 2.2 — Natural Gas (1, 0.1). CEN override: co2_upstream = 0.01 tCO2/GJ = 10 kgCO2/GJ — market-median LNG chain (liquefaction + tanker + regas)."
+    },
+    {
+      "name": "coal_bituminous",
+      "aliases": [
+        "carbon",
+        "coal",
+        "bituminous coal",
+        "other bituminous coal",
+        "carbon bituminoso",
+        "hard coal"
+      ],
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 25.8,
+      "ipcc_reference": "Table 1.4 — Other Bituminous Coal (94600 kg CO2/TJ); Table 1.2 NCV 25.8 TJ/Gg; Table 2.2 — Other Bituminous Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_sub_bituminous",
+      "aliases": [
+        "coal",
+        "carbon",
+        "carbon bituminoso",
+        "hard coal",
+        "other bituminous coal",
+        "bituminous coal"
+      ],
+      "co2_combustion": 0.0961,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06,
+      "heat_content": 25.8,
+      "ipcc_reference": "Table 1.4 — Sub-Bituminous Coal combustion factor (96100 kg CO2/TJ); Table 2.2 — Sub-Bit CH4+N2O (1, 1.5). CEN override: heat_content = 25.8 GJ/t (Chilean op reality — Colombian + Andean imports). IPCC textbook for Sub-Bit is 18.9 but Chilean coal procurement runs 24-26 GJ/t — using 18.9 under-counts CO2 by ~25%."
+    },
+    {
+      "name": "coal_anthracite",
+      "aliases": [
+        "anthracite",
+        "carbon antracita",
+        "antracita"
+      ],
+      "co2_combustion": 0.0983,
+      "co2_upstream": 0.0,
+      "heat_content": 26.7,
+      "ipcc_reference": "Table 1.4 — Anthracite (98300 kg CO2/TJ); Table 1.2 NCV 26.7 TJ/Gg; Table 2.2 — Anthracite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_lignite",
+      "aliases": [
+        "lignite",
+        "lignito",
+        "carbon lignito",
+        "brown coal"
+      ],
+      "co2_combustion": 0.101,
+      "co2_upstream": 0.0,
+      "heat_content": 11.9,
+      "ipcc_reference": "Table 1.4 — Lignite (101000 kg CO2/TJ); Table 1.2 NCV 11.9 TJ/Gg; Table 2.2 — Lignite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coking_coal",
+      "aliases": [
+        "coking coal",
+        "carbon coquizable",
+        "coque metalurgico"
+      ],
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 28.2,
+      "ipcc_reference": "Table 1.4 — Coking Coal (94600 kg CO2/TJ); Table 1.2 NCV 28.2 TJ/Gg; Table 2.2 — Coking Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "petcoke",
+      "aliases": [
+        "petroleum coke",
+        "petroleum-coke",
+        "coque petroleo",
+        "coque de petroleo",
+        "coke",
+        "pet coke"
+      ],
+      "co2_combustion": 0.0975,
+      "co2_upstream": 0.0,
+      "heat_content": 32.5,
+      "ipcc_reference": "Table 1.4 — Petroleum Coke (97500 kg CO2/TJ); Table 1.2 NCV 32.5 TJ/Gg; Table 2.2 — Petroleum Coke (3, 0.6 — defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "lpg",
+      "aliases": [
+        "liquefied petroleum gas",
+        "liquefied petroleum gases",
+        "glp",
+        "gas licuado",
+        "gas licuado de petroleo",
+        "propane",
+        "butane",
+        "propano",
+        "butano"
+      ],
+      "co2_combustion": 0.0631,
+      "co2_upstream": 0.0,
+      "heat_content": 47.3,
+      "ipcc_reference": "Table 1.4 — Liquefied Petroleum Gases (63100 kg CO2/TJ); Table 1.2 NCV 47.3 TJ/Gg; Table 2.2 — LPG (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "kerosene",
+      "aliases": [
+        "other kerosene",
+        "queroseno",
+        "kerosene-type jet fuel",
+        "jet kerosene"
+      ],
+      "co2_combustion": 0.0719,
+      "co2_upstream": 0.0,
+      "heat_content": 43.8,
+      "ipcc_reference": "Table 1.4 — Other Kerosene (71900 kg CO2/TJ); Table 1.2 NCV 43.8 TJ/Gg; Table 2.2 — Other Kerosene (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "naphtha",
+      "aliases": [
+        "nafta"
+      ],
+      "co2_combustion": 0.0733,
+      "co2_upstream": 0.0,
+      "heat_content": 44.5,
+      "ipcc_reference": "Table 1.4 — Naphtha (73300 kg CO2/TJ); Table 1.2 NCV 44.5 TJ/Gg; Table 2.2 — Naphtha (3, 0.6 — defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "crude_oil",
+      "aliases": [
+        "crude oil",
+        "petroleo crudo",
+        "crudo"
+      ],
+      "co2_combustion": 0.0732,
+      "co2_upstream": 0.0,
+      "heat_content": 42.3,
+      "ipcc_reference": "Table 1.4 — Crude Oil (73300 kg CO2/TJ); Table 1.2 NCV 42.3 TJ/Gg; Table 2.2 — Crude Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "biomass",
+      "aliases": [
+        "biomasa",
+        "wood",
+        "wood waste",
+        "wood/wood waste",
+        "biofuel",
+        "solid biomass",
+        "biomass solid",
+        "residuos forestales",
+        "leña",
+        "lena"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.112,
+      "co2_upstream": 0.0,
+      "heat_content": 15.6,
+      "ipcc_reference": "Table 1.4 — Wood/Wood Waste (112000 kg CO2/TJ gross); biogenic-zero default per AFOLU-sector accounting (combustion CO2 offset by sustainable uptake). Use co2_combustion_gross for a non-zero biomass scenario.; Table 2.2 — Wood/Wood Waste (30 kg CH4/TJ, 4 kg N2O/TJ — NOT biogenic-zero like CO2: combustion byproducts)",
+      "ch4_combustion": 3e-05,
+      "n2o_combustion": 4e-06
+    },
+    {
+      "name": "biogas",
+      "aliases": [
+        "biogás",
+        "biogas",
+        "landfill gas",
+        "gas de relleno sanitario",
+        "sewage gas"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.0546,
+      "co2_upstream": 0.0,
+      "heat_content": 50.4,
+      "ipcc_reference": "Table 1.4 — Other Biogas (54600 kg CO2/TJ gross). Biogenic-zero default; use co2_combustion_gross when biogenic CO2 must be priced.; Table 2.2 — Other Biogas (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "sulfur_cogen",
+      "aliases": [
+        "otros_noracid",
+        "noracid",
+        "elemental sulfur",
+        "sulfur combustion",
+        "waste heat recovery sulfur"
+      ],
+      "co2_combustion": 0.0,
+      "co2_upstream": 0.0,
+      "ch4_combustion": 0.0,
+      "n2o_combustion": 0.0,
+      "heat_content": 9.3,
+      "ipcc_reference": "Elemental-sulfur combustion (Noracid SACI, Mejillones — 720 kt/y H2SO4 plant + 26 MW cogen, online 2012; feedstock 240 kt/y elemental sulfur). CO2 = 0: no carbon in feedstock (mineral-zero, distinct from biomass biogenic-zero and geothermal non-combustion). NOT in IPCC AR6 stationary-combustion defaults (IPCC covers HYDROCARBON fuels only). Non-GHG SO2 (H2SO4 process) + NOx (high-temp combustion) defer to EPA AP-42 / EMEP-EEA Guidebook. heat_content = 9.3 GJ/t (elemental sulfur LHV, typical 8.9-9.4 GJ/t). CEN PCP fuel name: `Otros_Noracid`."
+    },
+    {
+      "name": "geothermal",
+      "aliases": [
+        "geotermia",
+        "geothermal steam",
+        "geotermico"
+      ],
+      "co2_combustion": 0.0,
+      "co2_upstream": 0.0,
+      "heat_content": 0.0,
+      "ipcc_reference": "Geothermal is non-combustion. IPCC stationary-combustion default = 0. Non-condensable-gas releases at specific fields are site-specific and not part of an IPCC default.; Geothermal: non-combustion (0, 0)",
+      "ch4_combustion": 0.0,
+      "n2o_combustion": 0.0
+    }
+  ],
+  "generator_overrides": {
+    "_comment": "Per-Generator metadata overrides for CEN-Chile units where the PLEXOS bundle / PLP source carries `fuel` + (HR == 0) — i.e. the unit's energy source is non-commercial (waste heat, geothermal steam, pulp-mill black liquor / wood residue) so there is no meaningful per-MWh fuel-cost signal. plexos2gtopt + plp2gtopt's PLEXOS overlay consult this list to (a) drop the spurious `fuel` reference and (b) set the canonical `Generator.type` to `thermal:cogen` / `renewable:geothermal` so the gtopt validation warning ('fuel set but no heat_rate') stops firing on legitimate non-fuel units.",
+    "PAS_MEJILLONES": {
+      "type": "thermal:cogen",
+      "kind": "cogen_waste_heat_sulfuric_acid",
+      "source": "CEN-SIP /unidades-generadoras/v4: id_unidad=2018 'TER PLANTA DE ACIDO SULFURICO MEJILLONES U1' (NORACID S.A., 20.07 MW, Cogeneración - TV); curva_consumo = 'No Aplica'",
+      "expected_fuel_match": "Otros_Noracid",
+      "heat_rate": 0,
+      "rationale": "Steam-turbine on sulfuric-acid plant waste heat. The 'fuel' is elemental sulfur burned in the acid process, not a commercial generation fuel; per-MWh HR is undefined."
+    },
+    "CMPC_BUCALEMU_2": {
+      "type": "thermal:cogen",
+      "kind": "cogen_biomass_residue",
+      "source": "CEN-SIP family pattern (CMPC pulp-mill cogens): CMPC SANTA FE U1/U2, CMPC PACIFICO U1/U2, CMPC CORDILLERA U1 all registered as Cogeneración-TV / Termoeléctrica TV with curva_consumo pointing at private 'Informe CEN' docs (no public kJ/kWh value).",
+      "expected_fuel_match": "Biomasa_Laja2",
+      "heat_rate": 0,
+      "rationale": "CMPC Bucalemu pulp-mill cogen unit 2 — burns black liquor + wood residue from the pulping process; no commercial-fuel HR by CEN convention."
+    },
+    "CMPC_SANTA_FE": {
+      "type": "thermal:cogen",
+      "kind": "cogen_biomass_residue",
+      "source": "CEN-SIP /unidades-generadoras/v4: id_unidad=1534/1535/1536 'TER CMPC SANTA FE U1/U2/U3' (CMPC CELULOSA S.A., 0.86 + 2.07 + 2.07 MW = 5.0 MW total, 3 × Cogeneración - TV); curva_consumo points at private 'Informe CEN' doc (no public kJ/kWh).  PLEXOS consolidates the 3 CEN-SIP units into a single ``CMPC_SANTA_FE`` generator.",
+      "expected_fuel_match": "Biomasa_Laja2",
+      "heat_rate": 0,
+      "rationale": "CMPC Santa Fe (Nacimiento, Bío-Bío) pulp-mill steam-turbine cogen.  Three CEN-SIP-cataloged units (U1/U2/U3, 5 MW combined) consolidated by PLEXOS into a single generator; energy source is black liquor + wood residue, no commercial-fuel HR by CEN convention."
+    },
+    "CERRO_DOMINADOR_CS": {
+      "type": "renewable:solar",
+      "kind": "concentrating_solar_with_thermal_storage",
+      "source": "PLEXOS Gen_HeatRate.csv = 0 (no fuel) + CEN catalogue",
+      "expected_fuel_match": null,
+      "heat_rate": 0,
+      "rationale": "Cerro Dominador concentrated-solar plant with molten-salt storage; solar resource is the primary energy, no fuel consumed at the LP boundary."
+    },
+    "CERRO_PABELLON_U1": {
+      "type": "renewable:geothermal",
+      "kind": "geothermal",
+      "source": "PLEXOS Gen_HeatRate.csv = 0",
+      "expected_fuel_match": null,
+      "heat_rate": 0,
+      "rationale": "Cerro Pabellón geothermal plant (Enel Green Power), unit 1."
+    },
+    "CERRO_PABELLON_U2": {
+      "type": "renewable:geothermal",
+      "kind": "geothermal",
+      "source": "PLEXOS Gen_HeatRate.csv = 0",
+      "expected_fuel_match": null,
+      "heat_rate": 0,
+      "rationale": "Cerro Pabellón geothermal plant, unit 2."
+    },
+    "CERRO_PABELLON_U3": {
+      "type": "renewable:geothermal",
+      "kind": "geothermal",
+      "source": "PLEXOS Gen_HeatRate.csv = 0",
+      "expected_fuel_match": null,
+      "heat_rate": 0,
+      "rationale": "Cerro Pabellón geothermal plant, unit 3."
+    }
+  }
+}

@@ -45,6 +45,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -450,9 +452,9 @@ def write_bat4b_timeseries(
     solar_csv = raw_dir / "solar_pmax.csv"
     gen_csv = raw_dir / "generator_pmax.csv"
 
-    make_demand_timeseries(year).to_csv(demand_csv, index=False)
-    make_solar_pmax_timeseries(year).to_csv(solar_csv, index=False)
-    make_generator_pmax_timeseries(year).to_csv(gen_csv, index=False)
+    write_csv(make_demand_timeseries(year), demand_csv)
+    write_csv(make_solar_pmax_timeseries(year), solar_csv)
+    write_csv(make_generator_pmax_timeseries(year), gen_csv)
 
     horizon = make_horizon(year)
     return convert_timeseries(
@@ -577,14 +579,18 @@ def make_bat4b_case_json(
     return {
         "options": {
             "annual_discount_rate": 0.0,
-            "use_lp_names": 1,
             "output_format": "csv",
             "output_compression": "uncompressed",
-            "use_single_bus": False,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
-            "use_kirchhoff": True,
             "input_format": output_format,
+            # 2026-05-17 schema migration: model-shape knobs live under
+            # options.model_options.*; emitting them at top level is
+            # rejected by StrictParsePolicy.
+            "model_options": {
+                "use_single_bus": False,
+                "use_kirchhoff": True,
+                "demand_fail_cost": 1000,
+                "scale_objective": 1000,
+            },
         },
         "simulation": {
             "block_array": block_array,
@@ -655,7 +661,6 @@ def make_bat4b_case_json(
                     "eini": 0,
                     "pmax_charge": 60,
                     "pmax_discharge": 60,
-                    "gcost": 0,
                     "capacity": 200,
                 }
             ],
@@ -744,7 +749,6 @@ def _make_gtopt_system(year: int, g1_pmax: float, g2_pmax: float) -> dict[str, A
                 "eini": 0,
                 "pmax_charge": 60,
                 "pmax_discharge": 60,
-                "gcost": 0,
                 "capacity": 200,
             }
         ],
@@ -816,15 +820,17 @@ def write_bat4b_case(
     case = {
         "options": {
             "annual_discount_rate": 0.0,
-            "use_lp_names": 1,
             "output_format": "csv",
             "output_compression": "uncompressed",
-            "use_single_bus": False,
-            "demand_fail_cost": 1000,
-            "scale_objective": 1000,
-            "use_kirchhoff": True,
             "input_directory": "input",
             "input_format": "parquet",
+            # 2026-05-17 schema migration: model-shape knobs nested.
+            "model_options": {
+                "use_single_bus": False,
+                "use_kirchhoff": True,
+                "demand_fail_cost": 1000,
+                "scale_objective": 1000,
+            },
         },
         "simulation": _make_gtopt_simulation(year),
         "system": _make_gtopt_system(year, g1_pmax, g2_pmax),

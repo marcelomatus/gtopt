@@ -22,7 +22,9 @@
 #include <limits>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -34,6 +36,27 @@
 
 namespace gtopt
 {
+
+/// Throw `std::logic_error` if @p opt has no value, otherwise return `*opt`.
+///
+/// Used by element-LP wrappers to convert an optional foreign-key field
+/// (e.g. `Turbine::waterway`) into a strong SId without silent UB when
+/// the field was unset.  The previous form (`assert(opt.has_value()); *opt`)
+/// compiled out in release, leaving `*opt` on a disengaged optional —
+/// silent UB.  This helper makes the precondition violation visible.
+template<typename U>
+[[nodiscard]] constexpr auto require_sid(const std::optional<U>& opt,
+                                         std::string_view caller,
+                                         std::string_view field) -> U
+{
+  if (!opt.has_value()) {
+    throw std::logic_error(
+        std::format("{}: required field '{}' is unset (precondition violated)",
+                    caller,
+                    field));
+  }
+  return *opt;
+}
 
 /// Lightweight replacement for std::views::iota (not available in libc++ 21).
 /// Returns a random-access range [first, last) that is compatible with

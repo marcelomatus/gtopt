@@ -46,7 +46,7 @@ inline constexpr auto log_mode_entries =
     });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(SolverLogMode /*tag*/) noexcept
 {
   return std::span {log_mode_entries};
 }
@@ -87,9 +87,33 @@ inline constexpr auto lp_algo_entries = std::to_array<EnumEntry<LPAlgo>>({
 });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(LPAlgo /*tag*/) noexcept
 {
   return std::span {lp_algo_entries};
+}
+
+/// Return the next algorithm in the LP fallback cycle:
+/// barrier → dual → primal → barrier.  `default_algo` and `last_algo`
+/// both map to `dual` (the cycle starts as if the input were barrier).
+///
+/// Used by `LinearInterface::initial_solve` / `resolve` to walk the
+/// algorithm space when the primary algorithm fails to reach optimal.
+/// Lives in this header so it is `constexpr`-testable in isolation
+/// without spinning up an LP backend.
+[[nodiscard]] constexpr LPAlgo next_fallback_algo(LPAlgo current) noexcept
+{
+  switch (current) {
+    case LPAlgo::barrier:
+      return LPAlgo::dual;
+    case LPAlgo::dual:
+      return LPAlgo::primal;
+    case LPAlgo::primal:
+      return LPAlgo::barrier;
+    case LPAlgo::default_algo:
+    case LPAlgo::last_algo:
+      return LPAlgo::dual;
+  }
+  return LPAlgo::dual;
 }
 
 // --- SolverScaling -----------------------------------------------------------
@@ -121,7 +145,7 @@ inline constexpr auto solver_scaling_entries =
     });
 
 /// ADL customization point for NamedEnum concept
-constexpr auto enum_entries(SolverScaling /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(SolverScaling /*tag*/) noexcept
 {
   return std::span {solver_scaling_entries};
 }

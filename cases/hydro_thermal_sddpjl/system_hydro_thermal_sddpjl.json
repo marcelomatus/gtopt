@@ -1,0 +1,132 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1.0
+      },
+      {
+        "uid": 2,
+        "duration": 1.0
+      },
+      {
+        "uid": 3,
+        "duration": 1.0
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 3
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 0,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "HydroThermalSDDPjl",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "junction_array": [
+      {
+        "uid": 1,
+        "name": "j_top"
+      },
+      {
+        "uid": 2,
+        "name": "j_bot",
+        "drain": true
+      }
+    ],
+    "waterway_array": [
+      {
+        "uid": 1,
+        "name": "ww_turb",
+        "junction_a": 1,
+        "junction_b": 2,
+        "fmin": 0.0,
+        "fmax": 50.0
+      },
+      {
+        "uid": 2,
+        "name": "ww_spill",
+        "junction_a": 1,
+        "junction_b": 2,
+        "fmin": 0.0,
+        "fmax": 10000.0
+      }
+    ],
+    "reservoir_array": [
+      {
+        "uid": 1,
+        "name": "rsv",
+        "junction": 1,
+        "capacity": 15.0,
+        "emin": 5.0,
+        "emax": 15.0,
+        "eini": 10.0
+      }
+    ],
+    "flow_array": [
+      {
+        "uid": 1,
+        "name": "inflow",
+        "direction": 1,
+        "junction": 1,
+        "discharge": 0.0
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g_hydro",
+        "bus": 1,
+        "gcost": 0.0,
+        "capacity": 50.0
+      },
+      {
+        "uid": 2,
+        "name": "g_thermal",
+        "bus": 1,
+        "gcost": 1.0,
+        "capacity": 100.0
+      }
+    ],
+    "turbine_array": [
+      {
+        "uid": 1,
+        "name": "t",
+        "waterway": 1,
+        "generator": 1,
+        "production_factor": 1.0
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d",
+        "bus": 1,
+        "capacity": 7.5
+      }
+    ]
+  }
+}

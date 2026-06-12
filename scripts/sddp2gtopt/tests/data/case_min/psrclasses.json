@@ -1,0 +1,74 @@
+{
+  "PSRStudy": [
+    {
+      "reference_id": 1000,
+      "Ano_inicial": 2024,
+      "Etapa_inicial": 1,
+      "Tipo_Etapa": 2,
+      "NumeroEtapas": 1,
+      "NumeroSistemas": 1,
+      "NumeroBlocosDemanda": 1,
+      "Series_Forward": 1,
+      "Series_Backward": 1,
+      "DeficitCost": [500.0],
+      "TaxaDesconto": 0.0,
+      "CurrencyReference": "$",
+      "MaximoIteracoes": 5
+    }
+  ],
+  "PSRSystem": [
+    {
+      "reference_id": 2000,
+      "code": 1,
+      "name": "MinSystem",
+      "UnM": "$"
+    }
+  ],
+  "PSRFuel": [
+    {
+      "reference_id": 3000,
+      "code": 1,
+      "name": "Diesel",
+      "Custo": [1.0],
+      "UE": "MWh",
+      "EmiCO2": 0.0,
+      "system": 2000
+    }
+  ],
+  "PSRThermalPlant": [
+    {
+      "reference_id": 4000,
+      "code": 1,
+      "name": "MinThermal",
+      "GerMin": [0.0],
+      "GerMax": [50.0],
+      "PotInst": [50.0],
+      "G(1)": [100.0],
+      "CEsp(1,1)": [10.0],
+      "G(2)": [0.0],
+      "CEsp(2,1)": [0.0],
+      "G(3)": [0.0],
+      "CEsp(3,1)": [0.0],
+      "CTransp": [0.0],
+      "fuels": [3000],
+      "system": 2000
+    }
+  ],
+  "PSRDemand": [
+    {
+      "reference_id": 5000,
+      "code": 1,
+      "name": "MinLoad",
+      "Duracao(1)": 100.0,
+      "system": 2000
+    }
+  ],
+  "PSRDemandSegment": [
+    {
+      "reference_id": 5001,
+      "demand": 5000,
+      "system": 2000,
+      "Demanda(1)": [10.0]
+    }
+  ]
+}

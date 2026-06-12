@@ -18,7 +18,7 @@ MainOptions                    (CLI-only, not in JSON)
         |     +-- SolverOptions        (JSON key: "backward_solver_options")
         +-- CascadeOptions         (JSON key: "cascade_options")
         +-- SolverOptions          (JSON key: "solver_options")
-        +-- LpBuildOptions         (JSON key: "lp_build_options")
+        +-- LpMatrixOptions        (JSON key: "lp_matrix_options")
         +-- VariableScale[]        (JSON key: "variable_scales")
 ```
 
@@ -52,8 +52,8 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `input_format` | string | `"parquet"` | Input format: `"parquet"` or `"csv"` |
 | `output_directory` | string | `"output"` | Root directory for result files |
 | `output_format` | string | `"parquet"` | Output format: `"parquet"` or `"csv"` |
-| `output_compression` | string | `"zstd"` | Compression codec for output files |
-| `use_uid_fname` | bool | `false` | Use UIDs instead of names in filenames |
+| `output_compression` | string | `"snappy"` | Compression codec for output files |
+| `use_uid_fname` | bool | `true` | Use UIDs instead of names in filenames |
 
 ### Model Parameters (deprecated flat fields)
 
@@ -66,11 +66,11 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 |-------|------|---------|-------------|
 | `demand_fail_cost` | float | -- | **Deprecated** — use `model_options.demand_fail_cost` |
 | `reserve_fail_cost` | float | -- | **Deprecated** — use `model_options.reserve_fail_cost` |
-| `hydro_fail_cost` | float | `5.0` | **Deprecated** — use `model_options.hydro_fail_cost` |
-| `hydro_use_value` | float | `1.0` | **Deprecated** — use `model_options.hydro_use_value` |
+| `hydro_fail_cost` | float | -- | **Deprecated** — use `model_options.hydro_fail_cost` |
+| `hydro_use_value` | float | -- | **Deprecated** — use `model_options.hydro_use_value` |
 | `use_line_losses` | bool | `true` | **Deprecated** — use `model_options.use_line_losses` |
 | `loss_segments` | int | `1` | **Deprecated** — use `model_options.loss_segments` |
-| `use_kirchhoff` | bool | `false` | **Deprecated** — use `model_options.use_kirchhoff` |
+| `use_kirchhoff` | bool | `true` | **Deprecated** — use `model_options.use_kirchhoff` |
 | `use_single_bus` | bool | `false` | **Deprecated** — use `model_options.use_single_bus` |
 | `kirchhoff_threshold` | float | `0.0` | **Deprecated** — use `model_options.kirchhoff_threshold` |
 | `scale_objective` | float | `1000` | **Deprecated** — use `model_options.scale_objective` |
@@ -85,6 +85,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `method` | string | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
+| `build_mode` | string | `"scene-parallel"` | How per-cell `SystemLP` objects are assembled: `"serial"`, `"scene-parallel"`, `"full-parallel"`, `"direct-parallel"`. `serial` skips the `AdaptiveWorkPool` / build-buffer for apples-to-apples comparison against the pre-parallel code path |
 
 ### Logging and Debug
 
@@ -93,7 +94,18 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `log_directory` | string | `"logs"` | Directory for log and trace files |
 | `lp_debug` | bool | `false` | Save LP debug files before solving |
 | `lp_compression` | string | -- | Compression codec for LP files |
-| `lp_build` | bool | `false` | Build LP matrices without solving |
+| `lp_only` | bool | `false` | Build LP matrices without solving (CLI: `--lp-only` / `-c`) |
+| `lp_fingerprint` | bool | `false` | Write [LP fingerprint](lp-fingerprint.md) JSON for formulation audit |
+| `lp_debug_scene_min` | int | -- | Minimum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_scene_max` | int | -- | Maximum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_min` | int | -- | Minimum phase UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_max` | int | -- | Maximum phase UID (inclusive) for LP debug file saving |
+
+### Constraint Handling
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
 ### Grouped Sub-objects
 
@@ -104,7 +116,7 @@ All fields are `std::optional` -- absent fields inherit built-in defaults
 | `sddp_options` | `SddpOptions` | SDDP solver settings |
 | `cascade_options` | `CascadeOptions` | Cascade solver settings |
 | `solver_options` | `SolverOptions` | Global LP solver configuration |
-| `lp_build_options` | `LpBuildOptions` | LP assembly configuration |
+| `lp_matrix_options` | `LpMatrixOptions` | LP assembly / equilibration / stats configuration |
 | `variable_scales` | `VariableScale[]` | Per-class/variable LP scale overrides |
 
 > **Migration**: Model parameter fields (`use_kirchhoff`, `use_single_bus`,
@@ -122,16 +134,21 @@ solver configurations.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `use_single_bus` | bool | `false` | Collapse network to single bus (copper-plate) |
-| `use_kirchhoff` | bool | `false` | Apply DC Kirchhoff voltage-law constraints |
-| `use_line_losses` | bool | `true` | Model resistive line losses |
+| `use_kirchhoff` | bool | `true` | Apply DC Kirchhoff voltage-law constraints |
+| `use_line_losses` | bool | `true` | **Deprecated** — use `line_losses_mode` instead. Model resistive line losses (on/off) |
+| `line_losses_mode` | string | `"adaptive"` | Line loss formulation: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `kirchhoff_threshold` | float | `0.0` | Min bus voltage [kV] for Kirchhoff activation |
 | `loss_segments` | int | `1` | Piecewise-linear segments for quadratic losses |
 | `scale_objective` | float | `1000` | Objective coefficient divisor |
 | `scale_theta` | float | `1000` | Voltage-angle variable scaling |
 | `demand_fail_cost` | float | -- | Penalty $/MWh for unserved demand |
 | `reserve_fail_cost` | float | -- | Penalty $/MWh for unserved reserve |
-| `hydro_fail_cost` | float | `5.0` | Penalty $/m³ for unmet hydro rights |
-| `hydro_use_value` | float | `1.0` | Benefit $/m³ for exercising hydro rights |
+| `hydro_fail_cost` | float | -- | Default penalty $/m³ for unmet hydro rights (falls back to `0.0` when unset). Overridden by per-element `fail_cost` |
+| `hydro_use_value` | float | -- | Default benefit $/m³ for exercising hydro rights (falls back to `0.0` when unset). Overridden by per-element `use_value` |
+| `state_fail_cost` | float | -- | Penalty $/MWh for state-variable violations in SDDP elastic filter. Fallback when an element (reservoir, etc.) does not define its own `scost`. Converted to physical units via the element's `mean_production_factor` |
+| `emission_cost` | float/schedule | -- | System-wide CO₂ emission cost [$/tCO₂]. When set, generators with non-zero `emission_rate` pay `emission_cost × emission_rate` per MWh |
+| `emission_cap` | float/schedule | -- | System-wide CO₂ cap [tCO₂] per stage. Adds `Σ emission_rate · p · duration ≤ cap_s`; the dual is the endogenous carbon price |
+| `continuous_phases` | string | `"none"` | Phase-range expression controlling which phases run LP-relaxed (integers become continuous). Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"`. Settable per cascade level |
 
 ## SolverOptions Fields
 
@@ -142,14 +159,18 @@ configures the LP backend.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `algorithm` | string/int | `"barrier"` | LP algorithm: `"default"` (0), `"primal"` (1), `"dual"` (2), `"barrier"` (3) |
-| `threads` | int | `2` | Number of parallel solver threads (0 = solver default) |
+| `threads` | int | `0` | Number of parallel solver threads (0 = solver default) |
 | `presolve` | bool | `true` | Apply LP presolve before solving |
 | `log_level` | int | `0` | Solver output verbosity (0 = none) |
-| `reuse_basis` | bool | `false` | Reuse basis from a previous solve (warm-start) |
+| `log_mode` | string | `"nolog"` | Solver log-file policy: `"nolog"` or `"detailed"` (per-scene/phase/aperture file) |
+| `reuse_basis` | bool | `false` | Reuse basis from a previous solve (warm-start). Forces dual simplex and disables presolve |
 | `optimal_eps` | float | -- | Optimality tolerance (nullopt = solver default) |
 | `feasible_eps` | float | -- | Feasibility tolerance (nullopt = solver default) |
 | `barrier_eps` | float | -- | Barrier convergence tolerance (nullopt = solver default) |
 | `time_limit` | float | -- | Per-solve time limit in seconds (0 = no limit) |
+| `scaling` | string | -- | Internal solver scaling strategy (nullopt = solver default). See `SolverScaling` enum |
+| `crossover` | bool | `true` | Convert interior-point solution to a simplex basis for duals (only meaningful with `algorithm=barrier`) |
+| `max_fallbacks` | int | `2` | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
 
 ## MonolithicOptions Fields
 
@@ -163,12 +184,26 @@ configures the LP backend.
 | `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `solver_options` | `SolverOptions` | -- | Per-method LP solver configuration |
 
-## LpBuildOptions Fields
+## LpMatrixOptions Fields
+
+The `lp_matrix_options` sub-object configures how the flat (column-major)
+LP representation is built and conditioned before being handed to the
+backend.  Only the fields listed below are exposed in JSON; the four name
+flags (`col_with_names`, `row_with_names`, `col_with_name_map`,
+`row_with_name_map`) are set internally and are enabled together when
+`--lp-file` or `--lp-debug` is present on the CLI.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `names_level` | string/int | `"minimal"` | LP naming level: `"minimal"` (0), `"only_cols"` (1), `"cols_and_rows"` (2) |
-| `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene breakdown |
+| `equilibration_method` | string | `"row_max"` | Matrix scaling: `"none"`, `"row_max"`, `"ruiz"` (auto-enabled for Kirchhoff models) |
+| `fast_sqrt_method` | string | `"ieee_halve"` | Approximate sqrt used by Ruiz scaling; see `FastSqrtMethod` enum |
+| `compute_stats` | bool | `false` | Compute and log coefficient min/max/ratio during `flatten()` |
+| `lp_coeff_ratio_threshold` | float | `1e7` | When global max/min coefficient ratio exceeds this, print a per-scene/phase breakdown |
+
+> **LP naming**: There is **no** `names_level` field or `--lp-names-level`
+> flag.  Pass `--lp-file <path>` or `--lp-debug` to have gtopt enable all
+> four naming fields on `LpMatrixOptions` so the generated `.lp` dump is
+> human-readable.
 
 ## SddpOptions Fields
 
@@ -197,7 +232,6 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 |-------|------|---------|-------------|
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, `"max"` |
-| `cut_coeff_mode` | string | `"reduced_cost"` | Cut coefficient extraction: `"reduced_cost"` or `"row_dual"` |
 | `max_cuts_per_phase` | int | `0` | Maximum stored cuts per (scene, phase) (0 = unlimited) |
 | `cut_prune_interval` | int | `10` | Iterations between cut pruning passes |
 | `prune_dual_threshold` | float | `1e-8` | Dual threshold for inactive cut detection |
@@ -216,9 +250,9 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `elastic_penalty` | float | `1e6` | Penalty for elastic slack variables in feasibility |
-| `elastic_mode` | string | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"backpropagate"` |
-| `multi_cut_threshold` | int | `10` | Infeasibility count threshold for switching to multi_cut (0 = never) |
+| `elastic_penalty` | float | `1e2` | Penalty for elastic slack variables in feasibility |
+| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"` |
+| `multi_cut_threshold` | int | `3` | Persistent cumulative infeasibility count at a (scene, phase) before switching to multi_cut (0 = always; <0 = disabled) |
 
 ### Apertures (Backward-Pass Sampling)
 
@@ -236,7 +270,8 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `update_lp_skip` | int | `0` | Iterations to skip between LP coefficient updates (0 = every iteration) |
 | `state_variable_lookup_mode` | string | `"warm_start"` | Volume lookup for LP updates: `"warm_start"` or `"cross_phase"` |
 | `warm_start` | bool | `true` | Reuse previous solutions as warm-start for clone LP solves |
-| `use_clone_pool` | bool | `true` | Reuse cached LP clones for aperture solves |
+| `low_memory_mode` | string | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | One of `off`, `compress`, `rebuild` (`snapshot` is a back-compat alias for `compress`; see SDDP docs §7.6) |
+| `memory_codec` | string | `"auto"` | Compression codec for `compress` mode (`auto`, `lz4`, `snappy`, `zstd`, `gzip`, `none`) |
 
 ### Monitoring and Control
 
@@ -299,11 +334,10 @@ and 1e-8 tolerance (from global), while the backward pass uses algorithm 3
 
 Variable scaling factors are resolved in this order (highest priority first):
 
-1. Per-element fields (e.g., `Battery::energy_scale`, `Reservoir::energy_scale`)
-2. Global options (`scale_theta` for bus voltage angles)
-3. `variable_scales` entries matching by `(class_name, variable, uid)`
-4. `variable_scales` entries matching by `(class_name, variable, uid=-1)` (wildcard)
-5. Default scale = 1.0
+1. Global options (`scale_theta` for bus voltage angles)
+2. `variable_scales` entries matching by `(class_name, variable, uid)`
+3. `variable_scales` entries matching by `(class_name, variable, uid=-1)` (wildcard)
+4. Default scale = 1.0
 
 ### JSON Example
 
@@ -396,8 +430,9 @@ files.
         "algorithm": 1
       }
     },
-    "lp_build_options": {
-      "names_level": "only_cols"
+    "lp_matrix_options": {
+      "equilibration_method": "ruiz",
+      "compute_stats": true
     },
     "variable_scales": [
       {"class_name": "Reservoir", "variable": "energy", "uid": -1, "scale": 1000.0}

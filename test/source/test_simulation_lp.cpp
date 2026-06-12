@@ -7,7 +7,7 @@
  */
 
 #include <doctest/doctest.h>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -262,7 +262,7 @@ TEST_CASE(
   // Verifies that a JSON file explicitly containing empty phase_array and
   // scene_array does not break the solver; the fallback defaults are used.
   const Planning planning =
-      daw::json::from_json<Planning>(planning_empty_phase_scene_json);
+      parse_planning_json(planning_empty_phase_scene_json);
 
   CHECK(planning.simulation.phase_array.empty());
   CHECK(planning.simulation.scene_array.empty());

@@ -26,11 +26,14 @@
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/turbine_lp.hpp>
+#include <gtopt/update_context.hpp>
 
 namespace gtopt
 {
 
 class LinearInterface;
+class SimulationLP;
+class SystemLP;
 
 /**
  * @brief LP representation of a ReservoirProductionFactor element
@@ -42,8 +45,6 @@ class LinearInterface;
 class ReservoirProductionFactorLP : public ObjectLP<ReservoirProductionFactor>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirProductionFactor", "ref"};
-
   explicit ReservoirProductionFactorLP(
       const ReservoirProductionFactor& pre,
       [[maybe_unused]] InputContext& ic) noexcept
@@ -157,6 +158,21 @@ public:
 private:
   /// Stored row/column indices indexed by (scenario, stage) → block
   IndexHolder2<ScenarioUid, StageUid, BCoeffMap> m_coeff_indices_;
+
+  /// Cached reservoir refs for `update_lp` — populated in `add_to_lp` so
+  /// `update_lp` no longer reads `sys.element<ReservoirLP>(...)`.  Only
+  /// inserted when `reservoir().eini.has_value()` (matches the existing
+  /// early-return guard in `update_lp`).
+  IndexHolder2<ScenarioUid, StageUid, ReservoirRefCache> m_reservoir_caches_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReservoirProductionFactor::class_name` literal fails the build (LP row
+// labels and CSV outputs depend on the exact string
+// `"ReservoirProductionFactor"`).
+static_assert(ReservoirProductionFactorLP::Element::class_name
+                  == LPClassName {"ReservoirProductionFactor"},
+              "ReservoirProductionFactor::class_name must remain "
+              "\"ReservoirProductionFactor\"");
 
 }  // namespace gtopt

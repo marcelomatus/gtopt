@@ -45,3 +45,8 @@ def find_gtopt_binary() -> str | None:
 def find_plp2gtopt() -> str | None:
     """Locate the plp2gtopt script on PATH."""
     return shutil.which("plp2gtopt")
+
+
+def find_plexos2gtopt() -> str | None:
+    """Locate the plexos2gtopt script on PATH."""
+    return shutil.which("plexos2gtopt")

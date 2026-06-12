@@ -65,45 +65,27 @@ struct PlanningOptions
   std::optional<DataFormat> input_format {};
 
   // ── Model parameters ───────────────────────────────────────────────────────
-  /** @brief Penalty cost for unserved demand (load shedding) [$/MWh] */
-  OptReal demand_fail_cost {};
-  /** @brief Penalty cost for unserved spinning-reserve requirement [$/MWh] */
-  OptReal reserve_fail_cost {};
-  /** @brief Default penalty cost for unmet hydro rights [$/m3].
-   *  Applied to FlowRight and VolumeRight deficit variables when
-   *  the per-element `fail_cost` is not set.  Default: 5.0 $/m3.
-   *  For FlowRight, multiplied by block duration × flow_conversion_rate
-   *  to convert from $/m3 to the flow variable's units. */
-  OptReal hydro_fail_cost {};
+  //
+  // The 11 deprecated top-level ModelOptions-mirror fields
+  // (`demand_fail_cost`, `reserve_fail_cost`, `hydro_fail_cost`,
+  // `hydro_use_value`, `use_line_losses`, `loss_segments`,
+  // `use_kirchhoff`, `use_single_bus`, `kirchhoff_threshold`,
+  // `scale_objective`, `scale_theta`) were removed 2026-05-17 per
+  // §11.  Migrate any user JSON or C++ struct-literal callers to
+  // `options.model_options.*`; the JSON fixtures across the test
+  // suite were migrated by `tools/migrate_legacy_options_to_model_options.py`.
+  //
+  // Why removed: the naming-dialects canonicalize step
+  // (`source/json_canonicalize.cpp`) rewrites e.g. `reserve_fail_cost
+  // → reserve_shortage_cost` globally; carrying the legacy spellings
+  // as canonical fields here made any top-level `options.reserve_fail_cost`
+  // JSON entry get rewritten to a key PlanningOptions didn't have,
+  // and StrictParsePolicy would reject the result.  Caught by
+  // `tools/check_naming_dialects.py` as `alias-shadows-canonical`.
 
-  /** @brief Default value of exercising hydro rights [$/m3].
-   *  Applied as negative objective coefficient (benefit) on FlowRight
-   *  and VolumeRight flow variables when the per-element `use_value`
-   *  is not set.  Default: 1.0 $/m3.
-   *  For FlowRight, multiplied by block duration × flow_conversion_rate
-   *  to convert from $/m3 to the flow variable's units. */
-  OptReal hydro_use_value {};
-  /** @brief Whether to model resistive line losses (default: true) */
-  OptBool use_line_losses {};
-  /** @brief Default number of piecewise-linear segments for quadratic line
-   * losses (default: 1, meaning linear model only) */
-  OptInt loss_segments {};
-  /** @brief Whether to apply DC Kirchhoff voltage-law constraints (default:
-   * false) */
-  OptBool use_kirchhoff {};
-  /** @brief Whether to collapse the network to a single bus (copper-plate
-   * model) */
-  OptBool use_single_bus {};
-  /** @brief Minimum bus voltage [kV] below which Kirchhoff is not applied [kV]
-   */
-  OptReal kirchhoff_threshold {};
-  /** @brief Divisor applied to all objective coefficients for numerical
-   * stability [dimensionless] */
-  OptReal scale_objective {};
-  /** @brief Scaling factor for voltage-angle variables [dimensionless] */
-  OptReal scale_theta {};
-  /** @brief Annual discount rate for multi-stage CAPEX calculations [p.u./year]
-   */
+  /** @brief Annual discount rate for multi-stage CAPEX calculations
+   * [p.u./year]. Kept at top level — NOT a `ModelOptions` mirror; canonical
+   * home is `simulation.annual_discount_rate`. */
   OptReal annual_discount_rate {};
 
   // ── Output settings ────────────────────────────────────────────────────────
@@ -111,9 +93,24 @@ struct PlanningOptions
   OptName output_directory {};
   /** @brief Format for output files: parquet (default) or csv */
   std::optional<DataFormat> output_format {};
-  /** @brief Compression codec for Parquet output: gzip (default), zstd,
-   * uncompressed */
+  /** @brief Compression codec for Parquet output (default: lz4).
+   *  Supported: lz4, snappy, zstd, gzip, uncompressed.  See
+   *  `PlanningOptionsLP::default_output_compression` for the
+   *  rationale behind the default. */
   std::optional<CompressionCodec> output_compression {};
+  /** @brief On-disk layout for the per-(scene, phase) solution tables.
+   *  See `OutputLayout` for the trade-offs (`long` is the default —
+   *  3-7× smaller files on the typical sparse-dispatch shape; `wide`
+   *  remains available for back-compat with legacy readers). */
+  std::optional<OutputLayout> output_layout {};
+  /** @brief Round the on-disk value columns to N decimal places before
+   *  writing.  Default `8` — keeps the trailing mantissa bits zero so
+   *  `BYTE_STREAM_SPLIT + zstd` can compress the value stream 3-5×
+   *  better.  Set to a non-positive value (`0` or `-1`) to disable
+   *  rounding and store the full IEEE-754 binary, e.g. when verifying
+   *  bit-for-bit reproducibility of dispatch outputs.  Applies to
+   *  both `output_layout: wide` and `long`. */
+  OptInt output_round_decimals {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
 
@@ -127,6 +124,15 @@ struct PlanningOptions
    * ```
    */
   std::optional<MethodType> method {};
+
+  /** @brief How `PlanningLP::create_systems` assembles per-cell SystemLPs.
+   *
+   * `parallel` (default) dispatches (scene × phase) cells through an
+   * `AdaptiveWorkPool`.  `serial` builds cells in-place in the calling
+   * thread with no pool / build-buffer / move overhead and is the honest
+   * apples-to-apples comparison against the pre-parallel code path.
+   * See `BuildMode` for the full contract. */
+  std::optional<BuildMode> build_mode {};
 
   // ── Logging ────────────────────────────────────────────────────────────────
   /** @brief Directory for log and trace files (default: `"logs"`).
@@ -157,6 +163,12 @@ struct PlanningOptions
    * assembly — no solving occurs at all.
    * Combine with `lp_debug=true` to save every scene/phase LP file. */
   OptBool lp_only {};
+
+  /** @brief When true, write LP fingerprint JSON to the output directory.
+   * The fingerprint captures the structural template of the LP formulation
+   * (which types of variables and constraints exist) for regression detection.
+   * Output file: `lp_fingerprint_scene_{S}_phase_{P}.json`. */
+  OptBool lp_fingerprint {};
 
   /** @brief Minimum scene UID for selective LP debug saving (inclusive).
    *  When set together with lp_debug=true, only scenes with
@@ -261,30 +273,21 @@ struct PlanningOptions
   /// - `strict` (default): fail on any unresolved reference
   std::optional<ConstraintMode> constraint_mode {};
 
-  /// Migrate deprecated flat model fields into model_options.
-  /// Called by PlanningOptionsLP constructor to ensure model_options
-  /// is populated regardless of how PlanningOptions was constructed
-  /// (JSON parsing or programmatic initialization).
-  void migrate_flat_to_model_options()
-  {
-    auto migrate = [](auto& mo_field, const auto& flat_val)
-    {
-      if (flat_val.has_value() && !mo_field.has_value()) {
-        mo_field = flat_val;
-      }
-    };
-    migrate(model_options.use_single_bus, use_single_bus);
-    migrate(model_options.use_kirchhoff, use_kirchhoff);
-    migrate(model_options.use_line_losses, use_line_losses);
-    migrate(model_options.kirchhoff_threshold, kirchhoff_threshold);
-    migrate(model_options.loss_segments, loss_segments);
-    migrate(model_options.scale_objective, scale_objective);
-    migrate(model_options.scale_theta, scale_theta);
-    migrate(model_options.demand_fail_cost, demand_fail_cost);
-    migrate(model_options.reserve_fail_cost, reserve_fail_cost);
-    migrate(model_options.hydro_fail_cost, hydro_fail_cost);
-    migrate(model_options.hydro_use_value, hydro_use_value);
-  }
+  /** @brief Which output fields `OutputContext` should emit.
+   *
+   * `OutputSelection` = bitmask over `OutputFlags`
+   * (solution / dual / reduced_cost) plus an optional per-atom
+   * allow-list of element-class `cname`s.  When unset, the solver
+   * emits `all` (primal, dual, and reduced cost across every
+   * element class) so that downstream tools — notably
+   * `gtopt_marginal_units` — can identify the marginal unit per
+   * (bus, scene, stage, block) from column reduced costs without
+   * re-running the LP.
+   *
+   * CLI form: `--write-out solution,dual,rc:Generator,Line`.
+   * JSON form: `"write_out": "sol,dual,rc:Generator,Line"`.
+   * Parsed via `parse_output_selection()`. */
+  std::optional<OutputSelection> write_out {};
 
   void merge(PlanningOptions&& opts)
   {
@@ -292,34 +295,28 @@ struct PlanningOptions
     merge_opt(input_directory, std::move(opts.input_directory));
     merge_opt(input_format, opts.input_format);
 
-    // Merge optimization parameters
-
-    merge_opt(demand_fail_cost, opts.demand_fail_cost);
-    merge_opt(reserve_fail_cost, opts.reserve_fail_cost);
-    merge_opt(hydro_fail_cost, opts.hydro_fail_cost);
-    merge_opt(hydro_use_value, opts.hydro_use_value);
-    merge_opt(use_line_losses, opts.use_line_losses);
-    merge_opt(loss_segments, opts.loss_segments);
-    merge_opt(use_kirchhoff, opts.use_kirchhoff);
-    merge_opt(use_single_bus, opts.use_single_bus);
-    merge_opt(kirchhoff_threshold, opts.kirchhoff_threshold);
-    merge_opt(scale_objective, opts.scale_objective);
-    merge_opt(scale_theta, opts.scale_theta);
+    // Legacy ModelOptions-mirror merge_opt calls removed 2026-05-17
+    // alongside the field deletion.  The nested `model_options.merge(...)`
+    // call below handles all model-parameter merging.
 
     // Merge output-related options (always moving string values)
     merge_opt(output_directory, std::move(opts.output_directory));
     merge_opt(output_format, opts.output_format);
     merge_opt(output_compression, opts.output_compression);
+    merge_opt(output_layout, opts.output_layout);
+    merge_opt(output_round_decimals, opts.output_round_decimals);
 
     merge_opt(use_uid_fname, opts.use_uid_fname);
     merge_opt(annual_discount_rate, opts.annual_discount_rate);
 
     // Merge solver settings
     merge_opt(method, opts.method);
+    merge_opt(build_mode, opts.build_mode);
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
     merge_opt(lp_compression, opts.lp_compression);
     merge_opt(lp_only, opts.lp_only);
+    merge_opt(lp_fingerprint, opts.lp_fingerprint);
     merge_opt(lp_debug_scene_min, opts.lp_debug_scene_min);
     merge_opt(lp_debug_scene_max, opts.lp_debug_scene_max);
     merge_opt(lp_debug_phase_min, opts.lp_debug_phase_min);
@@ -347,6 +344,9 @@ struct PlanningOptions
 
     // Merge constraint mode
     merge_opt(constraint_mode, opts.constraint_mode);
+
+    // Merge write_out
+    merge_opt(write_out, opts.write_out);
 
     // Merge variable scales (append incoming entries)
     if (!opts.variable_scales.empty()) {

@@ -235,6 +235,144 @@ and river inflow.  `plp2gtopt` creates a Reservoir named `ANGOSTURA_ERD`
 
 ---
 
+## Mapping PLP elements → gtopt
+
+Conversion is one parser per `.dat` file (see
+[`scripts/plp2gtopt/`](../../scripts/plp2gtopt/)) feeding a writer
+that assembles the gtopt JSON + Parquet bundle.
+
+### High-level table
+
+| PLP source                       | gtopt target                                                | Status |
+|----------------------------------|-------------------------------------------------------------|:------:|
+| `plpblo.dat` (Bloques)           | `simulation.block_array`                                    | ✅      |
+| `plpeta.dat` (Etapas)            | `simulation.stage_array`                                    | ✅      |
+| `plpidsim.dat` / `plpidape.dat`  | `simulation.scenario_array` + apertures                     | ✅      |
+| `plpbar.dat` (Bar / Bus)         | `system.bus_array`                                          | ✅      |
+| `plpcnfli.dat` + `plpmanli.dat`  | `system.line_array` + per-stage `tmax_ab/ba.parquet`        | ✅      |
+| `plpcnfce.dat`  ⟶ thermal        | `system.generator_array` (thermal)                          | ✅      |
+| `plpcnfce.dat`  ⟶ embalse        | `Reservoir` + `Turbine` + `Junction` + `Waterway`           | ✅      |
+| `plpcnfce.dat`  ⟶ serie/pasada   | `Junction` + `Waterway` cascade (RoR & series hydro)        | ✅      |
+| `plpcnfce.dat`  ⟶ falla          | demand-curtailment generator (auto-derived)                 | ✅      |
+| `plpcosce.dat`                   | generator `gcost` time-series                               | ✅      |
+| `plpdem.dat`                     | `system.demand_array` + `Demand/lmax.parquet`               | ✅      |
+| `plpmance.dat`                   | per-stage `pmin.parquet` / `pmax.parquet`                   | ✅      |
+| `plpcenre.dat`                   | `generator_profile_array` (renewable shapes)                | ✅      |
+| `plpcenbat.dat` / `plpess.dat`   | `system.battery_array` (mutually exclusive)                 | ✅      |
+| `plpmanbat.dat` / `plpmaness.dat`| `Battery/emin.parquet` + `Battery/emax.parquet`             | ✅      |
+| `plpaflce.dat`                   | `Afluent/afluent.parquet`                                   | ✅      |
+| `plpfilemb.dat`                  | `Reservoir.filtration` curves                               | ✅      |
+| `plpmanem.dat`                   | per-stage `Reservoir.emin/emax`                             | ✅      |
+| `plpvrebemb.dat`                 | `Reservoir.efin_cost` (soft volume slack)                   | ✅      |
+| `plpextrac.dat`                  | `Junction.drain` (water extraction)                         | ✅      |
+| `plpminembh.dat`                 | per-stage `Reservoir.emin` (minimum stored energy)          | ✅      |
+| `plpralco.dat`                   | irrigation overlay (Ralco-specific)                         | ✅      |
+| `plpgnl.dat`                     | LNG fuel availability constraint                            | ✅      |
+| `plplajam.dat` / `plpmaulen.dat` | Laja / Maule irrigation agreements                          | ✅      |
+| `plpmat.dat` / `plpplem*.dat`    | `boundary_cuts.csv` / SDDP cut hot-start                    | ✅      |
+| `plpcenpmax.dat` / `plpcenfi.dat`| per-stage capacity / forced outage caps                     | ✅      |
+| `plpidap2.dat`                   | second-axis aperture/scenario indexing                      | ✅      |
+
+### Stages, blocks and scenarios
+
+| gtopt concept    | PLP source                                                                                              |
+|------------------|---------------------------------------------------------------------------------------------------------|
+| `block_array`    | `plpblo.dat` — one entry per block, `duration` is the block hour budget                                 |
+| `stage_array`    | `plpeta.dat` — one entry per planning period (monthly by default)                                       |
+| `scenario_array` | `-y` flag selects hydrologies from `plpaflce.dat`; `plpidsim.dat` maps logical → physical column index  |
+
+When `plpidsim.dat` is absent, `-y` indices are interpreted directly
+as columns in `plpaflce.dat`.  Probability weights default to a
+uniform split; override with `-p`.
+
+### Bus and network (`plpbar.dat`, `plpcnfli.dat`)
+
+| PLP field                         | gtopt field            | Notes                                          |
+|-----------------------------------|------------------------|------------------------------------------------|
+| `IBar` (1-based row)              | `Bus.uid`              | Stable through conversion                      |
+| `Nombre` (`'…'`)                  | `Bus.name`             | Quotes stripped                                |
+| Voltage                           | (logged, not in JSON)  |                                                |
+| `IBarA`/`IBarB` in `plpcnfli.dat` | `Line.bus_a/bus_b`     | Resolved to bus names                          |
+| `FFalla`                          | (informational)        | Forced-outage flag                             |
+| `Tmax_AB / Tmax_BA`               | `Line.tmax_ab/ba`      | Time-varying via `plpmanli.dat`                |
+| `Resist`, `Reactanc`              | `Line.resistance / reactance` | Used when `--use-kirchhoff` is on       |
+
+### Centrales (`plpcnfce.dat`) — the heaviest mapping
+
+PLP groups generating units into five categories.  Each maps to a
+distinct gtopt structure:
+
+| PLP central type    | gtopt structure                                                            |
+|---------------------|----------------------------------------------------------------------------|
+| **Térmica**         | `Generator` only                                                           |
+| **Embalse** (reservoir) | `Reservoir` + `Turbine` + intake `Junction` + spillway `Waterway`     |
+| **Serie hidráulica**| Cascaded `Junction` + `Waterway` chain feeding a downstream `Reservoir`    |
+| **Pasada pura** (RoR)| `Junction` + `Waterway` + flow-driven `Generator` (no reservoir)          |
+| **Falla** (failure) | Inferred — produces a high-cost virtual generator on every bus             |
+| **Renovable** (`plpcenre.dat`) | `Generator` + `generator_profile_array` (hourly shape)          |
+
+**Spillway waterway**: every embalse central also gets a synthetic
+`_ver` waterway from upstream junction to drain; suppress it with
+`--drop-spillway-waterway` for cases that prefer junction-level drain
+to absorb spills.
+
+**Pasada classification**: gtopt has tech-detection that may divert
+some "pasada" centrals into the renewable-profile path (solar/wind
+look-alikes).  Use `--pasada-mode {hydro,flow-turbine,profile}` to
+override; `--plp-legacy` forces `flow-turbine` for byte-faithful PLP
+parity.
+
+### Demand (`plpdem.dat`, `plpcosce.dat`)
+
+| PLP source                 | gtopt target                          | Conversion                          |
+|----------------------------|---------------------------------------|-------------------------------------|
+| `plpdem.dat` MW values     | `Demand.lmax[stage][block]`           | direct (no GWh→MW step needed)      |
+| `plpcosce.dat` `Falla`     | `options.demand_fail_cost`            | average of first-tier FALLA gcost   |
+| `plpcosce.dat` per-segment | piecewise gcost on virtual generators | one segment per cost tier           |
+
+When `--demand-fail-cost` is **not** explicitly set, `plp2gtopt`
+auto-derives it from the first-tier FALLA gcost in `plpcnfce.dat`;
+writing `demand_fail_cost = 0` in `~/.gtopt.conf` silently disables
+that auto-detection (see `_parsers.py`).
+
+### Hydrology (`plpaflce.dat`, `plpfilemb.dat`, `plpvrebemb.dat`)
+
+| PLP source                 | gtopt target                                     |
+|----------------------------|--------------------------------------------------|
+| `plpaflce.dat`             | `Afluent/afluent.parquet`, m³/s per stage/scen   |
+| Hydro `FP` (MW per m³/s)   | `Turbine.conversion_rate`                        |
+| Reservoir `Vmin/Vmax`      | `Reservoir.vmin/vmax` (hm³)                      |
+| Reservoir `Vinic`          | `Reservoir.vinic` (initial volume)               |
+| `plpfilemb.dat` segments   | `Reservoir.filtration` (volume → loss curve)     |
+| `plpvrebemb.dat`           | spillage cost feeding `Reservoir.efin_cost`      |
+| `plpminembh.dat`           | per-stage `Reservoir.emin` minimum               |
+
+`reservoir_energy_scale` is auto-derived from `emax` so SDDP
+state-variable scaling stays well-conditioned; override with
+`--reservoir-energy-scale`.
+
+### Storage (`plpess.dat` / `plpcenbat.dat`)
+
+PLP supports two mutually exclusive battery dialects.  See
+[Optional storage files](#optional-storage-files-mutually-exclusive)
+above for selection rules and the special `DCMod = 2` regulation-tank
+case (mapped to `Reservoir`, not `Battery`).
+
+### Soft constraints and slack costs
+
+| PLP feature                          | gtopt expression                              |
+|--------------------------------------|-----------------------------------------------|
+| First-tier `falla` cost              | `options.demand_fail_cost`                    |
+| `vrebemb` (spillage cost)            | `Reservoir.efin_cost` per stage               |
+| `plpmanem` `emin/emax` per stage     | `Reservoir.soft_emin_cost` slack              |
+| `plpmaness` capacity bands           | per-stage `Battery` `emin/emax/dcmin/dcmax`   |
+
+`--soft-storage-bounds` (default **on**) routes per-reservoir
+end-volume slack through the C++ `Reservoir.efin_cost` mechanism
+instead of hard constraints, matching PLP's per-stage rebalse cost.
+
+---
+
 ## Output Structure
 
 ### JSON + Parquet directory layout
@@ -407,11 +545,56 @@ turbines — along with the simulation structure (blocks × stages × scenarios)
 
 ---
 
+## Test fixture library
+
+`scripts/cases/` ships a graded set of PLP cases used by the parser
+unit tests, the integration suite, and the smoke tests:
+
+| Fixture                       | Purpose                                                              |
+|-------------------------------|----------------------------------------------------------------------|
+| `plp_dat_ex/`                 | Minimal valid `.dat` collection (one of every required file)         |
+| `plp_min_1bus/`               | Single-bus toy case (smoke test for the JSON pipeline)               |
+| `plp_min_2bus/`               | Two-bus + one line                                                   |
+| `plp_min_hydro/`              | One reservoir, one turbine, AR-1 inflow                              |
+| `plp_min_hydro_ms/`           | Multi-stage hydro with maintenance                                   |
+| `plp_min_reservoir/`          | Reservoir-only flow path                                             |
+| `plp_min_battery/`            | Standalone battery (`plpcenbat.dat`)                                 |
+| `plp_min_bess/`               | BESS via `plpess.dat` (DCMod = 0)                                    |
+| `plp_min_ess/`                | Source-coupled ESS (DCMod = 1)                                       |
+| `plp_min_cenre/`              | Renewable profile generator                                          |
+| `plp_min_filemb/`             | Reservoir filtration curves                                          |
+| `plp_min_mance/` `_manli/`    | Maintenance schedules for centrals / lines                           |
+| `plp_hydro_4b/`               | 4-bus hydro benchmark                                                |
+| `plp_bat_4b_24/`              | 4-bus, 24-block battery scheduling                                   |
+| `plp_case_2y/`                | Realistic 2-year case (used by the slow integration tests)           |
+
+Each fixture is a self-contained directory of `.dat` files; running
+`plp2gtopt -i scripts/cases/<fixture> -o /tmp/gtopt_<fixture>` then
+`gtopt --lp-only -s /tmp/gtopt_<fixture>/<fixture>.json` is the
+canonical end-to-end smoke test.
+
+---
+
+## Limitations and known gaps
+
+| Area                          | Status                                                                |
+|-------------------------------|-----------------------------------------------------------------------|
+| Multi-segment thermal bid     | Cost segments collapsed to a per-stage scalar `gcost`                 |
+| Forced-outage stochasticity   | `FFalla` flag honoured for capacity, not for stochastic failure draws |
+| AR-P inflow draws             | gtopt's own SDDP engine generates samples; PLP `plpaflemb.dat` is read but not directly passed through |
+| Multi-currency studies        | Single `currency` per planning; PSR-style multi-currency cases collapse to the reference currency |
+| Calendar-aware stage hours    | `plpblo.dat` durations honoured; per-month nominal mapping when blocks are missing |
+
+---
+
 ## See Also
 
-- [SCRIPTS.md](../scripts-guide.md) — Overview of all gtopt Python scripts
-- [PLANNING\_GUIDE.md](../planning-guide.md) — Guide to gtopt planning concepts
+- [SCRIPTS.md](../scripts-guide.md) — overview of all gtopt Python scripts
+- [PLANNING\_GUIDE.md](../planning-guide.md) — gtopt planning concepts
   (stages, blocks, scenarios, expansion)
 - [INPUT\_DATA.md](../input-data.md) — gtopt input file format reference
-- [pp2gtopt](pp2gtopt.md) — Convert pandapower networks to gtopt
-- [ts2gtopt](ts2gtopt.md) — Project hourly time-series onto gtopt horizons
+- [sddp2gtopt](sddp2gtopt.md) — sister tool for PSR SDDP cases
+- [pp2gtopt](pp2gtopt.md) — convert pandapower networks to gtopt
+- [ts2gtopt](ts2gtopt.md) — project hourly time-series onto gtopt horizons
+- [PLP source code](https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src)
+  — authoritative Fortran readers (`lee*.f`) for every `.dat` file

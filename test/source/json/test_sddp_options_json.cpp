@@ -5,12 +5,16 @@
  * @copyright BSD-3-Clause
  */
 
+#include <array>
+#include <string>
 #include <string_view>
+#include <utility>
 
 #include <doctest/doctest.h>
 #include <gtopt/json/json_sddp_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SddpOptions JSON - Full deserialization")
 {
@@ -23,8 +27,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "min_iterations": 5,
     "convergence_tol": 1e-3,
     "elastic_penalty": 1e5,
-    "alpha_min": 0.0,
-    "alpha_max": 1e10,
     "cut_recovery_mode": "append",
     "recovery_mode": "cuts",
     "save_per_iteration": false,
@@ -36,33 +38,28 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
     "aperture_directory": "ap_data",
     "aperture_timeout": 30.0,
     "save_aperture_lp": true,
-    "warm_start": false,
     "boundary_cuts_file": "boundary.csv",
     "boundary_cuts_mode": "combined",
     "boundary_max_iterations": 50,
-    "named_cuts_file": "named.csv",
     "max_cuts_per_phase": 100,
     "cut_prune_interval": 5,
     "prune_dual_threshold": 1e-6,
     "single_cut_storage": true,
     "max_stored_cuts": 500,
-    "use_clone_pool": false,
     "simulation_mode": true,
     "stationary_tol": 0.01,
     "stationary_window": 15,
     "forward_solver_options": {
-      "algorithm": 3,
+      "algorithm": "barrier",
       "threads": 4,
       "presolve": true,
-      "log_level": 0,
-      "reuse_basis": false
+      "log_level": 0
     },
     "backward_solver_options": {
-      "algorithm": 2,
+      "algorithm": "dual",
       "threads": 1,
       "presolve": false,
-      "log_level": 0,
-      "reuse_basis": true
+      "log_level": 0
     }
   })";
 
@@ -84,10 +81,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.convergence_tol == doctest::Approx(1e-3));
   REQUIRE(opts.elastic_penalty.has_value());
   CHECK(*opts.elastic_penalty == doctest::Approx(1e5));
-  REQUIRE(opts.alpha_min.has_value());
-  CHECK(*opts.alpha_min == doctest::Approx(0.0));
-  REQUIRE(opts.alpha_max.has_value());
-  CHECK(*opts.alpha_max == doctest::Approx(1e10));
   REQUIRE(opts.cut_recovery_mode.has_value());
   CHECK(*opts.cut_recovery_mode == HotStartMode::append);
   REQUIRE(opts.recovery_mode.has_value());
@@ -113,16 +106,12 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.aperture_timeout == doctest::Approx(30.0));
   REQUIRE(opts.save_aperture_lp.has_value());
   CHECK(*opts.save_aperture_lp == true);
-  REQUIRE(opts.warm_start.has_value());
-  CHECK(*opts.warm_start == false);
   REQUIRE(opts.boundary_cuts_file.has_value());
   CHECK(*opts.boundary_cuts_file == "boundary.csv");
   REQUIRE(opts.boundary_cuts_mode.has_value());
   CHECK(*opts.boundary_cuts_mode == BoundaryCutsMode::combined);
   REQUIRE(opts.boundary_max_iterations.has_value());
   CHECK(*opts.boundary_max_iterations == 50);
-  REQUIRE(opts.named_cuts_file.has_value());
-  CHECK(*opts.named_cuts_file == "named.csv");
   REQUIRE(opts.max_cuts_per_phase.has_value());
   CHECK(*opts.max_cuts_per_phase == 100);
   REQUIRE(opts.cut_prune_interval.has_value());
@@ -133,8 +122,6 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(*opts.single_cut_storage == true);
   REQUIRE(opts.max_stored_cuts.has_value());
   CHECK(*opts.max_stored_cuts == 500);
-  REQUIRE(opts.use_clone_pool.has_value());
-  CHECK(*opts.use_clone_pool == false);
   REQUIRE(opts.simulation_mode.has_value());
   CHECK(*opts.simulation_mode == true);
   REQUIRE(opts.stationary_tol.has_value());
@@ -145,12 +132,10 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   CHECK(opts.forward_solver_options->algorithm == LPAlgo::barrier);
   CHECK(opts.forward_solver_options->threads == 4);
   CHECK(opts.forward_solver_options->presolve == true);
-  CHECK(opts.forward_solver_options->reuse_basis == false);
   REQUIRE(opts.backward_solver_options.has_value());
   CHECK(opts.backward_solver_options->algorithm == LPAlgo::dual);
   CHECK(opts.backward_solver_options->threads == 1);
   CHECK(opts.backward_solver_options->presolve == false);
-  CHECK(opts.backward_solver_options->reuse_basis == true);
 }
 
 TEST_CASE("SddpOptions JSON - Missing fields stay nullopt")
@@ -193,13 +178,12 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
       .cut_sharing_mode = CutSharingMode::accumulate,
       .max_iterations = 150,
       .convergence_tol = 1e-5,
-      .elastic_mode = ElasticFilterMode::backpropagate,
+      .elastic_mode = ElasticFilterMode::multi_cut,
       .apertures =
           Array<Uid> {
               10,
               20,
           },
-      .warm_start = true,
       .stationary_tol = 0.02,
       .stationary_window = 25,
   };
@@ -217,7 +201,6 @@ TEST_CASE("SddpOptions JSON - Round-trip serialization")
   REQUIRE(rt.apertures->size() == 2);
   CHECK((*rt.apertures)[0] == 10);
   CHECK((*rt.apertures)[1] == 20);
-  CHECK(rt.warm_start == original.warm_start);
   CHECK(rt.stationary_tol == original.stationary_tol);
   CHECK(rt.stationary_window == original.stationary_window);
 
@@ -249,7 +232,6 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
           SolverOptions {
               .algorithm = LPAlgo::dual,
               .threads = 1,
-              .reuse_basis = true,
           },
   };
 
@@ -267,36 +249,6 @@ TEST_CASE("SddpOptions JSON - Forward/backward solver options round-trip")
   REQUIRE(rt.backward_solver_options.has_value());
   CHECK(rt.backward_solver_options->algorithm == LPAlgo::dual);
   CHECK(rt.backward_solver_options->threads == 1);
-  CHECK(rt.backward_solver_options->reuse_basis == true);
-}
-
-TEST_CASE("SddpOptions JSON - cut_coeff_max parsing and round-trip")
-{
-  SUBCASE("default when missing is nullopt")
-  {
-    const std::string_view json_data = R"({})";
-    const auto opts = daw::json::from_json<SddpOptions>(json_data);
-    CHECK_FALSE(opts.cut_coeff_max.has_value());
-  }
-
-  SUBCASE("explicit value")
-  {
-    const std::string_view json_data = R"({"cut_coeff_max": 1e6})";
-    const auto opts = daw::json::from_json<SddpOptions>(json_data);
-    REQUIRE(opts.cut_coeff_max.has_value());
-    CHECK(opts.cut_coeff_max.value_or(0.0) == doctest::Approx(1e6));
-  }
-
-  SUBCASE("round-trip")
-  {
-    SddpOptions original;
-    original.cut_coeff_max = 1e7;
-
-    const auto json = daw::json::to_json(original);
-    const auto rt = daw::json::from_json<SddpOptions>(json);
-    REQUIRE(rt.cut_coeff_max.has_value());
-    CHECK(rt.cut_coeff_max.value_or(0.0) == doctest::Approx(1e7));
-  }
 }
 
 TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
@@ -327,3 +279,45 @@ TEST_CASE("SddpOptions JSON - cut_coeff_eps parsing and round-trip")
     CHECK(rt.cut_coeff_eps.value_or(0.0) == doctest::Approx(1e-8));
   }
 }
+
+TEST_CASE(  // NOLINT
+    "SddpOptions JSON - low_memory_mode='rebuild' resolves to compress")
+{
+  // The `rebuild` low-memory mode was removed 2026-05-13.  The string
+  // is retained as a back-compat alias in `low_memory_mode_entries`
+  // (see `include/gtopt/sddp_enums.hpp`) so existing planning JSON
+  // configs continue to parse — but the resolved enum value is now
+  // `compress`, not a dedicated rebuild mode that no longer exists.
+  // Pin the alias contract end-to-end through daw::json so a future
+  // refactor that drops the entry can't silently fail-open.
+  const std::string_view json_data = R"({"low_memory_mode": "rebuild"})";
+  const auto opts = daw::json::from_json<SddpOptions>(json_data);
+
+  REQUIRE(opts.low_memory_mode.has_value());
+  CHECK(*opts.low_memory_mode == LowMemoryMode::compress);
+}
+
+TEST_CASE(  // NOLINT
+    "SddpOptions JSON - canonical low_memory_mode strings round-trip")
+{
+  // Companion to the alias test above — make sure the two canonical
+  // names still parse correctly and aren't accidentally collapsed
+  // into a single value.
+  for (const auto& [name, expected] :
+       std::array {
+           std::pair {"off", LowMemoryMode::off},
+           std::pair {"compress", LowMemoryMode::compress},
+           // `snapshot` is the legacy alias for compress.
+           std::pair {"snapshot", LowMemoryMode::compress},
+       })
+  {
+    CAPTURE(name);
+    const std::string json_data =
+        std::string {R"({"low_memory_mode": ")"} + name + R"("})";
+    const auto opts = daw::json::from_json<SddpOptions>(json_data);
+    REQUIRE(opts.low_memory_mode.has_value());
+    CHECK(*opts.low_memory_mode == expected);
+  }
+}
+
+// NOLINTEND(bugprone-unchecked-optional-access)

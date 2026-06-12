@@ -93,7 +93,7 @@ sudo apt-get install -y --no-install-recommends \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
-  lcov zlib1g-dev libzstd-dev zstd ca-certificates lsb-release wget
+  lcov zlib1g-dev libzstd-dev zstd liblz4-dev ca-certificates lsb-release wget
 
 # 2. Arrow / Parquet — via conda-forge (sandbox/agent environments only).
 #    Locally, use APT: sudo apt-get install -y libarrow-dev libparquet-dev
@@ -428,15 +428,19 @@ cmake --build build --target format       # apply
 cmake --build build --target check-format # check only
 
 # clang-tidy (slow; triggered manually in CI via workflow_dispatch)
+# Configure once, then drive clang-tidy in parallel via run-clang-tidy.
+# CMAKE_DISABLE_PRECOMPILE_HEADERS=ON avoids PCH references that would only
+# exist after a full cmake --build.
 cmake -S all -B build \
-  -DCMAKE_CXX_CLANG_TIDY="clang-tidy;--warnings-as-errors=*" \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
 # Add -DCMAKE_PREFIX_PATH="$(conda info --base)" only if using conda Arrow (sandbox)
-cmake --build build -j$(nproc)
+run-clang-tidy -p build -j "$(nproc)" -quiet \
+  -header-filter='' -warnings-as-errors='*'
 ```
 
 > **⚠️ Before committing ANY code**, always format and lint the changed files:
@@ -459,9 +463,16 @@ cmake --build build -j$(nproc)
 > # macros, hicpp-member-init for aggregate structs) that are false positives
 > # in this project's conventions. The .cpp translation units already pull in
 > # the headers and are the correct analysis targets.
-> git diff --name-only --diff-filter=d HEAD \
->   | grep -E '\.cpp$' \
->   | xargs -r clang-tidy -p tools/compile_commands.json --warnings-as-errors='*'
+> #
+> # Drive clang-tidy via run-clang-tidy for parallel execution (-j $(nproc)).
+> # run-clang-tidy accepts positional file-path regexes, so we join the changed
+> # .cpp paths with '|' to restrict analysis to just those files.
+> CHANGED_CPP=$(git diff --name-only --diff-filter=d HEAD | grep -E '\.cpp$' || true)
+> if [ -n "$CHANGED_CPP" ]; then
+>   FILE_REGEX=$(printf '%s\n' $CHANGED_CPP | paste -sd'|' -)
+>   run-clang-tidy -p tools/compile_commands.json -j "$(nproc)" -quiet \
+>     -header-filter='' -warnings-as-errors='*' "$FILE_REGEX"
+> fi
 > ```
 >
 > **Python files** — run from the repo root before every Python commit:
@@ -471,7 +482,7 @@ cmake --build build -j$(nproc)
 > ruff format scripts/ guiservice/
 >
 > # Step 2 — ruff check (REQUIRED before every Python commit)
-> cd scripts && ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+> cd scripts && ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 >
 > # Step 3 — pylint (REQUIRED; exit code MUST be 0 — no messages of any category)
 > # IMPORTANT: pylint reports a score of 10.00/10 even when convention/refactor/
@@ -480,10 +491,10 @@ cmake --build build -j$(nproc)
 > # Pylint exit codes are bitwise OR of: 1=fatal, 2=error, 4=warning,
 > # 8=refactor, 16=convention, 32=usage-error.
 > # Even a single "C" (convention) message produces exit code 16 — a CI failure.
-> cd scripts && pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+> cd scripts && pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 >
 > # Step 4 — mypy (REQUIRED; no errors allowed)
-> cd scripts && mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
+> cd scripts && mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt --ignore-missing-imports
 > ```
 >
 > **Both steps are mandatory in agent sessions.** Fix all clang-tidy warnings
@@ -511,7 +522,7 @@ Format violations are warnings only, not CI failures.
 | Includes | Grouped and sorted: (1) `<std>` headers, (2) external `<pkg/header.hpp>`, (3) project `<gtopt/...>`. See `.clang-format` `IncludeCategories`. |
 | Pointers | Left-aligned: `T*` not `T *` |
 | Braces | `BreakBeforeBraces: Custom` – opening brace on new line for functions, classes, namespaces; same line for control flow unless multi-line body |
-| Initializer lists | Designated initializers (`SparseCol{.name="x", .cost=1}`) preferred |
+| Initializer lists | Designated initializers (`SparseCol{.cost=1}`) preferred |
 | Trailing commas | Always add a trailing comma to the **last element** of every brace-initializer list (member initializers, aggregate initializers, `std::initializer_list` arguments). Prevents `readability-trailing-comma` and makes diffs cleaner: `Array<Phase> phase_array {Phase {},};` |
 | Concepts | Use `requires` constraints for template type safety |
 | Error handling | Return values and `std::optional` over exceptions |
@@ -764,9 +775,9 @@ The project uses Python for `guiservice/` (Flask), `scripts/`, and tests.
 > # Step 2 — lint, type-check (scripts/)
 > # pylint MUST exit 0 — any C/R/W message (even with 10.00/10 score) = CI failure
 > cd scripts
-> ruff check  gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
-> pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
-> mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt \
+> ruff check  cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+> pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
+> mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt \
 >   --ignore-missing-imports
 >
 > # Step 3 — lint, type-check (guiservice/, run from repo root)
@@ -788,18 +799,18 @@ pip install -r scripts/requirements-dev.txt   # dev+test deps
 
 # Format scripts/ (in-place)
 cd scripts
-ruff format gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+ruff format cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Lint scripts/ with ruff
-ruff check gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+ruff check cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Lint scripts/ with pylint — exit code MUST be 0 (no messages of any category).
 # NOTE: pylint prints "10.00/10" even when convention/refactor messages exist.
 # The exit code is the authoritative pass/fail signal (0=clean, non-zero=fail).
-pylint --jobs=0 gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt
+pylint --jobs=0 cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt
 
 # Type-check scripts/
-mypy gtopt_compare cvs2parquet gtopt_diagram gtopt_field_extractor igtopt plp2gtopt pp2gtopt gtopt_monitor ts2gtopt \
+mypy cvs2parquet gtopt2pp gtopt_check_fingerprint gtopt_check_json gtopt_check_lp gtopt_check_output gtopt_check_pampl gtopt_check_solvers gtopt_compare gtopt_compress_lp gtopt_config gtopt_diagram gtopt_field_extractor igtopt plp2gtopt plp_compress_case pp2gtopt run_gtopt gtopt_monitor ts2gtopt \
   --ignore-missing-imports
 
 # Run all script tests (from scripts/ directory)
@@ -1096,7 +1107,7 @@ gtopt/
 
 | Workflow | Trigger | What it does |
 |----------|---------|--------------|
-| `ubuntu.yml` | push/PR to main | Build (Clang 21), unit + e2e tests, optional coverage; uploads **`gtopt-binary-debug`** artifact (7-day retention) |
+| `ubuntu.yml` | push/PR to main | Build (Clang 21, `CMAKE_BUILD_TYPE=CIFast`: `-O0 -g1`, fast compile + backtrace-only debug info — switches to `Debug` only when `ENABLE_COVERAGE=true`), unit + e2e tests, optional coverage; uploads **`gtopt-binary-debug`** artifact (7-day retention; name kept for compatibility, binary is CIFast unless coverage was enabled) |
 | `ubuntu.yml` (clang-tidy job) | `workflow_dispatch` with `run_clang_tidy=true` | Full clang-tidy static analysis |
 | `style.yml` | every push/PR | clang-format + ruff format checks (non-blocking, warning only) |
 | `autoformat.yml` | push to non-main branches | Auto-applies clang-format + ruff format, commits fixup |
@@ -1157,6 +1168,11 @@ gtopt/
 - **Diagnostics on failure**: `gtopt_main` logs the full `SolverOptions` used
   (algorithm, threads, tolerances) when the solver does not find an optimal
   solution, and includes filename + position for JSON parse errors.
+- **LP Fingerprint**: structural integrity verification for LP formulations.
+  Captures a sorted, deduplicated set of `(class, variable, context_type)`
+  triples and their SHA-256 hash.  Enable with `--set options.lp_fingerprint=true`.
+  See `docs/lp-fingerprint.md` for details and `scripts/gtopt_check_fingerprint/`
+  for the external verification tool.
 
 ---
 
@@ -1231,7 +1247,15 @@ Scenario (probability)
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
 | `output_format` | `"parquet"` (default) | Output file format (`"parquet"` or `"csv"`) |
-| `output_compression` | `"zstd"` (default) | Parquet/CSV compression codec (`"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
+| `output_compression` | `"snappy"` (default) | Parquet/CSV compression codec (`"snappy"`, `"zstd"`, `"gzip"`, `"lzo"`, `"uncompressed"`) |
+| `memory_codec` | `"lz4"` (default) | In-memory compression for LP snapshots in low-memory/SDDP mode (`"lz4"`, `"zstd"`, `"snappy"`, `"none"`) |
+
+> **Codec policy**: use **snappy** for Parquet output (fast
+> encode/decode, broadly-supported Arrow default), **zstd** for LP
+> debug dumps (`lp_compression`, ratio matters), and **lz4** for
+> in-memory snapshots (`memory_codec`, fastest round-trip).
+> `libsnappy1v5` ships with Arrow; `libzstd-dev` and `liblz4-dev`
+> are required build dependencies.
 
 ### Simulation-Level Fields
 

@@ -24,8 +24,11 @@
 #include <expected>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include <gtopt/basic_types.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -33,15 +36,29 @@
 namespace gtopt
 {
 
-// ─── Named state variable target ────────────────────────────────────────────
+// ─── State variable target ──────────────────────────────────────────────────
 
-/// State variable target for cross-LP transfer (using variable names).
-struct NamedStateTarget
+/// State variable target for cross-LP transfer (using structured key).
+/// Matches by (class_name, col_name, uid) — no LP name strings needed.
+struct StateTarget
 {
-  std::string var_name {};  ///< Column name in source LP
-  SceneIndex scene {};
-  PhaseIndex phase {};
-  double target_value {};  ///< Value from previous level's forward pass
+  std::string class_name {};  ///< Element class (e.g. "Reservoir")
+  std::string col_name {};  ///< Variable name (e.g. "efin")
+  Uid uid {unknown_uid};  ///< Element UID
+  LpContext context {};  ///< LP hierarchy context
+  SceneIndex scene_index {};
+  PhaseIndex phase_index {};
+  double target_value {};  ///< Physical-space value from previous level's
+                           ///< forward pass (= `col_sol_physical()`).
+                           ///< Used directly as a row bound by
+                           ///< `add_elastic_targets`, where the row's
+                           ///< unit coefficient on the dependent column
+                           ///< is post-flatten composed with
+                           ///< `col_scale_target` so the row reads in
+                           ///< physical space.
+  double var_scale {1.0};  ///< Physical-to-LP scale of the source
+                           ///< variable (informational; bound math uses
+                           ///< the physical `target_value` directly).
 };
 
 // ─── Per-level statistics ────────────────────────────────────────────────────
@@ -54,6 +71,12 @@ struct CascadeLevelStats
   double lower_bound {};  ///< Final lower bound
   double upper_bound {};  ///< Final upper bound
   double gap {};  ///< Final relative gap
+  double gap_initial {};  ///< First training iter's gap (level entry gap)
+  double gap_delta {};  ///< `gap − gap_initial` (signed; negative = closed)
+  bool have_gap_delta {false};  ///< False when the level produced ≤1 iter
+                                ///< (then `gap_initial` / `gap_delta` are
+                                ///< undefined and the per-level / summary
+                                ///< logs must suppress them).
   bool converged {};  ///< Whether convergence tolerance was met
   double elapsed_s {};  ///< Wall-clock time for this level
   int cuts_added {};  ///< Total cuts added across all iterations
@@ -69,7 +92,13 @@ struct CascadeLevelStats
  * and transition rules.  The solver automatically rebuilds the PlanningLP
  * when a level's LP options differ from the previous level.
  */
-class CascadePlanningMethod final : public PlanningMethod
+// ``final`` removed (2026-05): unit tests in
+// ``test/source/test_cascade_method.cpp::TestableCascade`` derive from
+// this class to wrap the protected ``build_level_sddp_opts`` helper
+// and pin the 3-layer priority chain (base SDDPOptions →
+// cascade-global → per-level override).  Keep the class behaviour
+// the same — derived overrides are not part of any production path.
+class CascadePlanningMethod : public PlanningMethod
 {
 public:
   explicit CascadePlanningMethod(SDDPOptions base_opts,
@@ -90,26 +119,41 @@ public:
     return m_level_stats_;
   }
 
-private:
+  /// Number of PlanningLPs owned by the cascade solver.  One entry is
+  /// added per level that required a fresh LP build; level 0 is skipped
+  /// when the caller-supplied PlanningLP is reused (no model-option
+  /// overrides from cascade globals or level 0).
+  [[nodiscard]] std::size_t owned_lps_count() const noexcept
+  {
+    return m_owned_lps_.size();
+  }
+
+protected:
   /// Build SDDPOptions for a level, overriding base with level solver opts.
   /// @param level_solver      Per-level solver configuration (may be absent).
   /// @param remaining_budget  Global iteration budget remaining (-1 = no cap).
+  ///
+  /// ``protected`` (not ``private``) so unit-test subclasses can wrap
+  /// it via a public ``test_build_level_sddp_opts`` shim and pin the
+  /// 3-layer priority chain (base → cascade-global → per-level) —
+  /// see ``test/source/test_cascade_method.cpp::TestableCascade``.
   [[nodiscard]] auto build_level_sddp_opts(
       const std::optional<CascadeLevelMethod>& level_solver,
       int remaining_budget) const -> SDDPOptions;
 
+private:
   /// Clone Planning data with model option overrides applied.
   [[nodiscard]] static auto clone_planning_with_overrides(
       const Planning& source, const ModelOptions& model_opts) -> Planning;
 
-  /// Collect named state variable targets from a solved level.
-  [[nodiscard]] static auto collect_named_targets(const SDDPMethod& solver,
+  /// Collect state variable targets from a solved level.
+  [[nodiscard]] static auto collect_state_targets(const SDDPMethod& solver,
                                                   const PlanningLP& planning_lp)
-      -> std::vector<NamedStateTarget>;
+      -> std::vector<StateTarget>;
 
-  /// Add elastic target constraints to a PlanningLP using named targets.
+  /// Add elastic target constraints to a PlanningLP using state targets.
   static void add_elastic_targets(PlanningLP& planning_lp,
-                                  const std::vector<NamedStateTarget>& targets,
+                                  const std::vector<StateTarget>& targets,
                                   const CascadeTransition& transition);
 
   /// Clear all cut rows (>= base_nrows) from every (scene, phase) LP.
@@ -121,10 +165,11 @@ private:
   std::vector<CascadeLevelStats> m_level_stats_ {};
   /// Owns PlanningLPs built for levels that need different LP formulations.
   std::vector<std::unique_ptr<PlanningLP>> m_owned_lps_ {};
-  /// Temp file path holding previous level's state variable solutions.
-  /// Populated after each non-final level solves; consumed by the next level
-  /// via name-based load_state_csv to seed warm column solutions.
-  std::string m_prev_state_file_ {};
+  /// Temp file path holding previous level's cuts, pre-filtered according
+  /// to the NEXT level's transition.inherit_* settings.  Populated at end
+  /// of level N so the owned LP and solver can be released before level
+  /// N+1 allocates its own LP.  Consumed by the next level.
+  std::string m_prev_cuts_file_ {};
 };
 
 }  // namespace gtopt

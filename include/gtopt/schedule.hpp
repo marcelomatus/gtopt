@@ -122,6 +122,11 @@ public:
 using ActiveSched = Schedule<IntBool, StageUid>;
 using OptActiveSched = OptSchedule<IntBool, StageUid>;
 
+// Per-(stage, block) IntBool schedule — the block-resolved analog of
+// `ActiveSched`.  Backs `Line.in_service` (line open/closed per block).
+using TBIntBoolSched = Schedule<IntBool, StageUid, BlockUid>;
+using OptTBIntBoolSched = OptSchedule<IntBool, StageUid, BlockUid>;
+
 using TRealSched = Schedule<Real, StageUid>;
 using STRealSched = Schedule<Real, ScenarioUid, StageUid>;
 using TBRealSched = Schedule<Real, StageUid, BlockUid>;
@@ -131,5 +136,12 @@ using OptTRealSched = OptSchedule<Real, StageUid>;
 using OptSTRealSched = OptSchedule<Real, ScenarioUid, StageUid>;
 using OptTBRealSched = OptSchedule<Real, StageUid, BlockUid>;
 using OptSTBRealSched = OptSchedule<Real, ScenarioUid, StageUid, BlockUid>;
+
+// Per-(stage, block) Uid schedule — Uid is a strong-type alias for
+// `int32_t`, so the OptSchedule infra reuses the int32 access path
+// (Schedule<int32_t, StageUid, BlockUid>).  Consumed by GeneratorLP to
+// resolve the per-block fuel-uid override.  See Generator.fuel_per_block.
+using TBUidSchedRT = Schedule<Uid, StageUid, BlockUid>;
+using OptTBUidSchedRT = OptSchedule<Uid, StageUid, BlockUid>;
 
 }  // namespace gtopt

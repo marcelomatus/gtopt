@@ -1,0 +1,7 @@
+# MindOpt warm-start parameters — loaded by the gtopt MindOpt backend (via
+# MDOreadparams) as a sibling of the case's main mindopt.prm when
+# SolverOptions::advanced_basis is active.  Mirrors cplex_warmstart.prm.
+#   Method 0   primal simplex — warm off the resident basis (1 = dual).
+#   Presolve 0 keep the resident advanced basis valid.
+Method 0
+Presolve 0

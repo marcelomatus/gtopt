@@ -169,7 +169,7 @@ function gatherOptions() {
     "use_single_bus",
     "use_uid_fname",
     "lp_debug",
-    "lp_build",
+    "lp_only",
   ];
 
   for (const f of fields) {

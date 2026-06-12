@@ -38,8 +38,33 @@ _MINIMAL_PLANNING = {
 
 
 def _write_csv(path: Path, df: pd.DataFrame) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False)
+    """Write *df* into the location the streaming checks read from.
+
+    Despite the historical name, this helper writes a **parquet**
+    hive-partitioned dataset — after the 2026-03 ``open_dataset``
+    streaming refactor in ``_reader.py``, every check now opens its
+    inputs through pyarrow datasets and the legacy CSV path was
+    dropped from the production read path.  Tests would silently
+    load nothing if we kept emitting CSV.
+
+    The hive layout is necessary so that
+    ``streaming_pairwise_weighted_sum`` (used by
+    ``compute_cost_breakdown``) can match fragments between
+    ``Generator/srmc_sol`` and ``Generator/generation_sol`` via a
+    shared relative key ``scene=N/phase=M/part.parquet``.  A
+    single-file parquet has no such suffix in its fragment path so
+    the two datasets would never line up.
+
+    We keep the ``.csv`` suffix in the test-side call sites for
+    readability (every test still says
+    ``_write_csv(results / "Generator" / "generation_sol.csv", df)``)
+    and translate to ``{stem}.parquet/scene=0/phase=0/part.parquet``
+    here.
+    """
+    target = path.with_suffix(".parquet")
+    part_dir = target / "scene=0" / "phase=0"
+    part_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(part_dir / "part.parquet", index=False)
 
 
 def _make_results(tmp_path: Path) -> Path:
@@ -63,7 +88,9 @@ def _make_results(tmp_path: Path) -> Path:
     )
     _write_csv(results / "Generator" / "generation_sol.csv", gen)
 
-    # Generator/generation_cost.csv
+    # Generator/generation_cost.csv (legacy reduced-cost output;
+    # retained here for completeness — the refactored
+    # `compute_cost_breakdown` no longer reads it).
     cost = pd.DataFrame(
         {
             "scenario": [1],
@@ -74,6 +101,22 @@ def _make_results(tmp_path: Path) -> Path:
         }
     )
     _write_csv(results / "Generator" / "generation_cost.csv", cost)
+
+    # Generator/srmc_sol.csv (short-run marginal cost in $/MWh).
+    # `compute_cost_breakdown` reads this and multiplies by
+    # `generation_sol × duration` via
+    # `streaming_pairwise_weighted_sum`, so both datasets must share
+    # the same hive-partition layout — see `_write_csv`.
+    srmc = pd.DataFrame(
+        {
+            "scenario": [1, 1],
+            "stage": [1, 1],
+            "block": [1, 1],
+            "uid:1": [10.0, 10.0],
+            "uid:2": [5.0, 5.0],
+        }
+    )
+    _write_csv(results / "Generator" / "srmc_sol.csv", srmc)
 
     # Bus/balance_dual.csv
     lmp = pd.DataFrame(

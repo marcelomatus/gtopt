@@ -6,15 +6,19 @@
  * @copyright BSD-3-Clause
  */
 
+#include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "highs_solver_backend.hpp"
 
 #include <HConfig.h>
 #include <Highs.h>
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -34,6 +38,157 @@ auto make_quiet_highs() -> std::unique_ptr<Highs>
   highs->setOptionValue("output_flag", false);
   highs->setOptionValue("log_to_console", false);
   return highs;
+}
+
+/// Apply a SolverOptions bundle onto a Highs instance.  Pure Highs-level
+/// mutation — never touches backend member fields.  Factored out so both
+/// apply_options() (live path) and clone() (replay onto fresh instance)
+/// can reuse the exact same parameter wiring.
+///
+/// Note on SolverOptions::memory_emphasis: HiGHS has no direct equivalent
+/// to CPLEX `CPX_PARAM_MEMORYEMPHASIS` or any documented memory-compression
+/// setting, so the option is accepted but intentionally ignored here.  See
+/// solver_options.hpp: "HiGHS: no direct equivalent (ignored)".
+void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
+{
+  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
+    highs.setOptionValue("dual_feasibility_tolerance", *oeps);
+  }
+  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
+    highs.setOptionValue("primal_feasibility_tolerance", *feps);
+  }
+  // Target relative MIP optimality gap.  HiGHS exposes both
+  // `mip_rel_gap` and `mip_abs_gap`; we expose the relative form (the
+  // industry default and what every other backend uses).  Ignored for
+  // continuous LPs.
+  if (const auto gap = opts.mip_gap; gap && *gap > 0) {
+    highs.setOptionValue("mip_rel_gap", *gap);
+  }
+  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
+    highs.setOptionValue("time_limit", *tl);
+  }
+  if (opts.threads > 0) {
+    highs.setOptionValue("threads", opts.threads);
+  }
+
+  highs.setOptionValue("presolve", opts.presolve ? "on" : "off");
+
+  // HiGHS simplex_scale_strategy: 0=off, 1=forced, 4=default.
+  if (opts.scaling.has_value()) {
+    int strategy = 4;  // default
+    switch (*opts.scaling) {
+      case SolverScaling::none:
+        strategy = 0;
+        break;
+      case SolverScaling::automatic:
+        strategy = 4;
+        break;
+      case SolverScaling::aggressive:
+        strategy = 1;
+        break;
+    }
+    highs.setOptionValue("simplex_scale_strategy", strategy);
+  }
+
+  {
+    switch (opts.algorithm) {
+      case LPAlgo::default_algo:
+        highs.setOptionValue("solver", "choose");
+        break;
+      case LPAlgo::primal:
+        highs.setOptionValue("solver", "simplex");
+        highs.setOptionValue("simplex_strategy", 4);  // primal
+        break;
+      case LPAlgo::dual:
+        highs.setOptionValue("solver", "simplex");
+        highs.setOptionValue("simplex_strategy", 1);  // dual
+        break;
+      case LPAlgo::barrier:
+        highs.setOptionValue("solver", "ipm");
+        if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
+          highs.setOptionValue("ipm_optimality_tolerance", *beps);
+        }
+        if (!opts.crossover) {
+          highs.setOptionValue("run_crossover", "off");
+        }
+        break;
+      case LPAlgo::last_algo:
+        break;
+    }
+  }
+
+  // Warm-start (advanced-basis) re-solve.  Applied LAST so it wins over the
+  // `solver`/`simplex_strategy`/`presolve`/`run_crossover` settings chosen
+  // above (mirrors the CPLEX plugin applying `apply_cplex_warmstart` after
+  // the `.prm`).  See SolverOptions::advanced_basis: re-optimize off the
+  // basis already resident on this `Highs` object after a small (typically
+  // column-bound) modification, instead of a cold solve.
+  //
+  // HiGHS retains the basis across `run()` calls on the same `Highs`
+  // instance and warm-starts the simplex automatically when presolve and
+  // crossover are off — there is no explicit "load basis" call needed.  The
+  // key is therefore: force SIMPLEX (the IPM/interior-point solver cannot
+  // warm-start), and turn OFF presolve and crossover so HiGHS reuses the
+  // resident basis rather than re-presolving from scratch.
+  if (opts.advanced_basis) {
+    highs.setOptionValue("solver", "simplex");
+    // Re-optimize off the resident basis: presolve would discard it and
+    // re-reduce from scratch; crossover is a barrier-only post-step that
+    // has no role in a warm simplex re-solve.
+    highs.setOptionValue("presolve", "off");
+    highs.setOptionValue("run_crossover", "off");
+    // Map the warm method from `algorithm` when a clean primal/dual choice
+    // exists.  HiGHS `simplex_strategy`: 1 = dual, 4 = primal (same mapping
+    // used for the cold simplex path above).  Default to PRIMAL when the
+    // algorithm is barrier/default (those cannot warm-start, and primal is
+    // the documented warm default — matching the CPLEX plugin).
+    if (opts.algorithm == LPAlgo::dual) {
+      highs.setOptionValue("simplex_strategy", 1);  // dual
+    } else {
+      highs.setOptionValue("simplex_strategy", 4);  // primal
+    }
+
+    // Optional user override: a `highs_warmstart.opts` sibling next to the
+    // case's main param file (`opts.param_file`).  Mirrors the CPLEX plugin's
+    // `apply_cplex_warmstart`, which loads a `cplex_warmstart.prm` sibling of
+    // the case's `cplex.prm` after the in-code warm defaults.  HiGHS options
+    // files are plain `key = value` / `key value` text (the same format the
+    // HiGHS CLI consumes via `--options_file`); `.opts` is the conventional
+    // extension.  `Highs::readOptions` parses it and applies every listed
+    // option.  Loaded LAST so its values win over the in-code warm defaults
+    // (`solver=simplex` / `presolve=off` / `run_crossover=off` /
+    // `simplex_strategy`) set just above.  Inert when `param_file` is unset
+    // (the default) — no behaviour change.
+    if (opts.param_file.has_value() && !opts.param_file->empty()) {
+      const std::filesystem::path sibling =
+          std::filesystem::path {*opts.param_file}.parent_path()
+          / "highs_warmstart.opts";
+      std::error_code ec;
+      if (std::filesystem::exists(sibling, ec) && !ec) {
+        highs.readOptions(sibling.string());
+      }
+    }
+  }
+
+  // Never enable console output here — logging is managed by the
+  // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface, which
+  // direct output to a log file when log_mode is enabled.
+  highs.setOptionValue("output_flag", false);
+  highs.setOptionValue("log_to_console", false);
+}
+
+/// Enable HiGHS file logging with the provided basename + level.  When
+/// level==0 or filename is empty the Highs instance stays silent.
+void apply_log_filename_to_highs(Highs& highs,
+                                 const std::string& filename,
+                                 int level)
+{
+  if (level > 0 && !filename.empty()) {
+    const auto log_path = std::format("{}.log", filename);
+    highs.setOptionValue("log_file", log_path);
+    highs.setOptionValue("output_flag", true);
+    highs.setOptionValue("log_to_console", false);
+  }
 }
 
 }  // namespace
@@ -58,19 +213,29 @@ std::string HighsSolverBackend::solver_version() const
                      HIGHS_VERSION_PATCH);
 }
 
-double HighsSolverBackend::infinity() const noexcept
+double HighsSolverBackend::plugin_infinity() noexcept
 {
   return kHighsInf;
 }
 
+double HighsSolverBackend::infinity() const noexcept
+{
+  return plugin_infinity();
+}
+
+bool HighsSolverBackend::supports_mip() const noexcept
+{
+  return true;
+}
+
 void HighsSolverBackend::set_prob_name(const std::string& name)
 {
-  m_prob_name_ = name;
+  m_prep_.prob_name = name;
 }
 
 std::string HighsSolverBackend::get_prob_name() const
 {
-  return m_prob_name_;
+  return m_prep_.prob_name;
 }
 
 void HighsSolverBackend::load_problem(int ncols,
@@ -89,7 +254,6 @@ void HighsSolverBackend::load_problem(int ncols,
   // output again before passModel() which prints the startup banner.
   m_highs_->setOptionValue("output_flag", false);
   m_highs_->setOptionValue("log_to_console", false);
-  m_solution_valid_ = false;
 
   if (ncols == 0 && nrows == 0) {
     return;  // Empty problem — nothing to load
@@ -154,8 +318,28 @@ int HighsSolverBackend::get_num_rows() const
 
 void HighsSolverBackend::add_col(double lb, double ub, double obj)
 {
-  m_solution_valid_ = false;
   m_highs_->addCol(obj, lb, ub, 0, nullptr, nullptr);
+}
+
+void HighsSolverBackend::add_cols(int num_cols,
+                                  const int* colbeg,
+                                  const int* colind,
+                                  const double* colval,
+                                  const double* collb,
+                                  const double* colub,
+                                  const double* colobj)
+{
+  if (num_cols == 0) {
+    return;
+  }
+  // HiGHS's CSC bulk variable API: same shape as the LinearInterface
+  // hands us (colbeg/colind/colval/collb/colub/colobj).  Single call
+  // replaces a per-column add_col loop and the associated reallocations
+  // of HiGHS's column metadata vectors.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = colbeg[num_cols];
+  m_highs_->addCols(
+      num_cols, colobj, collb, colub, nnz, colbeg, colind, colval);
 }
 
 void HighsSolverBackend::set_col_lower(int index, double value)
@@ -181,14 +365,119 @@ void HighsSolverBackend::set_obj_coeff(int index, double value)
   m_highs_->changeColCost(index, value);
 }
 
+void HighsSolverBackend::set_obj_coeffs(const double* values, int num_cols)
+{
+  // `changeColsCost(from_col, to_col, values)` is range-based; one call
+  // updates [0, num_cols) verbatim.  No index array allocation needed
+  // (unlike CPLEX).
+  if (num_cols <= 0) {
+    return;
+  }
+  m_highs_->changeColsCost(0, num_cols - 1, values);
+}
+
+void HighsSolverBackend::set_col_bounds_bulk(int num,
+                                             const int* indices,
+                                             const char* lu,
+                                             const double* values)
+{
+  // HiGHS' bulk-by-set API,
+  //   changeColsBounds(num_set_entries, set, lower, upper)
+  // (the C++ wrapper for `Highs_changeColsBoundsBySet`), requires *both*
+  // bounds for every column in the set.  We synthesize the unmodified
+  // side from the live LP state (or from an earlier override on the same
+  // column when duplicate entries appear), then dispatch one bulk call --
+  // collapsing N per-element `changeColBounds` calls into a single
+  // changeColsBounds dispatch.  Mirrors the CPLEX plugin's CPXchgbds
+  // override added in commit b85011e1.
+  if (num <= 0) {
+    return;
+  }
+  const auto& lp = m_highs_->getLp();
+  const auto ncols = lp.col_lower_.size();
+
+  // Override table keyed by column index storing the running
+  // (lower, upper) override.  Seeded from the live LP state on first
+  // touch and updated in iteration order so duplicate entries against
+  // the same column see the previous override (mirrors the per-element
+  // semantics of the base-class fallback).
+  std::unordered_map<int, std::pair<double, double>> pending;
+  pending.reserve(static_cast<size_t>(num));
+
+  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  for (int i = 0; i < num; ++i) {
+    const int col = indices[i];
+    if (col < 0 || static_cast<size_t>(col) >= ncols) {
+      // Skip out-of-range indices: the per-element fallback would
+      // call `set_col_lower(col, ...)` which is undefined for such
+      // inputs.  Dispatching garbage bounds to HiGHS is strictly
+      // worse, so drop these entries entirely.
+      continue;
+    }
+    const auto cidx = static_cast<size_t>(col);
+    auto [it, inserted] = pending.try_emplace(
+        col, std::pair {lp.col_lower_[cidx], lp.col_upper_[cidx]});
+    switch (lu[i]) {
+      case 'L':
+        it->second.first = values[i];
+        break;
+      case 'U':
+        it->second.second = values[i];
+        break;
+      case 'B':
+        it->second.first = values[i];
+        it->second.second = values[i];
+        break;
+      default:
+        // Unknown side selector: drop the freshly-inserted entry so we
+        // don't issue a no-op change for this column.
+        if (inserted) {
+          pending.erase(it);
+        }
+        break;
+    }
+  }
+  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+
+  if (pending.empty()) {
+    return;
+  }
+  std::vector<HighsInt> set;
+  std::vector<double> lower;
+  std::vector<double> upper;
+  set.reserve(pending.size());
+  lower.reserve(pending.size());
+  upper.reserve(pending.size());
+  for (const auto& [col, bnds] : pending) {
+    set.push_back(static_cast<HighsInt>(col));
+    lower.push_back(bnds.first);
+    upper.push_back(bnds.second);
+  }
+  m_highs_->changeColsBounds(static_cast<HighsInt>(set.size()),
+                             set.data(),
+                             lower.data(),
+                             upper.data());
+}
+
 void HighsSolverBackend::add_row(int num_elements,
                                  const int* columns,
                                  const double* elements,
                                  double rowlb,
                                  double rowub)
 {
-  m_solution_valid_ = false;
   m_highs_->addRow(rowlb, rowub, num_elements, columns, elements);
+}
+
+void HighsSolverBackend::add_rows(int num_rows,
+                                  const int* rowbeg,
+                                  const int* rowind,
+                                  const double* rowval,
+                                  const double* rowlb,
+                                  const double* rowub)
+{
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  const int nnz = rowbeg[num_rows];
+  m_highs_->addRows(num_rows, rowlb, rowub, nnz, rowbeg, rowind, rowval);
 }
 
 void HighsSolverBackend::set_row_lower(int index, double value)
@@ -216,7 +505,6 @@ void HighsSolverBackend::set_row_bounds(int index, double lb, double ub)
 
 void HighsSolverBackend::delete_rows(int num, const int* indices)
 {
-  m_solution_valid_ = false;
   // HiGHS deleteRows takes a set of indices
   m_highs_->deleteRows(num, indices);
 }
@@ -265,19 +553,33 @@ bool HighsSolverBackend::is_integer(int index) const
   return !is_continuous(index);
 }
 
-void HighsSolverBackend::cache_solution() const
+int HighsSolverBackend::relax_all_integers()
 {
-  if (m_solution_valid_) {
-    return;
+  // HiGHS exposes a true single-call relaxation: `clearIntegrality()`
+  // empties the LP's `integrality_` vector, which marks every column
+  // as continuous in HiGHS's view (any column not covered by the
+  // integrality vector is treated as kContinuous).  Count the
+  // currently-integer columns first so we can return a meaningful
+  // result without re-scanning afterward.
+  const auto& lp = m_highs_->getLp();
+  int relaxed = 0;
+  for (const auto t : lp.integrality_) {
+    if (t != HighsVarType::kContinuous) {
+      ++relaxed;
+    }
   }
-
-  const auto& solution = m_highs_->getSolution();
-  m_col_solution_ = solution.col_value;
-  m_col_dual_ = solution.col_dual;
-  m_row_dual_ = solution.row_dual;
-  m_solution_valid_ = true;
+  m_highs_->clearIntegrality();
+  return relaxed;
 }
 
+// Problem-data and solution accessors all delegate directly to HiGHS
+// internal storage — no plugin-level buffer is needed.  HiGHS's
+// `getLp()` and `getSolution()` return `const HighsLp&` /
+// `const HighsSolution&` whose `col_lower_/col_upper_/.../col_value/...`
+// are `std::vector<double>` whose internal buffer is valid until the
+// next mutation through the `Highs` instance.  The pointer returned
+// here therefore satisfies the SolverBackend contract ("valid until
+// the next call that mutates the LP") without any copy.
 const double* HighsSolverBackend::col_lower() const
 {
   return m_highs_->getLp().col_lower_.data();
@@ -305,20 +607,17 @@ const double* HighsSolverBackend::row_upper() const
 
 const double* HighsSolverBackend::col_solution() const
 {
-  cache_solution();
-  return m_col_solution_.data();
+  return m_highs_->getSolution().col_value.data();
 }
 
 const double* HighsSolverBackend::reduced_cost() const
 {
-  cache_solution();
-  return m_col_dual_.data();
+  return m_highs_->getSolution().col_dual.data();
 }
 
 const double* HighsSolverBackend::row_price() const
 {
-  cache_solution();
-  return m_row_dual_.data();
+  return m_highs_->getSolution().row_dual.data();
 }
 
 double HighsSolverBackend::obj_value() const
@@ -338,7 +637,6 @@ void HighsSolverBackend::set_col_solution(const double* sol)
       sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.value_valid = true;
   m_highs_->setSolution(solution);
-  m_solution_valid_ = false;
 }
 
 void HighsSolverBackend::set_row_price(const double* price)
@@ -355,12 +653,10 @@ void HighsSolverBackend::set_row_price(const double* price)
           + nrows);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.dual_valid = true;
   m_highs_->setSolution(solution);
-  m_solution_valid_ = false;
 }
 
 void HighsSolverBackend::initial_solve()
 {
-  m_solution_valid_ = false;
   if (m_load_failed_) {
     return;
   }
@@ -373,7 +669,6 @@ void HighsSolverBackend::initial_solve()
 void HighsSolverBackend::resolve()
 {
   // HiGHS automatically warm-starts from previous basis
-  m_solution_valid_ = false;
   if (m_load_failed_) {
     // passModel failed (e.g. contradictory bounds) — skip run so
     // is_proven_optimal() returns false and the caller reports
@@ -384,6 +679,97 @@ void HighsSolverBackend::resolve()
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during resolve");
   }
+}
+
+void HighsSolverBackend::engage_robust_solve()
+{
+  if (m_highs_ == nullptr) {
+    return;
+  }
+
+  // Helper: query a HiGHS double option, falling back to the default
+  // if HiGHS reports an error (older versions may rename the option).
+  auto get_double = [&](const std::string& key, double fallback) -> double
+  {
+    double v = fallback;
+    if (m_highs_->getOptionValue(key, v) != HighsStatus::kOk) {
+      return fallback;
+    }
+    return v;
+  };
+
+  if (!m_saved_robust_state_.has_value()) {
+    RobustState saved {};
+    saved.primal_feasibility_tolerance =
+        get_double("primal_feasibility_tolerance", 1e-7);
+    saved.dual_feasibility_tolerance =
+        get_double("dual_feasibility_tolerance", 1e-7);
+    saved.ipm_optimality_tolerance =
+        get_double("ipm_optimality_tolerance", 1e-8);
+    {
+      std::string presolve_val = "on";
+      m_highs_->getOptionValue("presolve", presolve_val);
+      saved.presolve = presolve_val;
+    }
+    {
+      int strategy = 4;
+      m_highs_->getOptionValue("simplex_scale_strategy", strategy);
+      saved.simplex_scale_strategy = strategy;
+    }
+    saved.engage_count = 0;
+    m_saved_robust_state_ = saved;
+  }
+  ++m_saved_robust_state_->engage_count;
+
+  // Compound the loosening — read live values, multiply by 10, clamp to
+  // a sensible upper bound (HiGHS rejects tolerances above 1e-1).
+  const double cur_pft =
+      get_double("primal_feasibility_tolerance",
+                 m_saved_robust_state_->primal_feasibility_tolerance);
+  const double cur_dft =
+      get_double("dual_feasibility_tolerance",
+                 m_saved_robust_state_->dual_feasibility_tolerance);
+  const double cur_ipm =
+      get_double("ipm_optimality_tolerance",
+                 m_saved_robust_state_->ipm_optimality_tolerance);
+
+  constexpr double k_max_tol = 1e-1;
+  m_highs_->setOptionValue("primal_feasibility_tolerance",
+                           std::min(cur_pft * 10.0, k_max_tol));
+  m_highs_->setOptionValue("dual_feasibility_tolerance",
+                           std::min(cur_dft * 10.0, k_max_tol));
+  m_highs_->setOptionValue("ipm_optimality_tolerance",
+                           std::min(cur_ipm * 10.0, k_max_tol));
+
+  // Force aggressive presolve (HiGHS has no separate "more passes" knob)
+  // and force simplex_scale_strategy=4 (HiGHS' "forced" scaling, the
+  // closest analogue to CPLEX NUMERICALEMPHASIS for poorly-scaled LPs).
+  m_highs_->setOptionValue("presolve", std::string {"on"});
+  m_highs_->setOptionValue("simplex_scale_strategy", 4);
+}
+
+void HighsSolverBackend::disengage_robust_solve() noexcept
+{
+  if (!m_saved_robust_state_.has_value()) {
+    return;
+  }
+  if (m_highs_ == nullptr) {
+    m_saved_robust_state_.reset();
+    return;
+  }
+
+  const auto& s = *m_saved_robust_state_;
+  // setOptionValue may return an error on bad input but cannot throw,
+  // so the noexcept contract is fine.
+  m_highs_->setOptionValue("primal_feasibility_tolerance",
+                           s.primal_feasibility_tolerance);
+  m_highs_->setOptionValue("dual_feasibility_tolerance",
+                           s.dual_feasibility_tolerance);
+  m_highs_->setOptionValue("ipm_optimality_tolerance",
+                           s.ipm_optimality_tolerance);
+  m_highs_->setOptionValue("presolve", s.presolve);
+  m_highs_->setOptionValue("simplex_scale_strategy", s.simplex_scale_strategy);
+  m_saved_robust_state_.reset();
 }
 
 bool HighsSolverBackend::is_proven_optimal() const
@@ -441,117 +827,47 @@ SolverOptions HighsSolverBackend::optimal_options() const
 
 void HighsSolverBackend::apply_options(const SolverOptions& opts)
 {
+  m_prep_.options = opts;
   m_algorithm_ = opts.algorithm;
   m_threads_ = opts.threads;
   m_presolve_ = opts.presolve;
   m_log_level_ = opts.log_level;
-  if (const auto oeps = opts.optimal_eps; oeps && *oeps > 0) {
-    m_highs_->setOptionValue("dual_feasibility_tolerance", *oeps);
+
+  // HiGHS uses a *thread-local* task executor (despite the name
+  // "resetGlobalScheduler").  Each OS thread that calls run() gets its
+  // own executor with (threads-1) worker threads, auto-initialized on
+  // first run().  Once initialized, changing the thread count requires
+  // resetting the executor first — otherwise run() returns kError.
+  //
+  // This lives outside apply_options_to_highs() because it mutates
+  // thread_local state tied to the *caller's* OS thread, not the Highs
+  // instance.  The helper is side-effect-free w.r.t. thread_local state
+  // so clone() on a different thread does not disturb the scheduler.
+  const int effective = opts.threads > 0
+      ? opts.threads
+      : std::max(1, static_cast<int>(physical_concurrency()));
+  static thread_local int tl_scheduler_threads {0};
+  if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
+    Highs::resetGlobalScheduler(/*blocking=*/true);
+    tl_scheduler_threads = 0;
+  }
+  if (tl_scheduler_threads == 0) {
+    tl_scheduler_threads = effective;
   }
 
-  if (const auto feps = opts.feasible_eps; feps && *feps > 0) {
-    m_highs_->setOptionValue("primal_feasibility_tolerance", *feps);
-  }
-
-  if (const auto tl = opts.time_limit; tl && *tl > 0.0) {
-    m_highs_->setOptionValue("time_limit", *tl);
-  }
-
-  {
-    // HiGHS uses a *thread-local* task executor (despite the name
-    // "resetGlobalScheduler").  Each OS thread that calls run() gets its
-    // own executor with (threads-1) worker threads, auto-initialized on
-    // first run().  Once initialized, changing the thread count requires
-    // resetting the executor first — otherwise run() returns kError.
-    //
-    // We track the effective thread count per OS thread to reset only
-    // when it actually changes.  threads==0 means "let HiGHS choose"
-    // (typically hardware_concurrency/2).
-    const int effective = opts.threads > 0
-        ? opts.threads
-        : std::max(
-              1, static_cast<int>(std::thread::hardware_concurrency() + 1) / 2);
-    static thread_local int tl_scheduler_threads {0};
-    if (tl_scheduler_threads != 0 && tl_scheduler_threads != effective) {
-      Highs::resetGlobalScheduler(/*blocking=*/true);
-      tl_scheduler_threads = 0;
-    }
-    if (tl_scheduler_threads == 0) {
-      tl_scheduler_threads = effective;
-    }
-    if (opts.threads > 0) {
-      m_highs_->setOptionValue("threads", opts.threads);
-    }
-  }
-
-  m_highs_->setOptionValue("presolve", opts.presolve ? "on" : "off");
-
-  // HiGHS simplex_scale_strategy: 0=off, 1=forced, 4=default.
-  if (opts.scaling.has_value()) {
-    int strategy = 4;  // default
-    switch (*opts.scaling) {
-      case SolverScaling::none:
-        strategy = 0;
-        break;
-      case SolverScaling::automatic:
-        strategy = 4;
-        break;
-      case SolverScaling::aggressive:
-        strategy = 1;
-        break;
-    }
-    m_highs_->setOptionValue("simplex_scale_strategy", strategy);
-  }
-
-  if (opts.reuse_basis && opts.algorithm != LPAlgo::barrier) {
-    m_algorithm_ = LPAlgo::dual;
-    m_presolve_ = false;
-
-    // For warm start: use simplex (not IPM) and disable presolve
-    m_highs_->setOptionValue("solver", "simplex");
-    m_highs_->setOptionValue("presolve", "off");
-    return;
-  }
-
-  switch (opts.algorithm) {
-    case LPAlgo::default_algo:
-      m_highs_->setOptionValue("solver", "choose");
-      break;
-    case LPAlgo::primal:
-      m_highs_->setOptionValue("solver", "simplex");
-      m_highs_->setOptionValue("simplex_strategy", 4);  // primal
-      break;
-    case LPAlgo::dual:
-      m_highs_->setOptionValue("solver", "simplex");
-      m_highs_->setOptionValue("simplex_strategy", 1);  // dual
-      break;
-    case LPAlgo::barrier:
-      m_highs_->setOptionValue("solver", "ipm");
-      if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
-        m_highs_->setOptionValue("ipm_optimality_tolerance", *beps);
-      }
-      if (!opts.crossover) {
-        m_highs_->setOptionValue("run_crossover", "off");
-      }
-      break;
-    case LPAlgo::last_algo:
-      break;
-  }
-
-  // Never enable console output here — logging is managed by the
-  // LogFileGuard / HandlerGuard RAII wrappers in LinearInterface,
-  // which direct output to a log file when log_mode is enabled.
-  m_highs_->setOptionValue("output_flag", false);
-  m_highs_->setOptionValue("log_to_console", false);
+  apply_options_to_highs(*m_highs_, opts);
 }
 
-double HighsSolverBackend::get_kappa() const
+std::optional<double> HighsSolverBackend::get_kappa() const
 {
-  double kappa = 1.0;
+  double kappa = 0.0;
   // Highs::getKappa(exact=true) computes the exact condition number of
-  // the basis matrix via forward/backward solve.
+  // the basis matrix via forward/backward solve.  When HiGHS has no
+  // basis (e.g. IPM without crossover) it returns kWarning/kError; we
+  // propagate that as nullopt so callers never confuse "unavailable"
+  // with a legitimate kappa of 1.0.
   if (m_highs_->getKappa(kappa, /*exact=*/true) != HighsStatus::kOk) {
-    kappa = 1.0;
+    return std::nullopt;
   }
   return kappa;
 }
@@ -573,15 +889,16 @@ void HighsSolverBackend::set_log_filename(const std::string& filename,
                                           int level)
 {
   if (level > 0 && !filename.empty()) {
-    const auto log_path = std::format("{}.log", filename);
-    m_highs_->setOptionValue("log_file", log_path);
-    m_highs_->setOptionValue("output_flag", true);
-    m_highs_->setOptionValue("log_to_console", false);
+    m_prep_.log_filename = filename;
+    m_prep_.log_level = level;
+    apply_log_filename_to_highs(*m_highs_, filename, level);
   }
 }
 
 void HighsSolverBackend::clear_log_filename()
 {
+  m_prep_.log_filename.clear();
+  m_prep_.log_level = 0;
   m_highs_->setOptionValue("log_file", std::string {});
   m_highs_->setOptionValue("output_flag", false);
 }
@@ -610,12 +927,33 @@ void HighsSolverBackend::write_lp(const char* filename)
 std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
 {
   auto cloned = std::make_unique<HighsSolverBackend>();
-  cloned->m_prob_name_ = m_prob_name_;
+
+  // Propagate the full preparation state (options, log filename, log level,
+  // prob name) and the per-getter cached scalars.  The previous version
+  // only copied m_prob_name_ and silently dropped applied SolverOptions,
+  // so a clone could fall back to HiGHS defaults (e.g. algorithm=choose)
+  // while get_algorithm() still returned the source's value — diverging
+  // backend state from solver state.
+  cloned->m_prep_ = m_prep_;
+  cloned->m_algorithm_ = m_algorithm_;
+  cloned->m_threads_ = m_threads_;
+  cloned->m_presolve_ = m_presolve_;
+  cloned->m_log_level_ = m_log_level_;
 
   // Suppress banner before passModel() (constructor's settings were
   // already applied by make_quiet_highs, but be explicit).
   cloned->m_highs_->setOptionValue("output_flag", false);
   cloned->m_highs_->setOptionValue("log_to_console", false);
+
+  // Replay options + logging from the prep cache onto the fresh Highs
+  // instance so the clone actually solves with the same settings as the
+  // source.
+  if (cloned->m_prep_.options.has_value()) {
+    apply_options_to_highs(*cloned->m_highs_, *cloned->m_prep_.options);
+  }
+  apply_log_filename_to_highs(*cloned->m_highs_,
+                              cloned->m_prep_.log_filename,
+                              cloned->m_prep_.log_level);
 
   // Re-create the model in the clone
   const auto& lp = m_highs_->getLp();

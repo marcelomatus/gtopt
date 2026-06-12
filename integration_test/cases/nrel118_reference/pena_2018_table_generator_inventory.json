@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "name": "NREL-118 generator inventory by technology",
+    "description": "Counts of generators by fuel/technology family in the NREL-Sienna/PowerSystemsTestData 118-Bus master inventory. NOT a paper-table per se (the paper describes 10 technology classes generally), but the dataset breakdown that the paper's PCM model dispatches against. Useful as a sanity check for any future full-system converter run.",
+    "source_file": "https://raw.githubusercontent.com/Sienna-Platform/PowerSystemsTestData/master/118-Bus/Generators.csv",
+    "extraction_method": "Grouped by Generator-Name prefix on the published Generators.csv (339 rows total)",
+    "snapshot_date": "2026-06-01"
+  },
+
+  "generator_counts": {
+    "Biomass":                  62,
+    "CC NG":                    40,
+    "CT NG":                    76,
+    "CT Oil":                    5,
+    "Geothermal":                1,
+    "Hydro":                    43,
+    "ICE NG":                    7,
+    "Solar":                    75,
+    "ST Coal":                   1,
+    "ST NG":                    10,
+    "ST Other":                  2,
+    "Wind":                     17,
+    "_total":                  339
+  },
+
+  "secondary_inventory_gen_csv": {
+    "_source_file": "https://raw.githubusercontent.com/Sienna-Platform/PowerSystemsTestData/master/118-Bus/gen.csv",
+    "_note": "The repo also ships gen.csv (the 397-row Sienna-flavoured rewrite of Generators.csv). The two are NOT 1:1 — gen.csv adds explicit type / PrimeMoveType columns and disaggregates certain Sienna entries.",
+    "total_rows": 397,
+    "total_installed_capacity_mw_approx": 27043.0
+  },
+
+  "subset_used_by_cpp_test": {
+    "_description": "test_emission_nrel118_port.cpp picks one representative generator per IPCC-distinct fuel kind, NOT the full inventory above. The capacities are CHOSEN (not from Generators.csv) so the single-block LP is non-degenerate; the heat rates ARE the pmax-weighted segment averages computed by scripts/nrel118_to_gtopt/_converter.py:collapse_piecewise_heat_rate on the named rows.",
+    "generators": [
+      {"name": "nuclear_baseload",     "tag_in_nrel118": "synthetic baseload (no NREL-118 nuclear row in the 339-row file)"},
+      {"name": "ST_Coal_01",           "tag_in_nrel118": "ST Coal 01"},
+      {"name": "CC_NG_01",             "tag_in_nrel118": "CC NG 01"},
+      {"name": "CT_NG_01",             "tag_in_nrel118": "CT NG 01"},
+      {"name": "CT_Oil_01",            "tag_in_nrel118": "CT Oil 01"},
+      {"name": "Biomass_01",           "tag_in_nrel118": "Biomass 01"},
+      {"name": "aggregate_renewables", "tag_in_nrel118": "synthetic Wind+Solar aggregate (only in 33%-renewables variant)"}
+    ]
+  }
+}

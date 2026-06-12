@@ -9,10 +9,13 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 // MindOpt opaque types (typedef void)
 using MDOenv = void;
@@ -20,6 +23,19 @@ using MDOmodel = void;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a
+/// freshly recreated MindOpt model.  Mirrors the CPLEX plugin's CplexPrep:
+/// clone() and load_problem() paths read this cache and apply its fields
+/// to the new (env,model) pair so backend state survives a deep-copy
+/// clone or a load_problem() cycle.
+struct MindOptPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using the MindOpt C API (Alibaba DAMO Academy).
@@ -38,6 +54,12 @@ public:
   [[nodiscard]] std::string_view solver_name() const noexcept override;
   [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
+  [[nodiscard]] bool supports_mip() const noexcept override;
+
+  /// Plugin-level infinity constant — single source of truth shared
+  /// with the instance method `infinity()` and the plugin entry
+  /// `gtopt_solver_infinity`.  MindOpt uses `MDO_INFINITY` (~1e+30).
+  static double plugin_infinity() noexcept;
 
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
@@ -61,9 +83,17 @@ public:
 
   // ---- column ops ----
   void add_col(double lb, double ub, double obj) override;
+  void add_cols(int num_cols,
+                const int* colbeg,
+                const int* colind,
+                const double* colval,
+                const double* collb,
+                const double* colub,
+                const double* colobj) override;
   void set_col_lower(int index, double value) override;
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
+  void set_obj_coeffs(const double* values, int num_cols) override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -71,6 +101,12 @@ public:
                const double* elements,
                double rowlb,
                double rowub) override;
+  void add_rows(int num_rows,
+                const int* rowbeg,
+                const int* rowind,
+                const double* rowval,
+                const double* rowlb,
+                const double* rowub) override;
   void set_row_lower(int index, double value) override;
   void set_row_upper(int index, double value) override;
   void set_row_bounds(int index, double lb, double ub) override;
@@ -98,6 +134,15 @@ public:
   [[nodiscard]] const double* row_price() const override;
   [[nodiscard]] double obj_value() const override;
 
+  // ---- solution access (span-out) ----
+  // Override to call MDOgetdblattrarray directly into the caller's
+  // buffer — bypasses the per-instance scratch members
+  // (`m_col_solution_/m_reduced_cost_/m_row_price_`), which are now
+  // off-mode-only.
+  void fill_col_sol(std::span<double> out) const override;
+  void fill_col_cost(std::span<double> out) const override;
+  void fill_row_dual(std::span<double> out) const override;
+
   // ---- solution hints ----
   void set_col_solution(const double* sol) override;
   void set_row_price(const double* price) override;
@@ -111,6 +156,10 @@ public:
   [[nodiscard]] bool is_abandoned() const override;
   [[nodiscard]] bool is_proven_primal_infeasible() const override;
   [[nodiscard]] bool is_proven_dual_infeasible() const override;
+
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
   // ---- solver options ----
   void apply_options(const SolverOptions& opts) override;
   [[nodiscard]] SolverOptions optimal_options() const override;
@@ -120,7 +169,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;
@@ -137,21 +186,53 @@ public:
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
-  void cache_problem_data() const;
-  void cache_solution() const;
-  void check_error(int rc, const char* func) const;
+  /// Per-member lazy fillers for the problem-data getters.  Each fills
+  /// its own buffer on demand and trips its own cached flag.  Mutations
+  /// invalidate every flag via `invalidate_problem_data()` so the next
+  /// read re-queries MindOpt — but only for the buffer the caller asks
+  /// for, sparing the unread members.  Production paths read only
+  /// `col_lower`/`col_upper` (via `LinearInterface::ScaledView`); the
+  /// other three (`obj_coefficients`, `row_lower`, `row_upper`) are
+  /// populated only when test paths request them.
+  void fill_collb_if_needed() const;
+  void fill_colub_if_needed() const;
+  void fill_obj_if_needed() const;
+  void fill_row_bounds_if_needed() const;
+  void invalidate_problem_data() const noexcept;
+  static void check_error(int rc, const char* func);
+
+  /// Recreate m_model_ from m_prep_ (env-level params were already applied
+  /// onto m_env_ by apply_options_to_env).  Used by load_problem() so every
+  /// bulk load starts with a pristine model — mirrors the CPLEX plugin's
+  /// reset_env_lp() pattern.
+  void reset_model_();
 
   MDOenv* m_env_ {};
   MDOmodel* m_model_ {};
 
-  mutable bool m_prob_cached_ {false};
+  /// Cache of everything needed to replay backend state onto a fresh
+  /// (env,model) pair (see CplexPrep for the pattern).
+  MindOptPrep m_prep_;
+
+  // Per-member problem-data caches.  `m_rowbounds_cached_` covers
+  // both `m_rowlb_` and `m_rowub_` — the MindOpt MDOgetdblattrarray
+  // round-trip yields both at once.
+  mutable bool m_collb_cached_ {false};
+  mutable bool m_colub_cached_ {false};
+  mutable bool m_obj_cached_ {false};
+  mutable bool m_rowbounds_cached_ {false};
   mutable std::vector<double> m_collb_;
   mutable std::vector<double> m_colub_;
   mutable std::vector<double> m_obj_;
   mutable std::vector<double> m_rowlb_;
   mutable std::vector<double> m_rowub_;
 
-  mutable bool m_sol_cached_ {false};
+  /// C-API write target for `col_solution()` / `reduced_cost()` /
+  /// `row_price()`.  Each accessor refills *only its own* buffer on
+  /// every call (via the matching MDOget*) — this is plain scratch
+  /// storage, not a cache: there is no validity flag, no caching
+  /// semantics, and no cross-accessor refill.  The single caching
+  /// layer is in `LinearInterface::populate_solution_cache_post_solve`.
   mutable std::vector<double> m_col_solution_;
   mutable std::vector<double> m_reduced_cost_;
   mutable std::vector<double> m_row_price_;
@@ -161,6 +242,16 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+
+  /// Snapshot of MindOpt tolerances captured by engage_robust_solve().
+  struct RobustState
+  {
+    double dual_tol {};
+    double primal_tol {};
+    double ipm_gap_tol {};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

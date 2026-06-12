@@ -36,6 +36,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/scenario.hpp>
 
 namespace gtopt
 {
@@ -75,7 +76,16 @@ struct Aperture
   }
 };
 
-using ApertureUid = StrongUidType<Aperture>;
+/// Aperture UID and Scenario UID are the same concept: an aperture is a
+/// *stochastic opening* that references a source scenario, and the convention
+/// (see `build_synthetic_apertures`) is that `aperture.uid ==
+/// aperture.source_scenario`. Aliasing them here makes that semantic equality
+/// load-bearing in the type system, avoiding a spurious second strong type.
+using ApertureUid = ScenarioUid;
+
+/// Positional index into an aperture array (distinct from ApertureUid; this
+/// is a counting index for `aperture_array[idx]` style access, intentionally
+/// left as `StrongIndexType` per existing Index-type conventions).
 using ApertureIndex = StrongIndexType<Aperture>;
 
 }  // namespace gtopt

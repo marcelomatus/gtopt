@@ -31,7 +31,7 @@
 
 #pragma once
 
-#include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -43,6 +43,7 @@
 #include <thread>
 #include <vector>
 
+#include <gtopt/hardware_info.hpp>
 #include <gtopt/sddp_pool.hpp>
 #include <gtopt/work_pool.hpp>
 
@@ -66,35 +67,69 @@ namespace gtopt
  * Both MonolithicMethod and SDDPMethod (auxiliary pool) use this factory.
  *
  * @param cpu_factor  Over-commit factor applied to hardware_concurrency.
- *                    Default 1.25 (25 % more threads than physical cores).
+ *                    Default 2.0 — extra threads compensate for mutex
+ *                    contention during LP clone operations.
+ * @param cpu_threshold_override  If provided and > 0, use this value as
+ *                    the pool's CPU-load dispatch gate instead of the
+ *                    default `100 - 50/max_threads` formula.  Useful
+ *                    for I/O-bound workloads (e.g. parquet encode) where
+ *                    the formula's thread-count-driven cap is too
+ *                    conservative.
  * @return A started AdaptiveWorkPool (heap-allocated, non-movable).
  */
 [[nodiscard]] inline std::unique_ptr<AdaptiveWorkPool> make_solver_work_pool(
-    double cpu_factor = 1.25)
+    double cpu_factor = 2.0,
+    double cpu_threshold_override = 0.0,
+    std::chrono::milliseconds scheduler_interval =
+        std::chrono::milliseconds(50),
+    double memory_limit_mb = 0.0,
+    std::string_view pool_label = "SolverWorkPool")
 {
   WorkPoolConfig pool_config {};
-  pool_config.name = "SolverWorkPool";
-  pool_config.max_threads = static_cast<int>(
-      std::lround(cpu_factor * std::thread::hardware_concurrency()));
-  pool_config.max_cpu_threshold = static_cast<int>(
-      100.0 - (50.0 / static_cast<double>(pool_config.max_threads)));
+  pool_config.name = std::string {pool_label};
+  // Use physical cores as the base — hyperthreads add little for
+  // compute-bound LP solves and inflate the thread count.  With a memory
+  // limit the pool starts at ONE thread and grows toward the
+  // `cpu_factor × cores` ceiling under the live measured-memory controller
+  // (no fixed per-task estimate); with no limit it runs at the ceiling.
+  const auto clamp =
+      memory_clamp_threads(cpu_factor, memory_limit_mb, pool_config.name);
+  pool_config.max_threads = clamp.initial_threads;
+  pool_config.max_threads_ceiling = clamp.ceiling_threads;
+  // CPU saturation threshold is computed from the growth ceiling (the
+  // eventual thread count), not the clamped start, so a memory-clamped
+  // pool that later grows is not left with an over-tight CPU gate.
+  pool_config.max_cpu_threshold = (cpu_threshold_override > 0.0)
+      ? cpu_threshold_override
+      : static_cast<int>(100.0
+                         - (50.0 / static_cast<double>(clamp.ceiling_threads)));
+  pool_config.max_process_rss_mb = memory_limit_mb;
+  pool_config.scheduler_interval = scheduler_interval;
+  pool_config.enable_periodic_stats = false;
 
   auto pool = std::make_unique<AdaptiveWorkPool>(pool_config);
   pool->start();
-  SPDLOG_TRACE("Solver work pool started: max_threads={} cpu_threshold={:.0f}%",
-               pool_config.max_threads,
-               pool_config.max_cpu_threshold);
+  SPDLOG_TRACE(
+      "Solver work pool started: max_threads={} cpu_threshold={:.0f}% "
+      "(physical_cores={} logical_cores={})",
+      pool_config.max_threads,
+      pool_config.max_cpu_threshold,
+      physical_concurrency(),
+      std::thread::hardware_concurrency());
   return pool;
 }
 
 // ─── MonitorPoint ────────────────────────────────────────────────────────────
 
-/// A single real-time sample point (CPU load, active workers, timestamp).
+/// A single real-time sample point (CPU load, memory, active workers,
+/// timestamp).
 struct MonitorPoint
 {
   double timestamp {};  ///< Seconds since monitoring started
   double cpu_load {};  ///< CPU load percentage [0–100]
   int active_workers {};  ///< Number of active worker threads
+  double memory_percent {};  ///< System memory usage percentage [0–100]
+  double process_rss_mb {};  ///< Process RSS in MB
 };
 
 // ─── SolverMonitor ───────────────────────────────────────────────────────────
@@ -173,6 +208,8 @@ public:
                   .timestamp = elapsed,
                   .cpu_load = stats.current_cpu_load,
                   .active_workers = stats.active_threads,
+                  .memory_percent = stats.current_memory_percent,
+                  .process_rss_mb = stats.process_rss_mb,
               });
             }
             std::this_thread::sleep_for(m_update_interval_);
@@ -222,6 +259,24 @@ public:
         json += ", ";
       }
       json += std::format("{}", m_history_[i].active_workers);
+    }
+    json += "],\n";
+
+    json += "    \"memory_percent\": [";
+    for (std::size_t i = 0; i < m_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.1f}", m_history_[i].memory_percent);
+    }
+    json += "],\n";
+
+    json += "    \"process_rss_mb\": [";
+    for (std::size_t i = 0; i < m_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.0f}", m_history_[i].process_rss_mb);
     }
     json += "]\n";
     json += "  }\n";

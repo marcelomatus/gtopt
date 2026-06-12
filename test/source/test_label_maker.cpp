@@ -1,121 +1,147 @@
+// SPDX-License-Identifier: BSD-3-Clause
 #include <doctest/doctest.h>
-#include <gtopt/block_lp.hpp>
 #include <gtopt/label_maker.hpp>
-#include <gtopt/planning_options_lp.hpp>
-#include <gtopt/scenario_lp.hpp>
-#include <gtopt/stage_lp.hpp>
+#include <gtopt/lp_context.hpp>
+#include <gtopt/sparse_col.hpp>
+#include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-TEST_CASE("LabelMaker basic functionality")
+namespace
 {
-  using namespace gtopt;
-  PlanningOptions options;
-  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  const PlanningOptionsLP options_lp(options);
-  const LabelMaker maker(options_lp);
 
-  SUBCASE("Simple labels")
+[[nodiscard]] auto make_col(std::string_view class_name,
+                            std::string_view variable_name,
+                            Uid uid,
+                            LpContext ctx,
+                            bool is_state = false) -> SparseCol
+{
+  SparseCol col;
+  col.class_name = class_name;
+  col.variable_name = variable_name;
+  col.variable_uid = uid;
+  col.context = std::move(ctx);
+  col.is_state = is_state;
+  return col;
+}
+
+[[nodiscard]] auto make_row(std::string_view class_name,
+                            std::string_view constraint_name,
+                            Uid uid,
+                            LpContext ctx) -> SparseRow
+{
+  SparseRow row;
+  row.class_name = class_name;
+  row.constraint_name = constraint_name;
+  row.variable_uid = uid;
+  row.context = std::move(ctx);
+  return row;
+}
+
+}  // namespace
+
+TEST_CASE("LabelMaker default construction is off")
+{
+  const LabelMaker maker;
+  CHECK(maker.names_level() == LpNamesLevel::none);
+  CHECK_FALSE(maker.col_names_enabled());
+  CHECK_FALSE(maker.row_names_enabled());
+  CHECK_FALSE(maker.all_col_names_enabled());
+  CHECK_FALSE(maker.duplicates_are_errors());
+}
+
+TEST_CASE("LabelMaker level predicates")
+{
+  SUBCASE("none")
   {
-    CHECK(maker.lp_label("var") == "var");
-    CHECK(maker.lp_label("prefix", "var") == "prefix_var");
-    CHECK(maker.lp_label("a", "b", "c") == "a_b_c");
+    const LabelMaker maker {LpNamesLevel::none};
+    CHECK_FALSE(maker.col_names_enabled());
+    CHECK_FALSE(maker.row_names_enabled());
+    CHECK_FALSE(maker.all_col_names_enabled());
+    CHECK_FALSE(maker.duplicates_are_errors());
   }
-
-  SUBCASE("Empty labels when disabled")
+  SUBCASE("all")
   {
-    PlanningOptions disabled_options;
-    disabled_options.lp_matrix_options.names_level = LpNamesLevel::minimal;
-    const PlanningOptionsLP disabled_options_lp(disabled_options);
-    const LabelMaker disabled_maker(disabled_options_lp);
-
-    CHECK(disabled_maker.lp_label("var").empty());
-    CHECK(disabled_maker.lp_label("prefix", "var").empty());
+    const LabelMaker maker {LpNamesLevel::all};
+    CHECK(maker.col_names_enabled());
+    CHECK(maker.row_names_enabled());
+    CHECK(maker.all_col_names_enabled());
+    CHECK(maker.duplicates_are_errors());
   }
 }
 
-TEST_CASE("LabelMaker with StageLP")
+TEST_CASE("LabelMaker::make_col_label honors the level gate")
 {
-  PlanningOptions options;
-  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  const PlanningOptionsLP options_lp(options);
-  const LabelMaker maker(options_lp);
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(1));
+  const auto regular =
+      make_col("Bus", "theta", Uid {3}, ctx, /*is_state*/ false);
+  const auto state = make_col("Bus", "eini", Uid {5}, ctx, /*is_state*/ true);
 
-  const Stage stage1 {.uid = Uid {1}, .name = "stage1"};
-  const Stage stage2 {.uid = Uid {2}, .name = "stage2"};
-  const StageLP stage1_lp(stage1);
-  const StageLP stage2_lp(stage2);
-
-  SUBCASE("With single stage")
+  SUBCASE("none emits nothing")
   {
-    CHECK(maker.lp_label(stage1_lp, "var", "x", "y") == "var_x_y_1");
-    CHECK(maker.lp_label(stage2_lp, "a", "b", "c") == "a_b_c_2");
+    const LabelMaker maker {LpNamesLevel::none};
+    CHECK(maker.make_col_label(regular).empty());
+    CHECK(maker.make_col_label(state).empty());
+  }
+  SUBCASE("all emits every column")
+  {
+    const LabelMaker maker {LpNamesLevel::all};
+    CHECK(maker.make_col_label(regular) == "bus_theta_3_0_1");
+    CHECK(maker.make_col_label(state) == "bus_eini_5_0_1");
   }
 }
 
-TEST_CASE("LabelMaker with ScenarioLP and StageLP")
+TEST_CASE(
+    "LabelMaker::make_col_label without context falls back to class+var+uid")
 {
-  PlanningOptions options;
-  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  const PlanningOptionsLP options_lp(options);
-  const LabelMaker maker(options_lp);
+  const LabelMaker maker {LpNamesLevel::all};
+  SparseCol col;
+  col.class_name = "Generator";
+  col.variable_name = "gen";
+  col.variable_uid = Uid {42};
+  CHECK(maker.make_col_label(col) == "generator_gen_42");
+}
 
-  const Scenario scenario1 {.uid = Uid {1}, .name = "scenario1"};
-  const Scenario scenario2 {.uid = Uid {2}, .name = "scenario2"};
-  const ScenarioLP scenario1_lp(scenario1);
-  const ScenarioLP scenario2_lp(scenario2);
+TEST_CASE("LabelMaker::make_row_label requires all level")
+{
+  const auto ctx = make_block_context(
+      make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3));
+  const auto row = make_row("Bus", "bal", Uid {4}, ctx);
 
-  const Stage stage1 {.uid = Uid {1}, .name = "stage1"};
-  const Stage stage2 {.uid = Uid {2}, .name = "stage2"};
-  const StageLP stage1_lp(stage1);
-  const StageLP stage2_lp(stage2);
-
-  SUBCASE("With scenario and stage")
+  SUBCASE("none emits nothing")
   {
-    CHECK(maker.lp_label(scenario1_lp, stage1_lp, "var", "x", "y")
-          == "var_x_y_1_1");
-    CHECK(maker.lp_label(scenario2_lp, stage2_lp, "a", "b", "c")
-          == "a_b_c_2_2");
+    const LabelMaker maker {LpNamesLevel::none};
+    CHECK(maker.make_row_label(row).empty());
+  }
+  SUBCASE("all emits the label")
+  {
+    const LabelMaker maker {LpNamesLevel::all};
+    CHECK(maker.make_row_label(row) == "bus_bal_4_1_2_3");
   }
 }
 
-TEST_CASE("LabelMaker with BlockLP")
+TEST_CASE("LabelMaker all level always emits labels")
 {
-  PlanningOptions options;
-  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  const PlanningOptionsLP options_lp(options);
-  const LabelMaker maker(options_lp);
+  const LabelMaker maker {LpNamesLevel::all};
 
-  const Scenario scenario1 {.uid = Uid {1}, .name = "scenario1"};
-  const ScenarioLP scenario1_lp(scenario1);
-  const Stage stage1 {.uid = Uid {1}, .name = "stage1"};
-  const StageLP stage1_lp(stage1);
-  const Block block1 {.uid = Uid {1}, .name = "block1"};
-  const BlockLP block1_lp(block1);
+  const auto col_ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(1));
+  const auto col = make_col("Bus", "theta", Uid {3}, col_ctx);
+  CHECK(maker.make_col_label(col) == "bus_theta_3_0_1");
 
-  SUBCASE("With block")
-  {
-    CHECK(maker.lp_label(scenario1_lp, stage1_lp, block1_lp, "var", "a", "b")
-          == "var_a_b_1_1_1");
-  }
+  const SparseCol empty_col {};
+  CHECK(maker.make_col_label(empty_col).empty());
+
+  const auto row_ctx = make_block_context(
+      make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3));
+  const auto row = make_row("Bus", "bal", Uid {4}, row_ctx);
+  CHECK(maker.make_row_label(row) == "bus_bal_4_1_2_3");
 }
 
-TEST_CASE("LabelMaker edge cases")
+TEST_CASE("LabelMaker::make_col_label empty class and name → empty")
 {
-  PlanningOptions options;
-  options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  const PlanningOptionsLP options_lp(options);
-  const LabelMaker maker(options_lp);
-
-  SUBCASE("Empty label")
-  {
-    CHECK(maker.lp_label() == "");
-  }
-
-  SUBCASE("Minimum required arguments")
-  {
-    const Stage stage {.uid = Uid {1}, .name = "stage"};
-    const StageLP stage_lp(stage);
-    CHECK(maker.lp_label(stage_lp, "a", "b", "c") == "a_b_c_1");
-  }
+  const LabelMaker maker {LpNamesLevel::all};
+  const SparseCol col {};
+  CHECK(maker.make_col_label(col).empty());
 }

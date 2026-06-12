@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/fmap.hpp>
@@ -33,19 +35,28 @@ struct UidTraits
   using CFNameUid = std::tuple<ClassNameType, FieldNameType, Uid>;
   using CFName = std::tuple<ClassNameType, FieldNameType>;
 
+  /// Bitmask describing which UID dimensions are present in an input table.
+  /// Bit `i` corresponds to the `i`-th UID in the parameter pack.  When a
+  /// bit is 0, the underlying column was absent from the table and the
+  /// loader has built / will look up the index with a default-constructed
+  /// UID in that slot — i.e. the value is **broadcast** across that
+  /// dimension.  See `UidToArrowIdx<...>::make_arrow_uids_idx`.
+  using PresentMask = ArrowPresentMask;
+
   template<typename... Uid>
   using ArrowUidIdx = UidToArrowIdx<Uid...>::UidIdx;
 
   template<typename... Uid>
   using arrow_array_uid_idx_t =
-      std::pair<ArrowChunkedArray, ArrowUidIdx<Uid...>>;
+      std::tuple<ArrowChunkedArray, ArrowUidIdx<Uid...>, PresentMask>;
 
   template<typename... Uid>
   using array_uid_idx_map_t =
       base_map_t<CFNameUid, arrow_array_uid_idx_t<Uid...>>;
 
   template<typename... Uid>
-  using arrow_table_uid_idx_t = std::tuple<ArrowTable, ArrowUidIdx<Uid...>>;
+  using arrow_table_uid_idx_t =
+      std::tuple<ArrowTable, ArrowUidIdx<Uid...>, PresentMask>;
 
   template<typename... Uid>
   using table_uid_idx_map_t = base_map_t<CFName, arrow_table_uid_idx_t<Uid...>>;

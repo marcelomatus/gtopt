@@ -1,0 +1,107 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "model_options": {
+      "demand_fail_cost": 500.0,
+      "scale_objective": 1000,
+      "use_kirchhoff": false,
+      "use_single_bus": true
+    },
+    "output_compression": "uncompressed",
+    "output_format": "csv"
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "duration": 730.0,
+        "uid": 1
+      },
+      {
+        "duration": 730.0,
+        "uid": 2
+      }
+    ],
+    "scenario_array": [
+      {
+        "probability_factor": 1,
+        "uid": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 0,
+        "uid": 1
+      },
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 1,
+        "uid": 2
+      }
+    ]
+  },
+  "system": {
+    "bus_array": [
+      {
+        "name": "sys_1_bus",
+        "uid": 1
+      }
+    ],
+    "demand_array": [
+      {
+        "bus": "sys_1_bus",
+        "lmax": [
+          [
+            12.23013698630137
+          ],
+          [
+            11.046575342465754
+          ]
+        ],
+        "name": "System 1",
+        "uid": 1
+      }
+    ],
+    "generator_array": [
+      {
+        "bus": "sys_1_bus",
+        "capacity": 10.0,
+        "gcost": 8.0,
+        "name": "Thermal 1",
+        "pmax": 10.0,
+        "pmin": 0.0,
+        "uid": 1
+      },
+      {
+        "bus": "sys_1_bus",
+        "capacity": 5.0,
+        "gcost": 12.0,
+        "name": "Thermal 2",
+        "pmax": 5.0,
+        "pmin": 0.0,
+        "uid": 2
+      },
+      {
+        "bus": "sys_1_bus",
+        "capacity": 20.0,
+        "gcost": 15.0,
+        "name": "Thermal 3",
+        "pmax": 20.0,
+        "pmin": 0.0,
+        "uid": 3
+      },
+      {
+        "bus": "sys_1_bus",
+        "capacity": 11.0,
+        "gcost": 0.0,
+        "name": "Hydro 1",
+        "pmax": 11.0,
+        "pmin": 0.0,
+        "uid": 4
+      }
+    ],
+    "name": "case0"
+  }
+}

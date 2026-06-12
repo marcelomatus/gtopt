@@ -1,0 +1,17 @@
+[
+  {
+    "fcost": 3.6,
+    "fmax": 500.0,
+    "junction_a": "PANGUE",
+    "junction_b": "ANGOSTURA",
+    "name": "Vert_PANGUE",
+    "uid": 1
+  },
+  {
+    "fmax": 1500.0,
+    "junction_a": "MAULE",
+    "junction_b": "LOMA_ALTA",
+    "name": "B_Maule",
+    "uid": 2
+  }
+]

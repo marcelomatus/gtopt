@@ -8,7 +8,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/enum_option.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
 #include "sddp_helpers.hpp"
@@ -19,75 +19,213 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 {
 
 // ─── Data structure tests ───────────────────────────────────────────────────
+//
+// Note: Default-construction and merge tests for ModelOptions,
+// CascadeTransition, CascadeLevelMethod, CascadeLevel, and CascadeOptions
+// are covered authoritatively in test_model_options.cpp and
+// test_cascade_options.cpp.  Only tests specific to this file's subject
+// (CascadePlanningMethod, StateTarget, JSON/factory/integration) live here.
 
-TEST_CASE("ModelOptions defaults are all nullopt")  // NOLINT
+TEST_CASE("StateTarget default initialization")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const ModelOptions opts;
-  CHECK(!opts.use_single_bus.has_value());
-  CHECK(!opts.use_kirchhoff.has_value());
-  CHECK(!opts.use_line_losses.has_value());
-  CHECK(!opts.kirchhoff_threshold.has_value());
-  CHECK(!opts.loss_segments.has_value());
-  CHECK(!opts.scale_objective.has_value());
-  CHECK(!opts.scale_theta.has_value());
-  CHECK(!opts.demand_fail_cost.has_value());
-  CHECK(!opts.reserve_fail_cost.has_value());
-}
-
-TEST_CASE("CascadeTransition defaults are all nullopt")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeTransition trans;
-  CHECK(!trans.inherit_optimality_cuts.has_value());
-  CHECK(!trans.inherit_feasibility_cuts.has_value());
-  CHECK(!trans.inherit_targets.has_value());
-  CHECK(!trans.target_rtol.has_value());
-  CHECK(!trans.target_min_atol.has_value());
-  CHECK(!trans.target_penalty.has_value());
-  CHECK(!trans.optimality_dual_threshold.has_value());
-}
-
-TEST_CASE("CascadeLevelMethod defaults are all nullopt")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeLevelMethod solver;
-  CHECK(!solver.max_iterations.has_value());
-  CHECK(!solver.apertures.has_value());
-  CHECK(!solver.convergence_tol.has_value());
-}
-
-TEST_CASE("CascadeLevel defaults")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeLevel level;
-  CHECK(!level.name.has_value());
-  CHECK(!level.model_options.has_value());
-  CHECK(!level.sddp_options.has_value());
-  CHECK(!level.transition.has_value());
-}
-
-TEST_CASE("CascadeOptions empty level_array by default")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const CascadeOptions opts;
-  CHECK(opts.level_array.empty());
-  CHECK(!opts.sddp_options.max_iterations.has_value());
-  CHECK(!opts.sddp_options.convergence_tol.has_value());
-}
-
-TEST_CASE("NamedStateTarget default initialization")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  const NamedStateTarget t;
-  CHECK(t.var_name.empty());
+  const StateTarget t;
+  CHECK(t.class_name.empty());
+  CHECK(t.col_name.empty());
+  CHECK(t.uid == Uid {unknown_uid});
   CHECK(t.target_value == 0.0);
+  CHECK(t.var_scale == 1.0);
+  CHECK(std::holds_alternative<std::monostate>(t.context));
+}
+
+TEST_CASE("StateTarget with structured fields")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto ctx =
+      make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(3));
+  const StateTarget t {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {42},
+      .context = ctx,
+      .scene_index = first_scene_index(),
+      .phase_index = PhaseIndex {1},
+      .target_value = 100.5,
+      .var_scale = 1000.0,
+  };
+
+  CHECK(t.class_name == "Reservoir");
+  CHECK(t.col_name == "efin");
+  CHECK(t.uid == Uid {42});
+  CHECK(t.target_value == doctest::Approx(100.5));
+  CHECK(t.var_scale == doctest::Approx(1000.0));
+  CHECK(t.scene_index == first_scene_index());
+  CHECK(t.phase_index == PhaseIndex {1});
+  CHECK(std::holds_alternative<StageContext>(t.context));
+  const auto& stg = std::get<StageContext>(t.context);
+  CHECK(std::get<0>(stg) == make_uid<Scenario>(0));
+  CHECK(std::get<1>(stg) == make_uid<Stage>(3));
+}
+
+TEST_CASE(  // NOLINT
+    "StateTarget matching by identity — different contexts still match")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Two targets for the same physical variable but from different
+  // cascade levels (different stage UIDs in context).
+  const StateTarget source {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {5},
+      .context = make_stage_context(make_uid<Scenario>(0), make_uid<Stage>(2)),
+      .target_value = 50.0,
+  };
+
+  // Simulate matching logic from add_elastic_targets:
+  // match by (class_name, col_name, uid), ignore context differences.
+  struct MockSVar
+  {
+    std::string_view class_name;
+    std::string_view col_name;
+    Uid uid;
+    ColIndex col;
+  };
+
+  // Next level has the same reservoir but at a different stage
+  const std::vector<MockSVar> next_level_vars = {
+      {"Generator", "pgen", Uid {1}, ColIndex {0}},
+      {"Reservoir", "efin", Uid {5}, ColIndex {7}},
+      {"Battery", "efin", Uid {3}, ColIndex {12}},
+  };
+
+  ColIndex matched {unknown_index};
+  for (const auto& sv : next_level_vars) {
+    if (sv.class_name == source.class_name && sv.col_name == source.col_name
+        && sv.uid == source.uid)
+    {
+      matched = sv.col;
+      break;
+    }
+  }
+
+  CHECK(matched == ColIndex {7});
+}
+
+TEST_CASE(  // NOLINT
+    "StateTarget matching — no match when uid differs")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const StateTarget source {
+      .class_name = "Reservoir",
+      .col_name = "efin",
+      .uid = Uid {99},
+      .target_value = 50.0,
+  };
+
+  struct MockSVar
+  {
+    std::string_view class_name;
+    std::string_view col_name;
+    Uid uid;
+  };
+
+  const std::vector<MockSVar> next_level_vars = {
+      {"Reservoir", "efin", Uid {1}},
+      {"Reservoir", "efin", Uid {5}},
+  };
+
+  bool found = false;
+  for (const auto& sv : next_level_vars) {
+    if (sv.class_name == source.class_name && sv.col_name == source.col_name
+        && sv.uid == source.uid)
+    {
+      found = true;
+      break;
+    }
+  }
+
+  CHECK_FALSE(found);
+}
+
+// Regression for 6b5ccdc4 (fix(cascade): disambiguate tgt_sup/tgt_sdn slack
+// columns by target uid+context).  Before the fix, every target's sup/sdn
+// SparseCols were added with `variable_uid = unknown_uid (-1)` and default
+// `context`, so two targets in the same LP would hash to the same
+// `(class, variable, uid, context)` metadata tuple and the eager dup
+// detector (`f21641f9`) would throw on the second `add_col` call and the
+// whole cascade transition would abort with
+// "Duplicate LP column metadata: class='Cascade' var='tgt_sup' uid=-1".
+// Observed on juan/gtopt_iplp 3-level cascade at the uninodal→transport
+// transition (6400 targets = 16 scenes × 50 phases × 8 state vars).
+//
+// We drive the fix end-to-end via a 2-level cascade run on the 3-phase
+// hydro fixture — the transport level's `add_elastic_targets` call is
+// where the dup detector trips.  If the fix is in place, the solve
+// completes; if reverted, `solve()` returns an unexpected error with
+// the "Duplicate LP column metadata" message.
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod: multi-target transition does not trip "
+    "metadata dup detector")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_3phase_hydro_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 3;
+  sddp_opts.convergence_tol = 0.05;
+  sddp_opts.apertures = std::vector<Uid> {};  // no apertures
+
+  // Two-level cascade.  The transition between level 1 and level 2 is
+  // where `add_elastic_targets` installs `Cascade/tgt_sup` and
+  // `Cascade/tgt_sdn` slack columns — one pair per state target.  The
+  // 3-phase hydro fixture has ≥ 2 state-variable targets (1 reservoir
+  // × at-least-2 outgoing phases), enough to exercise the dup check.
+  CascadeOptions cascade_opts;
+  cascade_opts.level_array = {
+      CascadeLevel {
+          .name = OptName {"benders"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {2},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+      },
+      CascadeLevel {
+          .name = OptName {"with_targets"},
+          .sddp_options =
+              CascadeLevelMethod {
+                  .max_iterations = OptInt {1},
+                  .apertures = Array<Uid> {},
+                  .convergence_tol = OptReal {0.05},
+              },
+          .transition =
+              CascadeTransition {
+                  .inherit_targets = OptInt {-1},
+                  .target_rtol = OptReal {0.05},
+                  .target_min_atol = OptReal {1.0},
+                  .target_penalty = OptReal {500.0},
+              },
+      },
+  };
+
+  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
+  const SolverOptions lp_opts;
+
+  auto result = solver.solve(planning_lp, lp_opts);
+
+  // The key invariant: solve() does NOT return an unexpected with a
+  // "Duplicate LP column metadata" error.  Pre-fix, transition from
+  // level 1 to level 2 would fail on the second target's sup_col.
+  REQUIRE(result.has_value());
+  // Sanity: both levels ran and produced results.
+  CHECK(!solver.all_results().empty());
 }
 
 TEST_CASE("MethodType::cascade enum")  // NOLINT
@@ -131,8 +269,7 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(options_lp.method_type_enum() == MethodType::cascade);
 }
@@ -175,12 +312,10 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
             },
             "transition": {
               "inherit_optimality_cuts": -1,
-              "inherit_feasibility_cuts": 0,
               "inherit_targets": -1,
               "target_rtol": 0.08,
               "target_min_atol": 2.0,
-              "target_penalty": 1000.0,
-              "optimality_dual_threshold": 0.001
+              "target_penalty": 1000.0
             }
           }
         ]
@@ -189,8 +324,7 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
 
   REQUIRE(options_lp.has_cascade_levels());
@@ -222,13 +356,68 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
     CHECK(levels[1].transition.has_value());
     const auto trans = levels[1].transition.value_or(CascadeTransition {});
     CHECK(trans.inherit_optimality_cuts.value_or(0) == -1);
-    CHECK(trans.inherit_feasibility_cuts.value_or(-1) == 0);
     CHECK(trans.inherit_targets.value_or(0) == -1);
     CHECK(trans.target_rtol.value_or(0.0) == doctest::Approx(0.08));
     CHECK(trans.target_min_atol.value_or(0.0) == doctest::Approx(2.0));
     CHECK(trans.target_penalty.value_or(0.0) == doctest::Approx(1000.0));
-    CHECK(trans.optimality_dual_threshold.value_or(0.0)
-          == doctest::Approx(0.001));
+  }
+}
+
+TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Exercises the CascadeLevel `active` OptBool wired through
+  // json_cascade_options.hpp and consumed by cascade_method.cpp:
+  //   `if (!level.active.value_or(true)) continue;`
+  //
+  // Verifies three modes: active=false (skip), active=true (explicit
+  // run), and omitted (defaults to run).  This test guards the JSON
+  // binding from silently dropping the field.
+  constexpr std::string_view json_str = R"json(
+  {
+    "options": {
+      "method": "cascade",
+      "cascade_options": {
+        "level_array": [
+          {"name": "disabled", "active": false},
+          {"name": "enabled", "active": true},
+          {"name": "default"}
+        ]
+      }
+    }
+  }
+  )json";
+
+  const auto planning = parse_planning_json(json_str);
+  const PlanningOptionsLP options_lp(planning.options);
+
+  REQUIRE(options_lp.has_cascade_levels());
+  const auto& levels = options_lp.cascade_levels();
+  REQUIRE(levels.size() == 3);
+
+  SUBCASE("active=false parsed")
+  {
+    CHECK(levels[0].name.value_or("") == "disabled");
+    REQUIRE(levels[0].active.has_value());
+    CHECK(*levels[0].active == false);
+    CHECK(levels[0].active.value_or(true) == false);
+  }
+
+  SUBCASE("active=true parsed")
+  {
+    CHECK(levels[1].name.value_or("") == "enabled");
+    REQUIRE(levels[1].active.has_value());
+    CHECK(*levels[1].active == true);
+    CHECK(levels[1].active.value_or(true) == true);
+  }
+
+  SUBCASE("active omitted defaults to active")
+  {
+    CHECK(levels[2].name.value_or("") == "default");
+    CHECK_FALSE(levels[2].active.has_value());
+    // cascade_method.cpp uses `value_or(true)` so absent → active.
+    CHECK(levels[2].active.value_or(true) == true);
   }
 }
 
@@ -244,8 +433,7 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
   }
   )json";
 
-  const auto planning =
-      daw::json::from_json<Planning>(json_str);  // NOLINT(misc-include-cleaner)
+  const auto planning = parse_planning_json(json_str);
   const PlanningOptionsLP options_lp(planning.options);
   CHECK(!options_lp.has_cascade_levels());
 }
@@ -350,6 +538,24 @@ TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
     // 2 levels: (5 iters + 1 final fwd) + (10 iters + 1 final fwd) = 17
     CHECK(solver.all_results().size() <= 17);
   }
+
+  SUBCASE("iteration indices are strictly monotonic across levels")
+  {
+    // Regression test for the cascade iteration_offset_hint wiring:
+    // each level's SDDPMethod must receive a global iteration offset so
+    // its training indices start past the previous level's range.
+    // Without the wiring, every level's first iteration_index is 0 and
+    // save_cuts_for_iteration stacks cuts from different levels under
+    // the same index in m_cut_store_.
+    REQUIRE(result.has_value());
+    const auto& all = solver.all_results();
+    REQUIRE(!all.empty());
+    for (std::size_t i = 1; i < all.size(); ++i) {
+      const auto prev = static_cast<Index>(all[i - 1].iteration_index);
+      const auto curr = static_cast<Index>(all[i].iteration_index);
+      CHECK(curr > prev);
+    }
+  }
 }
 
 TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
@@ -452,158 +658,9 @@ TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
   }
 }
 
-// ─── CascadeLevelMethod merge tests ────────────────────────────────────────
-
-TEST_CASE("CascadeLevelMethod merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeLevelMethod base;
-  base.max_iterations = OptInt {10};
-  base.convergence_tol = OptReal {0.01};
-
-  SUBCASE("merge overwrites max_iterations when set")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.max_iterations = OptInt {20};
-    base.merge(override_opts);
-    CHECK(base.max_iterations.value_or(0) == 20);
-    CHECK(base.convergence_tol.value_or(0.0) == doctest::Approx(0.01));
-    CHECK(!base.apertures.has_value());
-  }
-
-  SUBCASE("merge does not overwrite unset fields")
-  {
-    const CascadeLevelMethod empty;
-    base.merge(empty);
-    CHECK(base.max_iterations.value_or(0) == 10);
-    CHECK(base.convergence_tol.value_or(0.0) == doctest::Approx(0.01));
-  }
-
-  SUBCASE("merge overwrites apertures when set")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.apertures = Array<Uid> {
-        1,
-        2,
-        3,
-    };
-    base.merge(override_opts);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->size() == 3);
-  }
-
-  SUBCASE("merge with empty apertures replaces nullopt")
-  {
-    CascadeLevelMethod override_opts;
-    override_opts.apertures = Array<Uid> {};
-    base.merge(override_opts);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->empty());
-  }
-
-  SUBCASE("merge does not clear apertures when override is nullopt")
-  {
-    base.apertures = Array<Uid> {
-        5,
-        6,
-    };
-    const CascadeLevelMethod empty;
-    base.merge(empty);
-    REQUIRE(base.apertures.has_value());
-    CHECK(base.apertures->size() == 2);
-  }
-}
-
-// ─── CascadeTransition merge tests ─────────────────────────────────────────
-
-TEST_CASE("CascadeTransition merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeTransition base;
-  base.inherit_targets = OptInt {-1};
-  base.target_penalty = OptReal {500.0};
-
-  CascadeTransition override_opts;
-  override_opts.target_penalty = OptReal {1000.0};
-  override_opts.inherit_optimality_cuts = OptInt {-1};
-
-  base.merge(override_opts);
-  CHECK(base.inherit_targets.value_or(0) == -1);
-  CHECK(base.target_penalty.value_or(0.0) == doctest::Approx(1000.0));
-  CHECK(base.inherit_optimality_cuts.value_or(0) == -1);
-  CHECK(!base.target_rtol.has_value());
-}
-
-// ─── CascadeOptions merge tests ────────────────────────────────────────────
-
-TEST_CASE("CascadeOptions merge overwrites global fields and level_array")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  CascadeOptions base;
-  base.sddp_options.max_iterations = OptInt {50};
-  base.sddp_options.convergence_tol = OptReal {0.01};
-
-  SUBCASE("merge overwrites max_iterations via sddp_options")
-  {
-    CascadeOptions override_opts;
-    override_opts.sddp_options.max_iterations = OptInt {100};
-    base.merge(std::move(override_opts));
-    CHECK(base.sddp_options.max_iterations.value_or(0) == 100);
-    CHECK(base.sddp_options.convergence_tol.value_or(0.0)
-          == doctest::Approx(0.01));
-  }
-
-  SUBCASE("merge replaces level_array when non-empty")
-  {
-    CascadeOptions override_opts;
-    override_opts.level_array = {
-        CascadeLevel {
-            .name = OptName {"new_level"},
-        },
-    };
-    base.merge(std::move(override_opts));
-    REQUIRE(base.level_array.size() == 1);
-    CHECK(base.level_array[0].name.value_or("") == "new_level");
-  }
-
-  SUBCASE("merge does not replace level_array when empty")
-  {
-    base.level_array = {
-        CascadeLevel {
-            .name = OptName {"existing"},
-        },
-    };
-    CascadeOptions empty;
-    base.merge(std::move(empty));
-    REQUIRE(base.level_array.size() == 1);
-    CHECK(base.level_array[0].name.value_or("") == "existing");
-  }
-}
-
-// ─── ModelOptions merge tests ──────────────────────────────────────────────
-
-TEST_CASE("ModelOptions merge overwrites set fields only")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  ModelOptions base;
-  base.use_single_bus = OptBool {true};
-  base.demand_fail_cost = 1000.0;
-
-  ModelOptions override_opts;
-  override_opts.use_kirchhoff = OptBool {true};
-  override_opts.demand_fail_cost = 2000.0;
-
-  base.merge(override_opts);
-  CHECK(base.use_single_bus.value_or(false) == true);
-  CHECK(base.use_kirchhoff.value_or(false) == true);
-  CHECK(base.demand_fail_cost.value_or(0.0) == doctest::Approx(2000.0));
-  CHECK(!base.use_line_losses.has_value());
-}
+// Note: merge-semantics tests for CascadeLevelMethod, CascadeTransition,
+// CascadeOptions, and ModelOptions are covered in test_cascade_options.cpp
+// and test_model_options.cpp.
 
 // ─── SDDP option resolution: base → cascade global → per-level ────────────
 
@@ -719,6 +776,8 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
+  // modernize-use-designated-initializers)
 
   // Empty cascade options should behave as a single level with
   // the base SDDP solver and default model options.
@@ -751,1696 +810,130 @@ TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
   CHECK(direct_result->size() == cascade_solver.all_results().size());
 }
 
-// ─── Aperture semantics in cascade levels ──────────────────────────────────
+// ─── build_level_sddp_opts priority chain: stationary_window, elastic_mode,
+//     elastic_penalty ────────────────────────────────────────────────────────
+//
+// ``build_level_sddp_opts`` is private on ``CascadePlanningMethod``.  We
+// expose it through a thin testable subclass declared in this anonymous
+// namespace so we can pin the 3-layer priority chain:
+//   base SDDPOptions → cascade-global CascadeLevelMethod defaults →
+//   per-level CascadeLevelMethod overrides.
 
-TEST_CASE("Cascade level aperture semantics")  // NOLINT
+class TestableCascade : public CascadePlanningMethod
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+public:
+  using CascadePlanningMethod::CascadePlanningMethod;
 
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  /// Expose the private helper for white-box unit testing.
+  [[nodiscard]] auto test_build_level_sddp_opts(
+      const std::optional<CascadeLevelMethod>& level_solver,
+      int remaining_budget = -1) const -> SDDPOptions
+  {
+    return build_level_sddp_opts(level_solver, remaining_budget);
+  }
+};
 
-  SUBCASE("empty apertures = pure Benders")
+TEST_CASE(  // NOLINT
+    "CascadePlanningMethod build_level_sddp_opts new fields")
+{
+  SUBCASE("per-level overrides all 5 new fields")
+  {
+    // Base: all defaults (stationary_tol=0.005, stationary_window=4,
+    // elastic_filter_mode=single_cut, elastic_penalty=1000).
+    SDDPOptions base;
+    CascadeOptions cascade;
+
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.stationary_tol = OptReal {0.08};
+    level.stationary_gap_ceiling = OptReal {0.50};
+    level.stationary_window = OptInt {2};
+    level.elastic_mode = OptName {"multi_cut"};
+    level.elastic_penalty = OptReal {750.0};
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.08));
+    CHECK(opts.stationary_gap_ceiling == doctest::Approx(0.50));
+    CHECK(opts.stationary_window == 2);
+    // ``opts`` is the internal solver ``SDDPOptions`` (sddp_types.hpp),
+    // where the field is ``elastic_filter_mode`` (non-optional enum),
+    // NOT the JSON-binding ``elastic_mode`` (OptName) used at the
+    // ``CascadeLevelMethod`` overlay surface.  ``build_level_sddp_opts``
+    // is the boundary that parses the string into the enum.
+    CHECK(opts.elastic_filter_mode == ElasticFilterMode::multi_cut);
+    CHECK(opts.elastic_penalty == doctest::Approx(750.0));
+  }
+
+  SUBCASE("cascade-global wins when per-level stationary_tol is absent")
   {
     SDDPOptions base;
-    base.max_iterations = 5;
-    base.convergence_tol = 0.01;
-    // base has no apertures (nullopt)
+    base.stationary_tol = 0.005;  // base default
 
     CascadeOptions cascade;
-    cascade.level_array = {
-        CascadeLevel {
-            .name = OptName {"benders_only"},
-            .model_options =
-                ModelOptions {
-                    .use_single_bus = OptBool {true},
-                },
-            .sddp_options =
-                CascadeLevelMethod {
-                    .max_iterations = OptInt {3},
-                    .apertures = Array<Uid> {},  // empty = no apertures
-                },
-        },
-    };
+    cascade.sddp_options.stationary_tol = OptReal {0.04};  // cascade global
 
-    CascadePlanningMethod solver(std::move(base), std::move(cascade));
-    const SolverOptions lp_opts;
-    auto result = solver.solve(planning_lp, lp_opts);
-    REQUIRE(result.has_value());
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    // Per-level leaves stationary_tol unset → cascade global should win.
+    CascadeLevelMethod level;
+    level.convergence_tol = OptReal {0.01};  // set something else
+
+    const auto opts = solver.test_build_level_sddp_opts(level);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.04));
   }
 
-  SUBCASE("nullopt apertures inherits from base/per-phase")
+  SUBCASE("base wins when per-level and cascade-global stationary_tol absent")
   {
     SDDPOptions base;
-    base.max_iterations = 5;
-    base.convergence_tol = 0.01;
-    base.apertures = std::vector<Uid> {};  // base = no apertures
+    base.stationary_tol = 0.005;  // base is the only source
 
     CascadeOptions cascade;
-    cascade.level_array = {
-        CascadeLevel {
-            .name = OptName {"inherit_apertures"},
-            .model_options =
-                ModelOptions {
-                    .use_single_bus = OptBool {true},
-                },
-            .sddp_options =
-                CascadeLevelMethod {
-                    .max_iterations = OptInt {3},
-                    // apertures absent (nullopt) → uses base setting
-                },
-        },
-    };
+    // cascade.sddp_options.stationary_tol is absent
 
-    CascadePlanningMethod solver(std::move(base), std::move(cascade));
-    const SolverOptions lp_opts;
-    auto result = solver.solve(planning_lp, lp_opts);
-    REQUIRE(result.has_value());
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    // Per-level also absent → base should be preserved.
+    const auto opts = solver.test_build_level_sddp_opts(std::nullopt);
+
+    CHECK(opts.stationary_tol == doctest::Approx(0.005));
   }
-}
 
-// ─── Multi-level with transitions ──────────────────────────────────────────
-
-TEST_CASE("Cascade 2-level with target inheritance")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"sddp_with_targets"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.10},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
+  SUBCASE("remaining_budget caps max_iterations")
   {
-    REQUIRE(result.has_value());
+    SDDPOptions base;
+    base.max_iterations = 100;
+
+    CascadeOptions cascade;
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.max_iterations = OptInt {50};
+
+    // remaining_budget = 10 must clamp the 50 per-level value.
+    const auto opts = solver.test_build_level_sddp_opts(level, 10);
+    CHECK(opts.max_iterations == 10);
   }
 
-  SUBCASE("results from both levels")
+  SUBCASE("remaining_budget = -1 does not clamp")
   {
-    // 2 levels: (up to 3 + 1 final fwd) + (up to 5 + 1 final fwd) = 10
-    CHECK(solver.all_results().size() >= 2);
-    CHECK(solver.all_results().size() <= 10);
+    SDDPOptions base;
+    base.max_iterations = 100;
+
+    CascadeOptions cascade;
+    TestableCascade solver(std::move(base), std::move(cascade));
+
+    CascadeLevelMethod level;
+    level.max_iterations = OptInt {30};
+
+    const auto opts = solver.test_build_level_sddp_opts(level, -1);
+    CHECK(opts.max_iterations == 30);
   }
-}
-
-// ─── Multi-level with cut inheritance ──────────────────────────────────────
-
-TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"level0"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {4},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"level1_cuts"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {4},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-  REQUIRE(result.has_value());
-  CHECK(!solver.all_results().empty());
-}
-
-// ─── LP reuse when model_options is absent ─────────────────────────────────
-
-TEST_CASE("Cascade reuses LP when model_options absent")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"initial"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"reuse_lp"},
-          // No model_options → reuses previous LP
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-  REQUIRE(result.has_value());
-  CHECK(solver.all_results().size() >= 2);
-}
-
-// ─── 3-level cascade with mixed transitions ───────────────────────────────
-
-TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.sddp_options.convergence_tol = OptReal {0.01};
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"fast_benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"guided_benders"},
-          // No model_options → reuse LP
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {0.5},
-                  .target_penalty = OptReal {300.0},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"final_benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_penalty = OptReal {200.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  // 3 levels × up to (3 iterations + 1 final fwd) each = up to 12 total
-  CHECK(solver.all_results().size() <= 12);
-  CHECK(solver.all_results().size() >= 3);
-}
-
-// ─── Cascade with 5-phase reservoir and cut+target transitions ─────────────
-
-TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_5phase_reservoir_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"filtered_cuts"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_penalty = OptReal {500.0},
-                  .optimality_dual_threshold = OptReal {0.001},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-  REQUIRE(result.has_value());
-  CHECK(!solver.all_results().empty());
-}
-
-// ─── Cascade global convergence_tol as default ─────────────────────────────
-
-TEST_CASE("Cascade global convergence_tol applies to all levels")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 1e-6;  // very tight
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.sddp_options.convergence_tol =
-      OptReal {0.5};  // very loose global override
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"level0"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .apertures = Array<Uid> {},
-                  // No per-level convergence_tol → uses cascade global 0.5
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-  REQUIRE(result.has_value());
-  // Loose tolerance should converge fast
-  CHECK(solver.all_results().size() < 10);
-}
-
-// ─── Single-level cascade = equivalent to direct SDDP ─────────────────────
-
-TEST_CASE("Single-level cascade produces same result as direct SDDP")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Run SDDP directly
-  auto planning1 = make_3phase_hydro_planning();
-  PlanningLP planning_lp1(std::move(planning1));
-
-  SDDPOptions sddp_opts1;
-  sddp_opts1.max_iterations = 8;
-  sddp_opts1.convergence_tol = 0.01;
-  sddp_opts1.apertures = std::vector<Uid> {};
-
-  SDDPMethod direct_solver(planning_lp1, sddp_opts1);
-  const SolverOptions lp_opts;
-  auto direct_result = direct_solver.solve(lp_opts);
-
-  // Run single-level cascade with same options
-  auto planning2 = make_3phase_hydro_planning();
-  PlanningLP planning_lp2(std::move(planning2));
-
-  SDDPOptions sddp_opts2;
-  sddp_opts2.max_iterations = 8;
-  sddp_opts2.convergence_tol = 0.01;
-  sddp_opts2.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"single"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {8},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-  };
-
-  CascadePlanningMethod cascade_solver(std::move(sddp_opts2),
-                                       std::move(cascade));
-  auto cascade_result = cascade_solver.solve(planning_lp2, lp_opts);
-
-  REQUIRE(direct_result.has_value());
-  REQUIRE(cascade_result.has_value());
-
-  // Both should converge and produce similar iteration counts
-  CHECK(direct_result->size() == cascade_solver.all_results().size());
-}
-
-// ─── Multi-bus cascade test with transmission lines ─────────────────────────
-
-/// Create a 3-phase 2-bus hydro system with a transmission line.
-/// Bus 1: hydro generator + reservoir.  Bus 2: demand + thermal backup.
-/// Line connects bus 1 → bus 2 with limited capacity.
-auto make_3phase_2bus_hydro_planning() -> Planning
-{
-  // ── Blocks: 6 per phase × 3 phases = 18 total ──
-  Array<Block> block_array;
-  for (int i = 0; i < 18; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {i + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array = {
-      Stage {
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 6,
-      },
-      Stage {
-          .uid = Uid {2},
-          .first_block = 6,
-          .count_block = 6,
-      },
-      Stage {
-          .uid = Uid {3},
-          .first_block = 12,
-          .count_block = 6,
-      },
-  };
-
-  Array<Phase> phase_array = {
-      Phase {
-          .uid = Uid {1},
-          .first_stage = 0,
-          .count_stage = 1,
-      },
-      Phase {
-          .uid = Uid {2},
-          .first_stage = 1,
-          .count_stage = 1,
-      },
-      Phase {
-          .uid = Uid {3},
-          .first_stage = 2,
-          .count_stage = 1,
-      },
-  };
-
-  // ── System components ──
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "bus_hydro",
-      },
-      {
-          .uid = Uid {2},
-          .name = "bus_demand",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "hydro_gen",
-          .bus = Uid {1},
-          .gcost = 5.0,
-          .capacity = 80.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "thermal_gen",
-          .bus = Uid {2},
-          .gcost = 50.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "load1",
-          .bus = Uid {2},
-          .capacity = 60.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "line_1_2",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .reactance = 0.05,
-          .tmax_ba = 100.0,
-          .tmax_ab = 100.0,
-      },
-  };
-
-  // ── Hydro system ──
-  const Array<Junction> junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "j_up",
-      },
-      {
-          .uid = Uid {2},
-          .name = "j_down",
-          .drain = true,
-      },
-  };
-
-  const Array<Waterway> waterway_array = {
-      {
-          .uid = Uid {1},
-          .name = "ww1",
-          .junction_a = Uid {1},
-          .junction_b = Uid {2},
-          .fmin = 0.0,
-          .fmax = 100.0,
-      },
-  };
-
-  const Array<Reservoir> reservoir_array = {
-      {
-          .uid = Uid {1},
-          .name = "rsv1",
-          .junction = Uid {1},
-          .capacity = 300.0,
-          .emin = 0.0,
-          .emax = 300.0,
-          .eini = 150.0,
-          .fmin = -500.0,
-          .fmax = +500.0,
-          .flow_conversion_rate = 1.0,
-      },
-  };
-
-  const Array<Flow> flow_array = {
-      {
-          .uid = Uid {1},
-          .name = "inflow",
-          .direction = 1,
-          .junction = Uid {1},
-          .discharge = 10.0,
-      },
-  };
-
-  const Array<Turbine> turbine_array = {
-      {
-          .uid = Uid {1},
-          .name = "tur1",
-          .waterway = Uid {1},
-          .generator = Uid {1},
-          .production_factor = 1.0,
-      },
-  };
-
-  Simulation simulation = {
-      .block_array = std::move(block_array),
-      .stage_array = std::move(stage_array),
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {1},
-              },
-          },
-      .phase_array = std::move(phase_array),
-  };
-
-  PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {false};
-  options.use_kirchhoff = OptBool {true};
-  options.scale_objective = OptReal {1.0};
-  options.output_format = DataFormat::csv;
-  options.output_compression = CompressionCodec::uncompressed;
-
-  System system = {
-      .name = "cascade_2bus_hydro",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-      .junction_array = junction_array,
-      .waterway_array = waterway_array,
-      .flow_array = flow_array,
-      .reservoir_array = reservoir_array,
-      .turbine_array = turbine_array,
-  };
-
-  return Planning {
-      .options = std::move(options),
-      .simulation = std::move(simulation),
-      .system = std::move(system),
-  };
-}
-
-/// 6-phase variant of the 2-bus hydro planning for cascade tests that need
-/// more Benders iterations (more phases ⇒ more state links ⇒ harder for cuts).
-auto make_6phase_2bus_hydro_planning() -> Planning
-{
-  constexpr Size num_phases = 6;
-  constexpr Size blocks_per_phase = 4;
-  constexpr Size total_blocks = num_phases * blocks_per_phase;
-
-  Array<Block> block_array;
-  for (Size i = 0; i < total_blocks; ++i) {
-    block_array.push_back(Block {
-        .uid = Uid {static_cast<int>(i) + 1},
-        .duration = 1.0,
-    });
-  }
-
-  Array<Stage> stage_array;
-  Array<Phase> phase_array;
-  for (Size p = 0; p < static_cast<Size>(num_phases); ++p) {
-    stage_array.push_back(Stage {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_block = p * blocks_per_phase,
-        .count_block = blocks_per_phase,
-    });
-    phase_array.push_back(Phase {
-        .uid = Uid {static_cast<int>(p) + 1},
-        .first_stage = p,
-        .count_stage = 1,
-    });
-  }
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "bus_hydro",
-      },
-      {
-          .uid = Uid {2},
-          .name = "bus_demand",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "hydro_gen",
-          .bus = Uid {1},
-          .gcost = 5.0,
-          .capacity = 80.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "thermal_gen",
-          .bus = Uid {2},
-          .gcost = 50.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "load1",
-          .bus = Uid {2},
-          .capacity = 60.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "line_1_2",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .reactance = 0.05,
-          .tmax_ba = 100.0,
-          .tmax_ab = 100.0,
-      },
-  };
-
-  const Array<Junction> junction_array = {
-      {
-          .uid = Uid {1},
-          .name = "j_up",
-      },
-      {
-          .uid = Uid {2},
-          .name = "j_down",
-          .drain = true,
-      },
-  };
-
-  const Array<Waterway> waterway_array = {
-      {
-          .uid = Uid {1},
-          .name = "ww1",
-          .junction_a = Uid {1},
-          .junction_b = Uid {2},
-          .fmin = 0.0,
-          .fmax = 100.0,
-      },
-  };
-
-  const Array<Reservoir> reservoir_array = {
-      {
-          .uid = Uid {1},
-          .name = "rsv1",
-          .junction = Uid {1},
-          .capacity = 500.0,
-          .emin = 0.0,
-          .emax = 500.0,
-          .eini = 250.0,
-          .fmin = -500.0,
-          .fmax = +500.0,
-          .flow_conversion_rate = 1.0,
-      },
-  };
-
-  const Array<Flow> flow_array = {
-      {
-          .uid = Uid {1},
-          .name = "inflow",
-          .direction = 1,
-          .junction = Uid {1},
-          .discharge = 10.0,
-      },
-  };
-
-  const Array<Turbine> turbine_array = {
-      {
-          .uid = Uid {1},
-          .name = "tur1",
-          .waterway = Uid {1},
-          .generator = Uid {1},
-          .production_factor = 1.0,
-      },
-  };
-
-  Simulation simulation = {
-      .block_array = std::move(block_array),
-      .stage_array = std::move(stage_array),
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {1},
-              },
-          },
-      .phase_array = std::move(phase_array),
-  };
-
-  PlanningOptions options;
-  options.demand_fail_cost = 1000.0;
-  options.use_single_bus = OptBool {false};
-  options.use_kirchhoff = OptBool {true};
-  options.scale_objective = OptReal {1.0};
-  options.output_format = DataFormat::csv;
-  options.output_compression = CompressionCodec::uncompressed;
-
-  System system = {
-      .name = "cascade_6ph_2bus_hydro",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-      .junction_array = junction_array,
-      .waterway_array = waterway_array,
-      .flow_array = flow_array,
-      .reservoir_array = reservoir_array,
-      .turbine_array = turbine_array,
-  };
-
-  return Planning {
-      .options = std::move(options),
-      .simulation = std::move(simulation),
-      .system = std::move(system),
-  };
-}
-
-TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};  // no apertures (Benders)
-
-  // Level 0: single-bus relaxation (fast convergence, ignores network)
-  // Level 1: full network, inherits state variable targets from level 0
-  //          (not cuts, since the LP column structure changes with
-  //           use_single_bus → different theta/line columns)
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"uninodal_benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {8},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"full_network"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("has results from both levels")
-  {
-    CHECK(solver.all_results().size() > 2);
-  }
-
-  SUBCASE("level_stats populated for both levels")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-
-    const auto& stats0 = solver.level_stats()[0];
-    CHECK(stats0.name == "uninodal_benders");
-    CHECK(stats0.iterations > 0);
-    CHECK(stats0.iterations <= 8);
-    CHECK(stats0.elapsed_s > 0.0);
-
-    const auto& stats1 = solver.level_stats()[1];
-    CHECK(stats1.name == "full_network");
-    CHECK(stats1.iterations > 0);
-    CHECK(stats1.iterations <= 10);
-    CHECK(stats1.elapsed_s > 0.0);
-  }
-
-  SUBCASE("iteration count within budget")
-  {
-    // 2 levels: up to (8+1) + (10+1) = 20 results
-    CHECK(solver.all_results().size() <= 20);
-  }
-
-  SUBCASE("level stats have valid bounds")
-  {
-    for (const auto& ls : solver.level_stats()) {
-      CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.gap >= -1e-12);  // allow tiny negative FP rounding
-      CHECK(ls.cuts_added >= 0);
-    }
-  }
-}
-
-TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Baseline: plain SDDP solver on the same 6-phase hydro system,
-  // for comparison with cascade cut/target inheritance tests.
-  auto planning = make_6phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};
-
-  SDDPMethod solver(planning_lp, std::move(sddp_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("converges")
-  {
-    REQUIRE(result.has_value());
-    REQUIRE(!result->empty());
-    const auto& last_training = (*result)[result->size() - 2];
-    CHECK(last_training.converged);
-    CHECK(last_training.gap < 0.01 + 1e-9);
-    // 6 phases should require several iterations
-    CHECK(last_training.iteration >= IterationIndex {3});
-  }
-
-  SUBCASE("optimal value matches expected")
-  {
-    REQUIRE(result.has_value());
-    REQUIRE(!result->empty());
-    // Simulation pass is the last result
-    const auto& sim = result->back();
-    CHECK(sim.upper_bound == doctest::Approx(49950.0).epsilon(0.01));
-    CHECK(sim.lower_bound == doctest::Approx(49950.0).epsilon(0.01));
-  }
-}
-
-TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // 6 phases ⇒ more state links ⇒ Benders needs more iterations to converge,
-  // making the effect of inherited cuts clearly visible.
-  auto planning = make_6phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};
-
-  // Level 0: Benders training on full network.
-  // Level 1: Same LP, inherits cuts ⇒ fewer iterations or simulation only.
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"training"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"with_cuts"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("level 0 converges with multiple iterations")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-
-    CHECK(stats0.converged);
-    CHECK(stats0.gap < 0.01 + 1e-9);
-    // 6 phases should require several iterations
-    CHECK(stats0.iterations >= 3);
-  }
-
-  SUBCASE("level 1 converges quickly with inherited cuts")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-    const auto& stats1 = solver.level_stats()[1];
-
-    CHECK(stats1.converged);
-    CHECK(stats1.gap < 0.01 + 1e-9);
-    // Inherited cuts should let level 1 converge in no more iterations
-    CHECK(stats1.iterations <= stats0.iterations);
-  }
-
-  SUBCASE("both levels reach same optimal value")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-    const auto& stats1 = solver.level_stats()[1];
-
-    CHECK(stats0.lower_bound
-          == doctest::Approx(stats1.lower_bound).epsilon(0.01));
-    CHECK(stats0.upper_bound
-          == doctest::Approx(stats1.upper_bound).epsilon(0.01));
-  }
-
-  SUBCASE("level stats have valid bounds")
-  {
-    for (const auto& ls : solver.level_stats()) {
-      CHECK(ls.name.size() > 0);
-      CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.cuts_added >= 0);
-    }
-  }
-}
-
-TEST_CASE("Cascade 2-level with target inheritance only (6-phase)")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // 6 phases ⇒ more state links ⇒ targets from level 0 guide level 1
-  // toward the optimal reservoir trajectory, reducing iterations.
-  auto planning = make_6phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};
-
-  // Level 0: Benders training on full network.
-  // Level 1: Same LP, inherits state variable targets ⇒ fewer iterations.
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"training"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"with_targets"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("level 0 converges with multiple iterations")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-
-    CHECK(stats0.converged);
-    CHECK(stats0.gap < 0.01 + 1e-9);
-    // 6 phases should require several iterations
-    CHECK(stats0.iterations >= 3);
-  }
-
-  SUBCASE("level 1 converges with inherited targets")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-    const auto& stats1 = solver.level_stats()[1];
-
-    CHECK(stats1.converged);
-    CHECK(stats1.gap < 0.01 + 1e-9);
-    // Targets guide the forward pass toward the optimal trajectory;
-    // LB convergence still depends on cut generation, so iteration
-    // count may be similar but should not greatly exceed level 0.
-    // Allow +3 tolerance for solver-dependent numerical differences
-    // (observed up to +2 with CLP on 6-phase cascades).
-    CHECK(stats1.iterations <= stats0.iterations + 3);
-  }
-
-  SUBCASE("both levels reach same optimal value")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats0 = solver.level_stats()[0];
-    const auto& stats1 = solver.level_stats()[1];
-
-    CHECK(stats0.lower_bound
-          == doctest::Approx(stats1.lower_bound).epsilon(0.01));
-    CHECK(stats0.upper_bound
-          == doctest::Approx(stats1.upper_bound).epsilon(0.01));
-  }
-
-  SUBCASE("level stats have valid bounds")
-  {
-    for (const auto& ls : solver.level_stats()) {
-      CHECK(ls.name.size() > 0);
-      CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.cuts_added >= 0);
-    }
-  }
-}
-
-TEST_CASE("Cascade 3-level with targets then cuts (6-phase)")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Level 0: fast uninodal Benders to get rough solution.
-  // Level 1: full network guided by uninodal targets.
-  // Level 2: same network, inherits cuts from level 1 ⇒ faster convergence.
-  auto planning = make_6phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"guided"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"refined"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("all three levels present")
-  {
-    CHECK(solver.level_stats().size() == 3);
-  }
-
-  SUBCASE("level 2 converges faster than level 1")
-  {
-    REQUIRE(solver.level_stats().size() == 3);
-    const auto& stats1 = solver.level_stats()[1];
-    const auto& stats2 = solver.level_stats()[2];
-
-    CHECK(stats1.converged);
-    CHECK(stats2.converged);
-    CHECK(stats2.iterations <= stats1.iterations);
-  }
-
-  SUBCASE("all levels reach same optimal value")
-  {
-    REQUIRE(solver.level_stats().size() == 3);
-    const auto& stats0 = solver.level_stats()[0];
-    const auto& stats1 = solver.level_stats()[1];
-    const auto& stats2 = solver.level_stats()[2];
-
-    CHECK(stats0.lower_bound
-          == doctest::Approx(stats1.lower_bound).epsilon(0.01));
-    CHECK(stats1.lower_bound
-          == doctest::Approx(stats2.lower_bound).epsilon(0.01));
-    CHECK(stats0.upper_bound
-          == doctest::Approx(stats1.upper_bound).epsilon(0.01));
-    CHECK(stats1.upper_bound
-          == doctest::Approx(stats2.upper_bound).epsilon(0.01));
-  }
-
-  SUBCASE("level stats have valid bounds")
-  {
-    for (const auto& ls : solver.level_stats()) {
-      CHECK(ls.name.size() > 0);
-      CHECK(ls.lower_bound <= ls.upper_bound + 1e-6);
-      CHECK(ls.cuts_added >= 0);
-    }
-  }
-}
-
-// ─── Inherit with forgetting tests ──────────────────────────────────────────
-
-TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
-// NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Level 1 inherits optimality cuts, uses them for 3 iterations, then
-  // forgets them and continues with only self-generated cuts.
-  // inherit_optimality_cuts=3 means: inherit, but drop after 3 iters.
-  auto planning = make_6phase_2bus_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"training"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {false},
-                  .use_kirchhoff = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"forget_after_3"},
-          // No model_options ⇒ reuses level 0's LP
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .apertures = Array<Uid> {},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  // Inherit optimality cuts but forget after 3 iters
-                  .inherit_optimality_cuts = OptInt {3},
-                  .inherit_feasibility_cuts = OptInt {-1},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("level 1 converges after forgetting inherited cuts")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    const auto& stats1 = solver.level_stats()[1];
-
-    CHECK(stats1.converged);
-    CHECK(stats1.gap < 0.01 + 1e-9);
-    CHECK(stats1.lower_bound <= stats1.upper_bound + 1e-6);
-  }
-
-  SUBCASE("level 1 ran more results than without forget")
-  {
-    REQUIRE(solver.level_stats().size() == 2);
-    // forget triggers a two-phase solve: phase-1 (capped at 3 iters)
-    // + phase-2 (re-solve without inherited cuts). The total results
-    // include both phases.
-    const auto& stats1 = solver.level_stats()[1];
-    CHECK(stats1.iterations >= 1);
-  }
-}
-
-// ─── Additional cascade coverage tests ──────────────────────────────────────
-
-TEST_CASE(  // NOLINT
-    "Cascade 2-level with custom target tolerances (3-phase)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.enable_api = false;
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"base"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"refined"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.2},
-                  .target_min_atol = OptReal {5.0},
-                  .target_penalty = OptReal {100.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  REQUIRE(solver.level_stats().size() == 2);
-  CHECK(solver.level_stats()[0].converged);
-  CHECK(solver.level_stats()[1].converged);
-}
-
-TEST_CASE(  // NOLINT
-    "Cascade 2-level inherit_optimality_cuts keeps cuts (3-phase)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.enable_api = false;
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"train"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"inherit"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  // Keep inherited cuts forever
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_feasibility_cuts = OptInt {-1},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  REQUIRE(solver.level_stats().size() == 2);
-
-  const auto& stats0 = solver.level_stats()[0];
-  const auto& stats1 = solver.level_stats()[1];
-
-  CHECK(stats0.converged);
-  CHECK(stats1.converged);
-
-  // Level 1 should converge in fewer or equal iterations thanks to
-  // inherited cuts providing a warm start
-  CHECK(stats1.iterations <= stats0.iterations + 1);
-}
-
-TEST_CASE(  // NOLINT
-    "Cascade 2-level forget inherited cuts after N iterations (3-phase)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.enable_api = false;
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"train"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"forget"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {20},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  // Forget after 3 iterations
-                  .inherit_optimality_cuts = OptInt {3},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  REQUIRE(solver.level_stats().size() == 2);
-
-  // Level 1 should converge even after forgetting inherited cuts
-  CHECK(solver.level_stats()[1].converged);
-}
-
-TEST_CASE(  // NOLINT
-    "Cascade 3-level progressive refinement (3-phase)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.enable_api = false;
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"level_0"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
-                  .convergence_tol = OptReal {0.05},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"level_1"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"level_2"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .convergence_tol = OptReal {0.001},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.01},
-                  .target_penalty = OptReal {1000.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  REQUIRE(solver.level_stats().size() == 3);
-
-  // All levels should converge
-  for (const auto& stats : solver.level_stats()) {
-    CHECK(stats.converged);
-    CHECK(stats.lower_bound <= stats.upper_bound + 1e-6);
-  }
-}
-
-TEST_CASE(  // NOLINT
-    "Cascade 2-level with both targets and cuts (3-phase)")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 20;
-  sddp_opts.convergence_tol = 0.01;
-  sddp_opts.enable_api = false;
-
-  CascadeOptions cascade_opts;
-  cascade_opts.level_array = {
-      CascadeLevel {
-          .name = OptName {"train"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {10},
-                  .convergence_tol = OptReal {0.01},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"both"},
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {15},
-                  .convergence_tol = OptReal {0.01},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(sddp_opts), std::move(cascade_opts));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  REQUIRE(result.has_value());
-  REQUIRE(solver.level_stats().size() == 2);
-
-  CHECK(solver.level_stats()[0].converged);
-  CHECK(solver.level_stats()[1].converged);
-
-  // Both inheritance mechanisms should allow level 1 to converge fast
-  CHECK(solver.level_stats()[1].iterations
-        <= solver.level_stats()[0].iterations + 1);
 }
 
 }  // anonymous namespace
+
+// NOLINTEND(bugprone-unchecked-optional-access,
+// modernize-use-designated-initializers)

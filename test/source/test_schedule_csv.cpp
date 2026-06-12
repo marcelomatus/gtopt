@@ -1,13 +1,13 @@
 #include <cstdio>  // Para std::remove
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <doctest/doctest.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-namespace  // NOLINT
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 struct TestData
 {

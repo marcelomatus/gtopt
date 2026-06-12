@@ -1,0 +1,23 @@
+% Per-region accuracy for 2026-04-22 (Section 5.2)
+\begin{tabular}{l r r r r r}
+  \toprule
+  Region        & $n_{\mathrm{buses}}$ & $n_{\mathrm{cells}}$ &
+                  mean $|\Delta|$ & P90 $|\Delta|$ & max $|\Delta|$ \\
+                & & & USD/MWh & USD/MWh & USD/MWh \\
+  \midrule
+  north         &  3 &  258 & 0.144 & 0.465 & 1.006 \\
+  north-centre  &  2 &  172 & 0.150 & 0.513 & 1.088 \\
+  centre        &  8 &  688 & 0.136 & 0.413 & 1.150 \\
+  south-centre  &  5 &  430 & 0.170 & 0.529 & 1.338 \\
+  unknown       & 11 &  946 & 0.158 & 0.468 & 1.023 \\
+  \midrule
+  \textbf{ALL}  & \textbf{29} & \textbf{2494} & \textbf{0.152} & \textbf{0.471} & \textbf{1.338} \\
+  \bottomrule
+\end{tabular}
+\\[3pt]
+{\footnotesize $|\Delta| =
+|\hat\lambda_{b,t} - \lambda^{\mathrm{CEN}}_{b,t}|$ in
+USD/MWh.  ``Unknown'' captures the \num{16} additional aggregated
+backbone buses whose substation-name heuristic does not classify
+into a named region; their statistics are essentially indistinguishable
+from the mean.}

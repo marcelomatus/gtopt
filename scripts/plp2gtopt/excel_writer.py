@@ -106,9 +106,8 @@ _SIM_SHEETS = [
 _SYS_SHEETS = [
     "bus_array",
     "generator_array",
-    "generator_profile_array",
+    "capacity_profile_array",
     "demand_array",
-    "demand_profile_array",
     "line_array",
     "battery_array",
     "converter_array",
@@ -153,9 +152,13 @@ _INTRO_LINES: list[tuple] = [
     ("scene_array", "Simulation", "SDDP scenes (groups of scenarios)", "TABLE"),
     ("bus_array", "System", "Electrical buses (nodes)", "TABLE"),
     ("generator_array", "System", "Generators (thermal, hydro, renewable)", "TABLE"),
-    ("generator_profile_array", "System", "Capacity-factor profiles", "TABLE"),
+    (
+        "capacity_profile_array",
+        "System",
+        "Kind-tagged capacity-factor profiles (owner_kind = generator | demand)",
+        "TABLE",
+    ),
     ("demand_array", "System", "Electricity consumers (loads)", "TABLE"),
-    ("demand_profile_array", "System", "Load-shape profiles", "TABLE"),
     ("line_array", "System", "Transmission lines", "TABLE"),
     ("battery_array", "System", "Energy storage devices", "TABLE"),
     ("converter_array", "System", "Battery charge/discharge converters", "TABLE"),
@@ -240,17 +243,26 @@ def _records_to_df(records: list[dict], sheet_name: str) -> pd.DataFrame:
 def _flatten_options(planning_options: dict) -> list[tuple[str, Any]]:
     """Flatten the planning options dict to (key, value) pairs for the options sheet.
 
-    Nested dicts (like sddp_options) are flattened with their sub-keys.
+    Nested dicts (like ``sddp_options``) are flattened with their sub-keys.
+    Deeply nested dicts (e.g. ``cascade_options.levels[i].model_options``)
+    are JSON-stringified so Excel can render them in one cell.
     """
+    import json as _json  # noqa: PLC0415
+
     pairs: list[tuple[str, Any]] = []
     for key, val in planning_options.items():
         if isinstance(val, dict):
             for sub_key, sub_val in val.items():
-                if sub_val is not None:
+                if sub_val is None:
+                    continue
+                if isinstance(sub_val, (dict, list)):
+                    pairs.append((sub_key, _json.dumps(sub_val)))
+                else:
                     pairs.append((sub_key, sub_val))
-        else:
-            if val is not None:
-                pairs.append((key, val))
+        elif isinstance(val, list):
+            pairs.append((key, _json.dumps(val)))
+        elif val is not None:
+            pairs.append((key, val))
     return pairs
 
 
@@ -319,13 +331,14 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("buses", len(sys.get("bus_array", [])), "", "TABLE"),
         ("generators", len(sys.get("generator_array", [])), "", "TABLE"),
         (
-            "generator_profiles",
-            len(sys.get("generator_profile_array", [])),
+            "capacity_profiles",
+            len(sys.get("capacity_profile_array", []))
+            + len(sys.get("generator_profile_array", []))
+            + len(sys.get("demand_profile_array", [])),
             "",
             "TABLE",
         ),
         ("demands", len(sys.get("demand_array", [])), "", "TABLE"),
-        ("demand_profiles", len(sys.get("demand_profile_array", [])), "", "TABLE"),
         ("lines", len(sys.get("line_array", [])), "", "TABLE"),
         ("batteries", len(sys.get("battery_array", [])), "", "TABLE"),
         ("converters", len(sys.get("converter_array", [])), "", "TABLE"),
@@ -368,7 +381,7 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("Key Options", "HEADING"),
         ("option", "value", "", "TABLE_HEADER"),
         ("input_dir", input_dir, "", "TABLE"),
-        ("solver_type", str(options.get("solver_type", "sddp")), "", "TABLE"),
+        ("method", str(options.get("method", "sddp")), "", "TABLE"),
         ("hydrologies", str(options.get("hydrologies", "1")), "", "TABLE"),
         ("discount_rate", str(options.get("discount_rate", 0.0)), "", "TABLE"),
         ("use_single_bus", str(mo.get("use_single_bus", False)), "", "TABLE"),
@@ -376,11 +389,10 @@ def _add_plpinfo_sheet(ws: Any, planning: dict, options: dict, styles: dict) -> 
         ("demand_fail_cost", str(mo.get("demand_fail_cost", 1000)), "", "TABLE"),
         (
             "scale_objective",
-            str(mo.get("scale_objective", 10_000_000)),
+            str(mo.get("scale_objective", 1_000)),
             "",
             "TABLE",
         ),
-        ("scale_theta", str(mo.get("scale_theta", 0.0001)), "", "TABLE"),
     ]
 
     for row_idx, entry in enumerate(sections, start=1):

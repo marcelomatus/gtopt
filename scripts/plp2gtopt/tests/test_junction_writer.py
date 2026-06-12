@@ -12,6 +12,12 @@ from ..aflce_parser import AflceParser
 from ..cenre_parser import CenreParser
 from ..cenfi_parser import CenfiParser
 
+# Legacy options dict: opts back into the pre-default-suppress regime so
+# tests asserting the historical ``_ver`` waterway shape keep their meaning.
+# Tests covering the new default (``drop_spillway_waterway = True``) live
+# in ``test_drop_spillway_waterway.py``.
+_LEGACY_OPTS = {"drop_spillway_waterway": False}
+
 # Mocks for parsers
 
 
@@ -240,7 +246,7 @@ def test_to_json_array_single_plant():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     assert len(result["junction_array"]) == 1
@@ -269,7 +275,24 @@ def test_to_json_array_single_plant():
 
 
 def test_drain_junction():
-    """Test that a junction is marked as drain if it has no downstream connections."""
+    """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
+    capacity rides a ``_ver`` waterway to a synthetic ``<central>_ocean``
+    drain junction (the genuine basin exit), while the gen path uses the
+    built-in Turbine waterway (``Turbine.junction_a``).
+
+    Mass conservation: the central's OWN junction is a pure balance node
+    (``drain = False``, no ``drain_capacity`` / ``drain_cost``) — water
+    can only leave via the turbine (power) or the ``_ver`` arc (spill to
+    the ocean drain).  This is the LMAULE-class fix: a reservoir /
+    pass-through node never owns a free escape valve.
+
+    Two LP outlets:
+
+    * **Turbine.junction_a** (debit, capped at ``PotMax / Rendi``) — the
+      power-producing path.
+    * **``PlantDrain_ver`` waterway → ``PlantDrain_ocean`` drain** (capped
+      at ``VertMax``, priced at ``CVert``) — the spillway path.
+    """
     central = {
         "name": "PlantDrain",
         "number": 5,
@@ -285,20 +308,38 @@ def test_drain_junction():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Serie with ser_hid=0 gets ocean junction for hydro topology
-    assert len(result["junction_array"]) == 2
-    plant_junction = next(
-        j for j in result["junction_array"] if j["name"] == "PlantDrain"
-    )
+    # Central's own junction + a synthetic ocean drain.
+    junctions = {j["name"]: j for j in result["junction_array"]}
+    assert set(junctions) == {"PlantDrain", "PlantDrain_ocean"}
+    plant_junction = junctions["PlantDrain"]
     assert plant_junction["uid"] == 5
-    assert plant_junction["drain"] is True
-    ocean_junction = next(j for j in result["junction_array"] if "ocean" in j["name"])
-    assert ocean_junction["drain"] is True
-    # Gen waterway to ocean should exist
+    # Mass-conserving balance node: never a drain, never drain_capacity.
+    assert plant_junction["drain"] is False
+    assert "drain_capacity" not in plant_junction
+    assert "drain_cost" not in plant_junction
+    # Only the synthetic ocean node drains.
+    ocean = junctions["PlantDrain_ocean"]
+    assert ocean["drain"] is True
+
+    # The spillway is now a real ``_ver`` waterway PlantDrain → ocean,
+    # capped at VertMax.
     assert len(result["waterway_array"]) == 1
+    ver = result["waterway_array"][0]
+    assert ver["name"].startswith("PlantDrain_ver")
+    assert ver["junction_a"] == "PlantDrain"
+    assert ver["junction_b"] == "PlantDrain_ocean"
+    assert ver["fmax"] == pytest.approx(50.0)
+
+    # Terminal turbine uses the built-in waterway form.
+    turbines = result["turbine_array"]
+    assert len(turbines) == 1
+    assert turbines[0]["name"] == "PlantDrain"
+    assert turbines[0]["junction_a"] == "PlantDrain"
+    assert "waterway" not in turbines[0]
+    assert "junction_b" not in turbines[0]
 
 
 def test_no_turbine_creation():
@@ -318,11 +359,31 @@ def test_no_turbine_creation():
         "type": "serie",
     }
     central_parser = MockCentralParser([central])
-    writer = JunctionWriter(central_parser=central_parser)
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
     assert len(result["turbine_array"]) == 0
-    assert len(result["waterway_array"]) == 1
+    # Two waterways: `_gen` (to junction 7) and `_ver` (spill to the
+    # synthetic ``PlantNoBus_ocean`` drain).  Mass conservation: the
+    # source junction itself never drains — the spill leaves only via
+    # the ``_ver`` arc to the ocean node.
+    waterway_names = sorted(w["name"] for w in result["waterway_array"])
+    assert len(waterway_names) == 2
+    assert any(n.startswith("PlantNoBus_ver") for n in waterway_names)
+    junctions = {j["name"]: j for j in result["junction_array"]}
+    src = junctions["PlantNoBus"]
+    assert src["drain"] is False
+    assert "drain_capacity" not in src
+    assert "drain_cost" not in src
+    # Only the synthetic ocean node drains.
+    assert junctions["PlantNoBus_ocean"]["drain"] is True
+    # The _ver arc carries the VertMax cap that used to live on the
+    # (wrongly drained) source junction.
+    ver = next(
+        w for w in result["waterway_array"] if w["name"].startswith("PlantNoBus_ver")
+    )
+    assert ver["junction_b"] == "PlantNoBus_ocean"
+    assert ver["fmax"] == pytest.approx(50.0)
 
 
 def test_process_reservoirs(reservoir_parser):
@@ -373,7 +434,9 @@ def test_process_extractions(sample_extrac_parser):
     central_parser = MockCentralParser(centrals)
 
     writer = JunctionWriter(
-        central_parser=central_parser, extrac_parser=sample_extrac_parser
+        central_parser=central_parser,
+        extrac_parser=sample_extrac_parser,
+        options=_LEGACY_OPTS,
     )
     result = writer.to_json_array()[0]
 
@@ -421,23 +484,43 @@ def test_get_plant_flow_with_aflce(sample_aflce_parser):
 def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_parser):
     """Test a more complex scenario with multiple plants and extractions."""
     writer = JunctionWriter(
-        central_parser=sample_central_parser, extrac_parser=sample_extrac_parser
+        central_parser=sample_central_parser,
+        extrac_parser=sample_extrac_parser,
+        options=_LEGACY_OPTS,
     )
     result = writer.to_json_array()[0]
 
-    # PlantA + PlantB + PlantC junctions + 2 ocean junctions
-    # PlantC (serie, bus=0, ser_hid=0, ser_ver=0) is kept because PlantA's
-    # ser_ver=3 references PlantC as a downstream drain junction.
-    assert len(result["junction_array"]) == 5
+    # PlantA + PlantB + PlantC junctions + 1 ocean junction (PlantC only).
+    # PlantB used to need a synthetic ``PlantB_ocean`` for its terminal
+    # gen path; with the built-in ``Turbine.junction_a`` waterway the
+    # turbine debits PlantB directly and no ocean junction is needed.
+    # PlantC stays as bus=0 transit-only (no turbine), so its gen path
+    # still routes to a synthetic ``PlantC_ocean`` because we cannot
+    # elide a Waterway with attached transit-only flow bounds.
+    assert len(result["junction_array"]) == 4
 
-    # PlantA: gen+ver (2), PlantB: gen(ocean)+ver (2),
-    # PlantC: gen(ocean) (1), extraction (1) = 6
+    # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
+    # PlantB: ver (in-network → PlantC) only — gen path moved to
+    #   built-in Turbine waterway (no Waterway).
+    # PlantC (bus=0): gen(ocean) + ver(ocean) = 2 — the spill is now a
+    #   real ``PlantC_ver`` arc to the shared ``PlantC_ocean`` drain
+    #   (mass conservation), no longer a junction-level drain on PlantC.
+    # plus 1 extraction = 6 total.
     assert len(result["waterway_array"]) == 6
+    # PlantC's own junction is a pure balance node — its spill leaves via
+    # the ``PlantC_ver`` arc to the ocean drain, not a self-drain.
+    plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
+    assert plantc["drain"] is False
+    assert "drain_capacity" not in plantc
+    plantc_ocean = next(
+        j for j in result["junction_array"] if j["name"] == "PlantC_ocean"
+    )
+    assert plantc_ocean["drain"] is True
 
     # PlantA (bus=101) + PlantB (bus=102) = 2 turbines (PlantC bus=0, no turbine)
     assert len(result["turbine_array"]) == 2
 
-    # 2 flows: PlantA + PlantC (PlantC kept as drain sink)
+    # 2 flows: PlantA + PlantC (PlantC's afluent still injects at its junction)
     assert len(result["flow_array"]) == 2
 
 
@@ -730,39 +813,59 @@ def _rapel_parser() -> MockCentralParser:
 
 
 def test_embalse_ocean_junction_created():
-    """An embalse with bus>0 and ser_hid/ser_ver==0 gets a '<name>_ocean' drain junction."""
+    """Embalse (bus>0, ser_hid/ser_ver=0): the spillway needs a drain.
+
+    The terminal turbine uses the built-in ``Turbine.junction_a``
+    waterway (no ``<name>_gen`` Waterway, no gen-side ocean junction),
+    but the spillway (``ser_ver = 0``, ``VertMax > 0``) must dispose of
+    surplus water at a genuine basin exit — a synthetic ``RAPEL_ocean``
+    drain junction reached by an explicit ``RAPEL_ver`` waterway.  Mass
+    is conserved: the spill is never teleported out of RAPEL's own node.
+    """
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
     ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
     assert len(ocean_junctions) == 1
-    ocean = ocean_junctions[0]
-    assert ocean["name"] == "RAPEL_ocean"
-    assert ocean["drain"] is True
-    assert ocean["uid"] > 10000  # above _OCEAN_UID_OFFSET
+    assert ocean_junctions[0]["name"] == "RAPEL_ocean"
+    assert ocean_junctions[0]["drain"] is True
 
 
 def test_embalse_ocean_junction_waterways_created():
-    """Only the generation waterway is created to the ocean junction.
+    """Gen path is on the Turbine; spill rides a ``_ver`` arc to the ocean.
 
-    The spillway (ser_ver=0) is handled by drain=True on the central junction,
-    not by a separate waterway to the ocean junction.
+    * gen via ``Turbine.junction_a`` (built-in waterway, no gen ocean arc)
+    * spill via an explicit ``RAPEL_ver`` waterway → ``RAPEL_ocean`` drain
+      (per-flow cap = VertMax) — mass-conserving, never a self-drain.
     """
-    writer = JunctionWriter(central_parser=_rapel_parser())
+    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Only ONE waterway should point to the ocean junction (gen, not ver)
-    to_ocean = [w for w in result["waterway_array"] if w["junction_b"] == "RAPEL_ocean"]
+    # The spillway terminates at the synthetic ocean drain.
+    to_ocean = [
+        w for w in result["waterway_array"] if w["junction_b"].endswith("_ocean")
+    ]
     assert len(to_ocean) == 1
-    assert to_ocean[0]["junction_a"] == "RAPEL"
+    ver = to_ocean[0]
+    assert ver["name"].startswith("RAPEL_ver")
+    assert ver["junction_a"] == "RAPEL"
+    assert ver["junction_b"] == "RAPEL_ocean"
+    assert ver["fmax"] == pytest.approx(6000.0)
 
-    # The RAPEL junction itself must be a drain (handles the missing spillway)
+    # The RAPEL source junction is a pure balance node — no self-drain.
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is True
+    assert rapel_junction["drain"] is False
+    assert "drain_capacity" not in rapel_junction
+    assert "drain_cost" not in rapel_junction
 
 
 def test_embalse_ocean_junction_turbine_created():
-    """A turbine is created for the embalse via the generation waterway to ocean."""
+    """The terminal embalse turbine uses ``Turbine.junction_a`` (built-in waterway).
+
+    No synthetic ``<central>_ocean`` Junction, no ``<central>_gen``
+    Waterway — the Turbine debits the embalse's own junction directly
+    and drains terminal-style (``junction_b`` unset).
+    """
     writer = JunctionWriter(central_parser=_rapel_parser())
     result = writer.to_json_array()[0]
 
@@ -771,9 +874,9 @@ def test_embalse_ocean_junction_turbine_created():
     assert turbine["name"] == "RAPEL"
     assert turbine["generator"] == "RAPEL"
     assert turbine["production_factor"] == pytest.approx(0.9)
-    # The turbine's waterway must terminate at the ocean junction
-    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
-    assert ww["junction_b"] == "RAPEL_ocean"
+    assert turbine["junction_a"] == "RAPEL"
+    assert "waterway" not in turbine
+    assert "junction_b" not in turbine
 
 
 def test_embalse_ocean_junction_enables_efficiency():
@@ -831,10 +934,12 @@ def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
     writer = JunctionWriter(central_parser=_make_hydro_parser())
     result = writer.to_json_array()[0]
 
-    # Dam1 has bus=0 and ser_hid=0 → ocean junction created for hydro topology
-    ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
-    assert len(ocean_junctions) == 1
-    assert ocean_junctions[0]["drain"] is True
+    # Dam1 has bus=0, ser_hid=0, ser_ver=0 → one synthetic ocean drain
+    # is created and shared between the `_gen` and `_ver` arcs (post-merge
+    # of the historical separate `_spill` + `_ocean` drains).
+    dam1_drains = [j for j in result["junction_array"] if j["name"] == "Dam1_ocean"]
+    assert len(dam1_drains) == 1
+    assert dam1_drains[0]["drain"] is True
 
     # Generation waterway to ocean should exist
     dam1_gen_ww = [
@@ -848,27 +953,39 @@ def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
 
 
 def test_embalse_no_ver_waterway_junction_is_drain():
-    """Embalse with ser_ver==0 has drain=True on its own junction.
+    """Embalse with ser_ver==0 spills via a ``_ver`` arc to an ocean drain.
 
-    This covers the case where the spillway has no downstream modelled
-    junction (discharges to sea).  No separate spillway waterway is needed;
-    the central junction itself acts as a drain so the optimiser can spill
-    excess water out of the system.
+    Pre-86616b80 the spillway (ser_ver=0) was modelled by ``drain=True``
+    on the central's own junction with no bound or cost — that
+    free-drain shortcut caused LMAULE / RALCO cascade infeasibilities.
+    The mass-conserving fix routes the spill via an explicit ``_ver``
+    arc to a synthetic ``<central>_ocean`` drain Junction with
+    ``fmax = VertMax`` / ``fcost = CVert``.  The reservoir's own node
+    stays a pure balance node (no self-drain), so the LP cannot teleport
+    storage out of the reservoir.
     """
-    # RAPEL has ser_ver=0 → its junction must be drain=True
-    writer = JunctionWriter(central_parser=_rapel_parser())
+    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
+    # RAPEL itself does not drain.
     rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is True
+    assert rapel_junction["drain"] is False
+    assert "drain_capacity" not in rapel_junction
 
-    # No spillway waterway should exist (no ver waterway to ocean)
-    ver_wws = [
+    # The spill leaves only via the ``_ver`` arc to the ocean drain,
+    # capped at VertMax.
+    ver = next(
         w
         for w in result["waterway_array"]
-        if w.get("name", "").endswith("_ver_63_") or "ver" in w.get("name", "")
-    ]
-    assert ver_wws == []
+        if w["junction_b"] == "RAPEL_ocean" and w["name"].startswith("RAPEL_ver")
+    )
+    assert ver["fmax"] == pytest.approx(6000.0)
+    # fcost is omitted when the test parser has no plpmat (no CVert).
+    assert "fcost" not in ver
+
+    # Exactly one `_ver` arc exists — the spill-to-ocean waterway.
+    ver_ww = [w for w in result["waterway_array"] if w["name"].startswith("RAPEL_ver")]
+    assert len(ver_ww) == 1
 
 
 def test_embalse_with_ver_waterway_junction_not_drain():
@@ -891,7 +1008,10 @@ def test_embalse_with_ver_waterway_junction_not_drain():
         "emin": 0.0,
         "emax": 500.0,
     }
-    writer = JunctionWriter(central_parser=MockCentralParser([central]))
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]),
+        options=_LEGACY_OPTS,
+    )
     result = writer.to_json_array()[0]
 
     cipreses_junction = next(
@@ -1051,3 +1171,621 @@ def test_embalse_bus_zero_never_skipped():
     # Embalse always creates junction + reservoir
     assert len(result["junction_array"]) >= 1
     assert len(result["reservoir_array"]) == 1
+
+
+# Tests for _spillway_fields — spillway_cost / spillway_capacity logic.
+# Mirrors PLP's two-tier spill model: per-block qv_k bounded by VertMax in
+# plpcnfce.dat, and stage-level qrb costed at Costo de Rebalse from
+# plpvrebemb.dat (ELTORO is hard-killed because filtration absorbs all
+# overspill in practice).
+
+
+class _MockVrebembParser:
+    """Minimal stand-in for VrebembParser in spillway tests."""
+
+    def __init__(self, costs: Dict[str, float]):
+        self._costs = costs
+
+    def get_cost(self, name: str) -> Optional[float]:
+        return self._costs.get(name)
+
+
+class _MockPlpmatParser:
+    """Minimal stand-in for PlpmatParser exposing only ``vert_cost``."""
+
+    def __init__(self, vert_cost: float):
+        self.vert_cost = vert_cost
+
+
+def _make_jw(
+    *,
+    vrebemb: Optional[_MockVrebembParser] = None,
+    plpmat: Optional[_MockPlpmatParser] = None,
+) -> JunctionWriter:
+    """Build a JunctionWriter wired only with the parsers under test."""
+    return JunctionWriter(
+        central_parser=MockCentralParser([]),
+        vrebemb_parser=vrebemb,
+        plpmat_parser=plpmat,
+    )
+
+
+def test_spillway_in_vrebemb_disables_drain_teleport():
+    """LMAULE-style: in plpvrebemb.dat → ``reservoir_drain`` teleport disabled
+    (capacity=0); the rebalse penalty now lives on the ``_ver`` waterway as
+    ``fcost``.  ``spillway_cost`` is still emitted so the field round-trips
+    through JSON unchanged but has no LP effect on a 0-capacity drain.
+    """
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields == {"spillway_cost": 5000.0, "spillway_capacity": 0.0}
+
+
+def test_spillway_in_vrebemb_eltoro_disables_drain_teleport():
+    """ELTORO is in plpvrebemb.dat → drain teleport disabled (cap=0).
+
+    Previously this case relied on a hard-coded ``_DRAIN_KILLED_RESERVOIRS``
+    override; the physical-_ver model removes the need for that override
+    because the spill path is naturally costed at ``rebalse_cost`` via the
+    waterway ``fcost``.
+    """
+    jw = _make_jw(vrebemb=_MockVrebembParser({"ELTORO": 5000.0}))
+    fields = jw._spillway_fields("ELTORO", {"vert_max": 0.0})
+    assert fields["spillway_capacity"] == 0.0
+    assert fields["spillway_cost"] == 5000.0
+
+
+def test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax():
+    """Non-rebalse reservoir → ``spillway_capacity = 1e30`` regardless of
+    VertMax.
+
+    The earlier behaviour read ``VertMax`` as the per-block cap and pinned
+    ``spillway_capacity = VertMax`` (0 honoured, missing fell back to 6000).
+    PLP's actual semantics: ``qe*`` per-block spill is **always Free** —
+    only the gen path and the per-stage rebalse aggregator are capped.
+    Mirroring that, gtopt now sets ``spillway_capacity = +1e30``
+    (effective infinity sentinel, clamped to solver infinity at flatten
+    time) and lets ``spillway_cost = CVert`` keep the LP from spilling
+    gratuitously when generation is more economic.
+    """
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 0.0})
+    assert fields["spillway_capacity"] == 1.0e30
+    assert fields["spillway_cost"] == 0.01
+
+
+def test_spillway_not_in_vrebemb_missing_vertmax_falls_back_to_unbounded():
+    """If VertMax field is *absent* (None) — same effective-infinity capacity.
+
+    See ``test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax`` for
+    the rationale: PLP's ``qe*`` is always Free, so capacity is now
+    uniformly unbounded for non-rebalse reservoirs regardless of how
+    ``VertMax`` is encoded in the source data.
+    """
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    fields = jw._spillway_fields("RUNOFRIVER", {})
+    assert fields["spillway_capacity"] == 1.0e30
+    assert fields["spillway_cost"] == 0.01
+
+
+def test_spillway_cost_falls_back_to_one_when_no_plpmat():
+    """No plpmat parser at all → legacy 1.0 cost fallback (last resort).
+
+    Capacity is set to gtopt's effective-infinity sentinel (1e30) per the
+    refactor that makes per-block spill always Free; only the cost path
+    differs based on plpmat availability.
+    """
+    jw = _make_jw()
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields == {"spillway_cost": 1.0, "spillway_capacity": 1.0e30}
+
+
+def test_spillway_cost_falls_back_to_one_when_cvert_is_zero():
+    """plpmat present but CVert=0 → still fall back to 1.0 (zero is meaningless)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.0))
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields["spillway_cost"] == 1.0
+
+
+def test_spillway_vrebemb_takes_precedence_over_plpmat():
+    """When both parsers report a cost, plpvrebemb wins (per-embalse > global)."""
+    jw = _make_jw(
+        vrebemb=_MockVrebembParser({"LMAULE": 5000.0}),
+        plpmat=_MockPlpmatParser(vert_cost=0.01),
+    )
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields["spillway_cost"] == 5000.0
+
+
+# ── --auto-water-fail-cost gating on spillway_cost ───────────────────────────
+# When the unified water-shortfall resolver is active, the drain-teleport
+# spillway_cost becomes redundant overhead — pricing now lives on
+# Reservoir.efin_cost / soft_emin_cost.  The gating zeros it out.
+
+
+class _MockWaterValueResolver:
+    """Mock the small subset of WaterValueResolver consumed by spillway gating."""
+
+    def __init__(self, *, is_active: bool):
+        self.is_active = is_active
+
+
+def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
+    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost).
+
+    With both ``spillway_cost`` and ``spillway_capacity`` collapsed to 0
+    the drain teleport contributes nothing to the LP, so
+    ``_spillway_fields`` omits both keys entirely (gtopt's
+    ``storage_lp.cpp`` only creates the drain column when
+    ``spillway_cost`` is set; with the field absent no column is
+    allocated, saving one LP variable per (scene, stage, block) per
+    reservoir that the LP would have presolved away).
+    """
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert not fields
+
+
+def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
+    """non-vrebemb central + resolver active → spillway_cost = 0 (was CVert)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 1.0e30}
+
+
+def test_spillway_cost_unchanged_when_resolver_inactive():
+    """resolver present but inactive → legacy cost path preserved exactly."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=False)
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert fields["spillway_cost"] == 5000.0
+
+
+def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
+    """--vrebemb-as-sink alone (without --auto-water-fail-cost) also zeros
+    the drain-teleport spillway_cost for vrebemb centrals.  Aligns with
+    the flag's design intent of dropping every vrebemb-derived cost.
+
+    The zero-cost / zero-capacity combination triggers the no-op
+    omission described on the ``--auto-water-fail-cost`` test above:
+    no LP column is created (gtopt drops the drain when
+    ``spillway_cost`` is absent).
+    """
+    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
+    jw._vrebemb_as_sink = True
+    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    assert not fields
+
+
+def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():
+    """--vrebemb-as-sink does not affect non-vrebemb centrals (CVert path)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    jw._vrebemb_as_sink = True
+    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
+    assert fields["spillway_cost"] == 0.01  # CVert preserved
+
+
+# ── _process_cenpmax tests (plpcenpmax.dat → ReservoirProductionFactor) ──────
+
+
+class _MockCenpmaxParser:
+    """Minimal stand-in for CenpmaxParser in _process_cenpmax tests.
+
+    Exposes the ``pmax_curves`` attribute consumed by the writer without
+    requiring a real plpcenpmax.dat file on disk.
+    """
+
+    def __init__(self, pmax_curves: List[Dict[str, Any]]):
+        self.pmax_curves = pmax_curves
+
+
+def _make_ralco_parser() -> MockCentralParser:
+    """Return a MockCentralParser with a RALCO-like embalse + turbine.
+
+    The reservoir sits on its own junction (``RALCO_dam``) and the turbine
+    (``RALCO``) drains it via a generation waterway.  RALCO's PotMax=690 MW
+    and efficiency=1.518 MW/(m³/s) yield a physical flow cap of
+    690 / 1.518 = 454.5 m³/s.
+    """
+    return MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,
+                "pmin": 0,
+                "pmax": 0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 0.0,
+                "ser_hid": 11,  # feeds RALCO turbine
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+            {
+                "name": "RALCO",
+                "number": 11,
+                "type": "serie",
+                "bus": 20,
+                "pmin": 0,
+                "pmax": 690.0,
+                "vert_min": 0,
+                "vert_max": 0,
+                "efficiency": 1.518,
+                "ser_hid": 12,
+                "ser_ver": 0,
+                "afluent": 0.0,
+            },
+        ]
+    )
+
+
+def test_cenpmax_emits_production_factor():
+    """Cenpmax curve emits a scaled PF entry and pins waterway fmax."""
+    central_parser = _make_ralco_parser()
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 409.4, "slope": 0.4616, "constant": 339.83},
+                    {"volume": 480.0, "slope": 0.3734, "constant": 382.17},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+
+    # One PF entry emitted from the cenpmax curve
+    pfac_arr = result["reservoir_production_factor_array"]
+    assert len(pfac_arr) == 1
+    pf = pfac_arr[0]
+    assert pf["turbine"] == "RALCO"
+    assert pf["reservoir"] == "RALCO_dam"
+    assert pf["name"] == "RALCO_dam_pmax_pfac_1"
+    assert pf["mean_production_factor"] == pytest.approx(1.518)
+
+    # Physical flow cap = 690 / 1.518 = 454.5 m³/s
+    flow_ref = 690.0 / 1.518
+    assert pf["segments"][0]["volume"] == pytest.approx(409.4)
+    assert pf["segments"][0]["slope"] == pytest.approx(0.4616 / flow_ref)
+    assert pf["segments"][0]["constant"] == pytest.approx(339.83 / flow_ref)
+    assert pf["segments"][1]["volume"] == pytest.approx(480.0)
+    assert pf["segments"][1]["slope"] == pytest.approx(0.3734 / flow_ref)
+    assert pf["segments"][1]["constant"] == pytest.approx(382.17 / flow_ref)
+
+    # Turbine's gen-waterway fmax was pinned to the physical flow cap
+    turbine = next(t for t in result["turbine_array"] if t["name"] == "RALCO")
+    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
+    assert ww["fmax"] == pytest.approx(flow_ref)
+
+
+def test_cenpmax_missing_central_skips(caplog):
+    """Cenpmax entry for an unknown central is skipped with a warning."""
+    central_parser = _make_ralco_parser()
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "GHOST",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 0.0, "slope": 0.1, "constant": 1.0},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenpmax_parser=cenpmax,
+    )
+    with caplog.at_level(logging.WARNING):
+        result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+    assert any("GHOST" in rec.getMessage() for rec in caplog.records)
+
+
+def test_cenpmax_zero_pot_max_skips(caplog):
+    """Central with pmax=0 or efficiency=0 is skipped (flow_ref undefined)."""
+    centrals = MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,
+                "pmin": 0,
+                "pmax": 0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 0.0,
+                "ser_hid": 11,
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+            {
+                "name": "BROKEN",
+                "number": 11,
+                "type": "serie",
+                "bus": 20,
+                "pmin": 0,
+                "pmax": 0.0,  # zero pmax → skip
+                "vert_min": 0,
+                "vert_max": 0,
+                "efficiency": 1.5,
+                "ser_hid": 12,
+                "ser_ver": 0,
+                "afluent": 0.0,
+            },
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "BROKEN",
+                "reservoir": "RALCO_dam",
+                "segments": [{"volume": 0.0, "slope": 0.1, "constant": 1.0}],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=centrals,
+        cenpmax_parser=cenpmax,
+    )
+    with caplog.at_level(logging.WARNING):
+        result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+    assert any("BROKEN" in rec.getMessage() for rec in caplog.records)
+
+
+def test_cenpmax_no_turbine_skips():
+    """Central with bus<=0 has no turbine; cenpmax entry is skipped silently."""
+    centrals = MockCentralParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "number": 10,
+                "type": "embalse",
+                "bus": 0,  # no turbine → cannot pin waterway fmax
+                "pmin": 0,
+                "pmax": 100.0,
+                "vert_min": 0,
+                "vert_max": 50,
+                "efficiency": 1.5,
+                "ser_hid": 0,
+                "ser_ver": 0,
+                "afluent": 0.0,
+                "vol_ini": 500.0,
+                "vol_fin": 450.0,
+                "emin": 100.0,
+                "emax": 1000.0,
+            },
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO_dam",
+                "reservoir": "RALCO_dam",
+                "segments": [{"volume": 0.0, "slope": 0.1, "constant": 1.0}],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=centrals,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+    assert result["reservoir_production_factor_array"] == []
+
+
+def test_cenpmax_coexists_with_cenre():
+    """When plpcenre + plpcenpmax both define a PF curve, they are merged
+    into a single MIN-envelope curve (not emitted as two separate entries).
+    """
+    central_parser = _make_ralco_parser()
+    cenre = MockCenreParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "mean_production_factor": 1.518,
+                "segments": [
+                    {"volume": 0.0, "slope": 0.0003, "constant": 1.2},
+                ],
+            }
+        ]
+    )
+    cenpmax = _MockCenpmaxParser(
+        [
+            {
+                "name": "RALCO",
+                "reservoir": "RALCO_dam",
+                "segments": [
+                    {"volume": 409.4, "slope": 0.4616, "constant": 339.83},
+                ],
+            }
+        ]
+    )
+    writer = JunctionWriter(
+        central_parser=central_parser,
+        cenre_parser=cenre,
+        cenpmax_parser=cenpmax,
+    )
+    result = writer.to_json_array()[0]
+    pfac_arr = result["reservoir_production_factor_array"]
+    # MIN envelope merge: exactly one entry replacing both sources
+    assert len(pfac_arr) == 1
+    assert pfac_arr[0]["reservoir"] == "RALCO_dam"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# PLP "no limit" sentinel handling on PotMax / VertMax
+# (re-introduced + extended from commit 8d1fff9b after the 86616b80 refactor;
+# see junction_writer.py: _is_plp_no_limit, _PLP_NO_LIMIT_SENTINEL).
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def test_is_plp_no_limit_helper():
+    """The threshold predicate matches the documented 9000 m³/s cutoff.
+
+    Real Chilean spillway / generator caps are at most a few thousand m³/s,
+    so anything ≥ 9000 is treated as the PLP "essentially unbounded"
+    sentinel and must be stripped from emitted waterway bounds.
+    """
+    from ..junction_writer import _is_plp_no_limit, _PLP_NO_LIMIT_SENTINEL
+
+    assert _PLP_NO_LIMIT_SENTINEL == 9000.0
+
+    # Below threshold — real bounds, kept as-is
+    assert not _is_plp_no_limit(0.0)
+    assert not _is_plp_no_limit(1.0)
+    assert not _is_plp_no_limit(8999.99)
+
+    # At and above threshold — sentinel, dropped
+    assert _is_plp_no_limit(9000.0)
+    assert _is_plp_no_limit(9999.0)  # most common PLP value
+    assert _is_plp_no_limit(10042.0)  # 9000 + central_index pattern
+    assert _is_plp_no_limit(99999.0)  # alternate PLP no-limit form
+
+
+def _make_central_with_pmax_vertmax(name, pmax, vert_max, ser_hid=2, ser_ver=2):
+    """Helper: build a central dict with controllable PotMax/VertMax."""
+    return {
+        "name": name,
+        "number": 1,
+        "bus": 101,
+        "pmin": 0,
+        "pmax": pmax,
+        "vert_min": 0,
+        "vert_max": vert_max,
+        "efficiency": 1.0,  # gen_fmax = pmax / efficiency = pmax exactly
+        "ser_hid": ser_hid,
+        "ser_ver": ser_ver,
+        "afluent": 10.0,
+        "type": "serie",
+    }
+
+
+def test_pot_max_sentinel_dropped_on_gen_waterway():
+    """When PotMax >= 9000 the synthesised gen waterway must drop fmax.
+
+    Without this, a literal `gen_fmax = PotMax / Rendi = 9999 m³/s` upper
+    bound is baked into the LP, inflating matrix kappa and yielding false
+    binding-bound duals during SDDP cuts.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantSentinel", pmax=9999.0, vert_max=50.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser)
+    result = writer.to_json_array()[0]
+
+    # Find the _gen waterway for our plant
+    gen_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantSentinel"
+    )
+    # fmax field must be omitted (None or absent) — not 9999
+    assert gen_ww.get("fmax") is None, (
+        f"expected fmax dropped, got {gen_ww.get('fmax')!r}"
+    )
+
+    # Counter must reflect the normalisation
+    assert writer._plp_no_limit_count >= 1
+
+
+def test_vert_max_sentinel_dropped_on_ver_waterway():
+    """When VertMax >= 9000 the spill (`_ver`) waterway must drop fmax.
+
+    Pins the regression introduced by commit 86616b80 (which removed
+    `_is_vert_sentinel` from the non-rebalse `_ver` branch when refactoring
+    to physical fcost on _ver arcs).  Re-fixed in this change.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantVertSentinel", pmax=50.0, vert_max=9999.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
+    result = writer.to_json_array()[0]
+
+    ver_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_ver_" in ww["name"] and ww["junction_a"] == "PlantVertSentinel"
+    )
+    assert ver_ww.get("fmax") is None, (
+        f"expected fmax dropped, got {ver_ww.get('fmax')!r}"
+    )
+    assert writer._plp_no_limit_count >= 1
+
+
+def test_real_bound_under_threshold_preserved():
+    """Below-threshold PotMax/VertMax must be passed through unchanged.
+
+    Contrapositive sanity: 8999 m³/s is a legitimate (if uncommon) cap and
+    must NOT be dropped.  Guards against an over-broad threshold change.
+    """
+    central = _make_central_with_pmax_vertmax(
+        "PlantRealCap", pmax=8999.0, vert_max=8999.0
+    )
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
+    result = writer.to_json_array()[0]
+
+    gen_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
+    )
+    ver_ww = next(
+        ww
+        for ww in result["waterway_array"]
+        if "_ver_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
+    )
+    # gen_fmax = pmax / efficiency = 8999 / 1.0 = 8999
+    assert gen_ww.get("fmax") == pytest.approx(8999.0)
+    assert ver_ww.get("fmax") == pytest.approx(8999.0)
+    assert writer._plp_no_limit_count == 0
+
+
+def test_plp_no_limit_log_emitted(caplog):
+    """The end-of-run info log fires once per conversion when count > 0.
+
+    Single log line per ``to_json_array`` so the user sees how many spurious
+    bounds were dropped without a per-central spam.
+    """
+    centrals = [
+        _make_central_with_pmax_vertmax("A", pmax=9999.0, vert_max=50.0),
+        _make_central_with_pmax_vertmax("B", pmax=9999.0, vert_max=9999.0),
+    ]
+    central_parser = MockCentralParser(centrals)
+    writer = JunctionWriter(central_parser=central_parser)
+
+    with caplog.at_level(logging.INFO, logger="plp2gtopt.junction_writer"):
+        writer.to_json_array()
+
+    # Must contain exactly one line summarising the normalisations
+    matching = [
+        rec for rec in caplog.records if "PLP 'no limit' sentinel" in rec.message
+    ]
+    assert len(matching) == 1, f"expected exactly 1 summary log, got {len(matching)}"
+    assert ">= 9000" in matching[0].message
+    # Counter at end of run is the sum of normalisations across both centrals
+    assert writer._plp_no_limit_count >= 2

@@ -61,4 +61,22 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
 #endif
   return nullptr;
 }
+
+// Plugin-level infinity query (no instance allocated).  COIN-OR's
+// `OsiSolverInterface::getInfinity()` returns 1e+30 for both CLP
+// and CBC; `OsiSolverBackend::plugin_infinity()` reports the same
+// constant so callers using `is_infinity(v, plugin_infinity)` see
+// identical behaviour against an instance-level call.
+double gtopt_solver_infinity(const char* solver_name)  // NOLINT
+{
+  if (std::strcmp(solver_name, "clp") == 0
+#ifdef GTOPT_OSI_HAS_CBC
+      || std::strcmp(solver_name, "cbc") == 0
+#endif
+  )
+  {
+    return gtopt::OsiSolverBackend::plugin_infinity();
+  }
+  return 0.0;
+}
 }

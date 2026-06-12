@@ -11,15 +11,15 @@
 #include <gtopt/json/json_solver_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("SolverOptions JSON basic parsing")
 {
   const std::string_view json_data = R"({
-    "algorithm": 3,
+    "algorithm": "barrier",
     "threads": 4,
     "presolve": true,
-    "log_level": 1,
-    "reuse_basis": false
+    "log_level": 1
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -36,14 +36,13 @@ TEST_CASE("SolverOptions JSON basic parsing")
 TEST_CASE("SolverOptions JSON with tolerances")
 {
   const std::string_view json_data = R"({
-    "algorithm": 2,
+    "algorithm": "dual",
     "threads": 0,
     "presolve": false,
     "optimal_eps": 1e-8,
     "feasible_eps": 1e-7,
     "barrier_eps": 1e-10,
-    "log_level": 0,
-    "reuse_basis": false
+    "log_level": 0
   })";
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
@@ -90,7 +89,6 @@ TEST_CASE("SolverOptions JSON empty object uses defaults")
   CHECK(opts.threads == 2);
   CHECK(opts.presolve == true);
   CHECK(opts.log_level == 0);
-  CHECK(opts.reuse_basis == false);
   CHECK_FALSE(opts.optimal_eps.has_value());
   CHECK_FALSE(opts.feasible_eps.has_value());
   CHECK_FALSE(opts.barrier_eps.has_value());
@@ -151,7 +149,7 @@ TEST_CASE("SolverOptions JSON scaling explicit values")
 TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
 {
   const std::string_view json_data = R"({
-    "algorithm": 1,
+    "algorithm": "primal",
     "threads": 16
   })";
 
@@ -161,7 +159,43 @@ TEST_CASE("SolverOptions JSON partial object uses defaults for missing")
   CHECK(opts.threads == 16);
   CHECK(opts.presolve == true);
   CHECK(opts.log_level == 0);
-  CHECK(opts.reuse_basis == false);
+}
+
+// Gap I2: pin the JSON binding for `crossover` exposed in commit
+// dbeb01cb.  The forward pass typically sets crossover=false (skip
+// crossover for speed), the backward pass needs crossover=true to
+// produce duals; both must round-trip exactly through to_json/
+// from_json.
+TEST_CASE("SolverOptions JSON crossover field round-trip")
+{
+  SUBCASE("crossover=false (forward) parses and round-trips")
+  {
+    const std::string_view json_data = R"({"crossover": false})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == false);
+
+    const auto out = daw::json::to_json(opts);
+    const SolverOptions rt = daw::json::from_json<SolverOptions>(out);
+    CHECK(rt.crossover == false);
+  }
+
+  SUBCASE("crossover=true (backward) parses and round-trips")
+  {
+    const std::string_view json_data = R"({"crossover": true})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == true);
+
+    const auto out = daw::json::to_json(opts);
+    const SolverOptions rt = daw::json::from_json<SolverOptions>(out);
+    CHECK(rt.crossover == true);
+  }
+
+  SUBCASE("default when missing is true")
+  {
+    const std::string_view json_data = R"({})";
+    const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
+    CHECK(opts.crossover == true);
+  }
 }
 
 TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
@@ -197,3 +231,5 @@ TEST_CASE("SolverOptions JSON max_fallbacks parsing and round-trip")
     CHECK(roundtrip.max_fallbacks == 1);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

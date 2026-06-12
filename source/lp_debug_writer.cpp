@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -36,7 +35,7 @@ bool command_available(const char* cmd) noexcept
     // "command -v" is POSIX; "which" is not guaranteed but widely available.
     const std::string probe =
         std::string("command -v ") + cmd + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
+    // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
     return std::system(probe.c_str()) == 0;
   } catch (...) {
     return false;
@@ -49,7 +48,7 @@ bool run_external(const char* cmd, const std::string& arg) noexcept
 {
   try {
     const std::string full = std::string(cmd) + " " + arg + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
+    // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
     return std::system(full.c_str()) == 0;
   } catch (...) {
     return false;
@@ -140,7 +139,7 @@ std::string try_gtopt_compress_lp(const std::string& src_path,
   }
   cmd += " " + src_path + " >/dev/null 2>&1";
 
-  // NOLINTNEXTLINE(concurrency-mt-unsafe,cert-env33-c,bugprone-command-processor)
+  // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
   if (std::system(cmd.c_str()) != 0) {
     spdlog::debug("LpDebugWriter: gtopt_compress_lp returned non-zero for {}",
                   src_path);
@@ -424,6 +423,90 @@ void LpDebugWriter::drain()
     (void)f.get();
   }
   m_compress_futures_.clear();
+}
+
+namespace
+{
+
+/// Case-insensitive equality of one trimmed token against `wanted`.
+[[nodiscard]] constexpr bool tok_eq_ci(std::string_view tok,
+                                       std::string_view wanted) noexcept
+{
+  if (tok.size() != wanted.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < tok.size(); ++i) {
+    const auto a = static_cast<unsigned char>(tok[i]);
+    const auto b = static_cast<unsigned char>(wanted[i]);
+    const auto al =
+        (a >= 'A' && a <= 'Z') ? static_cast<unsigned char>(a + 32U) : a;
+    const auto bl =
+        (b >= 'A' && b <= 'Z') ? static_cast<unsigned char>(b + 32U) : b;
+    if (al != bl) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] constexpr std::string_view trim_ws(std::string_view s) noexcept
+{
+  while (!s.empty()
+         && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'
+             || s.front() == '\n'))
+  {
+    s.remove_prefix(1);
+  }
+  while (!s.empty()
+         && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r'
+             || s.back() == '\n'))
+  {
+    s.remove_suffix(1);
+  }
+  return s;
+}
+
+[[nodiscard]] std::string_view pass_token(LpDebugPass which) noexcept
+{
+  switch (which) {
+    case LpDebugPass::forward:
+      return "forward";
+    case LpDebugPass::backward:
+      return "backward";
+    case LpDebugPass::aperture:
+      return "aperture";
+  }
+  return "";
+}
+
+}  // namespace
+
+bool lp_debug_passes_includes(std::string_view passes,
+                              LpDebugPass which) noexcept
+{
+  // Empty / unset → legacy default "forward,aperture" (backward NOT included)
+  if (trim_ws(passes).empty()) {
+    return which == LpDebugPass::forward || which == LpDebugPass::aperture;
+  }
+  const auto wanted = pass_token(which);
+  std::string_view rest = passes;
+  while (!rest.empty()) {
+    const auto comma = rest.find(',');
+    const auto raw =
+        (comma == std::string_view::npos) ? rest : rest.substr(0, comma);
+    const auto tok = trim_ws(raw);
+    if (tok_eq_ci(tok, "all")) {
+      return true;
+    }
+    if (tok_eq_ci(tok, wanted)) {
+      return true;
+    }
+    if (comma == std::string_view::npos) {
+      break;
+    }
+    rest.remove_prefix(comma + 1);
+  }
+  return false;
 }
 
 }  // namespace gtopt

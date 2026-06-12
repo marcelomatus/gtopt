@@ -19,9 +19,11 @@ domain restrictions over scenarios, stages, and blocks.
 8. [Examples](#8-examples)
 9. [External Constraint Files](#9-external-constraint-files)
 10. [Formal Grammar (BNF)](#10-formal-grammar-bnf)
-11. [Comparison with AMPL](#11-comparison-with-ampl)
-12. [Best Practices](#12-best-practices)
-13. [See Also](#13-see-also)
+11. [Error Diagnostics](#11-error-diagnostics)
+12. [Constraint Directives](#12-constraint-directives)
+13. [Comparison with AMPL](#13-comparison-with-ampl)
+14. [Best Practices](#14-best-practices)
+15. [See Also](#15-see-also)
 
 ---
 
@@ -65,6 +67,42 @@ A constraint expression has three parts:
 | RHS | Right-hand side: number or another linear expression | `300` |
 | Domain (optional) | Index restriction: `for(stage in ..., block in ...)` | `for(stage in {1,2,3}, block in 1..24)` |
 
+### Arithmetic and operator precedence
+
+Linear expressions support the standard arithmetic operators with
+C/Python-style precedence (highest to lowest):
+
+| Precedence | Operators | Associativity | Notes |
+|------------|-----------|---------------|-------|
+| 1 (tightest) | `(` `)` | — | Grouping subexpressions |
+| 2 | unary `-`, unary `+` | right | `-(a - b)` distributes the sign |
+| 3 | `*`, `/` | left | Division is by numeric literals only |
+| 4 (loosest) | binary `+`, `-` | left | Term addition/subtraction |
+
+**Parentheses** let you factor out a shared coefficient or divisor:
+
+```text
+2 * (generator('G1').generation + generator('G2').generation) <= 300
+(generator('G1').generation + generator('G2').generation) / 4 <= 25
+```
+
+**Constant folding.** Any subexpression that contains only numeric
+literals is folded at parse time, so `(2 + 3) * x`, `2 * 3 * x` and
+`6/2 * x` all resolve to a coefficient of `5`, `6`, and `3`
+respectively.
+
+**Linearity is enforced.** The parser keeps constraints linear and
+rejects two classes of non-linear expressions:
+
+- Product of two variable-bearing expressions:
+  `generator('G1').generation * generator('G2').generation` → error.
+- Division by a variable or parameter:
+  `generator('G1').generation / generator('G2').generation` → error.
+  Division by zero is also rejected at parse time.
+
+At least one side of every `*` must collapse to a constant;
+every `/` divisor must collapse to a nonzero constant.
+
 ### Range constraints
 
 Range constraints bound an expression from both sides:
@@ -74,6 +112,88 @@ Range constraints bound an expression from both sides:
 ```
 
 This creates a single LP row with both lower and upper bounds.
+
+### Nonlinear shortcuts (auto-linearized)
+
+The parser accepts three convex nonlinear shortcuts and lowers them
+into plain LP rows behind the scenes. You can use them in any
+single-sided constraint (range constraints are not supported for
+these). Arguments may be arbitrary linear expressions.
+
+#### `abs(expr)` — absolute value
+
+```text
+abs(generator('G1').generation - 50) <= 50
+```
+
+is lowered as:
+
+```text
+t >= 0
+generator('G1').generation - 50 - t <= 0
+-(generator('G1').generation - 50) - t <= 0
++ t          -- replaces abs(...) in the original row
+```
+
+**Convexity rules.** `c · abs(x)` must appear on the convex side:
+`c > 0` with `<=`, or `c < 0` with `>=`. Any other combination (e.g.
+`abs(x) >= k`) is non-convex and is rejected with a diagnostic at LP
+construction time. Nested `abs(abs(...))` is rejected at parse time.
+
+#### `max(e1, e2, ...)` and `min(e1, e2, ...)`
+
+```text
+max(generator('G1').generation, generator('G2').generation) <= 80
+min(generator('G1').generation, generator('G2').generation) >= 5
+```
+
+are lowered into one free auxiliary variable `t` plus one row per
+argument:
+
+```text
+-- max(...) <=  : t - t bounds free, arg_i - t <= 0  ∀ i
+-- min(...) >=  : same shape with t - arg_i <= 0
+```
+
+The outer coefficient is preserved, so
+`-3 * max(a, b) >= k` rewrites to the equivalent convex `<=` form.
+At least two arguments are required. A `max`/`min` on the wrong side
+of the inequality is non-convex and is rejected with a diagnostic.
+
+If every argument is a constant, the expression is folded at parse
+time (`max(3, 7)` → `7`).
+
+#### `if cond then A else B` — data-only conditional
+
+```text
+if stage = 1 then (generator('G1').generation)
+             else (generator('G1').generation * 0.5)
+    <= 60
+```
+
+The condition is evaluated **per domain instance** at LP-construction
+time against the loop coordinates — `scenario`, `stage`, and `block`
+— so only one of the two branches is emitted into the LP row for
+each (scenario, stage, block). The condition never produces an LP
+variable; it is pure data.
+
+Supported atoms:
+
+| Form | Meaning |
+|------|---------|
+| `stage = 2` | Stage UID equality |
+| `stage != 2` | Inequality |
+| `stage in {1, 2, 3}` | Set membership (integers and `a..b` ranges) |
+| `block > 12` | `<`, `<=`, `>`, `>=` on integer UIDs |
+
+Multiple atoms can be joined with `and` / `&&`:
+
+```text
+if stage = 1 and block in {1..12} then ... else ... <= 60
+```
+
+The `else` branch is optional; an omitted `else` means the LP row
+contains only the constant RHS when the condition is false.
 
 ### Element references
 
@@ -99,15 +219,15 @@ generator('uid:23').generation  -- by UID
 | `line` | `flown` | Negative-direction power flow (MW) |
 | `line` | `lossp` | Positive-direction line losses (MW) |
 | `line` | `lossn` | Negative-direction line losses (MW) |
-| `battery` | `energy` | Battery state of energy (MWh); scaled by `energy_scale` |
+| `battery` | `energy` | Battery state of energy (MWh); scaled by energy scale from `variable_scales` |
 | `battery` | `charge` | Battery charging power (MW) |
 | `battery` | `discharge` | Battery discharging power (MW) |
 | `battery` | `spill` | Battery energy spillway / curtailment (MW); also accepts `drain` |
 | `converter` | `charge` | Converter charging power (MW) |
 | `converter` | `discharge` | Converter discharging power (MW) |
-| `reservoir` | `volume` | Reservoir water volume (dam³); also accepts `energy`; scaled by `energy_scale` |
-| `reservoir` | `extraction` | Water extraction from reservoir (m³/s); scaled by `energy_scale` |
-| `reservoir` | `spill` | Reservoir spillway discharge (m³/s); also accepts `drain`; scaled by `energy_scale` |
+| `reservoir` | `volume` | Reservoir water volume (dam³); also accepts `energy`; scaled by energy scale from `variable_scales` |
+| `reservoir` | `extraction` | Water extraction from reservoir (m³/s); scaled by energy scale from `variable_scales` |
+| `reservoir` | `spill` | Reservoir spillway discharge (m³/s); also accepts `drain`; scaled by energy scale from `variable_scales` |
 | `bus` | `theta` | Voltage angle at bus (radians); also accepts `angle`; scaled by `1/scale_theta` |
 | `waterway` | `flow` | Water flow through waterway (m³/s) |
 | `turbine` | `generation` | Turbine power output (MW) |
@@ -128,17 +248,17 @@ is dimensionally correct.
 
 | Variable | Scale factor (physical = LP × scale) | Default |
 |----------|--------------------------------------|---------|
-| `reservoir.volume` / `reservoir.energy` | `energy_scale` | 1000 |
-| `reservoir.extraction` | `flow_scale` (= `energy_scale`) | 1000 |
-| `reservoir.spill` / `reservoir.drain` | `flow_scale` (= `energy_scale`) | 1000 |
-| `battery.energy` | `energy_scale` | 1.0 |
-| `battery.spill` / `battery.drain` | `flow_scale` | 1.0 |
+| `reservoir.volume` / `reservoir.energy` | energy scale (from `variable_scales`) | 1000 |
+| `reservoir.extraction` | flow scale (from `variable_scales`) | 1000 |
+| `reservoir.spill` / `reservoir.drain` | flow scale (from `variable_scales`) | 1000 |
+| `battery.energy` | energy scale (from `variable_scales`) | 1.0 |
+| `battery.spill` / `battery.drain` | flow scale (from `variable_scales`) | 1.0 |
 | `bus.theta` / `bus.angle` | `1 / scale_theta` | 1/1000 |
 | All other variables | 1.0 (no scaling) | — |
 
 For example, `reservoir("R1").volume >= 5000` (in dam³) is automatically
-translated to the LP constraint `energy_scale × volume_LP ≥ 5000`, accounting
-for the fact that the LP variable stores `volume_physical / energy_scale`.
+translated to the LP constraint `scale × volume_LP ≥ 5000`, accounting
+for the fact that the LP variable stores `volume_physical / scale`.
 
 ---
 
@@ -211,12 +331,55 @@ sum(generator('G1', 'G2').generation) + demand('D1').load <= 1000
 sum(generator(all).generation) - sum(demand(all).load) = 0
 ```
 
+### Filtering `sum(all)` with predicates
+
+`sum(type(all : ...).attribute)` restricts the aggregate to elements
+whose metadata matches a conjunction of predicates.  Predicates are
+separated by `and` (or `&&`) and all must hold (AND semantics):
+
+```text
+# All thermal generators
+sum(generator(all : type = 'thermal').generation) <= 150
+
+# Thermal generators on bus 1
+sum(generator(all : type = 'thermal' and bus = 1).generation) <= 150
+
+# AC lines (anything not of type "dc")
+sum(line(all : type != 'dc').flowp) <= 1000
+
+# Numeric comparisons on metadata
+sum(generator(all : bus >= 10).generation) <= 300
+
+# Set membership
+sum(generator(all : type in {'hydro', 'solar'}).generation) <= 500
+```
+
+Supported operators: `=`, `==`, `!=` / `<>`, `<`, `<=`, `>`, `>=`, and
+`in { … }`.  String values are double- or single-quoted; bare numbers
+compare numerically.  Predicates consult per-element metadata that
+each element registers during LP assembly; currently available keys:
+
+| element    | metadata keys            |
+|------------|--------------------------|
+| generator  | `type`, `bus`            |
+| demand     | `type`, `bus`            |
+| line       | `type`, `bus_a`, `bus_b` |
+| battery    | `type`                   |
+| bus        | `type`                   |
+
+Elements without a registered metadata key for the predicate's
+attribute (or without any metadata at all) are silently excluded from
+the sum — the predicate is treated as unsatisfied.  The legacy
+shortcut `sum(generator(all, type='thermal').generation)` still
+parses and lowers to a single-predicate filter.
+
 ### AMPL comparison
 
 | gtopt | AMPL equivalent |
 |-------|-----------------|
 | `sum(generator('G1','G2').generation)` | `sum{g in {"G1","G2"}} generation[g]` |
 | `sum(generator(all).generation)` | `sum{g in GENERATORS} generation[g]` |
+| `sum(generator(all : type = 'thermal').generation)` | `sum{g in GENERATORS : type[g] = 'thermal'} generation[g]` |
 | `0.5 * sum(demand(all).load)` | `0.5 * sum{d in DEMANDS} load[d]` |
 
 ---
@@ -625,8 +788,8 @@ collisions:
 {
   "system": {
     "user_constraint_files": [
-      "laja_agreement.pampl",
-      "maule_agreement.pampl"
+      "laja.pampl",
+      "maule.pampl"
     ]
   }
 }
@@ -670,15 +833,51 @@ gtopt base.json overrides.json
 constraint     := expr comp_op expr [',' for_clause]
                |  number comp_op expr comp_op number [',' for_clause]
 
-expr           := term (('+' | '-') term)*
+expr           := add_expr
 
-term           := [number '*'] element_ref
-               |  [number '*'] sum_expr
-               |  ['-'] number
+add_expr       := mul_expr (('+' | '-') mul_expr)*
+
+mul_expr       := unary (('*' | '/') unary)*
+
+unary          := ('+' | '-') unary
+               |  primary
+
+primary        := number
+               |  '(' add_expr ')'
+               |  sum_expr
+               |  abs_expr              -- F5: absolute value
+               |  minmax_expr           -- F7: min / max envelope
+               |  if_expr               -- F8: data-only conditional
+               |  element_ref
+               |  IDENT                 -- bare parameter reference
+
+-- Linearity rules (enforced at parse time):
+--   * At least one operand of every '*' must fold to a numeric constant.
+--   * The right operand of every '/' must fold to a nonzero constant.
+--   * Any subexpression made of numeric literals is constant-folded.
+--   * abs / max / min / if are not allowed inside a RANGE constraint
+--     (`lo <= expr <= hi`): only single-sided `<=` / `>=` are convex.
 
 element_ref    := element_type '(' element_id ')' '.' IDENT
 
 sum_expr       := 'sum' '(' element_type '(' id_list ')' '.' IDENT ')'
+
+abs_expr       := 'abs' '(' add_expr ')'
+
+minmax_expr    := ('max' | 'min') '(' add_expr (',' add_expr)+ ')'
+
+if_expr        := 'if' if_cond 'then' '(' add_expr ')'
+                  [ 'else' '(' add_expr ')' ]
+
+if_cond        := if_atom (('and' | '&&') if_atom)*
+
+if_atom        := index_dim if_cmp_op number
+               |  index_dim 'in' '{' number_or_range (',' number_or_range)* '}'
+
+if_cmp_op      := '=' | '==' | '!=' | '<>' | '<' | '<=' | '>' | '>='
+
+number_or_range := number
+                |  number '..' number
 
 id_list        := 'all'
                |  element_id (',' element_id)*
@@ -717,9 +916,263 @@ IDENT          := [a-zA-Z_][a-zA-Z0-9_]*
 number         := [0-9]+ ('.' [0-9]+)?
 ```
 
+**Reserved keywords.** The tokens `abs`, `max`, `min`, `if`, `then`,
+`else`, `and`, `in`, `all`, `sum`, `for`, `scenario`, `stage`, and
+`block` are reserved by the grammar above — they cannot appear as
+element names or parameter names inside an expression.
+
 ---
 
-## 11. Comparison with AMPL
+## 11. Error Diagnostics
+
+When a constraint expression fails to parse, the parser throws a
+`gtopt::ConstraintParseError` (which derives from `std::invalid_argument`
+for backward compatibility). The error's `what()` includes:
+
+1. A column indicator (1-based) pointing at the offending token.
+2. The original source line.
+3. A caret (`^`) under the exact column.
+4. An optional `hint:` line suggesting a fix.
+
+For example, the non-linear product
+`generator('G1').generation * generator('G2').generation <= 100` yields:
+
+```text
+Parse error at column 29: Non-linear product: both sides of '*' contain
+variables or parameters; only scalar-by-expression products are allowed
+  generator('G1').generation * generator('G2').generation <= 100
+                              ^
+  hint: at least one operand of '*' must be a constant
+```
+
+Division by zero, division by a variable, unterminated string literals,
+stray characters, missing attributes after `.`, unknown `for`-clause
+dimensions, and malformed index sets are all reported with the same
+caret + hint format.
+
+The `ConstraintParseError` type also exposes its components programmatically:
+
+```cpp
+try {
+  auto expr = ConstraintParser::parse(...);
+} catch (const gtopt::ConstraintParseError& e) {
+  std::cerr << e.what();       // formatted caret + hint
+  e.message();                  // raw diagnostic text
+  e.hint();                     // suggestion (may be empty)
+  e.column();                   // 0-based byte offset into the source
+}
+```
+
+Because `ConstraintParseError` inherits from `std::invalid_argument`,
+existing `catch (const std::invalid_argument&)` handlers continue to
+work unchanged.
+
+### `constraint_mode` — runtime error policy
+
+Some user-constraint errors only surface at LP-construction time, not
+at parse time. Examples:
+
+- Non-convex `abs(x) >= k` (wrong side of the inequality)
+- Non-convex `c * max(…)` with a sign that violates convexity
+- Nested `abs`/`min`/`max`/`if` inside another wrapper (v1 limit)
+- Unknown user parameter name referenced from an expression
+
+The `constraint_mode` option in `PlanningOptions` (alongside
+`demand_fail_cost`, `scale_objective`, etc.) controls how these
+runtime errors are treated:
+
+| Value     | Behavior                                                            |
+|-----------|---------------------------------------------------------------------|
+| `normal`  | Log a warning/error and silently drop the offending constraint.     |
+| `strict`  | **(Default.)** Abort the LP build with a diagnostic.                |
+| `debug`   | Same as `strict`, plus verbose per-row lowering trace at `info`.    |
+
+Example:
+
+```json
+"options": {
+  "constraint_mode": "debug"
+}
+```
+
+Running in `debug` mode is the recommended way to author a new
+user constraint — it prints the lowered rows so you can sanity-check
+which LP columns were picked up.
+
+> **Tip.** Non-convex / unknown-parameter errors are only recoverable
+> in `normal` mode because the constraint is dropped entirely. If you
+> want a non-strict build *and* also want the author to notice the
+> problem, grep the logs for `non-convex` or `unknown parameter`.
+
+### Resolver-time source-location diagnostics
+
+Resolver-time errors (e.g. `unknown generator name 'GX'`) also report
+the offending token's source column, derived from
+`ConstraintTerm::column` (parser-stamped, 1-based). Example for
+`generator('g1').generation + generator('does_not_exist').generation
+<= 100`:
+
+```text
+user_constraint 'X' at column 30: cannot resolve element reference
+'generator(does_not_exist).generation' (block 1) — unknown generator
+name 'does_not_exist' — did you mean: g1?
+```
+
+The `at column 30` clause indexes into the *expression string* (not a
+file path) — column 30 points to the start of the second `generator`
+token. For a long composite LHS the column lets you jump straight to
+the bad ref without re-scanning the string by eye. Same shape as
+the parse-time `Parse error at column N` reports above.
+
+> **Note.** Today the column is populated for bare element refs,
+> singleton scalars (`system.scale_objective`), and bare parameter
+> names. Wrapper-shape terms (`sum(...)`, `abs(...)`, `min/max(...)`,
+> `if-then-else`, `state(...)`) carry an *outer* term with `column = 0`
+> (the "unset" sentinel); the inner element refs nested inside them
+> DO get their own columns through recursive parsing, so failures
+> inside a wrapper still surface a source location pointing at the
+> exact inner ref.
+
+---
+
+## 12. Constraint Directives
+
+A `directive` is typed metadata attached to a UserConstraint that
+classifies its family and carries a policy payload (soft-penalty tier,
+aggregation scope, gating, …). The directive is a JSON sibling field
+on the UserConstraint, NOT part of the expression string — so the
+expression stays pure math and the policy lives in one auditable place.
+
+Directives replace the legacy practice of detecting constraint families
+by name regex inside converters (`_RegRange_`, `Gas_MaxOpDay\d+_`,
+…) and assigning soft-penalty tiers via Python constants. With a
+directive present the JSON self-describes:
+
+```json
+{
+  "uid": 1337,
+  "name": "csflw_regrange_e1",
+  "expression": "... commitment + reserve_provision ...",
+  "directive": { "kind": "regrange", "penalty": 1000.0 }
+}
+```
+
+The gtopt-side `UserConstraint::directive` picks it up;
+`UserConstraintLP::effective_penalty()` makes the directive's
+`penalty` win over the scalar `penalty` field at LP-build time, so
+the directive is the single source of truth for soft-tier policy.
+
+### 12.1 Discriminator (`kind`)
+
+The `kind` string is the family discriminator — lowercase canonical
+name, ASCII case-insensitive on read.
+
+| `kind`              | Valid payload fields                | Implies                |
+|---------------------|-------------------------------------|------------------------|
+| `regrange`          | `penalty` (optional)                | —                      |
+| `reserve_prov_sum`  | `penalty` (optional)                | —                      |
+| `daily_budget`      | `penalty`, `scope` (both optional)  | `daily_sum = true`     |
+| `hydro_floor`       | `scope` (optional gate-ref tag)     | —                      |
+| `max_starts_window` | `window_hours` (required, > 0)      | `daily_sum = true` iff `window_hours == 24` |
+
+Validation at JSON-load time: `ConstraintDirective::valid_for_kind()`
+rejects payloads that populate fields outside the discriminator's
+allowed set. See `include/gtopt/constraint_directive.hpp` for the C++
+schema.
+
+### 12.2 `regrange` — PLEXOS regulation-range UC
+
+PLEXOS `*_RegRange_e1` / `_e2` constraints couple `commitment(g).status`
+to `reserve_provision(g, .).{up|dn}`. Under LP-relax their tight
+implied-bounds chain renders the LP structurally infeasible at
+continuous status values; the directive's `penalty` (typically
+`1000.0`) converts the infeasibility into a finite-cost slack that
+LP-relax can absorb.
+
+```json
+{
+  "name": "uc_regrange_e1",
+  "expression": "α * commitment(\"g\").status - reserve_provision(\"g\", ResUp).up - reserve_provision(\"g\", ResDn).dn >= 0",
+  "directive": { "kind": "regrange", "penalty": 1000.0 }
+}
+```
+
+### 12.3 `reserve_prov_sum` — pure reserve aggregator
+
+`Σ reserve_provision(g, R).{up|dn} ≥ requirement` shape (3+
+`reserve_provision` refs, no `commitment` / `generator` / `battery` /
+`line`), plus the `*Calculation` definitional rows that define
+per-zone requirements. Same soft-tier rationale as `regrange`.
+
+```json
+{
+  "name": "csf_lw_minprov",
+  "expression": "reserve_provision(\"p1\").up + reserve_provision(\"p2\").up + reserve_provision(\"p3\").up >= 10",
+  "directive": { "kind": "reserve_prov_sum", "penalty": 1000.0 }
+}
+```
+
+### 12.4 `daily_budget` — per-day cumulative cap
+
+Per-day cumulative budget on a `Σ` aggregator (typical scope tags:
+`fuel:GAS`, `owner:CSF`, `gas_maxopday:<suffix>`). The directive
+implies `daily_sum = true` at LP-build time without requiring the
+field to be set explicitly. For PLEXOS Gas_MaxOpDay the converter
+stamps the directive on the consolidator's output so the JSON
+self-describes which PLEXOS fuel-owner group the row consolidates.
+
+```json
+{
+  "name": "Gas_MaxOpDay_Enel",
+  "expression": "sum(generator(all: fuel=\"GAS\").generation) <= 800",
+  "daily_sum": true,
+  "constraint_type": "energy",
+  "directive": { "kind": "daily_budget", "scope": "gas_maxopday:Enel" }
+}
+```
+
+### 12.5 `hydro_floor` — gated reservoir floor
+
+Reserved for the P2 follow-up. A reservoir floor that should only
+bind when a referenced commitment binary is active (e.g.
+`reservoir.volume >= 50` only when the unit is on). The `scope` tag
+carries the gating element ref. Step 1 honours the directive's
+presence in the JSON schema; LP-build currently treats it as a
+pass-through (no gate semantics yet — needs P2 ordered-time
+primitives).
+
+### 12.6 `max_starts_window` — rolling startup count cap
+
+`Σ_{τ ∈ window(N h)} commitment(g).startup ≤ MaxStarts(g)` shape.
+Required field `window_hours` carries the rolling-window length in
+hours; `24` is the canonical daily alias (the directive implies
+`daily_sum = true` in that case), `168` the canonical weekly window.
+
+```json
+{
+  "name": "max_starts_per_day_G1",
+  "expression": "sum(commitment(\"uc_G1\").startup) <= 5",
+  "directive": { "kind": "max_starts_window", "window_hours": 24 }
+}
+```
+
+Wider rolling windows (e.g. `window_hours: 48` for a 2-day rolling
+cap) are wired in the schema but the LP-build path needs P2 to
+emit the right shape — for now they fall through to the same
+daily aggregator as the `24` case. Tagged for Step 4b v2 / P2.
+
+### 12.7 Backwards compatibility
+
+`directive` is OPTIONAL on every UserConstraint. JSON written before
+the scaffold landed (`UserConstraint.directive == std::nullopt`) is
+treated exactly as before — `UserConstraintLP` falls through to the
+scalar `penalty` and explicit `daily_sum` fields. Converters can
+add directives incrementally: any constraint without one keeps
+behaving identically.
+
+---
+
+## 13. Comparison with AMPL
 
 ### AMPL equivalents
 
@@ -787,7 +1240,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 12. Best Practices
+## 14. Best Practices
 
 1. **Name constraints meaningfully**: use descriptive names like
    `gen_pair_limit` or `night_battery_reserve`, not `c1` or `test`.
@@ -824,7 +1277,7 @@ The gtopt constraint language is intentionally **narrower** than AMPL:
 
 ---
 
-## 13. See Also
+## 15. See Also
 
 - **[Irrigation Agreements](irrigation-agreements.md)** — Laja and Maule
   agreement modeling, FlowRight/VolumeRight entities, PLP comparison

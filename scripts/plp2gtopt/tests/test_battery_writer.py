@@ -83,7 +83,7 @@ def test_battery_array_from_cenbat(tmp_path):
     assert b["bus"] == 1
     assert b["pmax_discharge"] == pytest.approx(0.0)  # no central_parser → 0
     assert b["pmax_charge"] == pytest.approx(0.0)
-    assert b["gcost"] == pytest.approx(0.0)
+    assert b["discharge_cost"] == pytest.approx(0.0)
 
 
 def test_battery_array_emin_from_emin_emax(tmp_path):
@@ -225,7 +225,7 @@ def test_process_with_battery(tmp_path):
     assert "bus" in bat
     assert "pmax_discharge" in bat
     assert "pmax_charge" in bat
-    assert "gcost" in bat
+    assert "discharge_cost" in bat
     # No separate converter/generator/demand for battery
     assert "converter_array" not in result
     assert len(result["generator_array"]) == 1  # only thermal
@@ -259,7 +259,7 @@ def test_battery_array_from_ess(tmp_path):
     assert b["bus"] == 1  # default bus
     assert b["pmax_discharge"] == pytest.approx(100.0)
     assert b["pmax_charge"] == pytest.approx(100.0)
-    assert b["gcost"] == pytest.approx(0.0)
+    assert b["discharge_cost"] == pytest.approx(0.0)
 
 
 def test_ess_generator_array(tmp_path):
@@ -349,7 +349,7 @@ def test_process_with_ess(tmp_path):
     assert "bus" in bat
     assert "pmax_discharge" in bat
     assert "pmax_charge" in bat
-    assert "gcost" in bat
+    assert "discharge_cost" in bat
     # No separate converter/generator/demand for battery
     assert "converter_array" not in result
     assert len(result["generator_array"]) == 1  # only thermal
@@ -392,7 +392,7 @@ def test_battery_maintenance_sets_emin_emax_reference(tmp_path):
     assert "bus" in b
     assert "pmax_discharge" in b
     assert "pmax_charge" in b
-    assert "gcost" in b
+    assert "discharge_cost" in b
 
 
 def test_battery_maintenance_gen_pmax_is_scalar(tmp_path):
@@ -451,7 +451,7 @@ def test_ess_maintenance_sets_pmax_reference(tmp_path):
     """When maness provides maintenance with DCMax, gen pmax is file ref.
 
     DC-maintenance entries use the legacy multi-element approach, so the
-    battery does NOT have unified fields (bus, pmax_*, gcost).
+    battery does NOT have unified fields (bus, pmax_*, discharge_cost).
     """
     ep = _make_ess_parser(
         tmp_path,
@@ -622,6 +622,33 @@ def test_battery_cenbat_no_injection_no_source_generator(tmp_path):
     assert "bus" in b  # still unified
 
 
+def test_battery_cenbat_self_injection_no_source_generator(tmp_path):
+    """plpcenbat.dat self-injection (battery name == injection name) is standalone.
+
+    PLP cases such as plp_min_bess list the battery itself as its own
+    injection central (e.g. ``BESS1 → BESS1``).  This is the
+    standalone / unified auto-expand pattern, not generation coupling.
+    Setting ``source_generator = <battery_name>`` would dangle: the
+    discharge generator is created by ``System::expand_batteries`` at
+    LP time, not in the JSON, so gtopt_check_json's reference check
+    flags ``source_generator='BESS1'`` against the (absent) generator
+    array as a CRITICAL broken reference.  Drop the self-reference so
+    the unified path runs cleanly.
+    """
+    bp = _make_battery_parser(
+        tmp_path,
+        " 1     1\n 1     BESS1\n 1\n BESS1     0.95\n 3     0.95     0.0     200.0\n",
+    )
+    writer = BatteryWriter(battery_parser=bp)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    # Self-reference must be dropped → standalone unified battery.
+    assert b.get("source_generator") is None
+    assert "bus" in b
+
+
 def test_ess_dcmod1_sets_source_generator(tmp_path):
     """ESS with dcmod=1 and cenpc produces source_generator in battery.
 
@@ -650,6 +677,27 @@ def test_ess_dcmod0_no_source_generator(tmp_path):
     ep = _make_ess_parser(
         tmp_path,
         " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  0\n",
+    )
+    writer = BatteryWriter(ess_parser=ep)
+    bats = writer.to_battery_array()
+
+    assert len(bats) == 1
+    b = bats[0]
+    assert b.get("source_generator") is None
+
+
+def test_ess_dcmod1_self_cenpc_no_source_generator(tmp_path):
+    """ESS dcmod=1 with cenpc == battery name is treated as standalone.
+
+    Same self-reference pattern as ``plpcenbat`` self-injection: a
+    battery whose ``cenpc`` field points back at the battery itself
+    is not really generation-coupled — there is no external generator
+    in the JSON to reference, so dropping the source_generator avoids
+    the dangling-reference CRITICAL from gtopt_check_json.
+    """
+    ep = _make_ess_parser(
+        tmp_path,
+        " 1\n  ESS1  0.90  0.90  1.0  200.0  100.0  1  ESS1\n",
     )
     writer = BatteryWriter(ess_parser=ep)
     bats = writer.to_battery_array()

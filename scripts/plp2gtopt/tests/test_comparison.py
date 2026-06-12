@@ -201,9 +201,8 @@ def test_log_comparison_output(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 10,
         "generators": 24,
-        "generator_profiles": 5,
+        "capacity_profiles": 5,
         "demands": 8,
-        "demand_profiles": 0,
         "lines": 5,
         "batteries": 2,
         "converters": 0,
@@ -271,9 +270,8 @@ def test_log_comparison_gen_delta(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 13,  # 20 - 4 (falla) - 1 (bat) = 15 expected → delta -2
-        "generator_profiles": 4,
+        "capacity_profiles": 4,
         "demands": 5,
-        "demand_profiles": 0,
         "lines": 3,
         "batteries": 1,
         "converters": 0,
@@ -315,7 +313,7 @@ def test_log_comparison_hydrology_row(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 8,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 5,
         "lines": 3,
         "batteries": 0,
@@ -361,7 +359,7 @@ def test_log_comparison_seepages_res_eff(
     gtopt = {
         "buses": 3,
         "generators": 5,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 3,
         "lines": 2,
         "batteries": 0,
@@ -404,7 +402,7 @@ def test_log_comparison_demand_delta(capsys: pytest.CaptureFixture) -> None:
     gtopt = {
         "buses": 5,
         "generators": 3,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 7,
         "lines": 2,
         "batteries": 0,
@@ -448,7 +446,7 @@ def test_log_comparison_with_indicators(
     gtopt = {
         "buses": 5,
         "generators": 5,
-        "generator_profiles": 0,
+        "capacity_profiles": 0,
         "demands": 5,
         "lines": 2,
         "batteries": 0,
@@ -822,6 +820,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 300.0
             avg_flow_m3s: float = 25.0
             avg_fcost: float = 406.0
+            total_gen_min_stable_mw: float = 18.0
+            total_reservoir_min_vol: float = 55.0
 
         fake = FakeIndicators()
         with patch(
@@ -844,6 +844,8 @@ class TestGtoptIndicators:
         assert result["total_water_volume_hm3"] == 300.0
         assert result["avg_flow_m3s"] == 25.0
         assert result["avg_fcost"] == 406.0
+        assert result["total_gen_min_stable_mw"] == 18.0
+        assert result["total_reservoir_min_vol"] == 55.0
 
     def test_base_dir_none(self) -> None:
         """base_dir=None is forwarded to compute_indicators."""
@@ -865,6 +867,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
             avg_fcost: float = 0.0
+            total_gen_min_stable_mw: float = 0.0
+            total_reservoir_min_vol: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -893,6 +897,8 @@ class TestGtoptIndicators:
             total_water_volume_hm3: float = 0.0
             avg_flow_m3s: float = 0.0
             avg_fcost: float = 0.0
+            total_gen_min_stable_mw: float = 0.0
+            total_reservoir_min_vol: float = 0.0
 
         with patch(
             "gtopt_check_json._info.compute_indicators",
@@ -914,6 +920,8 @@ class TestGtoptIndicators:
             "total_water_volume_hm3",
             "avg_flow_m3s",
             "avg_fcost",
+            "total_gen_min_stable_mw",
+            "total_reservoir_min_vol",
         }
         assert set(result.keys()) == expected_keys
 

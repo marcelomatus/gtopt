@@ -1,0 +1,23 @@
+% Local font-definition file: silently substitutes Adobe Times Roman
+% (psnfss family `ptm`, OT1 encoding) with Computer Modern Roman in
+% sandbox builds where texlive-fonts-recommended is not installed.
+% This file takes precedence over /usr/share/texlive/texmf-dist/tex/
+% latex/psnfss/ot1ptm.fd because kpathsea checks `.` first.
+%
+% Production IEEE submission builds should DELETE this file (or this
+% paper directory's main.tex font-fallback block) so the system-wide
+% Times metrics are used instead.
+\ProvidesFile{ot1ptm.fd}
+  [2026/05/07 v1.0
+   local Times -> Computer Modern fallback for sandbox builds]
+\DeclareFontFamily{OT1}{ptm}{}
+\DeclareFontShape{OT1}{ptm}{m}{n}{<-> ssub * cmr/m/n}{}
+\DeclareFontShape{OT1}{ptm}{m}{it}{<-> ssub * cmr/m/it}{}
+\DeclareFontShape{OT1}{ptm}{m}{sl}{<-> ssub * cmr/m/sl}{}
+\DeclareFontShape{OT1}{ptm}{m}{sc}{<-> ssub * cmr/m/sc}{}
+\DeclareFontShape{OT1}{ptm}{b}{n}{<-> ssub * cmr/bx/n}{}
+\DeclareFontShape{OT1}{ptm}{b}{it}{<-> ssub * cmr/bx/it}{}
+\DeclareFontShape{OT1}{ptm}{b}{sl}{<-> ssub * cmr/bx/sl}{}
+\DeclareFontShape{OT1}{ptm}{bx}{n}{<-> ssub * cmr/bx/n}{}
+\DeclareFontShape{OT1}{ptm}{bx}{it}{<-> ssub * cmr/bx/it}{}
+\endinput

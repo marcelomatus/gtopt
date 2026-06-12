@@ -12,6 +12,7 @@
 #include <gtopt/json/json_cascade_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── CascadeTransition JSON ──────────────────────────────────────────────────
 
@@ -19,20 +20,16 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
 {
   const std::string_view json_data = R"({
     "inherit_optimality_cuts": -1,
-    "inherit_feasibility_cuts": 5,
     "inherit_targets": 10,
     "target_rtol": 0.05,
     "target_min_atol": 1.0,
-    "target_penalty": 500.0,
-    "optimality_dual_threshold": 1e-6
+    "target_penalty": 500.0
   })";
 
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_feasibility_cuts.has_value());
-  CHECK(*tr.inherit_feasibility_cuts == 5);
   REQUIRE(tr.inherit_targets.has_value());
   CHECK(*tr.inherit_targets == 10);
   REQUIRE(tr.target_rtol.has_value());
@@ -41,8 +38,6 @@ TEST_CASE("CascadeTransition JSON - Full deserialization")
   CHECK(*tr.target_min_atol == doctest::Approx(1.0));
   REQUIRE(tr.target_penalty.has_value());
   CHECK(*tr.target_penalty == doctest::Approx(500.0));
-  REQUIRE(tr.optimality_dual_threshold.has_value());
-  CHECK(*tr.optimality_dual_threshold == doctest::Approx(1e-6));
 }
 
 TEST_CASE("CascadeTransition JSON - Round-trip")
@@ -59,7 +54,6 @@ TEST_CASE("CascadeTransition JSON - Round-trip")
   CHECK(rt.inherit_optimality_cuts == original.inherit_optimality_cuts);
   CHECK(rt.target_rtol == original.target_rtol);
   CHECK(rt.target_penalty == original.target_penalty);
-  CHECK_FALSE(rt.inherit_feasibility_cuts.has_value());
   CHECK_FALSE(rt.inherit_targets.has_value());
 }
 
@@ -71,7 +65,12 @@ TEST_CASE("CascadeLevelMethod JSON - Full deserialization")
     "max_iterations": 50,
     "min_iterations": 3,
     "apertures": [1, 2],
-    "convergence_tol": 1e-3
+    "convergence_tol": 1e-3,
+    "stationary_tol": 0.04,
+    "stationary_gap_ceiling": 0.30,
+    "stationary_window": 8,
+    "elastic_mode": "multi_cut",
+    "elastic_penalty": 750.0
   })";
 
   const auto m = daw::json::from_json<CascadeLevelMethod>(json_data);
@@ -85,6 +84,16 @@ TEST_CASE("CascadeLevelMethod JSON - Full deserialization")
   CHECK((*m.apertures)[0] == 1);
   REQUIRE(m.convergence_tol.has_value());
   CHECK(*m.convergence_tol == doctest::Approx(1e-3));
+  REQUIRE(m.stationary_tol.has_value());
+  CHECK(*m.stationary_tol == doctest::Approx(0.04));
+  REQUIRE(m.stationary_gap_ceiling.has_value());
+  CHECK(*m.stationary_gap_ceiling == doctest::Approx(0.30));
+  REQUIRE(m.stationary_window.has_value());
+  CHECK(*m.stationary_window == 8);
+  REQUIRE(m.elastic_mode.has_value());
+  CHECK(*m.elastic_mode == "multi_cut");
+  REQUIRE(m.elastic_penalty.has_value());
+  CHECK(*m.elastic_penalty == doctest::Approx(750.0));
 }
 
 TEST_CASE("CascadeLevelMethod JSON - Empty apertures")
@@ -259,3 +268,5 @@ TEST_CASE("CascadeOptions JSON - Round-trip serialization")
   REQUIRE(rt.level_array.size() == 1);
   CHECK(*rt.level_array[0].name == "level1");
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -128,10 +128,143 @@ class SystemIndicators:
     total_water_volume_hm3: float = 0.0
     avg_flow_m3s: float = 0.0
     avg_fcost: float = 0.0
+    up_reserve_req_mw: float = 0.0
+    dn_reserve_req_mw: float = 0.0
+    # -- Tier 1: cost & fuel --
+    avg_gcost: float = 0.0  # $/MWh, mean over non-failure generators
+    min_gcost: float = 0.0
+    max_gcost: float = 0.0
+    avg_heat_rate: float = 0.0  # fuel-unit/MWh, mean over fuelled generators
+    num_fuelled_generators: int = 0
+    total_fuel_offtake_cap: float = 0.0  # Σ Fuel.max_offtake (weekly caps)
+    num_fuel_caps: int = 0
+    # Take-or-pay floors (Fuel.min_offtake; PLEXOS Min Offtake family
+    # pids 595-602).  Zero across every cached CEN PCP bundle
+    # (2025-10..2026-05) — the converter ships dormant plumbing.
+    total_fuel_offtake_floor: float = 0.0  # Σ Fuel.min_offtake
+    num_fuel_floors: int = 0
+    # -- Tier 2: commitment --
+    total_startup_cost: float = 0.0
+    total_shutdown_cost: float = 0.0
+    num_committable: int = 0
+    num_must_run: int = 0
+    # -- Tier 3: storage & FCF --
+    total_battery_energy_mwh: float = 0.0  # Σ Battery.emax
+    total_battery_power_mw: float = 0.0  # Σ Battery.pmax_discharge
+    avg_battery_efficiency: float = 0.0  # mean(input_eff × output_eff)
+    total_reservoir_storage: float = 0.0  # Σ Reservoir.emax
+    total_reservoir_initial: float = 0.0  # Σ Reservoir.eini
+    total_reservoir_final: float = 0.0  # Σ Reservoir.efin
+    fcf_intercept: float = 0.0  # FCF boundary-cut RHS ($)
+    num_water_value_reservoirs: int = 0
+    # -- Tier 4: network & demand --
+    num_lossy_lines: int = 0  # lines with a piecewise/linear loss model
+    total_turbine_capacity_mw: float = 0.0  # Σ pmax of turbine-driven gens
+    total_up_provision_mw: float = 0.0  # Σ ReserveProvision.urmax
+    total_dn_provision_mw: float = 0.0  # Σ ReserveProvision.drmax
+    demand_fail_cost: float = 0.0  # VoLL [$/MWh]
+    renewable_energy_gwh: float = 0.0  # Σ renewable capacity × duration
     num_generators: int = 0
     num_demands: int = 0
     num_blocks: int = 0
     num_flows: int = 0
+    # -- Tier 5: input-file read receipts --
+    # One aggregate per PLEXOS input file that no other indicator reflects, so
+    # a file silently not read (empty / missing) shows up as a zero here.
+    total_gen_min_stable_mw: float = (
+        0.0  # Σ Generator.pmin (Gen_MinStableLevel/FixedLoad)
+    )
+    total_initial_gen_power_mw: float = (
+        0.0  # Σ Commitment.initial_power (Gen_IniGeneration)
+    )
+    num_units_initial_on: int = 0  # Commitment.initial_status>0 (Gen_IniUnits)
+    total_initial_commit_hours: float = 0.0  # Σ |initial_hours| (Gen_IniHoursUp/Down)
+    num_units_with_ramp_limit: int = 0  # Commitment.ramp_up>0 (CPF/Max Ramp)
+    total_battery_initial_mwh: float = 0.0  # Σ Battery.eini (BESS_IniValue)
+    total_reservoir_min_vol: float = 0.0  # Σ Reservoir.emin (Hydro_MinVolume)
+
+
+@dataclass
+class SystemCounts:
+    """Element counts derived from a gtopt planning dict (the JSON authority).
+
+    Counts every element class :func:`_build_info_sections` already lists,
+    PLUS the plexos2gtopt-specific classes (fuels, flow rights, commitments,
+    decision variables, FCF boundary cuts) and — the centerpiece — user
+    constraints broken down by *family* and by active/inactive.
+
+    User constraints may be emitted two ways and both are counted:
+
+    * **inline** — ``system.user_constraint_array`` (each entry classified by
+      :func:`uc_family` on its ``name``);
+    * **pampl** — modular ``uc_<family>.pampl`` files referenced by
+      ``system.user_constraint_files`` (counted via
+      :func:`gtopt_check_pampl.compute_stats` when *base_dir* is supplied).
+    """
+
+    # -- Network / generation --
+    buses: int = 0
+    generators: int = 0
+    gen_by_type: dict[str, int] = field(default_factory=dict)
+    generator_profiles: int = 0
+    demands: int = 0
+    demand_profiles: int = 0
+    lines: int = 0
+    batteries: int = 0
+    converters: int = 0
+    # -- Reserves --
+    reserve_zones: int = 0
+    reserve_provisions: int = 0
+    # -- Hydro --
+    junctions: int = 0
+    junctions_synth: int = 0  # synthesised <reservoir>_terminal_ocean sinks
+    waterways: int = 0
+    waterways_synth: int = 0  # synthesised penstock_<turbine> per-turbine arcs
+    flows: int = 0
+    reservoirs: int = 0
+    reservoir_seepages: int = 0
+    discharge_limits: int = 0
+    production_factors: int = 0
+    turbines: int = 0
+    # -- PLEXOS extras --
+    fuels: int = 0
+    flow_rights: int = 0
+    commitments: int = 0
+    decision_variables: int = 0
+    decision_variables_alpha: int = 0  # synthesised FCF alpha_fcf column(s)
+    # -- User constraints (centerpiece) --
+    user_constraints_total: int = 0
+    user_constraints_active: int = 0
+    user_constraints_inactive: int = 0
+    uc_by_family: dict[str, int] = field(default_factory=dict)
+    uc_inline: int = 0
+    uc_in_pampl: int = 0
+    # -- Boundary cuts (FCF) --
+    boundary_cuts: int = 0
+    boundary_state_variables: int = 0
+    # -- Simulation --
+    num_blocks: int = 0
+    num_stages: int = 0
+    num_scenarios: int = 0
+
+
+# ---------------------------------------------------------------------------
+# UC family classifier — soft import the single source of truth from
+# plexos2gtopt so both the converter and gtopt_check classify identically.
+# Falls back to a single bucket when plexos2gtopt is not importable (counts
+# still total correctly).
+# ---------------------------------------------------------------------------
+try:
+    from plexos2gtopt.uc_families import (  # noqa: PLC0415
+        UC_FAMILY_ORDER,
+        uc_family,
+    )
+except ImportError:  # pragma: no cover - exercised only without plexos2gtopt
+    UC_FAMILY_ORDER = ("operational",)
+
+    def uc_family(_name: str) -> str:  # type: ignore[misc]
+        """Fallback classifier: everything is ``operational``."""
+        return "operational"
 
 
 # ---------------------------------------------------------------------------
@@ -147,37 +280,79 @@ def _is_failure_generator(gen: dict[str, Any]) -> bool:
     return str(gen.get("type", "")).lower() == _FAILURE_GEN_TYPE
 
 
-def _first_scalar(val: Any) -> float | None:
-    """Extract the first numeric value from a FieldSched-style field.
+def _block_vector(val: Any) -> float | list[Any] | None:
+    """Descend a FieldSched value to its innermost per-block numeric vector.
 
-    Returns the scalar for a number, the first element for a list,
-    or ``None`` for a string (file reference) or ``None``.
+    Handles the inline shapes gtopt emits: a scalar, a flat ``[v0, v1, ...]``
+    block vector, a single-stage TB-matrix ``[[v0, ...]]`` (what plexos2gtopt
+    writes for ``Demand.lmax`` / per-block ``rhs``), and a
+    scenario/stage matrix ``[[[v0, ...]]]`` (``Flow.discharge``).  Descends the
+    FIRST element of each wrapping list-of-lists layer (first scenario / first
+    stage) until it reaches a list whose elements are scalars, then returns
+    that vector.  Returns the scalar unchanged, or ``None`` for strings (file
+    references) / ``None``.
     """
-    if val is None:
+    if val is None or isinstance(val, str):
         return None
     if isinstance(val, (int, float)):
         return float(val)
-    if isinstance(val, list) and val and isinstance(val[0], (int, float)):
-        return float(val[0])
+    if not isinstance(val, list):
+        return None
+    cur: Any = val
+    while isinstance(cur, list) and cur and isinstance(cur[0], list):
+        cur = cur[0]
+    return cur if isinstance(cur, list) else None
+
+
+def _first_scalar(val: Any) -> float | None:
+    """Extract the first numeric value from a FieldSched-style field.
+
+    Returns the scalar for a number, the first element for a (possibly
+    nested) block vector, or ``None`` for a string (file reference) / ``None``.
+    """
+    vec = _block_vector(val)
+    if vec is None:
+        return None
+    if isinstance(vec, float):
+        return vec
+    if vec and isinstance(vec[0], (int, float)):
+        return float(vec[0])
     return None
+
+
+def _peak_scalar(val: Any) -> float | None:
+    """Peak (max) numeric value of a FieldSched field — i.e. nameplate.
+
+    Used for generation *capacity*: a renewable's ``capacity`` is stored as an
+    hourly availability profile, so the first block (e.g. midnight solar) would
+    understate the installed capacity.  The profile peak recovers the rated
+    nameplate.  Scalars pass through; strings / ``None`` give ``None``.
+    """
+    vec = _block_vector(val)
+    if vec is None:
+        return None
+    if isinstance(vec, float):
+        return vec
+    nums = [float(v) for v in vec if isinstance(v, (int, float))]
+    return max(nums) if nums else None
 
 
 def _scalar_at_block(val: Any, block_idx: int) -> float | None:
     """Extract the numeric value for a specific block index.
 
-    Returns the scalar for a number, ``val[block_idx]`` for a list,
-    or ``None`` for a string (file reference) or ``None``.
+    Returns the scalar for a number, ``vec[block_idx]`` for a (possibly
+    nested) block vector, or ``None`` for a string (file reference) / ``None``.
     """
-    if val is None:
+    vec = _block_vector(val)
+    if vec is None:
         return None
-    if isinstance(val, (int, float)):
-        return float(val)
-    if isinstance(val, list):
-        if block_idx < len(val) and isinstance(val[block_idx], (int, float)):
-            return float(val[block_idx])
-        # If the block index exceeds the list, return the last available value
-        if block_idx >= len(val) and val and isinstance(val[-1], (int, float)):
-            return float(val[-1])
+    if isinstance(vec, float):
+        return vec
+    if block_idx < len(vec) and isinstance(vec[block_idx], (int, float)):
+        return float(vec[block_idx])
+    # If the block index exceeds the list, return the last available value
+    if block_idx >= len(vec) and vec and isinstance(vec[-1], (int, float)):
+        return float(vec[-1])
     return None
 
 
@@ -436,6 +611,15 @@ def compute_indicators(
                 return "renewable"
             return "other"
 
+    # Generators driven by a turbine are hydro regardless of their ``type``
+    # tag (plexos2gtopt tags hydro units "renewable"/"thermal" but links them
+    # to a Turbine; PLP tags them directly).  Recognise both.
+    turbine_gen_names = frozenset(
+        str(t.get("generator", ""))
+        for t in sys_data.get("turbine_array", [])
+        if t.get("generator")
+    )
+
     total_gen_cap = 0.0
     hydro_cap = 0.0
     thermal_cap = 0.0
@@ -445,14 +629,18 @@ def compute_indicators(
     for gen in generators:
         if _is_failure_generator(gen):
             continue
-        cap = _first_scalar(gen.get("capacity"))
+        # Capacity = nameplate: the profile peak, not the first block (a
+        # renewable's first hour can be 0, e.g. midnight solar).
+        cap = _peak_scalar(gen.get("capacity"))
         if cap is None:
-            cap = _first_scalar(gen.get("pmax"))
+            cap = _peak_scalar(gen.get("pmax"))
         if cap is not None:
             total_gen_cap += cap
             num_gen += 1
             gtype = str(gen.get("type", "")).lower()
             category = classify_type(gtype)
+            if str(gen.get("name", "")) in turbine_gen_names:
+                category = "hydro"
             cap_by_type[gtype] = cap_by_type.get(gtype, 0.0) + cap
             if category == "hydro":
                 hydro_cap += cap
@@ -473,12 +661,39 @@ def compute_indicators(
             total_gen_cap += pmax_d
             num_gen += 1
 
+    # Line capacity = the NOMINAL bidirectional rating.  For plexos2gtopt
+    # soft-capped (ex-EL0) lines, ``tmax_ab`` / ``tmax_ba`` hold the inflated
+    # soft-cap HARD limit (e.g. 5× rating) and ``tmax_normal_*`` the free-band
+    # threshold (e.g. 2× rating) — neither is the physical rating.  The true
+    # nominal is preserved in ``loss_envelope``, so count it bidirectionally
+    # (2×) for those lines; everyone else (hard caps, PLP) keeps the plain
+    # ``tmax_ab + tmax_ba`` sum.
     total_line_cap = 0.0
     for line in lines_arr:
+        env = _peak_scalar(line.get("loss_envelope"))
+        if env is not None and env > 0.0:
+            total_line_cap += 2.0 * env
+            continue
+        # Peak (nameplate) rating, not the first block — dynamic-line-rating
+        # (DLR) lines carry a per-block tmax profile whose peak is the rated
+        # capacity (the off-peak first block understates it).
         for key in ("tmax_ab", "tmax_ba"):
-            val = _first_scalar(line.get(key))
+            val = _peak_scalar(line.get(key))
             if val is not None:
                 total_line_cap += val
+
+    # --- Reserve requirement (MW) ---
+    # First-block up (``urreq``) and down (``drreq``) reserve requirement
+    # summed across all reserve zones.
+    up_reserve_req = 0.0
+    dn_reserve_req = 0.0
+    for zone in sys_data.get("reserve_zone_array", []):
+        ur = _first_scalar(zone.get("urreq"))
+        dr = _first_scalar(zone.get("drreq"))
+        if ur is not None:
+            up_reserve_req += ur
+        if dr is not None:
+            dn_reserve_req += dr
 
     # --- Total demand per block (MW) ---
     demand_by_block: list[float] = [0.0] * num_blocks if num_blocks > 0 else []
@@ -586,20 +801,17 @@ def compute_indicators(
                             res.totals[b_idx] * dur * _M3S_TO_HM3_PER_H
                         )
             continue
-        # Inline scalar or array discharge
+        # Inline scalar or (possibly nested) array discharge
         has_data = False
-        first_val = _first_scalar(discharge)
-        if first_val is not None:
+        vec = _block_vector(discharge)
+        if isinstance(vec, float):
+            first_block_afl += vec
+            last_block_afl += vec
             has_data = True
-            first_block_afl += first_val
-        if isinstance(discharge, list) and discharge:
-            last_vals = discharge[-1]
-            if isinstance(last_vals, (int, float)):
-                last_block_afl += float(last_vals)
-            else:
-                last_block_afl += first_val or 0.0
-        elif isinstance(discharge, (int, float)):
-            last_block_afl += float(discharge)
+        elif isinstance(vec, list) and vec and isinstance(vec[0], (int, float)):
+            first_block_afl += float(vec[0])
+            last_block_afl += float(vec[-1])
+            has_data = True
         # Accumulate water volume for inline discharge values
         for b_idx in range(num_blocks):
             val = _scalar_at_block(discharge, b_idx)
@@ -620,6 +832,136 @@ def compute_indicators(
 
     # --- Capacity adequacy ratio ---
     adequacy = total_gen_cap / peak_demand if peak_demand > 0 else float("inf")
+
+    # === Tier 1: cost & fuel ===
+    # Effective marginal cost ($/MWh).  For fuel-linked units the writer emits
+    # ``gcost`` = VOM + transport only and resolves the full cost at LP time as
+    # ``fuel.price × heat_rate + gcost``; reconstruct that here so the
+    # indicator reflects the true dispatch cost, not just the VOM component.
+    fuel_price = {
+        f.get("name"): (_first_scalar(f.get("price")) or 0.0)
+        for f in sys_data.get("fuel_array", [])
+    }
+    gcosts: list[float] = []
+    heat_rates: list[float] = []
+    for gen in generators:
+        if _is_failure_generator(gen):
+            continue
+        base = _first_scalar(gen.get("gcost")) or 0.0
+        hr = _first_scalar(gen.get("heat_rate"))
+        fuel = gen.get("fuel")
+        if fuel and hr is not None and hr > 0.0:
+            gcosts.append(fuel_price.get(fuel, 0.0) * hr + base)
+        else:
+            gcosts.append(base)
+        if hr is not None and hr > 0.0:
+            heat_rates.append(hr)
+    avg_gcost = sum(gcosts) / len(gcosts) if gcosts else 0.0
+    min_gcost = min(gcosts) if gcosts else 0.0
+    max_gcost = max(gcosts) if gcosts else 0.0
+    avg_heat_rate = sum(heat_rates) / len(heat_rates) if heat_rates else 0.0
+    fuel_caps = [
+        c
+        for c in (
+            _first_scalar(f.get("max_offtake")) for f in sys_data.get("fuel_array", [])
+        )
+        if c is not None
+    ]
+    fuel_floors = [
+        c
+        for c in (
+            _first_scalar(f.get("min_offtake")) for f in sys_data.get("fuel_array", [])
+        )
+        if c is not None
+    ]
+
+    # Σ generator minimum stable level (Gen_MinStableLevel / Gen_FixedLoad).
+    total_gen_min_stable = sum(
+        _first_scalar(g.get("pmin")) or 0.0
+        for g in generators
+        if not _is_failure_generator(g)
+    )
+
+    # === Tier 2: commitment ===
+    commits = sys_data.get("commitment_array", [])
+    total_startup_cost = sum(
+        _first_scalar(c.get("startup_cost")) or 0.0 for c in commits
+    )
+    total_shutdown_cost = sum(
+        _first_scalar(c.get("shutdown_cost")) or 0.0 for c in commits
+    )
+    num_committable = sum(
+        1 for c in commits if (_first_scalar(c.get("startup_cost")) or 0.0) > 0.0
+    )
+    num_must_run = sum(1 for c in commits if c.get("must_run"))
+    # Read receipts for the per-generator initial-state / ramp inputs.
+    total_initial_gen_power = sum(
+        _first_scalar(c.get("initial_power")) or 0.0 for c in commits
+    )
+    num_units_initial_on = sum(
+        1 for c in commits if (_first_scalar(c.get("initial_status")) or 0.0) > 0.0
+    )
+    total_initial_commit_hours = sum(
+        abs(_first_scalar(c.get("initial_hours")) or 0.0) for c in commits
+    )
+    num_units_with_ramp_limit = sum(
+        1 for c in commits if (_first_scalar(c.get("ramp_up")) or 0.0) > 0.0
+    )
+
+    # === Tier 3: storage & FCF ===
+    bat_effs: list[float] = []
+    for bat in batteries:
+        ie = _first_scalar(bat.get("input_efficiency"))
+        oe = _first_scalar(bat.get("output_efficiency"))
+        if ie is not None and oe is not None:
+            bat_effs.append(ie * oe)
+    total_batt_energy = sum(_first_scalar(b.get("emax")) or 0.0 for b in batteries)
+    total_batt_power = sum(
+        _first_scalar(b.get("pmax_discharge")) or 0.0 for b in batteries
+    )
+    total_batt_initial = sum(_first_scalar(b.get("eini")) or 0.0 for b in batteries)
+    reservoirs = sys_data.get("reservoir_array", [])
+    total_res_storage = sum(_first_scalar(r.get("emax")) or 0.0 for r in reservoirs)
+    total_res_initial = sum(_first_scalar(r.get("eini")) or 0.0 for r in reservoirs)
+    total_res_final = sum(_first_scalar(r.get("efin")) or 0.0 for r in reservoirs)
+    total_res_min_vol = sum(_first_scalar(r.get("emin")) or 0.0 for r in reservoirs)
+    fcf_intercept, num_wv = _read_fcf_intercept(planning, base_dir)
+
+    # === Tier 4: network & demand ===
+    num_lossy = sum(1 for ln in lines_arr if ln.get("line_losses_mode"))
+    pmax_by_name = {
+        g.get("name"): (
+            _peak_scalar(g.get("capacity")) or _peak_scalar(g.get("pmax")) or 0.0
+        )
+        for g in generators
+    }
+    total_turb_cap = sum(
+        pmax_by_name.get(t.get("generator"), 0.0)
+        for t in sys_data.get("turbine_array", [])
+    )
+    provs = sys_data.get("reserve_provision_array", [])
+    total_up_prov = sum(_first_scalar(p.get("urmax")) or 0.0 for p in provs)
+    total_dn_prov = sum(_first_scalar(p.get("drmax")) or 0.0 for p in provs)
+    model_opts = opts.get("model_options", {}) if isinstance(opts, dict) else {}
+    demand_fail_cost = float(
+        model_opts.get("demand_fail_cost", opts.get("demand_fail_cost", 0.0)) or 0.0
+    )
+    # Renewable available energy (GWh): Σ capacity × duration over non-hydro
+    # renewable generators (the must-take availability profiles).
+    renew_energy = 0.0
+    for gen in generators:
+        if _is_failure_generator(gen) or str(gen.get("name", "")) in turbine_gen_names:
+            continue
+        if classify_type(str(gen.get("type", ""))) != "renewable":
+            continue
+        cap_field = gen.get("capacity")
+        if cap_field is None:
+            cap_field = gen.get("pmax")
+        for b_idx in range(num_blocks):
+            v = _scalar_at_block(cap_field, b_idx)
+            if v is not None:
+                dur = blocks[b_idx].get("duration", 1.0) if b_idx < len(blocks) else 1.0
+                renew_energy += v * dur
 
     return SystemIndicators(
         total_gen_capacity_mw=total_gen_cap,
@@ -642,11 +984,308 @@ def compute_indicators(
         total_water_volume_hm3=total_water_vol_hm3,
         avg_flow_m3s=avg_flow,
         avg_fcost=_avg_demand_fcost(demands, base_dir, input_dir),
+        up_reserve_req_mw=up_reserve_req,
+        dn_reserve_req_mw=dn_reserve_req,
+        avg_gcost=avg_gcost,
+        min_gcost=min_gcost,
+        max_gcost=max_gcost,
+        avg_heat_rate=avg_heat_rate,
+        num_fuelled_generators=len(heat_rates),
+        total_fuel_offtake_cap=sum(fuel_caps),
+        num_fuel_caps=len(fuel_caps),
+        total_fuel_offtake_floor=sum(fuel_floors),
+        num_fuel_floors=len(fuel_floors),
+        total_startup_cost=total_startup_cost,
+        total_shutdown_cost=total_shutdown_cost,
+        num_committable=num_committable,
+        num_must_run=num_must_run,
+        total_battery_energy_mwh=total_batt_energy,
+        total_battery_power_mw=total_batt_power,
+        avg_battery_efficiency=(sum(bat_effs) / len(bat_effs) if bat_effs else 0.0),
+        total_reservoir_storage=total_res_storage,
+        total_reservoir_initial=total_res_initial,
+        total_reservoir_final=total_res_final,
+        fcf_intercept=fcf_intercept,
+        num_water_value_reservoirs=num_wv,
+        num_lossy_lines=num_lossy,
+        total_turbine_capacity_mw=total_turb_cap,
+        total_up_provision_mw=total_up_prov,
+        total_dn_provision_mw=total_dn_prov,
+        demand_fail_cost=demand_fail_cost,
+        renewable_energy_gwh=renew_energy / 1e3,
         num_generators=num_gen,
         num_demands=num_dem,
         num_blocks=num_blocks if num_blocks > 0 else len(demand_by_block),
         num_flows=num_flow,
+        total_gen_min_stable_mw=total_gen_min_stable,
+        total_initial_gen_power_mw=total_initial_gen_power,
+        num_units_initial_on=num_units_initial_on,
+        total_initial_commit_hours=total_initial_commit_hours,
+        num_units_with_ramp_limit=num_units_with_ramp_limit,
+        total_battery_initial_mwh=total_batt_initial,
+        total_reservoir_min_vol=total_res_min_vol,
     )
+
+
+def _family_from_pampl_name(filename: str) -> str:
+    """Derive the UC family from a ``uc_<family>.pampl`` filename stem.
+
+    The converter routes each constraint to a per-family file named
+    ``uc_<family>.pampl`` (see ``write_user_constraint_pampl``).  Strip the
+    directory, the ``.pampl`` suffix and the ``uc_`` prefix to recover the
+    family; anything that does not match falls back to ``operational``.
+    """
+    stem = Path(filename).name
+    if stem.endswith(".pampl"):
+        stem = stem[: -len(".pampl")]
+    if stem.startswith("uc_"):
+        fam = stem[len("uc_") :]
+        if fam in UC_FAMILY_ORDER:
+            return fam
+    return "operational"
+
+
+def _read_fcf_intercept(
+    planning: dict[str, Any], base_dir: str | None
+) -> tuple[float, int]:
+    """Return ``(fcf_intercept_rhs, num_water_value_reservoirs)``.
+
+    Reads the FCF ``boundary_cuts.csv`` (header ``scene,rhs,<reservoir>...``,
+    one data row): the ``rhs`` column is the future-cost intercept ($) and the
+    reservoir columns are the per-reservoir water-value slopes.  Returns
+    ``(0.0, 0)`` when no cut file is present or *base_dir* is unset.
+    """
+    opts = planning.get("options", {})
+    mono = opts.get("monolithic_options", {}) if isinstance(opts, dict) else {}
+    sim = planning.get("simulation", {})
+    cut_file = mono.get("boundary_cuts_file") or sim.get("boundary_cuts_file")
+    if not cut_file or not base_dir:
+        return 0.0, 0
+    path = Path(base_dir) / str(cut_file)
+    if not path.is_file():
+        return 0.0, 0
+    try:
+        import csv  # noqa: PLC0415
+
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            rows = list(csv.reader(fh))
+    except OSError:
+        return 0.0, 0
+    if len(rows) < 2:
+        return 0.0, 0
+    num_slopes = max(0, len(rows[0]) - 2)
+    try:
+        rhs = float(rows[1][1]) if len(rows[1]) > 1 else 0.0
+    except ValueError:
+        rhs = 0.0
+    return rhs, num_slopes
+
+
+def _count_boundary_cuts(
+    planning: dict[str, Any], base_dir: str | None
+) -> tuple[int, int]:
+    """Return ``(num_cuts, num_state_variables)`` for the FCF boundary cut.
+
+    The cut is referenced by ``options.monolithic_options.boundary_cuts_file``
+    (or ``simulation.boundary_cuts_file``) and stored as a CSV whose header is
+    ``scene,rhs,<reservoir>...`` followed by one data row per cut.  When
+    *base_dir* is given the CSV is parsed (rows → cuts, slope columns → state
+    variables); otherwise the file presence counts as a single cut.
+    """
+    opts = planning.get("options", {})
+    mono = opts.get("monolithic_options", {}) if isinstance(opts, dict) else {}
+    sim = planning.get("simulation", {})
+    cut_file = mono.get("boundary_cuts_file") or sim.get("boundary_cuts_file")
+    if not cut_file:
+        return 0, 0
+    if not base_dir:
+        return 1, 0
+    path = Path(base_dir) / str(cut_file)
+    if not path.is_file():
+        return 1, 0
+    try:
+        import csv  # noqa: PLC0415
+
+        with path.open("r", encoding="utf-8", newline="") as fh:
+            rows = list(csv.reader(fh))
+    except OSError:
+        return 1, 0
+    if not rows:
+        return 0, 0
+    header = rows[0]
+    # state variables = slope columns (everything past "scene","rhs")
+    state_vars = max(0, len(header) - 2)
+    num_cuts = max(0, len(rows) - 1)
+    return num_cuts, state_vars
+
+
+def _count_pampl_uc(
+    planning: dict[str, Any], base_dir: str | None, counts: SystemCounts
+) -> None:
+    """Count user constraints emitted as modular ``uc_<family>.pampl`` files.
+
+    Mutates *counts* in place: ``uc_in_pampl``, ``uc_by_family`` and the
+    active/inactive totals.  Uses :func:`gtopt_check_pampl.compute_stats` for
+    the authoritative per-file constraint count when *base_dir* is supplied;
+    otherwise the family is recorded with an unknown (zero) count.
+    """
+    sys_data = planning.get("system", {})
+    files: list[str] = list(sys_data.get("user_constraint_files", []) or [])
+    legacy = sys_data.get("user_constraint_file")
+    if isinstance(legacy, str) and legacy:
+        files.append(legacy)
+    if not files:
+        return
+    compute_stats = None
+    if base_dir:
+        try:
+            from gtopt_check_pampl._checks import (  # noqa: PLC0415
+                compute_stats as _cs,
+            )
+
+            compute_stats = _cs
+        except ImportError:
+            compute_stats = None
+    for fname in files:
+        fam = _family_from_pampl_name(fname)
+        n_total = 0
+        n_inactive = 0
+        if compute_stats is not None and base_dir:
+            path = Path(base_dir) / str(fname)
+            if path.is_file():
+                try:
+                    src = path.read_text(encoding="utf-8")
+                except OSError:
+                    src = ""
+                if src:
+                    stats = compute_stats(src, str(fname))
+                    n_total = stats.num_constraints
+                    n_inactive = stats.num_inactive
+        counts.uc_by_family[fam] = counts.uc_by_family.get(fam, 0) + n_total
+        counts.uc_in_pampl += n_total
+        counts.user_constraints_total += n_total
+        counts.user_constraints_inactive += n_inactive
+        counts.user_constraints_active += n_total - n_inactive
+
+
+def _count_inline_uc(planning: dict[str, Any], counts: SystemCounts) -> None:
+    """Count user constraints stored inline in ``system.user_constraint_array``.
+
+    Mutates *counts* in place: ``uc_inline``, ``uc_by_family`` and the
+    active/inactive totals.  A constraint is inactive only when it carries an
+    explicit ``active == False``.
+    """
+    sys_data = planning.get("system", {})
+    arr = sys_data.get("user_constraint_array", []) or []
+    for uc in arr:
+        name = str(uc.get("name", ""))
+        fam = uc_family(name)
+        counts.uc_by_family[fam] = counts.uc_by_family.get(fam, 0) + 1
+        counts.uc_inline += 1
+        counts.user_constraints_total += 1
+        if uc.get("active") is False:
+            counts.user_constraints_inactive += 1
+        else:
+            counts.user_constraints_active += 1
+
+
+def compute_counts(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> SystemCounts:
+    """Count every element class in a gtopt planning dict.
+
+    This is the gtopt-JSON-side authority used by the PLEXOS↔gtopt
+    conversion-comparison report (and by ``gtopt_check_json --info``): the
+    PLEXOS side reads the parsed bundle, the gtopt side calls this function so
+    both sides agree on what landed in the JSON.
+
+    Parameters
+    ----------
+    planning
+        A planning dict as loaded from a gtopt JSON file (or built in memory).
+    base_dir
+        Case directory used to read referenced ``.pampl`` files and the
+        ``boundary_cuts.csv``.  Without it, pampl UCs are recorded by family
+        only (count unknown) and the boundary cut counts as 1.
+
+    Returns
+    -------
+    SystemCounts
+        Element counts, including user constraints by family and active state.
+    """
+    sys_data = planning.get("system", {})
+    sim = planning.get("simulation", {})
+
+    counts = SystemCounts(
+        buses=len(sys_data.get("bus_array", [])),
+        generators=len(sys_data.get("generator_array", [])),
+        generator_profiles=len(sys_data.get("generator_profile_array", [])),
+        demands=len(sys_data.get("demand_array", [])),
+        demand_profiles=len(sys_data.get("demand_profile_array", [])),
+        lines=len(sys_data.get("line_array", [])),
+        batteries=len(sys_data.get("battery_array", [])),
+        converters=len(sys_data.get("converter_array", [])),
+        reserve_zones=len(sys_data.get("reserve_zone_array", [])),
+        reserve_provisions=len(sys_data.get("reserve_provision_array", [])),
+        junctions=len(sys_data.get("junction_array", [])),
+        junctions_synth=sum(
+            1
+            for j in sys_data.get("junction_array", [])
+            if str(j.get("name", "")).endswith("_terminal_ocean")
+        ),
+        waterways=len(sys_data.get("waterway_array", [])),
+        waterways_synth=sum(
+            1
+            for w in sys_data.get("waterway_array", [])
+            if str(w.get("name", "")).startswith("penstock_")
+        ),
+        flows=len(sys_data.get("flow_array", [])),
+        reservoirs=len(sys_data.get("reservoir_array", [])),
+        reservoir_seepages=len(sys_data.get("reservoir_seepage_array", [])),
+        discharge_limits=len(sys_data.get("reservoir_discharge_limit_array", [])),
+        production_factors=len(sys_data.get("reservoir_production_factor_array", [])),
+        turbines=len(sys_data.get("turbine_array", [])),
+        fuels=len(sys_data.get("fuel_array", [])),
+        flow_rights=len(sys_data.get("flow_right_array", [])),
+        commitments=len(sys_data.get("commitment_array", [])),
+        decision_variables=len(sys_data.get("decision_variable_array", [])),
+        decision_variables_alpha=sum(
+            1
+            for d in sys_data.get("decision_variable_array", [])
+            if str(d.get("name", "")).startswith("alpha_fcf")
+        ),
+        num_blocks=len(sim.get("block_array", [])),
+        num_stages=len(sim.get("stage_array", [])),
+        num_scenarios=len(sim.get("scenario_array", [])),
+    )
+
+    # Generator type breakdown.  A generator driven by a turbine is HYDRO
+    # regardless of its ``type`` tag (plexos2gtopt tags fuel-less hydro units
+    # "renewable" but links them to a Turbine), mirroring ``compute_indicators``
+    # so the hydro/renewable split lines up with the PLEXOS side.
+    turbine_gen_names = frozenset(
+        str(t.get("generator", ""))
+        for t in sys_data.get("turbine_array", [])
+        if t.get("generator")
+    )
+    for gen in sys_data.get("generator_array", []):
+        if str(gen.get("name", "")) in turbine_gen_names:
+            gtype = "hydro"
+        else:
+            gtype = str(gen.get("type", "")) or "(untyped)"
+        counts.gen_by_type[gtype] = counts.gen_by_type.get(gtype, 0) + 1
+
+    # User constraints — both emit modes (inline + pampl).
+    _count_inline_uc(planning, counts)
+    _count_pampl_uc(planning, base_dir, counts)
+
+    # FCF boundary cut.
+    counts.boundary_cuts, counts.boundary_state_variables = _count_boundary_cuts(
+        planning, base_dir
+    )
+
+    return counts
 
 
 def _build_indicator_pairs(ind: SystemIndicators) -> list[tuple[str, str]]:
@@ -824,6 +1463,79 @@ def _build_info_sections(
     return sections
 
 
+def _build_counts_sections(
+    counts: SystemCounts,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Build the "PLEXOS Elements" and "User Constraints" info sections.
+
+    Returns only the sections that have something to show, so plain PLP /
+    IEEE cases (no fuels, commitments or user constraints) are unaffected.
+    """
+    sections: list[tuple[str, list[tuple[str, str]]]] = []
+
+    # -- PLEXOS-specific element classes (skip zero-count entries) --
+    plexos_elems = [
+        ("Fuels", counts.fuels),
+        ("Flow rights", counts.flow_rights),
+        ("Commitments", counts.commitments),
+        ("Decision variables", counts.decision_variables),
+        ("Boundary cuts", counts.boundary_cuts),
+        ("Boundary state vars", counts.boundary_state_variables),
+    ]
+    plexos_pairs = [(k, str(v)) for k, v in plexos_elems if v > 0]
+    if plexos_pairs:
+        sections.append(("PLEXOS Elements", plexos_pairs))
+
+    # -- User constraints (total / active / inactive / per family) --
+    if counts.user_constraints_total > 0:
+        uc_pairs: list[tuple[str, str]] = [
+            ("Total", str(counts.user_constraints_total)),
+            ("Active", str(counts.user_constraints_active)),
+            ("Inactive", str(counts.user_constraints_inactive)),
+            ("Inline", str(counts.uc_inline)),
+            ("In .pampl", str(counts.uc_in_pampl)),
+        ]
+        # Per-family rows in stable taxonomy order, then any unknown family.
+        seen = set()
+        for fam in UC_FAMILY_ORDER:
+            n = counts.uc_by_family.get(fam, 0)
+            seen.add(fam)
+            if n > 0:
+                uc_pairs.append((f"  {fam}", str(n)))
+        for fam in sorted(counts.uc_by_family):
+            if fam not in seen and counts.uc_by_family[fam] > 0:
+                uc_pairs.append((f"  {fam}", str(counts.uc_by_family[fam])))
+        sections.append(("User Constraints", uc_pairs))
+
+    return sections
+
+
+def format_counts(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> str:
+    """Return a multi-line string with PLEXOS-element and UC counts."""
+    from gtopt_check_json._terminal import render_kv_table  # noqa: PLC0415
+
+    counts = compute_counts(planning, base_dir=base_dir)
+    return "\n".join(
+        render_kv_table(pairs, title=title)
+        for title, pairs in _build_counts_sections(counts)
+    )
+
+
+def print_counts(
+    planning: dict[str, Any],
+    base_dir: str | None = None,
+) -> None:
+    """Print the PLEXOS-element and user-constraint count sections."""
+    from gtopt_check_json._terminal import print_kv_table  # noqa: PLC0415
+
+    counts = compute_counts(planning, base_dir=base_dir)
+    for title, pairs in _build_counts_sections(counts):
+        print_kv_table(pairs, title=title)
+
+
 def _build_skipped_pairs(
     planning: dict[str, Any],
 ) -> list[tuple[str, str]] | None:
@@ -861,6 +1573,11 @@ def format_info(
     for title, pairs in _build_info_sections(planning):
         lines.append(render_kv_table(pairs, title=title))
 
+    # -- PLEXOS elements + user-constraint counts (skipped when absent) --
+    counts_text = format_counts(planning, base_dir=base_dir)
+    if counts_text:
+        lines.append(counts_text)
+
     # -- Skipped isolated centrals (from plp2gtopt) --
     skipped_pairs = _build_skipped_pairs(planning)
     if skipped_pairs is not None:
@@ -890,6 +1607,9 @@ def print_info(
 
     for title, pairs in _build_info_sections(planning):
         print_kv_table(pairs, title=title)
+
+    # -- PLEXOS elements + user-constraint counts (skipped when absent) --
+    print_counts(planning, base_dir=base_dir)
 
     # -- Skipped isolated centrals (from plp2gtopt) --
     skipped_pairs = _build_skipped_pairs(planning)

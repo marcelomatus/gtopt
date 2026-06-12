@@ -8,7 +8,6 @@ and writing it to files. Specific writers should inherit from this class and imp
 the required methods for their specific data formats.
 """
 
-import functools
 import json
 import sys
 from abc import ABC
@@ -18,50 +17,23 @@ from typing import Any, Dict, List, Optional, TypeVar, Callable
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
+# Re-export the shared parquet codec helpers from gtopt_shared.parquet.
+# The original ``_probe_parquet_codec`` / ``_DEFAULT_COMPRESSION`` names
+# stay valid so every existing ``from .base_writer import _DEFAULT_COMPRESSION``
+# import keeps working — the implementation now lives in one place.
+# See ``gtopt_shared/parquet.py`` for the canonical bodies.
+from gtopt_shared.parquet import (  # noqa: F401
+    DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
+    probe_parquet_codec as _probe_parquet_codec,
+)
+
 from .block_parser import BlockParser
 from .stage_parser import StageParser
 from .base_parser import BaseParser
 
 ParserVar = TypeVar("ParserVar", bound=BaseParser)  # Used in type hints
-
-
-@functools.lru_cache(maxsize=8)
-def _probe_parquet_codec(requested: str) -> str:
-    """Return the best available PyArrow Parquet codec for *requested*.
-
-    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
-    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
-    unavailable, logging a warning to *stderr*.  Results are cached via
-    ``lru_cache`` so the probe runs **at most once per unique codec name**
-    across the entire program run.
-
-    Parameters
-    ----------
-    requested:
-        Codec name to probe (e.g. ``"zstd"``, ``"gzip"``).
-        Empty string / ``"none"`` / ``"uncompressed"`` → returns as-is
-        (uncompressed; no probe needed).
-    """
-    if not requested or requested in ("none", "uncompressed"):
-        return requested
-    try:
-        import pyarrow as pa  # noqa: PLC0415 (local import OK inside cached fn)
-
-        pa.Codec(requested)
-        return requested
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        print(
-            f"Warning: Parquet codec '{requested}' is not available in this "
-            "Arrow build; falling back to gzip",
-            file=sys.stderr,
-        )
-        return "gzip"
-
-
-# Best available Parquet codec — probed once at module import time.
-# "zstd" is preferred (matches the C++ default); falls back to "gzip"
-# when the linked Arrow library was built without zstd support.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
 
 
 class BaseWriter(ABC):
@@ -289,15 +261,28 @@ class BaseWriter(ABC):
         options: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """Write *df* as ``<stem>.parquet`` or ``<stem>.csv`` depending on
-        ``output_format``.  Returns the path written."""
-        fmt = self.get_output_format(options)
-        if fmt == "csv":
-            out = output_dir / f"{stem}.csv"
-            df.to_csv(out, index=False)
-        else:
-            out = output_dir / f"{stem}.parquet"
-            df.to_parquet(out, index=False, **self.get_compression_kwargs(options))
-        return out
+        ``output_format``.  Returns the path written.
+
+        Delegates to :func:`gtopt_shared.output_format.write_dataframe` for
+        the actual dispatch — see that helper for the shared format-suffix
+        + compression-kwargs handling.  This thin wrapper translates the
+        BaseWriter options-dict shape into the shared helper's keyword
+        signature.
+        """
+        # pylint: disable=import-outside-toplevel
+        from gtopt_shared.output_format import (
+            write_dataframe as _shared_write_dataframe,
+        )
+
+        kw = self.get_compression_kwargs(options)
+        return _shared_write_dataframe(
+            df,
+            output_dir,
+            stem,
+            output_format=self.get_output_format(options),
+            compression=kw.get("compression"),
+            compression_level=kw.get("compression_level"),
+        )
 
     def pcol_name(
         self,
@@ -305,7 +290,13 @@ class BaseWriter(ABC):
         item_number: int | str,
         options: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Get and validate compression option from writer options."""
+        """Build the parquet column name for an item.
+
+        Returns ``uid:<N>`` by default; when ``use_uid_label`` is False
+        in *options*, returns ``<name>:<N>`` instead.  A string
+        *item_number* is returned verbatim (used by demand-style writers
+        whose UID is the bus name).
+        """
         if options is None:
             options = self.options
 
@@ -345,3 +336,67 @@ class BaseWriter(ABC):
                     return block["stage"]
 
         return last_stage
+
+
+# ── Wide ⇄ long layout helpers ───────────────────────────────────────────
+#
+# gtopt's input reader auto-detects layout (a bare `uid` + `value` column ⇒
+# long) and pivots long → wide at load, so plp2gtopt can emit either shape.
+# `long` is the default because it is the tidy form Power BI / Power Query
+# expect (no unpivot) and matches gtopt's own solve-output default.  The
+# conversion runs as a single final pass over the finished output tree
+# (`convert_tree_to_long`), so individual writers keep emitting wide and the
+# intermediate read-modify-write cleanups (e.g. pmin→FlowRight) are
+# unaffected.
+
+# Re-export wide→long primitives from gtopt_shared.dataframe.  Lifted on
+# 2026-06-06 to break the cross-package import smell where gtopt2pbi was
+# pulling ``to_long_layout`` straight out of ``plp2gtopt.base_writer``.
+# Legacy names preserved (``_INDEX_COLS``, ``_col_to_uid``,
+# ``to_long_layout``) so existing imports continue to work.
+from gtopt_shared.dataframe import (  # noqa: E402,F401
+    INDEX_COLS as _INDEX_COLS,
+    column_to_uid as _col_to_uid,
+    to_long_layout,
+)
+
+
+def convert_tree_to_long(root: Path, options: Optional[Dict[str, Any]] = None) -> int:
+    """Rewrite every recognizable wide field Parquet/CSV under *root* into
+    long layout, in place.
+
+    Structural tables (block/stage definitions, etc.) are skipped via
+    ``to_long_layout`` returning ``None``.  Parquet files are re-encoded with
+    the case's compression codec.  Returns the number of files converted.
+    """
+    options = options or {}
+    codec = _probe_parquet_codec(options.get("compression", _DEFAULT_COMPRESSION))
+    pq_kwargs: Dict[str, Any] = {}
+    if codec not in BaseWriter.UNCOMPRESSED_ALIASES:
+        pq_kwargs["compression"] = codec
+    level = options.get("compression_level")
+    if level:
+        pq_kwargs["compression_level"] = int(level)
+
+    converted = 0
+    for path in sorted(root.rglob("*.parquet")):
+        try:
+            df = pd.read_parquet(path)
+        except (OSError, ValueError):
+            continue
+        long_df = to_long_layout(df)
+        if long_df is None:
+            continue
+        long_df.to_parquet(path, index=False, **pq_kwargs)
+        converted += 1
+    for path in sorted(root.rglob("*.csv")):
+        try:
+            df = pd.read_csv(path)
+        except (OSError, ValueError):
+            continue
+        long_df = to_long_layout(df)
+        if long_df is None:
+            continue
+        write_csv(long_df, path)
+        converted += 1
+    return converted

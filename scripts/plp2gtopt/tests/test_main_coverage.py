@@ -158,7 +158,7 @@ class TestBuildOptions:
             "name": None,
             "last_stage": -1,
             "last_time": -1,
-            "compression": "zstd",
+            "compression": "snappy",
             "compression_level": 1,
             "output_format": "parquet",
             "input_format": None,
@@ -172,34 +172,45 @@ class TestBuildOptions:
             "excel_output": False,
             "excel_file": None,
             "sys_version": "",
-            "solver_type": "sddp",
+            "method": "cascade",
             "stages_phase": None,
             "num_apertures": None,
             "aperture_directory": None,
             "demand_fail_cost": 1000.0,
             "state_fail_cost": 1000.0,
-            "scale_objective": 10000000.0,
-            "scale_theta": 0.0001,
+            "scale_objective": 1000.0,
+            "scale_theta": None,
             "use_single_bus": False,
             "use_kirchhoff": True,
+            "kirchhoff_mode": "cycle_basis",
             "reserve_fail_cost": None,
             "use_line_losses": None,
+            "line_losses_mode": None,
+            "plp_legacy": False,
             "cut_sharing_mode": None,
             "boundary_cuts_mode": None,
             "boundary_max_iterations": None,
             "no_boundary_cuts": False,
-            "hot_start_cuts": False,
+            "alias_file": None,
             "stationary_tol": None,
             "stationary_window": None,
-            "rsv_scale_mode": "auto",
-            "rsv_energy_scale": None,
-            "auto_rsv_energy_scale": True,
-            "bat_energy_scale": None,
-            "auto_bat_energy_scale": True,
+            "reservoir_scale_mode": "auto",
+            "reservoir_energy_scale": None,
+            "auto_reservoir_energy_scale": False,
+            "battery_energy_scale": None,
+            "auto_battery_energy_scale": False,
             "variable_scales_file": None,
             "soft_emin_cost": None,
+            "soft_storage_bounds": True,
+            "vert_cost_cap": 500.0,
+            "drop_spillway_waterway": False,
+            "vrebemb_as_sink": False,
             "embed_reservoir_constraints": False,
-            "emit_water_rights": False,
+            "expand_water_rights": False,
+            "expand_lng": True,
+            "expand_ror": True,
+            "ror_as_reservoirs": None,
+            "ror_as_reservoirs_file": None,
             "run_check": True,
             "auto_detect_tech": True,
             "tech_overrides": None,
@@ -231,12 +242,13 @@ class TestBuildOptions:
         assert opts["output_dir"] == Path("gtopt_case_2y")
 
     def test_optional_solver_options(self):
+        # ``hot_start_cuts`` retired in 2026-05 — internal hot-start
+        # cuts now travel via the typed Parquet path on the gtopt side.
         args = self._make_args(
             cut_sharing_mode="shared",
             boundary_cuts_mode="forward",
             boundary_max_iterations=100,
             no_boundary_cuts=True,
-            hot_start_cuts=True,
             stationary_tol=0.01,
             stationary_window=5,
             reserve_fail_cost=500.0,
@@ -247,21 +259,22 @@ class TestBuildOptions:
         assert opts["boundary_cuts_mode"] == "forward"
         assert opts["boundary_max_iterations"] == 100
         assert opts["no_boundary_cuts"] is True
-        assert opts["hot_start_cuts"] is True
         assert opts["stationary_tol"] == 0.01
         assert opts["stationary_window"] == 5
-        assert opts["model_options"]["reserve_fail_cost"] == 500.0
+        # §11.10: legacy CLI name reserve_fail_cost maps to canonical
+        # gtopt key reserve_shortage_cost.
+        assert opts["model_options"]["reserve_shortage_cost"] == 500.0
         assert opts["model_options"]["use_line_losses"] is True
 
-    def test_rsv_energy_scale_parsing(self):
-        args = self._make_args(rsv_energy_scale="RAPEL:500,COLBUN:15000")
+    def test_reservoir_energy_scale_parsing(self):
+        args = self._make_args(reservoir_energy_scale="RAPEL:500,COLBUN:15000")
         opts = build_options(args)
-        assert opts["rsv_energy_scale"] == {"RAPEL": 500.0, "COLBUN": 15000.0}
+        assert opts["reservoir_energy_scale"] == {"RAPEL": 500.0, "COLBUN": 15000.0}
 
-    def test_bat_energy_scale_parsing(self):
-        args = self._make_args(bat_energy_scale="BESS1:100")
+    def test_battery_energy_scale_parsing(self):
+        args = self._make_args(battery_energy_scale="BESS1:100")
         opts = build_options(args)
-        assert opts["bat_energy_scale"] == {"BESS1": 100.0}
+        assert opts["battery_energy_scale"] == {"BESS1": 100.0}
 
     def test_tech_overrides(self):
         with patch("plp2gtopt.tech_detect.load_overrides", return_value={"A": "solar"}):
@@ -273,6 +286,17 @@ class TestBuildOptions:
         args = self._make_args(variable_scales_file="scales.json")
         opts = build_options(args)
         assert opts["variable_scales_file"] == "scales.json"
+
+    def test_alias_file_argument(self):
+        args = self._make_args(alias_file=Path("alias.json"))
+        opts = build_options(args)
+        assert opts["alias_file"] == Path("alias.json")
+
+    def test_alias_file_default_absent(self):
+        """alias_file key is absent from opts when CLI flag not provided."""
+        args = self._make_args()
+        opts = build_options(args)
+        assert "alias_file" not in opts
 
     def test_pasada_mode_hydro(self):
         args = self._make_args(pasada_mode="hydro")
@@ -290,6 +314,82 @@ class TestBuildOptions:
         args = self._make_args(pasada_mode=None)
         opts = build_options(args)
         assert opts["pasada_mode"] == "flow-turbine"
+
+    def test_line_losses_mode_explicit(self):
+        args = self._make_args(line_losses_mode="piecewise_direct")
+        opts = build_options(args)
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_line_losses_mode_absent_when_not_set(self):
+        args = self._make_args()
+        opts = build_options(args)
+        # Not emitted when user did not set it — gtopt picks adaptive
+        assert "line_losses_mode" not in opts["model_options"]
+
+    def test_plp_legacy_bundles_method_and_losses(self):
+        # Empty argv → neither --method nor --line-losses-mode is explicit,
+        # so --plp-legacy fills method + line_losses_mode + use_line_losses.
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy"]):
+            args = self._make_args(plp_legacy=True)
+            opts = build_options(args)
+        assert opts["method"] == "sddp"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+        assert opts["model_options"]["use_line_losses"] is True
+
+    def test_plp_legacy_respects_explicit_use_line_losses(self):
+        # User passed --use-line-losses → bundle must not touch the value,
+        # but still bundles method + line_losses_mode.
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy", "-L"]):
+            args = self._make_args(plp_legacy=True, use_line_losses=True)
+            opts = build_options(args)
+        assert opts["model_options"]["use_line_losses"] is True
+        assert opts["method"] == "sddp"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_plp_legacy_respects_explicit_method(self):
+        # User passes --method=monolithic explicitly → legacy bundle
+        # must NOT override it, but still sets line_losses_mode.
+        with patch.object(
+            sys, "argv", ["plp2gtopt", "--plp-legacy", "--method=monolithic"]
+        ):
+            args = self._make_args(plp_legacy=True, method="monolithic")
+            opts = build_options(args)
+        assert opts["method"] == "monolithic"
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+
+    def test_plp_legacy_respects_explicit_losses_mode(self):
+        with patch.object(
+            sys,
+            "argv",
+            ["plp2gtopt", "--plp-legacy", "--line-losses-mode", "piecewise"],
+        ):
+            args = self._make_args(plp_legacy=True, line_losses_mode="piecewise")
+            opts = build_options(args)
+        assert opts["method"] == "sddp"  # still bundled
+        assert opts["model_options"]["line_losses_mode"] == "piecewise"
+
+    def test_plp_legacy_forces_pasada_mode_flow_turbine(self):
+        """--plp-legacy overrides the default `auto` pasada_mode."""
+        with patch.object(sys, "argv", ["plp2gtopt", "--plp-legacy"]):
+            args = self._make_args(plp_legacy=True, pasada_mode="auto")
+            opts = build_options(args)
+        assert opts["pasada_mode"] == "flow-turbine"
+
+    def test_plp_legacy_respects_explicit_pasada_mode(self):
+        """An explicit --pasada-mode wins over the legacy bundle."""
+        with patch.object(
+            sys, "argv", ["plp2gtopt", "--plp-legacy", "--pasada-mode", "hydro"]
+        ):
+            args = self._make_args(plp_legacy=True, pasada_mode="hydro")
+            opts = build_options(args)
+        assert opts["pasada_mode"] == "hydro"
+
+    def test_plp_legacy_off_leaves_defaults(self):
+        with patch.object(sys, "argv", ["plp2gtopt"]):
+            args = self._make_args(plp_legacy=False)
+            opts = build_options(args)
+        assert opts["method"] == "cascade"
+        assert "line_losses_mode" not in opts["model_options"]
 
 
 # ---------------------------------------------------------------------------
@@ -484,5 +584,5 @@ def test_version_fallback():
 def test_section_defaults_keys():
     """_SECTION_DEFAULTS contains expected configuration keys."""
     assert "compression" in _SECTION_DEFAULTS
-    assert "solver_type" in _SECTION_DEFAULTS
-    assert "rsv_scale_mode" in _SECTION_DEFAULTS
+    assert "method" in _SECTION_DEFAULTS
+    assert "reservoir_scale_mode" in _SECTION_DEFAULTS

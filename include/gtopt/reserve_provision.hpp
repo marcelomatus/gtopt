@@ -14,7 +14,9 @@
 
 #pragma once
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/single_id.hpp>
 
 namespace gtopt
 {
@@ -27,35 +29,71 @@ namespace gtopt
  * the maximum reserve it may offer, optional capacity-factor limits, and the
  * reserve bid cost.
  *
- * `reserve_zones` is a comma-separated list of ReserveZone UIDs or names.
+ * `reserve_zones` is a typed array of ReserveZone references (each element
+ * is either a Uid number or a Name string).
  *
  * @see ReserveZone for zone-level requirements
  * @see ReserveProvisionLP for the LP formulation
  */
 struct ReserveProvision
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ReserveProvisionLP` exposes no separate `ClassName` member;
+  /// callers reach the constant via `ReserveProvision::class_name`
+  /// directly (or `ReserveProvisionLP::Element::class_name` in generic
+  /// contexts).
+  static constexpr LPClassName class_name {"ReserveProvision"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId generator {unknown_uid};  ///< ID of the providing generator
-  String reserve_zones {};  ///< Comma-separated list of ReserveZone IDs/names
+  Array<SingleId> reserve_zones {};  ///< Typed array of ReserveZone IDs / names
 
   OptTBRealFieldSched urmax {};  ///< Maximum up-reserve offer [MW]
   OptTBRealFieldSched drmax {};  ///< Maximum down-reserve offer [MW]
 
-  OptTRealFieldSched
-      ur_capacity_factor {};  ///< Up-reserve capacity factor [p.u.]
-  OptTRealFieldSched
-      dr_capacity_factor {};  ///< Down-reserve capacity factor [p.u.]
+  OptTBRealFieldSched urmin {};  ///< Minimum up-reserve provision floor [MW]
+                                 ///< per-(stage, block).  When set, gtopt
+                                 ///< adds the row ``provision_up >= urmin``
+                                 ///< on the LP, forcing the unit to commit
+                                 ///< at least ``urmin`` MW to up-reserve
+                                 ///< whenever the gen is on.  Mirrors
+                                 ///< PLEXOS's per-(Reserve, Generator)
+                                 ///< ``Min Provision`` / ``Min Spinning
+                                 ///< Provision`` / ``Min Replacement
+                                 ///< Provision`` properties.
+  OptTBRealFieldSched drmin {};  ///< Minimum down-reserve provision floor
+                                 ///< [MW] per-(stage, block).  Same
+                                 ///< semantics as ``urmin`` for the
+                                 ///< down-reserve column.
 
-  OptTRealFieldSched
-      ur_provision_factor {};  ///< Up-reserve provision factor [p.u.]
-  OptTRealFieldSched
-      dr_provision_factor {};  ///< Down-reserve provision factor [p.u.]
+  OptTBRealFieldSched
+      ur_capacity_factor {};  ///< Up-reserve capacity factor [p.u.] —
+                              ///< per-(stage, block); accepts a scalar
+                              ///< (broadcasts), a 2-D nested array, or a
+                              ///< file-backed schedule.
+  OptTBRealFieldSched
+      dr_capacity_factor {};  ///< Down-reserve capacity factor [p.u.] —
+                              ///< same shapes as ``ur_capacity_factor``.
 
-  OptTRealFieldSched urcost {};  ///< Up-reserve bid cost [$/MW]
-  OptTRealFieldSched drcost {};  ///< Down-reserve bid cost [$/MW]
+  OptTBRealFieldSched
+      ur_provision_factor {};  ///< Up-reserve provision factor [p.u.] —
+                               ///< per-(stage, block); same shapes as
+                               ///< ``ur_capacity_factor``.
+  OptTBRealFieldSched
+      dr_provision_factor {};  ///< Down-reserve provision factor [p.u.] —
+                               ///< per-(stage, block).
+
+  OptTBRealFieldSched urcost {};  ///< Up-reserve bid cost [$/MW] —
+                                  ///< per-(stage, block).
+  OptTBRealFieldSched drcost {};  ///< Down-reserve bid cost [$/MW] —
+                                  ///< per-(stage, block).
 };
 
 }  // namespace gtopt

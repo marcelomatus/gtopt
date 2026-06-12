@@ -6,7 +6,6 @@
     "output_directory": "results",
     "output_format": "parquet",
     "output_compression": "zstd",
-    "use_lp_names": 1,
     "use_single_bus": false,
     "use_kirchhoff": false,
     "demand_fail_cost": 1000.0,

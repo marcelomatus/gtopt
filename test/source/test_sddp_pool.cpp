@@ -20,35 +20,44 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  SUBCASE("SDDPTaskKey is a 4-tuple of int")
+  SUBCASE("SDDPTaskKey is a 3-tuple (iter, is_backward, kind)")
   {
-    static_assert(std::same_as<SDDPTaskKey, std::tuple<int, int, int, int>>);
+    // Per-phase ordering was removed 2026-05: every async forward /
+    // backward submission runs all phases internally as one pool
+    // task, so a signed_phase field never differentiated live tasks
+    // at the four top-level submission sites.  The sync phase-by-
+    // phase backward path also serialises phase steps, so only one
+    // phase's tasks are ever in flight there.  See sddp_pool.hpp's
+    // header comment for the full rationale.
+    static_assert(std::same_as<SDDPTaskKey,
+                               std::tuple<IterationIndex, int, SDDPTaskKind>>);
     CHECK(true);
   }
 
-  SUBCASE("SDDPPassDirection and SDDPTaskKind have correct values")
+  SUBCASE("Enum value constants")
   {
     CHECK(static_cast<int>(SDDPTaskKind::lp) == 0);
     CHECK(static_cast<int>(SDDPTaskKind::non_lp) == 1);
+    // forward → is_backward 0; backward → is_backward 1.  Values
+    // chosen so the lex tuple keeps forward strictly ahead of
+    // backward at the same iteration.
     CHECK(static_cast<int>(SDDPPassDirection::forward) == 0);
     CHECK(static_cast<int>(SDDPPassDirection::backward) == 1);
   }
 
-  SUBCASE("BasicTaskRequirements with SDDPTaskKey")
+  SUBCASE("make_sddp_task_key encodes (iter, is_backward, kind)")
   {
-    BasicTaskRequirements<SDDPTaskKey> req {
-        .priority = TaskPriority::Medium,
-        .priority_key = make_sddp_task_key(IterationIndex {1},
-                                           SDDPPassDirection::forward,
-                                           PhaseIndex {2},
-                                           SDDPTaskKind::lp),
-        .name = {},
-    };
-    CHECK(std::get<0>(req.priority_key) == 1);
-    CHECK(std::get<1>(req.priority_key)
-          == static_cast<int>(SDDPPassDirection::forward));
-    CHECK(std::get<2>(req.priority_key) == 2);
-    CHECK(std::get<3>(req.priority_key) == static_cast<int>(SDDPTaskKind::lp));
+    const auto fwd = make_sddp_task_key(
+        IterationIndex {1}, SDDPPassDirection::forward, SDDPTaskKind::lp);
+    CHECK(std::get<0>(fwd) == IterationIndex {1});
+    CHECK(std::get<1>(fwd) == 0);  // is_backward = 0 for forward
+    CHECK(std::get<2>(fwd) == SDDPTaskKind::lp);
+
+    const auto bwd = make_sddp_task_key(
+        IterationIndex {1}, SDDPPassDirection::backward, SDDPTaskKind::lp);
+    CHECK(std::get<0>(bwd) == IterationIndex {1});
+    CHECK(std::get<1>(bwd) == 1);  // is_backward = 1 for backward
+    CHECK(std::get<2>(bwd) == SDDPTaskKind::lp);
   }
 }
 
@@ -68,7 +77,6 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -77,7 +85,6 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {1},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -85,14 +92,14 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
     CHECK(iter1 < iter0);  // iter1 has lower priority
   }
 
-  SUBCASE("forward (0) has higher priority than backward (1)")
+  SUBCASE("forward beats backward at the same iteration")
   {
+    // is_backward field: forward(0) < backward(1).
     STask fwd {
         [] {},
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -101,7 +108,6 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         }};
@@ -115,7 +121,6 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
               SReq {
                   .priority_key = make_sddp_task_key(IterationIndex {0},
                                                      SDDPPassDirection::forward,
-                                                     PhaseIndex {0},
                                                      SDDPTaskKind::lp),
                   .name = {},
               }};
@@ -124,36 +129,11 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         SReq {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::non_lp),
             .name = {},
         }};
     CHECK_FALSE(lp < nonlp);  // LP has higher priority
     CHECK(nonlp < lp);  // non-LP has lower priority
-  }
-
-  SUBCASE("lower phase index has higher priority")
-  {
-    STask ph0 {
-        [] {},
-        SReq {
-            .priority_key = make_sddp_task_key(IterationIndex {0},
-                                               SDDPPassDirection::forward,
-                                               PhaseIndex {0},
-                                               SDDPTaskKind::lp),
-            .name = {},
-        }};
-    STask ph2 {
-        [] {},
-        SReq {
-            .priority_key = make_sddp_task_key(IterationIndex {0},
-                                               SDDPPassDirection::forward,
-                                               PhaseIndex {2},
-                                               SDDPTaskKind::lp),
-            .name = {},
-        }};
-    CHECK_FALSE(ph0 < ph2);  // phase 0 has higher priority
-    CHECK(ph2 < ph0);  // phase 2 has lower priority
   }
 }
 
@@ -198,7 +178,6 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
             .priority = TaskPriority::Medium,
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -212,6 +191,9 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
 
   SUBCASE("forward task runs before backward task")
   {
+    // is_backward 0 < 1 wins the cross-direction comparison — matches
+    // the SDDP rule that the forward pass produces the trial points
+    // the backward pass needs.
     SDDPWorkPool pool;
     pool.start();
 
@@ -231,7 +213,6 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -246,7 +227,6 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::backward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -274,7 +254,6 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {1},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -283,7 +262,6 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -317,7 +295,6 @@ TEST_CASE("make_sddp_work_pool factory")  // NOLINT
         Req {
             .priority_key = make_sddp_task_key(IterationIndex {0},
                                                SDDPPassDirection::forward,
-                                               PhaseIndex {0},
                                                SDDPTaskKind::lp),
             .name = {},
         });
@@ -346,5 +323,59 @@ TEST_CASE("make_sddp_work_pool factory")  // NOLINT
 
     const auto stats = pool->get_statistics();
     CHECK(stats.tasks_submitted >= 1);
+  }
+}
+
+// ─── cell_task_headroom parameter ────────────────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "make_sddp_work_pool: cell_task_headroom adds slots over the base")
+{
+  // The synchronised backward pass dispatches one cell task per
+  // feasible scene; each blocks on its aperture sub-task futures
+  // while holding a worker slot.  `cell_task_headroom` reserves
+  // additional slots so aperture-parallelism is not silently capped
+  // at `(cpu_factor × physical_concurrency) − num_scenes`.  This
+  // test pins that the parameter actually adds to `max_threads`.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("zero headroom matches base size")
+  {
+    auto pool_no_headroom = make_sddp_work_pool(0.5,
+                                                /*memory_limit_mb=*/0.0,
+                                                /*cell_task_headroom=*/0);
+    REQUIRE(pool_no_headroom != nullptr);
+    const auto base = pool_no_headroom->max_threads();
+    pool_no_headroom->shutdown();
+
+    auto pool_with_headroom = make_sddp_work_pool(0.5,
+                                                  /*memory_limit_mb=*/0.0,
+                                                  /*cell_task_headroom=*/8);
+    REQUIRE(pool_with_headroom != nullptr);
+    CHECK(pool_with_headroom->max_threads() == base + 8);
+    pool_with_headroom->shutdown();
+  }
+
+  SUBCASE("negative headroom clamps to zero")
+  {
+    // Negative values must not shrink the pool below the base size.
+    auto pool = make_sddp_work_pool(0.5,
+                                    /*memory_limit_mb=*/0.0,
+                                    /*cell_task_headroom=*/-5);
+    REQUIRE(pool != nullptr);
+    const auto base = static_cast<int>(
+        std::lround(0.5 * static_cast<double>(physical_concurrency())));
+    CHECK(pool->max_threads() == base);
+  }
+
+  SUBCASE("default value preserves prior behaviour")
+  {
+    // Callers that do not pass the new param must see the same pool
+    // size they always saw — `cell_task_headroom` defaults to 0.
+    auto pool = make_sddp_work_pool(0.5);
+    REQUIRE(pool != nullptr);
+    const auto base = static_cast<int>(
+        std::lround(0.5 * static_cast<double>(physical_concurrency())));
+    CHECK(pool->max_threads() == base);
   }
 }

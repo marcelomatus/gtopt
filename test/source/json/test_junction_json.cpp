@@ -101,3 +101,57 @@ TEST_CASE("Junction JSON roundtrip serialization")
   REQUIRE(roundtrip.drain.has_value());
   REQUIRE(roundtrip.drain == true);
 }
+
+TEST_CASE("Junction JSON drain_capacity + drain_cost optional fields")
+{
+  SUBCASE("both fields present")
+  {
+    std::string_view json_data = R"({
+      "uid":42,
+      "name":"LMAULE",
+      "drain":true,
+      "drain_capacity":250.0,
+      "drain_cost":3.6
+    })";
+
+    const auto junction = daw::json::from_json<gtopt::Junction>(json_data);
+
+    CHECK(junction.uid == 42);
+    CHECK(junction.name == "LMAULE");
+    CHECK(junction.drain.value_or(false) == true);
+    CHECK(junction.drain_capacity.value_or(-1.0) == doctest::Approx(250.0));
+    CHECK(junction.drain_cost.value_or(-1.0) == doctest::Approx(3.6));
+  }
+
+  SUBCASE("drain present, capacity/cost omitted → optional empty")
+  {
+    std::string_view json_data = R"({
+      "uid":1,
+      "name":"FREE_DRAIN",
+      "drain":true
+    })";
+
+    const auto junction = daw::json::from_json<gtopt::Junction>(json_data);
+
+    CHECK(junction.drain.value_or(false) == true);
+    CHECK_FALSE(junction.drain_capacity.has_value());
+    CHECK_FALSE(junction.drain_cost.has_value());
+  }
+
+  SUBCASE("roundtrip preserves the two new fields")
+  {
+    gtopt::Junction original;
+    original.uid = 7;
+    original.name = "RT";
+    original.drain = true;
+    original.drain_capacity = 100.0;
+    original.drain_cost = 1.25;
+
+    const auto json = daw::json::to_json(original);
+    const auto rt = daw::json::from_json<gtopt::Junction>(json);
+
+    CHECK(rt.drain.value_or(false) == true);
+    CHECK(rt.drain_capacity.value_or(0.0) == doctest::Approx(100.0));
+    CHECK(rt.drain_cost.value_or(0.0) == doctest::Approx(1.25));
+  }
+}

@@ -14,11 +14,12 @@ public:
   ScenarioLP() = default;
 
   template<class StageLPs = std::vector<StageLP> >
-  explicit ScenarioLP(Scenario scenario,
-                      ScenarioIndex index = ScenarioIndex {unknown_index},
-                      SceneIndex scene_index = SceneIndex {unknown_index})
+  explicit ScenarioLP(
+      Scenario scenario,
+      ScenarioIndex scenario_index = ScenarioIndex {unknown_index},
+      SceneIndex scene_index = SceneIndex {unknown_index})
       : m_scenario_(std::move(scenario))
-      , m_index_(index)
+      , m_index_(scenario_index)
       , m_scene_index_(scene_index)
   {
   }
@@ -28,14 +29,11 @@ public:
     return m_scenario_.is_active();
   }
 
-  [[nodiscard]] constexpr auto is_first() const noexcept
-  {
-    return m_index_ == ScenarioIndex {0};
-  }
+  [[nodiscard]] constexpr auto is_first() const noexcept { return !m_index_; }
 
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return ScenarioUid(m_scenario_.uid);
+    return make_uid<Scenario>(m_scenario_.uid);
   }
 
   [[nodiscard]] constexpr auto probability_factor() const noexcept

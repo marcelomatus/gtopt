@@ -13,6 +13,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
 - **Data Preparation & Conversion**
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
+  - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
@@ -28,6 +29,9 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_check_output](#gtopt_check_output) — analyze solver output
   - [gtopt_check_solvers](#gtopt_check_solvers) — discover and validate LP solver plugins
   - [gtopt_compress_lp](#gtopt_compress_lp) — compress LP debug files
+  - [gtopt_check_fingerprint](#gtopt_check_fingerprint) — LP structural fingerprint verification · [full docs](lp-fingerprint.md)
+  - [gtopt_check_pampl](#gtopt_check_pampl) — validate PAMPL expression syntax and LP resolution
+  - [plp_compress_case](#plp_compress_case) — compress PLP case files
 - **Utilities**
   - [gtopt_config](#gtopt_config) — unified configuration for all tools
   - [gtopt_field_extractor](#gtopt_field_extractor)
@@ -44,12 +48,14 @@ Install all tools with a single `pip` command from the repository root:
 pip install ./scripts
 ```
 
-This registers all 16 command-line tools on your `PATH`:
-`gtopt_diagram`, `plp2gtopt`, `pp2gtopt`, `gtopt2pp`, `igtopt`,
-`cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
+This registers all 22 command-line tools on your `PATH`:
+`gtopt_diagram`, `plp2gtopt`, `sddp2gtopt`, `pp2gtopt`, `gtopt2pp`,
+`igtopt`, `cvs2parquet`, `ts2gtopt`, `gtopt_compare`, `run_gtopt`,
 `gtopt_monitor`, `gtopt_check_json`, `gtopt_check_lp`,
-`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`, and
-`gtopt_field_extractor`.  An editable install is useful during
+`gtopt_check_output`, `gtopt_check_solvers`, `gtopt_compress_lp`,
+`gtopt_check_fingerprint`, `gtopt_field_extractor`, `gtopt_check_pampl`,
+`gtopt_expand`, `cen_demanda`,
+and `plp_compress_case`.  An editable install is useful during
 development:
 
 ```bash
@@ -76,6 +82,7 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
 | `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
 | `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
+| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP → gtopt JSON converter |
 | `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
 | `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
 | `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
@@ -84,9 +91,14 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_check_output/` | `gtopt_check_output` | Solver output analyzer |
 | `gtopt_check_solvers/` | `gtopt_check_solvers` | LP solver plugin discovery & validation |
 | `gtopt_compress_lp/` | `gtopt_compress_lp` | LP debug file compressor |
+| `gtopt_check_fingerprint/` | `gtopt_check_fingerprint` | LP structural fingerprint verification & comparison |
+| `gtopt_check_pampl/` | `gtopt_check_pampl` | PAMPL expression syntax and LP resolution validator |
+| `plp_compress_case/` | `plp_compress_case` | PLP case file compressor |
 | `gtopt_config/` | *(library)* | Unified configuration management |
 | `gtopt_monitor/` | `gtopt_monitor` | Live solver monitoring dashboard |
 | `ts2gtopt/` | `ts2gtopt` | Time-series → gtopt block schedule converter |
+| `gtopt_expand/` | `gtopt_expand` | Expansion transforms: LNG terminal, ROR promotion, pumped storage, irrigation agreements (`gtopt_irrigation` is a deprecated alias) |
+| `cen_demanda/` | `cen_demanda` | Coordinador Eléctrico Nacional SIPUB hourly demand downloader |
 
 ### Dependencies
 
@@ -253,8 +265,8 @@ Two additional **optional** PLP files extend the hydro model:
 | PLP file | gtopt array | Description |
 |----------|-------------|-------------|
 | `plpcnfce.dat` | `junction_array`, `waterway_array`, `turbine_array`, `reservoir_array`, `flow_array` | Main hydro topology (required when hydro centrals exist) |
-| `plpcenre.dat` | `reservoir_efficiency_array` | Volume-dependent turbine efficiency (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
-| `plpcenfi.dat` | `filtration_array` | Waterway-to-reservoir seepage (PLP *filtración*): linear model `flow = slope × volume + constant` |
+| `plpcenre.dat` | `reservoir_production_factor_array` | Volume-dependent turbine production factor (PLP *rendimiento*): piecewise-linear conversion rate as a function of reservoir storage |
+| `plpcenfi.dat` | `reservoir_seepage_array` | Waterway-to-reservoir seepage (PLP *filtración*): linear model `flow = slope × volume + constant` |
 
 Both `plpcenre.dat` and `plpcenfi.dat` are **optional** — if absent, the
 corresponding arrays are simply not written.  When present and non-empty they
@@ -268,7 +280,7 @@ N
 # For each entry:
 'CENTRAL_NAME'     ← turbine (central) name
 'EMBALSE_NAME'     ← reservoir name
-mean_efficiency    ← fallback efficiency [MW·s/m³]
+mean_production_factor    ← fallback production factor [MW·s/m³]
 num_segments       ← number of piecewise-linear segments
 idx  volume  slope  constant  scale  ← one line per segment
 ```
@@ -488,6 +500,59 @@ centrals by name so the user can verify that they are genuinely unused.
 
 ---
 
+## sddp2gtopt
+
+> **[→ Full documentation](scripts/sddp2gtopt.md)**
+
+Converts a **PSR SDDP** (*Stochastic Dual Dynamic Programming*, by
+PSR Inc.) case directory to a gtopt JSON planning, mirroring the
+role `plp2gtopt` plays for PLP cases.  v0 is JSON-first: it reads
+the typed `psrclasses.json` snapshot the SDDP GUI saves alongside
+the Fortran-style `.dat` files, parses the standard PSR collections
+(`PSRStudy`, `PSRSystem`, `PSRDemand`, `PSRDemandSegment`, `PSRFuel`,
+`PSRThermalPlant`, `PSRHydroPlant`, `PSRGaugingStation`), and writes
+a single-bus monolithic gtopt planning that `gtopt --lp-only`
+ingests directly.
+
+> ⚠️  Targets the **PSR Inc. commercial** SDDP format only — *not*
+> the academic Julia [SDDP.jl](https://sddp.dev) package.
+
+### Basic usage
+
+```bash
+# Inspect a case (no conversion)
+sddp2gtopt --info  /path/to/sddp_case
+
+# Schema sanity check
+sddp2gtopt --validate /path/to/sddp_case
+
+# Convert (default: writes ./gtopt_<case>/<case>.json)
+sddp2gtopt /path/to/sddp_case
+
+# Explicit output dir
+sddp2gtopt -i /path/to/sddp_case -o gtopt_case
+```
+
+### What gets mapped
+
+| PSR collection                   | gtopt target                       | Status        |
+|----------------------------------|------------------------------------|---------------|
+| `PSRStudy`                       | `options` + `simulation`           | ✅            |
+| `PSRSystem`                      | synthesised single bus per system  | ✅ (single)   |
+| `PSRThermalPlant` + `PSRFuel`    | `generator_array` (`gcost = CEsp × Custo`) | ✅      |
+| `PSRHydroPlant`                  | `generator_array` (zero-cost, flat)| ⚠️ flattened  |
+| `PSRDemand` + `PSRDemandSegment` | `demand_array` with inline `lmax`  | ✅ (GWh→MW)   |
+| `PSRGaugingStation`              | inflow series                      | ⏳ deferred   |
+| Multi-system / multi-bus         | extra `bus_array` + `line_array`   | ⏳ deferred   |
+
+The converter's roadmap (hydro reservoir + waterway, multi-bus,
+multi-scenario, `.dat` fallback) is tracked in
+[`scripts/sddp2gtopt/DESIGN.md`](../scripts/sddp2gtopt/DESIGN.md);
+the per-element mapping rules and unit conversions are documented
+in detail in [`scripts/sddp2gtopt.md`](scripts/sddp2gtopt.md).
+
+---
+
 ## pp2gtopt
 
 > **[→ Full documentation](scripts/pp2gtopt.md)**
@@ -698,9 +763,9 @@ starts with `.` (e.g. `.notes`) are silently skipped.
 | `waterway_array` | Water channels between junctions (`uid`, `name`, `junction_a`, `junction_b`, `fmax`) |
 | `flow_array` | External inflows/outflows at junctions (`uid`, `name`, `junction`, `discharge`, `direction`) |
 | `reservoir_array` | Storage lakes/dams (`uid`, `name`, `junction`, `emin`, `emax`, `ecost`) |
-| `filtration_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`, `slope`, `constant`, `segments` — `segments` is a JSON array of `{"volume", "slope", "constant"}` for piecewise-linear seepage) |
+| `reservoir_seepage_array` | Water seepage from waterways into reservoirs (`uid`, `name`, `waterway`, `reservoir`, `slope`, `constant`, `segments` — `segments` is a JSON array of `{"volume", "slope", "constant"}` for piecewise-linear seepage) |
 | `turbine_array` | Hydro turbines (`uid`, `name`, `waterway`, `generator`, `conversion_rate`) |
-| `reservoir_efficiency_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_efficiency`) |
+| `reservoir_production_factor_array` | Volume-dependent turbine productivity curves (`uid`, `name`, `turbine`, `reservoir`, `mean_production_factor`) |
 | `user_constraint_array` | User-defined custom LP constraints added to the problem |
 
 #### Time-series sheets (`@` convention)
@@ -1262,7 +1327,7 @@ The tool searches for the `gtopt` binary in this order:
 ## gtopt_compress_lp
 
 Compresses **LP debug files** generated by the gtopt solver (when
-`lp_debug=true` or `lp_build=true`).  Supports multiple compression
+`lp_debug=true` or `lp_only=true`, i.e. CLI `--lp-debug` / `--lp-only`).  Supports multiple compression
 formats and integrates seamlessly with the solver's post-solve workflow.
 
 ### Basic usage
@@ -1315,6 +1380,61 @@ gtopt_compress_lp --init-config
 | `--config PATH` | `~/.gtopt_compress_lp.conf` | Config file path |
 | `--color {auto,always,never}` | `auto` | Terminal color output |
 | `--version` | — | Show version and exit |
+
+---
+
+## gtopt_check_fingerprint
+
+Computes, verifies, and compares **LP structural fingerprints** — a
+SHA-256 hash of the sorted set of `(class, variable, context_type)` triples
+that captures which types of LP variables and constraints exist, independent
+of element counts.  See [LP Fingerprint](lp-fingerprint.md) for full details.
+
+### Basic usage
+
+```bash
+# Compute fingerprint from an LP file
+gtopt_check_fingerprint compute problem.lp -o fingerprint.json
+
+# Verify an LP file against a golden fingerprint
+gtopt_check_fingerprint verify --lp-file problem.lp --golden golden.json
+
+# Compare two fingerprint JSON files (structural only, ignores stats)
+gtopt_check_fingerprint compare --actual actual.json --expected golden.json
+```
+
+### Subcommands
+
+| Subcommand | Purpose |
+|------------|---------|
+| `compute` | Parse an LP file and write a fingerprint JSON |
+| `verify` | Parse an LP file and compare against a golden JSON |
+| `compare` | Compare two fingerprint JSON files |
+
+### Compute options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `LP_FILE` (positional) | — | LP file to parse (`.lp` format) |
+| `-o`, `--output` | stdout | Output fingerprint JSON path |
+
+### Verify options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--lp-file` | — | LP file to parse |
+| `--golden` | — | Golden fingerprint JSON to compare against |
+
+### Compare options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--actual` | — | Actual fingerprint JSON |
+| `--expected` | — | Expected (golden) fingerprint JSON |
+
+Exit code 0 = match, 1 = structural mismatch.  The `stats` section
+(element counts) is always ignored — only structural template and hash
+are compared.
 
 ---
 
@@ -1482,3 +1602,44 @@ solution files.
 
 For full API reference and deployment instructions, see
 [webservice/INSTALL.md](webservice/INSTALL.md).
+
+## gtopt_check_pampl
+
+Validates PAMPL (gtopt constraint expression language) syntax and verifies
+that all LP column references resolve correctly for a given JSON planning file.
+
+```bash
+# Check all user constraints in a planning file
+gtopt_check_pampl cases/mycase/mycase.json
+
+# Verbose output showing each constraint and its resolution
+gtopt_check_pampl cases/mycase/mycase.json --verbose
+
+# Check only a specific constraint file
+gtopt_check_pampl --constraint-file constraints.json cases/mycase/mycase.json
+```
+
+### Common use cases
+
+- Verify new user constraints before running the solver
+- Diagnose resolution errors (unknown elements, bad expression syntax)
+- Confirm LP column names in constraint expressions match the actual LP
+
+## plp_compress_case
+
+Compresses a PLP case directory for archival or transport, using xz compression
+on the data files.
+
+```bash
+# Compress a PLP case directory
+plp_compress_case /path/to/plp/case
+
+# Decompress
+plp_compress_case --decompress /path/to/plp/case.tar.xz
+
+# List contents
+plp_compress_case --list /path/to/plp/case.tar.xz
+```
+
+A Bash variant `plp_compress_case.sh` is also available in the `scripts/`
+directory for environments without Python.

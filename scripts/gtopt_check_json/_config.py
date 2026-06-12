@@ -45,6 +45,14 @@ CHECK_DEFAULTS: dict[str, str] = {
     "sddp_options": "true",
     "cascade_solver_type": "true",
     "boundary_cuts": "true",
+    # Engine-side validation: shells out to `gtopt --lp-only` and harvests
+    # the C++-side `Validation: …` log lines.  Enabled by default — picks
+    # up every C++ validator (referential integrity, positivity,
+    # piecewise feasibility, aperture refs, completeness, scenario
+    # probability rescale, …) automatically with zero drift.  Set to
+    # "false" if you don't have the gtopt binary handy or want a
+    # JSON-only static check.
+    "engine_validate": "true",
     "ai_system_analysis": "false",
 }
 

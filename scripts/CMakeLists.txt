@@ -312,6 +312,24 @@ add_custom_target(scripts-coverage
 enable_testing()
 include(TestParallelism)
 
+# Python pytest tests are registered as CTest entries only when this option is
+# ON.  Default OFF: a plain ``ctest -j20`` in the all/ super-project build runs
+# only the fast C++ unit tests; the Python suite still has its own dedicated
+# CI workflow (.github/workflows/scripts.yml) and the custom build targets
+# (``scripts-test``, ``scripts-test-integration``, …) remain available.
+#
+# To opt in for local runs:
+#   cmake -S all -B build -DGTOPT_REGISTER_PYTHON_TESTS=ON
+#   ctest -L script               # run only the Python tests
+#   ctest -LE script              # run only the C++ tests
+option(
+  GTOPT_REGISTER_PYTHON_TESTS
+  "Register pytest unit + integration cases as CTest entries"
+  OFF
+)
+
+if(GTOPT_REGISTER_PYTHON_TESTS)
+
 # ---- Helper: add_pytest_integration_test ----
 # Registers a pytest integration-test group as an individual CTest entry.
 # Analogous to add_e2e_case() in integration_test/cmake/add_e2e_case.cmake.
@@ -322,15 +340,21 @@ include(${SCRIPTS_DIR}/cmake/add_pytest_integration_test.cmake)
 # This mirrors the DEPENDS scripts-install that the custom targets use,
 # so that 'cmake --build <dir> --target test' works out of the box without
 # requiring a prior manual 'pip install'.
+#
+# The helper script returns exit code 77 when dependencies cannot be
+# installed.  Combined with SKIP_RETURN_CODE 77, CTest marks the fixture
+# as *skipped* instead of *failed*, and all dependent tests are also
+# skipped (CMP0175 NEW, cmake ≥ 3.31) rather than counted as failures.
 add_test(
   NAME scripts-install-deps
-  COMMAND ${CMAKE_COMMAND}
-    -DSCRIPTS_DIR:PATH=${SCRIPTS_DIR}
-    -DPYTHON_EXECUTABLE:FILEPATH=${PYTHON_EXECUTABLE}
-    -P ${SCRIPTS_DIR}/cmake/scripts_install_deps.cmake
+  COMMAND ${PYTHON_EXECUTABLE}
+    ${SCRIPTS_DIR}/cmake/install_deps_helper.py
+    --scripts-dir ${SCRIPTS_DIR}
 )
 set_tests_properties(scripts-install-deps PROPERTIES
   FIXTURES_SETUP scripts-deps
+  SKIP_RETURN_CODE 77
+  LABELS "script"
 )
 
 # ---- Unit tests (one CTest entry per package) ----
@@ -371,6 +395,46 @@ add_pytest_unit_test(
   FIXTURE_REQUIRED scripts-deps
 )
 
+# ── Consolidated unit-test runner ────────────────────────────────────────
+#
+# `scripts-all-unit` runs every package's unit tests in a SINGLE pytest
+# invocation with pytest-xdist (`-n auto`).  Compared with the per-package
+# `scripts-<pkg>-unit` cases above, it pays the Python interpreter +
+# pytest-collection startup cost ONCE instead of N times (≈ 5 s saved
+# wall, ≈ 1 GB peak RSS reduced under `ctest -j20`).  Same parallelism
+# (xdist forks one worker per CPU) but inside a single process tree.
+#
+# Trade-off: failure isolation is weaker — a regression buries all 3500+
+# results under one heading instead of a per-package summary.  Both
+# layouts coexist; pick whichever fits the use case:
+#
+#   * Local "did I break anything?"   → ctest -L aggregate
+#                                       (or: ctest -R '^scripts-all-unit$')
+#   * CI / per-package triage         → default ctest run (per-package
+#                                       tests labelled `unit`; this one
+#                                       is NOT labelled `unit`, so it
+#                                       does NOT double-run by default)
+#
+# Carries ONLY the `aggregate` label so default `ctest` / `ctest -L unit`
+# never picks it up — opt-in only.  This keeps CI from running every
+# Python test twice.
+add_test(
+  NAME scripts-all-unit
+  COMMAND "${PYTHON_EXECUTABLE}" -m pytest
+    "${SCRIPTS_DIR}"
+    -m "not integration"
+    -n auto
+    -q --tb=short
+    --ignore=${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py
+  WORKING_DIRECTORY "${SCRIPTS_DIR}"
+)
+set_tests_properties(scripts-all-unit PROPERTIES
+  COST 60
+  FIXTURES_REQUIRED scripts-deps
+  PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
+  LABELS "aggregate;script"
+)
+
 # ---- plp2gtopt integration tests (one CTest test per case group) ----
 # Each test runs the subset of @pytest.mark.integration tests matching the
 # given -k keyword.  Tests are independent and run in parallel via CTest.
@@ -386,6 +450,21 @@ foreach(_case IN ITEMS
     min_bess
     min_battery
     min_ess
+)
+  add_pytest_integration_test(
+    scripts-plp2gtopt-${_case}
+    FILE     "${_plp2gtopt_test_file}"
+    KEYWORD  "${_case}"
+    FIXTURE_REQUIRED scripts-deps
+  )
+endforeach()
+
+# Hydro integration tests live in a separate file after the test split.
+set(_plp2gtopt_hydro_test_file
+  "${SCRIPTS_DIR}/plp2gtopt/tests/test_integration_hydro.py"
+)
+
+foreach(_case IN ITEMS
     min_hydro
     min_mance
     min_manli
@@ -393,7 +472,7 @@ foreach(_case IN ITEMS
 )
   add_pytest_integration_test(
     scripts-plp2gtopt-${_case}
-    FILE     "${_plp2gtopt_test_file}"
+    FILE     "${_plp2gtopt_hydro_test_file}"
     KEYWORD  "${_case}"
     FIXTURE_REQUIRED scripts-deps
   )
@@ -472,16 +551,17 @@ add_pytest_integration_test(
 #   WORKING_DIRECTORY "${SCRIPTS_DIR}"
 # )
 
-add_test(
-  NAME scripts-ruff
-  COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
-
-set_tests_properties(
-  scripts-ruff
-  PROPERTIES FIXTURES_REQUIRED scripts-deps
-)
+# ruff check is run by the CI lint job and locally via `ruff check .`
+# add_test(
+#   NAME scripts-ruff
+#   COMMAND ${PYTHON_EXECUTABLE} -m ruff check ${_SCRIPT_SOURCES}
+#   WORKING_DIRECTORY "${SCRIPTS_DIR}"
+# )
+#
+# set_tests_properties(
+#   scripts-ruff
+#   PROPERTIES FIXTURES_REQUIRED scripts-deps
+# )
 
 # ---- Optional static-analysis CTest tests ----
 
@@ -513,9 +593,43 @@ if(ENABLE_SCRIPTS_STATIC_ANALYSIS)
   set_tests_properties(
     scripts-lint
     scripts-mypy
-    PROPERTIES FIXTURES_REQUIRED scripts-deps
+    PROPERTIES
+      FIXTURES_REQUIRED scripts-deps
+      LABELS "script"
   )
 endif() # ENABLE_SCRIPTS_STATIC_ANALYSIS
+
+# ---- tools/test_ucjl2gtopt.py — UC.jl converter cross-check ---------------
+#
+# 60+ pytest cases that convert UC.jl benchmark fixtures
+# (``tools/test_data/UnitCommitmentJl_*.json[.gz]``) via
+# ``tools/ucjl2gtopt.py``, solve them with gtopt, and compare against
+# UC.jl's CPLEX-solved golden files (``*_ucjl_golden.json``).  Lives
+# outside ``scripts/`` because the converter is a single-file tool,
+# not a package, but the test infrastructure is identical to the
+# scripts/ pytest tests.
+#
+# Registered as a single CTest entry to keep ctest output compact;
+# users wanting per-test runs can invoke pytest directly with
+# ``cd tools && python -m pytest test_ucjl2gtopt.py -n auto -k <pat>``.
+set(_tools_dir "${CMAKE_CURRENT_LIST_DIR}/../tools")
+if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
+  add_test(
+    NAME scripts-ucjl2gtopt-integration
+    COMMAND "${PYTHON_EXECUTABLE}" -m pytest
+      "${_tools_dir}/test_ucjl2gtopt.py"
+      -n auto -v --tb=short
+    WORKING_DIRECTORY "${_tools_dir}"
+  )
+  set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES
+    COST 30
+    FIXTURES_REQUIRED scripts-deps
+    PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
+    LABELS "integration;script;ucjl"
+  )
+endif()
+
+endif() # GTOPT_REGISTER_PYTHON_TESTS
 
 # ---- Install ----
 

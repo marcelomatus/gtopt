@@ -129,10 +129,16 @@ public:
     return m_phase_.is_active();
   }
 
+  /// @return Whether this phase uses continuous LP relaxation
+  [[nodiscard]] constexpr auto is_continuous() const noexcept
+  {
+    return m_phase_.is_continuous();
+  }
+
   /// @return Unique identifier for this phase
   [[nodiscard]] constexpr auto uid() const noexcept
   {
-    return PhaseUid {m_phase_.uid};
+    return make_uid<Phase>(m_phase_.uid);
   }
 
   /// @return Index of this phase in parent container
@@ -160,6 +166,14 @@ public:
   [[nodiscard]] constexpr const auto& apertures() const noexcept
   {
     return m_phase_.apertures;
+  }
+
+  /// @return Per-phase aperture-system file override (the simplified
+  /// backward-pass system for this phase).  Empty optional = fall back to
+  /// the global / cascade-level setting.  See `aperture_system_file`.
+  [[nodiscard]] constexpr const auto& aperture_system_file() const noexcept
+  {
+    return m_phase_.aperture_system_file;
   }
 
 private:

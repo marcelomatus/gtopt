@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from run_gtopt._runner import (
+    _read_result_table,
     check_solution,
     find_error_lp_files,
     report_solution,
@@ -67,7 +68,7 @@ def test_report_solution_optimal(tmp_path: Path, capsys):
 def test_run_gtopt_builds_command(tmp_path: Path):
     """run_gtopt builds a minimal command (threads/compression are in JSON)."""
     with patch("run_gtopt._runner.subprocess.run") as mock_run, patch(
-        "run_gtopt._runner._setup_log_file", return_value=None
+        "run_gtopt._runner._resolve_log_dir_candidates", return_value=[]
     ):
         mock_run.return_value.returncode = 0
         rc = run_gtopt("/usr/bin/gtopt", tmp_path, threads=4, compression="zstd")
@@ -148,3 +149,161 @@ def test_run_check_lp_prints_instructions(tmp_path: Path, capsys):
     assert "Error LP Diagnostics" in captured.out
     assert "gtopt_check_lp" in captured.out
     assert str(logs) in captured.out
+
+
+def test_read_result_table_single_parquet(tmp_path: Path):
+    """Legacy single-file parquet layout is read as one frame."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Generator"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [1.0, 2.0]}).to_parquet(subdir / "generation_sol.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert len(df) == 2
+
+
+def test_read_result_table_parquet_hive_dataset(tmp_path: Path):
+    """A hive-partitioned directory is read as one logical frame."""
+    import pandas as pd  # noqa: PLC0415
+
+    stem_dir = tmp_path / "Generator" / "generation_sol.parquet"
+    for scene, phase, val in [(0, 0, 1.0), (0, 1, 2.0), (1, 0, 3.0)]:
+        part = stem_dir / f"scene={scene}" / f"phase={phase}"
+        part.mkdir(parents=True)
+        pd.DataFrame({"uid:1": [val]}).to_parquet(part / "part.parquet")
+    df = _read_result_table(tmp_path, "Generator/generation_sol")
+    assert df is not None
+    assert sorted(df["uid:1"].tolist()) == [1.0, 2.0, 3.0]
+    assert {"scene", "phase"}.issubset(df.columns)
+
+
+def test_read_result_table_csv_shards(tmp_path: Path):
+    """CSV shards are concatenated in sorted order."""
+    import pandas as pd  # noqa: PLC0415
+
+    subdir = tmp_path / "Flow"
+    subdir.mkdir()
+    pd.DataFrame({"uid:1": [10.0]}).to_csv(subdir / "flow_sol_s0_p0.csv", index=False)
+    pd.DataFrame({"uid:1": [20.0]}).to_csv(subdir / "flow_sol_s1_p0.csv", index=False)
+    df = _read_result_table(tmp_path, "Flow/flow_sol")
+    assert df is not None
+    assert len(df) == 2
+
+
+def test_read_result_table_missing(tmp_path: Path):
+    """Missing stem returns None."""
+    assert _read_result_table(tmp_path, "Nope/missing") is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_log_dir — must follow output_directory / log_directory from JSON
+# ---------------------------------------------------------------------------
+
+
+def _write_case_json(tmp_path: Path, options: dict) -> Path:
+    """Helper: write a minimal case JSON with the given options."""
+    import json as _json
+
+    case_dir = tmp_path / "case"
+    case_dir.mkdir()
+    json_path = case_dir / "case.json"
+    json_path.write_text(_json.dumps({"options": options}, indent=2))
+    return case_dir
+
+
+def test_resolve_log_dir_default_output_directory(tmp_path: Path):
+    """Without output_directory in JSON, falls back to ``output/logs``."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {})
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "output" / "logs").resolve()
+    assert log_dir.is_dir()
+
+
+def test_resolve_log_dir_honours_output_directory(tmp_path: Path):
+    """When the JSON sets output_directory='results' (the plp2gtopt
+    convention) the runner must poll <case>/results/logs — not the
+    hard-coded <case>/output/logs.  Regression for the "Waiting for
+    solver output…" hang seen on Juan's iplp case."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {"output_directory": "results"})
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "results" / "logs").resolve()
+    assert log_dir.is_dir()
+
+
+def test_resolve_log_dir_honours_explicit_log_directory(tmp_path: Path):
+    """An explicit log_directory wins over output_directory (matches the
+    C++ setup_file_logging precedence)."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = _write_case_json(
+        tmp_path,
+        {"output_directory": "results", "log_directory": "custom/logs"},
+    )
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "custom" / "logs").resolve()
+
+
+def test_resolve_log_dir_no_json_falls_back_to_default(tmp_path: Path):
+    """No JSON in the case dir → keep the legacy default."""
+    from run_gtopt._runner import _resolve_log_dir  # noqa: PLC0415
+
+    case_dir = tmp_path / "no-json-here"
+    case_dir.mkdir()
+    log_dir = _resolve_log_dir(case_dir)
+    assert log_dir is not None
+    assert log_dir == (case_dir / "output" / "logs").resolve()
+
+
+def test_resolve_log_dir_candidates_includes_jsonpath_and_fallbacks(
+    tmp_path: Path,
+):
+    """The multi-candidate resolver returns the JSON-resolved path
+    plus the legacy ``output/logs`` fallback (and CWD-relative ones),
+    so the TUI watcher sees gtopt's actual log file regardless of
+    which side resolved ``output_directory`` first."""
+    from run_gtopt._runner import _resolve_log_dir_candidates  # noqa: PLC0415
+
+    case_dir = _write_case_json(tmp_path, {"output_directory": "results"})
+    candidates = _resolve_log_dir_candidates(case_dir)
+    # First candidate: the JSON-honoured path (primary).
+    assert candidates[0] == (case_dir / "results" / "logs").resolve()
+    # Legacy default must also be in the list — that's the bug this
+    # fix addresses.
+    assert (case_dir / "output" / "logs").resolve() in candidates
+
+
+def test_wait_for_new_log_multi_picks_first_dir_to_get_a_file(
+    tmp_path: Path,
+):
+    """The TUI watcher must accept new files in any candidate dir.
+    Regression for the silent hang seen when JSON-resolved dir and
+    gtopt's actual write target diverged."""
+    import threading as _threading  # noqa: PLC0415
+    from run_gtopt._runner import _wait_for_new_log_multi  # noqa: PLC0415
+
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    baselines = {dir_a: set(), dir_b: set()}
+    stop = _threading.Event()
+    expected = dir_b / "gtopt_42.log"
+    timer = _threading.Timer(0.05, lambda: expected.write_text(""))
+    timer.start()
+    try:
+        result = _wait_for_new_log_multi(
+            [dir_a, dir_b], baselines, stop, poll_interval=0.01
+        )
+    finally:
+        timer.cancel()
+        stop.set()
+    assert result is not None
+    assert result.resolve() == expected.resolve()

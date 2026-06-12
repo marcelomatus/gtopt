@@ -12,14 +12,19 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <gtopt/cli_options.hpp>
 #include <gtopt/config_file.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/hardware_info.hpp>
+#include <gtopt/label_maker.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
 
@@ -27,6 +32,7 @@
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 #include <spdlog/spdlog.h>
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace gtopt
 {
@@ -66,24 +72,113 @@ template<typename T>
  * @return The corresponding integer value for the algorithm.
  * @throws cli::parse_error on unrecognised input.
  */
-[[nodiscard]] inline int parse_lp_algorithm(const std::string& s)
+[[nodiscard]] inline LPAlgo parse_lp_algorithm(std::string_view s)
 {
-  // Name-based lookup via the constexpr table in solver_options.hpp.
+  // Name-based lookup via the constexpr table in solver_enums.hpp.
   if (const auto algo = enum_from_name<LPAlgo>(s)) {
-    return static_cast<int>(*algo);
+    return *algo;
   }
   // Numeric fallback: exactly one digit, "0"–"3"
   if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
   {
     const int v = s.front() - '0';
-    if (v >= 0 && v < static_cast<int>(LPAlgo::last_algo)) {
-      return v;
+    if (v >= 0 && v < std::to_underlying(LPAlgo::last_algo)) {
+      return static_cast<LPAlgo>(v);
     }
   }
   throw cli::parse_error(
       std::format("invalid lp-algorithm value: '{}' "
                   "(expected 0-3 or default/primal/dual/barrier)",
                   s));
+}
+
+/**
+ * @brief Parse an aperture-chunk-size value from a string.
+ *
+ * Accepts either an integer literal (parsed via @c std::stoi) or the
+ * case-insensitive string @c "auto" — mapped to the JSON sentinel 0,
+ * which @c SDDPMethod::initialize_solver resolves to a concrete K via
+ * @c compute_auto_aperture_chunk_size (power-of-2 rounded).
+ *
+ * Used by both the boost::program_options CLI parse (where the flag
+ * is declared as a @c std::string) and the INI-file parser (where the
+ * value is read as a string from the section map).  Single source of
+ * truth for the "auto" alias keeps the two parse paths in sync.
+ *
+ * @param s The string to parse.
+ * @return The resolved integer, or @c std::nullopt on parse failure
+ *         (e.g. an empty string or non-numeric non-"auto" input).
+ */
+[[nodiscard]] inline std::optional<int> parse_aperture_chunk_size(
+    std::string_view s) noexcept
+{
+  if (s.empty()) {
+    return std::nullopt;
+  }
+  std::string lower;
+  lower.reserve(s.size());
+  for (char c : s) {
+    lower.push_back(static_cast<char>(std::tolower(c)));
+  }
+  if (lower == "auto") {
+    return 0;
+  }
+  // Strict integer parse: require the WHOLE string be consumed so
+  // "7auto" / "1.5" / "4 " do not silently truncate to 7 / 1 / 4.
+  try {
+    const std::string str(s);
+    std::size_t consumed = 0;
+    const int v = std::stoi(str, &consumed);
+    if (consumed != str.size()) {
+      return std::nullopt;
+    }
+    return v;
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+/**
+ * @brief Parse a memory size string into megabytes.
+ *
+ * Accepts a plain number (interpreted as MB) or a number with suffix:
+ * "M"/"MB" for megabytes, "G"/"GB" for gigabytes.
+ * Examples: "4096", "300M", "5G", "1.5GB".
+ *
+ * @param s The string to parse.
+ * @return Size in megabytes.
+ * @throws cli::parse_error on unrecognised input.
+ */
+[[nodiscard]] inline double parse_memory_size(const std::string& s)
+{
+  if (s.empty()) {
+    return 0.0;
+  }
+  double value = 0.0;
+  size_t pos = 0;
+  try {
+    value = std::stod(s, &pos);
+  } catch (...) {
+    throw cli::parse_error(
+        std::format("invalid memory size: '{}' (expected number with optional "
+                    "M/G suffix)",
+                    s));
+  }
+  auto suffix = s.substr(pos);
+  // Strip leading whitespace
+  while (!suffix.empty() && suffix.front() == ' ') {
+    suffix.erase(suffix.begin());
+  }
+  if (suffix.empty() || suffix == "M" || suffix == "MB" || suffix == "m"
+      || suffix == "mb")
+  {
+    return value;  // already in MB
+  }
+  if (suffix == "G" || suffix == "GB" || suffix == "g" || suffix == "gb") {
+    return value * 1024.0;
+  }
+  throw cli::parse_error(std::format(
+      "invalid memory size suffix: '{}' (expected M, MB, G, or GB)", suffix));
 }
 
 /**
@@ -101,9 +196,20 @@ template<typename T>
        po::value<std::string>().implicit_value(""),
        "run the LinearInterface test suite against all solvers, or a specific "
        "solver if a name is given (e.g. --check-solvers clp), then exit")  //
+      ("list-dialects",
+       po::value<std::string>().implicit_value(""),
+       "list the entries in share/gtopt/naming_dialects.json (and the "
+       "matching units from share/gtopt/unit_dialects.json) then exit.  "
+       "Without an argument, dumps every (canonical, dialect, alias, "
+       "unit) row.  With an argument, filters by that dialect name "
+       "(e.g. --list-dialects plexos).")  //
       ("solver",
        po::value<std::string>(),
-       "LP solver backend: clp (default), cbc, cplex, highs")  //
+       "LP/MIP solver backend: cplex, gurobi, highs, mindopt, cbc, clp "
+       "(default: auto-detect by priority "
+       "cplex > highs > mindopt > cbc > clp).  "
+       "Use --solvers to list backends compiled into the current build.")
+      //
       ("verbose,v", "enable maximum log verbosity (trace level)")  //
       ("quiet,q",
        po::value<bool>().implicit_value(/*v=*/true),
@@ -123,9 +229,6 @@ template<typename T>
        po::value<std::string>(),
        "write the assembled LP model to this file (stem; .lp extension added)")
       //
-      ("lp-names-level,n",
-       po::value<std::string>().implicit_value("only_cols"),
-       "LP naming level: 0/minimal, 1/only_cols, 2/cols_and_rows")  //
       ("matrix-eps,e",
        po::value<double>(),
        "epsilon threshold for treating LP matrix coefficients as zero")  //
@@ -137,55 +240,291 @@ template<typename T>
       ("json-file,j",
        po::value<std::string>(),
        "write the merged planning JSON to this file")  //
-      ("fast-parsing,p",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "use lenient (non-strict) JSON parsing")  //
-      ("check-json,J",
-       po::value<bool>().implicit_value(/*v=*/true),
-       "warn about JSON fields not recognised by the schema")  //
       ("stats,S",
        po::value<bool>().implicit_value(/*v=*/true),
        "print LP coefficient statistics and system stats before/after solving")
       //
       ("trace-log,T",
+       po::value<std::string>().implicit_value(""),
+       "write SPDLOG_TRACE messages to this file (enables trace-level "
+       "logging).  Pass `-T PATH` for an explicit path, or just `-T` to "
+       "auto-name `<log_dir>/trace_<N>.log` matching the gtopt_<N>.log "
+       "from the same run.  Without `-T` no trace file is written.")
+      //
+      ("async-logger",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "enable (default) or disable the spdlog async logger wrapper.  "
+       "Pass `--async-logger=false` (or `--no-async-logger` shorthand) "
+       "to keep the synchronous default logger.  Async mode isolates "
+       "solver threads from sink I/O via a bounded queue + overrun_oldest "
+       "policy + 2 worker threads; sync mode takes a sink mutex on every "
+       "log call from every thread.  Disable only as a diagnostic fallback "
+       "when async-related symptoms (silent log drops under -T, drain "
+       "stalls during signal handling) are suspected.  Implicitly forced "
+       "to false when `--trace-log`/`-T` is set, to guarantee every trace "
+       "line lands on disk (the bounded async queue's overrun_oldest "
+       "policy would silently drop trace bursts).")  //
+      ("no-async-logger", "shorthand for `--async-logger=false`.")
+      //
+      ("lp-dump-backward",
        po::value<std::string>(),
-       "write SPDLOG_TRACE messages to this file (enables trace-level logging)")
+       "shim onto the unified LP-debug mechanism: directory to dump "
+       "backward-pass tgt LPs (one .lp file per (iter, scene, phase)) "
+       "immediately before each tgt_li.resolve(opts).  Equivalent to "
+       "passing --lp-debug --set sddp_options.lp_debug_passes=backward "
+       "--log-directory <dir> (any pre-existing lp_debug_passes that "
+       "already mentions backward or all is preserved).  Captures the "
+       "LP exactly as the solver sees it (post-update_lp_for_phase, "
+       "post-apply_post_load_replay under compress).  Used to localise "
+       "non-replayed mutations by diffing off vs compress dumps for "
+       "the same (iter, scene, phase).  Also honoured as the env var "
+       "GTOPT_DUMP_BACKWARD_LP.")
       //
       ("sddp-num-apertures",
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
        "N=first N scenarios")  //
+      ("aperture-chunk-size",
+       po::value<std::string>(),
+       "SDDP chunked aperture pass: apertures solved serially per task, "
+       "sharing one LP clone with warm-start reuse.  Accepts either an "
+       "integer or the literal 'auto'. "
+       "auto/0/unset=auto (formula `A_max × S / (2 × cores)` rounded "
+       "down to nearest power of 2), "
+       "1=legacy 1-task-per-aperture, "
+       ">1=exactly K apertures per task, "
+       "-1=fully serial (one task per scene, all apertures inside)")  //
       ("recover",
        po::value<bool>().implicit_value(/*v=*/true),
        "enable recovery from a previous SDDP run (loads cuts and state "
        "variables according to JSON recovery_mode; default: off)")  //
-      // ---- deprecated options (hidden from help, still parsed) ----
-      ("input-directory,D", po::value<std::string>(), "")  //
-      ("input-format,F", po::value<std::string>(), "")  //
-      ("output-directory,d", po::value<std::string>(), "")  //
-      ("output-format,f", po::value<std::string>(), "")  //
-      ("output-compression,C", po::value<std::string>(), "")  //
+      ("memory-saving",
+       po::value<std::string>(),
+       "coordinated memory-saving (arg = off | compress, default compress "
+       "for SDDP/cascade): sets both the SDDP flat-LP release policy "
+       "(sddp_options.low_memory_mode) AND the solver-native memory "
+       "hint (solver_options.memory_emphasis, e.g. CPLEX "
+       "CPX_PARAM_MEMORYEMPHASIS).  `compress` releases the solver and "
+       "keeps a compressed flat LP — the best balance.  The legacy "
+       "`rebuild` value is accepted as a back-compat alias for "
+       "`compress`.  Overridden by direct JSON settings for either "
+       "option.")  //
+      // Deprecated alias for `--memory-saving` — hidden from help.
+      ("low-memory",
+       po::value<std::string>(),
+       "")  //
+      ("memory-limit",
+       po::value<std::string>(),
+       "process memory limit for work pool throttling "
+       "(e.g. 4096, 300M, 5G)")  //
+      ("memory-quota",
+       po::value<double>(),
+       "memory budget as a percentage of total host RAM "
+       "(e.g. 30 → 30% of MemTotal, applied as --memory-limit). "
+       "Overrides --memory-limit when both are given.")  //
+      ("cpu-factor",
+       po::value<double>(),
+       "work pool thread over-commit factor (default: 4.0)")  //
+      ("cpu-quota",
+       po::value<double>(),
+       "CPU budget as a percentage of physical cores (e.g. 30 → use "
+       "30% of physical cores).  Shrinks physical_concurrency() once "
+       "at startup so every work pool's max_threads scales down "
+       "automatically.  Does not affect LP solver thread count.")  //
+      ("write-out",
+       po::value<std::string>(),
+       "comma-separated list of output fields the solver should emit "
+       "(default: all — primal solutions, row duals, and reduced costs).  "
+       "Atoms: solution (alias: sol), dual, reduced_cost (aliases: cost, "
+       "rcost, rc), all, none.  Example: --write-out sol,dual to skip "
+       "reduced costs, or --write-out sol to skip duals as well.")  //
+      ("build-mode",
+       po::value<std::string>(),
+       "LP build parallelism: serial, scene-parallel, full-parallel, "
+       "direct-parallel (default: scene-parallel)")  //
+      ("no-scale",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "disable every automatic LP scaling / equilibration (forces "
+       "model_options.scale_objective=1.0, scale_theta=1.0, "
+       "auto_scale=false, and "
+       "lp_matrix_options.equilibration_method=none).  Intended for "
+       "debug / physical-unit validation of coefficients and RHS.  "
+       "Overrides JSON values for the affected fields.")  //
+      // `--no-presolve` and `--no-crossover` removed (2026-05-21):
+      // too solver-specific for the top-level CLI surface.  The
+      // generic `--set solver_options.presolve=false` and
+      // `--set solver_options.crossover=false` still work for the
+      // narrow set of users who actually need them.
+      ("no-mip",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "LP-relax every phase (all binary / integer variables become "
+       "continuous).  Shorthand for "
+       "`--set model_options.continuous_phases=all`.  Applied at LP "
+       "assembly time via SimulationLP, so the relaxation is uniform "
+       "across the monolithic, SDDP, and cascade methods.  Useful for "
+       "quick LP-only smoke tests on cases that would otherwise solve a "
+       "MIP (commitment, segment-based costs, etc.); the relaxation "
+       "gives a lower bound on the true MIP optimum but loses on/off "
+       "semantics.")
+      //
+      ("naming-dialect",
+       po::value<std::string>(),
+       "enforce a specific naming dialect for input + output.  On "
+       "input: emits a once-per-alias warning when a JSON key matches "
+       "an alias whose `dialect` tag in "
+       "share/gtopt/naming_dialects.json differs from <name>.  On "
+       "output: rewrites canonical keys to the dialect's aliases when "
+       "emitting `planning.json` (parquet column rename is a follow-up).  "
+       "Recognised values: gtopt, plp, sddp, plexos, pypsa, pandapower "
+       "(see naming_dialects.json for the authoritative list).  "
+       "Shorthand for --set model_options.naming_dialect=<name>.")
+      //
+      ("mip-gap",
+       po::value<double>(),
+       "Target relative MIP optimality gap (e.g. 0.01 = 1 %); ignored on "
+       "continuous LPs.  Shorthand for "
+       "--set solver_options.mip_gap=<value>.  Backend mapping: "
+       "CPLEX CPX_PARAM_EPGAP, HiGHS mip_rel_gap, Gurobi MIPGap.  Pair "
+       "with --time-limit to bound MIP wall-clock when the gap target "
+       "is loose.")
+      //
+      ("time-limit",
+       po::value<double>(),
+       "Per-solve time limit in seconds (0 = no limit).  Shorthand for "
+       "--set solver_options.time_limit=<value>.  Applied to every LP / "
+       "MIP solve the backend issues (forward + backward passes in "
+       "SDDP, every aperture clone in cascade); the solver aborts the "
+       "current solve when wall-clock exceeds the limit.  Backend "
+       "mapping: CPLEX TILIM, HiGHS time_limit, Gurobi TimeLimit, "
+       "MindOpt MAX_TIME, CLP setMaximumSeconds.  Callers should check "
+       "`is_optimal()` after solve to detect timeouts.")
+      //
+      // ---- deprecated options (hidden from `--help`, still parsed) ----
+      //
+      // Each flag below emits a deprecation warning via `warn_deprecated_cli`
+      // and points the user at the canonical `--set <path>=<value>` form.
+      // Migration map (old flag → new --set path):
+      //   --sddp-cpu-factor       -> --set sddp_options.pool_cpu_factor=...
+      //   --input-directory  / -D -> --set input_directory=...
+      //   --input-format     / -F -> --set input_format=...
+      //   --output-directory / -d -> --set output_directory=...
+      //   --output-format    / -f -> --set output_format=...
+      //   --output-compression/-C -> --set output_compression=...
+      //   --use-single-bus   / -b -> --set model_options.use_single_bus=...
+      //   --use-kirchhoff    / -k -> --set model_options.use_kirchhoff=...
+      //   --lp-debug              -> --set lp_debug=...
+      //   --lp-compression        -> --set lp_compression=...
+      //   --lp-coeff-ratio        -> --set
+      //   lp_matrix_options.lp_coeff_ratio_threshold=...
+      //   --algorithm        / -a -> --set solver_options.algorithm=...
+      //   --threads          / -t -> --set solver_options.threads=...
+      //   --cut-directory         -> --set sddp_options.cut_directory=...
+      //   --log-directory         -> --set log_directory=...
+      //   --sddp-max-iterations   -> --set sddp_options.max_iterations=...
+      //   --sddp-min-iterations   -> --set sddp_options.min_iterations=...
+      //   --sddp-convergence-tol  -> --set sddp_options.convergence_tol=...
+      //   --sddp-elastic-penalty  -> --set sddp_options.elastic_penalty=...
+      //   --sddp-elastic-mode     -> --set sddp_options.elastic_mode=...
+      ("sddp-cpu-factor",
+       po::value<double>(),
+       "deprecated alias for --cpu-factor (SDDP work-pool over-commit "
+       "factor); kept for backward compatibility")  //
+      ("input-directory,D",
+       po::value<std::string>(),
+       "directory holding input time-series files (default: 'input'); "
+       "shorthand for --set input_directory=<dir>")  //
+      ("input-format,F",
+       po::value<std::string>(),
+       "preferred input file format: parquet | csv (default: parquet); "
+       "shorthand for --set input_format=<fmt>")  //
+      ("output-directory,d",
+       po::value<std::string>(),
+       "directory for solution output files (default: 'output'); "
+       "shorthand for --set output_directory=<dir>")  //
+      ("output-format,f",
+       po::value<std::string>(),
+       "output file format: parquet | csv (default: parquet); "
+       "shorthand for --set output_format=<fmt>")  //
+      ("output-compression,C",
+       po::value<std::string>(),
+       "Parquet output compression codec: lz4 | snappy | zstd | gzip | none "
+       "(default: zstd); shorthand for --set output_compression=<codec>")  //
       ("use-single-bus,b",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
+       "copper-plate (single-bus) mode: ignore network topology and line "
+       "limits; shorthand for --set model_options.use_single_bus=<bool> "
+       "(default when flag is given without value: true)")  //
       ("use-kirchhoff,k",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
+       "apply DC-OPF Kirchhoff voltage-angle constraints (default: true); "
+       "shorthand for --set model_options.use_kirchhoff=<bool>")  //
       ("lp-debug",
        po::value<bool>().implicit_value(/*v=*/true),
-       "")  //
-      ("lp-compression", po::value<std::string>(), "")  //
-      ("lp-coeff-ratio", po::value<double>(), "")  //
-      ("algorithm,a", po::value<std::string>(), "")  //
-      ("threads,t", po::value<int>(), "")  //
-      ("cut-directory", po::value<std::string>(), "")  //
-      ("log-directory", po::value<std::string>(), "")  //
-      ("sddp-max-iterations", po::value<int>(), "")  //
-      ("sddp-min-iterations", po::value<int>(), "")  //
-      ("sddp-convergence-tol", po::value<double>(), "")  //
-      ("sddp-elastic-penalty", po::value<double>(), "")  //
-      ("sddp-elastic-mode", po::value<std::string>(), "")  //
-      ("sddp-cut-coeff-mode", po::value<std::string>(), "");
+       "save LP debug files to log_directory: a single monolithic.lp for "
+       "the monolithic solver, or one per-(scene, phase) LP file for every "
+       "SDDP pass selected by sddp_options.lp_debug_passes; shorthand for "
+       "--set lp_debug=<bool> (default when flag is given without "
+       "value: true)")  //
+      ("lp-compression",
+       po::value<std::string>(),
+       "compression codec for LP debug files: gzip | zstd | none "
+       "(default: zstd); shorthand for --set lp_compression=<codec>")  //
+      ("lp-coeff-ratio",
+       po::value<double>(),
+       "warn when the LP max/min |coefficient| ratio exceeds this threshold "
+       "(default: 1e7); shorthand for --set "
+       "lp_matrix_options.lp_coeff_ratio_threshold=<ratio>")  //
+      ("algorithm,a",
+       po::value<std::string>(),
+       "LP algorithm: default | primal | dual | barrier (or 0..3); "
+       "shorthand for --set solver_options.algorithm=<algo>")  //
+      ("threads,t",
+       po::value<int>(),
+       "solver thread count (default: solver-specific); shorthand for "
+       "--set solver_options.threads=<n>")  //
+      ("cut-directory",
+       po::value<std::string>(),
+       "directory under output_directory for SDDP Benders cut files "
+       "(default: 'cuts'); shorthand for --set "
+       "sddp_options.cut_directory=<dir>")  //
+      ("log-directory",
+       po::value<std::string>(),
+       "directory for solver log + LP-debug files (default: 'logs'); "
+       "shorthand for --set log_directory=<dir>")  //
+      ("sddp-max-iterations",
+       po::value<int>(),
+       "maximum SDDP forward/backward iterations (default: 100); "
+       "shorthand for --set sddp_options.max_iterations=<n>")  //
+      ("sddp-min-iterations",
+       po::value<int>(),
+       "minimum SDDP iterations before convergence is considered "
+       "(default: 1); shorthand for --set "
+       "sddp_options.min_iterations=<n>")  //
+      ("sddp-convergence-tol",
+       po::value<double>(),
+       "relative gap tolerance for SDDP convergence (default: 0.01); "
+       "shorthand for --set sddp_options.convergence_tol=<eps>")  //
+      ("sddp-elastic-penalty",
+       po::value<double>(),
+       "penalty coefficient for elastic slack variables in the SDDP "
+       "feasibility filter; shorthand for --set "
+       "sddp_options.elastic_penalty=<val>")  //
+      ("sddp-elastic-mode",
+       po::value<std::string>(),
+       "elastic-filter mode: chinneck | iis | single_cut | cut | multi_cut "
+       "(default: chinneck); shorthand for --set "
+       "sddp_options.elastic_mode=<mode>")  //
+      ("constraint-mode",
+       po::value<std::string>(),
+       "UserConstraint resolver strictness: "
+       "strict (default; abort on any unresolved element ref), "
+       "normal (drop a constraint when ALL terms are unresolved; emit a "
+       "warning), "
+       "debug (drop unresolved terms silently and continue — for "
+       "iterative parser work where dangling LHS refs are expected; pair "
+       "with `plexos2gtopt --lax-uc-refs` for the matching converter-side "
+       "leniency).  Shorthand for --set "
+       "planning_options.constraint_mode=<mode>");
   return desc;
 }
 
@@ -197,8 +536,6 @@ template<typename T>
  * @param planning The Planning object to update
  * @param use_single_bus Optional single-bus mode flag
  * @param use_kirchhoff Optional Kirchhoff mode flag
- * @param lp_names_level Optional LP naming level
- * (minimal/only_cols/cols_and_rows)
  * @param input_directory Optional input directory path
  * @param input_format Optional input format string
  * @param output_directory Optional output directory path
@@ -210,7 +547,6 @@ template<typename T>
  * @param sddp_convergence_tol Optional SDDP convergence tolerance
  * @param sddp_elastic_penalty Optional elastic penalty coefficient
  * @param sddp_elastic_mode Optional elastic filter mode string
- * @param sddp_cut_coeff_mode Optional SDDP cut coefficient mode string
  * @param sddp_num_apertures Optional number of SDDP apertures
  * @param lp_debug Optional flag to enable LP debug output
  * @param lp_compression Optional LP output compression codec string
@@ -220,7 +556,6 @@ inline void apply_cli_options(
     Planning& planning,  // NOLINT(misc-const-correctness)
     const std::optional<bool>& use_single_bus,
     const std::optional<bool>& use_kirchhoff,
-    const std::optional<LpNamesLevel>& lp_names_level,
     const std::optional<std::string>& input_directory,
     const std::optional<std::string>& input_format,
     const std::optional<std::string>& output_directory,
@@ -232,22 +567,19 @@ inline void apply_cli_options(
     const std::optional<double>& sddp_convergence_tol = {},
     const std::optional<double>& sddp_elastic_penalty = {},
     const std::optional<std::string>& sddp_elastic_mode = {},
-    const std::optional<std::string>& sddp_cut_coeff_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
     const std::optional<std::string>& lp_compression = {},
     const std::optional<double>& lp_coeff_ratio_threshold = {})
 {
+  // Post-§11 (2026-05-17): write into `model_options` since the
+  // legacy top-level mirrors on `PlanningOptions` were removed.
   if (use_single_bus) {
-    planning.options.use_single_bus = use_single_bus;
+    planning.options.model_options.use_single_bus = use_single_bus;
   }
 
   if (use_kirchhoff) {
-    planning.options.use_kirchhoff = use_kirchhoff;
-  }
-
-  if (lp_names_level) {
-    planning.options.lp_matrix_options.names_level = lp_names_level;
+    planning.options.model_options.use_kirchhoff = use_kirchhoff;
   }
 
   if (output_directory) {
@@ -260,17 +592,17 @@ inline void apply_cli_options(
 
   if (output_format) {
     planning.options.output_format =
-        enum_from_name<DataFormat>(output_format.value());
+        require_enum<DataFormat>("output-format", output_format.value());
   }
 
   if (output_compression) {
-    planning.options.output_compression =
-        enum_from_name<CompressionCodec>(output_compression.value());
+    planning.options.output_compression = require_enum<CompressionCodec>(
+        "output-compression", output_compression.value());
   }
 
   if (input_format) {
     planning.options.input_format =
-        enum_from_name<DataFormat>(input_format.value());
+        require_enum<DataFormat>("input-format", input_format.value());
   }
 
   if (cut_directory) {
@@ -295,21 +627,18 @@ inline void apply_cli_options(
 
   if (sddp_elastic_mode) {
     planning.options.sddp_options.elastic_mode =
-        enum_from_name<ElasticFilterMode>(sddp_elastic_mode.value());
-  }
-
-  if (sddp_cut_coeff_mode) {
-    planning.options.sddp_options.cut_coeff_mode =
-        enum_from_name<CutCoeffMode>(sddp_cut_coeff_mode.value());
+        require_enum<ElasticFilterMode>("sddp-elastic-mode",
+                                        sddp_elastic_mode.value());
   }
 
   if (sddp_num_apertures) {
-    // Legacy CLI: convert num_apertures int to apertures array.
-    // 0 → empty (no apertures), >0 or <0 handled at solve time.
-    if (*sddp_num_apertures == 0) {
-      planning.options.sddp_options.apertures = Array<Uid> {};
-    }
-    // Non-zero: leave apertures as nullopt (use per-phase apertures)
+    // Direct mapping to SddpOptions::num_apertures — the C++ side
+    // truncates each phase's Phase.apertures to the first N entries.
+    // Combined with the wettest-first sort applied by plp2gtopt this
+    // selects the N wettest apertures per phase.  Per-level overrides
+    // are available via --set
+    // cascade_options.level_array.N.sddp_options.num_apertures=K.
+    planning.options.sddp_options.num_apertures = *sddp_num_apertures;
   }
 
   if (lp_debug) {
@@ -317,8 +646,8 @@ inline void apply_cli_options(
   }
 
   if (lp_compression) {
-    planning.options.lp_compression =
-        enum_from_name<CompressionCodec>(lp_compression.value());
+    planning.options.lp_compression = require_enum<CompressionCodec>(
+        "lp-compression", lp_compression.value());
   }
 
   if (lp_coeff_ratio_threshold) {
@@ -379,20 +708,24 @@ inline void warn_deprecated_cli(const std::optional<std::string>& opt,
  */
 inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 {
-  // Emit deprecation warnings for options replaceable by --set
+  // Emit deprecation warnings for options replaceable by --set.
+  // Skip directory warnings when auto-resolved from a directory argument
+  // (these are internal, not user-provided CLI flags).
   warn_deprecated_cli(opts.use_single_bus, "use-single-bus", "use_single_bus");
   warn_deprecated_cli(opts.use_kirchhoff, "use-kirchhoff", "use_kirchhoff");
-  warn_deprecated_cli(
-      opts.input_directory, "input-directory", "input_directory");
+  if (!opts.dirs_auto_resolved) {
+    warn_deprecated_cli(
+        opts.input_directory, "input-directory", "input_directory");
+    warn_deprecated_cli(
+        opts.output_directory, "output-directory", "output_directory");
+    warn_deprecated_cli(
+        opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
+    warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
+  }
   warn_deprecated_cli(opts.input_format, "input-format", "input_format");
-  warn_deprecated_cli(
-      opts.output_directory, "output-directory", "output_directory");
   warn_deprecated_cli(opts.output_format, "output-format", "output_format");
   warn_deprecated_cli(
       opts.output_compression, "output-compression", "output_compression");
-  warn_deprecated_cli(
-      opts.cut_directory, "cut-directory", "sddp_options.cut_directory");
-  warn_deprecated_cli(opts.log_directory, "log-directory", "log_directory");
   warn_deprecated_cli(opts.sddp_max_iterations,
                       "sddp-max-iterations",
                       "sddp_options.max_iterations");
@@ -407,14 +740,18 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                       "sddp_options.elastic_penalty");
   warn_deprecated_cli(
       opts.sddp_elastic_mode, "sddp-elastic-mode", "sddp_options.elastic_mode");
-  warn_deprecated_cli(opts.sddp_cut_coeff_mode,
-                      "sddp-cut-coeff-mode",
-                      "sddp_options.cut_coeff_mode");
+  // `--constraint-mode` is a permanent CLI shorthand for
+  // `--set planning_options.constraint_mode=...` — no deprecation
+  // warning, but the apply step below routes the override.
+  if (opts.constraint_mode) {
+    planning.options.constraint_mode = require_enum<ConstraintMode>(
+        "constraint-mode", opts.constraint_mode.value());
+  }
   if (opts.algorithm.has_value()) {
     spdlog::warn(
         "--algorithm is deprecated, use: --set solver_options"
         ".algorithm={}",
-        enum_name(static_cast<LPAlgo>(*opts.algorithm)));
+        enum_name(*opts.algorithm));
   }
   warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
   warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
@@ -426,7 +763,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   apply_cli_options(planning,
                     opts.use_single_bus,
                     opts.use_kirchhoff,
-                    opts.lp_names_level,
                     opts.input_directory,
                     opts.input_format,
                     opts.output_directory,
@@ -438,7 +774,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_convergence_tol,
                     opts.sddp_elastic_penalty,
                     opts.sddp_elastic_mode,
-                    opts.sddp_cut_coeff_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
                     opts.lp_compression,
@@ -447,6 +782,83 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   // Additional SDDP options not in the positional overload
   if (opts.sddp_min_iterations) {
     planning.options.sddp_options.min_iterations = opts.sddp_min_iterations;
+  }
+  if (opts.sddp_aperture_chunk_size) {
+    planning.options.sddp_options.aperture_chunk_size =
+        opts.sddp_aperture_chunk_size;
+  }
+  // Translation shim: `--lp-dump-backward <dir>` (and the legacy
+  // `GTOPT_DUMP_BACKWARD_LP=<dir>` env var) map onto the unified
+  // `lp_debug` + `lp_debug_passes` mechanism.  Sets `lp_debug=true`,
+  // routes the dump under `<dir>` (overrides `log_directory`), and
+  // ensures the `backward` token is selected (or `all` is preserved
+  // if the user already configured a richer pass list).
+  std::optional<std::string> dump_dir = opts.lp_dump_backward;
+  if (!dump_dir) {
+    if (const auto* env = std::getenv("GTOPT_DUMP_BACKWARD_LP");
+        env != nullptr && *env != '\0')
+    {
+      dump_dir = std::string(env);
+    }
+  }
+  if (dump_dir) {
+    planning.options.lp_debug = true;
+    planning.options.log_directory = *dump_dir;
+    auto& passes = planning.options.sddp_options.lp_debug_passes;
+    auto already_includes_backward = [&](std::string_view s) noexcept
+    {
+      // Tokens are case-insensitive, comma-separated.  Match
+      // `backward` or `all`.
+      std::string_view rest = s;
+      while (!rest.empty()) {
+        const auto comma = rest.find(',');
+        const auto raw =
+            (comma == std::string_view::npos) ? rest : rest.substr(0, comma);
+        // Trim surrounding whitespace.
+        std::size_t lo = 0;
+        std::size_t hi = raw.size();
+        while (lo < hi && (raw[lo] == ' ' || raw[lo] == '\t')) {
+          ++lo;
+        }
+        while (hi > lo && (raw[hi - 1] == ' ' || raw[hi - 1] == '\t')) {
+          --hi;
+        }
+        const auto tok = raw.substr(lo, hi - lo);
+        const auto eq_ci = [](std::string_view a, std::string_view b)
+        {
+          if (a.size() != b.size()) {
+            return false;
+          }
+          for (std::size_t i = 0; i < a.size(); ++i) {
+            const auto av = static_cast<unsigned char>(a[i]);
+            const auto bv = static_cast<unsigned char>(b[i]);
+            const auto al = (av >= 'A' && av <= 'Z')
+                ? static_cast<unsigned char>(av + 32U)
+                : av;
+            const auto bl = (bv >= 'A' && bv <= 'Z')
+                ? static_cast<unsigned char>(bv + 32U)
+                : bv;
+            if (al != bl) {
+              return false;
+            }
+          }
+          return true;
+        };
+        if (eq_ci(tok, "backward") || eq_ci(tok, "all")) {
+          return true;
+        }
+        if (comma == std::string_view::npos) {
+          break;
+        }
+        rest.remove_prefix(comma + 1);
+      }
+      return false;
+    };
+    if (!passes.has_value() || passes->empty()) {
+      passes = std::string("backward");
+    } else if (!already_includes_backward(*passes)) {
+      passes = *passes + ",backward";
+    }
   }
   if (opts.sddp_hot_start) {
     planning.options.sddp_options.cut_recovery_mode =
@@ -460,10 +872,143 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.sddp_options.recovery_mode = RecoveryMode::none;
   }
 
+  if (opts.no_mip.value_or(false)) {
+    // `--no-mip` LP-relaxes every phase by forcing
+    // `model_options.continuous_phases = "all"`.  Overrides any JSON
+    // value so the shortcut is uniformly authoritative — users who want
+    // a partial relaxation should drop the flag and set
+    // `continuous_phases` directly via `--set`.
+    planning.options.model_options.continuous_phases = OptName {"all"};
+  }
+
+  if (opts.naming_dialect.has_value()) {
+    planning.options.model_options.naming_dialect = opts.naming_dialect;
+  }
+
+  if (opts.mip_gap.has_value()) {
+    // CLI shortcut wins over any prior JSON setting — `--set
+    // solver_options.mip_gap=…` is still available for full control,
+    // but the bespoke flag is uniformly authoritative when both fire.
+    planning.options.solver_options.mip_gap = opts.mip_gap;
+  }
+
+  if (opts.time_limit.has_value()) {
+    // CLI wins over JSON, same pattern as --mip-gap.  0 means "no
+    // limit" — the SolverOptions::time_limit field is optional so we
+    // pass the raw value through; backends apply only when *value > 0.
+    planning.options.solver_options.time_limit = opts.time_limit;
+  }
+
+  if (opts.no_scale.value_or(false)) {
+    // `--no-scale` disables every auto-scaling / equilibration
+    // mechanism for debug / physical-unit validation, and
+    // intentionally OVERRIDES JSON values to ensure full coverage.
+    // This is used as a diagnostic for cut-construction unit math
+    // (e.g. juan/gtopt_iplp's LB-compounding bug, where
+    // scale_objective=1000 in the JSON would otherwise leak through
+    // and prevent isolation of scale-related defects).
+    //
+    // To probe a specific scale axis in isolation, leave `--no-scale`
+    // off and set just that one value via `--set <path>=<value>`.
+    planning.options.model_options.scale_objective = 1.0;
+    planning.options.model_options.scale_theta = 1.0;
+    planning.options.model_options.scale_loss_link = 1.0;
+    planning.options.lp_matrix_options.equilibration_method =
+        LpEquilibrationMethod::none;
+    // Kill switch for the per-element auto-scale heuristics in
+    // `PlanningLP::auto_scale_theta / _reservoirs / _lng_terminals`
+    // — without this the reservoir energy/flow variable_scales would
+    // still be computed and applied at LP construction.
+    planning.options.model_options.auto_scale = false;
+  }
+
+  if (opts.memory_saving) {
+    // Map the string to the LowMemoryMode enum and apply to the SDDP
+    // side of the equation.
+    planning.options.sddp_options.low_memory_mode =
+        require_enum<LowMemoryMode>("memory-saving", *opts.memory_saving);
+    // Coordinated effect #2: hint the solver backends to compact
+    // internal data structures (CPLEX CPX_PARAM_MEMORYEMPHASIS=1; other
+    // backends silently ignore when they have no equivalent).  Only
+    // write the default when the user hasn't already set memory_emphasis
+    // explicitly in the planning JSON — JSON takes precedence.
+    if (*opts.memory_saving != "off"
+        && !planning.options.solver_options.memory_emphasis.has_value())
+    {
+      planning.options.solver_options.memory_emphasis = true;
+    }
+  }
+
+  // CPU quota: clamp `physical_concurrency()` once for the rest of the
+  // process so every work-pool factory's `cpu_factor × physical_cores`
+  // calculation gets the right slice of the host.  Must happen before
+  // any pool is constructed.  Values outside (0, 100) are silently
+  // ignored by `set_cpu_quota_pct` (no-op clamp).
+  if (opts.cpu_quota) {
+    set_cpu_quota_pct(*opts.cpu_quota);
+    if (get_cpu_quota_pct() > 0.0) {
+      spdlog::info("cpu-quota={:.0f}% → effective physical cores: {} of {}",
+                   *opts.cpu_quota,
+                   physical_concurrency(),
+                   detected_physical_concurrency());
+    } else {
+      spdlog::warn(
+          "cpu-quota={} is outside (0, 100) — ignored; "
+          "physical_concurrency()={}",
+          *opts.cpu_quota,
+          physical_concurrency());
+    }
+  }
+
+  // Memory quota: translate "% of MemTotal" to an absolute MB value
+  // and route through the existing `pool_memory_limit_mb` pipeline.
+  // Takes precedence over `--memory-limit` when both are set.
+  std::optional<double> resolved_memory_limit_mb;
+  if (opts.memory_quota && *opts.memory_quota > 0.0
+      && *opts.memory_quota < 100.0)
+  {
+    const auto snap = MemoryMonitor::get_system_memory_snapshot();
+    if (snap.total_mb > 0.0) {
+      resolved_memory_limit_mb = snap.total_mb * (*opts.memory_quota) / 100.0;
+      spdlog::info("memory-quota={:.0f}% of {:.0f} MB → memory_limit={:.0f} MB",
+                   *opts.memory_quota,
+                   snap.total_mb,
+                   *resolved_memory_limit_mb);
+    } else {
+      spdlog::warn(
+          "memory-quota={}% requested but MemTotal could not be read; "
+          "ignoring",
+          *opts.memory_quota);
+    }
+  } else if (opts.memory_quota) {
+    spdlog::warn("memory-quota={} is outside (0, 100) — ignored",
+                 *opts.memory_quota);
+  }
+
+  if (resolved_memory_limit_mb) {
+    planning.options.sddp_options.pool_memory_limit_mb =
+        resolved_memory_limit_mb;
+  } else if (opts.memory_limit) {
+    planning.options.sddp_options.pool_memory_limit_mb =
+        parse_memory_size(*opts.memory_limit);
+  }
+
+  if (opts.sddp_cpu_factor) {
+    planning.options.sddp_options.pool_cpu_factor = opts.sddp_cpu_factor;
+  }
+
+  if (opts.build_mode) {
+    planning.options.build_mode =
+        require_enum<BuildMode>("build-mode", *opts.build_mode);
+  }
+
+  if (opts.write_out) {
+    planning.options.write_out = parse_output_selection(*opts.write_out);
+  }
+
   // CLI solver shortcuts → solver_options
   if (opts.algorithm) {
-    planning.options.solver_options.algorithm =
-        static_cast<LPAlgo>(*opts.algorithm);
+    planning.options.solver_options.algorithm = *opts.algorithm;
   }
   if (opts.threads) {
     planning.options.solver_options.threads = *opts.threads;
@@ -471,36 +1016,9 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 }
 
 /**
- * @brief Parse an LP names level from a string (name or integer).
+ * @brief Build LpMatrixOptions from internal parameters
  *
- * Accepts "0"–"2" or "minimal"/"only_cols"/"cols_and_rows".
- *
- * @param s The string to parse.
- * @return The corresponding LpNamesLevel value.
- * @throws cli::parse_error on unrecognised input.
- */
-[[nodiscard]] inline LpNamesLevel parse_lp_names_level(const std::string& s)
-{
-  if (const auto lvl = enum_from_name<LpNamesLevel>(s)) {
-    return *lvl;
-  }
-  if (s.size() == 1 && std::isdigit(static_cast<unsigned char>(s.front())) != 0)
-  {
-    const int v = s.front() - '0';
-    if (v >= 0 && v <= static_cast<int>(LpNamesLevel::cols_and_rows)) {
-      return static_cast<LpNamesLevel>(v);
-    }
-  }
-  throw cli::parse_error(
-      std::format("invalid lp-names-level value: '{}' "
-                  "(expected 0-2 or minimal/only_cols/cols_and_rows)",
-                  s));
-}
-
-/**
- * @brief Build LpMatrixOptions from command-line parameters
- *
- * @param lp_names_level       Optional LP naming level
+ * @param enable_names         Whether to enable column/row name generation
  * @param matrix_eps           Optional epsilon tolerance for matrix
  *                             coefficients
  * @param compute_stats        Whether to compute LP statistics (default
@@ -510,23 +1028,19 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
  * @return LpMatrixOptions configured according to the parameters
  */
 [[nodiscard]] inline LpMatrixOptions make_lp_matrix_options(
-    const std::optional<LpNamesLevel>& lp_names_level,
+    bool enable_names,
     const std::optional<double>& matrix_eps,
     bool compute_stats = false,
     const std::optional<std::string>& lp_solver = {},
     std::optional<LpEquilibrationMethod> equilibration_method = {})
 {
-  const auto eps = matrix_eps.value_or(0);
-  const auto lvl = lp_names_level.value_or(LpNamesLevel::minimal);
-
   LpMatrixOptions lp_matrix_opts;
-  lp_matrix_opts.eps = eps;
-  lp_matrix_opts.col_with_names = lvl >= LpNamesLevel::minimal;
-  lp_matrix_opts.row_with_names = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.col_with_name_map = lvl >= LpNamesLevel::only_cols;
-  lp_matrix_opts.row_with_name_map = lvl >= LpNamesLevel::only_cols;
+  lp_matrix_opts.eps = matrix_eps.value_or(0);
+  lp_matrix_opts.col_with_names = enable_names;
+  lp_matrix_opts.row_with_names = enable_names;
+  lp_matrix_opts.col_with_name_map = enable_names;
+  lp_matrix_opts.row_with_name_map = enable_names;
   lp_matrix_opts.compute_stats = compute_stats;
-  lp_matrix_opts.lp_names_level = lvl;
   lp_matrix_opts.solver_name = lp_solver.value_or("");
   lp_matrix_opts.equilibration_method = equilibration_method;
 
@@ -557,23 +1071,24 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .use_single_bus = get_opt<bool>(vm, "use-single-bus"),
       .use_kirchhoff = get_opt<bool>(vm, "use-kirchhoff"),
       .lp_file = get_opt<std::string>(vm, "lp-file"),
-      .lp_names_level = [&]() -> std::optional<LpNamesLevel>
-      {
-        if (const auto raw = get_opt<std::string>(vm, "lp-names-level")) {
-          return parse_lp_names_level(*raw);
-        }
-        return std::nullopt;
-      }(),
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
       .json_file = get_opt<std::string>(vm, "json-file"),
-      .fast_parsing = get_opt<bool>(vm, "fast-parsing"),
-      .check_json = get_opt<bool>(vm, "check-json"),
       .print_stats = get_opt<bool>(vm, "stats"),
       .trace_log = get_opt<std::string>(vm, "trace-log"),
+      .async_logger = [&vm]() -> std::optional<bool>
+      {
+        // `--no-async-logger` (pure flag) is authoritative when set —
+        // it forces sync mode regardless of `--async-logger=...`.
+        if (vm.contains("no-async-logger")) {
+          return false;
+        }
+        return get_opt<bool>(vm, "async-logger");
+      }(),
+      .lp_dump_backward = get_opt<std::string>(vm, "lp-dump-backward"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
       .sddp_max_iterations = get_opt<int>(vm, "sddp-max-iterations"),
@@ -581,11 +1096,28 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .sddp_convergence_tol = get_opt<double>(vm, "sddp-convergence-tol"),
       .sddp_elastic_penalty = get_opt<double>(vm, "sddp-elastic-penalty"),
       .sddp_elastic_mode = get_opt<std::string>(vm, "sddp-elastic-mode"),
-      .sddp_cut_coeff_mode = get_opt<std::string>(vm, "sddp-cut-coeff-mode"),
+      .constraint_mode = get_opt<std::string>(vm, "constraint-mode"),
       .sddp_num_apertures = get_opt<int>(vm, "sddp-num-apertures"),
+      .sddp_aperture_chunk_size =
+          get_opt<std::string>(vm, "aperture-chunk-size")
+              .and_then([](const std::string& s)
+                        { return parse_aperture_chunk_size(s); }),
       .recover = get_opt<bool>(vm, "recover"),
+      // Prefer the new `--memory-saving` name; fall back to the
+      // deprecated `--low-memory` alias for backward compatibility.
+      .memory_saving =
+          get_opt<std::string>(vm, "memory-saving")
+              .or_else([&] { return get_opt<std::string>(vm, "low-memory"); }),
+      .memory_limit = get_opt<std::string>(vm, "memory-limit"),
+      .memory_quota = get_opt<double>(vm, "memory-quota"),
+      .sddp_cpu_factor =
+          get_opt<double>(vm, "cpu-factor")
+              .or_else([&] { return get_opt<double>(vm, "sddp-cpu-factor"); }),
+      .cpu_quota = get_opt<double>(vm, "cpu-quota"),
+      .build_mode = get_opt<std::string>(vm, "build-mode"),
+      .write_out = get_opt<std::string>(vm, "write-out"),
       .solver = get_opt<std::string>(vm, "solver"),
-      .algorithm = [&]() -> std::optional<int>
+      .algorithm = [&]() -> std::optional<LPAlgo>
       {
         if (const auto raw = get_opt<std::string>(vm, "algorithm")) {
           return parse_lp_algorithm(*raw);
@@ -593,6 +1125,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         return std::nullopt;
       }(),
       .threads = get_opt<int>(vm, "threads"),
+      .no_scale = get_opt<bool>(vm, "no-scale"),
+      .no_mip = get_opt<bool>(vm, "no-mip"),
+      .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
+      .mip_gap = get_opt<double>(vm, "mip-gap"),
+      .time_limit = get_opt<double>(vm, "time-limit"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -660,7 +1197,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stoi(kv->second);
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
     return std::nullopt;
@@ -672,7 +1209,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     if (const auto kv = section.find(key); kv != section.end()) {
       try {
         return std::stod(kv->second);
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
     return std::nullopt;
@@ -691,12 +1228,6 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // LP options
   opts.lp_file = get_str("lp-file");
-  if (const auto raw = get_str("lp-names-level")) {
-    try {
-      opts.lp_names_level = parse_lp_names_level(*raw);
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
-    }
-  }
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
@@ -705,10 +1236,10 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
 
   // Debug / output
   opts.json_file = get_str("json-file");
-  opts.fast_parsing = get_bool("fast-parsing");
-  opts.check_json = get_bool("check-json");
   opts.print_stats = get_bool("stats");
   opts.trace_log = get_str("trace-log");
+  opts.async_logger = get_bool("async-logger");
+  opts.lp_dump_backward = get_str("lp-dump-backward");
 
   // SDDP directories
   opts.cut_directory = get_str("cut-directory");
@@ -720,15 +1251,33 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.sddp_convergence_tol = get_dbl("sddp-convergence-tol");
   opts.sddp_elastic_penalty = get_dbl("sddp-elastic-penalty");
   opts.sddp_elastic_mode = get_str("sddp-elastic-mode");
-  opts.sddp_cut_coeff_mode = get_str("sddp-cut-coeff-mode");
+  opts.constraint_mode = get_str("constraint-mode");
   opts.sddp_num_apertures = get_int("sddp-num-apertures");
+  // aperture-chunk-size accepts "auto" (→0) or an integer literal.
+  if (const auto s = get_str("aperture-chunk-size")) {
+    opts.sddp_aperture_chunk_size = parse_aperture_chunk_size(*s);
+  }
+  // Prefer the new key; fall back to the deprecated `low-memory` alias.
+  opts.memory_saving = get_str("memory-saving");
+  if (!opts.memory_saving) {
+    opts.memory_saving = get_str("low-memory");
+  }
+  opts.memory_limit = get_str("memory-limit");
+  opts.memory_quota = get_dbl("memory-quota");
+  opts.sddp_cpu_factor = get_dbl("cpu-factor");
+  if (!opts.sddp_cpu_factor) {
+    opts.sddp_cpu_factor = get_dbl("sddp-cpu-factor");
+  }
+  opts.cpu_quota = get_dbl("cpu-quota");
+  opts.build_mode = get_str("build-mode");
+  opts.write_out = get_str("write-out");
 
   // Solver
   opts.solver = get_str("solver");
   if (const auto raw = get_str("algorithm")) {
     try {
       opts.algorithm = parse_lp_algorithm(*raw);
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
     }
   }
   opts.threads = get_int("threads");
@@ -758,7 +1307,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         try {
           return std::stoi(kv->second);
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        } catch (...) {
         }
       }
       return std::nullopt;
@@ -768,7 +1317,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       if (const auto kv = sec_map.find(key); kv != sec_map.end()) {
         try {
           return std::stod(kv->second);
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
+        } catch (...) {
         }
       }
       return std::nullopt;
@@ -790,8 +1339,8 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     SolverOptions sopts;
     if (const auto raw = sv_str("algorithm")) {
       try {
-        sopts.algorithm = static_cast<LPAlgo>(parse_lp_algorithm(*raw));
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+        sopts.algorithm = parse_lp_algorithm(*raw);
+      } catch (...) {
       }
     }
     if (const auto v = sv_int("threads")) {
@@ -808,7 +1357,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     }
     sopts.time_limit = sv_dbl("time-limit");
     if (const auto raw = sv_str("scaling")) {
-      sopts.scaling = enum_from_name<SolverScaling>(*raw);
+      sopts.scaling = require_enum<SolverScaling>("scaling", *raw);
     }
     if (const auto v = sv_int("max-fallbacks")) {
       sopts.max_fallbacks = *v;
@@ -848,17 +1397,16 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.use_single_bus, defaults.use_single_bus);
   merge(opts.use_kirchhoff, defaults.use_kirchhoff);
   merge(opts.lp_file, defaults.lp_file);
-  merge(opts.lp_names_level, defaults.lp_names_level);
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);
   merge(opts.lp_compression, defaults.lp_compression);
   merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);
   merge(opts.json_file, defaults.json_file);
-  merge(opts.fast_parsing, defaults.fast_parsing);
-  merge(opts.check_json, defaults.check_json);
   merge(opts.print_stats, defaults.print_stats);
   merge(opts.trace_log, defaults.trace_log);
+  merge(opts.async_logger, defaults.async_logger);
+  merge(opts.lp_dump_backward, defaults.lp_dump_backward);
   merge(opts.cut_directory, defaults.cut_directory);
   merge(opts.log_directory, defaults.log_directory);
   merge(opts.sddp_max_iterations, defaults.sddp_max_iterations);
@@ -866,8 +1414,21 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.sddp_convergence_tol, defaults.sddp_convergence_tol);
   merge(opts.sddp_elastic_penalty, defaults.sddp_elastic_penalty);
   merge(opts.sddp_elastic_mode, defaults.sddp_elastic_mode);
-  merge(opts.sddp_cut_coeff_mode, defaults.sddp_cut_coeff_mode);
+  merge(opts.constraint_mode, defaults.constraint_mode);
   merge(opts.sddp_num_apertures, defaults.sddp_num_apertures);
+  merge(opts.sddp_aperture_chunk_size, defaults.sddp_aperture_chunk_size);
+  merge(opts.memory_saving, defaults.memory_saving);
+  merge(opts.no_scale, defaults.no_scale);
+  merge(opts.no_mip, defaults.no_mip);
+  merge(opts.naming_dialect, defaults.naming_dialect);
+  merge(opts.mip_gap, defaults.mip_gap);
+  merge(opts.time_limit, defaults.time_limit);
+  merge(opts.memory_limit, defaults.memory_limit);
+  merge(opts.memory_quota, defaults.memory_quota);
+  merge(opts.sddp_cpu_factor, defaults.sddp_cpu_factor);
+  merge(opts.cpu_quota, defaults.cpu_quota);
+  merge(opts.build_mode, defaults.build_mode);
+  merge(opts.write_out, defaults.write_out);
   merge(opts.solver, defaults.solver);
   merge(opts.algorithm, defaults.algorithm);
   merge(opts.threads, defaults.threads);
@@ -881,3 +1442,5 @@ inline void merge_config_defaults(MainOptions& opts,
 }
 
 }  // namespace gtopt
+
+// NOLINTEND(misc-const-correctness)

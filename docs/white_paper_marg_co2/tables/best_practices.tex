@@ -1,0 +1,54 @@
+% =====================================================================
+% best_practices.tex --- D2 supporting table.  Standards-alignment
+% audit for cen2gtopt.  Imported as Table~\ref{tab:best-practices}.
+% Symbols: \checkmark = explicit, \xmark = not implemented,
+%          \infomark  = informal alignment.
+% =====================================================================
+\begin{table}[t]
+  \centering
+  \caption{Standards-alignment audit for \cenpipe{}.
+    \checkmark{}=explicitly implemented;
+    $\times${}=not yet implemented (limitation);
+    $\circledast$=informal / partial alignment.}
+  \label{tab:best-practices}
+  \footnotesize
+  \begin{tabularx}{\columnwidth}{@{}lcX@{}}
+    \toprule
+    \textbf{Standard / scheme} & \textbf{Status} & \textbf{Evidence in \cenpipe{}} \\
+    \midrule
+    GHGP Scope~2 location-based~\cite{GHGPScope2}    & \checkmark
+      & per-bus per-quarter $\varepsilon_{b,t}$ in parquet output \\
+    GHGP Scope~2 market-based~\cite{GHGPScope2}      & $\times$
+      & no Guarantees-of-Origin / I-REC tracking layer (future work) \\
+    RE100 hourly matching~\cite{RE100Hourly}         & \checkmark
+      & hourly granularity by construction \\
+    24/7 CFE Compact~\cite{CFE247Compact}            & \checkmark
+      & sub-hourly (15-minute quarter) granularity \\
+    ISO 14064-1 (inventory)~\cite{ISO14064_1}        & $\circledast$
+      & supplies the time-resolved EF; full inventory tooling external \\
+    ISO 14064-2 (projects)~\cite{ISO14064_2}         & $\circledast$
+      & emission counterfactual via PCP oracle delta \\
+    ISO 14064-3 (verification)~\cite{ISO14064_3}     & $\circledast$
+      & auditable: $|\hat\lambda - \lambda^{\mathrm{PLEXOS}}|<\$0.5/\text{MWh}$ on $99\%$ of cells \\
+    ISO 14067 (product CFP)~\cite{ISO14067}          & $\circledast$
+      & supplies allocation EF; cradle-to-gate boundary external \\
+    IEC 61968-13 CIM~\cite{IEC61968_13}              & $\times$
+      & PCP XML is a custom PLEXOS schema, not CIM (future work) \\
+    IEC 61970 / CGMES~\cite{IEC61970_CGMES}          & $\times$
+      & no CGMES export of the reconstructed network \\
+    IEEE Std 1547-2018~\cite{IEEE1547_2018}          & $\circledast$
+      & DER interconnection rules referenced in BESS case
+        (Sec.~\ref{sec:bess-case}) \\
+    IEEE Std 2030.5~\cite{IEEE2030_5}                & $\times$
+      & no SEP2 telemetry binding \\
+    CEN NT~SSCC 2024~\cite{CENNT_SSCC2024}           & \checkmark
+      & SCVIC ladder consumes the tariff structure defined in NT~SSCC \\
+    WattTime MOER methodology~\cite{WattTimeMOER}    & $\circledast$
+      & philosophically aligned; reconstruction from operator
+        $\lambda$ rather than dispatch-stack inference \\
+    PJM LME methodology~\cite{HawkinsPJM2024}        & $\circledast$
+      & same energy/loss/congestion decomposition; congestion absorbed
+        into island partition rather than per-line shadow price \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

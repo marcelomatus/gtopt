@@ -9,6 +9,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/user_constraint.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -170,7 +171,7 @@ TEST_CASE("SystemLP with transmission line - two bus system")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   System system = {
       .name = "TwoBusSystem",
@@ -236,7 +237,8 @@ TEST_CASE("SystemLP with line - single bus mode")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = true;
+  opts.model_options.use_single_bus = true;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   System system = {
       .name = "SingleBusMode",
@@ -303,7 +305,9 @@ TEST_CASE("SystemLP with loop line is skipped")
       .line_array = line_array,
   };
 
-  const PlanningOptionsLP options;
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
   SimulationLP simulation_lp(simulation, options);
 
   SystemLP system_lp(system, simulation_lp);
@@ -358,8 +362,9 @@ TEST_CASE("LineLP - Kirchhoff (theta) constraints with reactance")
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "KirchhoffTest",
@@ -412,8 +417,13 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
+  // Pin node_angle: this test compares row-counts AC vs DC, which only
+  // diverge under the B-θ formulation (cycle_basis adds rows per cycle,
+  // not per line — a 2-bus topology has zero cycles).
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   SUBCASE("no reactance field — Kirchhoff skipped")
   {
@@ -514,957 +524,6 @@ TEST_CASE("LineLP - DC line (no reactance) skips Kirchhoff")
   }
 }
 
-TEST_CASE("LineLP - line losses (lossfactor > 0)")
-{
-  // Line with a positive lossfactor exercises the has_loss path which creates
-  // separate fpcols / fncols for forward/reverse flow.
-  const Array<Bus> bus_array = {
-      {.uid = Uid {1}, .name = "b1"},
-      {.uid = Uid {2}, .name = "b2"},
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .capacity = 100.0},
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .lossfactor = 0.05,  // 5% losses → exercises has_loss branch
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array = {{.uid = Uid {1}, .duration = 1}},
-      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
-      .scenario_array = {{.uid = Uid {0}}},
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-
-  const System system = {
-      .name = "LossFactorTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options(opts);
-  SimulationLP simulation_lp(simulation, options);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-}
-
-TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
-{
-  // Line with resistance + voltage + loss_segments > 1 exercises the
-  // piecewise-linear quadratic loss model: P_loss ≈ R·f²/V²
-  // This test uses 3 segments on a line with R=0.01, V=100kV, tmax=200MW.
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          .loss_segments = 3,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
-
-  const System system = {
-      .name = "QuadraticLossTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options_ql(opts);
-  SimulationLP simulation_lp(simulation, options_ql);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  CHECK(lp.get_numcols() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // Units: R [Ω], f [MW], V [kV] → P_loss [MW].
-  // The generation cost reflects the piecewise-linear approximation of
-  // quadratic loss. Exact: loss(100) = R·100²/V² = 0.01·10000/10000 =
-  // 0.01 MW.  The 3-segment approximation slightly overestimates this.
-  // Total gen ≈ 100.01 MW, cost ≈ 1000.1, obj ≈ 1.0001 (scaled by 1000).
-  // Bounds are loose to accommodate piecewise approximation error.
-  const auto obj = lp.get_obj_value();
-  CHECK(obj > 1.0);
-  CHECK(obj < 1.01);
-}
-
-TEST_CASE("LineLP - quadratic losses with Kirchhoff constraints")
-{
-  // Verify quadratic loss model works together with DC power flow constraints
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          .reactance = 0.05,
-          .loss_segments = 4,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = true;
-
-  const System system = {
-      .name = "QuadLossKirchhoff",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options_qk(opts);
-  SimulationLP simulation_lp(simulation, options_qk);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-}
-
-TEST_CASE(
-    "LineLP - global loss_segments option is used when line has no override")
-{
-  // When the line does not set loss_segments, the global option value is used.
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          // No loss_segments here → uses global option
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 200.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.loss_segments = 3;  // Global: 3 segments
-  opts.scale_objective = 1000.0;
-
-  const System system = {
-      .name = "GlobalSegTest",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options_gs(opts);
-  SimulationLP simulation_lp(simulation, options_gs);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // With quadratic losses, objective should be slightly above 1.0
-  // (100 MW demand + small loss at gcost=10, scaled by 1000)
-  const auto obj = lp.get_obj_value();
-  CHECK(obj > 1.0);
-  CHECK(obj < 1.01);
-}
-
-TEST_CASE("LineLP - per-line use_line_losses overrides global option")
-{
-  using namespace gtopt;
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  // Sub-case A: global use_line_losses=false, per-line use_line_losses=true
-  // → line-level setting enables quadratic losses despite global=false
-  {
-    const Array<Line> line_array = {
-        {
-            .uid = Uid {1},
-            .name = "l1",
-            .bus_a = Uid {1},
-            .bus_b = Uid {2},
-            .voltage = 100.0,
-            .resistance = 0.01,
-            .use_line_losses = true,  // per-line override: enable losses
-            .loss_segments = 3,
-            .tmax_ba = 200.0,
-            .tmax_ab = 200.0,
-            .capacity = 200.0,
-        },
-    };
-
-    PlanningOptions opts;
-    opts.use_single_bus = false;
-    opts.use_kirchhoff = false;
-    opts.use_line_losses = false;  // global: disabled
-    opts.scale_objective = 1000.0;
-
-    const System system = {
-        .name = "PerLineEnableLosses",
-        .bus_array = bus_array,
-        .demand_array = demand_array,
-        .generator_array = generator_array,
-        .line_array = line_array,
-    };
-
-    const PlanningOptionsLP options_a(opts);
-    SimulationLP simulation_lp(simulation, options_a);
-    SystemLP system_lp(system, simulation_lp);
-
-    auto&& lp = system_lp.linear_interface();
-    auto result = lp.resolve();
-    REQUIRE(result.has_value());
-    CHECK(result.value() == 0);
-
-    // Per-line losses enabled: objective > 1.0 (loss overhead)
-    const auto obj = lp.get_obj_value();
-    CHECK(obj > 1.0);
-    CHECK(obj < 1.01);
-  }
-
-  // Sub-case B: global use_line_losses=true, per-line use_line_losses=false
-  // → line-level setting disables quadratic losses despite global=true
-  {
-    const Array<Line> line_array = {
-        {
-            .uid = Uid {1},
-            .name = "l1",
-            .bus_a = Uid {1},
-            .bus_b = Uid {2},
-            .voltage = 100.0,
-            .resistance = 0.01,
-            .use_line_losses = false,  // per-line override: disable losses
-            .loss_segments = 3,
-            .tmax_ba = 200.0,
-            .tmax_ab = 200.0,
-            .capacity = 200.0,
-        },
-    };
-
-    PlanningOptions opts;
-    opts.use_single_bus = false;
-    opts.use_kirchhoff = false;
-    opts.use_line_losses = true;  // global: enabled
-    opts.loss_segments = 3;
-    opts.scale_objective = 1000.0;
-
-    const System system = {
-        .name = "PerLineDisableLosses",
-        .bus_array = bus_array,
-        .demand_array = demand_array,
-        .generator_array = generator_array,
-        .line_array = line_array,
-    };
-
-    const PlanningOptionsLP options_b(opts);
-    SimulationLP simulation_lp(simulation, options_b);
-    SystemLP system_lp(system, simulation_lp);
-
-    auto&& lp = system_lp.linear_interface();
-    auto result = lp.resolve();
-    REQUIRE(result.has_value());
-    CHECK(result.value() == 0);
-
-    // Per-line losses disabled: objective = exactly 1.0 (no loss overhead)
-    const auto obj = lp.get_obj_value();
-    CHECK(obj == doctest::Approx(1.0));
-  }
-}
-
-// ── Transformer (tap_ratio + phase_shift_deg) tests ──────────────────────
-
-TEST_CASE(
-    "Transformer with off-nominal tap ratio changes Kirchhoff susceptance")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Two-bus system: bus1 → bus2 via a transformer.
-  // With tap_ratio = τ the effective susceptance is B/τ, so for equal
-  // generation and demand the optimal power flow decreases with larger τ.
-  // We verify feasibility and a non-trivial objective at τ = 2 (half B).
-
-  const Array<Bus> bus_array = {
-      {.uid = Uid {1}, .name = "b1", .reference_theta = 0.0},
-      {.uid = Uid {2}, .name = "b2"},
-  };
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 20.0,
-          .capacity = 200.0,
-      },
-  };
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .lmax = 100.0},
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              Block {.uid = Uid {1}, .duration = 1},
-          },
-      .stage_array =
-          {
-              Stage {.uid = Uid {1}, .first_block = 0, .count_block = 1},
-          },
-      .scenario_array =
-          {
-              Scenario {.uid = Uid {1}, .probability_factor = 1},
-          },
-  };
-
-  const Array<Line> line_array_nominal = {
-      {
-          .uid = Uid {1},
-          .name = "t1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 220.0,
-          .reactance = 0.1,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .tap_ratio = 1.0,
-      },
-  };
-  const Array<Line> line_array_tap = {
-      {
-          .uid = Uid {1},
-          .name = "t1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 220.0,
-          .reactance = 0.1,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .tap_ratio = 2.0,  // half the susceptance → larger angle difference
-      },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = false;
-  const PlanningOptionsLP options_lp(opts);
-
-  // Nominal tap test
-  {
-    System system = {
-        .name = "TapNominal",
-        .bus_array = bus_array,
-        .demand_array = demand_array,
-        .generator_array = generator_array,
-        .line_array = line_array_nominal,
-    };
-    SimulationLP simulation_lp(simulation, options_lp);
-    system.setup_reference_bus(options_lp);
-    SystemLP system_lp(system, simulation_lp);
-    auto&& lp_iface = system_lp.linear_interface();
-    auto result = lp_iface.resolve();
-    REQUIRE(result.has_value());
-    CHECK(result.value() == 0);
-  }
-
-  // Off-nominal tap test
-  {
-    System system = {
-        .name = "TapOffNominal",
-        .bus_array = bus_array,
-        .demand_array = demand_array,
-        .generator_array = generator_array,
-        .line_array = line_array_tap,
-    };
-    SimulationLP simulation_lp(simulation, options_lp);
-    system.setup_reference_bus(options_lp);
-    SystemLP system_lp(system, simulation_lp);
-    auto&& lp_iface = system_lp.linear_interface();
-    auto result = lp_iface.resolve();
-    REQUIRE(result.has_value());
-    CHECK(result.value() == 0);
-  }
-}
-
-TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  // Simple 2-bus system connected by a PST.  With a non-zero phase shift the
-  // Kirchhoff equality RHS changes from 0 to -scale_theta * phi_rad; the LP
-  // must still be feasible (the PST just requires a different angle gap to
-  // carry the same power).
-
-  const Array<Bus> bus_array = {
-      {.uid = Uid {1}, .name = "b1", .reference_theta = 0.0},
-      {.uid = Uid {2}, .name = "b2"},
-  };
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 200.0,
-      },
-  };
-  const Array<Demand> demand_array = {
-      {.uid = Uid {1}, .name = "d1", .bus = Uid {2}, .lmax = 100.0},
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              Block {.uid = Uid {1}, .duration = 1},
-          },
-      .stage_array =
-          {
-              Stage {.uid = Uid {1}, .first_block = 0, .count_block = 1},
-          },
-      .scenario_array =
-          {
-              Scenario {.uid = Uid {1}, .probability_factor = 1},
-          },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "pst_1_2",
-          .type = "transformer",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 220.0,
-          .reactance = 0.1,
-          .tmax_ba = 300.0,
-          .tmax_ab = 300.0,
-          .phase_shift_deg = 2.0,
-      },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = false;
-  opts.scale_objective = 1000.0;
-  const PlanningOptionsLP options_lp(opts);
-
-  System system = {
-      .name = "PSTTwoBus",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  SimulationLP simulation_lp(simulation, options_lp);
-  system.setup_reference_bus(options_lp);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp_iface = system_lp.linear_interface();
-  auto result = lp_iface.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // Objective should equal 100 MW * $10/MWh / scale_objective (1000) = 1.0
-  CHECK(lp_iface.get_obj_value() == doctest::Approx(1.0));
-}
-
-// ── Capacity expansion + loss model tests ─────────────────────────────────
-
-TEST_CASE("LineLP - quadratic losses with capacity expansion")
-{
-  // Exercises the quadratic loss path when capacity_col is present (expcap
-  // set). This covers the capacity constraint inside
-  // add_quadratic_flow_direction (lines 169-179) and the cprows/cnrows storage
-  // (lines 335-336, 359-360).
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          .loss_segments = 3,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 100.0,
-          .expcap = 50.0,
-          .expmod = 4.0,
-          .capmax = 300.0,
-          .annual_capcost = 100.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
-  opts.scale_objective = 1000.0;
-
-  const System system = {
-      .name = "QuadLossExpansion",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options_qe(opts);
-  SimulationLP simulation_lp(simulation, options_qe);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  CHECK(lp.get_numcols() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // Demand is 100 MW, capacity starts at 100 MW with expansion available.
-  // Quadratic losses require slightly more generation.
-  const auto obj = lp.get_obj_value();
-  CHECK(obj > 0.9);
-  CHECK(obj < 2.0);
-}
-
-TEST_CASE("LineLP - linear losses (lossfactor) with capacity expansion")
-{
-  // Exercises the linear loss path with capacity_col present (expcap set).
-  // This covers the capacity constraint rows for both positive and negative
-  // flow directions in the linear loss model (lines 378-388, 403-413).
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 100.0,
-      },
-  };
-
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .lossfactor = 0.05,
-          .tmax_ba = 200.0,
-          .tmax_ab = 200.0,
-          .capacity = 100.0,
-          .expcap = 50.0,
-          .expmod = 4.0,
-          .capmax = 300.0,
-          .annual_capcost = 100.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.scale_objective = 1000.0;
-
-  const System system = {
-      .name = "LinLossExpansion",
-      .bus_array = bus_array,
-      .demand_array = demand_array,
-      .generator_array = generator_array,
-      .line_array = line_array,
-  };
-
-  const PlanningOptionsLP options_le(opts);
-  SimulationLP simulation_lp(simulation, options_le);
-  SystemLP system_lp(system, simulation_lp);
-
-  auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 0);
-
-  // With 5% loss factor: gen ~105 MW for 100 MW demand, cost ~1.05 (scaled)
-  const auto obj = lp.get_obj_value();
-  CHECK(obj > 1.0);
-  CHECK(obj < 1.1);
-}
-
 TEST_CASE("LineLP - inactive line is skipped")
 {
   // A line with active=false should be skipped entirely in add_to_lp.
@@ -1546,10 +605,10 @@ TEST_CASE("LineLP - inactive line is skipped")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.demand_fail_cost = 1000.0;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.model_options.scale_objective = 1000.0;
 
   const System system = {
       .name = "InactiveLineTest",
@@ -1570,7 +629,7 @@ TEST_CASE("LineLP - inactive line is skipped")
 
   // With inactive line, bus 2 demand is served by local g2 at $20/MWh
   // cost = 100 * 20 / 1000 = 2.0
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(2.0));
 }
 
@@ -1655,9 +714,10 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
   };
 
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.scale_objective = 1000.0;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
       .name = "TransferCostTest",
@@ -1678,26 +738,39 @@ TEST_CASE("LineLP - transfer cost is applied to flow")
 
   // g1 at $10 + line tcost $5 = $15 effective; cheaper than g2 at $20.
   // Total cost = (10 + 5) * 100 / 1000 = 1.5
-  const auto obj = lp.get_obj_value();
+  const auto obj = lp.get_obj_value_raw();
   CHECK(obj == doctest::Approx(1.5));
 }
 
-TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
+// ── AMPL `line.flow` user-constraint resolution ──────────────────────
+//
+// `line.flow` is registered as a class-level compound attribute
+// (`+1·flowp − 1·flown`) by `system_lp.cpp::register_all_ampl_element_names`
+// so user constraints can reference net signed flow.  These tests
+// pin the AMPL-resolver path through the `register_if_present`
+// generic lambda consolidated in `line_lp.cpp` (the lambda dispatches
+// by `it->second`'s value type to single-col vs sum-of-cols paths).
+//
+// Aggregator-mode line (no piecewise_direct): the resolver sees
+//   line('l1').flow → +1·flowp_col − 1·flown_col
+// Each leg is a single registered LP column, looked up via
+// `AmplVariable::block_cols` (the single-col path).
+
+TEST_CASE("LineLP - AMPL line.flow user constraint enforces physical bound")
 {
-  // Two stages: stage 1 has initial capacity, stage 2 can expand.
-  // Exercises capacity tracking across stages in the quadratic loss model.
-
+  // Two-bus system, g1 cheap ($10) at bus_a, g2 expensive ($20) at
+  // bus_b serving 100 MW demand at bus_b.  Without any constraint,
+  // optimal dispatch routes 100 MW through the line (g1 → b2).
+  // Adding `line('l1').flow <= 60` caps the line flow at 60 MW;
+  // g2 must cover the remaining 40 MW at higher cost.
+  //
+  // Algebraic obj:
+  //   pre-constraint:  100 · $10 = $1000 / scale = 1.0
+  //   post-constraint:  60 · $10 + 40 · $20 = $600 + $800 = $1400 / 1000 = 1.4
   const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
   };
-
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1706,112 +779,96 @@ TEST_CASE("LineLP - multi-stage capacity expansion with quadratic losses")
           .gcost = 10.0,
           .capacity = 500.0,
       },
+      {
+          .uid = Uid {2},
+          .name = "g2",
+          .bus = Uid {2},
+          .gcost = 20.0,
+          .capacity = 500.0,
+      },
   };
-
   const Array<Demand> demand_array = {
       {
           .uid = Uid {1},
           .name = "d1",
           .bus = Uid {2},
-          .capacity = 80.0,
+          .capacity = 100.0,
       },
   };
-
   const Array<Line> line_array = {
       {
           .uid = Uid {1},
           .name = "l1",
           .bus_a = Uid {1},
           .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          .loss_segments = 2,
           .tmax_ba = 200.0,
           .tmax_ab = 200.0,
-          .capacity = 100.0,
-          .expcap = 50.0,
-          .expmod = 2.0,
-          .capmax = 200.0,
-          .annual_capcost = 10.0,
       },
   };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-              {
-                  .uid = Uid {2},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-              {
-                  .uid = Uid {2},
-                  .first_block = 1,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "cap_line_flow",
+          .expression = "line('l1').flow <= 60",
+      },
   };
-
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = false;
-  opts.use_line_losses = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   const System system = {
-      .name = "MultiStageQuadExpansion",
+      .name = "LineFlowAmplTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .line_array = line_array,
+      .user_constraint_array = user_constraint_array,
   };
 
-  const PlanningOptionsLP options_ms(opts);
-  SimulationLP simulation_lp(simulation, options_ms);
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
+  const auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
+
+  // Verify the constraint binds: obj = 1.4 (raw, scale=1000).
+  // Bound it loosely (FP) — exact algebraic match modulo solver
+  // tolerance.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(1.4).epsilon(1e-6));
 }
 
-TEST_CASE(
-    "LineLP - quadratic losses with Kirchhoff and capacity expansion combined")
+TEST_CASE("LineLP - AMPL sum(line(all).flow) aggregates across lines")
 {
-  // Exercises all three advanced features together: quadratic losses, Kirchhoff
-  // DC power flow, and capacity expansion. This tests the full integration
-  // path.
-
+  // Three-bus system with two parallel-path lines.  User
+  // constraint `sum(line(all).flow) <= 80` caps the TOTAL signed
+  // flow across BOTH lines; verifies the resolver iterates the
+  // `line` collection and stamps each line's `flowp − flown`
+  // into the same row.
+  //
+  // Demand 100 MW on b3 is served from b1 (cheap g1).  The two
+  // lines b1→b2→b3 form a hypothetical 2-hop relay (only the b1→b2
+  // and b2→b3 lines exist).  With sum_flow ≤ 80, the LP must
+  // split: 80 MW through the path, 20 MW via the expensive local
+  // generator at b3.
+  //
+  // Cost = 80 · $10 + 20 · $30 = $800 + $600 = $1400.  Raw = 1.4.
   const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-          .reference_theta = 0.0,
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
+      {.uid = Uid {1}, .name = "b1"},
+      {.uid = Uid {2}, .name = "b2"},
+      {.uid = Uid {3}, .name = "b3"},
   };
-
   const Array<Generator> generator_array = {
       {
           .uid = Uid {1},
@@ -1820,538 +877,84 @@ TEST_CASE(
           .gcost = 10.0,
           .capacity = 500.0,
       },
+      {
+          .uid = Uid {3},
+          .name = "g3",
+          .bus = Uid {3},
+          .gcost = 30.0,
+          .capacity = 500.0,
+      },
   };
-
   const Array<Demand> demand_array = {
       {
           .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .capacity = 80.0,
+          .name = "d3",
+          .bus = Uid {3},
+          .capacity = 100.0,
       },
   };
-
   const Array<Line> line_array = {
       {
           .uid = Uid {1},
-          .name = "l1",
+          .name = "l12",
           .bus_a = Uid {1},
           .bus_b = Uid {2},
-          .voltage = 100.0,
-          .resistance = 0.01,
-          .reactance = 0.05,
-          .loss_segments = 3,
           .tmax_ba = 200.0,
           .tmax_ab = 200.0,
-          .capacity = 100.0,
-          .expcap = 50.0,
-          .expmod = 2.0,
-          .capmax = 200.0,
-          .annual_capcost = 10.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "l23",
+          .bus_a = Uid {2},
+          .bus_b = Uid {3},
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
       },
   };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
+  // sum(line(all).flow) ≤ 80: caps the TOTAL flow across both
+  // lines; expects 80 each → constraint binds at flow_l12 + flow_l23 = 80.
+  // For a serial path the two are equal so each carries 40 MW.
+  const Array<UserConstraint> user_constraint_array = {
+      {
+          .uid = Uid {1},
+          .name = "cap_sum_flow",
+          .expression = "sum(line(all).flow) <= 80",
+      },
   };
-
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
   PlanningOptions opts;
-  opts.use_single_bus = false;
-  opts.use_kirchhoff = true;
-  opts.use_line_losses = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
 
-  System system = {
-      .name = "QuadKirchhoffExpansion",
+  const System system = {
+      .name = "LineSumFlowAmplTest",
       .bus_array = bus_array,
       .demand_array = demand_array,
       .generator_array = generator_array,
       .line_array = line_array,
+      .user_constraint_array = user_constraint_array,
   };
 
-  const PlanningOptionsLP options_qke(opts);
-  SimulationLP simulation_lp(simulation, options_qke);
-  system.setup_reference_bus(options_qke);
+  const PlanningOptionsLP options_lp(opts);
+  SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
 
   auto&& lp = system_lp.linear_interface();
-  CHECK(lp.get_numrows() > 0);
-  auto result = lp.resolve();
+  const auto result = lp.resolve();
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
-}
 
-// ── LossAllocationMode tests ───────────────────────────────────────
-
-TEST_CASE("LossAllocationMode enum parsing")  // NOLINT
-{
-  using namespace gtopt;
-
-  SUBCASE("default is receiver when unset")
-  {
-    Line line;
-    CHECK_FALSE(line.loss_allocation_mode.has_value());
-    CHECK(line.loss_allocation_mode_enum() == LossAllocationMode::receiver);
-  }
-
-  SUBCASE("parses valid values")
-  {
-    Line line;
-    line.loss_allocation_mode = "sender";
-    CHECK(line.loss_allocation_mode_enum() == LossAllocationMode::sender);
-
-    line.loss_allocation_mode = "split";
-    CHECK(line.loss_allocation_mode_enum() == LossAllocationMode::split);
-
-    line.loss_allocation_mode = "receiver";
-    CHECK(line.loss_allocation_mode_enum() == LossAllocationMode::receiver);
-  }
-
-  SUBCASE("invalid value falls back to receiver")
-  {
-    Line line;
-    line.loss_allocation_mode = "invalid";
-    CHECK(line.loss_allocation_mode_enum() == LossAllocationMode::receiver);
-  }
-}
-
-TEST_CASE("LineLP - loss allocation mode receiver (default)")  // NOLINT
-{
-  // Default mode: all losses at receiver. Generator at bus 1 (cheap),
-  // demand at bus 2, line with 10% lossfactor.
-  // With 100 MW demand and 10% receiver loss: gen = 100/(1-0.1) ≈ 111.1 MW
-  using namespace gtopt;
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .lmax = 100.0,
-          .capacity = 100.0,
-      },
-  };
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .lossfactor = 0.10,
-          .tmax_ba = 500.0,
-          .tmax_ab = 500.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  Planning planning = {
-      .options =
-          {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
-          },
-      .simulation = simulation,
-      .system =
-          {
-              .name = "LossReceiverTest",
-              .bus_array = bus_array,
-              .demand_array = demand_array,
-              .generator_array = generator_array,
-              .line_array = line_array,
-          },
-  };
-
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
-
-  // Generation should be ~111.1 MW (100 / 0.9)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
-  CHECK(obj > 0);
-}
-
-TEST_CASE("LineLP - loss allocation mode sender")  // NOLINT
-{
-  // Sender mode: all losses at sender. Same setup as above.
-  // With 100 MW demand and 10% sender loss: sender injects (1-0.1)*gen,
-  // receiver gets gen. So gen = 100 MW, but sender "pays" 10 MW loss.
-  using namespace gtopt;
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .lmax = 100.0,
-          .capacity = 100.0,
-      },
-  };
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .lossfactor = 0.10,
-          .loss_allocation_mode = Name {"sender"},
-          .tmax_ba = 500.0,
-          .tmax_ab = 500.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  Planning planning = {
-      .options =
-          {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
-          },
-      .simulation = simulation,
-      .system =
-          {
-              .name = "LossSenderTest",
-              .bus_array = bus_array,
-              .demand_array = demand_array,
-              .generator_array = generator_array,
-              .line_array = line_array,
-          },
-  };
-
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
-
-  // Generation should be ~111.1 MW (same total loss, different allocation)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
-  CHECK(obj > 0);
-}
-
-TEST_CASE("LineLP - loss allocation mode split")  // NOLINT
-{
-  // Split mode: 50/50 between sender and receiver.
-  using namespace gtopt;
-
-  const Array<Bus> bus_array = {
-      {
-          .uid = Uid {1},
-          .name = "b1",
-      },
-      {
-          .uid = Uid {2},
-          .name = "b2",
-      },
-  };
-  const Array<Generator> generator_array = {
-      {
-          .uid = Uid {1},
-          .name = "g1",
-          .bus = Uid {1},
-          .gcost = 10.0,
-          .capacity = 500.0,
-      },
-  };
-  const Array<Demand> demand_array = {
-      {
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {2},
-          .lmax = 100.0,
-          .capacity = 100.0,
-      },
-  };
-  const Array<Line> line_array = {
-      {
-          .uid = Uid {1},
-          .name = "l1",
-          .bus_a = Uid {1},
-          .bus_b = Uid {2},
-          .lossfactor = 0.10,
-          .loss_allocation_mode = Name {"split"},
-          .tmax_ba = 500.0,
-          .tmax_ab = 500.0,
-      },
-  };
-
-  const Simulation simulation = {
-      .block_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .duration = 1,
-              },
-          },
-      .stage_array =
-          {
-              {
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              },
-          },
-      .scenario_array =
-          {
-              {
-                  .uid = Uid {0},
-              },
-          },
-  };
-
-  Planning planning = {
-      .options =
-          {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
-          },
-      .simulation = simulation,
-      .system =
-          {
-              .name = "LossSplitTest",
-              .bus_array = bus_array,
-              .demand_array = demand_array,
-              .generator_array = generator_array,
-              .line_array = line_array,
-          },
-  };
-
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
-
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
-  CHECK(obj > 0);
-}
-
-TEST_CASE("LineLP - loss allocation modes affect LMPs but all solve")  // NOLINT
-{
-  // The three loss allocation modes produce different LP formulations
-  // (different coefficients on the flow variable in bus balance rows).
-  // Each mode preserves energy conservation but allocates losses
-  // differently, leading to slightly different generation levels.
-  // This test verifies all three solve successfully and produce
-  // physically reasonable objectives (within a tight range).
-  using namespace gtopt;
-
-  auto make_planning = [](const char* mode_str) -> Planning
-  {
-    OptName mode = mode_str ? OptName {Name {mode_str}} : OptName {};
-    return Planning {
-        .options =
-            {
-                .use_kirchhoff = false,
-                .use_single_bus = false,
-            },
-        .simulation =
-            {
-                .block_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .duration = 1,
-                        },
-                    },
-                .stage_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .first_block = 0,
-                            .count_block = 1,
-                        },
-                    },
-                .scenario_array =
-                    {
-                        {
-                            .uid = Uid {0},
-                        },
-                    },
-            },
-        .system =
-            {
-                .name = "LossCompare",
-                .bus_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .name = "b1",
-                        },
-                        {
-                            .uid = Uid {2},
-                            .name = "b2",
-                        },
-                    },
-                .demand_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .name = "d1",
-                            .bus = Uid {2},
-                            .lmax = 100.0,
-                            .capacity = 100.0,
-                        },
-                    },
-                .generator_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .name = "g1",
-                            .bus = Uid {1},
-                            .gcost = 10.0,
-                            .capacity = 500.0,
-                        },
-                    },
-                .line_array =
-                    {
-                        {
-                            .uid = Uid {1},
-                            .name = "l1",
-                            .bus_a = Uid {1},
-                            .bus_b = Uid {2},
-                            .lossfactor = 0.10,
-                            .loss_allocation_mode = mode,
-                            .tmax_ba = 500.0,
-                            .tmax_ab = 500.0,
-                        },
-                    },
-            },
-    };
-  };
-
-  PlanningLP plp_recv(make_planning(nullptr));
-  auto r1 = plp_recv.resolve();
-  REQUIRE(r1.has_value());
-  const auto obj_recv =
-      plp_recv.systems().front().front().linear_interface().get_obj_value();
-
-  PlanningLP plp_send(make_planning("sender"));
-  auto r2 = plp_send.resolve();
-  REQUIRE(r2.has_value());
-  const auto obj_send =
-      plp_send.systems().front().front().linear_interface().get_obj_value();
-
-  PlanningLP plp_split(make_planning("split"));
-  auto r3 = plp_split.resolve();
-  REQUIRE(r3.has_value());
-  const auto obj_split =
-      plp_split.systems().front().front().linear_interface().get_obj_value();
-
-  // All three should be positive and in the same ballpark
-  CHECK(obj_recv > 0);
-  CHECK(obj_send > 0);
-  CHECK(obj_split > 0);
-
-  // Sender mode has slightly less total generation (loss applied to lower
-  // flow), receiver mode has slightly more.  Split is in between.
-  // All within ~2% of each other for 10% lossfactor.
-  const auto mid = (obj_recv + obj_send) / 2;
-  CHECK(obj_recv == doctest::Approx(mid).epsilon(0.02));
-  CHECK(obj_send == doctest::Approx(mid).epsilon(0.02));
-  CHECK(obj_split == doctest::Approx(mid).epsilon(0.02));
+  // For a serial path l12 → l23, both carry the same flow x.
+  // sum_flow = 2x ≤ 80 ⇒ x ≤ 40.  Demand = 100, so 40 MW from g1
+  // via path, 60 MW from g3 locally.
+  // Cost = 40 · $10 + 60 · $30 = $400 + $1800 = $2200.  Raw = 2.2.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj == doctest::Approx(2.2).epsilon(1e-6));
 }

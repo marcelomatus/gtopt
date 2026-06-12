@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>
@@ -54,12 +55,10 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   for (int b = 0; b < n_bus; ++b) {
     for (int g = 0; g < n_gen_per_bus; ++g) {
-      const double cost = 10.0 + 3.0 * b + 7.0 * g;
-      const double cap = 100.0 + 20.0 * g;
+      const double cost = 10.0 + (3.0 * b) + (7.0 * g);
+      const double cap = 100.0 + (20.0 * g);
       for (int blk = 0; blk < n_blocks; ++blk) {
-        auto name = std::format("gen_b{}_g{}_t{}", b, g, blk);
         auto ci = lp.add_col({
-            .name = std::move(name),
             .lowb = 0.0,
             .uppb = cap,
             .cost = cost,
@@ -86,11 +85,9 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   for (int i = 0; i < n_bus; ++i) {
     const int j = (i + 1) % n_bus;
-    const double line_cap = 200.0 + 50.0 * (i % 3);
+    const double line_cap = 200.0 + (50.0 * (i % 3));
     for (int blk = 0; blk < n_blocks; ++blk) {
-      auto name = std::format("flow_{}_{}_{}", i, j, blk);
       auto ci = lp.add_col({
-          .name = std::move(name),
           .lowb = -line_cap,
           .uppb = line_cap,
           .cost = 0.5,
@@ -115,9 +112,7 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   for (int b = 0; b < n_bus; ++b) {
     for (int blk = 0; blk < n_blocks; ++blk) {
-      auto name = std::format("dfail_b{}_t{}", b, blk);
       auto ci = lp.add_col({
-          .name = std::move(name),
           .lowb = 0.0,
           .uppb = 1e6,
           .cost = 1000.0,
@@ -132,7 +127,6 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   // ── Alpha (future cost variable, typical in SDDP) ──
   auto alpha_col = lp.add_col({
-      .name = "alpha",
       .lowb = 0.0,
       .uppb = 1e12,
       .cost = 1.0,
@@ -141,10 +135,8 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
   // ── Demand balance: sum(gen) - flow_out + flow_in + dfail >= demand ──
   for (int b = 0; b < n_bus; ++b) {
     for (int blk = 0; blk < n_blocks; ++blk) {
-      const double demand = 150.0 + 30.0 * b + 10.0 * blk;
-      auto rname = std::format("demand_b{}_t{}", b, blk);
+      const double demand = 150.0 + (30.0 * b) + (10.0 * blk);
       auto ri = lp.add_row({
-          .name = std::move(rname),
           .lowb = demand,
           .uppb = SparseRow::DblMax,
       });
@@ -180,11 +172,9 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
   // ── Ramping constraints between consecutive blocks ──
   for (int b = 0; b < n_bus; ++b) {
     for (int g = 0; g < n_gen_per_bus; ++g) {
-      const double ramp = 50.0 + 10.0 * g;
+      const double ramp = 50.0 + (10.0 * g);
       for (int blk = 1; blk < n_blocks; ++blk) {
-        auto rname = std::format("ramp_b{}_g{}_t{}", b, g, blk);
         auto ri = lp.add_row({
-            .name = std::move(rname),
             .lowb = -ramp,
             .uppb = ramp,
         });
@@ -206,10 +196,8 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
 
   // ── A few Benders optimality cuts on alpha ──
   for (int k = 0; k < 10; ++k) {
-    auto rname = std::format("cut_{}", k);
-    const double rhs = 5000.0 + 500.0 * k;
+    const double rhs = 5000.0 + (500.0 * k);
     auto ri = lp.add_row({
-        .name = std::move(rname),
         .lowb = rhs,
         .uppb = SparseRow::DblMax,
     });
@@ -217,7 +205,7 @@ auto build_dispatch_lp(int n_bus = 20, int n_gen_per_bus = 5, int n_blocks = 4)
     // alpha >= rhs - sum_i(pi_i * gen_i_0)  →  alpha + pi*gen >= rhs
     lp.set_coeff(ri, alpha_col, 1.0);
     for (int b = 0; b < n_bus; ++b) {
-      const double pi = 0.5 + 0.1 * ((b + k) % 5);
+      const double pi = 0.5 + (0.1 * ((b + k) % 5));
       for (const auto& gc : gen_cols) {
         if (gc.bus == b && gc.block == 0 && gc.gen == 0) {
           lp.set_coeff(ri, gc.col, pi);
@@ -267,7 +255,7 @@ auto run_benchmark(const std::string& solver_name,
       .algorithm = std::string(enum_name(algo)),
       .threads = threads,
       .solve_time_ms = ms,
-      .obj_value = li.is_optimal() ? li.get_obj_value() : 0.0,
+      .obj_value = li.is_optimal() ? li.get_obj_value_raw() : 0.0,
       .optimal = li.is_optimal(),
   };
 }
@@ -298,7 +286,8 @@ void print_benchmark_table(const std::vector<BenchmarkResult>& results)
 void run_solver_benchmark(const FlatLinearProblem& flat_lp,
                           const std::string& label)
 {
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto available = reg.available_solvers();
 
   if (available.empty()) {
@@ -351,7 +340,8 @@ void run_solver_benchmark(const FlatLinearProblem& flat_lp,
 
 // ─── Small LP benchmark ────────────────────────────────────────────────────
 
-TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
+TEST_CASE("Solver benchmark: small dispatch LP"  // NOLINT
+          * doctest::skip(std::getenv("GTOPT_RUN_BENCHMARKS") == nullptr))
 {
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/20,
                                          /*n_gen_per_bus=*/5,
@@ -361,7 +351,8 @@ TEST_CASE("Solver benchmark: small dispatch LP")  // NOLINT
 
 // ─── Large LP benchmark ────────────────────────────────────────────────────
 
-TEST_CASE("Solver benchmark: large dispatch LP")  // NOLINT
+TEST_CASE("Solver benchmark: large dispatch LP"  // NOLINT
+          * doctest::skip(std::getenv("GTOPT_RUN_BENCHMARKS") == nullptr))
 {
   const auto flat_lp = build_dispatch_lp(/*n_bus=*/200,
                                          /*n_gen_per_bus=*/20,

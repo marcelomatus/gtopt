@@ -1,0 +1,17 @@
+# ========================================================================
+# terminal_value user constraints (1) — emitted by plexos2gtopt
+#   hard:     1   soft:     0
+# Origin: PLEXOS Constraint objects (DBSEN_PRGDIARIO.xml)
+# Soft rows declare a named slack column via the AMPL-style
+# ``var slack_<ident>;`` syntax — the PAMPL parser binds each
+# declaration to the matching ``constraint <ident>`` by naming
+# convention (gtopt-side: ``UserConstraint::slack_name``), so
+# CPLEX logs and LP dumps reference the per-UC slack label
+# instead of the generic ``slack``.  The output parquet schema
+# is unchanged — per-row violations live in
+# ``UserConstraint/slack_sol.parquet`` keyed by uid.
+# ========================================================================
+
+# PLEXOS Constraint 'FCF_future_cost' → gtopt UserConstraint; rhs [per-LHS-variable (see each constraint description)]; (File: DBSEN_PRGDIARIO.xml + Hydro_AntucoBounds.csv)
+constraint FCF_future_cost:
+  1000 * decision_variable("alpha_fcf").value + 8565.779894 * reservoir("L_Maule").efin + 7877.121782 * reservoir("CIPRESES").efin + 4550.852678 * reservoir("PEHUENCHE").efin + 2275.273930 * reservoir("COLBUN").efin + 6251.510534 * reservoir("ELTORO").efin + 813.949093 * reservoir("RAPEL").efin + 2117.928730 * reservoir("CANUTILLAR").efin + 3052.495411 * reservoir("RALCO").efin + 1514.588544 * reservoir("PANGUE").efin >= 189222165.586071, for(block in {168});

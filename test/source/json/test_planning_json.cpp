@@ -2,36 +2,51 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("Planning daw json test 1 - basic parsing")
 {
-  const std::string_view json_data = R"({
-    "options": {
-      "input_directory": "data",
-      "use_kirchhoff": true
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 2}],
-      "stage_array": [],
-      "scenario_array": []
-    },
-    "system": {
-      "name": "TEST",
-      "bus_array": [{"uid": 5, "name": "BUS1"}],
-      "generator_array": []
+  const std::string_view json_data = R"(
+    {
+      "options": {
+        "input_directory": "data",
+        "model_options": {
+          "use_kirchhoff": true
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 2
+          }
+        ],
+        "stage_array": [],
+        "scenario_array": []
+      },
+      "system": {
+        "name": "TEST",
+        "bus_array": [
+          {
+            "uid": 5,
+            "name": "BUS1"
+          }
+        ],
+        "generator_array": []
+      }
     }
-  })";
+  )";
 
   gtopt::Planning plan = daw::json::from_json<gtopt::Planning>(json_data);
 
   if (plan.options.input_directory) {
     CHECK(plan.options.input_directory.value() == "data");
   }
-  if (plan.options.use_kirchhoff) {
-    CHECK(plan.options.use_kirchhoff.value() == true);
+  if (plan.options.model_options.use_kirchhoff) {
+    CHECK(plan.options.model_options.use_kirchhoff.value() == true);
   }
 
   REQUIRE(plan.simulation.block_array.size() == 1);
@@ -109,74 +124,118 @@ TEST_CASE("Planning daw json test 2 - large scale")
   }
 }
 
-static constexpr std::string_view planning_json = R"({
-  "options": {
-    "annual_discount_rate": 0.1,
-    "lp_matrix_options": {"names_level": 1},
-    "output_compression": "uncompressed",
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000
-  },
-  "simulation": {
-    "block_array": [
-      {"uid": 1, "duration": 1},
-      {"uid": 2, "duration": 2}
-    ],
-    "stage_array": [
-      {"uid": 1, "first_block": 0, "count_block": 1},
-      {"uid": 2, "first_block": 1, "count_block": 1}
-    ],
-    "scenario_array": [
-      {"uid": 1, "probability_factor": 1}
-    ]
-  },
-  "system": {
-    "name": "json_test_system",
-    "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 50, "capacity": 200}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 2, "capacity": 80}
-    ],
-    "line_array": [
-      {
-        "uid": 1, "name": "l1",
-        "bus_a": 1, "bus_b": 2,
-        "reactance": 0.1,
-        "tmax_ba": 200, "tmax_ab": 200,
-        "capacity": 200
+static constexpr std::string_view planning_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.1,
+      "output_compression": "uncompressed",
+      "model_options": {
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
       }
-    ],
-    "battery_array": [
-      {
-        "uid": 1, "name": "bat1",
-        "bus": 1,
-        "input_efficiency": 0.9,
-        "output_efficiency": 0.9,
-        "emin": 0, "emax": 50,
-        "pmax_charge": 100,
-        "pmax_discharge": 100,
-        "gcost": 0,
-        "capacity": 50
-      }
-    ]
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        },
+        {
+          "uid": 2,
+          "duration": 2
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        },
+        {
+          "uid": 2,
+          "first_block": 1,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "json_test_system",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 50,
+          "capacity": 200
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 2,
+          "capacity": 80
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1",
+          "bus_a": 1,
+          "bus_b": 2,
+          "reactance": 0.1,
+          "tmax_ba": 200,
+          "tmax_ab": 200,
+          "capacity": 200
+        }
+      ],
+      "battery_array": [
+        {
+          "uid": 1,
+          "name": "bat1",
+          "bus": 1,
+          "input_efficiency": 0.9,
+          "output_efficiency": 0.9,
+          "emin": 0,
+          "emax": 50,
+          "pmax_charge": 100,
+          "pmax_discharge": 100,
+          "discharge_cost": 0,
+          "capacity": 50
+        }
+      ]
+    }
   }
-})";
+)";
 
 TEST_CASE("Planning JSON round-trip serialization")
 {
-  auto planning = daw::json::from_json<Planning>(planning_json);
+  auto planning =
+      daw::json::from_json<Planning>(planning_json, StrictParsePolicy);
 
   // Serialize back to JSON
   auto json_output = daw::json::to_json(planning);
   CHECK(!json_output.empty());
 
   // Parse the output back
-  auto planning2 = daw::json::from_json<Planning>(json_output);
+  auto planning2 =
+      daw::json::from_json<Planning>(json_output, StrictParsePolicy);
   CHECK(planning2.system.name == planning.system.name);
   CHECK(planning2.system.bus_array.size() == planning.system.bus_array.size());
   CHECK(planning2.system.generator_array.size()

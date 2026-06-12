@@ -21,7 +21,7 @@
 
 #include <cmath>  // for std::abs
 #include <limits>
-#include <string>
+#include <ranges>
 #include <utility>  // for std::pair
 #include <vector>
 
@@ -52,11 +52,26 @@ struct SparseRow
   using cmap_t = flat_map<ColIndex, double>;  ///< Type for coefficient storage
   using size_type = cmap_t::size_type;
 
-  std::string name;  ///< Row/constraint name
   double lowb {0};  ///< Physical lower bound (default: 0)
   double uppb {0};  ///< Physical upper bound (default: 0)
   cmap_t cmap {};  ///< Sparse coefficient map (physical values)
   double scale {1.0};  ///< Row scale: LP = physical / scale (default: 1.0)
+  /// Optional pivot column for cut-row equilibration.  When set
+  /// (`!= unknown_index`), `LinearInterface::add_row` will normalize
+  /// step-3 row equilibration by `elements[pivot_col]` instead of by
+  /// max-abs.  Used for SDDP optimality / feasibility cuts to keep the
+  /// α coefficient at 1.0 in LP-space — row-max would otherwise pick a
+  /// state-link coefficient (often O(10⁵-10⁸) once col_scale is
+  /// folded), driving α to O(10⁻⁹) and producing a basis-amplification
+  /// factor ≈ 10⁹ on every binding cut.  See `build_benders_cut_*`
+  /// callers.  Default `unknown_index` preserves legacy row-max
+  /// behavior.
+  ColIndex pivot_col {unknown_index};
+  std::string_view class_name {};  ///< Class name (e.g. "Bus", "Reservoir")
+  std::string_view
+      constraint_name {};  ///< Constraint type (e.g. "bal", "cap", "kvl")
+  Uid variable_uid {unknown_uid};  ///< Element UID
+  LpContext context {};  ///< LP hierarchy context (scenario, stage, block, ...)
 
   /**
    * Sets both lower and upper bounds for the constraint
@@ -205,6 +220,56 @@ struct SparseRow
   }
 };
 
+/// Lightweight label metadata for a constraint row.  See
+/// `SparseColLabel` for rationale — this is the row equivalent,
+/// with the coefficient map stripped out.
+struct SparseRowLabel
+{
+  std::string_view class_name {};
+  std::string_view constraint_name {};
+  Uid variable_uid {unknown_uid};
+  LpContext context {};
+
+  friend constexpr bool operator==(const SparseRowLabel&,
+                                   const SparseRowLabel&) = default;
+};
+
+/// Hash functor for `SparseRowLabel`.  Mirrors `SparseColLabelHash` — see
+/// that struct for rationale.
+struct SparseRowLabelHash
+{
+  [[nodiscard]] size_t operator()(const SparseRowLabel& l) const
+  {
+    size_t h = std::hash<std::string_view> {}(l.class_name);
+    h = detail::hash_combine(h,
+                             std::hash<std::string_view> {}(l.constraint_name));
+    h = detail::hash_combine(h, std::hash<Uid> {}(l.variable_uid));
+    h = detail::hash_combine(
+        h,
+        std::visit(
+            []<typename T>(const T& t) noexcept -> size_t
+            {
+              if constexpr (std::is_same_v<T, std::monostate>) {
+                return 0;
+              } else {
+                return TupleHash {}(t);
+              }
+            },
+            l.context));
+    return h;
+  }
+};
+
 using RowIndex = StrongIndexType<SparseRow>;  ///< Type alias for row index
+
+/**
+ * @brief Build a `RowIndex` from the size of any sized range.  Mirror
+ *        of `col_index_size()` — see that helper for rationale.
+ */
+template<std::ranges::sized_range R>
+[[nodiscard]] constexpr auto row_index_size(const R& r) noexcept -> RowIndex
+{
+  return RowIndex {static_cast<Index>(std::ranges::size(r))};
+}
 
 }  // namespace gtopt

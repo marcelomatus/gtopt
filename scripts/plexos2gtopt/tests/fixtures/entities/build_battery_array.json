@@ -1,0 +1,17 @@
+[
+  {
+    "bus": "ARICA",
+    "capacity": 2.0,
+    "efin": 0.5,
+    "eini": 0.5,
+    "emax": 2.0,
+    "emin": 0.0,
+    "input_efficiency": 0.92,
+    "max_cycles_day": 1.0,
+    "name": "BAT_ARICA",
+    "output_efficiency": 0.95,
+    "pmax_charge": 50.0,
+    "pmax_discharge": 50.0,
+    "uid": 1
+  }
+]

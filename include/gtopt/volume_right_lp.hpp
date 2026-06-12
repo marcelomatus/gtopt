@@ -20,6 +20,7 @@
 
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/storage_lp.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/volume_right.hpp>
 
 namespace gtopt
@@ -27,6 +28,7 @@ namespace gtopt
 
 // Forward declaration to avoid circular includes
 class SystemLP;
+class SimulationLP;
 using VolumeRightLPId = ObjectId<class VolumeRightLP>;
 using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 
@@ -43,7 +45,13 @@ using VolumeRightLPSId = ObjectSingleId<class VolumeRightLP>;
 class VolumeRightLP : public StorageLP<ObjectLP<VolumeRight>>
 {
 public:
-  static constexpr LPClassName ClassName {"VolumeRight", "vrt"};
+  static constexpr std::string_view ExtractionName {"extraction"};
+  static constexpr std::string_view SavingName {"saving"};
+  static constexpr std::string_view FailName {"fail"};
+  // PAMPL attribute alias: extraction is also exposed as `flow`, matching
+  // waterway/flow_right so constraint expressions can spell it either way.
+  static constexpr std::string_view FlowName {"flow"};
+  static constexpr std::string_view DemandName {"demand"};
 
   using StorageBase = StorageLP<ObjectLP<VolumeRight>>;
 
@@ -115,11 +123,17 @@ private:
   STBIndexHolder<ColIndex> saving_cols_;
 
   /// Cached bound rule evaluation per (scenario, stage).
-  struct BoundState
-  {
-    Real current_bound {0.0};
-  };
+  ///
+  /// `reservoir_cache` is populated only when the bound rule's axis
+  /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`).
+  using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `VolumeRight::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"VolumeRight"`).
+static_assert(VolumeRightLP::Element::class_name == LPClassName {"VolumeRight"},
+              "VolumeRight::class_name must remain \"VolumeRight\"");
 
 }  // namespace gtopt

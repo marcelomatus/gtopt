@@ -1,5 +1,6 @@
 """Tests for gtopt2pp conversion."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -440,6 +441,75 @@ class TestConvert:
         # A fallback ext_grid must exist to avoid "no reference bus" errors
         assert len(net.ext_grid) == 1
         assert net.ext_grid.iloc[0]["bus"] == 0
+
+
+class TestDemandFieldFallback:
+    """A ``Demand`` whose magnitude lives on the ``capacity`` field
+    (not the canonical ``lmax``) must still surface as a pandapower
+    load.  Several gtopt fixtures — notably the SDDP.jl-derived
+    hydro benchmarks under ``cases/hydro_*_sddpjl`` — leave ``lmax``
+    unset and put the demand value on ``capacity``; gtopt's LP build
+    accepts that shorthand and we want ``gtopt2pp`` to mirror the
+    same leniency so cross-tool pandapower checks land on the real
+    LP, not a vacuous zero-load LP."""
+
+    _CASE_CAPACITY_DEMAND: dict = {
+        "options": {
+            "use_kirchhoff": False,
+            "use_single_bus": True,
+            "demand_fail_cost": 1000,
+            "scale_objective": 1,
+        },
+        "simulation": {
+            "block_array": [{"uid": 1, "duration": 1}],
+            "stage_array": [
+                {"uid": 1, "first_block": 0, "count_block": 1, "active": 1}
+            ],
+            "scenario_array": [{"uid": 1, "probability_factor": 1}],
+        },
+        "system": {
+            "name": "capacity_only_demand",
+            "bus_array": [{"uid": 1, "name": "b1"}],
+            "generator_array": [
+                {
+                    "uid": 1,
+                    "name": "g1",
+                    "bus": 1,
+                    "pmin": 0,
+                    "pmax": 100,
+                    "gcost": 0,
+                    "capacity": 100,
+                }
+            ],
+            "demand_array": [
+                # `lmax` intentionally omitted — magnitude on `capacity`.
+                {"uid": 1, "name": "d1", "bus": 1, "capacity": 25.0},
+            ],
+        },
+    }
+
+    def test_capacity_used_when_lmax_missing(self) -> None:
+        net = convert(self._CASE_CAPACITY_DEMAND, scenario=1, block=1)
+        assert len(net.load) == 1
+        assert net.load.iloc[0]["p_mw"] == pytest.approx(25.0)
+
+    def test_lmax_still_takes_precedence(self) -> None:
+        """When both fields are set ``lmax`` wins — preserves the
+        canonical schema's semantics."""
+        case = copy.deepcopy(self._CASE_CAPACITY_DEMAND)
+        case["system"]["demand_array"][0]["lmax"] = 50.0
+        # `capacity` still 25.0 from the template; net.load must read
+        # the lmax = 50.0 value.
+        net = convert(case, scenario=1, block=1)
+        assert net.load.iloc[0]["p_mw"] == pytest.approx(50.0)
+
+    def test_neither_field_set_yields_zero_load(self) -> None:
+        """Both ``lmax`` and ``capacity`` missing → load skipped
+        (pandapower won't see a phantom zero-MW load)."""
+        case = copy.deepcopy(self._CASE_CAPACITY_DEMAND)
+        del case["system"]["demand_array"][0]["capacity"]
+        net = convert(case, scenario=1, block=1)
+        assert len(net.load) == 0
 
 
 class TestConvertNameReferences:
@@ -899,6 +969,7 @@ class TestDCOPFSolve:
 # ── plp_case_2y end-to-end integration test ──────────────────────────────────
 
 
+@pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.skipif(not _PLP_CASE_2Y.exists(), reason="plp_case_2y case not present")
 class TestPlpCase2YGtopt2PP:
@@ -1019,8 +1090,6 @@ class TestPlpCase2YGtopt2PP:
         acceptable.  What is *not* acceptable is a crash (unexpected
         exception such as TypeError, AttributeError, etc.).
         """
-        import copy  # pylint: disable=import-outside-toplevel
-
         from pandapower.optimal_powerflow import (  # pylint: disable=import-outside-toplevel
             OPFNotConverged,
         )

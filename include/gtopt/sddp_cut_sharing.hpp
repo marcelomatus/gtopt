@@ -18,8 +18,10 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/enum_option.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
+#include <gtopt/sddp_enums.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
@@ -30,16 +32,28 @@ class PlanningLP;
 
 /// Share optimality cuts across scenes for a single phase.
 ///
-/// @param phase        Phase index where cuts will be added
-/// @param scene_cuts   Per-scene optimality cuts for this phase
-/// @param mode         Cut sharing mode (none/accumulate/expected/max)
-/// @param planning     PlanningLP reference (for LP access)
-/// @param label_prefix Label prefix for generated cuts (empty = no labels)
+/// @param phase_index      Phase index where cuts will be added
+/// @param scene_cuts       Per-scene optimality cuts for this phase
+/// @param mode             Cut sharing mode (none/accumulate/expected/max)
+/// @param planning         PlanningLP reference (for LP access)
+/// @param iteration_index  Current SDDP iteration; combined with the
+///                         per-scene UID and ``phase_index`` to build a
+///                         unique LP-row label context for every cut
+///                         landing in each destination scene's LP
+///                         (avoids the
+///                         "metadata without a class_name" labeller
+///                         throw and the duplicate-label collision when
+///                         the same accumulated cut is replicated to
+///                         multiple scenes).  Defaults to
+///                         ``IterationIndex{0}`` for callers that
+///                         legitimately treat a single share-call as
+///                         iteration 0 (e.g. unit tests that exercise
+///                         a single iteration).
 void share_cuts_for_phase(
-    PhaseIndex phase,
+    PhaseIndex phase_index,
     const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
     CutSharingMode mode,
     PlanningLP& planning,
-    std::string_view label_prefix = {});
+    IterationIndex iteration_index = IterationIndex {0});
 
 }  // namespace gtopt

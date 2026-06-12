@@ -186,3 +186,97 @@ class TestMainDispatch:
             with patch.object(sys, "argv", ["pp2gtopt", "-o", str(out), "--no-check"]):
                 main()
         assert out.exists()
+
+
+class TestMainReturnsInt:
+    """``main()`` must return an int exit code (project CLI convention)."""
+
+    def test_main_returns_zero_on_success(self, tmp_path):
+        out = tmp_path / "ok.json"
+        with patch.object(sys, "argv", ["pp2gtopt", "-o", str(out), "--no-check"]):
+            rc = main()
+        assert rc == 0
+
+    def test_main_returns_two_when_input_file_missing(self, tmp_path, caplog):
+        """Missing ``-f`` input → exit 2 + clear error message."""
+        out = tmp_path / "out.json"
+        missing = tmp_path / "does_not_exist.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["pp2gtopt", "-f", str(missing), "-o", str(out), "--no-check"],
+        ):
+            with caplog.at_level(logging.ERROR):
+                rc = main()
+        assert rc == 2
+        assert "input file not found" in caplog.text
+
+
+class TestCanonicalFlagsThreadToJson:
+    """The 4 canonical flags added in S1 must actually thread through to JSON."""
+
+    def test_scale_objective_overrides_default_in_json(self, tmp_path):
+        out = tmp_path / "scaled.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "pp2gtopt",
+                "-o",
+                str(out),
+                "--no-check",
+                "--scale-objective",
+                "500",
+            ],
+        ):
+            main()
+        import json  # pylint: disable=import-outside-toplevel
+
+        data = json.loads(out.read_text())
+        assert data["options"]["scale_objective"] == 500.0
+
+    def test_no_use_kirchhoff_flips_option_in_json(self, tmp_path):
+        out = tmp_path / "nokvl.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["pp2gtopt", "-o", str(out), "--no-check", "--no-use-kirchhoff"],
+        ):
+            main()
+        import json  # pylint: disable=import-outside-toplevel
+
+        data = json.loads(out.read_text())
+        assert data["options"]["use_kirchhoff"] is False
+
+    def test_demand_fail_cost_overrides_default(self, tmp_path):
+        out = tmp_path / "dfc.json"
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "pp2gtopt",
+                "-o",
+                str(out),
+                "--no-check",
+                "--demand-fail-cost",
+                "4000",
+            ],
+        ):
+            main()
+        import json  # pylint: disable=import-outside-toplevel
+
+        data = json.loads(out.read_text())
+        assert data["options"]["demand_fail_cost"] == 4000.0
+
+    def test_use_single_bus_flips_to_true(self, tmp_path):
+        out = tmp_path / "sb.json"
+        with patch.object(
+            sys,
+            "argv",
+            ["pp2gtopt", "-o", str(out), "--no-check", "--use-single-bus"],
+        ):
+            main()
+        import json  # pylint: disable=import-outside-toplevel
+
+        data = json.loads(out.read_text())
+        assert data["options"]["use_single_bus"] is True

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import functools
 import json
 import logging
 import pathlib
@@ -16,6 +15,8 @@ from itertools import zip_longest
 import numpy as np
 import pandas as pd
 
+from gtopt_shared.csv_io import write_csv
+
 from igtopt.template_builder import (
     _find_repo_root,
     _build_workbook,
@@ -27,46 +28,21 @@ from igtopt.template_builder import (
     SIMULATION_OPTION_KEYS,
 )
 
+from gtopt_config import get_version
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 
-@functools.lru_cache(maxsize=8)
-def _probe_parquet_codec(requested: str) -> str:
-    """Return the best available PyArrow Parquet codec for *requested*.
-
-    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
-    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
-    unavailable, printing a warning to *stderr*.  Results are cached via
-    ``lru_cache`` so the probe runs **at most once per unique codec name**.
-    """
-    if not requested or requested in ("none", "uncompressed"):
-        return requested
-    try:
-        import pyarrow as pa  # noqa: PLC0415
-
-        pa.Codec(requested)
-        return requested
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        print(
-            f"Warning: Parquet codec '{requested}' is not available in this "
-            "Arrow build; falling back to gzip",
-            file=sys.stderr,
-        )
-        return "gzip"
-
-
-# Best available Parquet codec — probed once at module import time.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
+# Re-export the shared parquet codec helpers from gtopt_shared.parquet.
+# Existing internal references to ``_probe_parquet_codec`` /
+# ``_DEFAULT_COMPRESSION`` continue to work; the canonical bodies live
+# in ``gtopt_shared/parquet.py``.
+from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-import-position
+    DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
+    probe_parquet_codec as _probe_parquet_codec,
+)
 
 # Sheets that belong to the ``simulation`` section of the gtopt JSON schema.
 # These must match the fields declared in ``json_simulation.hpp``.
@@ -93,6 +69,7 @@ _SYSTEM_SHEETS = frozenset(
         "demand_profile_array",
         "battery_array",
         "converter_array",
+        "lng_terminal_array",
         "reserve_zone_array",
         "reserve_provision_array",
         "junction_array",
@@ -317,7 +294,7 @@ def _write_boundary_cuts_csv(df, input_path):
     out_dir = pathlib.Path(input_path)
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "boundary_cuts.csv"
-    df.to_csv(csv_path, index=False)
+    write_csv(df, csv_path)
     return csv_path
 
 
@@ -340,7 +317,7 @@ def df_to_file(
     df = df.astype(types)
 
     if input_format == "csv":
-        df.to_csv(input_file, index=False)
+        write_csv(df, input_file)
     else:
         probed = _probe_parquet_codec(compression) if compression else ""
         pq_kw: dict = {"index": False}
@@ -358,10 +335,10 @@ def df_to_opts(df, options):
         opts = dict(zip(df.option, df.value))
         for key, value in options.items():
             opts[key] = value
-        # use_lp_names changed from bool to int (0–2 naming level).
-        # Convert legacy boolean values for backward compatibility.
-        if "use_lp_names" in opts and isinstance(opts["use_lp_names"], bool):
-            opts["use_lp_names"] = 1 if opts["use_lp_names"] else 0
+        # use_lp_names was removed from the C++ PlanningOptions struct
+        # (replaced by lp_matrix_options.col_with_names / row_with_names).
+        # Strip it so the JSON parser does not reject the unknown field.
+        opts.pop("use_lp_names", None)
         return opts
 
     logging.error(
@@ -482,6 +459,7 @@ def log_conversion_stats(
             ("Lines", counts.get("line_array", 0)),
             ("Batteries", counts.get("battery_array", 0)),
             ("Converters", counts.get("converter_array", 0)),
+            ("LNG terminals", counts.get("lng_terminal_array", 0)),
             ("Junctions", counts.get("junction_array", 0)),
             ("Waterways", counts.get("waterway_array", 0)),
             ("Reservoirs", counts.get("reservoir_array", 0)),

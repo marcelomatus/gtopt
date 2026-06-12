@@ -15,14 +15,22 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-/// Helper: build a PlanningOptionsLP with Kirchhoff enabled
+/// Helper: build a PlanningOptionsLP with Kirchhoff enabled.
+///
+/// Pins `kirchhoff_mode = node_angle` because island detection only runs
+/// under the B–θ formulation — `cycle_basis` (the post-2026-05-14 default)
+/// has no θ vars and short-circuits `detect_islands_and_fix_references`.
 auto make_kirchhoff_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = true,
-      .use_single_bus = false,
-      .kirchhoff_threshold = 0.0,
+      .model_options =
+          {
+              .use_single_bus = false,
+              .use_kirchhoff = true,
+              .kirchhoff_threshold = 0.0,
+          },
   };
+  opts.model_options.kirchhoff_mode = OptName {"node_angle"};
   return PlanningOptionsLP {std::move(opts)};
 }
 
@@ -30,8 +38,11 @@ auto make_kirchhoff_options() -> PlanningOptionsLP
 auto make_single_bus_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = true,
-      .use_single_bus = true,
+      .model_options =
+          {
+              .use_single_bus = true,
+              .use_kirchhoff = true,
+          },
   };
   return PlanningOptionsLP {std::move(opts)};
 }
@@ -40,8 +51,11 @@ auto make_single_bus_options() -> PlanningOptionsLP
 auto make_no_kirchhoff_options() -> PlanningOptionsLP
 {
   PlanningOptions opts {
-      .use_kirchhoff = false,
-      .use_single_bus = false,
+      .model_options =
+          {
+              .use_single_bus = false,
+              .use_kirchhoff = false,
+          },
   };
   return PlanningOptionsLP {std::move(opts)};
 }
@@ -627,9 +641,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   Planning planning = {
       .options = std::move(opts),
@@ -727,8 +741,8 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
 
   Planning planning = {
       .options = std::move(opts),
@@ -753,6 +767,7 @@ TEST_CASE(
     "Runtime island fix - multi-stage with island at one stage")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // 4 buses: b1-l1-b2-l2-b3-l3-b4
   // l2 inactive at stage 2 only, splitting into {b1,b2} and {b3,b4}
@@ -883,9 +898,9 @@ TEST_CASE(
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = true;
-  opts.use_single_bus = false;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.use_kirchhoff = true;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.demand_fail_cost = 1000.0;
 
   Planning planning = {
       .options = std::move(opts),
@@ -905,3 +920,5 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
+
+// NOLINTEND(misc-const-correctness)

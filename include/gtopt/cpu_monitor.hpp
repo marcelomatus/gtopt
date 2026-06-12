@@ -27,6 +27,8 @@
 #include <mutex>
 #include <thread>
 
+#include <gtopt/hardware_info.hpp>
+
 namespace gtopt
 {
 
@@ -44,19 +46,58 @@ public:
   void start();
   void stop() noexcept;
 
+  /**
+   * @brief Signal the monitor thread to wind down without joining.
+   *
+   * Phase-1 helper used by `BasicWorkPool::shutdown()`: setting
+   * `running_=false` + flipping the jthread's stop_token + notifying
+   * `stop_cv_` lets the monitor thread observe the stop request
+   * immediately, so that by the time `stop()` is later called its
+   * subsequent `join()` is near-instant rather than blocking up to
+   * `monitor_interval_`.  Idempotent — safe to call multiple times.
+   */
+  void request_stop() noexcept
+  {
+    running_.store(false, std::memory_order_relaxed);
+    if (monitor_thread_.joinable()) {
+      monitor_thread_.request_stop();
+    }
+  }
+  void notify_stop() noexcept
+  {
+    const std::scoped_lock<std::mutex> lock(stop_mutex_);
+    stop_cv_.notify_all();
+  }
+
   void set_interval(std::chrono::milliseconds interval) noexcept
   {
     monitor_interval_ = interval;
   }
 
   /**
-   * @brief Gets current CPU load percentage
+   * @brief Gets current CPU load percentage (all logical cores)
    * @return Value between 0.0 and 100.0, or negative if invalid
    * @note Provides noexcept guarantee
    */
   [[nodiscard]] constexpr double get_load() const noexcept
   {
     return current_load_.load(std::memory_order_relaxed);
+  }
+
+  /**
+   * @brief Gets CPU load scaled to physical cores
+   *
+   * On HT machines, aggregate CPU load under-reports physical core
+   * saturation.  This method scales the raw load by the SMT ratio
+   * (capped at 100%) so scheduling decisions reflect physical core
+   * pressure.  E.g. 50% raw on a 2x-HT machine → 100% physical.
+   *
+   * @return Value between 0.0 and 100.0
+   */
+  [[nodiscard]] constexpr double get_physical_load() const noexcept
+  {
+    const auto raw = current_load_.load(std::memory_order_relaxed);
+    return std::min(100.0, raw * static_cast<double>(smt_ratio()));
   }
 
   [[nodiscard]] constexpr auto get_interval() const noexcept

@@ -14,7 +14,12 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <gtopt/enum_option.hpp>
 
@@ -40,9 +45,80 @@ inline constexpr auto method_type_entries =
         {.name = "cascade", .value = MethodType::cascade},
     });
 
-constexpr auto enum_entries(MethodType /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(MethodType /*tag*/) noexcept
 {
   return std::span {method_type_entries};
+}
+
+// --- BuildMode --------------------------------------------------------------
+
+/**
+ * @brief How `PlanningLP::create_systems` assembles per-cell SystemLPs.
+ *
+ * Three granularities of LP build, trading pool overhead against concurrency:
+ *
+ * - `serial`:          build every cell in the calling thread with no
+ *                        pool, no build buffer, no futures.  Honest serial
+ *                        baseline; also useful when you want deterministic
+ *                        ordering for debugging.  `--cpu-factor` is
+ *                        ignored.  CLI string: `"serial"`.
+ *
+ * - `scene_parallel` (default): submit one task per scene; each task builds
+ *                        all of that scene's phases sequentially into its
+ *                        own `phase_systems_t`, resolves cross-phase links,
+ *                        and writes the result into its slot of
+ *                        `all_systems` on completion.  Pre-00c605d7 default
+ *                        and current default — coarser granularity, lower
+ *                        pool-submit and malloc-arena contention, better
+ *                        per-worker cache locality.
+ *                        CLI string: `"scene-parallel"`.
+ *
+ * - `full_parallel`:  dispatch every (scene × phase) cell through an
+ *                        `AdaptiveWorkPool` so every cell builds
+ *                        concurrently (post-00c605d7 mode).  Maximum
+ *                        concurrency but pays a per-cell build-buffer +
+ *                        move-merge overhead; opt in with
+ *                        `--build-mode full-parallel` when the case is
+ *                        fine-grained enough to amortise that cost.
+ *                        CLI string: `"full-parallel"`.
+ *
+ * `--cpu-factor` sizes the work pool for both parallel modes and is
+ * ignored under `serial`.  Alternate names using underscores
+ * (`"full_parallel"`, `"scene_parallel"`) are accepted as aliases.
+ */
+enum class BuildMode : uint8_t
+{
+  serial = 0,  ///< No pool; build all cells in the calling thread
+  scene_parallel = 1,  ///< Parallel by scene; phases sequential (default)
+  full_parallel = 2,  ///< Parallel by (scene × phase) cell via WorkPool
+  direct_parallel = 3,  ///< Parallel by (scene × phase) cell via jthreads
+};
+
+inline constexpr auto build_mode_entries = std::to_array<EnumEntry<BuildMode>>({
+    {.name = "serial", .value = BuildMode::serial},
+    {.name = "scene-parallel", .value = BuildMode::scene_parallel},
+    {
+        .name = "scene_parallel",
+        .value = BuildMode::scene_parallel,
+        .is_alias = true,
+    },
+    {.name = "full-parallel", .value = BuildMode::full_parallel},
+    {
+        .name = "full_parallel",
+        .value = BuildMode::full_parallel,
+        .is_alias = true,
+    },
+    {.name = "direct-parallel", .value = BuildMode::direct_parallel},
+    {
+        .name = "direct_parallel",
+        .value = BuildMode::direct_parallel,
+        .is_alias = true,
+    },
+});
+
+[[nodiscard]] constexpr auto enum_entries(BuildMode /*tag*/) noexcept
+{
+  return std::span {build_mode_entries};
 }
 
 // --- DataFormat -------------------------------------------------------------
@@ -62,32 +138,85 @@ inline constexpr auto data_format_entries =
         {.name = "csv", .value = DataFormat::csv},
     });
 
-constexpr auto enum_entries(DataFormat /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(DataFormat /*tag*/) noexcept
 {
   return std::span {data_format_entries};
+}
+
+// --- OutputLayout ----------------------------------------------------------
+
+/**
+ * @brief On-disk layout for the per-(scene, phase) solution tables.
+ *
+ * `wide` (legacy) — one column per UID:
+ *   schema: (scenario, stage, block, uid:1, uid:2, …, uid:N)
+ *   one row per (stage, block).  Pays ~150 bytes of per-column
+ *   metadata for *every* uid in *every* partition file — on the
+ *   support/plp/2_years 1335-generator case that's ~110 KB of pure
+ *   parquet footer per file, ~46% of the on-disk footprint, and
+ *   the metadata cost grows linearly with the model size.
+ *
+ * `long` (default since 2026-05-19) — one row per non-zero cell:
+ *   schema: (scenario, stage, block, uid, value)
+ *   only 6 columns regardless of how many UIDs the model has.
+ *   Non-zero filtering exploits the typical 0.1 % cell density
+ *   directly — POC on plp_2_years measured 5-7× smaller files on
+ *   the heavy Generator streams and 2-3× on the LMP / line-flow
+ *   streams (1.0 GB → ~330 MB total).  Reading the long shape is
+ *   a single `Σ value GROUP BY uid` instead of iterating
+ *   `uid:*` columns; the streaming aggregators in
+ *   `scripts/gtopt_check_output/_reader.py` handle both forms
+ *   transparently.
+ */
+enum class OutputLayout : uint8_t
+{
+  wide = 0,  ///< One column per UID (legacy)
+  long_ = 1,  ///< Long form — non-zero-only (default, smaller disk)
+};
+
+inline constexpr auto output_layout_entries =
+    std::to_array<EnumEntry<OutputLayout>>({
+        {.name = "wide", .value = OutputLayout::wide},
+        {.name = "long", .value = OutputLayout::long_},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(OutputLayout /*tag*/) noexcept
+{
+  return std::span {output_layout_entries};
 }
 
 // --- CompressionCodec -------------------------------------------------------
 
 /**
- * @brief Compression codec for output files (Parquet / CSV).
+ * @brief Compression codec for file I/O and in-memory compression.
+ *
+ * Used for both output files (Parquet/CSV) and in-memory LP snapshots
+ * (low_memory compress mode).  For in-memory use, `auto_select` picks
+ * the fastest available codec at runtime (lz4 > snappy > zstd > gzip).
  */
 enum class CompressionCodec : uint8_t
 {
   uncompressed = 0,  ///< No compression
   gzip = 1,  ///< gzip compression
-  zstd = 2,  ///< Zstandard compression (default)
-  lz4 = 3,  ///< LZ4 compression
-  bzip2 = 4,  ///< bzip2 compression
-  xz = 5,  ///< xz/LZMA compression
-  snappy = 6,  ///< Snappy compression (Arrow/Parquet)
-  brotli = 7,  ///< Brotli compression (Arrow/Parquet)
-  lzo = 8,  ///< LZO compression (Arrow/Parquet)
+  zstd = 2,  ///< Zstandard compression (default for `lp_compression`)
+  lz4 = 3,  ///< LZ4 compression (default for in-memory)
+  bzip2 = 4,  ///< bzip2 compression (file I/O only)
+  xz = 5,  ///< xz/LZMA compression (file I/O only)
+  snappy =
+      6,  ///< Snappy compression (default for Parquet `output_compression`)
+  brotli = 7,  ///< Brotli compression (Arrow/Parquet only)
+  lzo = 8,  ///< LZO compression (Arrow/Parquet only)
+  auto_select = 9,  ///< Pick fastest available (in-memory only)
 };
 
 inline constexpr auto compression_codec_entries =
     std::to_array<EnumEntry<CompressionCodec>>({
         {.name = "uncompressed", .value = CompressionCodec::uncompressed},
+        {
+            .name = "none",
+            .value = CompressionCodec::uncompressed,
+            .is_alias = true,
+        },
         {.name = "gzip", .value = CompressionCodec::gzip},
         {.name = "zstd", .value = CompressionCodec::zstd},
         {.name = "lz4", .value = CompressionCodec::lz4},
@@ -96,9 +225,10 @@ inline constexpr auto compression_codec_entries =
         {.name = "snappy", .value = CompressionCodec::snappy},
         {.name = "brotli", .value = CompressionCodec::brotli},
         {.name = "lzo", .value = CompressionCodec::lzo},
+        {.name = "auto", .value = CompressionCodec::auto_select},
     });
 
-constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CompressionCodec /*tag*/) noexcept
 {
   return std::span {compression_codec_entries};
 }
@@ -138,7 +268,8 @@ inline constexpr auto boundary_cuts_valuation_entries =
         },
     });
 
-constexpr auto enum_entries(BoundaryCutsValuation /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    BoundaryCutsValuation /*tag*/) noexcept
 {
   return std::span {boundary_cuts_valuation_entries};
 }
@@ -179,7 +310,8 @@ inline constexpr auto probability_rescale_mode_entries =
         {.name = "runtime", .value = ProbabilityRescaleMode::runtime},
     });
 
-constexpr auto enum_entries(ProbabilityRescaleMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    ProbabilityRescaleMode /*tag*/) noexcept
 {
   return std::span {probability_rescale_mode_entries};
 }
@@ -197,12 +329,15 @@ constexpr auto enum_entries(ProbabilityRescaleMode /*tag*/) noexcept
  * - `none`:     No kappa checking or warnings.
  * - `warn`:     Log a warning with scene, phase, and iteration (default).
  * - `save_lp`:  Log a warning AND save the culprit LP file for debugging.
+ * - `diagnose`: Like `save_lp`, but also analyze cut rows to identify
+ *               which Benders cuts have the worst coefficient ratios.
  */
 enum class KappaWarningMode : uint8_t
 {
   none = 0,  ///< No kappa checking
   warn = 1,  ///< Log a warning when kappa exceeds threshold (default)
   save_lp = 2,  ///< Warn and save the LP file
+  diagnose = 3,  ///< Warn, save LP, and analyze cut coefficient ranges
 };
 
 inline constexpr auto kappa_warning_mode_entries =
@@ -210,9 +345,10 @@ inline constexpr auto kappa_warning_mode_entries =
         {.name = "none", .value = KappaWarningMode::none},
         {.name = "warn", .value = KappaWarningMode::warn},
         {.name = "save_lp", .value = KappaWarningMode::save_lp},
+        {.name = "diagnose", .value = KappaWarningMode::diagnose},
     });
 
-constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(KappaWarningMode /*tag*/) noexcept
 {
   return std::span {kappa_warning_mode_entries};
 }
@@ -250,9 +386,403 @@ inline constexpr auto constraint_mode_entries =
         {.name = "debug", .value = ConstraintMode::debug},
     });
 
-constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ConstraintMode /*tag*/) noexcept
 {
   return std::span {constraint_mode_entries};
+}
+
+// --- OutputFlags ------------------------------------------------------------
+
+/**
+ * @brief Bitmask controlling which fields the output writer emits.
+ *
+ * Each `OutputContext` add-field call is gated by one of these bits:
+ * - `solution`    → primal column values (suffix `sol`)
+ * - `dual`        → row dual values / marginals (suffix `dual`)
+ * - `reduced_cost`→ column reduced costs (suffix `cost`)
+ *
+ * The default when the option is unset is `all` — today's behaviour.
+ * `none` disables output-field emission entirely (still creates the
+ * output directory and writes the merged planning JSON).
+ *
+ * Combinations are expressed as comma-separated names on the CLI/JSON,
+ * e.g. `--write-out solution,dual` or `"write_out": "sol,dual"`.
+ * Parsing is case-insensitive and accepts the abbreviations declared in
+ * @ref output_flags_entries (`sol`, `rcost`, `rc`, `cost`).
+ */
+enum class OutputFlags : uint8_t
+{
+  none = 0U,
+  solution = 1U,
+  dual = 2U,
+  reduced_cost = 4U,
+  /// Opt-in atom for streams that no current consumer reads but
+  /// that may be useful for future audits / debugging.  Today this
+  /// gates Generator's `capacity_dual`, `heat_rate_slack_sol/cost`,
+  /// `vom_cost_sol`, `fuel_cost_sol`; and Line's piecewise-segment
+  /// `flowp/flown` slices, consolidated `loss_sol`,
+  /// `overloadp/overloadn_sol/cost`.  Default `write_out` is
+  /// `solution | dual | reduced_cost` (extras excluded); pass
+  /// `--write-out all` or `--write-out sol,dual,rc,extras` to opt
+  /// in.
+  extras = 8U,
+  all = 15U,  // solution | dual | reduced_cost | extras
+};
+
+[[nodiscard]] constexpr auto operator|(OutputFlags a, OutputFlags b) noexcept
+    -> OutputFlags
+{
+  return static_cast<OutputFlags>(static_cast<uint8_t>(a)
+                                  | static_cast<uint8_t>(b));
+}
+
+[[nodiscard]] constexpr auto operator&(OutputFlags a, OutputFlags b) noexcept
+    -> OutputFlags
+{
+  return static_cast<OutputFlags>(static_cast<uint8_t>(a)
+                                  & static_cast<uint8_t>(b));
+}
+
+constexpr auto operator|=(OutputFlags& a, OutputFlags b) noexcept
+    -> OutputFlags&
+{
+  a = a | b;
+  return a;
+}
+
+[[nodiscard]] constexpr auto has_flag(OutputFlags set, OutputFlags bit) noexcept
+    -> bool
+{
+  return (set & bit) != OutputFlags::none;
+}
+
+/// Named-enum table for the *atomic* flag values plus common abbreviations.
+/// `all` and `none` are shortcuts also accepted by the parser.
+inline constexpr auto output_flags_entries =
+    std::to_array<EnumEntry<OutputFlags>>({
+        {.name = "none", .value = OutputFlags::none},
+        {.name = "solution", .value = OutputFlags::solution},
+        {.name = "sol", .value = OutputFlags::solution, .is_alias = true},
+        {.name = "dual", .value = OutputFlags::dual},
+        {.name = "reduced_cost", .value = OutputFlags::reduced_cost},
+        {
+            .name = "reduced-cost",
+            .value = OutputFlags::reduced_cost,
+            .is_alias = true,
+        },
+        {.name = "rcost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "rc", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "cost", .value = OutputFlags::reduced_cost, .is_alias = true},
+        {.name = "extras", .value = OutputFlags::extras},
+        {.name = "extra", .value = OutputFlags::extras, .is_alias = true},
+        {.name = "all", .value = OutputFlags::all},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(OutputFlags /*tag*/) noexcept
+{
+  return std::span {output_flags_entries};
+}
+
+/// Parse a comma/whitespace-separated specification into an `OutputFlags`
+/// bitmask.  Empty input yields `OutputFlags::none`; unknown tokens throw
+/// `std::invalid_argument` with the list of accepted names.
+///
+/// Accepted atoms (case-insensitive): `none`, `solution` (`sol`),
+/// `dual`, `reduced_cost` (`reduced-cost`, `rcost`, `rc`, `cost`), `all`.
+///
+/// Examples:
+///   - `"all"`           → solution | dual | reduced_cost
+///   - `"sol,dual"`      → solution | dual
+///   - `"none"`          → no bits set
+[[nodiscard]] inline auto parse_output_flags(std::string_view spec)
+    -> OutputFlags
+{
+  OutputFlags out {OutputFlags::none};
+  std::size_t pos = 0;
+  while (pos < spec.size()) {
+    // Skip separators (comma, pipe, whitespace).
+    while (pos < spec.size()
+           && (spec[pos] == ',' || spec[pos] == '|' || spec[pos] == ' '
+               || spec[pos] == '\t'))
+    {
+      ++pos;
+    }
+    const auto start = pos;
+    while (pos < spec.size() && spec[pos] != ',' && spec[pos] != '|'
+           && spec[pos] != ' ' && spec[pos] != '\t')
+    {
+      ++pos;
+    }
+    if (start == pos) {
+      break;
+    }
+    const auto tok = spec.substr(start, pos - start);
+    out |= require_enum<OutputFlags>("output_flags", tok);
+  }
+  return out;
+}
+
+/// Render an `OutputFlags` bitmask back into its canonical comma-separated
+/// form (for logging / JSON round-trip).  `all` and `none` are emitted as
+/// themselves; any other combination lists the atomic bits in enum order.
+[[nodiscard]] inline auto output_flags_to_string(OutputFlags flags)
+    -> std::string
+{
+  if (flags == OutputFlags::none) {
+    return "none";
+  }
+  if (flags == OutputFlags::all) {
+    return "all";
+  }
+  std::string out;
+  const auto append = [&](std::string_view name)
+  {
+    if (!out.empty()) {
+      out += ',';
+    }
+    out += name;
+  };
+  if (has_flag(flags, OutputFlags::solution)) {
+    append("solution");
+  }
+  if (has_flag(flags, OutputFlags::dual)) {
+    append("dual");
+  }
+  if (has_flag(flags, OutputFlags::reduced_cost)) {
+    append("reduced_cost");
+  }
+  return out;
+}
+
+/// Per-atom class-name allow-list layered on top of an `OutputFlags`
+/// bitmask.  An empty list for an atom means "no restriction — apply
+/// to every element class"; a non-empty list restricts that atom to
+/// the listed class `cname`s (`Generator`, `Bus`, `Line`, `Battery`,
+/// `Reservoir`, `Junction`, `Demand`, …, matching the strings each
+/// `*LP` class passes as the first argument to `add_col_sol` /
+/// `add_col_cost` / `add_row_dual`).
+///
+/// Syntax accepted by `parse_output_selection`:
+///
+///   - `sol,dual,rc`                       → all atoms, no scope
+///   - `sol,dual,rc:Generator,Line`        → rc only on Generator & Line
+///   - `sol:Generator,Line,dual:Bus,rc`    → mixed per-atom scopes
+///   - `all`                               → all atoms, no scope
+///   - `none`                              → no atoms
+///
+/// Class names appearing after a colon (or as bare tokens following a
+/// scoped atom) extend the *previous* atom's allow-list — that's how
+/// `sol,dual,rc:Generator,Line` parses (Generator + Line both belong
+/// to rc, not as new atoms).
+struct OutputSelection
+{
+  OutputFlags atoms {OutputFlags::none};
+  std::vector<std::string> sol_classes {};
+  std::vector<std::string> dual_classes {};
+  std::vector<std::string> rc_classes {};
+  std::vector<std::string> extra_classes {};
+
+  /// Construct with no atoms and no scope — matches a default
+  /// `OutputFlags::none`.
+  constexpr OutputSelection() noexcept = default;
+
+  /// Construct from a bare `OutputFlags` (no per-atom scope).  Used by
+  /// the compiled defaults and by tests that still think in terms of
+  /// the legacy bitmask only.
+  /* implicit */ constexpr OutputSelection(OutputFlags f) noexcept
+      : atoms {f}
+  {
+  }
+
+  /// True if the given atom is enabled AND, if a class scope is set
+  /// for that atom, `cname` appears in the allow-list.  Empty scope =
+  /// applies to every class.
+  [[nodiscard]] auto emits(OutputFlags atom,
+                           std::string_view cname) const noexcept -> bool
+  {
+    if (!has_flag(atoms, atom)) {
+      return false;
+    }
+    const auto& list = scope_const(atom);
+    if (list.empty()) {
+      return true;
+    }
+    for (const auto& allowed : list) {
+      if (allowed == cname) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Mutable accessor for the per-atom scope vector, used by the parser
+  /// to append class names.  Returns a reference to the vector for
+  /// the *single* atom bit; for aliases like `all` that expand to
+  /// multiple atoms, the caller distributes scope entries by walking
+  /// the individual bits.
+  [[nodiscard]] auto scope_mut(OutputFlags atom) noexcept
+      -> std::vector<std::string>&
+  {
+    switch (atom) {
+      case OutputFlags::solution:
+        return sol_classes;
+      case OutputFlags::dual:
+        return dual_classes;
+      case OutputFlags::reduced_cost:
+        return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
+      default:
+        // Aliases (`all`, `none`) and unknown bits never hit this path
+        // — the parser breaks them into atom-bit components first.
+        return rc_classes;
+    }
+  }
+
+  [[nodiscard]] auto scope_const(OutputFlags atom) const noexcept
+      -> const std::vector<std::string>&
+  {
+    switch (atom) {
+      case OutputFlags::solution:
+        return sol_classes;
+      case OutputFlags::dual:
+        return dual_classes;
+      case OutputFlags::reduced_cost:
+        return rc_classes;
+      case OutputFlags::extras:
+        return extra_classes;
+      default:
+        return rc_classes;
+    }
+  }
+
+  [[nodiscard]] auto operator==(const OutputSelection&) const noexcept
+      -> bool = default;
+};
+
+/// Parse `OutputSelection` from a comma-separated specification.  See
+/// `OutputSelection`'s docstring for the full syntax.
+///
+/// Throws `std::invalid_argument` on:
+///   - unknown atom keyword (with a list of accepted names),
+///   - a class-name continuation that has no preceding atom (e.g.
+///     `Generator,sol` would error because `Generator` precedes any
+///     scoped atom).
+[[nodiscard]] inline auto parse_output_selection(std::string_view spec)
+    -> OutputSelection
+{
+  OutputSelection out;
+  // Track which atom bit(s) are currently accepting class-name
+  // continuations.  `solution | dual | reduced_cost` for aliases like
+  // `all` — class names following such an alias extend every atom's
+  // scope.  Zero (== OutputFlags::none) means "no scope context", so
+  // a bare class-name token without a preceding atom is an error.
+  OutputFlags scope_target = OutputFlags::none;
+
+  const auto distribute_scope = [&](OutputFlags target, std::string_view cls)
+  {
+    if (has_flag(target, OutputFlags::solution)) {
+      out.sol_classes.emplace_back(cls);
+    }
+    if (has_flag(target, OutputFlags::dual)) {
+      out.dual_classes.emplace_back(cls);
+    }
+    if (has_flag(target, OutputFlags::reduced_cost)) {
+      out.rc_classes.emplace_back(cls);
+    }
+  };
+
+  const auto is_sep = [](char c)
+  { return c == ',' || c == '|' || c == ' ' || c == '\t'; };
+
+  std::size_t pos = 0;
+  while (pos < spec.size()) {
+    while (pos < spec.size() && is_sep(spec[pos])) {
+      ++pos;
+    }
+    const auto start = pos;
+    while (pos < spec.size() && !is_sep(spec[pos])) {
+      ++pos;
+    }
+    if (start == pos) {
+      break;
+    }
+    const auto tok = spec.substr(start, pos - start);
+    const auto colon = tok.find(':');
+    const auto atom_part =
+        (colon == std::string_view::npos) ? tok : tok.substr(0, colon);
+    const auto inline_class = (colon == std::string_view::npos)
+        ? std::string_view {}
+        : tok.substr(colon + 1);
+
+    // Try parsing the leading word as an atom name (or alias).  We
+    // tolerate `all`/`none` which expand to multi-bit atom sets — the
+    // distribute_scope helper handles either case.
+    auto atom_opt = enum_from_name<OutputFlags>(atom_part);
+    if (atom_opt) {
+      out.atoms |= *atom_opt;
+      scope_target = *atom_opt;
+      if (!inline_class.empty()) {
+        distribute_scope(scope_target, inline_class);
+      }
+      continue;
+    }
+
+    // Not an atom — must be a class-name continuation of the most
+    // recent scoped atom.
+    if (scope_target == OutputFlags::none) {
+      throw std::invalid_argument(std::format(
+          "output_flags: unknown atom '{}' (or class-name continuation "
+          "with no preceding scoped atom)",
+          tok));
+    }
+    distribute_scope(scope_target, tok);
+  }
+  return out;
+}
+
+/// Render an `OutputSelection` back into its canonical
+/// comma-separated form (round-trip with `parse_output_selection`).
+[[nodiscard]] inline auto output_selection_to_string(const OutputSelection& sel)
+    -> std::string
+{
+  if (sel.atoms == OutputFlags::none) {
+    return "none";
+  }
+  const auto append_atom = [&](std::string& out,
+                               std::string_view name,
+                               const std::vector<std::string>& scope)
+  {
+    if (!out.empty()) {
+      out += ',';
+    }
+    out += name;
+    for (std::size_t i = 0; i < scope.size(); ++i) {
+      out += (i == 0) ? ':' : ',';
+      out += scope[i];
+    }
+  };
+
+  // When all three atoms are set AND none has a per-class scope we
+  // collapse to the keyword "all" for compactness.
+  const auto fully_unscoped = sel.atoms == OutputFlags::all
+      && sel.sol_classes.empty() && sel.dual_classes.empty()
+      && sel.rc_classes.empty();
+  if (fully_unscoped) {
+    return "all";
+  }
+
+  std::string out;
+  if (has_flag(sel.atoms, OutputFlags::solution)) {
+    append_atom(out, "solution", sel.sol_classes);
+  }
+  if (has_flag(sel.atoms, OutputFlags::dual)) {
+    append_atom(out, "dual", sel.dual_classes);
+  }
+  if (has_flag(sel.atoms, OutputFlags::reduced_cost)) {
+    append_atom(out, "reduced_cost", sel.rc_classes);
+  }
+  return out;
 }
 
 }  // namespace gtopt

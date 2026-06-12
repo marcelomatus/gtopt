@@ -256,3 +256,54 @@ def test_suspect_none_for_non_ambiguous_types():
     assert suspect_technology("embalse", "SolarEmbalse") is None
     assert suspect_technology("serie", "EolicaSerie") is None
     assert suspect_technology("bateria", "BESS1") is None
+
+
+# ---------------------------------------------------------------------------
+# T6 — load_centipo_csv fallback for unknown labels
+# ---------------------------------------------------------------------------
+
+
+def test_load_centipo_csv_unknown_label_fallback(tmp_path: Path):
+    """Unknown centipo label falls back to ``label.lower()``."""
+    from plp2gtopt.tech_detect import load_centipo_csv
+
+    centipo = tmp_path / "centipo.csv"
+    centipo.write_text(
+        "name label\n"  # header (skipped)
+        "PlantA XYZ\n"  # unknown label → falls back to "xyz"
+        "PlantB SOL\n"  # known label → "solar"
+    )
+    result = load_centipo_csv(tmp_path)
+    assert result["PlantA"] == "xyz"  # documents the fallback behaviour
+    assert result["PlantB"] == "solar"  # known-label path still works
+
+
+# ---------------------------------------------------------------------------
+# T7 — load_overrides skips malformed tokens
+# ---------------------------------------------------------------------------
+
+
+def test_load_overrides_skips_malformed_token():
+    """Tokens missing ``:`` are logged and silently skipped."""
+    result = load_overrides("SolarA:solar,BadToken,WindB:wind")
+    assert result == {"SolarA": "solar", "WindB": "wind"}
+    assert "BadToken" not in result
+
+
+# ---------------------------------------------------------------------------
+# T8 — detect_technology pattern-order priority for overlapping names
+# ---------------------------------------------------------------------------
+
+
+def test_detect_technology_overlapping_pattern_priority():
+    """``_NAME_PATTERNS`` is ordered; the first matching pattern wins."""
+    # "SolarHidro" matches both "solar" (pattern 0) and "hidr" (pattern 11) —
+    # solar wins because it comes first in _NAME_PATTERNS.
+    assert detect_technology("pasada", "SolarHidro") == "solar"
+
+    # "MiniHidroBomba" matches both "mini.*hidr" (pattern 9: hydro_small) and
+    # "bomb" (pattern 10: hydro_pumped). hydro_small wins because it comes first.
+    assert detect_technology("pasada", "MiniHidroBomba") == "hydro_small"
+
+    # Sanity: a clean hydro name without overlaps still resolves to hydro_ror.
+    assert detect_technology("pasada", "RioMaule") == "hydro_ror"

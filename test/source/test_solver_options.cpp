@@ -14,6 +14,7 @@
 #include <string>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/json/json_solver_options.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_options.hpp>
@@ -41,6 +42,7 @@ TEST_CASE("SolverOptions - Default construction")
   CHECK_FALSE(options.optimal_eps.has_value());
   CHECK_FALSE(options.feasible_eps.has_value());
   CHECK_FALSE(options.barrier_eps.has_value());
+  CHECK_FALSE(options.mip_gap.has_value());
 }
 
 TEST_CASE("SolverLogMode - enumeration values and names")
@@ -129,6 +131,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
         .optimal_eps = 1e-6,
         .feasible_eps = 1e-5,
         .barrier_eps = 1e-7,
+        .mip_gap = 1e-4,
         .log_level = 1,
     };
 
@@ -148,6 +151,8 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
           == doctest::Approx(original.feasible_eps.value_or(-1.0)));
     CHECK(deserialized.barrier_eps.value_or(-1.0)
           == doctest::Approx(original.barrier_eps.value_or(-1.0)));
+    CHECK(deserialized.mip_gap.value_or(-1.0)
+          == doctest::Approx(original.mip_gap.value_or(-1.0)));
     CHECK(deserialized.log_level == original.log_level);
   }
 
@@ -163,6 +168,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
     CHECK_FALSE(deserialized.optimal_eps.has_value());
     CHECK_FALSE(deserialized.feasible_eps.has_value());
     CHECK_FALSE(deserialized.barrier_eps.has_value());
+    CHECK_FALSE(deserialized.mip_gap.has_value());
   }
 }
 
@@ -188,7 +194,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   flat_lp.rownm = {"r1"};  // Row names
 
   // Create LinearInterface with the default available solver
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   // Create solver options with custom values
@@ -205,7 +211,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
   // Check that the solve worked
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(1.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(1.0));
 
   // Get solution and check it
   const auto sol = lp.get_col_sol();
@@ -545,7 +551,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   const SolverOptions solver_options {
@@ -556,7 +562,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
 
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(2.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(2.0));
   const auto sol = lp.get_col_sol();
   REQUIRE(sol.size() == 1);
   CHECK(sol[0] == doctest::Approx(2.0));
@@ -581,7 +587,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
   flat_lp.colnm = {"x"};
   flat_lp.rownm = {"r1"};
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
   LinearInterface lp(reg.default_solver(), flat_lp);
 
   const SolverOptions solver_options {
@@ -592,7 +598,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
 
   CHECK(result);
   CHECK(lp.is_optimal() == true);
-  CHECK(lp.get_obj_value() == doctest::Approx(3.0));
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(3.0));
   const auto sol = lp.get_col_sol();
   REQUIRE(sol.size() == 1);
   CHECK(sol[0] == doctest::Approx(3.0));
@@ -634,7 +640,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::default_algo});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 
   SUBCASE("primal simplex")
@@ -643,7 +649,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::primal});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 
   SUBCASE("dual simplex")
@@ -652,7 +658,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
     const auto result =
         lp.initial_solve(SolverOptions {.algorithm = LPAlgo::dual});
     CHECK(result);
-    CHECK(lp.get_obj_value() == doctest::Approx(4.0));
+    CHECK(lp.get_obj_value_raw() == doctest::Approx(4.0));
   }
 }
 
@@ -695,14 +701,15 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       auto lp = make_barrier_test_lp(solver_name);
 
@@ -716,7 +723,7 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 
       CHECK(result.has_value());
       CHECK(lp.is_optimal());
-      CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
       const auto sol = lp.get_col_sol();
       REQUIRE(sol.size() == 4);
@@ -733,15 +740,16 @@ TEST_CASE(
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Test the SDDP workflow: initial solve with barrier, then resolve with
-  // dual simplex (reuse_basis).  Validates the CPLEX resolve() fix.
-  const auto& reg = SolverRegistry::instance();
+  // dual simplex.  Validates the CPLEX resolve() fix.
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       auto lp = make_barrier_test_lp(solver_name);
 
@@ -752,20 +760,19 @@ TEST_CASE(
       };
       auto r1 = lp.initial_solve(barrier_opts);
       CHECK(r1.has_value());
-      CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
       // Step 2: modify a bound and resolve with dual simplex (warm start)
       lp.set_row_low(RowIndex {0}, 6.0);
 
       const SolverOptions resolve_opts {
           .algorithm = LPAlgo::dual,
-          .reuse_basis = true,
       };
       auto r2 = lp.resolve(resolve_opts);
       CHECK(r2.has_value());
       CHECK(lp.is_optimal());
       // With x1+x2 >= 6 instead of >= 5, optimal obj increases by 1
-      CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+      CHECK(lp.get_obj_value_raw() == doctest::Approx(18.0));
     }
   }
 }
@@ -774,17 +781,18 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       const auto log_dir = std::filesystem::temp_directory_path()
-          / std::format("gtopt_test_solver_logs_{}", solver_name);
+          / as_label("gtopt_test_solver_logs", solver_name);
       std::filesystem::remove_all(log_dir);
       std::filesystem::create_directories(log_dir);
 
@@ -834,7 +842,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
         const auto result = lp.resolve(resolve_opts);
         CHECK(result.has_value());
         CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
+        CHECK(lp.get_obj_value_raw() == doctest::Approx(18.0));
 
         const auto log_path = std::format("{}.log", log_stem);
         REQUIRE(std::filesystem::exists(log_path));
@@ -857,7 +865,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
         const auto result = lp.initial_solve(opts);
         CHECK(result.has_value());
         CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(17.0));
+        CHECK(lp.get_obj_value_raw() == doctest::Approx(17.0));
 
         const auto log_path = std::format("{}.log", log_stem);
         CHECK_FALSE(std::filesystem::exists(log_path));
@@ -872,14 +880,15 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       SUBCASE("barrier algorithm with custom settings")
       {
@@ -921,71 +930,6 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
         CHECK(lp.get_threads() == 1);
         CHECK(lp.get_presolve() == true);
         CHECK(lp.get_log_level() == 0);
-      }
-
-      SUBCASE("reuse_basis with dual overrides to dual, no presolve")
-      {
-        auto lp = make_barrier_test_lp(solver_name);
-
-        // Initial solve with barrier
-        const SolverOptions barrier_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-        };
-        auto r1 = lp.initial_solve(barrier_opts);
-        REQUIRE(r1.has_value());
-        CHECK(lp.get_algorithm() == LPAlgo::barrier);
-
-        // Resolve with reuse_basis + dual — should override to dual
-        lp.set_row_low(RowIndex {0}, 6.0);
-
-        const SolverOptions reuse_opts {
-            .algorithm = LPAlgo::dual,
-            .threads = 2,
-            .presolve = true,
-            .reuse_basis = true,
-        };
-
-        const auto result = lp.resolve(reuse_opts);
-        CHECK(result.has_value());
-        CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
-
-        CHECK(lp.get_algorithm() == LPAlgo::dual);
-        CHECK(lp.get_presolve() == false);
-        CHECK(lp.get_threads() == 2);
-      }
-
-      SUBCASE("reuse_basis with barrier keeps barrier algorithm")
-      {
-        auto lp = make_barrier_test_lp(solver_name);
-
-        // Initial solve with barrier
-        const SolverOptions barrier_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-        };
-        auto r1 = lp.initial_solve(barrier_opts);
-        REQUIRE(r1.has_value());
-
-        // Resolve with reuse_basis + barrier — should keep barrier
-        lp.set_row_low(RowIndex {0}, 6.0);
-
-        const SolverOptions reuse_opts {
-            .algorithm = LPAlgo::barrier,
-            .threads = 2,
-            .presolve = true,
-            .reuse_basis = true,
-        };
-
-        const auto result = lp.resolve(reuse_opts);
-        CHECK(result.has_value());
-        CHECK(lp.is_optimal());
-        CHECK(lp.get_obj_value() == doctest::Approx(18.0));
-
-        CHECK(lp.get_algorithm() == LPAlgo::barrier);
-        CHECK(lp.get_presolve() == true);
-        CHECK(lp.get_threads() == 2);
       }
 
       SUBCASE("options update on successive apply_options calls")
@@ -1060,6 +1004,8 @@ TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP applies SDDP max_fallbacks defaults")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness,
+  // modernize-return-braced-init-list)
 
   SUBCASE("defaults: forward=2, backward=0")
   {
@@ -1104,3 +1050,6 @@ TEST_CASE(  // NOLINT
     CHECK(bwd.max_fallbacks == 0);
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness,
+// modernize-return-braced-init-list)

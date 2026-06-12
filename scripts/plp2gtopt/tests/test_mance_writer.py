@@ -3,6 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
+import pandas as pd
 import pytest
 from ..mance_writer import ManceWriter
 from ..mance_parser import ManceParser
@@ -269,3 +270,80 @@ def test_to_parquet_empty(tmp_path):
     cols = writer.to_parquet(out_dir)
     assert not cols["pmin"]
     assert not cols["pmax"]
+
+
+def test_pmin_pmax_parquet_per_block_with_values(tmp_path):
+    """Verify pmin.parquet / pmax.parquet are per-block (block AND stage cols).
+
+    The C++ Generator reader requires the per-block layout; if the writer
+    ever collapsed to per-stage only, the time-series would mis-broadcast.
+    """
+    cnfce = tmp_path / "plpcnfce.dat"
+    cnfce.write_text(
+        "# Num.Centrales  Num.Embalses Num.Serie Num.Fallas Num.Pas.Pur. Num.BAT\n"
+        "    1            0            0          0          1            0\n"
+        "# Interm Min.Tec. Cos.Arr.Det. FFaseSinMT EtapaCambioFase\n"
+        "  F      F        F            F          00\n"
+        "# Centrales de Pasada\n"
+        "    5 'GENUNIT'                                     "
+        "     1    F       F       F       F           F          0           0\n"
+        "          PotMin PotMax VertMin VertMax\n"
+        "           000.0  100.0   000.0   000.0\n"
+        "           Start   Stop ON(t<0) NEta_OnOff\n"
+        "             0.0    0.0 F       0              "
+        " Pot.           Volumen    Volumen    Volumen    Volumen  Factor\n"
+        "          CosVar  Rendi  Barra Genera Vertim    t<0  Afluen    Inicial  "
+        "    Final     Minimo     Maximo  Escala EmbCFUE\n"
+        "             0.0  1.000      1      1      0    0.0  "
+        "0020.0  0.0  0.0  0.0  1.0  1.0E+0       F\n"
+    )
+    blo = tmp_path / "plpblo.dat"
+    blo.write_text(
+        "# Bloques\n"
+        "     2\n"
+        "# Bloque   Etapa   NHoras  Ano   Mes  TipoBloque\n"
+        "    001    001      007    001    003    'Bloque 01'\n"
+        "    002    001      007    001    003    'Bloque 02'\n"
+    )
+    mance_f = tmp_path / "plpmance.dat"
+    mance_f.write_text(
+        " 1\n"
+        "'GENUNIT'\n"
+        "   2                 01\n"
+        "     03      001        1     5.00    80.00\n"
+        "     03      002        1     5.00    80.00\n"
+    )
+
+    central_parser = CentralParser(cnfce)
+    central_parser.parse()
+    block_parser = BlockParser(blo)
+    block_parser.parse()
+    mance_parser = ManceParser(mance_f)
+    mance_parser.parse()
+
+    writer = ManceWriter(mance_parser, central_parser, block_parser)
+    out_dir = tmp_path / "mance_out_schema"
+    writer.to_parquet(out_dir)
+
+    df_pmin = pd.read_parquet(out_dir / "pmin.parquet")
+    df_pmax = pd.read_parquet(out_dir / "pmax.parquet")
+
+    assert "block" in df_pmin.columns, "pmin.parquet must be per-block"
+    assert "stage" in df_pmin.columns
+    assert "block" in df_pmax.columns
+    assert "stage" in df_pmax.columns
+    assert len(df_pmin) == 2
+    assert len(df_pmax) == 2
+
+    data_cols = [c for c in df_pmin.columns if c.startswith("uid:")]
+    assert len(data_cols) == 1
+
+    b1 = df_pmin[df_pmin["block"] == 1]
+    assert float(b1[data_cols[0]].iloc[0]) == pytest.approx(5.0)
+    b2 = df_pmin[df_pmin["block"] == 2]
+    assert float(b2[data_cols[0]].iloc[0]) == pytest.approx(5.0)
+
+    b1m = df_pmax[df_pmax["block"] == 1]
+    assert float(b1m[data_cols[0]].iloc[0]) == pytest.approx(80.0)
+    b2m = df_pmax[df_pmax["block"] == 2]
+    assert float(b2m[data_cols[0]].iloc[0]) == pytest.approx(80.0)

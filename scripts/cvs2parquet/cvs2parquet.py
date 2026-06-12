@@ -1,6 +1,7 @@
 """cvs2parquet – Convert CSV files to Apache Parquet format."""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -8,15 +9,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import add_log_level_argument, configure_logging, get_version
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 # Columns that are always stored as int32 when present
 _INT32_COLS = {"stage", "block", "scenario"}
@@ -33,9 +28,10 @@ def _infer_schema(df: pd.DataFrame) -> pa.Schema:
     return pa.schema(fields)
 
 
-def csv_to_parquet(
-    csv_file_path, parquet_file_path, use_schema: bool = False, verbose: bool = False
-):
+logger = logging.getLogger(__name__)
+
+
+def csv_to_parquet(csv_file_path, parquet_file_path, use_schema: bool = False):
     """Convert CSV to Parquet.
 
     Args:
@@ -44,7 +40,6 @@ def csv_to_parquet(
         use_schema: When True use an explicit PyArrow schema (int32 for
             stage/block/scenario columns, float64 for everything else).
             When False use pandas dtype casting (same logic, via DataFrame).
-        verbose: When True print column dtype information after conversion.
     """
     df = pd.read_csv(csv_file_path)
 
@@ -52,8 +47,7 @@ def csv_to_parquet(
         schema = _infer_schema(df)
         table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
         pq.write_table(table, parquet_file_path)
-        if verbose:
-            print(f"Schema: {table.schema}")
+        logger.debug("Schema: %s", table.schema)
     else:
         for col in df.columns:
             if col in _INT32_COLS:
@@ -61,10 +55,9 @@ def csv_to_parquet(
             else:
                 df[col] = df[col].astype("float64")
         df.to_parquet(parquet_file_path, index=False)
-        if verbose:
-            print(f"Data types:\n{df.dtypes}")
+        logger.debug("Data types:\n%s", df.dtypes)
 
-    print(f"Converted {csv_file_path} → {parquet_file_path}")
+    logger.info("Converted %s → %s", csv_file_path, parquet_file_path)
 
 
 _EPILOG = """
@@ -83,7 +76,7 @@ examples:
   cvs2parquet stage1.csv stage2.csv stage3.csv
 
   # Use an explicit PyArrow schema and show column types
-  cvs2parquet data.csv --schema --verbose
+  cvs2parquet data.csv --schema -l DEBUG
 """
 
 
@@ -120,13 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             "(produces identical types; useful when strict schema validation is needed)"
         ),
     )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="print column dtype information after each conversion",
-    )
+    add_log_level_argument(parser)
     parser.add_argument(
         "-V",
         "--version",
@@ -140,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Disable coloured output.",
     )
     args = parser.parse_args(argv)
+    configure_logging(args)
 
     if args.output and len(args.input) > 1:
         parser.error("--output can only be used with a single input file")
@@ -148,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         out_path = (
             args.output if args.output else str(Path(csv_path).with_suffix(".parquet"))
         )
-        csv_to_parquet(csv_path, out_path, use_schema=args.schema, verbose=args.verbose)
+        csv_to_parquet(csv_path, out_path, use_schema=args.schema)
 
     return 0
 

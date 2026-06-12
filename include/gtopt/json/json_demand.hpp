@@ -25,10 +25,16 @@ template<>
 struct json_data_contract<DemandAttrs>
 {
   using type = json_member_list<
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"lossfactor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_bool_null<"forced", OptBool>,
       json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -40,14 +46,19 @@ struct json_data_contract<DemandAttrs>
                         jvtl_TRealFieldSched>,
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_bool_null<"integer_expmod", OptBool>>;
 
   constexpr static auto to_json_data(DemandAttrs const& attrs)
   {
-    return std::forward_as_tuple(attrs.bus,
+    return std::forward_as_tuple(attrs.type,
+                                 attrs.description,
+                                 attrs.bus,
                                  attrs.lmax,
+                                 attrs.lmin,
                                  attrs.lossfactor,
                                  attrs.fcost,
+                                 attrs.forced,
                                  attrs.emin,
                                  attrs.ecost,
                                  attrs.capacity,
@@ -55,7 +66,8 @@ struct json_data_contract<DemandAttrs>
                                  attrs.expmod,
                                  attrs.capmax,
                                  attrs.annual_capcost,
-                                 attrs.annual_derating);
+                                 attrs.annual_derating,
+                                 attrs.integer_expmod);
   }
 };
 
@@ -69,10 +81,15 @@ struct json_data_contract<Demand>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"bus", SingleId>,
       json_variant_null<"lmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"lmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"lossfactor",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_bool_null<"forced", OptBool>,
       json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
@@ -84,7 +101,8 @@ struct json_data_contract<Demand>
                         jvtl_TRealFieldSched>,
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
-                        jvtl_TRealFieldSched>>;
+                        jvtl_TRealFieldSched>,
+      json_bool_null<"integer_expmod", OptBool>>;
 
   constexpr static auto to_json_data(Demand const& demand)
   {
@@ -92,10 +110,13 @@ struct json_data_contract<Demand>
                                  demand.name,
                                  demand.active,
                                  demand.type,
+                                 demand.description,
                                  demand.bus,
                                  demand.lmax,
+                                 demand.lmin,
                                  demand.lossfactor,
                                  demand.fcost,
+                                 demand.forced,
                                  demand.emin,
                                  demand.ecost,
                                  demand.capacity,
@@ -103,7 +124,8 @@ struct json_data_contract<Demand>
                                  demand.expmod,
                                  demand.capmax,
                                  demand.annual_capcost,
-                                 demand.annual_derating);
+                                 demand.annual_derating,
+                                 demand.integer_expmod);
   }
 };
 

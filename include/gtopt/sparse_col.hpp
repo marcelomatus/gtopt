@@ -13,15 +13,30 @@
 #pragma once
 
 #include <limits>
-#include <string>
+#include <ranges>
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/lp_context.hpp>
 
 namespace gtopt
 {
 
 /// Maximum representable double value used for unbounded variable bounds.
 constexpr double DblMax = std::numeric_limits<double>::max();
+
+/// True iff @p v is an infinity-like sentinel relative to @p solver_infinity.
+/// Use to skip auto-scaling, equilibration division, etc. on values that
+/// represent "unbounded" rather than a real physical magnitude.
+/// @p solver_infinity MUST come from `SolverBackend::infinity()` (CPLEX:
+/// 1e20, HiGHS / OSI / Gurobi: 1e30) — never a magic number.  This is
+/// the free-function counterpart of `LinearInterface::is_pos_inf(value)`,
+/// usable in pre-LP code (e.g. `PlanningLP::auto_scale_*` once a
+/// throwaway `SolverBackend` has been instantiated to query its infinity).
+[[nodiscard]] constexpr bool is_infinity(double v,
+                                         double solver_infinity) noexcept
+{
+  return (v >= solver_infinity) || (v <= -solver_infinity);
+}
 
 /**
  * @class SparseCol
@@ -54,13 +69,47 @@ constexpr double DblMax = std::numeric_limits<double>::max();
  */
 struct SparseCol
 {
-  std::string name;  ///< Variable name (empty for anonymous variables)
   double lowb {0.0};  ///< Physical lower bound (default: 0.0)
   double uppb {DblMax};  ///< Physical upper bound (default: +infinity)
   double cost {0.0};  ///< Objective coefficient (default: 0.0)
   bool is_integer {false};  ///< is integer-constrained (default: false)
+  bool is_state {false};  ///< True when the column is a state variable used
+                          ///< in cascade/SDDP cut I/O.  Column names are
+                          ///< available when `LpNamesLevel::all` is set;
+                          ///< state variable I/O uses the StateVariable map
+                          ///< (ColIndex-based) directly.  Set via
+                          ///< `SystemContext::add_state_col()`.
+  bool pin_scale {false};  ///< When true, the column is exempt from EVERY
+                           ///< equilibration / rescaling pass: the
+                           ///< ``LinearProblem::add_col`` auto-scaler skips
+                           ///< the ``VariableScaleMap`` lookup, and
+                           ///< ``apply_ruiz_scaling`` pins the column
+                           ///< factor at 1.0.  Use for semantically binary
+                           ///< or [0, 1]-bounded variables that lose their
+                           ///< meaning when rescaled — LP-relaxed
+                           ///< commitment status / startup / shutdown
+                           ///< indicators (where ``is_integer = false``
+                           ///< under ``--no-mip`` would otherwise let
+                           ///< Ruiz expand the bound to ``[0, ‖col‖₂]``).
+                           ///< The MIP path (``is_integer = true``) is
+                           ///< already covered by the auto-scaler's
+                           ///< integer guard; ``pin_scale`` extends the
+                           ///< same exemption to LP-relax-of-integer
+                           ///< columns and to never-integer-declared
+                           ///< [0, 1] variables (startup/shutdown).
+                           ///< See task #50 for rationale.
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
+
+  /// Optional metadata for automatic VariableScaleMap resolution.
+  /// When @c class_name is non-empty and @c scale is still 1.0,
+  /// LinearProblem::add_col() looks up the scale from its VariableScaleMap.
+  /// If @c class_name is empty (default), no lookup is performed.
+  std::string_view class_name {};  ///< Element class (e.g. "Bus", "Reservoir")
+  std::string_view
+      variable_name {};  ///< Variable name (e.g. "theta", "energy")
+  Uid variable_uid {unknown_uid};  ///< Element UID for per-element lookup
+  LpContext context {};  ///< LP hierarchy context (scenario, stage, block, ...)
 
   /**
    * Sets variable to a fixed value (equality constraint)
@@ -96,7 +145,77 @@ struct SparseCol
   }
 };
 
+/// Lightweight label metadata for a column.
+///
+/// Stored in `FlatLinearProblem` / `LinearInterface` so LP column
+/// names can be formatted on demand at `write_lp` time instead of
+/// eagerly at flatten.  This is the only column data that
+/// `LabelMaker` needs; bounds / cost / scale live in the flat LP.
+///
+/// Carries the same `(class_name, variable_name, variable_uid,
+/// context)` 4-tuple that `SparseCol` uses — a `LocalLabelMaker` at
+/// `LpNamesLevel::all` can synthesise the human-readable label
+/// (e.g. `bus.theta.1.s0.p0.b0`) from this struct alone.
+struct SparseColLabel
+{
+  std::string_view class_name {};
+  std::string_view variable_name {};
+  Uid variable_uid {unknown_uid};
+  LpContext context {};
+
+  friend constexpr bool operator==(const SparseColLabel&,
+                                   const SparseColLabel&) = default;
+};
+
+/// Hash functor for `SparseColLabel`, used by the eager duplicate-detection
+/// map in `LinearInterface`.  Combines each field via `detail::hash_combine`
+/// and dispatches on the `LpContext` variant through `std::visit`.
+struct SparseColLabelHash
+{
+  [[nodiscard]] size_t operator()(const SparseColLabel& l) const
+  {
+    size_t h = std::hash<std::string_view> {}(l.class_name);
+    h = detail::hash_combine(h,
+                             std::hash<std::string_view> {}(l.variable_name));
+    h = detail::hash_combine(h, std::hash<Uid> {}(l.variable_uid));
+    h = detail::hash_combine(
+        h,
+        std::visit(
+            []<typename T>(const T& t) noexcept -> size_t
+            {
+              if constexpr (std::is_same_v<T, std::monostate>) {
+                return 0;
+              } else {
+                return TupleHash {}(t);
+              }
+            },
+            l.context));
+    return h;
+  }
+};
+
 using ColIndex = StrongIndexType<SparseCol>;  ///< Type alias for column index
+
+/**
+ * @brief Build a `ColIndex` from the size of any sized range.
+ *
+ * Centralises the `ColIndex{static_cast<Index>(r.size())}` pattern so
+ * that callers stay in strong-index space.  Typical call sites:
+ *
+ * @code
+ *   if (col < col_index_size(col_sol)) { ... }
+ *   for (auto idx : iota_range<ColIndex>(ColIndex{0}, col_index_size(cols)))
+ * @endcode
+ *
+ * @tparam R  Any `std::ranges::sized_range`.
+ * @param  r  The range whose size should be interpreted as a column count.
+ * @return    `ColIndex{static_cast<Index>(std::ranges::size(r))}`.
+ */
+template<std::ranges::sized_range R>
+[[nodiscard]] constexpr auto col_index_size(const R& r) noexcept -> ColIndex
+{
+  return ColIndex {static_cast<Index>(std::ranges::size(r))};
+}
 
 // ── Scale-aware output helpers ───────────────────────────────────────────────
 

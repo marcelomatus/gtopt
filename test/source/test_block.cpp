@@ -65,10 +65,10 @@ TEST_CASE("BlockUid and BlockIndex strong types")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const BlockUid buid {42};
+  const BlockUid buid = make_uid<Block>(42);
   const BlockIndex bidx {3};
 
-  CHECK(buid == BlockUid {42});
+  CHECK(buid == make_uid<Block>(42));
   CHECK(bidx == BlockIndex {3});
 
   // Verify incrementable_traits (used for iteration)

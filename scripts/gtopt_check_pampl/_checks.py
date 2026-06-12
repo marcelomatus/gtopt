@@ -39,22 +39,47 @@ class Finding:
 
 # ── Known gtopt element types and LP variables ──────────────────────────────
 
+# Kept in sync with `register_ampl_iter` calls in
+# source/ampl_dispatch_registry.cpp — every class registered there must
+# appear here so PAMPL element references resolve.  The CI gate
+# `scripts/gtopt_shared/tests/test_ampl_dispatch_consistency.py` (via
+# `tools/check_ampl_dispatch.py`) fails when the two drift.
 ELEMENT_TYPES = {
-    "generator",
-    "demand",
-    "line",
+    "allowance_pool",
+    "ammonia_node",
+    "ammonia_storage",
     "battery",
-    "converter",
     "bus",
-    "reservoir",
-    "turbine",
-    "junction",
-    "waterway",
+    "carrier_converter",
+    "commitment",
+    "converter",
+    "decision_variable",
+    "demand",
+    "emission_source",
+    "emission_zone",
     "flow",
-    "filtration",
     "flow_right",
-    "reserve_zone",
+    "fuel",
+    "generator",
+    "hydrogen_node",
+    "hydrogen_storage",
+    "inertia_provision",
+    "inertia_zone",
+    "junction",
+    "line",
+    "lng_terminal",
     "reserve_provision",
+    "reserve_zone",
+    "reservoir",
+    "reservoir_discharge_limit",
+    "seepage",
+    "simple_commitment",
+    "thermal_node",
+    "thermal_storage",
+    "turbine",
+    "user_constraint",
+    "volume_right",
+    "waterway",
 }
 
 LP_VARIABLES = {

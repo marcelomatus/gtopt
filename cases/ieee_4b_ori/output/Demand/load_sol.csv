@@ -1,2 +1,3 @@
-"scenario","stage","block","uid:1","uid:2"
-1,1,1,150,100
+"scenario","stage","block","uid","value"
+1,1,1,1,150
+1,1,1,2,100

@@ -84,3 +84,6 @@ EXPAND_ONLY_PREDEF = NO
 
 # Exclude test code and build directories from API docs
 EXCLUDE_PATTERNS = */test/* */build/* */cpm_modules/*
+
+# Image search path — diagrams referenced from docs/ markdown files
+IMAGE_PATH = @DOXYGEN_PROJECT_ROOT@/docs

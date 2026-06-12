@@ -231,10 +231,14 @@ else
   fail "solution.csv not found in output"
 fi
 
-if [ -f "$EXTRACT_DIR/output/Generator/generation_sol.csv" ]; then
-  pass "Generator/generation_sol.csv found in output"
+# gtopt now writes per-(scene, phase)-suffixed CSVs
+# (e.g. Generator/generation_sol_s0_p0.csv).  Match either the legacy
+# un-suffixed name or any *_s*_p*.csv variant.
+if compgen -G "$EXTRACT_DIR/output/Generator/generation_sol*.csv" >/dev/null
+then
+  pass "Generator/generation_sol*.csv found in output"
 else
-  fail "Generator/generation_sol.csv not found in output"
+  fail "Generator/generation_sol*.csv not found in output"
 fi
 
 if [ -f "$EXTRACT_DIR/job.json" ]; then

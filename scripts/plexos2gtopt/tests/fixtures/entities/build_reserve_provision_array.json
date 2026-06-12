@@ -1,0 +1,26 @@
+[
+  {
+    "dr_provision_factor": 1.0,
+    "drmax": 30.0,
+    "generator": "COCHRANE_1",
+    "name": "provision_COCHRANE_1",
+    "reserve_zones": [
+      "SEN_RS",
+      "SEN_LW"
+    ],
+    "uid": 1,
+    "ur_provision_factor": 1.0,
+    "urmax": 50.0
+  },
+  {
+    "dr_provision_factor": 1.0,
+    "generator": "BAT_ARICA",
+    "name": "provision_BAT_ARICA",
+    "reserve_zones": [
+      "SEN_RS"
+    ],
+    "uid": 2,
+    "ur_provision_factor": 1.0,
+    "urmax": 10.0
+  }
+]

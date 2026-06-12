@@ -1,0 +1,16 @@
+[
+  {
+    "description": "PLEXOS Min Daily Generation @ PANGUE",
+    "expression": "TRB_PANGUE.gen >= 20",
+    "name": "PANGUE_min_daily",
+    "penalty": 10000.0,
+    "slack_name": "slack_PANGUE_min_daily",
+    "uid": 1
+  },
+  {
+    "active": false,
+    "expression": "LAJA_R_flow <= 800",
+    "name": "LAJA_contingency_N1",
+    "uid": 2
+  }
+]

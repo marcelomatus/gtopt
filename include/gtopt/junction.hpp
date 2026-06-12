@@ -22,6 +22,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -40,12 +41,47 @@ namespace gtopt
  */
 struct Junction
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `JunctionLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Junction::class_name` directly (or
+  /// `JunctionLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Junction"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable junction name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   OptBool drain {};  ///< If true, excess water at this junction can leave the
-                     ///< system freely
+                     ///< system through a free outflow column (the
+                     ///< per-block "drain") priced at @ref drain_cost
+                     ///< (default 0) and bounded above by @ref
+                     ///< drain_capacity (default +∞).  A bounded /
+                     ///< costed drain lets plp2gtopt / plexos2gtopt
+                     ///< encode "spill to the ocean" semantics
+                     ///< directly on the central's own junction
+                     ///< instead of synthesising a per-central
+                     ///< ``<central>_ocean`` Junction + a connecting
+                     ///< ``_ver`` Waterway with ``fmax = VertMax`` /
+                     ///< ``fcost = CVert``.  Both encodings produce
+                     ///< the same LP — the junction-level form just
+                     ///< saves one Junction + one Waterway per
+                     ///< terminal central.
+  OptReal drain_capacity {};  ///< Upper bound [m³/s] on the drain column
+                              ///< (default +∞).  Matches PLP's
+                              ///< ``VertMax`` and PLEXOS's
+                              ///< ``Waterway.Max Flow`` /
+                              ///< ``Storage.Max Spill``.  Ignored
+                              ///< unless @ref drain is true.
+  OptReal drain_cost {};  ///< Per-(m³/s)·h cost on the drain column
+                          ///< (default 0).  Matches PLP's ``CVert`` /
+                          ///< ``Costo de Rebalse`` and PLEXOS's
+                          ///< ``Waterway.Max Flow Penalty`` /
+                          ///< ``Storage.Spill Penalty``.  Ignored
+                          ///< unless @ref drain is true.
 };
 
 }  // namespace gtopt

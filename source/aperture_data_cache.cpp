@@ -8,12 +8,17 @@
 
 #include <charconv>
 #include <chrono>
+#include <cstdint>
+#include <fstream>
+#include <limits>
 #include <set>
+#include <string>
 #include <thread>
 
 #include <arrow/api.h>
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/array_index_traits.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -21,6 +26,31 @@ namespace gtopt
 
 namespace
 {
+
+/// Read this process's current resident-set size in KiB from
+/// ``/proc/self/status``.  Returns 0 on platforms or runtimes where
+/// the file is unavailable (procfs not mounted, sandboxed Docker,
+/// non-Linux).  Used for one-shot diagnostic deltas around large
+/// load operations — not a hot path, so the file open/parse cost
+/// is irrelevant.
+[[nodiscard]] std::int64_t read_process_vmrss_kib() noexcept
+{
+  try {
+    std::ifstream f("/proc/self/status");
+    std::string label;
+    while (f >> label) {
+      if (label == "VmRSS:") {
+        std::int64_t kib {};
+        f >> kib;
+        return kib;
+      }
+      f.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+  } catch (...) {
+    // Best-effort diagnostic — never let a failed read break the load.
+  }
+  return 0;
+}
 
 /// Info needed to load one parquet file.
 struct FileInfo
@@ -50,7 +80,13 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
                  table_result.error());
     return std::nullopt;
   }
-  const auto& table = *table_result;
+  // Accept long-layout aperture files transparently: pivot `[stage, block,
+  // uid, value]` (where `uid` is a scenario uid here) to the wide
+  // `[stage, block, uid:N…]` shape the scenario-column loop below expects.
+  // Reuses the same uid-agnostic helper as the field-file reader.
+  const ArrowTable table = is_long_layout(*table_result)
+      ? pivot_long_to_wide(*table_result)
+      : *table_result;
 
   auto stage_col = table->GetColumnByName("stage");
   auto block_col = table->GetColumnByName("block");
@@ -87,14 +123,14 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
 
     const auto uid_str = col_name.substr(4);
     uid_t raw_uid {0};
-    auto [ptr, ec] = std::from_chars(
-        uid_str.data(),
-        std::next(uid_str.data(), static_cast<std::ptrdiff_t>(uid_str.size())),
-        raw_uid);
+    auto [ptr, ec] =
+        std::from_chars(uid_str.data(),
+                        std::next(uid_str.data(), std::ssize(uid_str)),
+                        raw_uid);
     if (ec != std::errc {}) {
       continue;
     }
-    const ScenarioUid scen_uid {raw_uid};
+    const ScenarioUid scen_uid = make_uid<Scenario>(raw_uid);
 
     auto val_col = table->column(c);
     auto val_arr =
@@ -104,8 +140,8 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
       data.try_emplace(
           ApertureDataCache::InnerKey {
               .scenario_uid = scen_uid,
-              .stage_uid = StageUid {stage_arr->Value(row)},
-              .block_uid = BlockUid {block_arr->Value(row)},
+              .stage_uid = make_uid<Stage>(stage_arr->Value(row)),
+              .block_uid = make_uid<Block>(block_arr->Value(row)),
           },
           val_arr->Value(row));
     }
@@ -132,6 +168,12 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
   spdlog::info("ApertureDataCache: scanning '{}'", aperture_dir.string());
 
   const auto load_start = std::chrono::steady_clock::now();
+  // Capture process RSS before the load so we can report the delta in
+  // the completion line — answers "how much in-memory footprint does
+  // the cache actually take?" with a single grep on the gtopt log.
+  // Returns 0 on platforms without procfs; the delta line is then
+  // suppressed.
+  const auto rss_before_kib = read_process_vmrss_kib();
 
   // Phase 1: collect all file paths (fast, single-threaded)
   std::vector<FileInfo> file_list;
@@ -167,8 +209,8 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
 
   if (num_threads <= 1) {
     // Single-threaded fallback
-    for (size_t i = 0; i < file_list.size(); ++i) {
-      results[i] = load_one_file(file_list[i]);
+    for (const auto& [i, file] : enumerate(file_list)) {
+      results[i] = load_one_file(file);
     }
   } else {
     // Parallel loading with simple work partitioning
@@ -214,17 +256,51 @@ ApertureDataCache::ApertureDataCache(const std::filesystem::path& aperture_dir)
     }
   }
 
+  // Phase 4: shrink bucket arrays to the actual entry count.  The
+  // per-file `data.reserve(num_rows * uid_col_count)` at line ~80
+  // over-allocates because `try_emplace` then dedups; the libstdc++
+  // unordered_map keeps the over-allocated bucket array.  Calling
+  // `rehash(0)` (== rehash to the minimum size that keeps the load
+  // factor below `max_load_factor()`) drops the slack.  On the
+  // juan/gtopt_iplp cache (170 k entries across 167 elements) this
+  // saves ~5–10 MB at zero lookup cost — the rehash itself is one-
+  // shot at startup, ~milliseconds, and is read-only thereafter.
+  m_elements_.rehash(0);
+  for (auto& [key, data] : m_elements_) {
+    data.rehash(0);
+  }
+
   const auto load_s = std::chrono::duration<double>(
                           std::chrono::steady_clock::now() - load_start)
                           .count();
-  spdlog::info(
-      "ApertureDataCache: loaded {} entries across {} elements from {} "
-      "({:.2f}s, {} threads)",
-      total_entries,
-      m_elements_.size(),
-      aperture_dir.string(),
-      load_s,
-      num_threads);
+  const auto rss_after_kib = read_process_vmrss_kib();
+  if (rss_before_kib > 0 && rss_after_kib > 0) {
+    const auto delta_mib =
+        static_cast<double>(rss_after_kib - rss_before_kib) / 1024.0;
+    const auto bytes_per_entry = total_entries > 0
+        ? static_cast<double>(rss_after_kib - rss_before_kib) * 1024.0
+            / static_cast<double>(total_entries)
+        : 0.0;
+    spdlog::info(
+        "ApertureDataCache: loaded {} entries across {} elements from {} "
+        "({:.2f}s, {} threads, ΔRSS={:+.1f} MiB ≈ {:.0f} B/entry)",
+        total_entries,
+        m_elements_.size(),
+        aperture_dir.string(),
+        load_s,
+        num_threads,
+        delta_mib,
+        bytes_per_entry);
+  } else {
+    spdlog::info(
+        "ApertureDataCache: loaded {} entries across {} elements from {} "
+        "({:.2f}s, {} threads)",
+        total_entries,
+        m_elements_.size(),
+        aperture_dir.string(),
+        load_s,
+        num_threads);
+  }
 }
 
 auto ApertureDataCache::lookup(std::string_view class_name,

@@ -112,18 +112,6 @@ def test_fix_bad_solver_algorithm(tmp_path: Path):
     assert data["options"]["solver_options"]["algorithm"] == 0
 
 
-def test_fix_sddp_alpha_swap(tmp_path: Path):
-    """alpha_min > alpha_max is swapped."""
-    p = _write_plan(
-        tmp_path / "plan.json",
-        {"sddp_options": {"alpha_min": 1e12, "alpha_max": 0.0}},
-    )
-    result = sanitize_json(p)
-    data = json.loads(result.read_text())
-    sddp = data["options"]["sddp_options"]
-    assert sddp["alpha_min"] <= sddp["alpha_max"]
-
-
 def test_fix_negative_elastic_penalty(tmp_path: Path):
     """Negative elastic_penalty is fixed to 1e6."""
     p = _write_plan(
@@ -587,7 +575,6 @@ def test_cascade_new_structure_full_level(tmp_path: Path):
         },
         "transition": {
             "inherit_optimality_cuts": True,
-            "inherit_feasibility_cuts": False,
             "inherit_targets": False,
             "target_penalty": 500.0,
             "optimality_dual_threshold": 0.0,

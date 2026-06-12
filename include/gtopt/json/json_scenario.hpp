@@ -22,18 +22,19 @@ using gtopt::Scenario;
 template<>
 struct json_data_contract<Scenario>
 {
-  using type =
-      json_member_list<json_number<"uid", Uid>,
-                       json_string_null<"name", OptName>,
-                       json_number_null<"active", OptBool>,
-                       json_number_null<"probability_factor", OptReal>>;
+  using type = json_member_list<json_number<"uid", Uid>,
+                                json_string_null<"name", OptName>,
+                                json_number_null<"active", OptBool>,
+                                json_number_null<"probability_factor", OptReal>,
+                                json_number_null<"hydrology", OptInt>>;
 
   constexpr static auto to_json_data(Scenario const& scenario)
   {
     return std::forward_as_tuple(scenario.uid,
                                  scenario.name,
                                  scenario.active,
-                                 scenario.probability_factor);
+                                 scenario.probability_factor,
+                                 scenario.hydrology);
   }
 };
 

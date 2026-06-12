@@ -235,6 +235,32 @@ def _plp_indicators(
     indicators["hydro_capacity_mw"] = hydro_cap
     indicators["thermal_capacity_mw"] = thermal_cap
 
+    # Read receipts for input columns that no other indicator reflects:
+    #   * plpcnfce PotMin → Generator.pmin (gen min-stable level)
+    #   * plpcnfce Vmin   → Reservoir.emin (minimum storage volume)
+    # Without these, a PotMin / Vmin column silently read as zero would be
+    # invisible in the comparison.  Both tie out against the gtopt side's
+    # Tier-5 aggregates (compute_indicators), which sum the same JSON fields.
+    gen_min_stable = 0.0
+    if central_parser:
+        for central in central_parser.centrals:
+            if str(central.get("type", "")).lower() == "falla":
+                continue
+            if central.get("bus", 0) <= 0:
+                continue
+            pmin = central.get("pmin", 0.0)
+            if isinstance(pmin, (int, float)):
+                gen_min_stable += float(pmin)
+    indicators["total_gen_min_stable_mw"] = gen_min_stable
+
+    reservoir_min_vol = 0.0
+    if central_parser:
+        for central in central_parser.centrals:
+            emin = central.get("emin")
+            if isinstance(emin, (int, float)):
+                reservoir_min_vol += float(emin)
+    indicators["total_reservoir_min_vol"] = reservoir_min_vol
+
     # --- Total line capacity from plplin.dat ---
     # Only include lines whose both endpoints are bus > 0 (matching
     # line_writer filtering) AND that do NOT have maintenance schedules
@@ -402,18 +428,12 @@ def _plp_indicators(
     indicators["avg_flow_m3s"] = avg_flow_m3s
 
     # --- Average failure cost from falla centrals (min gcost per bus) ---
+    # Single source of truth: CentralParser.avg_falla_cost().  The same
+    # value is used by gtopt_writer.py as the default for the JSON's
+    # model_options.demand_fail_cost so the diagnostic row shown in this
+    # table matches what gtopt's LP actually prices curtailment at.
     if central_parser:
-        fcost_by_bus: dict[int, float] = {}
-        for c in central_parser.centrals:
-            if c.get("type") != "falla" or c.get("bus", 0) <= 0:
-                continue
-            bus = c["bus"]
-            gcost = float(c.get("gcost", 0.0))
-            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
-                fcost_by_bus[bus] = gcost
-        indicators["avg_fcost"] = (
-            sum(fcost_by_bus.values()) / len(fcost_by_bus) if fcost_by_bus else 0.0
-        )
+        indicators["avg_fcost"] = central_parser.avg_falla_cost()
 
     return indicators
 
@@ -454,6 +474,9 @@ def _gtopt_indicators(
         "total_water_volume_hm3": ind.total_water_volume_hm3,
         "avg_flow_m3s": ind.avg_flow_m3s,
         "avg_fcost": ind.avg_fcost,
+        # Tier-5 input-file read receipts (shared compute_indicators).
+        "total_gen_min_stable_mw": ind.total_gen_min_stable_mw,
+        "total_reservoir_min_vol": ind.total_reservoir_min_vol,
     }
 
 
@@ -466,9 +489,15 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
     counts: dict[str, Any] = {
         "buses": len(psys.get("bus_array", [])),
         "generators": len(generators),
-        "generator_profiles": len(psys.get("generator_profile_array", [])),
+        # Accept both legacy and unified profile shapes — C++ folds them
+        # together at parse time, so for comparison purposes the totals
+        # are what matters.  Counted as a single bucket.
+        "capacity_profiles": (
+            len(psys.get("capacity_profile_array", []))
+            + len(psys.get("generator_profile_array", []))
+            + len(psys.get("demand_profile_array", []))
+        ),
         "demands": len(psys.get("demand_array", [])),
-        "demand_profiles": len(psys.get("demand_profile_array", [])),
         "lines": len(psys.get("line_array", [])),
         "batteries": len(psys.get("battery_array", [])),
         "converters": len(psys.get("converter_array", [])),
@@ -510,16 +539,31 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
     for gtype, gcount in type_counts.items():
         counts[f"gen_{gtype}"] = gcount
 
-    # Stateless reservoirs: use_state_variable == False
+    # Stateless reservoirs: PLP ``hid_indep=T`` is mapped to either
+    # ``use_state_variable=False`` (--plp-legacy mode) or
+    # ``daily_cycle=True`` (default mode — the C++ ``StorageOptions``
+    # forces ``use_state_variable=False`` whenever ``daily_cycle`` is
+    # true, so the two encodings are semantically equivalent).  Count
+    # both forms so the gtopt-vs-PLP comparison stays consistent across
+    # modes.  See junction_writer.py:1219-1223.
     reservoirs = psys.get("reservoir_array", [])
     counts["stateless_reservoirs"] = sum(
-        1 for r in reservoirs if r.get("use_state_variable") is False
+        1
+        for r in reservoirs
+        if r.get("use_state_variable") is False or r.get("daily_cycle") is True
     )
 
-    # Flow + generator profile names for comparison with PLP affluents
-    # (embalse/serie → Flow objects; pasada → GeneratorProfile objects)
+    # Flow + capacity-profile names for comparison with PLP affluents
+    # (embalse/serie → Flow objects; pasada → CapacityProfile objects).
+    # Accept both the unified `capacity_profile_array` and the legacy
+    # `generator_profile_array` for backward compatibility with older
+    # planning.json files.
     flow_names = [f.get("name", "") for f in psys.get("flow_array", [])]
-    profile_names = [p.get("name", "") for p in psys.get("generator_profile_array", [])]
+    profile_names = [
+        p.get("name", "")
+        for p in psys.get("capacity_profile_array", [])
+        + psys.get("generator_profile_array", [])
+    ]
     counts["_flow_names"] = sorted(flow_names + profile_names)
 
     return counts
@@ -620,6 +664,109 @@ def compute_comparison_indicators(
     )
     gtopt_ind = _gtopt_indicators(planning, base_dir=base_dir)
     return plp_ind, gtopt_ind
+
+
+# Every PLP input ``.dat`` file the converter reads, mapped to the report
+# indicator / element-count that reflects it — the "did we read it" ledger.
+# Each row's linked indicator is non-zero only when the file was parsed, so a
+# zero in the comparison flags a missing / empty input.  Keep in sync with the
+# *_parser.py read-sites.  Columns: (file, what it carries, linked indicator).
+_INPUT_FILE_INDICATORS: tuple[tuple[str, str, str], ...] = (
+    # -- topology / time --
+    ("plpbar.dat", "buses", "buses (#)"),
+    ("plpcnfli.dat", "lines (reactance, rating)", "lines (#) / line capacity (MW)"),
+    ("plpblo.dat", "block durations", "blocks (#)"),
+    ("plpeta.dat", "stages", "stages (#)"),
+    ("indhor.csv", "block↔hour mapping", "blocks (#)"),
+    # -- generation & cost --
+    (
+        "plpcnfce.dat",
+        "centrals: PotMax/PotMin, Vmin/Vmax, falla",
+        "gen capacity, gen min-stable, reservoirs, batteries",
+    ),
+    ("plpcosce.dat", "marginal fuel cost", "generators (#) (gcost; --info avg gcost)"),
+    ("plpmance.dat", "gen pmin/pmax maintenance profile", "capacity profiles (#)"),
+    ("plpcenpmax.dat", "volume-dependent turbine pmax", "turbines (#) / gen capacity"),
+    # -- demand --
+    ("plpdem.dat", "bus demand profiles", "first/last/peak demand, total energy"),
+    ("plpextrac.dat", "bus external extractions", "demand (net load; --info)"),
+    ("plpmat.dat", "failure / spill cost params", "avg failure cost ($/MWh)"),
+    # -- network maintenance --
+    ("plpmanli.dat", "line maintenance windows", "lines (#) / line capacity"),
+    # -- hydro topology & water --
+    (
+        "plpaflce.dat",
+        "inflows (hydrology scenarios)",
+        "first block flow / total water vol",
+    ),
+    (
+        "plpmanem.dat",
+        "reservoir emin/emax profile",
+        "reservoir min vol (Σ) / reservoirs",
+    ),
+    ("plpminembh.dat", "soft per-stage min volume", "reservoir min vol (Σ)"),
+    ("plpcenre.dat", "reservoir production factor", "reservoir efficiencies (#)"),
+    ("plpcenfi.dat / plpfilemb.dat", "reservoir seepage/filtration", "seepages (#)"),
+    ("plpralco.dat", "volume→max-discharge curve", "discharge limits (#)"),
+    ("plpvrebemb.dat", "spill threshold & cost (efin)", "reservoirs (#)"),
+    (
+        "plplajam.dat / plpmaulen.dat",
+        "Laja/Maule water rights",
+        "flows / waterways (#)",
+    ),
+    # -- storage --
+    ("plpess.dat / plpcenbat.dat", "battery emax / efficiency", "batteries (#)"),
+    ("plpmanbat.dat / plpmaness.dat", "battery maintenance", "batteries (#)"),
+    # -- SDDP / scenarios --
+    ("plpidsim.dat", "sim→hydrology mapping", "scenarios (#)"),
+    (
+        "plpidape.dat / plpidap2.dat",
+        "SDDP aperture indices",
+        "scenarios (#) / apertures",
+    ),
+    ("plpplaem1/2.dat", "future-cost (FCF) cuts", "boundary_cuts.csv (--info)"),
+    ("plpcnfgnl.dat", "LNG terminals", "generators (#) (--expand-lng)"),
+)
+
+
+def _log_input_files() -> None:
+    """Print the PLP input-file ledger: every ``.dat`` the converter reads,
+    what it carries, and the report indicator that proves it was read.
+
+    Mirrors the plexos2gtopt ledger: each file maps to an indicator or element
+    count that is non-zero only when the file was parsed, so a zero there flags
+    a missing / empty input.
+    """
+    from gtopt_check_json._terminal import (  # noqa: PLC0415
+        console,
+        print_section,
+        table_width,
+    )
+    from rich.box import ASCII, ROUNDED  # noqa: PLC0415
+    from rich.table import Table  # noqa: PLC0415
+
+    con = console()
+    colr = con.is_terminal
+
+    print_section("PLP Input Files → Indicators")
+    table = Table(
+        box=ROUNDED if colr else ASCII,
+        show_lines=False,
+        padding=(0, 1),
+        width=table_width(),
+    )
+    table.add_column("Input file", no_wrap=True, min_width=26)
+    table.add_column("Carries", min_width=24)
+    table.add_column("Linked indicator", style="dim")
+    for fname, carries, indicator in _INPUT_FILE_INDICATORS:
+        table.add_row(fname, carries, indicator)
+    con.print(table)
+    con.print(
+        "[dim]A zero / blank in a linked indicator means that file was not "
+        "read (missing or empty in the case).[/dim]"
+        if colr
+        else "Note: a zero/blank linked indicator means the file was not read."
+    )
 
 
 def _log_comparison(
@@ -894,7 +1041,6 @@ def _log_comparison(
         table.add_row("", "", "", "", "")
         _row("Scaling Options", section=True)
         model_opts = gtopt_options.get("model_options", {})
-        sddp_opts = gtopt_options.get("sddp_options", {})
 
         def _scale_row(
             label: str, plp_default: str, gtopt_val: Any, note: str = ""
@@ -982,6 +1128,11 @@ def _log_comparison(
             gtopt_ind.get("thermal_capacity_mw", 0.0),
         )
         _ind_row(
+            "gen min-stable (Σ MW)",
+            plp_ind.get("total_gen_min_stable_mw", 0.0),
+            gtopt_ind.get("total_gen_min_stable_mw", 0.0),
+        )
+        _ind_row(
             "line capacity (MW)",
             plp_ind.get("total_line_capacity_mw", 0.0),
             gtopt_ind.get("total_line_capacity_mw", 0.0),
@@ -1037,6 +1188,11 @@ def _log_comparison(
             gtopt_ind.get("total_water_volume_hm3", 0.0),
         )
         _ind_row(
+            "reservoir min vol (\u03a3)",
+            plp_ind.get("total_reservoir_min_vol", 0.0),
+            gtopt_ind.get("total_reservoir_min_vol", 0.0),
+        )
+        _ind_row(
             "avg flow/affluent (m\u00b3/s)",
             plp_ind.get("avg_flow_m3s", 0.0),
             gtopt_ind.get("avg_flow_m3s", 0.0),
@@ -1048,3 +1204,5 @@ def _log_comparison(
         )
 
         con.print(ind_table)
+
+    _log_input_files()

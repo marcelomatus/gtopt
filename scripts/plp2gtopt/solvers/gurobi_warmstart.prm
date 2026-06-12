@@ -1,0 +1,9 @@
+# Gurobi warm-start parameters — loaded by the gtopt Gurobi backend (via
+# GRBreadparams) as a sibling of the case's main gurobi.prm when
+# SolverOptions::advanced_basis is active (SDDP aperture warm-start /
+# fixed-MILP dual recovery).  Mirrors cplex_warmstart.prm.
+#   Method 0   primal simplex — warm-starts off the resident VBasis/CBasis
+#              (Method 1 = dual simplex; barrier=2 cannot warm-start).
+#   Presolve 0 keep presolve from disturbing the reused basis.
+Method 0
+Presolve 0

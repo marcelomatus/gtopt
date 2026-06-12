@@ -26,7 +26,7 @@ _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
 _VALID_CUT_RECOVERY_MODES = {"none", "keep", "append", "replace"}
 _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
 _VALID_CUT_SHARING_MODES = {"none", "expected", "accumulate", "max"}
-_VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "backpropagate", "cut"}
+_VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
 
@@ -195,14 +195,6 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
     if penalty is not None and penalty <= 0:
         messages.append("FIX: sddp elastic_penalty must be > 0, setting to 1e6")
         sddp["elastic_penalty"] = 1e6
-
-    alpha_min = sddp.get("alpha_min")
-    alpha_max = sddp.get("alpha_max")
-    if alpha_min is not None and alpha_max is not None and alpha_min > alpha_max:
-        messages.append(
-            f"FIX: sddp alpha_min ({alpha_min}) > alpha_max ({alpha_max}), swapping"
-        )
-        sddp["alpha_min"], sddp["alpha_max"] = alpha_max, alpha_min
 
     for mode_key, valid in [
         ("cut_recovery_mode", _VALID_CUT_RECOVERY_MODES),

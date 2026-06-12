@@ -44,9 +44,43 @@ inline constexpr auto boundary_cuts_mode_entries =
         {.name = "combined", .value = BoundaryCutsMode::combined},
     });
 
-constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
 {
   return std::span {boundary_cuts_mode_entries};
+}
+
+// ─── BoundaryCutSoftCost ────────────────────────────────────────────────────
+
+/**
+ * @brief Which statistic of a boundary cut's coefficients to use as a
+ *        terminal soft cost for the state variables it names.
+ *
+ * The option is itself optional: an absent
+ * `std::optional<BoundaryCutSoftCost>` means "do not derive soft costs"
+ * (the cut then feeds only the future-cost α row and `scale_alpha`).  When
+ * present, the loader summarises each cut column (one per reservoir /
+ * battery) across all cut rows and sets the matching element's `efin_cost`
+ * to the negated statistic — the marginal water value (the cut ships
+ * `-wv`).  This replaces hard-pinning `vol_end >= efin`: the LP may end
+ * below the floor, priced at the water value.
+ */
+enum class BoundaryCutSoftCost : uint8_t
+{
+  min = 0,  ///< Soft cost = -min(coeff) over the cut rows
+  avg = 1,  ///< Soft cost = -avg(coeff) over the cut rows
+  max = 2,  ///< Soft cost = -max(coeff) over the cut rows
+};
+
+inline constexpr auto boundary_cut_soft_cost_entries =
+    std::to_array<EnumEntry<BoundaryCutSoftCost>>({
+        {.name = "min", .value = BoundaryCutSoftCost::min},
+        {.name = "avg", .value = BoundaryCutSoftCost::avg},
+        {.name = "max", .value = BoundaryCutSoftCost::max},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(BoundaryCutSoftCost /*tag*/) noexcept
+{
+  return std::span {boundary_cut_soft_cost_entries};
 }
 
 // ─── CutSharingMode ────────────────────────────────────────────────────────
@@ -57,13 +91,30 @@ constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept
  * When a sharing mode other than `none` is selected, the backward pass is
  * synchronized per-phase: all scenes complete a phase before cuts are shared
  * and the next phase is processed.
+ *
+ * @warning Only `none` is mathematically valid for production multi-scenario
+ * runs.  gtopt implements multi-cut SDDP (one α^k_s column per scene).  The
+ * `expected` / `accumulate` / `max` modes broadcast a cut from scene S to
+ * every other scene's α LP, which is valid only when scenes share the
+ * IDENTICAL sample-path realization (same inflows, demands, capacities at
+ * every (phase, block)).  Distinct-sample-path runs (the typical case for
+ * Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 historical hydrology
+ * samples) violate that condition and produce LB > UB that compounds
+ * across iterations.  A runtime WARN is emitted at SDDP setup when
+ * `cut_sharing != none && num_scenes > 1`.  See
+ * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
+ * and the regression test `test/source/test_sddp_bounds_sanity.cpp`.
  */
 enum class CutSharingMode : uint8_t
 {
-  none = 0,  ///< No sharing; scenes solved independently (default)
+  none = 0,  ///< No sharing; scenes solved independently (default; only
+             ///< mathematically valid choice for production multi-scenario)
   expected = 1,  ///< Average cuts within each scene, then sum across scenes
-  accumulate = 2,  ///< Sum all cuts directly (LP objectives pre-weighted)
-  max = 3,  ///< All cuts from all scenes added to all scenes
+                 ///< (KNOWN INVALID for distinct sample paths — see warning)
+  accumulate = 2,  ///< Sum all cuts directly (KNOWN INVALID for distinct
+                   ///< sample paths — see warning)
+  max = 3,  ///< All cuts from all scenes added to all scenes (KNOWN INVALID
+            ///< for distinct sample paths — see warning)
 };
 
 inline constexpr auto cut_sharing_mode_entries =
@@ -74,9 +125,73 @@ inline constexpr auto cut_sharing_mode_entries =
         {.name = "max", .value = CutSharingMode::max},
     });
 
-constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
 {
   return std::span {cut_sharing_mode_entries};
+}
+
+// ─── CutDrainMode ──────────────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP async path drains in-flight cuts after the
+ * aggregate-convergence signal fires.
+ *
+ * When `m_stop_requested_` flips in `SDDPMethod::solve_async` (because the
+ * aggregate tracker certified an iter as converged), some scenes can still
+ * have an in-flight forward+backward pass for the NEXT iter — under
+ * `max_async_spread > 0`, a fast scene may be up to `max_async_spread`
+ * iters ahead of the slowest one.  Cuts added by those still-running
+ * tasks AFTER the stop signal are non-deterministic (their inclusion
+ * depends on pool drain timing); we must drop them so the cut count
+ * handed off to the next cascade level is reproducible.
+ *
+ * Three drain strategies are available:
+ *
+ *  - `count` — snapshot each scene's cut count at the boundary
+ *    (per-scene, recorded the moment `m_stop_requested_` flips).
+ *    Any cuts pushed past that snapshot get truncated.  Cuts already in
+ *    the store at the boundary (including a fast scene's iter-(N+1)
+ *    head-start cuts) are kept.  Asymmetric across scenes: faster
+ *    scenes carry more cuts into the next level.
+ *
+ *  - `iteration` — drop every cut whose `iteration_index` is greater
+ *    than the last aggregate-certified iter (i.e.
+ *    `results.back().iteration_index`).  Symmetric: every scene retains
+ *    cuts up to the SAME iter; faster scenes lose their head-start cuts.
+ *    Bit-for-bit reproducible irrespective of pool timing.  Recommended
+ *    default.
+ *
+ *  - `all` — no truncation at all; every cut currently in the store
+ *    (including any race cuts that landed after the stop signal) is
+ *    kept.  Maximises learned-cut retention at the cost of run-to-run
+ *    determinism — the inherited cut count for the next cascade level
+ *    will vary depending on how many in-flight tasks happened to
+ *    finish before the orchestration loop exited.
+ *
+ * Default `iteration` (introduced 2026-05).  Switch to `count` to
+ * preserve the legacy asymmetric behaviour, or to `all` if convergence
+ * at the next cascade level is more important than reproducibility.
+ */
+enum class CutDrainMode : uint8_t
+{
+  count = 0,  ///< Snapshot per-scene cut count at the stop boundary.
+              ///< Legacy behaviour; asymmetric across scenes.
+  iteration = 1,  ///< Filter by `cut.iteration_index <= last_certified_iter`.
+                  ///< Default; symmetric and run-to-run deterministic.
+  all = 2,  ///< Keep every cut currently in the store — no truncation.
+            ///< Trades determinism for maximum cut retention.
+};
+
+inline constexpr auto cut_drain_mode_entries =
+    std::to_array<EnumEntry<CutDrainMode>>({
+        {.name = "count", .value = CutDrainMode::count},
+        {.name = "iteration", .value = CutDrainMode::iteration},
+        {.name = "all", .value = CutDrainMode::all},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(CutDrainMode /*tag*/) noexcept
+{
+  return std::span {cut_drain_mode_entries};
 }
 
 // ─── ElasticFilterMode ──────────────────────────────────────────────────────
@@ -85,29 +200,115 @@ constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
  * @brief How the elastic filter handles feasibility issues in the backward
  * pass.
  *
- * - `single_cut` (default): Build a single Benders feasibility cut.
+ * - `single_cut`: Build a single Benders feasibility cut.
  * - `multi_cut`: Build a Benders cut + per-slack bound cuts.
- * - `backpropagate`: Update source bounds to elastic trial values (PLP).
+ * - `chinneck` (default): Run a Chinneck-style elastic IIS filter —
+ *   identify the irreducible infeasible subset of fixed state-variable
+ *   bounds, then emit per-IIS-bound multi-cuts plus a tightened
+ *   Benders cut whose reduced costs come from the IIS-restricted
+ *   clone.  More LP solves per fcut event than `multi_cut`, but the
+ *   cuts forbid only the true infeasibility-causing region (Chinneck,
+ *   *Feasibility and Infeasibility in Optimization*, 2008, §3.5; PLP
+ *   `osi_lp_get_feasible_cut`).  Falls back to the full elastic
+ *   result when the IIS re-fix step cannot confirm a smaller subset,
+ *   so behaviour is no worse than `multi_cut` in the worst case.
  */
+// NOTE: `backpropagate` (numeric value 2) was a historical fourth
+// mode for PLP-style source-bound updates; it was deleted from the
+// production code in the forward-pass-installs-fcuts refactor and
+// the enum value removed when the parser stopped recognising it.
+// Legacy JSON/CLI strings of "backpropagate" now fall through to
+// the default (chinneck) via parse_elastic_filter_mode's value_or.
 enum class ElasticFilterMode : uint8_t
 {
-  single_cut = 0,  ///< Build a single Benders feasibility cut (default)
+  single_cut = 0,  ///< Build a single Benders feasibility cut
   multi_cut = 1,  ///< Build a Benders cut + per-slack bound cuts
-  backpropagate = 2,  ///< Update source bounds to elastic trial values (PLP)
+  chinneck = 3,  ///< Build cuts only on the Chinneck IIS (default)
 };
 
-/// Includes "cut" as a backward-compatible alias for "single_cut".
+/// Includes "cut" as a backward-compatible alias for "single_cut",
+/// and "iis" as an alias for "chinneck".
 inline constexpr auto elastic_filter_mode_entries =
     std::to_array<EnumEntry<ElasticFilterMode>>({
         {.name = "single_cut", .value = ElasticFilterMode::single_cut},
-        {.name = "cut", .value = ElasticFilterMode::single_cut},
+        {
+            .name = "cut",
+            .value = ElasticFilterMode::single_cut,
+            .is_alias = true,
+        },
         {.name = "multi_cut", .value = ElasticFilterMode::multi_cut},
-        {.name = "backpropagate", .value = ElasticFilterMode::backpropagate},
+        {.name = "chinneck", .value = ElasticFilterMode::chinneck},
+        {.name = "iis", .value = ElasticFilterMode::chinneck, .is_alias = true},
     });
 
-constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept
 {
   return std::span {elastic_filter_mode_entries};
+}
+
+// ─── ApertureSelectionMode ─────────────────────────────────────────────────
+
+/**
+ * @brief How `SddpOptions::num_apertures` selects a subset from each
+ * phase's `Phase::apertures` list.
+ *
+ * `Phase::apertures` is emitted by `plp2gtopt` sorted **wettest →
+ * driest**, so the choice of selection rule controls which N entries
+ * survive truncation:
+ *
+ * - `head` (default): pick the **first N** entries — i.e. the N
+ *   wettest apertures per phase.  Concentrates effort on the
+ *   high-water tail of the distribution.  Best for cascade L0 where
+ *   the uninodal relaxation needs only the worst-case wet tail.
+ *
+ * - `stride`: pick N entries **evenly spaced** across the full
+ *   ordered list (indices `i × total / N` for `i = 0..N-1`).  Samples
+ *   the whole wetness spectrum — first index is still the wettest,
+ *   last index is near the driest.  Best when the level wants a
+ *   representative cross-section rather than the tail.
+ *
+ * When `num_apertures` is `nullopt`, the full per-phase list is used
+ * regardless of mode.  When `num_apertures >= len(Phase::apertures)`,
+ * the full list survives in either mode.
+ */
+enum class ApertureSelectionMode : uint8_t
+{
+  head = 0,  ///< Pick first N (wettest-N when list is wettest-first).
+  stride = 1,  ///< Pick N entries evenly spaced across the full list.
+  tail = 2,  ///< Pick last N (driest-N when list is wettest-first).
+};
+
+inline constexpr auto aperture_selection_mode_entries =
+    std::to_array<EnumEntry<ApertureSelectionMode>>({
+        {.name = "head", .value = ApertureSelectionMode::head},
+        {
+            .name = "first",
+            .value = ApertureSelectionMode::head,
+            .is_alias = true,
+        },
+        {.name = "stride", .value = ApertureSelectionMode::stride},
+        {
+            .name = "interleave",
+            .value = ApertureSelectionMode::stride,
+            .is_alias = true,
+        },
+        {
+            .name = "spread",
+            .value = ApertureSelectionMode::stride,
+            .is_alias = true,
+        },
+        {.name = "tail", .value = ApertureSelectionMode::tail},
+        {
+            .name = "last",
+            .value = ApertureSelectionMode::tail,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(
+    ApertureSelectionMode /*tag*/) noexcept
+{
+  return std::span {aperture_selection_mode_entries};
 }
 
 // ─── HotStartMode ──────────────────────────────────────────────────────────
@@ -135,7 +336,7 @@ inline constexpr auto hot_start_mode_entries =
         {.name = "replace", .value = HotStartMode::replace},
     });
 
-constexpr auto enum_entries(HotStartMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(HotStartMode /*tag*/) noexcept
 {
   return std::span {hot_start_mode_entries};
 }
@@ -163,7 +364,7 @@ inline constexpr auto recovery_mode_entries =
         {.name = "full", .value = RecoveryMode::full},
     });
 
-constexpr auto enum_entries(RecoveryMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(RecoveryMode /*tag*/) noexcept
 {
   return std::span {recovery_mode_entries};
 }
@@ -191,36 +392,9 @@ inline constexpr auto missing_cut_var_mode_entries =
         {.name = "skip_cut", .value = MissingCutVarMode::skip_cut},
     });
 
-constexpr auto enum_entries(MissingCutVarMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(MissingCutVarMode /*tag*/) noexcept
 {
   return std::span {missing_cut_var_mode_entries};
-}
-
-// ─── CutCoeffMode ──────────────────────────────────────────────────────────
-
-/**
- * @brief How Benders cut coefficients are extracted from solved subproblems.
- *
- * - `reduced_cost` (default): Uses reduced costs of the dependent (fixed)
- *   columns.
- * - `row_dual`: Adds explicit equality constraint rows to fix each
- *   dependent column and reads the row duals of those coupling constraints.
- */
-enum class CutCoeffMode : uint8_t
-{
-  reduced_cost = 0,  ///< Reduced costs of fixed dependent columns (default)
-  row_dual = 1,  ///< Row duals of explicit coupling constraint rows (PLP)
-};
-
-inline constexpr auto cut_coeff_mode_entries =
-    std::to_array<EnumEntry<CutCoeffMode>>({
-        {.name = "reduced_cost", .value = CutCoeffMode::reduced_cost},
-        {.name = "row_dual", .value = CutCoeffMode::row_dual},
-    });
-
-constexpr auto enum_entries(CutCoeffMode /*tag*/) noexcept
-{
-  return std::span {cut_coeff_mode_entries};
 }
 
 // ─── ConvergenceMode ───────────────────────────────────────────────────────
@@ -250,7 +424,7 @@ inline constexpr auto convergence_mode_entries =
         {.name = "statistical", .value = ConvergenceMode::statistical},
     });
 
-constexpr auto enum_entries(ConvergenceMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(ConvergenceMode /*tag*/) noexcept
 {
   return std::span {convergence_mode_entries};
 }
@@ -278,9 +452,62 @@ inline constexpr auto state_variable_lookup_mode_entries =
         {.name = "cross_phase", .value = StateVariableLookupMode::cross_phase},
     });
 
-constexpr auto enum_entries(StateVariableLookupMode /*tag*/) noexcept
+[[nodiscard]] constexpr auto enum_entries(
+    StateVariableLookupMode /*tag*/) noexcept
 {
   return std::span {state_variable_lookup_mode_entries};
+}
+
+// ─── LowMemoryMode ──────────────────────────────────────────────────────
+
+/**
+ * @brief Low-memory mode for SDDP solver.
+ *
+ * Controls whether and how the solver releases backend memory between solves.
+ *
+ * - `off`:      Disabled — keep solver backend loaded (default).
+ * - `compress`: Release solver backend after each solve; keep a (optionally
+ *               compressed) FlatLinearProblem snapshot + dynamic columns +
+ *               accumulated cuts.  Reconstructed on demand.  Set
+ *               `memory_codec = uncompressed` to retain the flat LP raw
+ *               (previously the dedicated `snapshot` mode).
+ *
+ * The previous `rebuild` mode (re-flatten from collections on every solve,
+ * no snapshot) was removed 2026-05-13: it delivered no measurable benefit
+ * over `compress` on production workloads, while doubling the surface area
+ * of LP-lifecycle bugs we had to keep alive.
+ */
+enum class LowMemoryMode : uint8_t
+{
+  off = 0,  ///< Disabled — keep solver backend loaded (default)
+  compress = 2,  ///< Release solver, keep (optionally compressed) flat LP
+};
+
+inline constexpr auto low_memory_mode_entries =
+    std::to_array<EnumEntry<LowMemoryMode>>({
+        {.name = "off", .value = LowMemoryMode::off},
+        {.name = "compress", .value = LowMemoryMode::compress},
+        // Back-compat alias: "snapshot" parses to `compress`.  Callers
+        // that want the old snapshot semantics (uncompressed flat LP)
+        // set `memory_codec = uncompressed` explicitly.
+        {
+            .name = "snapshot",
+            .value = LowMemoryMode::compress,
+            .is_alias = true,
+        },
+        // Back-compat alias: "rebuild" was removed 2026-05-13; route to
+        // `compress` so existing configs / CLI invocations don't error.
+        // Drop this entry after one release cycle.
+        {
+            .name = "rebuild",
+            .value = LowMemoryMode::compress,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(LowMemoryMode /*tag*/) noexcept
+{
+  return std::span {low_memory_mode_entries};
 }
 
 }  // namespace gtopt

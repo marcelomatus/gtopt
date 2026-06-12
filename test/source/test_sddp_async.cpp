@@ -21,6 +21,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-argument-comment)
 
 // ─── SceneIterationTracker unit tests ──────────────────────────────────────
 
@@ -36,7 +37,7 @@ TEST_CASE("SceneIterationTracker - report and query")  // NOLINT
   SUBCASE("report_complete updates scene state")
   {
     tracker.report_complete(
-        SceneIndex {0}, IterationIndex {0}, 100.0, 80.0, true);
+        first_scene_index(), IterationIndex {0}, 100.0, 80.0, true);
     CHECK(tracker.max_completed_iteration() == IterationIndex {0});
     CHECK(tracker.min_completed_iteration() == IterationIndex {-1});
     CHECK_FALSE(tracker.all_complete(IterationIndex {0}));
@@ -54,7 +55,7 @@ TEST_CASE("SceneIterationTracker - report and query")  // NOLINT
   SUBCASE("bounds_for_iteration returns correct per-scene data")
   {
     tracker.report_complete(
-        SceneIndex {0}, IterationIndex {0}, 100.0, 80.0, true);
+        first_scene_index(), IterationIndex {0}, 100.0, 80.0, true);
     tracker.report_complete(
         SceneIndex {1}, IterationIndex {0}, 110.0, 85.0, /*feasible=*/false);
     tracker.report_complete(
@@ -66,7 +67,7 @@ TEST_CASE("SceneIterationTracker - report and query")  // NOLINT
     CHECK(bounds[0].upper_bound == doctest::Approx(100.0));
     CHECK(bounds[0].lower_bound == doctest::Approx(80.0));
     CHECK(bounds[0].feasible);
-    CHECK(bounds[0].iteration == IterationIndex {0});
+    CHECK(bounds[0].iteration_index == IterationIndex {0});
 
     CHECK(bounds[1].upper_bound == doctest::Approx(110.0));
     CHECK(bounds[1].lower_bound == doctest::Approx(85.0));
@@ -79,7 +80,7 @@ TEST_CASE("SceneIterationTracker - report and query")  // NOLINT
   SUBCASE("scene_iterations returns per-scene snapshot")
   {
     tracker.report_complete(
-        SceneIndex {0}, IterationIndex {2}, 100.0, 80.0, true);
+        first_scene_index(), IterationIndex {2}, 100.0, 80.0, true);
     tracker.report_complete(
         SceneIndex {1}, IterationIndex {0}, 110.0, 85.0, true);
     tracker.report_complete(
@@ -101,7 +102,7 @@ TEST_CASE("SceneIterationTracker - ring buffer depth")  // NOLINT
   // Report 5 iterations for scene 0
   for (int i = 0; i < 5; ++i) {
     tracker.report_complete(
-        SceneIndex {0}, IterationIndex {i}, 100.0 + i, 80.0 + i, true);
+        first_scene_index(), IterationIndex {i}, 100.0 + i, 80.0 + i, true);
   }
 
   // Only recent iterations should be retrievable
@@ -126,15 +127,17 @@ TEST_CASE("SceneIterationTracker - multiple iterations with spread")  // NOLINT
 
   // Scene 0 runs ahead (iter 0, 1, 2), scene 1 is behind (iter 0)
   tracker.report_complete(
-      SceneIndex {0}, IterationIndex {0}, 100.0, 80.0, true);
+      first_scene_index(), IterationIndex {0}, 100.0, 80.0, true);
   tracker.report_complete(
       SceneIndex {1}, IterationIndex {0}, 110.0, 85.0, true);
 
   CHECK(tracker.all_complete(IterationIndex {0}));
   CHECK(tracker.min_completed_iteration() == IterationIndex {0});
 
-  tracker.report_complete(SceneIndex {0}, IterationIndex {1}, 98.0, 82.0, true);
-  tracker.report_complete(SceneIndex {0}, IterationIndex {2}, 95.0, 84.0, true);
+  tracker.report_complete(
+      first_scene_index(), IterationIndex {1}, 98.0, 82.0, true);
+  tracker.report_complete(
+      first_scene_index(), IterationIndex {2}, 95.0, 84.0, true);
 
   CHECK(tracker.max_completed_iteration() == IterationIndex {2});
   CHECK(tracker.min_completed_iteration() == IterationIndex {0});
@@ -289,18 +292,18 @@ TEST_CASE("SceneIterationTracker - per-scene convergence tracking")  // NOLINT
 {
   SceneIterationTracker tracker(3, /*max_spread=*/5);
 
-  CHECK_FALSE(tracker.is_converged(SceneIndex {0}));
+  CHECK_FALSE(tracker.is_converged(first_scene_index()));
   CHECK_FALSE(tracker.all_converged());
   CHECK(tracker.num_converged() == 0);
 
   tracker.mark_converged(SceneIndex {1}, IterationIndex {3});
   CHECK(tracker.is_converged(SceneIndex {1}));
   CHECK(tracker.converged_iteration(SceneIndex {1}) == IterationIndex {3});
-  CHECK_FALSE(tracker.is_converged(SceneIndex {0}));
+  CHECK_FALSE(tracker.is_converged(first_scene_index()));
   CHECK_FALSE(tracker.all_converged());
   CHECK(tracker.num_converged() == 1);
 
-  tracker.mark_converged(SceneIndex {0}, IterationIndex {5});
+  tracker.mark_converged(first_scene_index(), IterationIndex {5});
   tracker.mark_converged(SceneIndex {2}, IterationIndex {4});
   CHECK(tracker.all_converged());
   CHECK(tracker.num_converged() == 3);
@@ -421,6 +424,15 @@ TEST_CASE("SDDPMethod async - per-scene output writing")  // NOLINT
   REQUIRE(results.has_value());
   REQUIRE_FALSE(results->empty());
 
+  // SDDP now defers per-cell writes to PlanningLP::write_out's chunked
+  // flush — matches production callers (see gtopt_lp_runner.cpp:676).
+  // Without this explicit call no files would land on disk, regardless
+  // of whether the solve itself succeeded.  The architecture change
+  // landed in commit 4b68e93f0 ("write_out parallel chunked dispatch
+  // + integer fixation duals refactor"); this test was authored before
+  // that refactor and was failing on master ever since.
+  planning_lp.write_out();
+
   // Verify that output files were created in the temp directory.
   // Each scene × phase should have written output.
   // Check for at least some output files (generator, demand, etc.)
@@ -484,3 +496,5 @@ TEST_CASE("SDDPMethod async - single scene falls back to sync")  // NOLINT
   // Single scene → sync path → scene_iterations not populated
   CHECK(results->back().scene_iterations.empty());
 }
+
+// NOLINTEND(bugprone-argument-comment)

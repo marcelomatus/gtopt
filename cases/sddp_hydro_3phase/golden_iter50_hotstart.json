@@ -1,0 +1,65 @@
+{
+  "// description": [
+    "Golden for the SDDP cut-I/O hot-start round-trip case",
+    "(sddp_hydro_3phase_hotstart_load).  Derived from golden_iter50.json",
+    "— the same converged primal/dual values since loading the converged",
+    "cut set into a fresh run and doing a pure sim pass should reproduce",
+    "the converged policy exactly — but without the `solver_status` block",
+    "because iter=0 (sim-only) runs do NOT emit solver_status.json (no",
+    "training iteration, no gap/UB/LB bookkeeping).  The objective check",
+    "falls through to `solution.csv` phase=1 obj_value, which pins the",
+    "same 323 100 total."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 323100.0,
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0},
+    {"scene": 0, "phase": 2, "status": 0, "obj_value": 212325.0},
+    {"scene": 0, "phase": 3, "status": 0, "obj_value": 103125.0}
+  ],
+  "element_samples": [
+    {
+      "// Reservoir final energy — end of phase 1, stage 1:": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1},
+      "value_column": "uid:1",
+      "expected": 135.0
+    },
+    {
+      "// Reservoir final energy — end of phase 3, stage 3 (drained):": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "// Hydro generation — phase 1, stage 1, block 1:": "",
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 10.0
+    },
+    {
+      "// Thermal generation (back-fill) — phase 1, stage 1, block 1:": "",
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:2",
+      "expected": 90.0
+    },
+    {
+      "// Bus balance dual = marginal cost — thermal gcost dominates:": "",
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

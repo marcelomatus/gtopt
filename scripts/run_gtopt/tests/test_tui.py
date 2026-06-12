@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from run_gtopt._tui import (
     SDDPGridTracker,
     SolverDisplay,
@@ -247,6 +249,46 @@ def test_find_status_file_fallback(tmp_path: Path):
     """When no status files exist, returns solver_status.json as default."""
     result = _find_status_file(tmp_path)
     assert result.name == "solver_status.json"
+
+
+def test_find_status_file_results_dir(tmp_path: Path):
+    """Falls back to <case>/results/ when output/ is absent.
+
+    Regression: the cascade method's planning JSON commonly sets
+    options.output_directory='results', which the C++ side honors.
+    The TUI must look there too.
+    """
+    results = tmp_path / "results"
+    results.mkdir()
+    status = results / "solver_status.json"
+    status.write_text("{}")
+    # No JSON in case_dir → discovery uses conventional fallbacks only.
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
+def test_find_status_file_honors_planning_output_directory(tmp_path: Path):
+    """Reads options.output_directory from the case's planning JSON."""
+    custom = tmp_path / "my_solver_out"
+    custom.mkdir()
+    status = custom / "solver_status.json"
+    status.write_text("{}")
+    json_path = tmp_path / f"{tmp_path.name}.json"
+    json_path.write_text('{"options": {"output_directory": "my_solver_out"}}')
+    result = _find_status_file(tmp_path)
+    assert result == status
+
+
+def test_find_status_file_planning_output_directory_absolute(tmp_path: Path):
+    """Absolute options.output_directory is honored as-is."""
+    custom = tmp_path / "abs_out"
+    custom.mkdir()
+    status = custom / "solver_status.json"
+    status.write_text("{}")
+    json_path = tmp_path / f"{tmp_path.name}.json"
+    json_path.write_text(json.dumps({"options": {"output_directory": str(custom)}}))
+    result = _find_status_file(tmp_path)
+    assert result == status
 
 
 # ---------------------------------------------------------------------------
@@ -695,8 +737,8 @@ def test_handle_key_stop_via_s(tmp_path: Path):
     assert (tmp_path / "output" / "sddp_stop_request.json").is_file()
 
 
-def test_system_stats_not_loaded_on_start(tmp_path: Path):
-    """System stats are NOT loaded on start — they are lazy-loaded on 'i' key."""
+def test_system_stats_loaded_on_start(tmp_path: Path):
+    """System stats are eagerly loaded on start() so method is displayed from the first frame."""
     json_path = _make_planning_json(tmp_path)
     case_dir = json_path.parent
 
@@ -709,8 +751,9 @@ def test_system_stats_not_loaded_on_start(tmp_path: Path):
     time.sleep(0.2)
     display.stop()
 
-    # Stats should NOT be loaded at startup (lazy-loaded on 'i' key press)
-    assert display._system_stats.get("elements") is None
+    # Stats are loaded eagerly at startup for immediate display
+    assert display._system_stats.get("elements") is not None
+    assert display._system_stats.get("method") == "sddp"
 
 
 def test_system_stats_lazy_loaded_on_i_key(tmp_path: Path):
@@ -751,9 +794,9 @@ def test_phase_tracker_sddp_sequence():
         "[00:00:10] Build lp time 8.000s",
         "[00:00:10] === System optimization ===",
         "[00:00:10] SDDPMethod: starting 1 scene(s)",
-        "[00:01:00] SDDP: === iteration 3 / 99 ===",
-        "[00:02:00] SDDP: === simulation pass (iter 4) ===",
-        "[00:02:30] SDDP: simulation pass done in 30.000s",
+        "[00:01:00] SDDP Iter [i3]: === starting (3 of 99) ===",
+        "[00:02:00] SDDP Sim [i4]: === simulation pass ===",
+        "[00:02:30] SDDP Sim [i4]: done in 30.000s — UB=1K LB=1K gap=0.00%",
         "[00:02:30] === Solution statistics ===",
         "[00:02:30] === Output writing ===",
         "[00:02:35] Write output time 5.000s",
@@ -783,7 +826,7 @@ def test_phase_tracker_detail_sddp_iteration():
     tracker = SolverPhaseTracker()
     tracker.process_line("=== System optimization ===")
     assert tracker.states["optimize"].status == "active"
-    tracker.process_line("SDDP: === iteration 5 / 99 ===")
+    tracker.process_line("SDDP Iter [i5]: === starting (5 of 99) ===")
     assert tracker.states["optimize"].detail == "iter 5/99"
 
 
@@ -867,6 +910,61 @@ def test_grid_tracker_forward_pass():
     assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 3) == _GRID_IDLE  # not visited
+
+
+def test_grid_tracker_forward_pass_with_phase_total():
+    """Forward INFO lines emit ``p<idx>/<total>`` (e.g. ``p3/51``); the
+    grid tracker must (a) accept the suffix without dropping the line
+    and (b) widen the grid to the declared total immediately, instead
+    of waiting for the solver to actually reach the highest phase.
+    Pinned after the IPLP run displayed ~40 of 51 phases because the
+    high-numbered columns hadn't been visited yet."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p0/3]: opex=1.23M")
+    tracker.process_line("SDDP Forward [i0 s0 p1/3]: opex=2.34M")
+    tracker.process_line("SDDP Forward [i0 s0 p2/3]: opex=3.45M")
+
+    assert tracker.has_data
+    assert tracker.scenes == [0]
+    # max_phase reflects the declared total (3), not just the highest
+    # observed phase (2) — so the grid pre-allocates all columns.
+    assert tracker.max_phase == 3
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+
+
+def test_grid_tracker_phase_total_pre_expands_grid():
+    """The /<total> suffix on the very first observed log line widens
+    max_phase to the declared total, even when only the first phase
+    has been seen so far.  Regression for the IPLP case where 51
+    phases existed but only ~40 columns rendered until the solver
+    reached phase 50+."""
+    tracker = SDDPGridTracker()
+    tracker.process_line("SDDP Forward [i0 s0 p3/51]: opex=1M")
+    assert tracker.max_phase == 51
+    # The aperture group is now group 6 (after the new total group);
+    # ensure the regex still recognises an aperture suffix.
+    tracker2 = SDDPGridTracker()
+    tracker2.process_line("SDDP Aperture [i0 s0 p3/51 a7]: bound=1.0")
+    assert tracker2.aperture_count == 1
+    assert tracker2.max_phase == 51
+
+
+def test_grid_tracker_kappa_records_max_value():
+    """Kappa warnings record both count and the worst observed value."""
+    tracker = SDDPGridTracker()
+    tracker.process_line(
+        "SDDP Kappa [i1 s0 p3]: high kappa 1.50e+04 (threshold 1.00e+04)"
+    )
+    tracker.process_line(
+        "SDDP Kappa [i1 s0 p4]: high kappa 7.20e+05 (threshold 1.00e+04)"
+    )
+    tracker.process_line(
+        "SDDP Kappa [i2 s1 p1]: high kappa 3.10e+02 (threshold 1.00e+04)"
+    )
+    assert tracker.kappa_warnings == 3
+    assert tracker.max_kappa == 7.20e5
 
 
 def test_grid_tracker_backward_pass():
@@ -994,6 +1092,127 @@ def test_build_sddp_grid_panel():
     assert panel is not None
 
 
+def test_grid_tracker_aggregate_cell_coverage_and_dominance():
+    """Aggregate cell summarizes both coverage and dominant state.
+
+    With three scenes where only two visited (iter=0, phase=2) and
+    one of those hit elastic, the aggregate cell must report:
+      - coverage = 2/3 (visited fraction)
+      - dominant = elastic (highest priority across scenes)
+    """
+    tracker = SDDPGridTracker()
+    # Scene 0 — forward
+    tracker.process_line("SDDP Forward [i0 s0 p2]: ok")
+    # Scene 1 — elastic forward (highest priority among visited)
+    tracker.process_line("SDDP Forward [i0 s1 p2]: elastic mode")
+    # Scene 2 — never visited cell (still tracked because process_line
+    # registered it on a different cell).
+    tracker.process_line("SDDP Forward [i0 s2 p0]: ok")
+
+    state, coverage = tracker.aggregate_cell(0, 2)
+    assert state == _GRID_ELASTIC, (
+        f"Dominant must be highest-priority state across scenes, not {state}"
+    )
+    assert coverage == pytest.approx(2 / 3), (
+        f"Two of three scenes visited (iter=0, phase=2); got {coverage}"
+    )
+    # Scene 2's untouched cell shows up as state=forward (lowest)
+    # because at least one scene visited it.
+    state2, cov2 = tracker.aggregate_cell(0, 0)
+    assert state2 == _GRID_FORWARD
+    assert cov2 == pytest.approx(1 / 3)
+
+
+def test_grid_tracker_aggregate_cell_no_scenes():
+    """Aggregate of an empty tracker returns idle + zero coverage."""
+    tracker = SDDPGridTracker()
+    state, coverage = tracker.aggregate_cell(0, 0)
+    assert state == _GRID_IDLE
+    assert coverage == 0.0
+
+
+def test_build_sddp_grid_with_scroll_window_clips_scenes():
+    """When max_visible_scenes < n_scenes, the renderer must clip.
+
+    Regression for the original bug: with 50 scenes and a small
+    terminal, the panel rendered all 50 and the bottom rows were
+    invisible (no scroll).  After the fix, the renderer only emits
+    the windowed slice and adds 'N scene(s) above/below' ribbons.
+    """
+    tracker = SDDPGridTracker()
+    for sc in range(20):
+        tracker.process_line(f"SDDP Forward [i0 s{sc} p1]: ok")
+    panel = _build_sddp_grid(
+        tracker,
+        scroll_offset=5,
+        max_visible_scenes=3,
+        active_scene_hint=10,
+    )
+    # Render to plain text and inspect.
+    from rich.console import Console  # noqa: PLC0415
+
+    console = Console(width=120, record=True)
+    console.print(panel)
+    out = console.export_text()
+    # Visible scenes should be s5, s6, s7 (offset=5, count=3).
+    assert "s5" in out
+    assert "s6" in out
+    assert "s7" in out
+    # And explicitly NOT scenes outside the window.
+    assert "s10\n" not in out  # active_scene_hint is reported in header,
+    #                            # not as a per-scene block here.
+    # Range header must show context.
+    assert "of 20" in out
+    # Above/below ribbons must surface the hidden counts.
+    assert "above" in out
+    assert "below" in out
+
+
+def test_solver_display_grid_scroll_keys(tmp_path: Path):
+    """j/k/J/K/g/G must move the grid scroll offset and latch
+    user-scrolled state so auto-follow stops yanking the viewport."""
+    display = SolverDisplay(case_name="t", case_dir=tmp_path)
+    # Populate enough scenes to allow scrolling.
+    for sc in range(10):
+        display.add_log_line(f"SDDP Forward [i0 s{sc} p0]: ok")
+    display._display_mode = 1  # _MODE_GRID
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled
+
+    display._handle_key("j")
+    assert display._grid_scroll_offset == 1
+    assert display._grid_user_scrolled, "j must latch user-scrolled"
+
+    display._handle_key("J")
+    assert display._grid_scroll_offset == 6  # +5 page
+
+    display._handle_key("k")
+    assert display._grid_scroll_offset == 5
+
+    display._handle_key("G")
+    assert display._grid_scroll_offset == 9  # n_scenes-1 = 9
+
+    display._handle_key("g")
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled, "g resets the latch"
+
+
+def test_solver_display_grid_scroll_keys_ignored_in_other_modes(
+    tmp_path: Path,
+):
+    """j/k must NOT move the scroll offset outside Grid mode — they
+    might be useful for other modes later, so we don't want a silent
+    side-effect now."""
+    display = SolverDisplay(case_name="t", case_dir=tmp_path)
+    for sc in range(5):
+        display.add_log_line(f"SDDP Forward [i0 s{sc} p0]: ok")
+    display._display_mode = 0  # _MODE_DASHBOARD
+    display._handle_key("j")
+    display._handle_key("J")
+    assert display._grid_scroll_offset == 0
+    assert not display._grid_user_scrolled
+
+
 def test_grid_tracker_display_integration(tmp_path: Path):
     """SolverDisplay.add_log_line feeds the grid tracker."""
     display = SolverDisplay(case_name="test", case_dir=tmp_path)
@@ -1008,13 +1227,31 @@ def test_grid_tracker_display_integration(tmp_path: Path):
 
 
 def test_grid_load_from_status_basic():
-    """Grid can be populated from status JSON phase_grid data."""
+    """Grid can be populated from status JSON phase_grid data (UID-keyed)."""
     tracker = SDDPGridTracker()
     status = {
         "phase_grid": {
             "rows": [
-                {"i": 0, "s": 0, "cells": "FF.FEB"},
-                {"i": 1, "s": 0, "cells": "FFFFFF"},
+                # PhaseUid-keyed cells: "1" first, sorted by integer UID.
+                # Position 0 in the column axis = first PhaseUid (1).
+                # PhaseUid 3 is missing → position 2 stays idle.
+                {
+                    "i": 0,
+                    "s": 0,
+                    "cells": {"1": "F", "2": "F", "4": "F", "5": "E", "6": "B"},
+                },
+                {
+                    "i": 1,
+                    "s": 0,
+                    "cells": {
+                        "1": "F",
+                        "2": "F",
+                        "3": "F",
+                        "4": "F",
+                        "5": "F",
+                        "6": "F",
+                    },
+                },
             ],
         },
     }
@@ -1023,24 +1260,26 @@ def test_grid_load_from_status_basic():
     assert tracker.has_data
     assert tracker.scenes == [0]
     assert tracker.max_iter == 1
+    # Iter 0 row covers UIDs 1,2,4,5,6 → ordinal width = 5 → max_phase = 4.
+    # Iter 1 row covers UIDs 1..6 → ordinal width = 6 → max_phase = 5.
     assert tracker.max_phase == 5
     assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
     assert tracker.get_cell(0, 0, 1) == _GRID_FORWARD
-    assert tracker.get_cell(0, 0, 2) == _GRID_IDLE  # '.' = idle
-    assert tracker.get_cell(0, 0, 3) == _GRID_FORWARD
-    assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
-    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD
+    # PhaseUid 4 is the third recorded UID → ordinal index 2.
+    assert tracker.get_cell(0, 0, 2) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 3) == _GRID_ELASTIC
+    assert tracker.get_cell(0, 0, 4) == _GRID_BACKWARD
     assert tracker.get_cell(0, 1, 0) == _GRID_FORWARD
 
 
 def test_grid_load_from_status_multi_scene():
-    """Multiple scenes from status JSON."""
+    """Multiple scenes from status JSON (UID-keyed)."""
     tracker = SDDPGridTracker()
     status = {
         "phase_grid": {
             "rows": [
-                {"i": 0, "s": 0, "cells": "FB"},
-                {"i": 0, "s": 1, "cells": "FA"},
+                {"i": 0, "s": 0, "cells": {"1": "F", "2": "B"}},
+                {"i": 0, "s": 1, "cells": {"1": "F", "2": "A"}},
             ],
         },
     }
@@ -1061,7 +1300,7 @@ def test_grid_load_from_status_merges_with_log():
     assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
 
     # Status JSON has backward (higher priority) for same cell
-    status = {"phase_grid": {"rows": [{"i": 0, "s": 0, "cells": "B"}]}}
+    status = {"phase_grid": {"rows": [{"i": 0, "s": 0, "cells": {"1": "B"}}]}}
     tracker.load_from_status(status)
     assert tracker.get_cell(0, 0, 0) == _GRID_BACKWARD
 
@@ -1078,9 +1317,32 @@ def test_grid_load_from_status_empty():
 
 
 def test_grid_load_infeasible_from_status():
-    """Infeasible cells from status JSON."""
+    """Infeasible cells from status JSON (UID-keyed)."""
     tracker = SDDPGridTracker()
-    status = {"phase_grid": {"rows": [{"i": 2, "s": 1, "cells": "FXF"}]}}
+    status = {
+        "phase_grid": {
+            "rows": [{"i": 2, "s": 1, "cells": {"1": "F", "2": "X", "3": "F"}}]
+        }
+    }
     tracker.load_from_status(status)
     assert tracker.get_cell(1, 2, 1) == _GRID_INFEASIBLE
     assert tracker.get_cell(1, 2, 0) == _GRID_FORWARD
+
+
+def test_grid_load_from_status_legacy_string():
+    """Legacy positional-string cells are still accepted for backward compat."""
+    tracker = SDDPGridTracker()
+    status = {
+        "phase_grid": {
+            "rows": [
+                {"i": 0, "s": 0, "cells": "FF.FEB"},
+            ],
+        },
+    }
+    tracker.load_from_status(status)
+    assert tracker.has_data
+    assert tracker.max_phase == 5
+    assert tracker.get_cell(0, 0, 0) == _GRID_FORWARD
+    assert tracker.get_cell(0, 0, 2) == _GRID_IDLE
+    assert tracker.get_cell(0, 0, 4) == _GRID_ELASTIC
+    assert tracker.get_cell(0, 0, 5) == _GRID_BACKWARD

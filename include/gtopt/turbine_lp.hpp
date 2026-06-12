@@ -11,12 +11,12 @@
  */
 #pragma once
 
-#include <cassert>
-
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/generator_lp.hpp>
+#include <gtopt/junction_lp.hpp>
 #include <gtopt/reservoir_lp.hpp>
 #include <gtopt/turbine.hpp>
+#include <gtopt/utils.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -41,7 +41,10 @@ using TurbineLPSId = ObjectSingleId<class TurbineLP>;
 class TurbineLP : public ObjectLP<Turbine>
 {
 public:
-  static constexpr LPClassName ClassName {"Turbine", "tur"};
+  static constexpr std::string_view ConversionName {"conversion"};
+  static constexpr std::string_view CapacityName {"capacity"};
+  /// Name of the turbine-owned flow column emitted in built-in waterway mode.
+  static constexpr std::string_view FlowName {"flow"};
 
   /**
    * @brief Construct a TurbineLP from a Turbine and input context
@@ -61,19 +64,46 @@ public:
     return turbine().flow.has_value();
   }
 
+  /// @return Whether this turbine carries its own flow arc between junctions
+  /// (built-in waterway mode), enabled when `junction_a` is set.  In this mode
+  /// the turbine owns a flow column that debits `junction_a`, optionally
+  /// credits `junction_b` (when set), and converts the flow to power — no
+  /// separate Waterway element is needed.
+  [[nodiscard]] constexpr bool uses_junctions() const noexcept
+  {
+    return turbine().junction_a.has_value();
+  }
+
+  /// @return Whether the built-in waterway mode credits a downstream junction.
+  /// When false (junction_b unset), the turbined flow drains out of the system
+  /// — used for terminal (run-to-sea) plants.
+  [[nodiscard]] constexpr bool has_junction_b() const noexcept
+  {
+    return turbine().junction_b.has_value();
+  }
+
+  [[nodiscard]] auto junction_a_sid() const -> JunctionLPSId
+  {
+    return JunctionLPSId {require_sid(
+        turbine().junction_a, "TurbineLP::junction_a_sid", "junction_a")};
+  }
+
+  [[nodiscard]] auto junction_b_sid() const -> JunctionLPSId
+  {
+    return JunctionLPSId {require_sid(
+        turbine().junction_b, "TurbineLP::junction_b_sid", "junction_b")};
+  }
+
   [[nodiscard]] auto waterway_sid() const -> WaterwayLPSId
   {
-    const auto& opt = turbine().waterway;
-    assert(opt.has_value()
-           && "waterway_sid() called on a Turbine without a waterway");
-    return WaterwayLPSId {*opt};
+    return WaterwayLPSId {
+        require_sid(turbine().waterway, "TurbineLP::waterway_sid", "waterway")};
   }
 
   [[nodiscard]] auto flow_sid() const -> FlowLPSId
   {
-    const auto& opt = turbine().flow;
-    assert(opt.has_value() && "flow_sid() called on a Turbine without a flow");
-    return FlowLPSId {*opt};
+    return FlowLPSId {
+        require_sid(turbine().flow, "TurbineLP::flow_sid", "flow")};
   }
 
   [[nodiscard]] constexpr auto generator_sid() const noexcept
@@ -93,6 +123,22 @@ public:
     return efficiency.at(tuid).value_or(1.0);
   }
 
+  /// @name Parameter accessors for user constraint resolution.
+  /// Per-stage Turbine schedules — discard the block argument.  Returned
+  /// by the ``ampl_dispatch_registry`` shims so PAMPL constraints can
+  /// reference ``turbine('X').<field>`` as a constant scalar.
+  /// @{
+  [[nodiscard]] auto param_production_factor(StageUid s) const
+  {
+    return production_factor.at(s);
+  }
+  [[nodiscard]] auto param_efficiency(StageUid s) const
+  {
+    return efficiency.at(s);
+  }
+  [[nodiscard]] auto param_capacity(StageUid s) const { return capacity.at(s); }
+  /// @}
+
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
@@ -108,6 +154,15 @@ public:
     return conversion_rows.at({scenario.uid(), stage.uid()});
   }
 
+  /// Access the turbine-owned flow columns (built-in waterway mode) for a
+  /// (scenario, stage).  Returns an empty inner map when the turbine does not
+  /// use junctions or every block was elided by the zero-bound skip.
+  [[nodiscard]] const auto& flow_cols_at(const ScenarioLP& scenario,
+                                         const StageLP& stage) const
+  {
+    return find_or_empty_inner(flow_cols, scenario, stage);
+  }
+
 private:
   OptTRealSched production_factor;
   OptTRealSched efficiency;
@@ -115,6 +170,13 @@ private:
 
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;
+  STBIndexHolder<ColIndex> flow_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Turbine::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Turbine"`).
+static_assert(TurbineLP::Element::class_name == LPClassName {"Turbine"},
+              "Turbine::class_name must remain \"Turbine\"");
 
 }  // namespace gtopt

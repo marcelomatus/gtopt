@@ -62,15 +62,14 @@ import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    add_version_argument,
+    get_version,
+)
 
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 logger = logging.getLogger(__name__)
 
@@ -136,37 +135,163 @@ def load_pandapower_net(file_path: Path):
 # ---------------------------------------------------------------------------
 
 
+def _find_gtopt_csv(comp_dir: Path, stem: str) -> Path:
+    """Return the CSV path for ``stem`` inside ``comp_dir``.
+
+    gtopt now writes per-(scene, phase) shards named ``{stem}_s*_p*.csv``;
+    fall back to the legacy single-file ``{stem}.csv`` layout.
+    """
+    shards = sorted(comp_dir.glob(f"{stem}_s*_p*.csv"))
+    if shards:
+        return shards[0]
+    legacy = comp_dir / f"{stem}.csv"
+    if legacy.exists():
+        return legacy
+    # Reported error mentions the legacy name so existing tests keep matching.
+    raise FileNotFoundError(f"Not found: {comp_dir / f'{stem}.csv'}")
+
+
+def _read_gtopt_per_block_uid_values(
+    csv_path: Path,
+    n_blocks: int | None = None,
+    n_uids: int | None = None,
+) -> list[list[float]]:
+    """Read a gtopt per-element CSV into a ``[block_idx][uid_idx]`` matrix.
+
+    Detects both layouts written by gtopt's output writer:
+
+    * **wide** (legacy): header ``scenario,stage,block,uid:1,uid:2,…``
+      and one row per ``(scenario, stage, block)``.  Each row contributes
+      one inner list with the values of the ``uid:N`` columns in header
+      order (which is ascending uid).
+    * **long** (default since 2026-05-19): header
+      ``scenario,stage,block,uid,value``.  Rows are collected per
+      ``(scenario, stage, block)`` and the ``value`` column is laid out
+      in ascending-uid order so it lines up with the wide-form column
+      ordering callers rely on.
+
+    Missing ``(scenario, stage, block, uid)`` cells in the long form
+    are treated as ``0.0`` — this matches the wide-form behaviour
+    after a zero-fill pivot and is what the comparison sites assume
+    (they index ``gt_row[gi]`` with a 0-fallback).
+
+    Parameters
+    ----------
+    csv_path:
+        Path to the gtopt CSV (legacy single-file or scene/phase shard).
+    n_blocks:
+        Expected number of blocks.  When provided, the long-form path
+        pads its return value with all-zero rows until the matrix has
+        exactly ``n_blocks`` rows — needed because the long-form encoding
+        drops rows whose every uid value is zero, so a file with only a
+        couple of non-zero blocks would otherwise return fewer rows than
+        the caller expects.  Ignored on the wide-form path (which is
+        already one row per block).
+    n_uids:
+        Expected number of distinct uids (1-based).  When provided, the
+        long-form path widens each row to exactly ``n_uids`` columns by
+        filling missing uids with ``0.0`` and using the natural
+        ``uid:1, uid:2, …, uid:n_uids`` ordering — needed because the
+        long-form file would otherwise drop a uid entirely when its
+        values are zero across every cell, shifting downstream
+        positional indices.  Ignored on the wide-form path.
+    """
+    with open(csv_path, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader)
+        rows = list(reader)
+
+    # Long-form sniff: the wide schema never has a bare `uid` column.
+    if "uid" in header and "value" in header:
+        idx_uid = header.index("uid")
+        idx_value = header.index("value")
+        # Use whichever cell-key columns are present (matches the
+        # output_context.cpp long-form schema: scenario, stage, block).
+        key_idxs = [
+            header.index(k) for k in ("scenario", "stage", "block") if k in header
+        ]
+        idx_block = header.index("block") if "block" in header else None
+        # Gather rows by composite key, preserving first-seen key order,
+        # plus collect every uid we encountered for the ascending-uid
+        # layout pass.
+        rows_by_key: dict[tuple, dict[int, float]] = {}
+        key_order: list[tuple] = []
+        uids_seen: set[int] = set()
+        for raw in rows:
+            if not raw:
+                continue
+            key = tuple(raw[i] for i in key_idxs)
+            try:
+                uid = int(raw[idx_uid])
+                val = float(raw[idx_value])
+            except (ValueError, IndexError):
+                continue
+            uids_seen.add(uid)
+            bucket = rows_by_key.get(key)
+            if bucket is None:
+                bucket = {}
+                rows_by_key[key] = bucket
+                key_order.append(key)
+            bucket[uid] = val
+        if n_uids is not None:
+            uid_order = list(range(1, int(n_uids) + 1))
+        else:
+            uid_order = sorted(uids_seen)
+        matrix = [[rows_by_key[k].get(u, 0.0) for u in uid_order] for k in key_order]
+
+        if n_blocks is not None and idx_block is not None:
+            # Pad missing blocks with all-zero rows.  Map present block
+            # ids to their row index in `matrix`, then walk 1..n_blocks
+            # and stitch the result in block order.
+            present: dict[int, int] = {}
+            for row_idx, key in enumerate(key_order):
+                try:
+                    blk = int(key[key_idxs.index(idx_block)])
+                except (ValueError, IndexError):
+                    continue
+                present.setdefault(blk, row_idx)
+            width = len(uid_order)
+            padded: list[list[float]] = []
+            for b in range(1, int(n_blocks) + 1):
+                rix = present.get(b)
+                if rix is None:
+                    padded.append([0.0] * width)
+                else:
+                    padded.append(matrix[rix])
+            return padded
+        return matrix
+
+    # Wide-form path: walk every uid:N column in header order.
+    uid_indices = [i for i, h in enumerate(header) if h.startswith("uid:")]
+    if not uid_indices:
+        return []
+    return [[float(r[i]) for i in uid_indices] for r in rows if r]
+
+
 def read_gtopt_generation(output_dir: Path) -> list:
     """Return per-generator dispatch (MW) from Generator/generation_sol.csv.
 
-    The CSV has a header row whose uid columns start with ``uid:``.
-    Only the first data row (single block/stage/scenario) is read.
+    Layout-aware: handles both the wide (``uid:N`` columns) and long
+    (``uid``,``value``) outputs.  Only the first data row (single
+    block/stage/scenario) is read.
     """
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
-    with open(gen_file, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        header = next(reader)
-        row = next(reader)
-    uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
-    return [float(row[i]) for i in range(uid_start, len(row))]
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
+    matrix = _read_gtopt_per_block_uid_values(gen_file)
+    if not matrix:
+        return []
+    return matrix[0]
 
 
 def read_gtopt_lmps(output_dir: Path) -> list:
     """Return bus LMPs ($/MWh) from Bus/balance_dual.csv.
 
-    Reads only the first data row (single block/stage/scenario).
+    Layout-aware; reads only the first data row.
     """
-    lmp_file = output_dir / "Bus" / "balance_dual.csv"
-    if not lmp_file.exists():
-        raise FileNotFoundError(f"Not found: {lmp_file}")
-    with open(lmp_file, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        header = next(reader)
-        row = next(reader)
-    uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
-    return [float(row[i]) for i in range(uid_start, len(row))]
+    lmp_file = _find_gtopt_csv(output_dir / "Bus", "balance_dual")
+    matrix = _read_gtopt_per_block_uid_values(lmp_file)
+    if not matrix:
+        return []
+    return matrix[0]
 
 
 def _read_solution_csv(sol_file: Path) -> dict[str, float | int | str]:
@@ -216,11 +341,11 @@ def _read_solution_csv(sol_file: Path) -> dict[str, float | int | str]:
     return result
 
 
-def read_gtopt_cost(output_dir: Path, scale: float = _SCALE_OBJECTIVE) -> float:
+def read_gtopt_cost(output_dir: Path, scale: float = 1.0) -> float:
     """Return the objective value from solution.csv, scaled by *scale*.
 
-    gtopt stores ``obj_value / scale_objective`` in solution.csv; multiplying
-    by *scale* (default 1000) recovers the original cost in $/h.
+    gtopt stores the physical objective value in solution.csv (already
+    unscaled by scale_objective internally).
     """
     sol_file = output_dir / "solution.csv"
     if not sol_file.exists():
@@ -231,25 +356,31 @@ def read_gtopt_cost(output_dir: Path, scale: float = _SCALE_OBJECTIVE) -> float:
     return float(row["obj_value"]) * scale
 
 
-def read_gtopt_battery_dispatch(output_dir: Path) -> tuple:
+def read_gtopt_battery_dispatch(output_dir: Path, n_blocks: int | None = None) -> tuple:
     """Return (fout, finp) lists from Battery/fout_sol.csv and finp_sol.csv.
 
     Each list has one float per block.  ``fout[b]`` is the discharge power
     (MW injected into the grid) and ``finp[b]`` is the charge power (MW drawn
-    from the grid) at block *b* for battery uid:1.
+    from the grid) at block *b* for the (single) battery uid in the file.
+
+    Layout-aware: handles both wide (``uid:N`` columns, last column is the
+    single battery's value when only one battery is present) and long
+    (``uid``,``value``) CSV formats.  ``n_blocks`` is forwarded to the
+    long-form reader so that batteries with zero dispatch across every
+    block (whose rows are dropped by the long encoding) still return a
+    correctly-sized zero list.
     """
 
-    def _read_battery_csv(path: Path) -> list:
-        if not path.exists():
-            raise FileNotFoundError(f"Not found: {path}")
-        with open(path, newline="", encoding="utf-8") as fh:
-            reader = csv.reader(fh)
-            next(reader)  # skip header
-            return [float(row[-1]) for row in reader]
+    def _read_battery_csv(stem: str) -> list:
+        path = _find_gtopt_csv(bat_dir, stem)
+        matrix = _read_gtopt_per_block_uid_values(path, n_blocks=n_blocks, n_uids=1)
+        # The legacy contract is "first battery per block" — both layouts
+        # land that on column 0 of the matrix.
+        return [row[0] if row else 0.0 for row in matrix]
 
     bat_dir = output_dir / "Battery"
-    fout = _read_battery_csv(bat_dir / "fout_sol.csv")
-    finp = _read_battery_csv(bat_dir / "finp_sol.csv")
+    fout = _read_battery_csv("fout_sol")
+    finp = _read_battery_csv("finp_sol")
     return fout, finp
 
 
@@ -1046,24 +1177,20 @@ def _compare_bat_4b_24(
 
     n_blocks = 24
 
-    fout, finp = read_gtopt_battery_dispatch(output_dir)
+    fout, finp = read_gtopt_battery_dispatch(output_dir, n_blocks=n_blocks)
     if len(fout) != n_blocks or len(finp) != n_blocks:
         raise ValueError(
             f"Expected {n_blocks} blocks in battery output; "
             f"got fout={len(fout)}, finp={len(finp)}"
         )
 
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
-
-    gtopt_gen_all: list = []
-    with open(gen_file, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        header = next(reader)
-        uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
-        for row in reader:
-            gtopt_gen_all.append([float(row[i]) for i in range(uid_start, len(row))])
+    # bat_4b_24 has three conventional generators (g1=uid:1, g2=uid:2,
+    # g_solar=uid:3) — fix the long-form widening so g_solar's row is
+    # never dropped when all-zero across a block.
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
+    gtopt_gen_all: list = _read_gtopt_per_block_uid_values(
+        gen_file, n_blocks=n_blocks, n_uids=3
+    )
 
     passed = True
 
@@ -1197,16 +1324,15 @@ def _compare_plp(
     n_blocks = len(plp_gen)
 
     # --- Read gtopt generation (all blocks) ---
-    gen_file = output_dir / "Generator" / "generation_sol.csv"
-    if not gen_file.exists():
-        raise FileNotFoundError(f"Not found: {gen_file}")
-    gtopt_gen_all: list = []
-    with open(gen_file, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        header = next(reader)
-        uid_start = next(i for i, h in enumerate(header) if h.startswith("uid:"))
-        for row in reader:
-            gtopt_gen_all.append([float(row[i]) for i in range(uid_start, len(row))])
+    # Pad blocks to ``n_blocks`` and uids to the count of conventional
+    # centrals so the comparison loop's positional index aligns with the
+    # PLP CenNum ordering — necessary because the long-form encoding
+    # drops any uid that is identically zero across the whole horizon
+    # (e.g. a profile generator with zero output at every block).
+    gen_file = _find_gtopt_csv(output_dir / "Generator", "generation_sol")
+    gtopt_gen_all: list = _read_gtopt_per_block_uid_values(
+        gen_file, n_blocks=n_blocks, n_uids=len(conv_centrals)
+    )
 
     # --- Read gtopt battery dispatch when PLP has ESS data ---
     gt_fout: list = []
@@ -1215,23 +1341,17 @@ def _compare_plp(
         bat_dir = output_dir / "Battery"
         if bat_dir.exists():
             try:
-                gt_fout, gt_finp = read_gtopt_battery_dispatch(output_dir)
+                gt_fout, gt_finp = read_gtopt_battery_dispatch(
+                    output_dir, n_blocks=n_blocks
+                )
             except FileNotFoundError:
                 pass  # battery files absent → treat as all-zero
 
     # --- Read gtopt LMPs (all blocks) ---
-    lmp_file = output_dir / "Bus" / "balance_dual.csv"
-    if not lmp_file.exists():
-        raise FileNotFoundError(f"Not found: {lmp_file}")
-    gtopt_lmp_all: list = []
-    with open(lmp_file, newline="", encoding="utf-8") as fh:
-        reader = csv.reader(fh)
-        header = next(reader)
-        uid_start_lmp = next(i for i, h in enumerate(header) if h.startswith("uid:"))
-        for row in reader:
-            gtopt_lmp_all.append(
-                [float(row[i]) for i in range(uid_start_lmp, len(row))]
-            )
+    lmp_file = _find_gtopt_csv(output_dir / "Bus", "balance_dual")
+    gtopt_lmp_all: list = _read_gtopt_per_block_uid_values(
+        lmp_file, n_blocks=n_blocks, n_uids=len(bus_names)
+    )
 
     passed = True
 
@@ -1468,29 +1588,9 @@ examples:
         metavar="$/MWh",
         help="Bus LMP tolerance in $/MWh (default: 0.1).",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        metavar="LEVEL",
-        help=(
-            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
-            "(default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version=f"%(prog)s {__version__}",
-    )
+    add_version_argument(parser)
+    add_log_level_argument(parser)
+    add_color_argument(parser)
     args = parser.parse_args()
 
     logging.basicConfig(

@@ -26,10 +26,12 @@ from plp2gtopt.plp2gtopt import (
     convert_plp_case,
     create_zip_output,
     generate_variable_scales_template,
+    install_solver_param_files,
     print_variable_scales_template,
     run_post_check,
     validate_plp_case,
 )
+from plp2gtopt import plp2gtopt as _plp2gtopt_mod
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.stage_parser import StageParser
 
@@ -51,7 +53,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
         "hydrologies": "1",
         "last_stage": -1,
         "last_time": -1,
-        "compression": "zstd",
+        "compression": "snappy",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,
@@ -107,7 +109,8 @@ def test_convert_plp_case_zip_output(tmp_path):
     opts["zip_output"] = True
     convert_plp_case(opts)
 
-    zip_path = opts["output_file"].with_suffix(".zip")
+    # ZIP is placed next to (not inside) the output directory
+    zip_path = opts["output_dir"].parent / f"{opts['output_dir'].name}.zip"
     assert zip_path.exists(), "ZIP archive not created"
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -133,7 +136,7 @@ def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
     opts["zip_output"] = True
     convert_plp_case(opts)
 
-    zip_path = opts["output_file"].with_suffix(".zip")
+    zip_path = opts["output_dir"].parent / f"{opts['output_dir'].name}.zip"
     input_dir_name = opts["output_dir"].name
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -141,6 +144,26 @@ def test_convert_plp_case_zip_preserves_subdirs(tmp_path):
 
     # Demand/lmax.parquet must be under the input_dir prefix
     assert f"{input_dir_name}/Demand/lmax.parquet" in names
+
+
+def test_convert_plp_case_zip_not_inside_output_dir(tmp_path):
+    """ZIP archive must not be created inside the output directory.
+
+    Regression test: placing the zip inside output_dir caused rglob("*")
+    to pick it up during creation, leading to an infinite loop.
+    """
+    opts = _make_opts(_PLPMin1Bus, tmp_path)
+    opts["zip_output"] = True
+    convert_plp_case(opts)
+
+    output_dir = opts["output_dir"]
+    # No .zip file should exist inside the output directory
+    zips_inside = list(output_dir.rglob("*.zip"))
+    assert not zips_inside, f"ZIP file(s) found inside output directory: {zips_inside}"
+
+    # The zip should exist next to the output directory
+    zip_path = output_dir.parent / f"{output_dir.name}.zip"
+    assert zip_path.exists(), "ZIP archive not found next to output directory"
 
 
 def test_create_zip_output_unit(tmp_path):
@@ -231,17 +254,17 @@ def test_gtopt_writer_to_json_returns_planning(tmp_path):
     """GTOptWriter.to_json() returns a dict with options/system/simulation keys."""
     mock_parser = _make_mock_parser()
 
-    with patch("plp2gtopt.gtopt_writer.BlockWriter") as mock_bw, patch(
-        "plp2gtopt.gtopt_writer.StageWriter"
-    ) as mock_sw, patch("plp2gtopt.gtopt_writer.BusWriter") as mock_busw, patch(
-        "plp2gtopt.gtopt_writer.CentralWriter"
-    ) as mock_cw, patch("plp2gtopt.gtopt_writer.LineWriter") as mock_lw, patch(
-        "plp2gtopt.gtopt_writer.DemandWriter"
+    with patch("plp2gtopt._writer_time.BlockWriter") as mock_bw, patch(
+        "plp2gtopt._writer_time.StageWriter"
+    ) as mock_sw, patch("plp2gtopt._writer_network.BusWriter") as mock_busw, patch(
+        "plp2gtopt._writer_generation.CentralWriter"
+    ) as mock_cw, patch("plp2gtopt._writer_network.LineWriter") as mock_lw, patch(
+        "plp2gtopt._writer_network.DemandWriter"
     ) as mock_dw, patch(
-        "plp2gtopt.gtopt_writer.GeneratorProfileWriter"
-    ) as mock_gpw, patch("plp2gtopt.gtopt_writer.AflceWriter") as mock_aw, patch(
-        "plp2gtopt.gtopt_writer.JunctionWriter"
-    ) as mock_jw, patch("plp2gtopt.gtopt_writer.BatteryWriter") as mock_battery:
+        "plp2gtopt._writer_generation.GeneratorProfileWriter"
+    ) as mock_gpw, patch("plp2gtopt._writer_hydro.AflceWriter") as mock_aw, patch(
+        "plp2gtopt._writer_hydro.JunctionWriter"
+    ) as mock_jw, patch("plp2gtopt._writer_network.BatteryWriter") as mock_battery:
         # All writers return empty arrays
         for m in [mock_bw, mock_sw, mock_busw, mock_cw, mock_lw, mock_dw]:
             m.return_value.to_json_array.return_value = []
@@ -543,7 +566,8 @@ def test_main_zip_creates_archive(tmp_path):
         main()
 
     assert out_file.exists()
-    zip_path = out_file.with_suffix(".zip")
+    # ZIP is placed next to (not inside) the output directory
+    zip_path = out_dir.parent / f"{out_dir.name}.zip"
     assert zip_path.exists(), "ZIP archive not created by main() -z"
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -598,11 +622,11 @@ def test_build_options_num_apertures_default():
     assert opts["num_apertures"] == "all"
 
 
-def test_build_options_short_flags_solver():
-    """-S is the short form for --solver."""
-    args = make_parser().parse_args(["-S", "mono"])
+def test_build_options_short_flags_method():
+    """-M is the short form for --method."""
+    args = make_parser().parse_args(["-M", "mono"])
     opts = build_options(args)
-    assert opts["solver_type"] == "mono"
+    assert opts["method"] == "mono"
 
 
 def test_build_options_short_flags_stages_phase():
@@ -1212,3 +1236,45 @@ def test_log_stats_all_zero_elements():
     }
     # Should not raise; exercises the fallback when no elements > 0
     _log_stats(planning, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# install_solver_param_files() — solvers/*.prm bundling
+# ---------------------------------------------------------------------------
+
+
+def test_install_solver_param_files_copies_bundled(tmp_path):
+    """install_solver_param_files copies every bundled ``*.prm``."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "cplex.prm").write_text(
+        "CPLEX Parameter File Version 22.1.1.0\nCPXPARAM_MIP_Cuts_Gomory   2\n"
+    )
+    (bundle / "highs.prm").write_text("solver = simplex\n")
+
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = bundle
+    try:
+        installed = install_solver_param_files(target)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    assert {p.name for p in installed} == {"cplex.prm", "highs.prm"}
+    cplex_dst = target / "solvers" / "cplex.prm"
+    assert cplex_dst.is_file()
+    assert "CPXPARAM_MIP_Cuts_Gomory" in cplex_dst.read_text()
+
+
+def test_install_solver_param_files_no_bundle(tmp_path):
+    """install_solver_param_files is a no-op when the bundle is missing."""
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = tmp_path / "does_not_exist"
+    try:
+        installed = install_solver_param_files(target)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    assert installed == []
+    assert not (target / "solvers").exists()

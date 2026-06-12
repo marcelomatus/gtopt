@@ -146,7 +146,6 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   }
 
   // Point GTOPT_CONFIG to our test file
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   setenv("GTOPT_CONFIG", tmp.c_str(), 1);
 
   const auto opts = load_gtopt_config();
@@ -156,7 +155,7 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   REQUIRE(opts.threads.has_value());
   CHECK(*opts.threads == 8);
   REQUIRE(opts.algorithm.has_value());
-  CHECK(*opts.algorithm == static_cast<int>(LPAlgo::dual));
+  CHECK(*opts.algorithm == LPAlgo::dual);
   REQUIRE(opts.output_format.has_value());
   CHECK(*opts.output_format == "csv");
   REQUIRE(opts.output_compression.has_value());
@@ -170,7 +169,6 @@ TEST_CASE("load_gtopt_config - Reads [gtopt] section via GTOPT_CONFIG")
   REQUIRE(opts.lp_debug.has_value());
   CHECK(*opts.lp_debug == false);
 
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   unsetenv("GTOPT_CONFIG");
   std::filesystem::remove(tmp);
 }
@@ -208,6 +206,7 @@ TEST_CASE("merge_config_defaults - CLI overrides config")
 TEST_CASE("merge_config_defaults - Empty config changes nothing")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   MainOptions cli_opts;
   cli_opts.solver = "clp";
@@ -218,3 +217,5 @@ TEST_CASE("merge_config_defaults - Empty config changes nothing")
   CHECK(*cli_opts.solver == "clp");
   CHECK_FALSE(cli_opts.threads.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

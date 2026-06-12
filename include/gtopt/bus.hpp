@@ -22,6 +22,7 @@
 
 #pragma once
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -39,10 +40,19 @@ namespace gtopt
  */
 struct Bus
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `BusLP` exposes no separate `ClassName` member; callers reach the
+  /// constant via `Bus::class_name` directly (or
+  /// `BusLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Bus"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Operational status (default: active)
   OptName type {};  ///< Optional bus type tag (e.g. "pq", "pv", "slack")
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
   OptReal voltage {};  ///< Nominal voltage level [kV].
                        ///< Used by needs_kirchhoff() to filter low-V buses.
   OptReal reference_theta {};  ///< Fixed voltage angle for reference bus [rad]

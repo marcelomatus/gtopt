@@ -29,6 +29,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -46,16 +47,45 @@ namespace gtopt
  */
 struct Flow
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `FlowLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Flow::class_name` directly (or
+  /// `FlowLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Flow"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   OptInt direction {
       1};  ///< Flow direction: +1 = inflow, −1 = outflow [dimensionless]
 
   OptSingleId junction {};  ///< ID of the connected junction (optional for
                             ///< flow-turbine mode)
-  STBRealFieldSched discharge {};  ///< Water discharge schedule [m³/s]
+  /// Water discharge schedule [m³/s].  Optional: when unset AND
+  /// ``fcost`` is set, the LP column upper bound defaults to
+  /// ``+inf`` (``DblMax``) — useful for non-physical inflow slacks
+  /// that don't need an explicit cap.  When unset AND ``fcost`` is
+  /// also unset, the Flow contributes no column for that block (no
+  /// bound information available).
+  OptSTBRealFieldSched discharge {};
+
+  /// Optional per-(stage, block) flow cost [$/(m³/s)/h].  When set,
+  /// the LP-side ``Flow`` column relaxes from the default hard
+  /// equality ``lowb = uppb = discharge`` to a soft band
+  /// ``lowb = 0, uppb = discharge`` (or ``+inf`` if ``discharge`` is
+  /// unset) and the column receives a positive objective coefficient
+  /// ``fcost × cost_factor(scenario, stage, block)`` so the LP pays
+  /// ``fcost · flow · duration`` per block.  Models PLEXOS-style
+  /// "Non-physical Inflow Penalty" — a costed slack column that the
+  /// solver only activates when the junction balance cannot otherwise
+  /// close.  When unset the legacy hard-forced semantics are
+  /// preserved (no cost, ``flow = discharge`` exactly).
+  OptTBRealFieldSched fcost {};
 
   /// @return true if flow is directed into the junction (inflow)
   [[nodiscard]] constexpr bool is_input() const noexcept

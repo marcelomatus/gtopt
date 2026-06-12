@@ -1,0 +1,58 @@
+% =====================================================================
+% island_clustering.tex --- 5-bus illustration of coherent island grouping
+% =====================================================================
+\begin{tikzpicture}[
+  font=\scriptsize,
+  bus/.style={circle, draw, fill=blue!15, minimum size=6mm,
+              inner sep=0pt, font=\scriptsize\bfseries},
+  >={Stealth[length=3pt]},
+]
+  % axis: lambda value
+  \draw[->] (-0.3,0) -- (10.3,0)
+        node[anchor=west] {$\lambda_b$ [USD/MWh]};
+
+  % tick labels
+  \foreach \x/\v in {0/72, 2/74, 4/76, 6/82, 8/84, 10/86}{
+    \draw (\x,0.05) -- (\x,-0.05) node[below,font=\tiny] {\v};
+  }
+
+  % buses as filled circles
+  \node[bus] (b1) at (0.3,1.2)  {b1};
+  \node[bus] (b2) at (1.7,1.2)  {b2};
+  \node[bus] (b3) at (3.5,1.2)  {b3};
+  \node[bus] (b4) at (6.2,1.2)  {b4};
+  \node[bus] (b5) at (8.4,1.2)  {b5};
+
+  % drop lines from bus to lambda axis
+  \foreach \n/\x in {b1/0.3, b2/1.7, b3/3.5, b4/6.2, b5/8.4}
+    \draw[dotted] (\n) -- (\x,0);
+
+  % pairwise tolerance edges (within tau)
+  \draw[blue!70!black, very thick] (b1) -- (b2)
+        node[midway,above,font=\tiny,text=blue!70!black]
+        {\,$|\Delta\lambda|\!=\!2\!\le\!\tau$};
+  \draw[blue!70!black, very thick] (b2) -- (b3)
+        node[midway,above,font=\tiny,text=blue!70!black]
+        {\,$|\Delta\lambda|\!=\!2$};
+  \draw[blue!70!black, very thick] (b4) -- (b5)
+        node[midway,above,font=\tiny,text=blue!70!black]
+        {\,$|\Delta\lambda|\!=\!2$};
+
+  % rejected edge: b3-b4 ; cumulative spread cap broken
+  \draw[red!75!black, dashed, thick]
+        (b3) -- (b4) node[midway,above,font=\tiny,text=red!75!black]
+        {\,cumulative spread $>\!4$};
+
+  % island brackets
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},
+        thick, green!50!black]
+        (-0.05,-0.55) -- (3.85,-0.55)
+        node[midway,below=4pt,font=\scriptsize,text=green!50!black]
+        {island~$I_1$};
+  \draw[decorate,decoration={brace,amplitude=4pt,mirror},
+        thick, green!50!black]
+        (5.95,-0.55) -- (8.65,-0.55)
+        node[midway,below=4pt,font=\scriptsize,text=green!50!black]
+        {island~$I_2$};
+
+\end{tikzpicture}

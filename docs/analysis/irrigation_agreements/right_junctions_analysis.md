@@ -352,11 +352,11 @@ Default monthly irrigation demands (April-March hydrological year):
 
 | File | Path |
 |------|------|
-| Maule config (long term) | `support/plp_long_term/plpmaulen.dat.xz` |
-| Maule config (5 year) | `support/plp_5_years/plpmaulen.dat.xz` |
-| Maule config (2 year) | `support/plp_2_years/plpmaulen.dat.xz` |
-| Laja config (long term) | `support/plp_long_term/plplajam.dat.xz` |
-| Laja config (5 year) | `support/plp_5_years/plplajam.dat.xz` |
-| Laja config (2 year) | `support/plp_2_years/plplajam.dat.xz` |
+| Maule config (long term) | `support/plp/long_term/plpmaulen.dat.xz` |
+| Maule config (5 year) | `support/plp/5_years/plpmaulen.dat.xz` |
+| Maule config (2 year) | `support/plp/2_years/plpmaulen.dat.xz` |
+| Laja config (long term) | `support/plp/long_term/plplajam.dat.xz` |
+| Laja config (5 year) | `support/plp/5_years/plplajam.dat.xz` |
+| Laja config (2 year) | `support/plp/2_years/plplajam.dat.xz` |
 | PLP implementation doc | `docs/analysis/irrigation_agreements/plp_implementation.md` |
 | PLP Fortran source | `https://github.com/marcelomatus/plp_storage/tree/main/CEN65/src` |

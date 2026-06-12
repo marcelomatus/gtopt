@@ -45,6 +45,7 @@ addopts = "-v --import-mode=importlib"
 pythonpath = ["."]
 markers = [
     "integration: end-to-end tests that use sample PLP case files",
+    "julia_oracle: tests that cross-check gtopt against a Julia / PowerSimulations.jl golden",
 ]
 
 [tool.coverage.run]

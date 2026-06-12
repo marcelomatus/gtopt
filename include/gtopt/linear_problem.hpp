@@ -13,14 +13,22 @@
 
 #pragma once
 
+#include <cstddef>
+#include <format>
 #include <limits>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
+#include <gtopt/label_maker.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/strong_index_vector.hpp>
+#include <gtopt/variable_scale.hpp>
 
 namespace gtopt
 {
@@ -49,17 +57,85 @@ struct FlatLinearProblem
   std::vector<double> rowlb;  ///< Lower bounds for constraints
   std::vector<double> rowub;  ///< Upper bounds for constraints
   std::vector<index_t> colint;  ///< Indices of integer variables
+  /// Type-2 Special-Ordered-Sets (SOS2) collected during LP build via
+  /// ``LinearProblem::add_sos2``.  Each inner vector lists the column
+  /// indices participating in one SOS2 in geometric order; weights are
+  /// not stored explicitly (backends default to ``1, 2, …, N``).
+  /// Consumed by ``LinearInterface::load_flat`` which forwards each
+  /// inner vector to ``SolverBackend::add_sos2``.  Empty for the vast
+  /// majority of LPs; populated only by features that need SOS2
+  /// (issue #504 line-loss L-secant chord).
+  std::vector<std::vector<index_t>> sos2_sets;
   std::vector<double> col_scales;  ///< Per-column physical-to-LP scale factors
                                    ///< (physical = LP × scale; default 1.0)
   std::vector<double> row_scales;  ///< Per-row equilibration scale factors
                                    ///< (max |coeff| per row).
                                    ///< dual_physical = dual_LP / row_scale.
                                    ///< Empty when row equilibration is off.
+  /// Equilibration method selected at flatten() time.  Persisted so the
+  /// `LinearInterface::add_row` path can apply the same per-row
+  /// equilibration to post-build cut rows.
+  LpEquilibrationMethod equilibration_method {LpEquilibrationMethod::none};
+  double scale_objective {1.0};  ///< Global objective divisor applied during
+                                 ///< flatten().  obj_physical = obj_LP ×
+                                 ///< scale_objective.
 
-  name_vec_t colnm;  ///< Variable names
-  name_vec_t rownm;  ///< Constraint names
+  /// Constant offset added to `get_obj_value_raw()` by
+  /// `LinearInterface`.  Stored on the *raw* (LP-scaled) cost scale
+  /// — i.e. the source `LinearProblem::m_obj_constant_` (physical
+  /// scale) divided by `scale_objective` at `flatten()` time.  This
+  /// makes both views compose naturally without an extra constant
+  /// term in `get_obj_value()`:
+  ///
+  ///   get_obj_value_raw() = solver_raw + obj_constant_raw
+  ///   get_obj_value()     = get_obj_value_raw() × scale_objective
+  ///
+  /// Pre-substitution tests that assert raw-value magnitudes
+  /// continue to hold across formulations because the raw view
+  /// already includes the substituted constant in LP-scaled units.
+  ///
+  /// Accumulated by `LinearProblem::add_obj_constant(c)` (physical
+  /// scale) whenever a model rewrite folds a *dispatch-side* variable
+  /// away via substitution (e.g. the P0 demand-failure variable
+  /// rewrite: `fail = lmax − load` leaves the objective with a
+  /// `+fail_cost × lmax` constant term that the LP solver knows
+  /// nothing about, yet that constant IS dispatch cost and belongs
+  /// in every consumer of `get_obj_value()`).
+  ///
+  /// Note: cost-to-go style shifts (e.g. the boundary-cut α-rebase
+  /// `α' = α − c̄` in `sddp_boundary_cuts.cpp`) are handled at the
+  /// SDDP level — they shift cut RHSs in-place and SDDPMethod adds
+  /// `c̄_scene` to UB/LB at compute time.  Those do NOT use
+  /// `obj_constant_raw`; the field is exclusively for dispatch-side
+  /// substitutions.
+  double obj_constant_raw {0.0};
+
+  name_vec_t colnm;  ///< Variable names (dense; populated when names enabled)
+  name_vec_t rownm;  ///< Constraint names (dense; populated when names enabled)
   index_map_t colmp;  ///< Map from variable names to indices
   index_map_t rowmp;  ///< Map from constraint names to indices
+
+  /// Lightweight label metadata, populated unconditionally at flatten.
+  /// Carries just the `(class_name, variable_name / constraint_name,
+  /// uid, context)` fields that `LabelMaker` needs to synthesise a
+  /// human-readable label on demand.  `LinearInterface` copies these
+  /// at `load_flat` time so `write_lp` can produce real gtopt names
+  /// even when `colnm` / `rownm` are empty (flatten ran without
+  /// `col_with_names` / `row_with_names`).
+  std::vector<SparseColLabel> col_labels_meta;
+  std::vector<SparseRowLabel> row_labels_meta;
+
+  /// Eager dedup hash maps, copied from the LinearProblem during
+  /// `flatten()`.  `LinearInterface::load_flat()` moves these
+  /// directly into `m_col_meta_index_` / `m_row_meta_index_` instead
+  /// of calling `rebuild_meta_indexes()` — the LinearProblem already
+  /// did the hash work during `add_col` / `add_row` and there's no
+  /// reason to rehash.  ~50% of the post-`load_flat` setup cost on
+  /// large problems (500K cols / 300K rows ≈ 50–100 ms).
+  std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      col_meta_index;
+  std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      row_meta_index;
 
   std::string name;  ///< Problem name
 
@@ -74,8 +150,10 @@ struct FlatLinearProblem
       std::numeric_limits<double>::max(),
   };
 
-  index_t stats_max_col {-1};  ///< Column index of the largest |coefficient|
-  index_t stats_min_col {-1};  ///< Column index of the smallest |coefficient|
+  /// Column index of the largest / smallest |coefficient| in A,
+  /// engaged only when `compute_stats` populated the sweep.
+  std::optional<ColIndex> stats_max_col {};
+  std::optional<ColIndex> stats_min_col {};
 
   std::string stats_max_col_name {};  ///< Name of column with largest |coeff|
   std::string stats_min_col_name {};  ///< Name of column with smallest |coeff|
@@ -95,7 +173,7 @@ struct FlatLinearProblem
   /// Coefficient ratio max/min (1.0 when empty, no valid min, or all equal).
   [[nodiscard]] constexpr double stats_coeff_ratio() const noexcept
   {
-    if (stats_min_abs <= 0.0 || stats_min_col < 0
+    if (stats_min_abs <= 0.0 || !stats_min_col
         || stats_min_abs >= std::numeric_limits<double>::max()
         || stats_min_abs == stats_max_abs || stats_nnz == 0)
     {
@@ -104,6 +182,17 @@ struct FlatLinearProblem
     return stats_max_abs / stats_min_abs;
   }
   /// @}
+
+  /// VariableScaleMap copied from LinearProblem during flatten().
+  /// LinearInterface picks this up in load_flat() so dynamically
+  /// added columns can be auto-scaled.
+  VariableScaleMap variable_scale_map {};
+
+  /// LabelMaker copied from LinearProblem during flatten().
+  /// LinearInterface picks this up in load_flat() so dynamically
+  /// added columns and rows generate labels consistent with the
+  /// original names_level configuration.
+  LabelMaker label_maker {};
 };
 
 /**
@@ -156,6 +245,59 @@ public:
     return m_infinity_;
   }
 
+  /// Accumulate a physical-scale constant into the objective.
+  ///
+  /// Use this when a model rewrite folds a variable away by
+  /// substitution.  Example — demand-failure substitution:
+  /// the algebraic identity `fail = lmax − load` lets us drop both
+  /// the `fail` column and the `lcol + fcol = lmax` balance row, at
+  /// the cost of:
+  ///   1.  shifting `lcol`'s objective coefficient by `−fail_cost`
+  ///       (the linear-in-load part of the substituted cost), and
+  ///   2.  carrying `+fail_cost × lmax` as an LP-external constant
+  ///       (the constant part of the substitution).
+  ///
+  /// `c` is interpreted on the *physical* cost scale (same units as
+  /// the original `cost` fields of `SparseCol`).  It is NOT divided
+  /// by `scale_objective` — the solver never sees this term.  Final
+  /// reporting via `LinearInterface::get_obj_value()` combines:
+  ///   `physical_obj = solver_raw_obj × scale_objective + obj_constant`
+  /// so the obj-constant flows through SDDP cuts, forward-pass cost
+  /// accumulation, and standalone obj-value reporting at full
+  /// fidelity regardless of how aggressive `scale_objective` is.
+  ///
+  /// Calls accumulate (additive); pass a negative `c` to subtract.
+  constexpr void add_obj_constant(double c) noexcept { m_obj_constant_ += c; }
+
+  /// Current accumulated objective constant (physical units).  Zero
+  /// in every existing call site that does not opt into the
+  /// substitution rewrite.  Named with the `get_` prefix to match
+  /// the other LP-side accessors (`get_obj_value` family).
+  [[nodiscard]] constexpr double get_obj_constant() const noexcept
+  {
+    return m_obj_constant_;
+  }
+
+  /// Set the VariableScaleMap used for automatic scale resolution in add_col.
+  void set_variable_scale_map(VariableScaleMap map) { m_vsm_ = std::move(map); }
+
+  /// Get the VariableScaleMap (empty if not set).
+  [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
+  {
+    return m_vsm_;
+  }
+
+  /// Set the LabelMaker used to generate column/row labels during flatten().
+  /// The LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  /// continue generating labels for dynamically added columns/rows.
+  void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
+
+  /// Get the LabelMaker (default-constructed = names off if not set).
+  [[nodiscard]] const LabelMaker& label_maker() const noexcept
+  {
+    return m_label_maker_;
+  }
+
   /**
    * Pre-reserves capacity for columns, rows, and coefficients.
    * Call before the build loop to avoid repeated reallocations.
@@ -175,9 +317,9 @@ public:
    */
   template<typename SparseCol = gtopt::SparseCol>
   [[nodiscard]]
-  constexpr ColIndex add_col(SparseCol&& col)
+  ColIndex add_col(SparseCol&& col)
   {
-    const auto index = ColIndex {static_cast<Index>(cols.size())};
+    const auto index = col_index_size(cols);
 
     if (col.is_integer) {
       ++colints;
@@ -186,6 +328,91 @@ public:
     // Normalize DblMax bounds to the configured infinity.
     normalize_bound(col.lowb);
     normalize_bound(col.uppb);
+
+    // Integer / binary columns must never be rescaled by the auto-scaling
+    // machinery: a non-unit column scale turns the physical bound 1 into a
+    // non-integer LP upper bound (e.g. 1 / 0.0861 = 11.6189), and the
+    // backend's integer enforcement then has no LP value that maps back to
+    // physical 1.  Concretely: Commitment.status declared with bounds
+    // [0, 1] and is_integer=true would get its LP bound rescaled to a
+    // non-integer when KVL rows pull the column-scale away from 1, leaving
+    // the MIP unable to represent physical u = 1 (only u ∈ {0, 0.086, …,
+    // 0.947}).  Pinning scale = 1.0 here is the single source of truth for
+    // that invariant and intentionally overrides any VariableScaleMap
+    // entry — there is no legitimate use case for scaling a discrete
+    // variable.
+    //
+    // The ``pin_scale`` flag extends the same exemption to LP-relax-of-
+    // integer columns and never-integer-declared [0, 1] semantically-
+    // binary variables (startup / shutdown) — see task #50.
+    if (col.is_integer || col.pin_scale) [[unlikely]] {
+      col.scale = 1.0;
+    } else if (!col.class_name.empty() && !m_vsm_.empty()) {
+      // Auto-resolve scale from VariableScaleMap when the caller provided
+      // class_name metadata.  The map entry overrides any pre-computed
+      // scale (including auto_scale) — only per-element fields that
+      // avoid setting class_name metadata are immune.  When the map has
+      // no entry for this (class, variable, uid), the pre-set scale (or
+      // default 1.0) is kept.
+      const auto resolved =
+          m_vsm_.lookup(col.class_name, col.variable_name, col.variable_uid);
+      if (resolved != 1.0) {
+        col.scale = resolved;
+      }
+    }
+
+    // Labelled columns must carry a concrete `variable_uid`.  Leaving
+    // it at `unknown_uid = -1` serialises the column label as
+    // `<class>_<var>_-1_…`, whose `-` is rejected by CoinLpIO's name
+    // validator and causes CBC to strip every col/row label from
+    // the written LP file (master #426 / a8a0e452, PR #429).  Throw
+    // on the addition path so the offending callsite is flagged at
+    // build time rather than surfacing as an opaque LP-file audit
+    // failure.
+    if (!col.class_name.empty() && col.variable_uid == unknown_uid) {
+      throw std::invalid_argument(
+          std::format("LinearProblem::add_col: labelled column (class='{}', "
+                      "var='{}') has variable_uid = unknown_uid — the LP "
+                      "label serialises to `…_-1_…` and CoinLpIO rejects "
+                      "it (all labels dropped on write_lp).  Set a concrete "
+                      "variable_uid, or leave class_name empty for an "
+                      "anonymous column.",
+                      col.class_name,
+                      col.variable_name));
+    }
+
+    // Eager duplicate detection: two SparseCols with the same
+    // (class_name, variable_name, variable_uid, context) 4-tuple
+    // would produce the same LP label and silently overwrite each
+    // other at lookup — always a bug.  Columns whose metadata is
+    // fully empty (no identity at all) are skipped so structural
+    // tests that build unnamed LP cells don't trip the detector.
+    //
+    // The check piggybacks on the map's `try_emplace` so there is
+    // no extra lookup pass.
+    if (!(col.class_name.empty() && col.variable_name.empty()
+          && col.variable_uid == unknown_uid
+          && std::holds_alternative<std::monostate>(col.context)))
+    {
+      auto [it, inserted] = m_col_meta_index_.try_emplace(
+          SparseColLabel {
+              .class_name = col.class_name,
+              .variable_name = col.variable_name,
+              .variable_uid = col.variable_uid,
+              .context = col.context,
+          },
+          index);
+      if (!inserted) {
+        throw std::runtime_error(
+            std::format("Duplicate LP column metadata: class='{}' var='{}' "
+                        "uid={} (first at col {}, duplicate at col {})",
+                        col.class_name,
+                        col.variable_name,
+                        col.variable_uid,
+                        it->second,
+                        index));
+      }
+    }
 
     cols.emplace_back(std::forward<SparseCol>(col));
     return index;
@@ -198,13 +425,38 @@ public:
    */
   template<typename SparseRow = gtopt::SparseRow>
   [[nodiscard]]
-  constexpr RowIndex add_row(SparseRow&& row)
+  RowIndex add_row(SparseRow&& row)
   {
-    const auto index = RowIndex {static_cast<Index>(rows.size())};
+    const auto index = row_index_size(rows);
 
     // Normalize DblMax bounds to the configured infinity.
     normalize_bound(row.lowb);
     normalize_bound(row.uppb);
+
+    // Eager duplicate detection — see `add_col` for rationale.
+    if (!(row.class_name.empty() && row.constraint_name.empty()
+          && row.variable_uid == unknown_uid
+          && std::holds_alternative<std::monostate>(row.context)))
+    {
+      auto [it, inserted] = m_row_meta_index_.try_emplace(
+          SparseRowLabel {
+              .class_name = row.class_name,
+              .constraint_name = row.constraint_name,
+              .variable_uid = row.variable_uid,
+              .context = row.context,
+          },
+          index);
+      if (!inserted) {
+        throw std::runtime_error(
+            std::format("Duplicate LP row metadata: class='{}' cons='{}' "
+                        "uid={} (first at row {}, duplicate at row {})",
+                        row.class_name,
+                        row.constraint_name,
+                        row.variable_uid,
+                        it->second,
+                        index));
+      }
+    }
 
     ncoeffs += row.size();
     rows.emplace_back(std::forward<SparseRow>(row));
@@ -242,6 +494,26 @@ public:
   [[nodiscard]] constexpr auto get_col_uppb(ColIndex index) const
   {
     return cols.at(index).uppb;
+  }
+
+  /**
+   * Sets the lower bound of a column
+   * @param index Column index
+   * @param lowb New lower bound value
+   */
+  constexpr void set_col_lowb(ColIndex index, double lowb)
+  {
+    cols.at(index).lowb = lowb;
+  }
+
+  /**
+   * Sets the upper bound of a column
+   * @param index Column index
+   * @param uppb New upper bound value
+   */
+  constexpr void set_col_uppb(ColIndex index, double uppb)
+  {
+    cols.at(index).uppb = uppb;
   }
 
   /**
@@ -313,12 +585,63 @@ public:
     return rows[row][col];
   }
 
+  /// Read-only access to the raw column vector (for fingerprinting).
+  [[nodiscard]] constexpr const cols_t& get_cols() const noexcept
+  {
+    return cols;
+  }
+
+  /// Read-only access to the raw row vector (for fingerprinting).
+  [[nodiscard]] constexpr const rows_t& get_rows() const noexcept
+  {
+    return rows;
+  }
+
   /**
    * Builds the flat (column-major) LP representation
    * @param opts LP build options
    * @return Flat representation of the problem
    */
   [[nodiscard]] FlatLinearProblem flatten(const LpMatrixOptions& opts = {});
+
+  /// Declare a Type-2 Special-Ordered-Set (SOS2) over the given column
+  /// indices.  Stored on the LinearProblem until ``flatten()`` copies
+  /// it into ``FlatLinearProblem::sos2_sets``; ``LinearInterface::
+  /// load_flat`` then forwards each set to
+  /// ``SolverBackend::add_sos2``.  See ``SolverBackend::add_sos2``
+  /// for the supported-backend matrix.  Indices MUST already be valid
+  /// column indices (call AFTER the relevant ``add_col`` calls).
+  ///
+  /// Vacuous sets (size < 2) are dropped silently — SOS2 over a
+  /// single column has no effect, and an empty span is most likely
+  /// an LP-build edge case that the caller would prefer not to see
+  /// surface as a structured error in ``SolverBackend::add_sos2``.
+  ///
+  /// @param columns Column indices in geometric breakpoint order.
+  void add_sos2(std::span<const ColIndex> columns)
+  {
+    if (columns.size() < 2) {
+      return;
+    }
+    std::vector<index_t> idx;
+    idx.reserve(columns.size());
+    for (const auto& c : columns) {
+      idx.push_back(static_cast<index_t>(c));
+    }
+    sos2_sets.push_back(std::move(idx));
+  }
+
+  /// Convenience overload accepting an ``initializer_list`` of column
+  /// indices.  Forwards to the span-based ``add_sos2``.  Reserved for
+  /// callers that build a small SOS2 inline (e.g. ``lp.add_sos2({c1,
+  /// c2, c3})`` in a unit test) and have no pre-allocated vector to
+  /// hand a span over.  Production callers in ``line_losses.cpp``
+  /// (issue #504) use the span form because they construct the
+  /// column list iteratively per (line, block).
+  void add_sos2(std::initializer_list<ColIndex> columns)
+  {
+    add_sos2(std::span<const ColIndex> {columns.begin(), columns.size()});
+  }
 
 private:
   /// Clamp a bound in-place: DblMax → +infinity, -DblMax → -infinity.
@@ -336,7 +659,31 @@ private:
   rows_t rows;  ///< Constraints (rows)
   size_t ncoeffs {};  ///< Total number of coefficients
   size_t colints {};  ///< Number of integer variables
+  /// SOS2 sets accumulated via ``add_sos2``.  Each inner vector is a
+  /// list of column indices in geometric breakpoint order; forwarded
+  /// to ``FlatLinearProblem::sos2_sets`` at ``flatten()`` and to
+  /// ``SolverBackend::add_sos2`` at ``load_flat``.
+  std::vector<std::vector<index_t>> sos2_sets;
   double m_infinity_ {DblMax};  ///< Target infinity for bound normalization
+  /// Physical-scale objective constant accumulated via
+  /// `add_obj_constant`.  Forwarded into `FlatLinearProblem` by
+  /// `flatten()`; never touched by the solver.
+  double m_obj_constant_ {0.0};
+  VariableScaleMap m_vsm_ {};  ///< Auto-scale map (owned copy)
+  LabelMaker m_label_maker_ {};  ///< Label generator (default = names off)
+
+  /// Eager duplicate-detection maps for columns and rows, keyed on the
+  /// `(class_name, variable_name/constraint_name, variable_uid,
+  /// context)` 4-tuple that uniquely identifies an LP label source.
+  /// Populated in `add_col` / `add_row`; collision throws
+  /// `std::runtime_error` with both indices.  See
+  /// `check_unique_col_label` / `check_unique_row_label` for the hook
+  /// logic and `LinearInterface::m_col_meta_index_` for the
+  /// post-flatten counterpart that guards dynamic insertions.
+  std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
+      m_col_meta_index_ {};
+  std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
+      m_row_meta_index_ {};
 };
 
 }  // namespace gtopt

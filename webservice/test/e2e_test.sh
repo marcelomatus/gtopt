@@ -87,7 +87,13 @@ log "Starting web service on port $PORT ..."
 cd "$WEBSERVICE_DIR"
 LOG_DIR="$TEST_TMPDIR/logs"
 mkdir -p "$LOG_DIR"
+# Force `--write-out all` so the c0 golden fixtures under
+# ``cases/c0/output/Demand/*_cost.csv`` keep matching the gtopt default
+# (which only emits reduced costs for Generator+Line as of the lean
+# ``rc_classes`` default in planning_options_lp.hpp:779).  The mirror
+# workaround used by ``integration_test/cmake/run_gtopt.cmake``.
 GTOPT_BIN="$GTOPT_BIN" GTOPT_DATA_DIR="$TEST_TMPDIR/data" GTOPT_LOG_DIR="$LOG_DIR" \
+  GTOPT_EXTRA_ARGS="--write-out all" \
   node_modules/.bin/next start -p "$PORT" --hostname 0.0.0.0 \
   >"$TEST_TMPDIR/server.log" 2>&1 &
 SERVER_PID=$!
@@ -228,25 +234,59 @@ fi
 #   - Handles degenerate LP dual differences across solver backends
 #   - Treats signed-zero and near-zero values correctly
 COMPARE_CSV="$REPO_DIR/tools/gtopt_compare_csv.py"
+
+# Compare a single actual CSV against the expected golden.
+compare_csv_one() {
+  local actual="$1"
+  local expected="$2"
+  local label="$3"
+
+  local output
+  if output=$(python3 "$COMPARE_CSV" "$actual" "$expected" -t "$TOLERANCE" 2>&1); then
+    pass "$label matches expected"
+  else
+    # Show first 10 diff lines to keep CI logs readable; the full diff is
+    # available by running gtopt_compare_csv.py locally with --verbose.
+    echo "$output" | head -10 >&2
+    fail "$label differs from expected"
+  fi
+}
+
+# Compare an expected golden against either the legacy un-suffixed actual
+# path or every ``*_s<N>_p<M>.csv`` per-(scene, phase) shard that gtopt
+# now emits (see commit fc005441). In the single-(scene, phase) cases
+# used by the e2e tests the shard content is identical to the legacy file.
 compare_csv() {
   local actual="$1"
   local expected="$2"
   local rel_path="$3"
 
-  if [ ! -f "$actual" ]; then
-    fail "Missing output file: $rel_path"
+  if [ -f "$actual" ]; then
+    compare_csv_one "$actual" "$expected" "$rel_path"
     return
   fi
 
-  local output
-  # Show first 10 diff lines to keep CI logs readable; the full diff is
-  # available by running gtopt_compare_csv.py locally with --verbose.
-  if output=$(python3 "$COMPARE_CSV" "$actual" "$expected" -t "$TOLERANCE" 2>&1); then
-    pass "$rel_path matches expected"
-  else
-    echo "$output" | head -10 >&2
-    fail "$rel_path differs from expected"
+  local actual_dir actual_stem glob
+  actual_dir="$(dirname "$actual")"
+  actual_stem="$(basename "$actual" .csv)"
+  glob="$actual_dir/${actual_stem}_s*_p*.csv"
+
+  # shellcheck disable=SC2207
+  local variants=()
+  if compgen -G "$glob" >/dev/null; then
+    variants=($(compgen -G "$glob"))
   fi
+
+  if [ "${#variants[@]}" -eq 0 ]; then
+    fail "Missing output file: $rel_path (no $actual_stem or ${actual_stem}_s*_p*.csv shards)"
+    return
+  fi
+
+  local v v_rel
+  for v in "${variants[@]}"; do
+    v_rel="${v#$OUTPUT_DIR/}"
+    compare_csv_one "$v" "$expected" "$v_rel (shard of $rel_path)"
+  done
 }
 
 # Find all expected CSV files and compare

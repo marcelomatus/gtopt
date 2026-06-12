@@ -44,7 +44,8 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
   CPM_SOURCE_CACHE: ${{ github.workspace }}/cpm_modules
   CCACHE_BASEDIR: ${{ github.workspace }}
-  CCACHE_SLOPPINESS: gcno_file_location
+  # Sloppiness is managed in ccache.conf by cmake_local/Ccache.cmake —
+  # do NOT set CCACHE_SLOPPINESS here (env var would override the conf).
 
 permissions:
   contents: write
@@ -62,10 +63,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: setup ccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: profile-clang
+          key: gtopt-clang-profile
+          # Shared `gtopt-clang-` prefix lets profile warm-start from the
+          # ubuntu.yml / coverage.yml caches and vice versa.
           restore-keys: |
+            gtopt-clang-profile-
+            gtopt-clang-Ubuntu-clang-
+            gtopt-clang-
             profile-clang-
             Ubuntu-clang-
           max-size: 2G
@@ -73,7 +79,7 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: profile-clang-cpm-modules-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: profile-clang-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
             profile-clang-cpm-modules-
             Ubuntu-clang-cpm-modules-

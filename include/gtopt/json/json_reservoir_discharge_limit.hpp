@@ -30,7 +30,8 @@ struct json_data_contract<ReservoirDischargeLimit>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
-      json_variant<"waterway", SingleId>,
+      json_variant_null<"waterway", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"turbine", OptSingleId, jvtl_SingleId>,
       json_variant<"reservoir", SingleId>,
       json_array_null<"segments",
                       std::vector<ReservoirDischargeLimitSegment>,
@@ -42,6 +43,7 @@ struct json_data_contract<ReservoirDischargeLimit>
                                  ddl.name,
                                  ddl.active,
                                  ddl.waterway,
+                                 ddl.turbine,
                                  ddl.reservoir,
                                  ddl.segments);
   }

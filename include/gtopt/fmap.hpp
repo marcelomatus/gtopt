@@ -8,7 +8,10 @@
  * This module defines the flat_map alias and two map utility helpers:
  *
  *   map_reserve(map, n)
- *       Reserve capacity for @p n elements.  No-op for std::map.
+ *       Reserve capacity for @p n elements.  Generic over flat_map,
+ *       std::unordered_map, std::flat_map, and std::map (no-op).
+ *       Defined in `map_reserve.hpp`, re-exported from this header
+ *       for backward compatibility.
  *
  *   map_insert_sorted_unique(map, first, last)
  *       Insert from a pre-sorted, deduplicated range using the most
@@ -23,8 +26,12 @@
  *   GTOPT_USE_BOOST_FLAT_MAP  - boost::container::flat_map (default for all
  *                                               other compilers / older
  *                                               versions)
- *   GTOPT_USE_STD_MAP         - std::map  (not used by default; available
- *                                          as an explicit override)
+ *
+ * `gtopt::flat_map` must always resolve to a vector-backed flat map.  There
+ * is deliberately no `std::map` fallback: if neither `<flat_map>` nor
+ * `<boost/container/flat_map.hpp>` is available the build fails with a
+ * `#error`.  Call sites that genuinely want an ordered red-black-tree map
+ * must use `std::map` directly instead of `gtopt::flat_map`.
  */
 
 #pragma once
@@ -32,8 +39,7 @@
 // ---------------------------------------------------------------------------
 // Automatic backend selection (only when no explicit choice was made)
 // ---------------------------------------------------------------------------
-#if !defined(GTOPT_USE_STD_MAP) && !defined(GTOPT_USE_STD_FLAT_MAP) \
-    && !defined(GTOPT_USE_BOOST_FLAT_MAP)
+#if !defined(GTOPT_USE_STD_FLAT_MAP) && !defined(GTOPT_USE_BOOST_FLAT_MAP)
 
 #  if (defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15 \
        && __has_include(<flat_map>))
@@ -52,9 +58,9 @@
 #    define GTOPT_USE_BOOST_FLAT_MAP
 
 #  else
-// No flat_map available: fall back to std::map.
-#    define GTOPT_USE_STD_MAP
-
+#    error \
+        "gtopt::flat_map requires either <flat_map> (GCC >= 15 / Clang >= 23) " \
+        "or <boost/container/flat_map.hpp>. No std::map fallback is allowed."
 #  endif
 #endif
 
@@ -62,13 +68,13 @@
 // Backend headers
 // ---------------------------------------------------------------------------
 
-#ifdef GTOPT_USE_STD_MAP
-#  include <map>
-#elifdef GTOPT_USE_STD_FLAT_MAP
+#ifdef GTOPT_USE_STD_FLAT_MAP
 #  include <flat_map>
 #else  // GTOPT_USE_BOOST_FLAT_MAP
 #  include <boost/container/flat_map.hpp>
 #endif
+
+#include <gtopt/map_reserve.hpp>
 
 // ---------------------------------------------------------------------------
 // gtopt namespace — type alias and helpers
@@ -79,10 +85,7 @@ namespace gtopt
 
 // ── Type alias ───────────────────────────────────────────────────────────────
 
-#ifdef GTOPT_USE_STD_MAP
-template<typename key_type, typename value_type>
-using flat_map = std::map<key_type, value_type>;
-#elifdef GTOPT_USE_STD_FLAT_MAP
+#ifdef GTOPT_USE_STD_FLAT_MAP
 template<typename key_type, typename value_type>
 using flat_map = std::flat_map<key_type, value_type>;
 #else  // GTOPT_USE_BOOST_FLAT_MAP
@@ -91,38 +94,11 @@ using flat_map = boost::container::flat_map<key_type, value_type>;
 #endif
 
 // ── map_reserve ──────────────────────────────────────────────────────────────
-
-/// @brief Reserve capacity in a flat_map for @p n elements.
-///
-/// For `std::flat_map`, extracts the underlying key/value containers,
-/// reserves capacity in both, then re-inserts them via `replace()`.
-/// For `boost::container::flat_map`, delegates to `map.reserve(n)`.
-/// For `std::map`, this is intentionally a no-op (std::map does not
-/// support reserve()).
-///
-/// Calling with @p n == 0 is a no-op for all backends to avoid
-/// unnecessary allocations.
-template<typename Map, typename Size>
-void map_reserve([[maybe_unused]] Map& map, [[maybe_unused]] Size n)
-{
-#ifdef GTOPT_USE_STD_MAP
-  // std::map does not support reserve() — intentional no-op.
-#elifdef GTOPT_USE_STD_FLAT_MAP
-  if (n == 0) {
-    return;
-  }
-  auto containers = std::move(map).extract();
-  containers.keys.reserve(static_cast<size_t>(n));
-  containers.values.reserve(static_cast<size_t>(n));
-  map.replace(std::move(containers.keys),  // NOLINT
-              std::move(containers.values));
-#else  // GTOPT_USE_BOOST_FLAT_MAP
-  if (n == 0) {
-    return;
-  }
-  map.reserve(n);
-#endif
-}
+//
+// `map_reserve(map, n)` is now defined in `map_reserve.hpp` (above) and
+// dispatched generically by `requires`-expressions on the actual container
+// type, so it works for `flat_map`, `std::unordered_map`, `std::flat_map`,
+// and `std::map` (no-op) — independent of the flat_map backend selected.
 
 // ── map_insert_sorted_unique ─────────────────────────────────────────────────
 
@@ -131,26 +107,20 @@ void map_reserve([[maybe_unused]] Map& map, [[maybe_unused]] Size n)
 ///
 /// The range **must** be sorted in ascending key order and must contain no
 /// duplicate keys.  For `std::flat_map` and `boost::container::flat_map`,
-/// violating this precondition is undefined behaviour.  For `std::map` it
-/// is defined (first-seen key wins) but the deduplication is still
-/// recommended for consistency.
+/// violating this precondition is undefined behaviour.
 ///
 /// Backend behaviour:
 ///  - `std::flat_map`  : `insert(std::sorted_unique, first, last)` — O(n)
 ///    bulk insert that skips per-element comparisons.
 ///  - `boost::flat_map`: `insert(ordered_unique_range, first, last)` — same
 ///    semantics using the Boost equivalent tag.
-///  - `std::map`       : `insert(first, last)` — O(n log n) sequential
-///    insert; duplicate keys take the first-seen value.
 template<typename Map, typename Iterator>
 void map_insert_sorted_unique(Map& map, Iterator first, Iterator last)
 {
 #ifdef GTOPT_USE_STD_FLAT_MAP
   map.insert(std::sorted_unique, first, last);
-#elifdef GTOPT_USE_BOOST_FLAT_MAP
+#else  // GTOPT_USE_BOOST_FLAT_MAP
   map.insert(boost::container::ordered_unique_range, first, last);
-#else  // GTOPT_USE_STD_MAP
-  map.insert(first, last);
 #endif
 }
 

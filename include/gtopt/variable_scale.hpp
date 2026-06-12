@@ -21,8 +21,8 @@
  *   2. Per-class default   (matching class + variable, no UID)
  *   3. Fallback default    (1.0 = no scaling)
  *
- * Per-element fields (`Battery::energy_scale`, `Reservoir::energy_scale`) take
- * precedence over entries in `variable_scales`.
+ * All LP variable scaling is configured exclusively via `variable_scales`;
+ * there are no per-element `energy_scale` fields.
  *
  * Global options (`scale_theta`, `scale_alpha`) are auto-injected into the
  * `variable_scales` array by `PlanningOptionsLP`.  All scales follow the
@@ -37,11 +37,14 @@
 
 #pragma once
 
+#include <functional>
 #include <ranges>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 
-#include <gtopt/fmap.hpp>
+#include <gtopt/basic_types.hpp>
 
 namespace gtopt
 {
@@ -56,11 +59,19 @@ namespace gtopt
  */
 struct VariableScale
 {
-  Name class_name {};  ///< Element class (e.g. "Bus", "Reservoir", "Battery")
-  Name variable {};  ///< Variable name (e.g. "theta", "volume", "energy")
+  /// Element class (e.g. `"Bus"`, `"Reservoir"`).  Stored as a
+  /// `std::string_view` so call sites can assign canonical constexpr
+  /// constants (e.g. `system_class_name`, `Bus::class_name.full_name()`)
+  /// without an intermediate string copy.  When populated by JSON
+  /// deserialisation, the underlying buffer is the parser's
+  /// daw::json owning string pool (kept alive by `Planning`'s
+  /// `m_json_strings_` arena).  `VariableScaleMap` copies the view
+  /// into an owning `std::string` key on construction.
+  std::string_view class_name {};
+  std::string_view variable {};  ///< Variable name (e.g. "theta", "energy")
   Uid uid {unknown_uid};  ///< Element UID (unknown_uid = all elements)
   Real scale {1.0};  ///< physical = LP × scale
-  Name name {};  ///< Element name (informational, not used for lookup)
+  std::string_view name {};  ///< Element name (informational)
 };
 
 /**
@@ -71,6 +82,10 @@ struct VariableScale
  *   1. Entry matching (class_name, variable, uid)   — per-element
  *   2. Entry matching (class_name, variable, -1)    — per-class
  *   3. Fallback: 1.0
+ *
+ * Optimized for millions of lookups with very few insertions.
+ * Uses `std::unordered_map` with transparent hashing to avoid
+ * temporary string allocations on every lookup.
  */
 class VariableScaleMap
 {
@@ -87,34 +102,46 @@ public:
         | std::views::filter([](const auto& vs)
                              { return vs.uid == unknown_uid; });
 
+    // ElementKey / ClassKey hold `std::string_view` keys backed by the
+    // source `VariableScale` objects (which in turn reference either
+    // static-lifetime constexpr constants or the JSON parser's stable
+    // string pool).  Caller must keep the source alive for the map's
+    // lifetime — same contract as `std::string_view` keys in
+    // `linear_problem.cpp:679`.
     for (const auto& vs : element_entries) {
-      m_element_scales_[Key {
-          .class_name = vs.class_name,
-          .variable = vs.variable,
-          .uid = vs.uid,
-      }] = vs.scale;
+      m_element_scales_.emplace(
+          ElementKey {
+              .class_name = vs.class_name,
+              .variable = vs.variable,
+              .uid = vs.uid,
+          },
+          vs.scale);
     }
     for (const auto& vs : class_entries) {
-      m_class_scales_[ClassKey {
-          .class_name = vs.class_name,
-          .variable = vs.variable,
-      }] = vs.scale;
+      m_class_scales_.emplace(
+          ClassKey {
+              .class_name = vs.class_name,
+              .variable = vs.variable,
+          },
+          vs.scale);
     }
   }
 
   /// Look up the scale for a (class, variable, uid) triple.
   /// Returns the most specific match, or 1.0 if none found.
+  /// No temporary string allocations — uses transparent hash lookup.
   [[nodiscard]] double lookup(std::string_view class_name,
                               std::string_view variable,
                               Uid uid = unknown_uid) const noexcept
   {
     // 1. Per-element match
     if (uid != unknown_uid) {
-      if (const auto it = m_element_scales_.find(Key {
-              .class_name = Name {class_name},
-              .variable = Name {variable},
-              .uid = uid,
-          });
+      const ElementKey kv {
+          .class_name = class_name,
+          .variable = variable,
+          .uid = uid,
+      };
+      if (const auto it = m_element_scales_.find(kv);
           it != m_element_scales_.end())
       {
         return it->second;
@@ -122,12 +149,11 @@ public:
     }
 
     // 2. Per-class match
-    if (const auto it = m_class_scales_.find(ClassKey {
-            .class_name = Name {class_name},
-            .variable = Name {variable},
-        });
-        it != m_class_scales_.end())
-    {
+    const ClassKey kv {
+        .class_name = class_name,
+        .variable = variable,
+    };
+    if (const auto it = m_class_scales_.find(kv); it != m_class_scales_.end()) {
       return it->second;
     }
 
@@ -141,27 +167,80 @@ public:
   }
 
 private:
-  /// Key for per-element scale: (class_name, variable, uid)
-  struct Key
+  // ── Hash helper: combine hashes ─────────────────────────────────────
+  static constexpr size_t hash_combine(size_t h1, size_t h2) noexcept
   {
-    Name class_name;
-    Name variable;
+    // boost::hash_combine formula
+    return h1 ^ (h2 + size_t {0x9e3779b9} + (h1 << 6U) + (h1 >> 2U));
+  }
+
+  // ── Per-element key: (class_name, variable, uid) ────────────────────
+
+  /// Map key (non-owning).  Backed by the source `VariableScale`'s
+  /// `string_view` fields — caller must keep the source alive for the
+  /// map's lifetime.
+  struct ElementKey
+  {
+    std::string_view class_name;
+    std::string_view variable;
     Uid uid;
 
-    auto operator<=>(const Key&) const = default;
+    bool operator==(const ElementKey&) const = default;
   };
 
-  /// Key for per-class scale: (class_name, variable)
+  struct ElementHash
+  {
+    [[nodiscard]] size_t operator()(const ElementKey& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      h = hash_combine(h, std::hash<Uid> {}(k.uid));
+      return h;
+    }
+  };
+
+  struct ElementEqual
+  {
+    [[nodiscard]] bool operator()(const ElementKey& a,
+                                  const ElementKey& b) const noexcept
+    {
+      return a == b;
+    }
+  };
+
+  // ── Per-class key: (class_name, variable) ───────────────────────────
+
+  /// Map key (non-owning).  Same lifetime contract as `ElementKey`.
   struct ClassKey
   {
-    Name class_name;
-    Name variable;
+    std::string_view class_name;
+    std::string_view variable;
 
-    auto operator<=>(const ClassKey&) const = default;
+    bool operator==(const ClassKey&) const = default;
   };
 
-  flat_map<Key, double> m_element_scales_;
-  flat_map<ClassKey, double> m_class_scales_;
+  struct ClassHash
+  {
+    [[nodiscard]] size_t operator()(const ClassKey& k) const noexcept
+    {
+      auto h = std::hash<std::string_view> {}(k.class_name);
+      h = hash_combine(h, std::hash<std::string_view> {}(k.variable));
+      return h;
+    }
+  };
+
+  struct ClassEqual
+  {
+    [[nodiscard]] bool operator()(const ClassKey& a,
+                                  const ClassKey& b) const noexcept
+    {
+      return a == b;
+    }
+  };
+
+  std::unordered_map<ElementKey, double, ElementHash, ElementEqual>
+      m_element_scales_;
+  std::unordered_map<ClassKey, double, ClassHash, ClassEqual> m_class_scales_;
 };
 
 }  // namespace gtopt

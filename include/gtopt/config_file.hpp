@@ -132,7 +132,6 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
 [[nodiscard]] inline std::filesystem::path find_config_file()
 {
   // 1. Environment variable
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* env = std::getenv("GTOPT_CONFIG")) {
     std::filesystem::path p(env);
     if (std::filesystem::exists(p)) {
@@ -149,7 +148,6 @@ using IniData = std::map<std::string, std::map<std::string, std::string>>;
   }
 
   // 3. Home directory
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* home = std::getenv("HOME")) {
     std::filesystem::path p = std::filesystem::path(home) / ".gtopt.conf";
     if (std::filesystem::exists(p)) {

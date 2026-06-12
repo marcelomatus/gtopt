@@ -1,13 +1,14 @@
 {
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "use_kirchhoff": true
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
   },
   "simulation": {
     "block_array": [
@@ -34,15 +35,42 @@
   "system": {
     "name": "ieee_9b_ori",
     "bus_array": [
-      {"uid": 1, "name": "b1"},
-      {"uid": 2, "name": "b2"},
-      {"uid": 3, "name": "b3"},
-      {"uid": 4, "name": "b4"},
-      {"uid": 5, "name": "b5"},
-      {"uid": 6, "name": "b6"},
-      {"uid": 7, "name": "b7"},
-      {"uid": 8, "name": "b8"},
-      {"uid": 9, "name": "b9"}
+      {
+        "uid": 1,
+        "name": "b1"
+      },
+      {
+        "uid": 2,
+        "name": "b2"
+      },
+      {
+        "uid": 3,
+        "name": "b3"
+      },
+      {
+        "uid": 4,
+        "name": "b4"
+      },
+      {
+        "uid": 5,
+        "name": "b5"
+      },
+      {
+        "uid": 6,
+        "name": "b6"
+      },
+      {
+        "uid": 7,
+        "name": "b7"
+      },
+      {
+        "uid": 8,
+        "name": "b8"
+      },
+      {
+        "uid": 9,
+        "name": "b9"
+      }
     ],
     "generator_array": [
       {
@@ -78,19 +106,31 @@
         "uid": 1,
         "name": "d1",
         "bus": "b5",
-        "lmax": [[125.0]]
+        "lmax": [
+          [
+            125.0
+          ]
+        ]
       },
       {
         "uid": 2,
         "name": "d2",
         "bus": "b7",
-        "lmax": [[100.0]]
+        "lmax": [
+          [
+            100.0
+          ]
+        ]
       },
       {
         "uid": 3,
         "name": "d3",
         "bus": "b9",
-        "lmax": [[90.0]]
+        "lmax": [
+          [
+            90.0
+          ]
+        ]
       }
     ],
     "line_array": [

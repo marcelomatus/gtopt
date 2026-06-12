@@ -29,7 +29,11 @@ namespace gtopt
 class BusLP : public ObjectLP<Bus>
 {
 public:
-  static constexpr LPClassName ClassName {"Bus", "bus"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view ThetaName {"theta"};
+  /// Metadata key published by `add_to_lp` so user-constraint filters
+  /// can match buses by their `type` field (e.g. `bus[type="hydro"]`).
+  static constexpr std::string_view TypeKey {"type"};
 
   /// Constructs a BusLP from a Bus and input context
   /// @param pbus The bus to wrap
@@ -92,7 +96,7 @@ public:
                                const std::vector<BlockLP>& blocks) const
       -> const BIndexHolder<ColIndex>&
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
+    const auto key = std::tuple {scenario.uid(), stage.uid()};
     if (const auto it = theta_cols.find(key); it != theta_cols.end()) {
       return it->second;
     }
@@ -101,19 +105,14 @@ public:
 
   /// Look up an already-created theta column without lazy initialisation.
   /// Returns std::nullopt if no theta column exists for this (scenario, stage,
-  /// block) triple (e.g. single-bus or reference bus).
+  /// block) triple (e.g. single-bus or reference bus).  Delegates to the
+  /// shared `lookup_inner` helper (`index_holder.hpp`).
   [[nodiscard]]
   std::optional<ColIndex> lookup_theta_col(const ScenarioLP& scenario,
                                            const StageLP& stage,
                                            BlockUid buid) const noexcept
   {
-    const auto key = std::pair {scenario.uid(), stage.uid()};
-    if (const auto mit = theta_cols.find(key); mit != theta_cols.end()) {
-      if (const auto it = mit->second.find(buid); it != mit->second.end()) {
-        return it->second;
-      }
-    }
-    return std::nullopt;
+    return lookup_inner(theta_cols, scenario, stage, buid);
   }
 
 private:
@@ -131,5 +130,11 @@ private:
 
 using BusLPId = ObjectId<class BusLP>;
 using BusLPSId = ObjectSingleId<class BusLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Bus::class_name` literal fails the build (LP row labels and CSV
+// outputs depend on the exact string `"Bus"`).
+static_assert(BusLP::Element::class_name == LPClassName {"Bus"},
+              "Bus::class_name must remain \"Bus\"");
 
 }  // namespace gtopt

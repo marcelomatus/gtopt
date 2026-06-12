@@ -31,21 +31,20 @@ struct VolumeRightConstructor
       OptSingleId reservoir,
       OptSingleId right_reservoir,
       OptInt direction,
-      OptTRealFieldSched emin,
-      OptTRealFieldSched emax,
-      OptTRealFieldSched ecost,
+      OptTBRealFieldSched emin,
+      OptTBRealFieldSched emax,
+      OptTBRealFieldSched ecost,
       OptReal eini,
       OptReal efin,
-      OptTRealFieldSched soft_emin,
-      OptTRealFieldSched soft_emin_cost,
+      OptReal efin_cost,
+      OptTBRealFieldSched soft_emin,
+      OptTBRealFieldSched soft_emin_cost,
       OptTRealFieldSched demand,
       OptTBRealFieldSched fmax,
       OptReal fail_cost,
       OptReal priority,
       OptTBRealFieldSched saving_rate,
       OptReal flow_conversion_rate,
-      OptReal energy_scale,
-      OptName energy_scale_mode,
       OptBool use_state_variable,
       OptTRealFieldSched annual_loss,
       OptName reset_month_str,
@@ -64,6 +63,7 @@ struct VolumeRightConstructor
     vr.ecost = std::move(ecost);
     vr.eini = eini;
     vr.efin = efin;
+    vr.efin_cost = efin_cost;
     vr.soft_emin = std::move(soft_emin);
     vr.soft_emin_cost = std::move(soft_emin_cost);
     vr.demand = std::move(demand);
@@ -72,12 +72,11 @@ struct VolumeRightConstructor
     vr.priority = priority;
     vr.saving_rate = std::move(saving_rate);
     vr.flow_conversion_rate = flow_conversion_rate;
-    vr.energy_scale = energy_scale;
-    vr.energy_scale_mode = std::move(energy_scale_mode);
     vr.use_state_variable = use_state_variable;
     vr.annual_loss = std::move(annual_loss);
     if (reset_month_str) {
-      vr.reset_month = gtopt::enum_from_name<MonthType>(*reset_month_str);
+      vr.reset_month =
+          gtopt::require_enum<MonthType>("reset_month", *reset_month_str);
     }
     vr.bound_rule = std::move(bound_rule);
     return vr;
@@ -97,15 +96,18 @@ struct json_data_contract<VolumeRight>
       json_variant_null<"reservoir", OptSingleId, jvtl_SingleId>,
       json_variant_null<"right_reservoir", OptSingleId, jvtl_SingleId>,
       json_number_null<"direction", OptInt>,
-      json_variant_null<"emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"emax", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"ecost", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"emin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"emax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"ecost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"eini", OptReal>,
       json_number_null<"efin", OptReal>,
-      json_variant_null<"soft_emin", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_number_null<"efin_cost", OptReal>,
+      json_variant_null<"soft_emin",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"soft_emin_cost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"demand", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"fail_cost", OptReal>,
@@ -114,8 +116,6 @@ struct json_data_contract<VolumeRight>
                         OptTBRealFieldSched,
                         jvtl_TBRealFieldSched>,
       json_number_null<"flow_conversion_rate", OptReal>,
-      json_number_null<"energy_scale", OptReal>,
-      json_string_null<"energy_scale_mode", OptName>,
       json_bool_null<"use_state_variable", OptBool>,
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
@@ -137,6 +137,7 @@ struct json_data_contract<VolumeRight>
                            vr.ecost,
                            vr.eini,
                            vr.efin,
+                           vr.efin_cost,
                            vr.soft_emin,
                            vr.soft_emin_cost,
                            vr.demand,
@@ -145,8 +146,6 @@ struct json_data_contract<VolumeRight>
                            vr.priority,
                            vr.saving_rate,
                            vr.flow_conversion_rate,
-                           vr.energy_scale,
-                           vr.energy_scale_mode,
                            vr.use_state_variable,
                            vr.annual_loss,
                            detail::enum_to_opt_name(vr.reset_month),

@@ -122,10 +122,11 @@ has no predecessor).
 
 ### 3.1 Cut Inheritance
 
-When `inherit_optimality_cuts` and/or `inherit_feasibility_cuts` are
-set to `true`, the solver serializes all stored cuts from the previous
-level into a temporary CSV file using column names, then loads them
-into the new LP via name-based column resolution.
+When `inherit_optimality_cuts` is set to `true`, the solver serializes
+all stored optimality cuts from the previous level into a temporary CSV
+file using column names, then loads them into the new LP via name-based
+column resolution.  (Feasibility cuts are not carried across levels —
+each level's forward pass regenerates them as needed.)
 
 The transfer process:
 
@@ -291,7 +292,6 @@ plain SDDP solver.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `inherit_optimality_cuts` | int | `0` | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_feasibility_cuts` | int | `0` | Same semantics as `inherit_optimality_cuts` |
 | `inherit_targets` | int | `0` | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of abs(v)) |
 | `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
@@ -300,8 +300,8 @@ plain SDDP solver.
 
 #### Cut Forgetting Semantics
 
-When `inherit_optimality_cuts` or `inherit_feasibility_cuts` is a positive
-integer N, the solver runs in two phases:
+When `inherit_optimality_cuts` is a positive integer N, the solver runs
+in two phases:
 
 1. **Phase 1** (up to N iterations): solve with inherited cuts plus
    self-generated cuts.  The per-level iteration cap is temporarily set
@@ -381,8 +381,7 @@ scratch; level 1 inherits those cuts and converges faster.
             "apertures": []
           },
           "transition": {
-            "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true
+            "inherit_optimality_cuts": true
           }
         }
       ]
@@ -511,8 +510,7 @@ to refined convergence with inherited cuts.
             "convergence_tol": 0.01
           },
           "transition": {
-            "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true
+            "inherit_optimality_cuts": true
           }
         }
       ]

@@ -1,0 +1,83 @@
+% ===========================================================
+% discussion.tex
+% ===========================================================
+\section{Discussion}
+\label{sec:discussion}
+
+The pipeline's strengths are also its limitations: dependence on
+public CEN, SCVIC, and PLEXOS feeds confers auditability and
+reproducibility but also exposes it to publishing-agency cadence,
+completeness, and rate limits.
+
+\paragraph{Rate-limit dependency.}
+The CEN SIP API enforces a soft \SI{8}{requests\per\second} limit on
+the anonymous-read key and intermittently returns HTTP~502 on heavy
+endpoints (\texttt{cmg-programado-pcp}, per-bar\_transf
+\texttt{cmg-real} fan-out).  The pipeline mitigates with parallel
+fetching, bounded concurrency, and an aggressive parquet cache; a
+cold-cache day requires \SI{75}{\second} of wall time and an active
+session.
+
+\paragraph{Hand-curated bus aliases.}
+The bus-name bridge of Section~\ref{sec:inputs} relies on \num{29}
+hand-curated overrides to reconcile PLEXOS node names that the
+heuristic alias generator cannot match unambiguously.  Maintenance
+burden grows linearly with the catalogue.
+
+\paragraph{SCVIC tier wedge.}
+The \texttt{tier\_uncertainty} flag identifies cells where the picker
+selects a CV tier whose next-up neighbour is more than \$2/MWh away.
+These cells (\SI{13.7}{\percent} of the 2026-04-22 sample) carry
+most of the worst-case error.  Mitigation requires either a finer
+SCVIC ladder (out of pipeline control) or a within-tier interpolation
+rule, the latter blocked by the absence of access to the
+PLEXOS-internal piecewise-linear cost segment binding at LP solve.
+
+\paragraph{Loss-factor decomposition.}
+The per-bus loss correction is not a proper PJM-style
+energy/loss/congestion decomposition: CEN does not publish the
+per-unit Power Transfer Distribution Factor matrix.  The PID-extracted
+MLF approximates the loss component but does not isolate the
+congestion component; the pipeline therefore cannot answer
+counterfactual questions such as ``how would $\hat\lambda$ at bus
+$b$ change if line $\ell$ were de-rated?''~— a question for which
+\texttt{gtopt} SDDP is well-equipped (Section~\ref{sec:conclusions}).
+
+\paragraph{Reservoir-hydro as marginal.}
+The pipeline currently excludes reservoir-hydro plants from the
+candidate pool because the published feeds do not expose the
+implicit water value at which the LP cleared.  The natural mitigation
+is to seed reservoir-hydros with the
+\texttt{cmg-programado-pcp} median as a synthetic CV; the pipeline
+is structurally ready, blocked on stable availability of that
+endpoint.
+
+\paragraph{Single-pollutant scope.}
+The current emission factor is CO$_2$ only.  Multi-pollutant
+extension (NO$_x$, SO$_2$, PM$_{2.5}$) requires per-unit declared
+factors from the Registro de Emisiones y Transferencias de
+Contaminantes (RETC); the integration is straightforward
+(\texttt{FUEL\_EF} becomes \texttt{POLLUTANT\_EF[fuel][pollutant]})
+and would close the last methodological gap relative to PJM~LME.
+
+\paragraph{Carbon-credit implications.}
+A per-bus per-quarter $\varepsilon^{\mathrm{bus}}_{b,t}$ is the
+formal input expected by CDM Tool~07 OM-DDA~\cite{UNFCCCTool07},
+Verra VCS v4.5~\cite{VerraVCS45}, EnergyTag granular
+certificates~\cite{EnergyTagGC}, the 24/7~CFE
+Compact~\cite{CFE247}, and the Article~6.4 SBM 4DM
+draft~\cite{Article64Draft}; the 15-minute output natively
+satisfies all of their granularity requirements.  A worked example
+illustrates the magnitude of the methodology choice: a hypothetical
+\SI{100}{\MW} PV plant at CRUCERO 220~kV on 2026-04-22 yields
+\SI{19.9}{\tonne CO_2}/day under hourly-marginal accounting,
+versus \SI{270.6}{\tonne CO_2} under OM-DDA and \SI{258.4}{\tonne CO_2}
+under the national-average factor~\cite{InvNac2024} — a thirteen-fold
+gap, because the marginal unit at CRUCERO during the
+\SIrange{09}{16}{\hour} window is itself renewable
+($\varepsilon^{\mathrm{bus}}=0$) and a new PV injection at those
+hours displaces zero-emission energy.  The same reconstruction
+underwrites the natural BESS-arbitrage extension: a battery that
+charges in the low-$\varepsilon$ window and discharges at the
+high-$\varepsilon$ evening peak earns nearly the full
+$\Delta\varepsilon$ as ER per discharged MWh.

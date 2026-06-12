@@ -9,27 +9,37 @@ import signal
 import sys
 from pathlib import Path
 
-from ._binary import find_gtopt_binary, find_plp2gtopt
+from gtopt_config import get_version
+
+from ._attach import (
+    list_runs,
+    print_run_list,
+    resolve_target,
+    run_attach_loop,
+)
+from ._binary import find_gtopt_binary, find_plexos2gtopt, find_plp2gtopt
 from ._checks import (
     available_checks,
     run_postflight_checks,
     run_preflight_checks,
 )
-from ._detect import CaseType, detect_case_type, infer_gtopt_dir
+from ._detect import (
+    CaseType,
+    detect_case_type,
+    infer_gtopt_dir,
+    infer_plexos_gtopt_dir,
+    plexos_stem,
+)
 from ._environment import detect_compression_codec, detect_cpu_count
-from ._runner import report_solution, run_gtopt, run_plp2gtopt
+from ._runner import (
+    report_solution,
+    run_gtopt,
+    run_plexos2gtopt,
+    run_plp2gtopt,
+)
 from ._sanitize import sanitize_json
 
-try:
-    from importlib.metadata import PackageNotFoundError
-    from importlib.metadata import version as _pkg_version
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +100,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-C",
         "--compression",
-        default="zstd",
+        default="snappy",
         metavar="CODEC",
         help="output compression codec (default: %(default)s)",
     )
@@ -112,6 +122,16 @@ def make_parser() -> argparse.ArgumentParser:
         help=(
             "extra arguments to pass to plp2gtopt "
             "(quote the whole string, e.g. '--plp-args \"-y 1 -s 5\"')"
+        ),
+    )
+    parser.add_argument(
+        "--plexos-args",
+        default=None,
+        metavar="ARGS",
+        help=(
+            "extra arguments to pass to plexos2gtopt "
+            "(quote the whole string, e.g. "
+            "'--plexos-args \"--pampl-uc-mode soft\"')"
         ),
     )
     parser.add_argument(
@@ -152,6 +172,32 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="list available checks and exit",
+    )
+    # ── Attach / discovery (no subprocess; observer-mode TUI) ──
+    # The C++ solver writes ``$XDG_CACHE_HOME/gtopt/runs/<pid>`` on its
+    # first status flush.  These flags let users see which runs are
+    # live and attach the same Rich TUI without launching gtopt.
+    parser.add_argument(
+        "--list",
+        dest="list_runs",
+        action="store_true",
+        default=False,
+        help=(
+            "list live gtopt runs (PID, case, status, gap, elapsed) and exit. "
+            "Reads $XDG_CACHE_HOME/gtopt/runs/."
+        ),
+    )
+    parser.add_argument(
+        "--attach",
+        default=None,
+        metavar="PID|PATH",
+        help=(
+            "attach the dashboard to an already-running gtopt instance. "
+            "Argument is a PID from --list, or a path to the case directory "
+            "/ output directory / solver_status.json. The TUI runs in "
+            "observer mode: 'q' detaches without killing the solver, 's' "
+            "still requests a graceful stop."
+        ),
     )
     parser.add_argument(
         "--convert-only",
@@ -249,6 +295,26 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  {name}")
         return
 
+    # ── List live gtopt runs (no subprocess) ──
+    if args.list_runs:
+        print_run_list(list_runs())
+        return
+
+    # ── Attach to a running gtopt (no subprocess) ──
+    # Observer mode: the same Rich TUI, but no gtopt is launched.
+    # 'q' detaches without killing; 's' still writes the stop file.
+    if args.attach is not None:
+        info = resolve_target(args.attach)
+        if info is None:
+            print(
+                f"error: could not resolve --attach target '{args.attach}'.\n"
+                "  Try a numeric PID from `run_gtopt --list`, or a path "
+                "to the case directory.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        sys.exit(run_attach_loop(info))
+
     # ── Build enabled check set ──
     # check_json is disabled by default (slow — invokes gtopt_check_json).
     # Use --enable-check check_json to opt in.
@@ -280,7 +346,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.case is None and case_type == CaseType.PASSTHROUGH:
         print(
             "error: no case directory given and current directory is not "
-            "a recognized PLP or gtopt case.\n"
+            "a recognized PLP, gtopt or PLEXOS case.\n"
             "Usage: run_gtopt [CASE] [options]\n"
             "Run 'run_gtopt -h' for help.",
             file=sys.stderr,
@@ -288,6 +354,10 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
 
     log.info("case: %s (type: %s)", case_path, case_type.value)
+
+    # Planning-JSON basename inside ``gtopt_dir``.  PLP/gtopt cases name it
+    # after the directory; PLEXOS names it after the bundle stem (set below).
+    json_name: str | None = None
 
     # ── PLP case: convert first ──
     gtopt_dir = case_path
@@ -319,6 +389,38 @@ def main(argv: list[str] | None = None) -> None:
             log.info("conversion complete (--convert-only), skipping solve")
             return
 
+    # ── PLEXOS bundle: convert first (mirrors the PLP flow) ──
+    if case_type == CaseType.PLEXOS:
+        gtopt_dir = args.output_dir or infer_plexos_gtopt_dir(case_path)
+        # plexos2gtopt names the JSON after the bundle stem, not the output
+        # dir (e.g. gtopt_PLEXOS20260422/PLEXOS20260422.json).
+        json_name = f"{plexos_stem(case_path)}.json"
+        log.info("PLEXOS bundle detected, converting to %s", gtopt_dir)
+
+        plexos2gtopt_bin = find_plexos2gtopt()
+        if not plexos2gtopt_bin:
+            print(
+                "error: plexos2gtopt not found on PATH. "
+                "Install with: pip install -e ./scripts",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        plexos_extra = _split_extra_args(args.plexos_args)
+        if args.dry_run:
+            cmd = [plexos2gtopt_bin, str(case_path), "-o", str(gtopt_dir)]
+            if plexos_extra:
+                cmd.extend(plexos_extra)
+            print(f"[dry-run] {' '.join(cmd)}")
+        else:
+            rc = run_plexos2gtopt(plexos2gtopt_bin, case_path, gtopt_dir, plexos_extra)
+            if rc != 0:
+                sys.exit(rc)
+
+        if args.convert_only:
+            log.info("conversion complete (--convert-only), skipping solve")
+            return
+
     # ── Passthrough: not a directory, forward as-is ──
     if case_type == CaseType.PASSTHROUGH:
         gtopt_bin = find_gtopt_binary()
@@ -339,7 +441,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(rc)
 
     # ── Locate the planning JSON ──
-    json_file = gtopt_dir / f"{gtopt_dir.name}.json"
+    json_file = gtopt_dir / (json_name or f"{gtopt_dir.name}.json")
 
     # ── Pre-flight checks ──
     if args.check and json_file.is_file() and not args.dry_run:

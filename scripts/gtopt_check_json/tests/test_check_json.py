@@ -248,6 +248,50 @@ class TestElementReferences:
             "Converter" in f.message and "battery" in f.message for f in findings
         )
 
+    def test_reserve_provision_synthetic_battery_gen_ok(self) -> None:
+        """A ReserveProvision on the synthetic ``<battery>_gen`` discharge
+        generator (created by gtopt's expand_batteries at LP-build time, so
+        absent from generator_array) is VALID — must not flag a critical."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {"uid": 1, "name": "BAT_X", "bus": 1, "capacity": 100}
+        ]
+        case["system"]["reserve_provision_array"] = [
+            {
+                "uid": 1,
+                "name": "provision_BAT_X_gen__Z_BESS",
+                "generator": "BAT_X_gen",  # synthetic — not in generator_array
+                "reserve_zones": ["Z_BESS"],
+            }
+        ]
+        findings = check_element_references(case)
+        assert not any(
+            "ReserveProvision" in f.message and "generator" in f.message
+            for f in findings
+        )
+
+    def test_reserve_provision_bogus_gen_flagged(self) -> None:
+        """A ``*_gen`` name with no matching battery is still a critical."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["battery_array"] = [
+            {"uid": 1, "name": "BAT_X", "bus": 1, "capacity": 100}
+        ]
+        case["system"]["reserve_provision_array"] = [
+            {
+                "uid": 1,
+                "name": "provision_BOGUS_gen",
+                "generator": "BOGUS_gen",  # no "BOGUS" battery exists
+                "reserve_zones": [],
+            }
+        ]
+        findings = check_element_references(case)
+        assert any(
+            f.severity == Severity.CRITICAL
+            and "ReserveProvision" in f.message
+            and "generator" in f.message
+            for f in findings
+        )
+
 
 # ── Bus connectivity ─────────────────────────────────────────────────────────
 
@@ -362,6 +406,59 @@ class TestUnreferencedElements:
         case["system"]["bus_array"].append({"uid": 3, "name": "b3_orphan"})
         findings = check_unreferenced_elements(case)
         assert not any("b3_orphan" in f.message for f in findings)
+
+    def test_junction_referenced_only_by_turbine_not_flagged(self) -> None:
+        """Built-in waterway turbine: a junction reached only via a
+        turbine's junction_a / junction_b is a valid reference, not an
+        orphan (turbine carries its own flow arc, no Waterway needed)."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["junction_array"] = [
+            {"uid": 1, "name": "j_intake"},
+            {"uid": 2, "name": "j_tail"},
+        ]
+        case["system"]["turbine_array"] = [
+            {
+                "uid": 1,
+                "name": "t_builtin",
+                "junction_a": 1,
+                "junction_b": 2,
+                "generator": 1,
+            },
+        ]
+        findings = check_unreferenced_elements(case)
+        assert not any("j_intake" in f.message for f in findings)
+        assert not any("j_tail" in f.message for f in findings)
+
+    def test_terminal_turbine_intake_junction_not_flagged(self) -> None:
+        """Terminal turbine (junction_a only, junction_b unset → drains):
+        the intake junction is still a valid reference."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["junction_array"] = [
+            {"uid": 1, "name": "j_intake"},
+        ]
+        case["system"]["turbine_array"] = [
+            {
+                "uid": 1,
+                "name": "t_terminal",
+                "junction_a": 1,
+                "generator": 1,
+            },
+        ]
+        findings = check_unreferenced_elements(case)
+        assert not any("j_intake" in f.message for f in findings)
+
+    def test_orphan_junction_still_flagged(self) -> None:
+        """A junction referenced by nothing is still flagged, and the
+        message now lists 'turbine' among the recognised reference kinds."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["junction_array"] = [
+            {"uid": 99, "name": "j_orphan"},
+        ]
+        findings = check_unreferenced_elements(case)
+        orphan = [f for f in findings if "j_orphan" in f.message]
+        assert len(orphan) == 1
+        assert orphan[0].severity == Severity.WARNING
+        assert "turbine" in orphan[0].message
 
 
 # ── Battery efficiency ──────────────────────────────────────────────────────
@@ -545,7 +642,7 @@ class TestCLI:
     def test_check_valid(self, tmp_path: Path, capsys: Any) -> None:
         p = tmp_path / "test.json"
         p.write_text(json.dumps(_VALID_CASE), encoding="utf-8")
-        rc = main(["--no-color", str(p)])
+        rc = main(["--no-color", "--no-ai", str(p)])
         assert rc == 0
         captured = capsys.readouterr()
         combined = captured.out + captured.err
@@ -556,7 +653,7 @@ class TestCLI:
         case["system"]["generator_array"].append({"uid": 1, "name": "g1_dup", "bus": 1})
         p = tmp_path / "test.json"
         p.write_text(json.dumps(case), encoding="utf-8")
-        rc = main(["--no-color", str(p)])
+        rc = main(["--no-color", "--no-ai", str(p)])
         assert rc == 1
 
     def test_no_files_error(self) -> None:
@@ -687,6 +784,52 @@ class TestComputeIndicators:
         ind = compute_indicators(_INDICATOR_CASE)
         # 350 / 180 ≈ 1.944
         assert ind.capacity_adequacy_ratio == pytest.approx(350.0 / 180.0)
+
+    def test_tier5_read_receipt_indicators(self) -> None:
+        """Tier-5 aggregates are the 'did we read it' receipts for the
+        otherwise indicator-less PLEXOS inputs (pmin, initial state, ramp,
+        battery initial SoC, reservoir emin)."""
+        case = json.loads(json.dumps(_VALID_CASE))
+        case["system"]["generator_array"] = [
+            {"uid": 1, "name": "g1", "bus": 1, "pmax": 100, "gcost": 20, "pmin": 30},
+            {"uid": 2, "name": "g2", "bus": 1, "pmax": 80, "gcost": 25, "pmin": 12},
+        ]
+        case["system"]["commitment_array"] = [
+            {
+                "uid": 1,
+                "name": "c1",
+                "generator": 1,
+                "initial_power": 40.0,
+                "initial_status": 1,
+                "initial_hours": 5.0,
+                "ramp_up": 10.0,
+            },
+            {
+                "uid": 2,
+                "name": "c2",
+                "generator": 2,
+                "initial_power": 0.0,
+                "initial_status": 0,
+                "initial_hours": -3.0,
+                "ramp_up": 0.0,
+            },
+        ]
+        case["system"]["battery_array"] = [
+            {"uid": 1, "name": "b1", "bus": 1, "emax": 200, "eini": 50},
+            {"uid": 2, "name": "b2", "bus": 1, "emax": 100, "eini": 25},
+        ]
+        case["system"]["reservoir_array"] = [
+            {"uid": 1, "name": "r1", "junction": 1, "emax": 1000, "emin": 100},
+            {"uid": 2, "name": "r2", "junction": 1, "emax": 500, "emin": 40},
+        ]
+        ind = compute_indicators(case)
+        assert ind.total_gen_min_stable_mw == pytest.approx(42.0)  # 30 + 12
+        assert ind.total_initial_gen_power_mw == pytest.approx(40.0)
+        assert ind.num_units_initial_on == 1  # only c1 has initial_status > 0
+        assert ind.total_initial_commit_hours == pytest.approx(8.0)  # |5| + |-3|
+        assert ind.num_units_with_ramp_limit == 1  # only c1 has ramp_up > 0
+        assert ind.total_battery_initial_mwh == pytest.approx(75.0)  # 50 + 25
+        assert ind.total_reservoir_min_vol == pytest.approx(140.0)  # 100 + 40
 
     def test_num_counts(self) -> None:
         ind = compute_indicators(_INDICATOR_CASE)

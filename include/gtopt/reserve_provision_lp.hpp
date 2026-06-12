@@ -22,7 +22,15 @@ namespace gtopt
 class ReserveProvisionLP : public ObjectLP<ReserveProvision>
 {
 public:
-  static constexpr LPClassName ClassName {"ReserveProvision", "rpr"};
+  static constexpr std::string_view UprovisionName {"uprovision"};
+  static constexpr std::string_view DprovisionName {"dprovision"};
+  static constexpr std::string_view UcapacityName {"ucapacity"};
+  static constexpr std::string_view DcapacityName {"dcapacity"};
+  /// PAMPL-visible aliases for the up/down provision columns.
+  /// Exposed under canonical short names so user constraints can write
+  /// `reserve_provision("P").up` instead of the verbose `uprovision`.
+  static constexpr std::string_view UpName {"up"};
+  static constexpr std::string_view DnName {"dn"};
 
   using Base = ObjectLP<ReserveProvision>;
 
@@ -83,20 +91,60 @@ public:
     return it->second;
   }
 
+  /// Look up the up-provision row for (scenario, stage, block).
+  [[nodiscard]] std::optional<RowIndex> lookup_up_provision_row(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = up.provision_rows.find({scenario.uid(), stage.uid()});
+    if (mit == up.provision_rows.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
+  /// Look up the down-provision row for (scenario, stage, block).
+  [[nodiscard]] std::optional<RowIndex> lookup_dn_provision_row(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    const auto mit = dp.provision_rows.find({scenario.uid(), stage.uid()});
+    if (mit == dp.provision_rows.end()) {
+      return std::nullopt;
+    }
+    const auto it = mit->second.find(buid);
+    if (it == mit->second.end()) {
+      return std::nullopt;
+    }
+    return it->second;
+  }
+
   struct Provision
   {
     Provision(const InputContext& ic,
               std::string_view cname,
               const Id& id,
               auto&& rmax,
+              auto&& rmin,
               auto&& rcost,
               auto&& rcapf,
               auto&& rprof);
 
     OptTBRealSched max;
-    OptTRealSched cost;
-    OptTRealSched capacity_factor;
-    OptTRealSched provision_factor;
+    OptTBRealSched min;  ///< PLEXOS Min Provision floor — when set,
+                         ///< clamps the provision col's lower bound to
+                         ///< the per-block value (always-on floor;
+                         ///< gen-status conditional behaviour is a
+                         ///< future refinement).
+    OptTBRealSched cost;
+    OptTBRealSched capacity_factor;
+    OptTBRealSched provision_factor;
     STBIndexHolder<ColIndex> provision_cols;
     STBIndexHolder<RowIndex> provision_rows;
     STBIndexHolder<RowIndex> capacity_rows;
@@ -108,5 +156,12 @@ private:
   ElementIndex<GeneratorLP> generator_index;
   std::vector<ElementIndex<ReserveZoneLP>> reserve_zone_indexes;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReserveProvision::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"ReserveProvision"`).
+static_assert(ReserveProvisionLP::Element::class_name
+                  == LPClassName {"ReserveProvision"},
+              "ReserveProvision::class_name must remain \"ReserveProvision\"");
 
 }  // namespace gtopt

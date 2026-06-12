@@ -59,6 +59,70 @@ template<typename Value = Index>
 using GSTBIndexHolder =
     tuple_map_t<std::tuple<ScenarioUid, StageUid, BlockUid>, Value>;
 
+/// `STBIndexHolder<X>::at({s,t})` throws on missing key.  LP-element
+/// classes that follow the conditional-insert pattern (only insert
+/// the outer (s, t) key when the inner per-block map is non-empty —
+/// see `LineLP::add_to_lp`, `JunctionLP::add_to_lp`,
+/// `WaterwayLP::add_to_lp`) need a graceful fallback on the read
+/// side: callers must see an empty inner map instead of a thrown
+/// exception when the level / stage / scenario in question didn't
+/// populate the holder.
+///
+/// Returns a reference to a per-instantiation static empty
+/// `BIndexHolder<Inner>` when the `(scenario, stage)` outer key is
+/// missing.  One static instance per `Inner` type.
+///
+/// Generic over any STB-style holder (`flat_map<tuple<ScenarioUid,
+/// StageUid>, BIndexHolder<Inner>>`); used today by `LineLP`'s
+/// flow/loss/capacity accessors and by `JunctionLP::drain_cols_at` /
+/// `WaterwayLP::flow_cols_at`.  Co-located here with the
+/// `STBIndexHolder` aliases so all the LP element classes can share
+/// one definition.
+template<typename Holder>
+[[nodiscard]] constexpr const auto& find_or_empty_inner(
+    const Holder& holder,
+    const ScenarioLP& scenario,
+    const StageLP& stage) noexcept
+{
+  using Inner = typename Holder::mapped_type;
+  static const Inner empty {};
+  const auto it = holder.find({scenario.uid(), stage.uid()});
+  return (it != holder.end()) ? it->second : empty;
+}
+
+/// Optional block-level lookup over an `STBIndexHolder<X>`-style map:
+/// `flat_map<tuple<ScenarioUid, StageUid>, flat_map<BlockUid, X>>`.
+/// Returns `std::nullopt` when either the outer `(scenario, stage)`
+/// key or the inner `block` key is missing.
+///
+/// Conditional-insert producers (`GeneratorLP`, `WaterwayLP`,
+/// `FlowLP`, `DemandLP`, `BusLP::theta_cols`) may legitimately
+/// elide a per-block column under the P1 zero-bound optimization
+/// (`generator_lp.cpp:131`, `waterway_lp.cpp:72`, `demand_lp.cpp:206`).
+/// Consumers (`TurbineLP`, `PumpLP`, …) use this helper to handle
+/// the elided slot — skip the consumer's matching constraint — rather
+/// than calling `flat_map::at` and tripping `std::out_of_range`.
+///
+/// Used today via the `lookup_*_col(scenario, stage, buid)`
+/// accessors on `GeneratorLP`, `WaterwayLP`, `FlowLP`, and `BusLP`.
+template<typename Holder>
+[[nodiscard]] constexpr auto lookup_inner(const Holder& holder,
+                                          const ScenarioLP& scenario,
+                                          const StageLP& stage,
+                                          BlockUid buid) noexcept
+    -> std::optional<typename Holder::mapped_type::mapped_type>
+{
+  const auto outer_it = holder.find({scenario.uid(), stage.uid()});
+  if (outer_it == holder.end()) {
+    return std::nullopt;
+  }
+  const auto inner_it = outer_it->second.find(buid);
+  if (inner_it == outer_it->second.end()) {
+    return std::nullopt;
+  }
+  return inner_it->second;
+}
+
 template<typename Map, typename BHolder>
 constexpr auto emplace_bholder(const ScenarioLP& scenario,
                                const StageLP& stage,

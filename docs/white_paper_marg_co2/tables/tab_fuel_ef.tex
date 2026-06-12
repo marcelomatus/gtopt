@@ -1,0 +1,23 @@
+% Fuel emission factor table (Section 4.9)
+\begin{tabular}{l r l}
+  \toprule
+  Fuel (SCVIC label)        & $\varepsilon_f$ [kg CO$_2$/MWh] & Provenance \\
+  \midrule
+  Carb\'on / Carb\'on + Petcoke / Petcoke & 1062 & IPCC 2006 GL Vol.~2, hard coal × \SI{2.45}{\GJ\per\MWh} \\
+  Diesel / Di\'esel / Petr\'oleo Di\'esel &  847 & IPCC 2006 GL, distillate fuel oil \\
+  Fuel Oil / Fuel Oil Nro.~6              &  780 & IPCC 2006 GL, residual fuel oil \\
+  Gas Natural / GNL                       &  380 & IPCC 2006 GL, natural gas × CCGT efficiency \\
+  GLP / Gas Propano                       &  700 & IPCC 2006 GL, LPG \\
+  Cogeneraci\'on                          &  400 & Mixed: assumed half-natural-gas, half-biogenic \\
+  Biomasa / Biogas                        &    0 & IPCC biogenic-zero (Tier~1) \\
+  Geot\'ermica                            &    0 & non-fossil (CO$_2$-fugitive emissions $<$ 1\%) \\
+  Hidr\'aulica / Solar / E\'olica         &    0 & non-emitting renewable \\
+  \bottomrule
+\end{tabular}
+\\[3pt]
+{\footnotesize Emission factors are quoted per \si{\MWh} of
+electrical output, embedding a typical SEN heat-rate assumption
+per fuel.  Units are kg\,CO$_2$/MWh; division by 1000 yields
+\si{\tonne\mathrm{CO}_2\per\MWh}.  Mixed cogeneration reflects
+the dominant fuel mix at SEN cogeneration plants
+(half natural gas, half biogenic woodchip).}

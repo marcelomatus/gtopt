@@ -1,2 +1,2 @@
 # -*- coding: utf-8 -*-
-"""PAMPL templates for plp2gtopt irrigation agreement generation."""
+"""Data templates shipped with plp2gtopt (e.g. ror_equivalence.csv)."""

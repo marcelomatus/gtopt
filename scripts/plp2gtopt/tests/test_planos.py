@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from plp2gtopt.planos_parser import PlanosParser, find_planos_files
-from plp2gtopt.planos_writer import write_boundary_cuts_csv, write_hot_start_cuts_csv
+from plp2gtopt.planos_writer import write_boundary_cuts_csv
 
 
 # ---------------------------------------------------------------------------
@@ -27,15 +27,18 @@ def planos_files(tmp_path: Path):
         "2 'Colbun'\n"
     )
 
-    # plpplaem2.dat — 3 cuts, boundary stage = 5
+    # plpplaem2.dat — 3 cuts, boundary stage = 5.
     # Fields: IPDNumIte  IEtapa  ISimul  LDPhiPrv  GradX(1)  GradX(2)
+    # LDPhiPrv values are POSITIVE (real PLP output), matching
+    # `plp-espercnd.f:54` (`LDPhiPrv = PromedioZ` — averaged LP obj
+    # across apertures, always positive for cost-minimization SDDP).
     plaem2.write_text(
         "5\n"  # boundary stage
-        "1  5  1  -1000.5  0.25  0.75\n"
-        "1  5  2  -2000.3  0.50  0.60\n"
-        "2  5  1  -1500.0  0.35  0.80\n"
+        "1  5  1  1000.5  0.25  0.75\n"
+        "1  5  2  2000.3  0.50  0.60\n"
+        "2  5  1  1500.0  0.35  0.80\n"
         # This cut is for stage 3 (not boundary stage 5) — should be skipped
-        "2  3  1  -9999.0  0.99  0.99\n"
+        "2  3  1  9999.0  0.99  0.99\n"
     )
 
     return plaem1, plaem2
@@ -286,8 +289,9 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
+        # No leading ``name`` column — retired in 2026-05 (PLP never
+        # emitted one).
         assert header == [
-            "name",
             "iteration",
             "scene",
             "rhs",
@@ -309,7 +313,8 @@ class TestPlanosWriter:
             reader = csv.DictReader(f)
             row = next(reader)
 
-        assert row["name"] == "bc_1_1"
+        # No ``name`` column — retired in 2026-05.
+        assert "name" not in row
         assert row["iteration"] == "1"
         assert row["scene"] == "1"  # PLP ISimul=1 → scene UID=1
         assert float(row["rhs"]) == pytest.approx(1000.5)
@@ -326,66 +331,297 @@ class TestPlanosWriter:
             header = next(reader)
             rows = list(reader)
 
-        assert header == ["name", "iteration", "scene", "rhs", "R1", "R2"]
+        assert header == ["iteration", "scene", "rhs", "R1", "R2"]
         assert not rows
 
 
-class TestHotStartCutsWriter:
-    """Tests for write_hot_start_cuts_csv."""
+# ``TestHotStartCutsWriter`` was retired in 2026-05 along with
+# ``write_hot_start_cuts_csv`` (hot-start cuts now travel via the
+# typed Parquet path on the gtopt side).
 
-    def test_write_hot_start_csv(self, planos_files, tmp_path):
-        """Hot-start CSV should have a phase column."""
+
+class TestProbabilityScaling:
+    """Tests for the ``num_scenarios`` (NVarPhi) scaling at write time.
+
+    PLP and gtopt put the scenario probability in different places: PLP's
+    α-column carries ``1/NVarPhi`` as its LP objective coefficient, while
+    gtopt's per-scene α-column carries ``1.0``.  The writer must therefore
+    divide both ``rhs`` and every gradient coefficient by ``NVarPhi`` so
+    each per-scene gtopt LP loads only its own share of the expected
+    future cost.  See ``planos_writer`` module docstring.
+    """
+
+    def test_default_unscaled(self, tmp_path):
+        """Without ``num_scenarios`` the writer is a verbatim pass-through."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 1.0,
+                "coefficients": {"R1": 0.5, "R2": 0.25},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(cuts, ["R1", "R2"], tmp_path / "x.csv")
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(1.0)
+        assert float(row["R1"]) == pytest.approx(0.5)
+        assert float(row["R2"]) == pytest.approx(0.25)
+
+    def test_num_scenarios_four_divides_rhs_and_grads(self, tmp_path):
+        """``num_scenarios=4`` divides ``rhs`` and every gradient by 4."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 1.0,
+                "coefficients": {"R1": 0.5, "R2": 0.25},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1", "R2"], tmp_path / "scaled.csv", num_scenarios=4
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        # Round-trip: rhs = 1.0 / 4 = 0.25
+        assert float(row["rhs"]) == pytest.approx(0.25)
+        # Gradients are scaled by the same factor.
+        assert float(row["R1"]) == pytest.approx(0.125)
+        assert float(row["R2"]) == pytest.approx(0.0625)
+
+    def test_num_scenarios_one_no_op(self, tmp_path):
+        """``num_scenarios=1`` is a no-op (single-scene case)."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 100.0,
+                "coefficients": {"R1": 2.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "n1.csv", num_scenarios=1
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(100.0)
+        assert float(row["R1"]) == pytest.approx(2.0)
+
+    def test_num_scenarios_zero_no_op(self, tmp_path):
+        """``num_scenarios=0`` is a no-op (degenerate guard)."""
+        cuts = [
+            {
+                "name": "bc_1_1",
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 7.0,
+                "coefficients": {"R1": 3.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "n0.csv", num_scenarios=0
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(7.0)
+        assert float(row["R1"]) == pytest.approx(3.0)
+
+    def test_num_scenarios_preserves_other_columns(self, tmp_path):
+        """Scaling does not affect ``iteration`` / ``scene``.
+
+        The legacy leading ``name`` column was retired in 2026-05; the
+        writer silently ignores any ``name`` key present on the input
+        cut dicts (we leave it on the fixture below to also pin the
+        backward-compatibility behaviour).
+        """
+        cuts = [
+            {
+                "name": "bc_2_3",  # ignored on output (no name column)
+                "iteration": 2,
+                "scene": 3,
+                "rhs": 16.0,
+                "coefficients": {"R1": 4.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1"], tmp_path / "id.csv", num_scenarios=4
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        # No ``name`` field in the CSV row (column was dropped).
+        assert "name" not in row
+        assert row["iteration"] == "2"
+        assert row["scene"] == "3"
+        # Scaled column
+        assert float(row["rhs"]) == pytest.approx(4.0)
+        assert float(row["R1"]) == pytest.approx(1.0)
+
+
+class TestNameAlias:
+    """Tests for the ``name_alias`` header-rename option."""
+
+    def test_boundary_cuts_alias_renames_header(self, planos_files, tmp_path):
+        """Alias map renames columns; coefficient lookup uses original keys."""
         plaem1, plaem2 = planos_files
         parser = PlanosParser(plaem1, plaem2)
         parser.parse()
 
-        # Filter non-boundary cuts
-        non_boundary = [
-            c for c in parser.all_cuts if c["stage"] != parser.boundary_stage
-        ]
-
-        csv_path = write_hot_start_cuts_csv(
-            non_boundary,
+        csv_path = write_boundary_cuts_csv(
+            parser.cuts,
             parser.reservoir_names,
-            tmp_path / "hot_start.csv",
-            stage_to_phase={3: 2, 5: 4},
+            tmp_path / "bc_alias.csv",
+            name_alias={"Rapel": "RAPEL_GT", "Unknown": "ignored"},
         )
-        assert csv_path.exists()
 
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader)
-            rows = list(reader)
+            first = next(reader)
 
         assert header == [
-            "name",
             "iteration",
             "scene",
-            "phase",
             "rhs",
-            "Rapel",
+            "RAPEL_GT",
             "Colbun",
         ]
-        assert len(rows) == 1
-        # Stage 3 maps to phase 2
-        assert rows[0][3] == "2"
+        # Renamed column still carries the original Rapel coefficient.
+        # Indices shifted by 1 after the legacy ``name`` column was
+        # dropped in 2026-05.
+        assert float(first[3]) == pytest.approx(0.25)
+        assert float(first[4]) == pytest.approx(0.75)
 
-    def test_hot_start_default_stage_to_phase(self, tmp_path):
-        """Without stage_to_phase, phase = stage (identity)."""
-        cuts = [
-            {
-                "name": "hs_1",
-                "iteration": 1,
-                "stage": 7,
-                "scene": 1,
-                "rhs": -100.0,
-                "coefficients": {"R1": 0.5},
-            }
-        ]
-        csv_path = write_hot_start_cuts_csv(cuts, ["R1"], tmp_path / "hs.csv")
-
+    def test_boundary_cuts_alias_none_is_identity(self, tmp_path):
+        """Passing ``name_alias=None`` leaves headers unchanged."""
+        csv_path = write_boundary_cuts_csv(
+            [], ["R1", "R2"], tmp_path / "nb.csv", name_alias=None
+        )
         with open(csv_path, newline="", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            row = next(reader)
+            header = next(csv.reader(f))
+        assert header[-2:] == ["R1", "R2"]
 
-        assert row["phase"] == "7"  # identity: stage 7 → phase 7
+
+class TestAverageAbsGradientByReservoir:
+    """Tests for PlanosParser.average_abs_gradient_by_reservoir.
+
+    See :meth:`PlanosParser.average_abs_gradient_by_reservoir` for the
+    unit derivation (raw PLP $/Hm³ → per-scene $/hm³ via 1/NVarPhi).
+    """
+
+    def test_basic_three_cuts(self, tmp_path):
+        """Three cuts with GradX_LMAULE = [-100, -200, -300] → avg = 200."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'LMAULE'\n")
+        # Boundary stage 5; three boundary cuts with the same reservoir
+        # but different GradX values to exercise the average.
+        p2.write_text(
+            "5\n"
+            "1  5  1  1000.0  -100.0\n"
+            "1  5  2  1000.0  -200.0\n"
+            "1  5  3  1000.0  -300.0\n"
+        )
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # No NVarPhi scaling: average over the raw PLP gradients.
+        out = parser.average_abs_gradient_by_reservoir()
+        assert "LMAULE" in out
+        assert out["LMAULE"] == pytest.approx(200.0)
+
+    def test_skips_zero_coefficients(self, tmp_path):
+        """Zeros must not pollute the average (they are filtered out)."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        # Two cuts, one with zero coefficient.  The parser already
+        # drops 0.0 from the coefficients dict (see
+        # ``test_zero_coefficient_excluded``) so the average is taken
+        # over the surviving non-zero gradient only.
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n1  5  2  1000.0   0.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.average_abs_gradient_by_reservoir()
+        # Average over non-zero only ⇒ 100.0
+        assert out["R1"] == pytest.approx(100.0)
+
+    def test_reservoir_with_no_nonzero_cuts_omitted(self, tmp_path):
+        """A reservoir whose cuts are all zero is missing from the result."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("2\n1 'R1'\n2 'R2'\n")
+        # R1 has non-zero gradients; R2 is always zero.
+        p2.write_text("5\n1  5  1  1000.0  -100.0  0.0\n1  5  2  1000.0  -200.0  0.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.average_abs_gradient_by_reservoir()
+        assert out == {"R1": pytest.approx(150.0)}
+
+    def test_includes_non_boundary_stages(self, tmp_path):
+        """``all_cuts`` is the source — non-boundary stages count too.
+
+        The cap is meant to reflect the FULL revealed marginal water
+        value across the SDDP pass, not just the last stage.  Both
+        boundary and hot-start cuts contribute.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        # Boundary stage = 5; one boundary cut and one earlier cut.
+        p2.write_text(
+            "5\n"
+            "1  5  1  1000.0  -100.0\n"  # boundary
+            "1  3  1  500.0   -300.0\n"  # hot-start (stage 3)
+        )
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # Average across both: (100 + 300) / 2 = 200
+        out = parser.average_abs_gradient_by_reservoir()
+        assert out["R1"] == pytest.approx(200.0)
+
+    def test_num_scenarios_divides_average(self, tmp_path):
+        """``num_scenarios=N`` divides each gradient by N before averaging.
+
+        Mirrors the ``1/NVarPhi`` scaling applied by the writer at CSV
+        export time, so the dict lands in gtopt per-scene ``$/hm³``.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n1  5  2  1000.0  -200.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        # avg(|GradX|) = 150 raw; divide by 4 ⇒ 37.5
+        out = parser.average_abs_gradient_by_reservoir(num_scenarios=4)
+        assert out["R1"] == pytest.approx(37.5)
+
+    def test_num_scenarios_one_is_no_op(self, tmp_path):
+        """``num_scenarios=1`` (or ``None``) leaves the raw average."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  -100.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        assert parser.average_abs_gradient_by_reservoir(num_scenarios=1)[
+            "R1"
+        ] == pytest.approx(100.0)
+        assert parser.average_abs_gradient_by_reservoir()["R1"] == pytest.approx(100.0)
+
+    def test_empty_cuts_empty_result(self, tmp_path):
+        """No cuts ⇒ empty dict (degenerate / fixture path)."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("")
+        p2.write_text("")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+        assert parser.average_abs_gradient_by_reservoir() == {}

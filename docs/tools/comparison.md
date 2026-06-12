@@ -213,7 +213,7 @@ reactance (`x_pu < 1e-6`) are filtered out.
 | Initial SoC | `eini` (MWh) | — | `BatEMax/2` (default) | `soc_percent` | PLP Battery: initializes at 50% capacity. |
 | Final SoC | `efin` (MWh) | — | — | — | gtopt-only end-of-horizon constraint. |
 | Generation cost | `gcost` ($/MWh) | — | — | — | gtopt-only; cost of discharge. |
-| Energy scale | `energy_scale` | — | — | — | gtopt-only LP scaling factor. |
+| Energy scale | `variable_scales` (energy) | — | — | — | gtopt-only LP scaling factor (via `options.variable_scales`). |
 
 ### PLP ESS vs PLP Battery
 
@@ -259,7 +259,7 @@ per downstream node in the hydro cascade.
 | Spillway capacity | `spillway_capacity` (m³/s) | — (implicit large) | gtopt default: 6000 m³/s. |
 | Spillway cost | `spillway_cost` ($/dam³) | — | gtopt-only penalty for spilling. |
 | Storage capacity | `capacity` (dam³) | `vol_max` (Mm³) | Same as emax in basic cases. |
-| Volume scale | `energy_scale` (default 1000) | — | LP scaling: converts dam³ to Mm³ for numerics. |
+| Volume scale | `variable_scales` (energy) | — | LP scaling via `options.variable_scales`: converts dam³ to Mm³ for numerics. |
 | Flow conversion | `flow_conversion_rate` (0.0036) | 0.0036 | Converts m³/s × hours → dam³. Both use same factor. |
 | State variable | `use_state_variable` (bool) | — (always true) | SDDP: carries volume across phases. |
 | Annual loss | `annual_loss` (p.u./year) | — | Evaporation/seepage rate. |

@@ -34,7 +34,21 @@ using ReservoirLPSId = ObjectSingleId<class ReservoirLP>;
 class ReservoirLP : public StorageLP<ObjectLP<Reservoir>>
 {
 public:
-  static constexpr LPClassName ClassName {"Reservoir", "rsv"};
+  static constexpr std::string_view ExtractionName {"extraction"};
+
+  /// Parquet stem for the per-block volume-balance dual.  Industry
+  /// convention names this quantity "water value" (PLEXOS Water
+  /// Storage `Shadow Price`, PSR-SDDP "valor del agua", PLP
+  /// `cmgcse`, PyPSA `mu_energy_balance` — explicitly aliased as
+  /// "water value" in PyPSA docs).  We publish under that name so
+  /// the Parquet column is directly comparable with those reports.
+  /// The Battery class keeps the generic `EnergyName` ("energy")
+  /// since the equivalent term in storage literature is the more
+  /// neutral "marginal storage value".  Only the dual stem is
+  /// renamed; the underlying LP variable / row names — and thus
+  /// `Reservoir.energy.sol` / `Reservoir.energy.cost` — are
+  /// unchanged.
+  static constexpr std::string_view WaterValueName {"water_value"};
 
   using StorageBase = StorageLP<ObjectLP<Reservoir>>;
 
@@ -89,8 +103,14 @@ public:
 
 private:
   OptTRealSched capacity;
-  OptTRealSched scost;
+  OptTBRealSched scost;
   STBIndexHolder<ColIndex> extraction_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Reservoir::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Reservoir"`).
+static_assert(ReservoirLP::Element::class_name == LPClassName {"Reservoir"},
+              "Reservoir::class_name must remain \"Reservoir\"");
 
 }  // namespace gtopt

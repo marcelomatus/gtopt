@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <functional>
 #include <optional>
 
@@ -22,6 +21,7 @@
 #include <gtopt/junction_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/scenario.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -34,7 +34,7 @@ using FlowLPSId = ObjectSingleId<class FlowLP>;
 class FlowLP : public ObjectLP<Flow>
 {
 public:
-  static constexpr LPClassName ClassName {"Flow", "flw"};
+  static constexpr std::string_view FlowName {"flow"};
 
   explicit FlowLP(const Flow& pflow, const InputContext& ic);
 
@@ -50,10 +50,8 @@ public:
 
   [[nodiscard]] auto junction_sid() const
   {
-    const auto& opt = flow().junction;
-    assert(opt.has_value()
-           && "junction_sid() called on a Flow without a junction");
-    return JunctionLPSId {*opt};
+    return JunctionLPSId {
+        require_sid(flow().junction, "FlowLP::junction_sid", "junction")};
   }
 
   [[nodiscard]] constexpr bool is_input() const noexcept
@@ -72,6 +70,18 @@ public:
                                     const StageLP& stage) const
   {
     return flow_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Tolerant lookup over `flow_cols` — see `lookup_inner`
+  /// (`index_holder.hpp`).  Consumers (turbine_lp, etc.) use this
+  /// to skip blocks where the producer elided the column, instead
+  /// of throwing `flat_map::at`.
+  [[nodiscard]] std::optional<ColIndex> lookup_flow_col(
+      const ScenarioLP& scenario,
+      const StageLP& stage,
+      BlockUid buid) const noexcept
+  {
+    return lookup_inner(flow_cols, scenario, stage, buid);
   }
 
   /**
@@ -109,8 +119,26 @@ public:
       const StageLP& stage) const;
 
 private:
-  STBRealSched discharge;
+  /// Resolved per-(scene, stage, block) discharge schedule.  Now
+  /// optional — when ``Flow.discharge`` is unset and ``fcost`` is
+  /// set, the LP column upper bound defaults to ``DblMax``
+  /// (unbounded above) so non-physical inflow slacks need only
+  /// provide the penalty cost, not a cap.
+  OptSTBRealSched discharge;
+  /// Resolved per-(stage, block) flow penalty schedule.  Empty when
+  /// ``Flow.fcost`` is unset — the LP then keeps the legacy hard
+  /// ``lowb = uppb = discharge`` semantics.  When populated, the LP
+  /// column relaxes to ``lowb = 0, uppb = discharge`` and the
+  /// per-block cost ``fcost · cost_factor`` is applied so the LP
+  /// pays for the slack only when the junction balance demands it.
+  OptTBRealSched fcost;
   STBIndexHolder<ColIndex> flow_cols;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Flow::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Flow"`).
+static_assert(FlowLP::Element::class_name == LPClassName {"Flow"},
+              "Flow::class_name must remain \"Flow\"");
 
 }  // namespace gtopt

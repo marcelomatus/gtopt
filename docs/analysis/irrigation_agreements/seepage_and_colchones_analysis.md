@@ -429,8 +429,8 @@ m_qidn_j + m_qisd_j + m_qninv_j - m_qhein_j - m_qhnein_j = QAflInvern
 
 | File | Content |
 |------|---------|
-| `support/plp_long_term/plplajam.dat.xz` | Laja agreement parameters |
-| `support/plp_long_term/plpmaulen.dat.xz` | Maule agreement parameters |
-| `support/plp_long_term/plpfilemb.dat.xz` | Seepage curves (ELTORO, CIPRESES, COLBUN) |
+| `support/plp/long_term/plplajam.dat.xz` | Laja agreement parameters |
+| `support/plp/long_term/plpmaulen.dat.xz` | Maule agreement parameters |
+| `support/plp/long_term/plpfilemb.dat.xz` | Seepage curves (ELTORO, CIPRESES, COLBUN) |
 | `docs/analysis/irrigation_agreements/plp_implementation.md` | Full PLP documentation |
 | `docs/analysis/irrigation_agreements/right_junctions_analysis.md` | Right junction catalog |

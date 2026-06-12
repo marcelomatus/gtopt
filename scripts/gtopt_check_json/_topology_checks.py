@@ -309,7 +309,16 @@ def check_unreferenced_elements(
                 )
             )
 
-    # Check junctions are referenced
+    # Check junctions are referenced.
+    #
+    # A Junction may be referenced by any of the LP-side elements that
+    # carry a junction handle: waterway endpoints (junction_a /
+    # junction_b), flow / reservoir / turbine / battery junctions, and
+    # the FlowRight pair (junction + bypass_junction).  Missing any of
+    # these produces false-positive WARNINGs — e.g. the synthetic
+    # ``<central>_spill`` drain junctions emitted by plp2gtopt's
+    # ``--pmin-as-flowright`` path live in ``flow_right_array[*].
+    # bypass_junction`` and are not waterway / flow / reservoir refs.
     junc_referenced: set[Any] = set()
     for ww in sys.get("waterway_array", []):
         for key in ("junction_a", "junction_b"):
@@ -324,6 +333,28 @@ def check_unreferenced_elements(
         ref = res.get("junction")
         if ref is not None:
             junc_referenced.add(ref)
+        # Reservoir's spillway routing can target a junction by name
+        # (gtopt's optional ``spill_junction`` field), used by plp2gtopt
+        # for the regulated-spill path.  Without this lookup the spill
+        # target would appear unreferenced.
+        ref = res.get("spill_junction")
+        if ref is not None:
+            junc_referenced.add(ref)
+    for fr in sys.get("flow_right_array", []):
+        for key in ("junction", "bypass_junction"):
+            ref = fr.get(key)
+            if ref is not None:
+                junc_referenced.add(ref)
+    # Turbines in built-in waterway mode carry their own flow arc between
+    # ``junction_a`` (intake) and ``junction_b`` (downstream; unset ⇒
+    # drained).  These are first-class junction references — without them a
+    # downstream/intake junction reached only via a turbine (no separate
+    # Waterway) is spuriously flagged as orphaned.
+    for turb in sys.get("turbine_array", []):
+        for key in ("junction_a", "junction_b"):
+            ref = turb.get(key)
+            if ref is not None:
+                junc_referenced.add(ref)
 
     for junc in sys.get("junction_array", []):
         uid = junc.get("uid")
@@ -336,8 +367,8 @@ def check_unreferenced_elements(
                     severity=Severity.WARNING,
                     message=(
                         f"Junction '{label}' (uid={uid}) is not "
-                        f"referenced by any waterway, flow, or "
-                        f"reservoir"
+                        f"referenced by any waterway, flow, "
+                        f"reservoir, turbine, or flow_right"
                     ),
                 )
             )

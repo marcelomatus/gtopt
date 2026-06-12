@@ -16,6 +16,12 @@ When stdout is not a TTY (piped, redirected, or running in background),
 the display is disabled and solver output flows to stdout/log files
 unchanged.
 
+Display modes (switch with Tab or 1/2/3):
+
+  1  Dashboard — stats, progress, iteration history, log
+  2  Grid — SDDP phase activity grid (forward/backward/elastic/aperture)
+  3  Convergence — per-scene cost heatmap + bound sparklines
+
 Interactive commands (single-key, no Enter required):
 
   s  Graceful stop — saves cuts, finishes current iteration
@@ -47,12 +53,40 @@ log = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_POLL_INTERVAL = 0.5  # seconds between status file polls
+_POLL_INTERVAL = 1.0  # seconds between status file polls
 _MAX_LOG_LINES = 16  # rolling log buffer size
 _MAX_HISTORY_ROWS = 8  # iteration rows shown in the table
-_REFRESH_PER_SECOND = 4  # Rich Live refresh rate
+# Rich Live refresh rate.  At 4 Hz the dashboard noticeably flickered and
+# pegged a CPU core — 2 Hz is plenty for human feedback (Rich coalesces
+# multiple updates per frame anyway) and roughly halves the TUI thread's
+# CPU footprint.
+_REFRESH_PER_SECOND = 2
 _SPARKLINE_WIDTH = 24
 _PROGRESS_BAR_WIDTH = 40
+
+# Display modes — cycle with Tab, jump with 1/2/3
+_MODE_DASHBOARD = 0  # full dashboard (stats, progress, history, log)
+_MODE_GRID = 1  # SDDP phase activity grid
+_MODE_CONVERGENCE = 2  # per-scene convergence heatmap + sparklines
+_MODE_COUNT = 3
+_MODE_NAMES = {
+    _MODE_DASHBOARD: "dashboard",
+    _MODE_GRID: "grid",
+    _MODE_CONVERGENCE: "convergence",
+}
+
+# Convergence heatmap color ramp (green → yellow → red, 8 levels)
+_HEAT_BLOCKS = "▁▂▃▄▅▆▇█"
+_HEAT_STYLES = [
+    "bold green",
+    "green",
+    "dark_green",
+    "yellow",
+    "dark_orange",
+    "orange_red1",
+    "red",
+    "bold red",
+]
 
 # Pass names from the C++ SolverStatusSnapshot::current_pass enum
 _PASS_NAMES = {0: "idle", 1: "forward", 2: "backward"}
@@ -69,7 +103,20 @@ _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
 # ---------------------------------------------------------------------------
 
 # Regex for the uniform "SDDP <Tag> [i<iter> s<scene> p<phase>]" format
-_SDDP_LOG_RE = re.compile(r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:\s+a(\d+))?\]")
+_SDDP_LOG_RE = re.compile(
+    # Per-(scene, phase) activity lines from sddp_method_iteration / forward
+    # / backward.  ``p(\d+)`` is followed by an optional ``/<total>`` suffix
+    # since the per-phase Forward INFO log (sddp_forward_pass.cpp) emits
+    # ``p3/51`` — capturing the ``<total>`` lets the grid pre-allocate
+    # all phase columns from the very first log line, instead of waiting
+    # until the solver actually reaches the highest phase to discover the
+    # true width.  The aperture group ``a(\d+)`` remains optional and
+    # exclusive (apertures don't co-emit a phase total).
+    r"SDDP (\w+) \[i(\d+) s(\d+) p(\d+)(?:/(\d+))?(?:\s+a(\d+))?\]"
+)
+# Optional kappa magnitude trailing the "SDDP Kappa [...]" prefix; used
+# to surface the worst observed conditioning, not just the warning count.
+_SDDP_KAPPA_VALUE_RE = re.compile(r"high kappa\s+([0-9eE+\-.]+)")
 
 # Cell states (priority order: higher overwrites lower)
 _GRID_IDLE = 0
@@ -94,6 +141,11 @@ _GRID_MAX_PHASES = 52
 # Maximum number of iterations shown (most recent)
 _GRID_MAX_ITERS = 12
 
+# Aggregate ("all scenes") cell shape — density of scene coverage at this
+# (iter, phase) cell.  Index = floor(coverage * 5), clamped to [0, 4].
+# Coverage 0 → "·"; coverage > 0 always renders something visible.
+_GRID_AGG_SHAPES: tuple[str, ...] = ("·", "░", "▒", "▓", "█")
+
 
 class SDDPGridTracker:
     """Tracks SDDP forward/backward/elastic/aperture activity per (scene, iter, phase).
@@ -114,6 +166,7 @@ class SDDPGridTracker:
         self._active_cell: tuple[int, int, int] | None = None  # (scene, iter, phase)
         # Diagnostic counters for indicator lights
         self._kappa_warnings: int = 0
+        self._max_kappa: float = 0.0
         self._elastic_count: int = 0
         self._infeasible_count: int = 0
         self._aperture_count: int = 0
@@ -128,7 +181,12 @@ class SDDPGridTracker:
         it = int(m.group(2))
         sc = int(m.group(3))
         ph = int(m.group(4))
-        has_aperture = m.group(5) is not None
+        # Group 5 = total phase count (e.g. "/51"); group 6 = aperture uid.
+        total_phases_str = m.group(5)
+        if total_phases_str is not None:
+            # PhaseUid is 1-based; total=51 → highest valid ph index is 51.
+            self._max_phase = max(self._max_phase, int(total_phases_str))
+        has_aperture = m.group(6) is not None
 
         # Determine cell state from tag + context
         if tag == "Forward":
@@ -151,6 +209,16 @@ class SDDPGridTracker:
             self._elastic_count += 1
         elif tag == "Kappa":
             self._kappa_warnings += 1
+            # Capture the actual kappa magnitude so the indicator strip
+            # can show worst-conditioning instead of just a count of
+            # warnings — the count alone tells you nothing about how
+            # bad the LP is.
+            kv = _SDDP_KAPPA_VALUE_RE.search(line)
+            if kv is not None:
+                try:
+                    self._max_kappa = max(self._max_kappa, float(kv.group(1)))
+                except ValueError:
+                    pass
             return
         else:
             # Iter, Sim, Update, Init — no phase-level grid info
@@ -199,6 +267,33 @@ class SDDPGridTracker:
             return _GRID_IDLE
         return sg.get((iteration, phase), _GRID_IDLE)
 
+    def aggregate_cell(self, iteration: int, phase: int) -> tuple[int, float]:
+        """Return ``(dominant_state, coverage_fraction)`` across all scenes.
+
+        ``dominant_state`` is the highest-priority state seen at this
+        ``(iteration, phase)`` in any scene — using the same priority
+        order as :meth:`get_cell` (forward < backward < elastic <
+        aperture < infeasible).  ``coverage_fraction`` is the share of
+        registered scenes that have visited this cell at all (state >
+        idle), in [0, 1].
+
+        Used by :func:`_build_sddp_grid` to render the pinned
+        "all scenes" summary row at the top of Grid mode.
+        """
+        if not self._scenes:
+            return _GRID_IDLE, 0.0
+        worst = _GRID_IDLE
+        visited = 0
+        for sc in self._scenes:
+            sg = self._grid.get(sc)
+            if sg is None:
+                continue
+            cell = sg.get((iteration, phase), _GRID_IDLE)
+            if cell != _GRID_IDLE:
+                visited += 1
+                worst = max(worst, cell)
+        return worst, visited / len(self._scenes)
+
     @property
     def active_cell(self) -> tuple[int, int, int] | None:
         return self._active_cell
@@ -206,6 +301,10 @@ class SDDPGridTracker:
     @property
     def kappa_warnings(self) -> int:
         return self._kappa_warnings
+
+    @property
+    def max_kappa(self) -> float:
+        return self._max_kappa
 
     @property
     def elastic_count(self) -> int:
@@ -231,9 +330,14 @@ class SDDPGridTracker:
     def load_from_status(self, status: dict) -> None:
         """Merge phase_grid data from the status JSON into the grid.
 
-        The C++ solver writes a ``phase_grid`` section with compact
-        per-row strings: ``{"i": 0, "s": 0, "cells": "FF.FEB..."}``.
-        This allows remote monitoring without parsing log lines.
+        The C++ solver writes a ``phase_grid`` section keyed by PhaseUid:
+        ``{"i": 0, "s": 0, "cells": {"1": "F", "2": ".", "3": "B"}}``.
+        Iterating in sorted-UID order gives the natural column ordering
+        without any UID-as-index arithmetic on either side.  This
+        format also tolerates legacy positional strings (``"FF.FEB"``)
+        for backward compatibility with status files captured before
+        the format change — the legacy branch treats each character
+        position as a 0-based phase column.
         """
         grid_data = status.get("phase_grid")
         if not grid_data:
@@ -241,15 +345,30 @@ class SDDPGridTracker:
         for row in grid_data.get("rows", []):
             it = row.get("i", 0)
             sc = row.get("s", 0)
-            cells = row.get("cells", "")
+            cells = row.get("cells")
             if not cells:
+                continue
+            if isinstance(cells, dict):
+                # New format: UID-keyed.  Sort by integer UID so the
+                # column ordering is stable; the TUI's `ph` axis is
+                # 0-based ordinal-within-sorted-UIDs (the natural
+                # phase column index for the dense 1-based PhaseUid
+                # layout the simulation framework allocates).
+                cells_sorted = sorted(cells.items(), key=lambda kv: int(kv[0]))
+                cells_iter = enumerate(ch for _uid, ch in cells_sorted)
+                width = len(cells_sorted)
+            else:
+                # Legacy format: positional packed string.
+                cells_iter = enumerate(cells)
+                width = len(cells)
+            if width == 0:
                 continue
             self._scenes.add(sc)
             self._max_iter = max(self._max_iter, it)
-            self._max_phase = max(self._max_phase, len(cells) - 1)
+            self._max_phase = max(self._max_phase, width - 1)
             if sc not in self._grid:
                 self._grid[sc] = {}
-            for ph, ch in enumerate(cells):
+            for ph, ch in cells_iter:
                 state = self._CELL_CHAR_MAP.get(ch, _GRID_IDLE)
                 if state == _GRID_IDLE:
                     continue
@@ -285,14 +404,18 @@ _PHASE_TRIGGERS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"=== Building LP model ==="), "build_lp", "start"),
     (re.compile(r"Build lp time"), "build_lp", "done"),
     (re.compile(r"=== System optimization ==="), "optimize", "start"),
-    (re.compile(r"SDDP: === iteration (\d+) / (\d+)"), "optimize", "detail"),
+    (
+        re.compile(r"SDDP Iter \[i\d+\]: === starting \((\d+) of (\d+)\) ==="),
+        "optimize",
+        "detail",
+    ),
     (
         re.compile(r"Monolithic(?:Method|Solver): scene (\d+) done.*\((\d+)/(\d+)\)"),
         "optimize",
         "detail",
     ),
-    (re.compile(r"SDDP: === simulation pass"), "sim_pass", "start"),
-    (re.compile(r"SDDP: simulation pass done"), "sim_pass", "done"),
+    (re.compile(r"SDDP Sim \[i\d+\]: === simulation pass"), "sim_pass", "start"),
+    (re.compile(r"SDDP Sim \[i\d+\]: done in"), "sim_pass", "done"),
     (re.compile(r"=== Solution statistics ==="), "solution", "done"),
     (re.compile(r"=== Output writing ==="), "write", "start"),
     (re.compile(r"Write output time"), "write", "done"),
@@ -455,19 +578,50 @@ def _load_status(path: Path | None) -> dict[str, Any]:
 def _find_status_file(case_dir: Path) -> Path:
     """Derive the expected status-file path from *case_dir*.
 
-    The C++ solver writes ``solver_status.json`` under the output
-    directory — which defaults to ``<case>/output/``.
-    Falls back to legacy names for backward compatibility.
+    The C++ solver writes ``solver_status.json`` under
+    ``options.output_directory`` (resolved relative to the planning
+    JSON's parent).  We honor that value when readable, and otherwise
+    fall back to common conventional dirs (``output/``, ``results/``).
+    Legacy file names are also probed for older gtopt builds.
     """
     base = case_dir.parent if case_dir.is_file() else case_dir
-    output_dir = base / "output"
-    status = output_dir / "solver_status.json"
-    if status.is_file():
-        return status
-    # Legacy fallback for older gtopt builds
-    sddp = output_dir / "sddp_status.json"
-    mono = output_dir / "monolithic_status.json"
-    return sddp if sddp.is_file() else mono if mono.is_file() else status
+
+    # Build an ordered list of candidate output directories.  Prefer the
+    # one declared in the planning JSON (when discoverable) so we follow
+    # what the solver actually wrote.
+    candidate_dirs: list[Path] = []
+    json_path = _find_planning_json(case_dir)
+    if json_path is not None:
+        try:
+            with open(json_path, encoding="utf-8") as f:
+                planning = json.load(f)
+            out_opt = planning.get("options", {}).get("output_directory", "")
+            if isinstance(out_opt, str) and out_opt:
+                p = Path(out_opt)
+                candidate_dirs.append(p if p.is_absolute() else json_path.parent / p)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # Conventional fallbacks: gtopt cases historically used either
+    # "output/" or "results/" depending on vintage.
+    for sub in ("output", "results"):
+        candidate_dirs.append(base / sub)
+
+    for output_dir in candidate_dirs:
+        status = output_dir / "solver_status.json"
+        if status.is_file():
+            return status
+        # Legacy fallback for older gtopt builds
+        sddp = output_dir / "sddp_status.json"
+        mono = output_dir / "monolithic_status.json"
+        if sddp.is_file():
+            return sddp
+        if mono.is_file():
+            return mono
+
+    # Nothing found yet — return the canonical expected path so the
+    # caller can keep polling for it to appear.
+    return candidate_dirs[0] / "solver_status.json"
 
 
 def _find_planning_json(case_dir: Path) -> Path | None:
@@ -652,6 +806,39 @@ def _build_header(
     )
     grid.add_row(Text(status_str, style=status_style), "", "")
 
+    # Always-visible LB / UB / gap line so operators see convergence
+    # progress regardless of which display mode is active (Dashboard,
+    # Grid, or Convergence).  Skipped before any iteration data exists.
+    lb = data.get("lower_bound")
+    ub = data.get("upper_bound")
+    gap = data.get("gap")
+    if lb is not None or ub is not None:
+        # ``Text`` already imported at the top of the function — no
+        # need to re-import as ``_T``; just alias it for the same
+        # locality the prior alias provided.
+        _T = Text
+        bounds = _T()
+        bounds.append("LB ", style="bold cyan")
+        bounds.append(_format_number(lb or 0.0), style="cyan")
+        bounds.append("   UB ", style="bold magenta")
+        bounds.append(_format_number(ub or 0.0), style="magenta")
+        if gap is not None:
+            gap_style = (
+                "bold green"
+                if gap < 0.01
+                else "bold yellow"
+                if gap < 0.1
+                else "bold red"
+            )
+            bounds.append("   Gap ", style="bold")
+            bounds.append(f"{100.0 * gap:.2f}%", style=gap_style)
+        # Iteration counter, when SDDP-style data is present
+        it = data.get("iteration")
+        max_it = data.get("max_iterations")
+        if it is not None and max_it:
+            bounds.append(f"   iter {it}/{max_it}", style="dim")
+        grid.add_row(bounds, "", "")
+
     return Panel(
         grid,
         title=(
@@ -792,9 +979,13 @@ def _build_stats(data: dict) -> Panel:
         "Upper Bound",
         Text(_format_number(ub), style="cyan"),
     )
+    # Render gap as a percentage to match the per-iteration log format
+    # (sddp_iteration.cpp emits ``gap=25.00%``).  Six decimals on a
+    # fraction like ``0.250043`` is unintuitive for operators glancing
+    # at the dashboard.
     grid.add_row(
         "Gap",
-        Text(f"{gap:.6f}", style=gap_style),
+        Text(f"{100.0 * gap:.2f}%", style=gap_style),
         "Converged",
         conv_text,
     )
@@ -842,7 +1033,7 @@ def _build_history(data: dict) -> Panel:
             str(rec.get("iteration", 0)),
             _format_number(rec.get("lower_bound", 0.0)),
             _format_number(rec.get("upper_bound", 0.0)),
-            f"[{gap_style}]{g:.6f}[/{gap_style}]",
+            f"[{gap_style}]{100.0 * g:.2f}%[/{gap_style}]",
             str(rec.get("cuts_added", 0)),
             f"{rec.get('forward_pass_s', 0.0):.1f}s",
             f"{rec.get('backward_pass_s', 0.0):.1f}s",
@@ -861,6 +1052,28 @@ def _build_history(data: dict) -> Panel:
     )
 
 
+def _format_mb(mb: float) -> str:
+    """Render a megabyte count as MB or GB depending on magnitude."""
+    if mb >= 1024.0:
+        return f"{mb / 1024.0:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
+def _has_resource_telemetry(data: dict) -> bool:
+    """True when *data* carries any CPU/memory observation worth showing."""
+    rt = data.get("realtime") or {}
+    if rt.get("cpu_loads") or rt.get("active_workers"):
+        return True
+    return any(
+        data.get(k) is not None
+        for k in (
+            "pool_process_rss_mb",
+            "pool_available_memory_mb",
+            "pool_memory_percent",
+        )
+    )
+
+
 def _build_system(data: dict) -> Panel:
     from rich.panel import Panel  # noqa: PLC0415
     from rich.table import Table  # noqa: PLC0415
@@ -869,27 +1082,102 @@ def _build_system(data: dict) -> Panel:
     rt = data.get("realtime", {})
     cpus = rt.get("cpu_loads", [])
     workers = rt.get("active_workers", [])
+    mem_pcts = rt.get("memory_percent", [])
+    rss_vals = rt.get("process_rss_mb", [])
+
+    # Pool-level snapshot (top-level JSON, not realtime).  Prefer these
+    # for the headline numbers — they reflect the full process and the
+    # OS' free memory at the last poll, not just the realtime ring.
+    pool_rss = data.get("pool_process_rss_mb")
+    pool_free = data.get("pool_available_memory_mb")
+    pool_pct = data.get("pool_memory_percent")
+    async_data = data.get("async") or {}
+    pool_active = async_data.get("pool_tasks_active")
+    pool_pending = async_data.get("pool_tasks_pending")
 
     cpu_val = cpus[-1] if cpus else 0.0
     worker_val = workers[-1] if workers else 0
-    filled = int(cpu_val * 30 / 100)
-    cpu_bar = f"[green]{'█' * filled}[/green][dim]{'░' * (30 - filled)}[/dim]"
+    mem_val = (
+        float(pool_pct) if pool_pct is not None else (mem_pcts[-1] if mem_pcts else 0.0)
+    )
+    rss_val = (
+        float(pool_rss) if pool_rss is not None else (rss_vals[-1] if rss_vals else 0.0)
+    )
+
+    bar_width = 30
+    cpu_filled = int(cpu_val * bar_width / 100)
+    cpu_bar = (
+        f"[green]{'█' * cpu_filled}[/green][dim]{'░' * (bar_width - cpu_filled)}[/dim]"
+    )
+    mem_filled = int(mem_val * bar_width / 100)
+    mem_bar = (
+        f"[blue]{'█' * mem_filled}[/blue][dim]{'░' * (bar_width - mem_filled)}[/dim]"
+    )
 
     grid = Table.grid(padding=(0, 2))
     grid.add_column(min_width=6)
     grid.add_column(min_width=40)
-    grid.add_column(min_width=14)
+    grid.add_column(min_width=20)
+
+    # Right-column annotations: CPU row reports active workers; MEM row
+    # reports gtopt's RSS plus system free memory (the user-visible
+    # "headroom" before the OS starts pressuring the process).
+    cpu_right = Text(f"Workers: {worker_val}", style="cyan")
+    if pool_active is not None or pool_pending is not None:
+        a = pool_active if pool_active is not None else 0
+        p = pool_pending if pool_pending is not None else 0
+        cpu_right = Text(
+            f"Workers: {worker_val}  Pool: {a} active  {p} pending",
+            style="cyan",
+        )
+
+    if pool_free is not None:
+        mem_right = Text(
+            f"gtopt: {_format_mb(rss_val)}   Free: {_format_mb(float(pool_free))}",
+            style="blue",
+        )
+    else:
+        mem_right = Text(f"RSS: {_format_mb(rss_val)}", style="blue")
+
     grid.add_row(
         Text("CPU", style="bold"),
         Text.from_markup(f"{cpu_bar} {cpu_val:.0f}%"),
-        Text(f"Workers: {worker_val}", style="cyan"),
+        cpu_right,
+    )
+    grid.add_row(
+        Text("MEM", style="bold"),
+        Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
+        mem_right,
     )
 
     cpu_spark = _sparkline(cpus) if cpus else ""
+    mem_spark = _sparkline(mem_pcts) if mem_pcts else ""
     if cpu_spark:
         grid.add_row(
             Text("Load", style="dim"),
             Text(cpu_spark, style="green"),
+            "",
+        )
+    if mem_spark:
+        grid.add_row(
+            Text("Mem", style="dim"),
+            Text(mem_spark, style="blue"),
+            "",
+        )
+
+    # LP task stats summary (from top-level JSON, not realtime)
+    lp_stats = data.get("lp_task_stats")
+    if lp_stats:
+        dispatched = lp_stats.get("dispatched", 0)
+        avg_cpu = lp_stats.get("avg_cpu_pct", 0.0)
+        avg_mem = lp_stats.get("avg_rss_delta_mb", 0.0)
+        grid.add_row(
+            Text("LP", style="dim"),
+            Text(
+                f"{dispatched} tasks  avg CPU {avg_cpu:.0f}%  "
+                f"avg mem Δ{_format_mb(avg_mem)}",
+                style="dim",
+            ),
             "",
         )
 
@@ -926,28 +1214,43 @@ def _build_log(lines: list[str]) -> Panel:
     )
 
 
-def _build_command_bar(stop_sent: bool) -> Panel:
+def _build_command_bar(stop_sent: bool, mode: int = _MODE_DASHBOARD) -> Panel:
     """Render the interactive command bar at the bottom of the display."""
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
 
     text = Text()
+
+    # Mode selector: [1] dashboard  [2] grid  [3] convergence  [Tab] cycle
     text.append("  ")
+    for m, label in _MODE_NAMES.items():
+        key = str(m + 1)
+        if m == mode:
+            text.append(f"[{key}]", style="bold green")
+            text.append(f" {label}", style="bold green")
+        else:
+            text.append(f"[{key}]", style="dim cyan")
+            text.append(f" {label}", style="dim")
+        text.append("  ")
+    text.append("[Tab]", style="dim cyan")
+    text.append(" cycle", style="dim")
+
+    # Separator
+    text.append("    │    ", style="dim")
+
+    # Action keys
     text.append("[s]", style="bold cyan")
     if stop_sent:
         text.append(" stop sent", style="dim")
     else:
         text.append(" stop", style="")
-    text.append("    ")
-    text.append("[g]", style="bold cyan")
-    text.append(" grid", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[i]", style="bold cyan")
     text.append(" stats", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[h]", style="bold cyan")
     text.append(" help", style="")
-    text.append("    ")
+    text.append("  ")
     text.append("[q]", style="bold cyan")
     text.append(" quit", style="")
 
@@ -995,12 +1298,18 @@ def _build_help_overlay() -> Panel:
     table.add_column("Description")
 
     commands = [
+        ("1", "Dashboard mode — stats, history table, log output"),
+        ("2", "Grid mode — SDDP phase activity grid"),
+        ("3", "Convergence mode — per-scene cost heatmap + sparklines"),
+        ("Tab", "Cycle through display modes"),
         ("s", "Graceful stop — finish current iteration, save cuts, exit"),
-        ("g", "Toggle SDDP phase grid (forward/backward/elastic/aperture)"),
         ("i", "Toggle system stats overlay (buses, generators, etc.)"),
         ("h", "Toggle this help overlay"),
         ("q", "Quit — terminate the solver immediately"),
         ("Ctrl+C", "Same as quit"),
+        ("j / k", "Grid mode: scroll scenes down / up by 1"),
+        ("J / K", "Grid mode: scroll scenes down / up by 5 (page)"),
+        ("g / G", "Grid mode: jump to first / last scene"),
     ]
     for key, desc in commands:
         table.add_row(Text(key, style="bold cyan"), desc)
@@ -1096,11 +1405,35 @@ def _build_stats_overlay(stats: dict[str, Any]) -> Panel:
     )
 
 
-def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
+def _build_sddp_grid(
+    tracker: SDDPGridTracker,
+    scroll_offset: int = 0,
+    max_visible_scenes: int | None = None,
+    active_scene_hint: int | None = None,
+) -> Panel:
     """Render the SDDP phase/iteration activity grid.
 
-    One matrix per scene.  X-axis = phases, Y-axis = iterations (most recent).
-    Each cell is a colored character showing the activity type.
+    Layout (top → bottom):
+      1. Legend + diagnostic-indicator lights (always visible).
+      2. Pinned **aggregate ("all scenes") row** — one (iter, phase)
+         matrix where each cell encodes coverage as a density block
+         (``·░▒▓█``) and color as the highest-priority state seen
+         across all scenes.  This is what makes the panel *useful*
+         when there are many scenes; without it you see at most the
+         first N that fit in the terminal.
+      3. Visible per-scene matrices, starting at ``scroll_offset``,
+         clipped to ``max_visible_scenes``.  Above/below ribbons
+         indicate how many scenes are off-screen.
+
+    @p scroll_offset is the index into ``tracker.scenes`` of the first
+    scene to render.
+    @p max_visible_scenes caps the number of per-scene blocks emitted
+    (a budget computed from the live console height in
+    :meth:`SolverDisplay._build_display` so the panel never overflows
+    the terminal — fixing the "can't scroll" hang).
+    @p active_scene_hint is the scene id of the current active cell;
+    used purely for the visible-range header so users with many
+    scenes see *which* scene the SDDP solver is currently inside.
     """
     from rich.panel import Panel  # noqa: PLC0415
     from rich.text import Text  # noqa: PLC0415
@@ -1109,6 +1442,7 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
 
     max_ph = min(tracker.max_phase, _GRID_MAX_PHASES)
     scenes = tracker.scenes
+    n_scenes = len(scenes)
 
     # Legend
     text.append("  ")
@@ -1125,14 +1459,21 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
         text.append(char, style=style)
         text.append(f" {labels.get(state, '?')}  ", style="dim")
 
-    # Indicator lights for diagnostics
+    # Indicator lights for diagnostics.
+    # ``kappa`` shows the worst observed conditioning value alongside the
+    # warning count — the count alone tells the user nothing about how
+    # ill-conditioned the LP got.  Aperture is intentionally omitted
+    # here: it is already visible via the ▣ cells in the grid and per-
+    # aperture counts are noise during a normal run.
     indicators: list[tuple[str, str, str]] = []
     if tracker.kappa_warnings > 0:
-        indicators.append(("kappa", str(tracker.kappa_warnings), "bold red"))
+        if tracker.max_kappa > 0:
+            kappa_val = f"{tracker.kappa_warnings} (max {tracker.max_kappa:.1e})"
+        else:
+            kappa_val = str(tracker.kappa_warnings)
+        indicators.append(("kappa", kappa_val, "bold red"))
     if tracker.elastic_count > 0:
         indicators.append(("elastic", str(tracker.elastic_count), "bold yellow"))
-    if tracker.aperture_count > 0:
-        indicators.append(("aperture", str(tracker.aperture_count), "bold blue"))
     if tracker.infeasible_count > 0:
         indicators.append(("infeas", str(tracker.infeasible_count), "bold red"))
     if indicators:
@@ -1142,32 +1483,96 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
             text.append(count, style=ind_style)
     text.append("\n")
 
-    for sc in scenes:
-        # Scene header (compact — only show if multiple scenes)
-        if len(scenes) > 1:
-            text.append(f"  s{sc}", style="bold")
-            text.append("\n")
-
-        # Phase header row
-        text.append("     ")  # indent for iter label
+    # Phase header row reused for the aggregate block AND each per-scene
+    # block.  Inlined as a closure to keep the layout tweaks local.
+    def _emit_phase_header() -> None:
+        text.append("     ")  # indent matches the "  ##  " iter label width
         for ph in range(max_ph + 1):
             if ph % 5 == 0:
                 label = str(ph)
                 text.append(label, style="dim")
-                # Pad remaining chars of this label
                 text.append(" " * max(0, 1 - len(label)))
             else:
                 text.append(" ", style="dim")
         text.append("\n")
 
-        # Iteration rows (most recent _GRID_MAX_ITERS)
+    # ------------------------------------------------------------------
+    # Pinned aggregate row — "all scenes" coverage + dominant state.
+    # ------------------------------------------------------------------
+    if n_scenes > 0:
+        text.append(
+            f"  all  ({n_scenes} scenes)",
+            style="bold cyan",
+        )
+        text.append("\n")
+        _emit_phase_header()
+        first_iter = max(0, tracker.max_iter - _GRID_MAX_ITERS + 1)
+        for it in range(first_iter, tracker.max_iter + 1):
+            text.append(f"  {it:>2} ", style="dim")
+            for ph in range(max_ph + 1):
+                state, coverage = tracker.aggregate_cell(it, ph)
+                if state == _GRID_IDLE:
+                    text.append(" ", style="dim")
+                    continue
+                # Density char from coverage; color from dominant state.
+                # Coverage > 0 always renders at least a "░" so the user
+                # sees that *some* scene visited even sparse cells.
+                shape_idx = min(
+                    len(_GRID_AGG_SHAPES) - 1,
+                    max(1, int(coverage * len(_GRID_AGG_SHAPES))),
+                )
+                _, base_style = _GRID_CELL_STYLES[state]
+                text.append(_GRID_AGG_SHAPES[shape_idx], style=base_style)
+            text.append("\n")
+        # Visual divider before the per-scene blocks.
+        text.append("\n")
+
+    # ------------------------------------------------------------------
+    # Per-scene blocks — windowed by scroll_offset + max_visible_scenes.
+    # ------------------------------------------------------------------
+    if n_scenes == 0:
+        return Panel(
+            text,
+            title="[bold]SDDP Phase Grid[/bold]",
+            border_style="dim cyan",
+            padding=(0, 0),
+        )
+
+    if max_visible_scenes is None or max_visible_scenes >= n_scenes:
+        visible_count = n_scenes
+        offset = 0
+    else:
+        visible_count = max(1, max_visible_scenes)
+        offset = max(0, min(scroll_offset, n_scenes - visible_count))
+
+    visible_scenes = scenes[offset : offset + visible_count]
+    above_hidden = offset
+    below_hidden = n_scenes - (offset + visible_count)
+
+    if above_hidden > 0 or below_hidden > 0:
+        # Range header so operators know which scenes are on-screen.
+        active_tag = ""
+        if active_scene_hint is not None:
+            active_tag = f"   active: s{active_scene_hint}"
+        text.append(
+            f"  scenes {visible_scenes[0]}–{visible_scenes[-1]} of {n_scenes}"
+            f"   (j/k scroll, J/K page, g/G top/bottom){active_tag}",
+            style="dim",
+        )
+        text.append("\n")
+    if above_hidden > 0:
+        text.append(f"  ▲ {above_hidden} scene(s) above\n", style="dim")
+
+    for sc in visible_scenes:
+        text.append(f"  s{sc}", style="bold")
+        text.append("\n")
+        _emit_phase_header()
         first_iter = max(0, tracker.max_iter - _GRID_MAX_ITERS + 1)
         for it in range(first_iter, tracker.max_iter + 1):
             text.append(f"  {it:>2} ", style="dim")
             for ph in range(max_ph + 1):
                 state = tracker.get_cell(sc, it, ph)
                 char, style = _GRID_CELL_STYLES[state]
-                # Highlight current active cell with a blink-like effect
                 if (
                     tracker.active_cell is not None
                     and tracker.active_cell == (sc, it, ph)
@@ -1178,11 +1583,153 @@ def _build_sddp_grid(tracker: SDDPGridTracker) -> Panel:
                     text.append(char, style=style)
             text.append("\n")
 
+    if below_hidden > 0:
+        text.append(f"  ▼ {below_hidden} scene(s) below\n", style="dim")
+
     return Panel(
         text,
         title="[bold]SDDP Phase Grid[/bold]",
         border_style="dim cyan",
         padding=(0, 0),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Convergence heatmap / sparkline panel
+# ---------------------------------------------------------------------------
+
+
+def _heat_style(value: float, lo: float, hi: float) -> tuple[str, str]:
+    """Map *value* in [lo, hi] to a (block_char, Rich style) pair."""
+    rng = hi - lo if hi > lo else 1.0
+    idx = min(7, int((value - lo) / rng * 8))
+    return _HEAT_BLOCKS[idx], _HEAT_STYLES[idx]
+
+
+def _build_convergence(data: dict) -> Panel:
+    """Render the per-scene convergence heatmap and bound sparklines.
+
+    Layout:
+      1. Aggregate LB / UB sparkline convergence curves
+      2. Per-scene cost heatmap (rows=iterations, cols=scenes)
+      3. Per-scene UB sparklines
+    """
+    from rich.panel import Panel  # noqa: PLC0415
+    from rich.text import Text  # noqa: PLC0415
+
+    text = Text()
+    history = data.get("history", [])
+
+    if not history:
+        text.append("  Waiting for iteration data...", style="dim")
+        return Panel(
+            text,
+            title="[bold]Convergence[/bold]",
+            border_style="dim cyan",
+            padding=(0, 1),
+        )
+
+    # -- 1. Aggregate bound sparklines --
+    lbs = [r.get("lower_bound", 0.0) for r in history]
+    ubs = [r.get("upper_bound", 0.0) for r in history]
+    gaps = [r.get("gap", 0.0) for r in history]
+
+    text.append("  LB ", style="bold cyan")
+    text.append(_sparkline(lbs, width=40), style="cyan")
+    text.append(f"  {_format_number(lbs[-1])}", style="cyan")
+    text.append("\n")
+    text.append("  UB ", style="bold magenta")
+    text.append(_sparkline(ubs, width=40), style="magenta")
+    text.append(f"  {_format_number(ubs[-1])}", style="magenta")
+    text.append("\n")
+    text.append("  Gap", style="bold")
+    text.append(" ")
+    text.append(_sparkline(gaps, width=40), style="yellow")
+    gap_val = gaps[-1]
+    gap_style = (
+        "bold green"
+        if gap_val < 0.01
+        else "bold yellow"
+        if gap_val < 0.1
+        else "bold red"
+    )
+    text.append(f"  {100.0 * gap_val:.2f}%", style=gap_style)
+    text.append("\n\n")
+
+    # -- 2. Per-scene cost heatmap --
+    # Collect scene_upper_bounds from history
+    n_scenes = 0
+    scene_ub_matrix: list[list[float]] = []  # [iter_idx][scene_idx]
+    for rec in history:
+        sub = rec.get("scene_upper_bounds", [])
+        if sub:
+            n_scenes = max(n_scenes, len(sub))
+            scene_ub_matrix.append(sub)
+
+    if scene_ub_matrix and n_scenes > 0:
+        # Find global min/max for color mapping
+        all_vals = [v for row in scene_ub_matrix for v in row]
+        lo, hi = min(all_vals), max(all_vals)
+
+        text.append("  Scene Costs", style="bold")
+        text.append("  (rows=iterations, cols=scenes)\n", style="dim")
+
+        # Scene header
+        text.append("       ")
+        for sc in range(n_scenes):
+            if n_scenes <= 20 or sc % 5 == 0:
+                label = f"s{sc}"
+                text.append(f"{label:<3}", style="dim")
+            else:
+                text.append("   ", style="dim")
+        text.append("\n")
+
+        # Show last _MAX_HISTORY_ROWS iterations
+        display_rows = scene_ub_matrix[-_MAX_HISTORY_ROWS:]
+        first_iter = len(scene_ub_matrix) - len(display_rows)
+        for row_idx, row in enumerate(display_rows):
+            it = first_iter + row_idx
+            text.append(f"  {it:>3} ", style="dim")
+            for val in row:
+                char, style = _heat_style(val, lo, hi)
+                text.append(f" {char} ", style=style)
+            text.append("\n")
+
+        # Color bar legend
+        text.append("\n       ")
+        text.append("low", style="bold green")
+        text.append(" ")
+        for i in range(8):
+            text.append(_HEAT_BLOCKS[i], style=_HEAT_STYLES[i])
+        text.append(" ")
+        text.append("high", style="bold red")
+        text.append(
+            f"   range: [{_format_number(lo)} .. {_format_number(hi)}]", style="dim"
+        )
+        text.append("\n")
+
+        # -- 3. Per-scene UB sparklines --
+        if n_scenes <= 20 and len(scene_ub_matrix) >= 2:
+            text.append("\n")
+            text.append("  Per-Scene Trends\n", style="bold")
+            for sc in range(n_scenes):
+                scene_vals = [row[sc] for row in scene_ub_matrix if sc < len(row)]
+                text.append(f"  s{sc:<3}", style="dim")
+                text.append(_sparkline(scene_vals, width=30))
+                text.append(f"  {_format_number(scene_vals[-1])}", style="dim")
+                text.append("\n")
+    else:
+        text.append("  Per-scene data not yet available\n", style="dim")
+        text.append(
+            "  (scene_upper_bounds will appear after first SDDP iteration)\n",
+            style="dim",
+        )
+
+    return Panel(
+        text,
+        title="[bold]Convergence[/bold]",
+        border_style="dim cyan",
+        padding=(0, 1),
     )
 
 
@@ -1228,16 +1775,24 @@ class SolverDisplay:
         # Interactive command state
         self._show_help = False
         self._show_stats = False
-        self._show_grid = False
+        self._display_mode = _MODE_DASHBOARD
         self._stop_sent = False
         self._system_stats: dict[str, Any] = {}
         self.quit_requested = threading.Event()
+
+        # Grid-mode scroll state (vim-style j/k/J/K/g/G).  Tracks the
+        # offset into the scene list rendered below the pinned
+        # aggregate row.  Reset to 0 whenever the scene set changes
+        # so a freshly-discovered scene scrolls back into view.
+        self._grid_scroll_offset: int = 0
+        self._grid_user_scrolled: bool = False
+        self._grid_last_scene_count: int = 0
 
     # -- public API --------------------------------------------------------
 
     # Patterns to detect solver and method from gtopt log output
     _SOLVER_RE = re.compile(r"Solver:\s+(\S+)")
-    _SDDP_RE = re.compile(r"SDDP:")
+    _SDDP_RE = re.compile(r"SDDP[: ]")
     _MONO_RE = re.compile(r"Monolithic(?:Method|Solver):")
 
     def add_log_line(self, line: str) -> None:
@@ -1262,8 +1817,10 @@ class SolverDisplay:
     def start(self) -> None:
         """Launch the dashboard render thread."""
         self._start_time = time.monotonic()
-        # Initialize system stats (populated from log output and CLI flags)
-        self._system_stats = {}
+        # Initialize system stats from planning JSON so the method is
+        # displayed correctly from the very first frame.
+        json_path = _find_planning_json(self._case_dir)
+        self._system_stats = _load_system_stats(json_path)
         if self._solver_hint:
             self._system_stats["solver"] = self._solver_hint
         self._thread = threading.Thread(
@@ -1357,20 +1914,146 @@ class SolverDisplay:
                 for k, v in file_stats.items():
                     if k not in self._system_stats or not self._system_stats[k]:
                         self._system_stats[k] = v
-        elif key in ("g", "G"):
-            self._show_grid = not self._show_grid
+        elif key in ("\t",):  # Tab — cycle display mode
+            self._display_mode = (self._display_mode + 1) % _MODE_COUNT
+        elif key == "1":
+            self._display_mode = _MODE_DASHBOARD
+        elif key == "2":
+            self._display_mode = _MODE_GRID
+        elif key == "3":
+            self._display_mode = _MODE_CONVERGENCE
         elif key in ("h", "H", "?"):
             self._show_help = not self._show_help
             self._show_stats = False
         elif key in ("q", "Q"):
             self.quit_requested.set()
+        elif self._display_mode == _MODE_GRID and key in (
+            "j",
+            "k",
+            "J",
+            "K",
+            "g",
+            "G",
+        ):
+            self._scroll_grid(key)
+
+    def _scroll_grid(self, key: str) -> None:
+        """Adjust the per-scene scroll offset in Grid mode (vim keys).
+
+        Page sizes are intentionally fixed (1 line / 5 lines) rather
+        than read from the live console height — the render path
+        clamps the offset to the visible window anyway, and using a
+        fixed step keeps the user's mental model stable across
+        terminal resizes.  ``g``/``G`` jump to top/bottom; both also
+        latch ``_grid_user_scrolled`` so the auto-follow logic in
+        :func:`_build_sddp_grid` stops yanking the viewport away from
+        what the user explicitly asked for.
+        """
+        n_scenes = len(self._grid_tracker.scenes)
+        if n_scenes == 0:
+            return
+        self._grid_user_scrolled = True
+        if key == "j":
+            self._grid_scroll_offset += 1
+        elif key == "k":
+            self._grid_scroll_offset -= 1
+        elif key == "J":
+            self._grid_scroll_offset += 5
+        elif key == "K":
+            self._grid_scroll_offset -= 5
+        elif key == "g":
+            self._grid_scroll_offset = 0
+            self._grid_user_scrolled = False  # re-enable auto-follow
+        elif key == "G":
+            self._grid_scroll_offset = max(0, n_scenes - 1)
+        # Clamp; final clamping against the dynamic visible-window
+        # size happens in the renderer.
+        self._grid_scroll_offset = max(
+            0, min(self._grid_scroll_offset, max(0, n_scenes - 1))
+        )
+
+    def _grid_visible_window(self) -> tuple[int | None, int | None]:
+        """Return ``(max_visible_scenes, active_scene_hint)`` for the
+        Grid panel renderer.
+
+        The visible scene count is derived from the live console height
+        minus a fixed budget for the surrounding panels (header, plan,
+        progress, command bar, log) plus the legend, the pinned
+        aggregate row, and the per-scene phase header.  Scenes that
+        wouldn't fit are scrolled off-screen and surfaced as
+        "▲ N above / ▼ N below" ribbons.
+
+        Auto-follow: if the user hasn't manually scrolled (i.e. used
+        j/k/J/K/G — but ``g`` resets the latch) and the active scene
+        falls outside the current window, the offset is yanked so it
+        stays visible.  This matches what an SDDP operator wants —
+        watch the scene currently being solved without having to keep
+        pressing j.
+        """
+        from rich.console import Console  # noqa: PLC0415
+
+        scenes = self._grid_tracker.scenes
+        n = len(scenes)
+        if n == 0:
+            return None, None
+
+        # Console height — fall back to a sane default if Rich can't
+        # detect the terminal (e.g. piped stdout).
+        try:
+            height = Console().size.height
+        except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+            height = 40
+        # Per-scene block height = scene header (1) + phase axis (1)
+        # + iter rows (_GRID_MAX_ITERS).  Aggregate row + legend +
+        # other panels eat ~20 lines of fixed overhead.
+        per_block = _GRID_MAX_ITERS + 2
+        budget = max(1, (height - 22) // per_block)
+
+        # Reset scroll if scene list shrank below the offset.
+        if self._grid_scroll_offset >= n:
+            self._grid_scroll_offset = 0
+
+        # Auto-follow active scene when the user hasn't scrolled.
+        active = self._grid_tracker.active_cell
+        active_scene = active[0] if active is not None else None
+        if (
+            not self._grid_user_scrolled
+            and active_scene is not None
+            and active_scene in scenes
+        ):
+            idx = scenes.index(active_scene)
+            if idx < self._grid_scroll_offset:
+                self._grid_scroll_offset = idx
+            elif idx >= self._grid_scroll_offset + budget:
+                self._grid_scroll_offset = max(0, idx - budget + 1)
+
+        # Reset latch if scene set changed (new scenes appeared).
+        if n != self._grid_last_scene_count:
+            self._grid_last_scene_count = n
+        return budget, active_scene
 
     def _cmd_stop(self) -> None:
-        """Create the stop-request file for a graceful solver stop."""
+        """Create the stop-request file for a graceful solver stop.
+
+        The stop file must be written into whichever directory the
+        solver is reading — that is, ``options.output_directory`` from
+        the planning JSON (canonical "results/" for cascade cases,
+        "output/" for the older convention).  Falling back to
+        "<case>/output/" silently broke graceful stop on every cascade
+        run.  We mirror :func:`_find_status_file`'s discovery logic so
+        stop and status always agree.
+        """
         if self._stop_sent:
             return
-        base = self._case_dir.parent if self._case_dir.is_file() else self._case_dir
-        stop_file = base / "output" / _STOP_REQUEST_FILE
+        # Already-discovered status file is the highest-confidence
+        # signal of where the solver writes — drop the stop request
+        # next to it.  Falling back to the same candidate-directory
+        # search keeps the behavior consistent for early stops issued
+        # before the first status JSON appears.
+        if self._status_file is not None:
+            stop_file = self._status_file.with_name(_STOP_REQUEST_FILE)
+        else:
+            stop_file = _find_status_file(self._case_dir).with_name(_STOP_REQUEST_FILE)
         try:
             stop_file.parent.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -1395,6 +2078,7 @@ class SolverDisplay:
 
         data = self._status
         elapsed = time.monotonic() - self._start_time
+        mode = self._display_mode
 
         with self._lock:
             log_lines = list(self._log_lines)
@@ -1419,35 +2103,53 @@ class SolverDisplay:
         has_sddp = bool(data.get("max_iterations"))
         has_monolithic = data.get("total_scenes") is not None
 
-        if has_sddp:
-            panels.append(_build_progress(data))
-            panels.append(_build_stats(data))
-            async_panel = _build_async_panel(data)
-            if async_panel is not None:
-                panels.append(async_panel)
-            if data.get("history"):
-                panels.append(_build_history(data))
-            rt = data.get("realtime", {})
-            if rt.get("cpu_loads") or rt.get("active_workers"):
-                panels.append(_build_system(data))
-        elif has_monolithic:
-            panels.append(_build_progress(data))
-            rt = data.get("realtime", {})
-            if rt.get("cpu_loads") or rt.get("active_workers"):
-                panels.append(_build_system(data))
+        if mode == _MODE_DASHBOARD:
+            # Full dashboard: stats, progress, history, system, log
+            if has_sddp:
+                panels.append(_build_progress(data))
+                panels.append(_build_stats(data))
+                async_panel = _build_async_panel(data)
+                if async_panel is not None:
+                    panels.append(async_panel)
+                if data.get("history"):
+                    panels.append(_build_history(data))
+                if _has_resource_telemetry(data):
+                    panels.append(_build_system(data))
+            elif has_monolithic:
+                panels.append(_build_progress(data))
+                if _has_resource_telemetry(data):
+                    panels.append(_build_system(data))
+            panels.append(_build_log(log_lines))
 
-        # SDDP phase grid (auto-show for SDDP, toggle with 'g')
-        if self._show_grid and self._grid_tracker.has_data:
-            panels.append(_build_sddp_grid(self._grid_tracker))
+        elif mode == _MODE_GRID:
+            # SDDP phase activity grid
+            if has_sddp:
+                panels.append(_build_progress(data))
+            if self._grid_tracker.has_data:
+                visible_budget, active_hint = self._grid_visible_window()
+                panels.append(
+                    _build_sddp_grid(
+                        self._grid_tracker,
+                        scroll_offset=self._grid_scroll_offset,
+                        max_visible_scenes=visible_budget,
+                        active_scene_hint=active_hint,
+                    )
+                )
+            panels.append(_build_log(log_lines))
 
-        # Overlays
+        elif mode == _MODE_CONVERGENCE:
+            # Per-scene convergence heatmap + sparklines
+            if has_sddp:
+                panels.append(_build_progress(data))
+            panels.append(_build_convergence(data))
+
+        # Overlays (available in all modes)
         if self._show_help:
             panels.append(_build_help_overlay())
         elif self._show_stats:
             panels.append(_build_stats_overlay(self._system_stats))
 
-        panels.append(_build_log(log_lines))
-        panels.append(_build_command_bar(self._stop_sent))
+        panels.append(_build_command_bar(self._stop_sent, mode))
         return Group(*panels)
 
     def _run_loop(self) -> None:
@@ -1464,17 +2166,41 @@ class SolverDisplay:
                 refresh_per_second=_REFRESH_PER_SECOND,
                 transient=True,
             ) as live:
-                while not self._stop.wait(self.poll_interval):
+                # Decouple keyboard polling from status-file polling.
+                # Status reads are expensive (full JSON parse + JSON
+                # file may be tens of KB) so we keep their cadence at
+                # ``poll_interval`` (default 1 s).  But waking only
+                # once per poll_interval makes 'q', 's' and the mode
+                # keys feel laggy — at 1 s the user releases the key
+                # before we even see it.  Run an inner loop at ~50 ms
+                # for keys, and only refresh the status when the
+                # accumulated time crosses ``poll_interval``.
+                key_interval = 0.05
+                last_status_refresh = 0.0
+                last_render = 0.0
+                # Render at most ``_REFRESH_PER_SECOND`` Hz to avoid
+                # flicker; key handlers force an immediate redraw so
+                # mode switches still feel snappy.
+                render_interval = 1.0 / max(1, _REFRESH_PER_SECOND)
+                while not self._stop.wait(key_interval):
+                    now = time.monotonic()
+                    needs_render = False
                     # Poll keyboard for interactive commands
                     key = _poll_key(cbreak_active)
                     if key is not None:
                         self._handle_key(key)
-                    # Lazily discover the status file once it appears
-                    if self._status_file is None or not self._status_file.is_file():
-                        self._status_file = _find_status_file(self._case_dir)
-                    self._status = _load_status(self._status_file)
-                    self._sync_stats_from_status()
-                    live.update(self._build_display())
+                        needs_render = True
+                    # Refresh status no faster than poll_interval
+                    if now - last_status_refresh >= self.poll_interval:
+                        if self._status_file is None or not self._status_file.is_file():
+                            self._status_file = _find_status_file(self._case_dir)
+                        self._status = _load_status(self._status_file)
+                        self._sync_stats_from_status()
+                        last_status_refresh = now
+                        needs_render = True
+                    if needs_render and (now - last_render) >= render_interval:
+                        live.update(self._build_display())
+                        last_render = now
 
                 # One final render
                 self._status = _load_status(self._status_file)

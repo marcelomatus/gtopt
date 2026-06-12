@@ -9,15 +9,29 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 class Highs;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a HiGHS
+/// instance.  Mirrors the CPLEX plugin's CplexPrep: clone() and any future
+/// recreate-on-load path copy this cache and apply its fields to the new
+/// Highs instance, keeping backend state consistent with the source.
+struct HighsPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using the HiGHS native C++ API.
@@ -36,6 +50,12 @@ public:
   [[nodiscard]] std::string_view solver_name() const noexcept override;
   [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
+  [[nodiscard]] bool supports_mip() const noexcept override;
+
+  /// Plugin-level infinity constant — single source of truth shared
+  /// with the instance method `infinity()` and the plugin entry
+  /// `gtopt_solver_infinity`.  HiGHS uses `kHighsInf = 1e+30`.
+  static double plugin_infinity() noexcept;
 
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
@@ -59,9 +79,21 @@ public:
 
   // ---- column ops ----
   void add_col(double lb, double ub, double obj) override;
+  void add_cols(int num_cols,
+                const int* colbeg,
+                const int* colind,
+                const double* colval,
+                const double* collb,
+                const double* colub,
+                const double* colobj) override;
   void set_col_lower(int index, double value) override;
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
+  void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_col_bounds_bulk(int num,
+                           const int* indices,
+                           const char* lu,
+                           const double* values) override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -69,6 +101,12 @@ public:
                const double* elements,
                double rowlb,
                double rowub) override;
+  void add_rows(int num_rows,
+                const int* rowbeg,
+                const int* rowind,
+                const double* rowval,
+                const double* rowlb,
+                const double* rowub) override;
   void set_row_lower(int index, double value) override;
   void set_row_upper(int index, double value) override;
   void set_row_bounds(int index, double lb, double ub) override;
@@ -84,6 +122,7 @@ public:
   void set_integer(int index) override;
   [[nodiscard]] bool is_continuous(int index) const override;
   [[nodiscard]] bool is_integer(int index) const override;
+  int relax_all_integers() override;
 
   // ---- solution access ----
   [[nodiscard]] const double* col_lower() const override;
@@ -104,6 +143,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -118,7 +161,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;
@@ -136,21 +179,28 @@ public:
 
 private:
   std::unique_ptr<Highs> m_highs_;
-  std::string m_prob_name_;
+  HighsPrep m_prep_;
 
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
-  // Cached solution vectors (HiGHS returns by reference, we store copies)
-  mutable std::vector<double> m_col_solution_;
-  mutable std::vector<double> m_col_dual_;
-  mutable std::vector<double> m_row_dual_;
-  mutable bool m_solution_valid_ {};
   bool m_load_failed_ {};
 
-  void cache_solution() const;
+  /// Snapshot of HiGHS tolerances + presolve/scaling captured by
+  /// engage_robust_solve().  The first engage records the baseline;
+  /// disengage restores those exact values.
+  struct RobustState
+  {
+    double primal_feasibility_tolerance {};
+    double dual_feasibility_tolerance {};
+    double ipm_optimality_tolerance {};
+    std::string presolve {"on"};
+    int simplex_scale_strategy {4};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

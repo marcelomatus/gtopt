@@ -186,12 +186,44 @@ TEST_CASE("WorkPool basic functionality")
 
   SUBCASE("Task priority ordering")
   {
+    // Use a single-threaded pool so tasks actually queue up and
+    // priority ordering is observable (with many threads all tasks
+    // get fast-dispatched concurrently, bypassing the priority queue).
+    AdaptiveWorkPool prio_pool(WorkPoolConfig {
+        1,  // max_threads
+        95.0,  // max_cpu_threshold
+        4096.0,  // min_free_memory_mb
+        95.0,  // max_memory_percent
+        0.0,  // max_process_rss_mb
+        std::chrono::milliseconds(50),  // scheduler_interval
+        "PrioPool",  // name
+        false,  // enable_periodic_stats
+    });
+    prio_pool.start();
+
     std::vector<int> execution_order;
     std::mutex order_mutex;
     std::atomic<int> counter {0};
 
-    // Submit tasks with different priorities
-    auto high_task = pool.submit(
+    // Block the single thread so subsequent submits queue up
+    std::promise<void> gate;
+    auto gate_future = gate.get_future().share();
+
+    auto blocker = prio_pool.submit(
+        [&gate_future] { gate_future.wait(); },
+        {.priority = TaskPriority::High, .name = "blocker_task"});
+
+    // Submit tasks with different priorities — they will queue
+    auto low_task = prio_pool.submit(
+        [&]
+        {
+          const std::scoped_lock<std::mutex> lock(order_mutex);
+          execution_order.push_back(3);
+          counter++;
+        },
+        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+
+    auto high_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -200,7 +232,7 @@ TEST_CASE("WorkPool basic functionality")
         },
         {.priority = TaskPriority::High, .name = "high_priority_task"});
 
-    auto medium_task = pool.submit(
+    auto medium_task = prio_pool.submit(
         [&]
         {
           const std::scoped_lock<std::mutex> lock(order_mutex);
@@ -210,16 +242,10 @@ TEST_CASE("WorkPool basic functionality")
         {.priority = TaskPriority::Medium, .name = "medium_priority_task"});
     REQUIRE(medium_task.has_value());
 
-    auto low_task = pool.submit(
-        [&]
-        {
-          const std::scoped_lock<std::mutex> lock(order_mutex);
-          execution_order.push_back(3);
-          counter++;
-        },
-        {.priority = TaskPriority::Low, .name = "low_priority_task"});
+    // Release the blocker — queued tasks now dispatch in priority order
+    gate.set_value();
 
-    // Wait for all tasks to complete
+    blocker.value().wait();
     high_task.value().wait();
     medium_task.value().wait();
     low_task.value().wait();
@@ -399,6 +425,9 @@ TEST_CASE("WorkPool stress testing")
     const WorkPoolConfig cfg {
         4,  // max_threads
         80.0,  // max_cpu_threshold
+        4096.0,  // min_free_memory_mb
+        95.0,  // max_memory_percent
+        0.0,  // max_process_rss_mb
         std::chrono::milliseconds(10),  // scheduler_interval
         "TestPool",  // name
     };
@@ -651,4 +680,451 @@ TEST_CASE("CPUMonitor double stop is safe")
   // stop() twice — second call should be a no-op (thread not joinable)
   monitor.stop();
   CHECK_NOTHROW(monitor.stop());
+}
+
+// ─── WorkPoolConfig swap-gate knobs ──────────────────────────────────────────
+
+TEST_CASE("WorkPoolConfig swap knobs default")  // NOLINT
+{
+  // max_process_swap_mb defaults to 2048 MB (enabled) to catch process
+  // paging before thrash; max_swap_io_per_sec remains disabled by default
+  // since benign init-time paging can briefly exceed any fixed threshold.
+  const WorkPoolConfig cfg;
+  CHECK(cfg.max_process_swap_mb == doctest::Approx(2048.0));
+  CHECK(cfg.max_swap_io_per_sec == doctest::Approx(0.0));
+}
+
+TEST_CASE("WorkPoolConfig swap knobs are assignable via constructor")  // NOLINT
+{
+  const WorkPoolConfig cfg {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(50),  // scheduler_interval
+      "SwapCfgPool",  // name
+      false,  // enable_periodic_stats
+      512.0,  // max_process_swap_mb
+      10000.0,  // max_swap_io_per_sec
+  };
+  CHECK(cfg.max_process_swap_mb == doctest::Approx(512.0));
+  CHECK(cfg.max_swap_io_per_sec == doctest::Approx(10000.0));
+}
+
+TEST_CASE(
+    "AdaptiveWorkPool: swap-aware Statistics carries swap fields")  // NOLINT
+{
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(50),  // scheduler_interval
+      "SwapStatsPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+  });
+  pool.start();
+
+  auto f = pool.submit([] { return 7; });
+  REQUIRE(f.has_value());
+  CHECK(f.value().get() == 7);
+
+  // Let the monitor collect at least one reading.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  const auto stats = pool.get_statistics();
+
+  // Swap readings should be present and finite, regardless of actual
+  // swap pressure on the host.
+  CHECK(stats.process_swap_mb >= 0.0);
+  CHECK(stats.swap_used_mb >= 0.0);
+  CHECK(stats.swap_io_rate >= 0.0);
+
+  // format_statistics() now includes a Swap: line.
+  const auto text = pool.format_statistics();
+  CHECK(text.find("Swap:") != std::string::npos);
+}
+
+TEST_CASE(
+    "AdaptiveWorkPool: swap gates disabled by default admit work")  // NOLINT
+{
+  // With both swap gates set to 0 (disabled), a normal submit must run
+  // to completion — this is the "no behavior change" contract.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "SwapDisabledPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+  });
+  pool.start();
+
+  auto f1 = pool.submit([] { return 1; });
+  auto f2 = pool.submit([] { return 2; });
+  auto f3 = pool.submit([] { return 3; });
+  REQUIRE(f1.has_value());
+  REQUIRE(f2.has_value());
+  REQUIRE(f3.has_value());
+  CHECK(f1.value().get() == 1);
+  CHECK(f2.value().get() == 2);
+  CHECK(f3.value().get() == 3);
+}
+
+// ─── Measured-memory dispatch controller (no fixed per-task estimates) ───────
+
+TEST_CASE("WorkPoolConfig max_threads_ceiling default is 0")  // NOLINT
+{
+  const WorkPoolConfig cfg;
+  CHECK(cfg.max_threads_ceiling == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "Measured gate never deadlocks when limit is below the resident floor")
+{
+  // CRITICAL safety contract.  Set the process-RSS limit to 1 MB — far
+  // below the live RSS of the test process (tens of MB).  The measured gate
+  // projects `rss + measured_per_task`, which trivially exceeds 1 MB, so a
+  // naive gate would block EVERY dispatch and wedge the pool forever (no
+  // running task can free memory to reopen the gate).
+  //
+  // The gate's "always admit one task when nothing is in flight" rule
+  // guarantees forward progress: tasks run strictly serially but ALL of
+  // them complete.  We assert completion within a generous timeout rather
+  // than calling .get() unguarded so a regression surfaces as a failed
+  // CHECK instead of a hung test binary.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent (relaxed so only the RSS gate is in play)
+      1.0,  // max_process_rss_mb — absurdly low, below live RSS
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "RssDeadlockPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+      4,  // max_threads_ceiling
+  });
+  pool.start();
+
+  constexpr int kNumTasks = 6;
+  std::atomic<int> ran {0};
+  std::vector<std::future<int>> futures;
+  futures.reserve(kNumTasks);
+  for (int i = 0; i < kNumTasks; ++i) {
+    auto f = pool.submit(
+        [&ran, i]
+        {
+          ran.fetch_add(1, std::memory_order_relaxed);
+          return i;
+        });
+    REQUIRE(f.has_value());
+    futures.push_back(std::move(f.value()));
+  }
+
+  // Every task must complete despite the 1 MB limit — proves no deadlock.
+  for (auto& f : futures) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  CHECK(ran.load() == kNumTasks);
+}
+
+TEST_CASE(  // NOLINT
+    "System-memory-percent gate never deadlocks (idle-progress guarantee)")
+{
+  // Regression guard for the livelock that hung the box on the 2-year
+  // simulation pass: with `max_memory_percent` set impossibly low (0%),
+  // the system-memory gate `mem_pct >= threshold` is ALWAYS true, so a
+  // gate without the idle-progress guarantee would refuse every task
+  // forever (observed as "18 pending, 0 active, no progress for 88
+  // intervals", mem% 92% >= 90%).  The universal "admit one when
+  // active == 0" rule must let tasks drain strictly serially instead.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      99.0,  // max_cpu_threshold
+      0.0,  // min_free_memory_mb (disabled)
+      0.0,  // max_memory_percent — impossibly low: mem% always over
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "MemPctDeadlockPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb (disabled)
+      0.0,  // max_swap_io_per_sec (disabled)
+      4,  // max_threads_ceiling
+  });
+  pool.start();
+
+  constexpr int kNumTasks = 6;
+  std::atomic<int> ran {0};
+  std::vector<std::future<void>> futures;
+  futures.reserve(kNumTasks);
+  for (int i = 0; i < kNumTasks; ++i) {
+    auto f =
+        pool.submit([&ran] { ran.fetch_add(1, std::memory_order_relaxed); });
+    REQUIRE(f.has_value());
+    futures.push_back(std::move(f.value()));
+  }
+  for (auto& f : futures) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  CHECK(ran.load() == kNumTasks);
+}
+
+TEST_CASE(  // NOLINT
+    "Measured gate with limit disabled (0) admits work at full ceiling")
+{
+  // max_process_rss_mb == 0 disables the controller entirely: the pool runs
+  // at its full thread count immediately — the "no behavior change" contract.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      4,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      95.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "RssDisabledPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      0,  // max_threads_ceiling (unset → equals max_threads)
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 4);
+
+  auto f1 = pool.submit([] { return 1; });
+  auto f2 = pool.submit([] { return 2; });
+  auto f3 = pool.submit([] { return 3; });
+  REQUIRE(f1.has_value());
+  REQUIRE(f2.has_value());
+  REQUIRE(f3.has_value());
+  CHECK(f1.value().get() == 1);
+  CHECK(f2.value().get() == 2);
+  CHECK(f3.value().get() == 3);
+}
+
+// ─── max_threads runtime growth toward the CPU ceiling ───────────────────────
+
+TEST_CASE(  // NOLINT
+    "WorkPool: ceiling unset (0) means max_threads never grows")
+{
+  // Back-compat contract: with no ceiling configured, the effective
+  // ceiling equals max_threads, so growth is disabled.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      2,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "NoGrowPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      0,  // max_threads_ceiling (unset → equals max_threads)
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 2);
+  CHECK(pool.max_threads_ceiling() == 2);
+
+  std::vector<std::future<int>> fs;
+  for (int i = 0; i < 6; ++i) {
+    auto f = pool.submit([] { return 0; });
+    REQUIRE(f.has_value());
+    fs.push_back(std::move(f.value()));
+  }
+  for (auto& f : fs) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  // Never grows past the initial value.
+  CHECK(pool.max_threads() == 2);
+}
+
+TEST_CASE(  // NOLINT
+    "WorkPool: no RSS limit grows straight to ceiling")
+{
+  // With max_process_rss_mb == 0 there is no memory constraint, so the pool
+  // grows max_threads straight to the ceiling.
+  AdaptiveWorkPool pool(WorkPoolConfig {
+      1,  // max_threads
+      95.0,  // max_cpu_threshold
+      4096.0,  // min_free_memory_mb
+      99.0,  // max_memory_percent
+      0.0,  // max_process_rss_mb (disabled)
+      std::chrono::milliseconds(10),  // scheduler_interval
+      "GrowNoLimitPool",  // name
+      false,  // enable_periodic_stats
+      0.0,  // max_process_swap_mb
+      0.0,  // max_swap_io_per_sec
+      3,  // max_threads_ceiling
+  });
+  pool.start();
+  CHECK(pool.max_threads() == 1);
+
+  std::vector<std::future<int>> fs;
+  for (int i = 0; i < 6; ++i) {
+    auto f = pool.submit([] { return 0; });
+    REQUIRE(f.has_value());
+    fs.push_back(std::move(f.value()));
+  }
+  for (auto& f : fs) {
+    REQUIRE(f.wait_for(std::chrono::seconds(20)) == std::future_status::ready);
+  }
+  for (int i = 0; i < 200 && pool.max_threads() < 3; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  CHECK(pool.max_threads() == 3);
+}
+
+// ─── SlotReleaseGuard ─────────────────────────────────────────────────────
+//
+// Pin the contract for the in-task blocking guard: while a guard is alive
+// the pool's active-task count drops by 1, and any waiting workers can
+// dispatch their queued work.  When the guard is destroyed the count is
+// restored.  No-op when called outside a worker context (count never
+// underflows).
+
+TEST_CASE("SlotReleaseGuard outside worker is a safe no-op")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  WorkPoolConfig cfg;
+  cfg.max_threads = 2;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  // Caller is the test thread, NOT a worker.  Active count is 0; the
+  // guard's release_slot_for_blocking_ defensively skips the decrement.
+  CHECK(pool.get_statistics().tasks_active == 0);
+  {
+    auto guard = pool.release_slot_while_blocking();
+    CHECK(pool.get_statistics().tasks_active == 0);
+  }
+  CHECK(pool.get_statistics().tasks_active == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "SlotReleaseGuard from inside a task drops then restores the count")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  WorkPoolConfig cfg;
+  cfg.max_threads = 4;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  // Use sync primitives so the worker's observed counts can be checked
+  // by the test thread at known points in time.
+  std::mutex mu;
+  std::condition_variable cv;
+  bool guard_alive = false;
+  bool guard_ended = false;
+  std::size_t active_inside_guard = 0;
+  std::size_t active_after_guard = 0;
+
+  auto fut = pool.submit(std::function<int()> {
+      [&]() -> int
+      {
+        // Inside a worker: tasks_active_ is at least 1 (this task).
+        {
+          auto guard = pool.release_slot_while_blocking();
+          active_inside_guard = pool.get_statistics().tasks_active;
+          {
+            const std::scoped_lock lock {mu};
+            guard_alive = true;
+          }
+          cv.notify_all();
+
+          // Wait for the test thread to observe the released state.
+          std::unique_lock lock {mu};
+          cv.wait(lock, [&] { return guard_ended; });
+        }
+        active_after_guard = pool.get_statistics().tasks_active;
+        return 0;
+      }});
+  if (!fut.has_value()) {
+    MESSAGE("submit failed: " << fut.error().message());
+  }
+  REQUIRE(fut.has_value());
+
+  {
+    std::unique_lock lock {mu};
+    cv.wait(lock, [&] { return guard_alive; });
+  }
+  // Inside the guard scope the worker's slot is released — count is 0.
+  CHECK(active_inside_guard == 0);
+  {
+    const std::scoped_lock lock {mu};
+    guard_ended = true;
+  }
+  cv.notify_all();
+  CHECK(fut.value().get() == 0);
+  // After guard exit, slot is re-acquired (count == 1 inside the task);
+  // after task completes, worker_loop decrements back to 0.
+  CHECK(active_after_guard == 1);
+  CHECK(pool.get_statistics().tasks_active == 0);
+}
+
+TEST_CASE(  // NOLINT
+    "SlotReleaseGuard notifies waiting workers on release")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // Verify the release path notifies cv_, so any worker parked in the
+  // memory-gate sleep wakes up to re-evaluate.  We can't easily simulate
+  // the memory gate from a unit test, but the contract is: after
+  // `release_slot_for_blocking_` returns, the active count is one
+  // smaller and at least one worker has been notified.  We exercise
+  // this by submitting a task that takes the guard and checking the
+  // before/after counts under a held mutex (no timing race).
+  WorkPoolConfig cfg;
+  cfg.max_threads = 2;
+  BasicWorkPool<> pool {cfg};
+  pool.start();
+
+  std::mutex mu;
+  std::condition_variable cv;
+  bool inside_guard = false;
+  bool guard_ended = false;
+  std::size_t observed_active_before = 999;
+  std::size_t observed_active_inside = 999;
+
+  auto fut = pool.submit(std::function<int()> {
+      [&]() -> int
+      {
+        observed_active_before = pool.get_statistics().tasks_active;
+        {
+          auto guard = pool.release_slot_while_blocking();
+          observed_active_inside = pool.get_statistics().tasks_active;
+          {
+            const std::scoped_lock lock {mu};
+            inside_guard = true;
+          }
+          cv.notify_all();
+          std::unique_lock lock {mu};
+          cv.wait(lock, [&] { return guard_ended; });
+        }
+        return 0;
+      }});
+  REQUIRE(fut.has_value());
+
+  {
+    std::unique_lock lock {mu};
+    cv.wait(lock, [&] { return inside_guard; });
+  }
+  // Before guard: this task was active (count >= 1).
+  CHECK(observed_active_before >= 1);
+  // After guard: count dropped by 1 — to 0 since this is the only task.
+  CHECK(observed_active_inside == observed_active_before - 1);
+
+  {
+    const std::scoped_lock lock {mu};
+    guard_ended = true;
+  }
+  cv.notify_all();
+  CHECK(fut.value().get() == 0);
 }

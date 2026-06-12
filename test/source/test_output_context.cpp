@@ -16,6 +16,7 @@
 #include <gtopt/output_context.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 #include <zlib.h>
 #include <zstd.h>
 
@@ -152,7 +153,7 @@ TEST_CASE("OutputContext - write output with reserve components")
           .uid = Uid {1},
           .name = "rp1",
           .generator = Uid {1},
-          .reserve_zones = "1",
+          .reserve_zones = {SingleId {Uid {1}}},
           .urmax = 100.0,
           .ur_provision_factor = 1.0,
       },
@@ -171,7 +172,7 @@ TEST_CASE("OutputContext - write output with reserve components")
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.reserve_fail_cost = 10000.0;
+  opts.model_options.reserve_shortage_cost = 10000.0;
 
   const System system = {
       .name = "ReserveOutputTest",
@@ -367,7 +368,7 @@ TEST_CASE("OutputContext - write output with demand and generator profiles")
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  opts.demand_fail_cost = 10000.0;
+  opts.model_options.demand_fail_cost = 10000.0;
 
   const System system = {
       .name = "ProfileOutputTest",
@@ -497,17 +498,26 @@ auto make_csv_system()
 }
 }  // namespace
 
-TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
+TEST_CASE(
+    "OutputContext - CSV with snappy codec falls back to plain "
+    ".csv")  // NOLINT
 {
+  // `snappy` is not a streaming codec the `csv_write_table` path
+  // supports, so when a user explicitly asks for CSV format + snappy
+  // compression the writer falls back to uncompressed `.csv`.  Test
+  // pins `snappy` explicitly because the post-2026-05-19 default
+  // `output_compression` is `zstd` — exercising the default would
+  // hit the `.csv.zst` branch covered by the next test.  This case
+  // documents the snappy fallback the codec table relies on.
   auto [system, simulation] = make_csv_system();
   const auto tmpdir =
-      std::filesystem::temp_directory_path() / "gtopt_csv_default_zst";
+      std::filesystem::temp_directory_path() / "gtopt_csv_snappy_fallback";
   std::filesystem::create_directories(tmpdir);
 
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
-  // output_compression not set → default "zstd" → produces .csv.zst files
+  opts.output_compression = CompressionCodec::snappy;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -517,7 +527,47 @@ TEST_CASE("OutputContext - CSV zstd compression (default)")  // NOLINT
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  // .csv.zst files must exist (zstd is now the default)
+  bool found_plain_csv = false;
+  bool found_zst = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    const auto p = entry.path().string();
+    if (p.ends_with(".csv")) {
+      found_plain_csv = true;
+    }
+    if (p.ends_with(".csv.zst")) {
+      found_zst = true;
+    }
+  }
+  CHECK(found_plain_csv);
+  CHECK_FALSE(found_zst);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE("OutputContext - CSV explicit zstd compression")  // NOLINT
+{
+  // Users who want compressed CSV opt in explicitly.  Verifies the
+  // CSV writer's `zstd` branch still produces `.csv.zst` files.
+  auto [system, simulation] = make_csv_system();
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_csv_explicit_zst";
+  std::filesystem::create_directories(tmpdir);
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  opts.output_format = DataFormat::csv;
+  opts.output_compression = CompressionCodec::zstd;
+
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+  system_lp.write_out();
+
   bool found_zst = false;
   for (const auto& entry :
        std::filesystem::recursive_directory_iterator(tmpdir))
@@ -627,6 +677,14 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
   opts.output_compression = CompressionCodec::gzip;
+  // Pin `wide` — this test exercises the legacy single-row read path of
+  // `csv_read_table` on a `(scenario, stage, block, uid:N…)` CSV shard.
+  // Under the post-2026-05-19 `long` default the shape would be
+  // `(scenario, stage, block, uid, value)` with zero rows dropped, and
+  // the simple `make_csv_system` fixture has no non-zero dispatch, so
+  // a long-form CSV would be header-only and `num_rows() > 0` fails.
+  // Wide form emits one row per cell-tuple regardless.
+  opts.output_layout = OutputLayout::wide;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -636,7 +694,8 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  const auto table = csv_read_table(tmpdir / "Generator" / "generation_sol");
+  const auto table =
+      csv_read_table(tmpdir / "Generator" / "generation_sol_s0_p0");
   REQUIRE(table.has_value());
   CHECK((table && (*table)->num_rows() > 0));
 
@@ -1087,9 +1146,9 @@ TEST_CASE(  // NOLINT
 
   // For each column: physical == raw * scale.
   // With no VariableScale entries, all scales default to 1.0.
-  for (size_t i = 0; i < col_sol.size(); ++i) {
-    const double scale = lp.get_col_scale(ColIndex {static_cast<Index>(i)});
-    CHECK(col_sol[i] == doctest::Approx(col_sol_raw[i] * scale));
+  for (const auto ci : iota_range<ColIndex>(0, col_sol.size())) {
+    const double scale = lp.get_col_scale(ci);
+    CHECK(col_sol[ci] == doctest::Approx(col_sol_raw[ci] * scale));
   }
 
   // Write output and verify files exist
@@ -1170,6 +1229,7 @@ TEST_CASE(  // NOLINT
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
+  opts.write_out = OutputFlags::all;  // explicitly emit reduced_cost columns
 
   const System system = {
       .name = "MultiGenTest",
@@ -1257,7 +1317,8 @@ TEST_CASE(  // NOLINT
   PlanningOptions opts;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.demand_fail_cost = 1000.0;  // make LP feasible without generators
+  opts.model_options.demand_fail_cost =
+      1000.0;  // make LP feasible without generators
 
   const System system = {
       .name = "EmptyTest",
@@ -1281,6 +1342,98 @@ TEST_CASE(  // NOLINT
 
   // But Demand and Bus should exist (they have output columns)
   CHECK(std::filesystem::exists(tmpdir / "Demand"));
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ---------------------------------------------------------------------------
+// Coverage for the throwaway-rebuild path:
+// `rebuild_collections_if_needed` runs ONLY when `low_memory_mode != off`.
+// Existing tests above all default to `off`, so the per-cell rebuild that
+// `SystemLP::write_out` performs under `compress` mode (and the overrides
+// added 2026-05-16 — equilibration=none, compute_stats=false, names off,
+// scale_objective=1.0, validation off — see `system_lp.cpp:952`) was
+// otherwise untested.  The test below forces the release+rebuild round
+// trip and asserts the resulting parquet matches the `off`-mode baseline.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "OutputContext - write_out under low_memory=compress matches off baseline")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  auto [system, simulation] = make_basic_system();
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_compress_writeout";
+  const auto off_dir = tmpdir / "off";
+  const auto compress_dir = tmpdir / "compress";
+  std::filesystem::create_directories(off_dir);
+  std::filesystem::create_directories(compress_dir);
+
+  auto run = [&](const std::filesystem::path& out_dir, LowMemoryMode mode)
+  {
+    PlanningOptions opts;
+    opts.output_directory = out_dir.string();
+    opts.output_format = DataFormat::parquet;
+    opts.lp_matrix_options.low_memory_mode = mode;
+    if (mode != LowMemoryMode::off) {
+      opts.lp_matrix_options.memory_codec = CompressionCodec::lz4;
+    }
+
+    const PlanningOptionsLP options(opts);
+    SimulationLP sim_lp(simulation, options);
+    SystemLP sys_lp(system, sim_lp);
+
+    auto&& lp = sys_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    CHECK(result.value() == 0);
+
+    if (mode != LowMemoryMode::off) {
+      // Drop the live backend so the subsequent `write_out` is forced
+      // through `rebuild_collections_if_needed` (which re-flattens
+      // with the 2026-05-16 throwaway overrides).  Without this
+      // release, the disposable collections remain populated and the
+      // rebuild path is bypassed — exactly the gap left by every
+      // pre-existing `test_output_context` case (all default off).
+      sys_lp.release_backend();
+    }
+
+    sys_lp.write_out();
+  };
+
+  run(off_dir, LowMemoryMode::off);
+  run(compress_dir, LowMemoryMode::compress);
+
+  // Both modes must have produced the same set of element class
+  // directories — compress's rebuild-then-emit must not drop any
+  // emitter that off's direct-emit produced.
+  CHECK(std::filesystem::exists(off_dir / "Generator"));
+  CHECK(std::filesystem::exists(compress_dir / "Generator"));
+  CHECK(std::filesystem::exists(off_dir / "Demand"));
+  CHECK(std::filesystem::exists(compress_dir / "Demand"));
+  CHECK(std::filesystem::exists(off_dir / "Bus"));
+  CHECK(std::filesystem::exists(compress_dir / "Bus"));
+
+  // The two output trees must have the same shape: same set of
+  // (relative) file paths.  Byte-comparing parquet payloads is
+  // fragile across Arrow versions (compression, metadata), so we
+  // check the path set — the throwaway-rebuild path must emit
+  // every shard the live-backend path emits, no more no less.
+  auto collect = [](const std::filesystem::path& root)
+  {
+    std::vector<std::filesystem::path> rels;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(root)) {
+      if (e.is_regular_file()) {
+        rels.push_back(std::filesystem::relative(e.path(), root));
+      }
+    }
+    std::ranges::sort(rels);
+    return rels;
+  };
+  const auto off_files = collect(off_dir);
+  const auto compress_files = collect(compress_dir);
+  CHECK(off_files == compress_files);
 
   std::filesystem::remove_all(tmpdir);
 }

@@ -1,0 +1,273 @@
+{
+  "_comment": "plexos2gtopt conversion provenance \u2014 what each gtopt element is, its units, source PLEXOS files, and transforms.  Companion to the planning JSON; not consumed by gtopt.",
+  "source_bundle": "PLEXOS20260517.zip",
+  "demand_fail_cost": 467.19,
+  "global_transforms": {
+    "soft_penalty": "min(max(gcost)+1, min(VoLL)-1) \u2014 shared by Generator.pmin_fcost and the line-overload/EL=1 slack cost",
+    "rhs_custom": "RHS_Custom \u00d7 1000 / horizon_hours \u2014 daily gas caps",
+    "config_exclusivity": "PLEXOS *_Uniq mutex groups \u2192 PlantCap caps",
+    "fixed_load": "non-renewable \u2192 hard pmin=pmax; renewable \u2192 curtailable cap (pmin=0)"
+  },
+  "elements": {
+    "Bus": {
+      "plexos_source": "Node",
+      "count": 251,
+      "units": {
+        "voltage": "kV"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml"
+      ],
+      "transforms": [
+        "one Bus per PLEXOS Node"
+      ]
+    },
+    "Generator": {
+      "plexos_source": "Generator",
+      "count": 1790,
+      "units": {
+        "pmin": "MW",
+        "pmax": "MW",
+        "gcost": "$/MWh",
+        "heat_rate": "fuel-unit/MWh",
+        "pmin_fcost": "$/MWh",
+        "lossfactor": "p.u."
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Gen_Rating.csv",
+        "Gen_HeatRate.csv",
+        "Gen_FixedLoad.csv",
+        "Gen_Commit.csv",
+        "Fuel_Price.csv"
+      ],
+      "transforms": [
+        "FixedLoad \u2192 pmin/pmax (non-renewable: hard pmin=pmax; renewable/RoR: curtailable cap pmin=0)",
+        "pmin_fcost = min(max(gcost)+1, min(VoLL)-1) (soft forced floor)",
+        "Gen_Commit \u2192 Commitment.must_run / fixed_status"
+      ]
+    },
+    "Line": {
+      "plexos_source": "Line",
+      "count": 321,
+      "units": {
+        "tmax_ab": "MW",
+        "tmax_ba": "MW",
+        "reactance": "p.u.",
+        "resistance": "p.u.",
+        "overload_penalty": "$/MWh"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Lin_MaxRating.csv",
+        "Lin_MinRating.csv"
+      ],
+      "transforms": [
+        "EL=1 lines optionally soft-capped (overload_penalty = min(max(gcost)+1, min(VoLL)-1))"
+      ]
+    },
+    "Demand": {
+      "plexos_source": "Node (Load)",
+      "count": 139,
+      "units": {
+        "capacity": "MW",
+        "fcost": "$/MWh"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Nod_Load.csv"
+      ],
+      "transforms": [
+        "per-Region VoLL \u2192 per-Demand fcost"
+      ]
+    },
+    "Battery": {
+      "plexos_source": "Battery",
+      "count": 41,
+      "units": {
+        "pmax": "MW",
+        "emax": "MWh",
+        "eini": "MWh",
+        "efin": "MWh"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "BESS_IniValue.csv"
+      ],
+      "transforms": [
+        "_AUX virtual reserve-buffer batteries dropped"
+      ]
+    },
+    "Reservoir": {
+      "plexos_source": "Storage",
+      "count": 12,
+      "units": {
+        "vmin": "hm\u00b3",
+        "vmax": "hm\u00b3",
+        "vini": "hm\u00b3",
+        "water_value": "$/hm\u00b3"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Hydro_MaxVolume.csv",
+        "Hydro_MinVolume.csv",
+        "Hydro_InitialVolume.csv",
+        "Hydro_StoWaterValues.csv"
+      ],
+      "transforms": [
+        "1e30 Water Value \u2192 never-drain sentinel (water_value dropped)",
+        "pondage/tailrace Storages demoted to Junction-only"
+      ]
+    },
+    "Waterway": {
+      "plexos_source": "Waterway",
+      "count": 19,
+      "units": {
+        "fmax": "m\u00b3/s",
+        "fcost": "$/(m\u00b3/s)/h"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Hydro_WaterFlows.csv"
+      ],
+      "transforms": [
+        "forced-flow waterways \u2192 FlowRight at source junction",
+        "Vert_* spillways collapsed onto Junction.drain"
+      ]
+    },
+    "Turbine": {
+      "plexos_source": "Generator (hydro) + Waterway",
+      "count": 32,
+      "units": {
+        "production_factor": "MW/(m\u00b3/s)"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Hydro_EfficiencyIncr.csv"
+      ],
+      "transforms": [
+        "turbine emitted as built-in waterway (junction_a/junction_b flow arc + power conversion); terminal plants drain (junction_b unset)"
+      ]
+    },
+    "Fuel": {
+      "plexos_source": "Fuel",
+      "count": 222,
+      "units": {
+        "price": "$/fuel-unit",
+        "max_offtake": "fuel-unit/period",
+        "min_offtake": "fuel-unit/period"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Fuel_Price.csv",
+        "Fuel_MaxOfftakeWeek.csv"
+      ],
+      "transforms": [
+        "Fuel_MaxOfftakeWeek \u2192 Fuel.max_offtake (weekly budget)",
+        "Fuel.Min Offtake {Hour,Day,Week,Month,Year} \u2192 Fuel.min_offtake (horizon-wide budget, PLEXOS pids 595-600); Min Offtake Penalty \u2192 min_offtake_cost with PLEXOS-faithful $1000/fuel-unit soft default when unset"
+      ]
+    },
+    "Junction": {
+      "plexos_source": "Storage (pass-through) / synthetic sink",
+      "count": 28,
+      "units": {
+        "drain_capacity": "m\u00b3/s",
+        "drain_cost": "$/(m\u00b3/s)/h"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml"
+      ],
+      "transforms": [
+        "pass-through Storages + Vert_* sinks \u2192 Junction"
+      ]
+    },
+    "ReserveZone": {
+      "plexos_source": "Reserve",
+      "count": 12,
+      "units": {
+        "requirement": "MW"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Res_Requirement.csv"
+      ],
+      "transforms": []
+    },
+    "ReserveProvision": {
+      "plexos_source": "Reserve \u2192 Generator eligibility",
+      "count": 805,
+      "units": {
+        "up": "MW",
+        "dn": "MW"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml"
+      ],
+      "transforms": [
+        "zero-pmax gens filtered from eligibility"
+      ]
+    },
+    "Commitment": {
+      "plexos_source": "Generator UC params",
+      "count": 1589,
+      "units": {
+        "startup_cost": "$",
+        "ramp_up": "MW/h",
+        "ramp_down": "MW/h",
+        "pmin": "MW",
+        "initial_power": "MW"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Gen_Commit.csv",
+        "Gen_StartCost.csv",
+        "Gen_MinStableLevel.csv"
+      ],
+      "transforms": [
+        "Max Ramp Up/Down MW/min \u2192 MW/h (\u00d760)",
+        "Gen_Commit \u00b11/0 \u2192 must_run / fixed_status"
+      ]
+    },
+    "Flow": {
+      "plexos_source": "Waterway forced flow",
+      "count": 15,
+      "units": {
+        "fmin": "m\u00b3/s",
+        "fmax": "m\u00b3/s"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Hydro_WaterFlows.csv"
+      ],
+      "transforms": []
+    },
+    "DecisionVariable": {
+      "plexos_source": "Decision Variable",
+      "count": 44,
+      "units": {
+        "value": "per PLEXOS definition",
+        "cost": "$/unit"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml"
+      ],
+      "transforms": []
+    },
+    "UserConstraint": {
+      "plexos_source": "Constraint",
+      "count": 20,
+      "units": {
+        "rhs": "per-LHS-variable (see each constraint description)"
+      },
+      "source_files": [
+        "DBSEN_PRGDIARIO.xml",
+        "Hydro_AntucoBounds.csv"
+      ],
+      "transforms": [
+        "RHS Custom \u2192 RHS \u00d7 1000 / horizon_hours (daily gas caps)",
+        "_Uniq mutex groups \u2192 PlantCap config-exclusivity caps",
+        "see each UserConstraint.description for per-row provenance"
+      ]
+    }
+  }
+}

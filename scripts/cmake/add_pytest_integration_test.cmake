@@ -165,6 +165,30 @@ Required variables (both functions)
 include_guard(GLOBAL)
 
 # ---------------------------------------------------------------------------
+# Pytest worker accounting
+# ---------------------------------------------------------------------------
+#
+# `scripts/pyproject.toml` sets `addopts = "-n auto"`, so every pytest
+# invocation spawns ~nproc xdist workers internally.  Without a hint to
+# ctest's scheduler, `ctest -j20 -L script` then runs 20 pytest entries
+# concurrently — each fanning out 20 workers — yielding nproc² Python
+# processes on the host (the "100s of python instances" trap).
+#
+# Reporting nproc via the `PROCESSORS` test property lets ctest's resource
+# scheduler count pytest's fanout against the `-j` budget: at `-j20` only
+# one pytest runs at a time, while C++ tests (default `PROCESSORS=1`) keep
+# saturating the rest of the pool.  Net wall-clock is the same — pytest
+# already saturates the box by itself — without the process explosion.
+
+include(ProcessorCount)
+if(NOT DEFINED _GTOPT_PYTEST_PROCESSORS)
+  ProcessorCount(_GTOPT_PYTEST_PROCESSORS)
+  if(_GTOPT_PYTEST_PROCESSORS EQUAL 0)
+    set(_GTOPT_PYTEST_PROCESSORS 4)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # add_pytest_integration_test
 # ---------------------------------------------------------------------------
 
@@ -218,7 +242,7 @@ function(add_pytest_integration_test name)
 
   set(_props
     COST "${ARG_COST}"
-    LABELS integration
+    PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
   )
 
   if(ARG_FIXTURE_REQUIRED)
@@ -229,7 +253,11 @@ function(add_pytest_integration_test name)
     list(APPEND _props ENVIRONMENT "${ARG_ENVIRONMENT}")
   endif()
 
-  set_tests_properties("${name}" PROPERTIES ${_props})
+  # `LABELS` is passed outside `${_props}` so the embedded `;` is preserved
+  # as the list separator inside the LABEL value rather than getting split
+  # into a phantom property name when CMake expands `${_props}`.
+  set_tests_properties("${name}" PROPERTIES ${_props}
+    LABELS "integration;script")
 endfunction()
 
 # ---------------------------------------------------------------------------
@@ -287,7 +315,7 @@ function(add_pytest_unit_test name)
 
   set(_props
     COST "${ARG_COST}"
-    LABELS unit
+    PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
   )
 
   if(ARG_FIXTURE_REQUIRED)
@@ -298,5 +326,9 @@ function(add_pytest_unit_test name)
     list(APPEND _props ENVIRONMENT "${ARG_ENVIRONMENT}")
   endif()
 
-  set_tests_properties("${name}" PROPERTIES ${_props})
+  # `LABELS` is passed outside `${_props}` so the embedded `;` is preserved
+  # as the list separator inside the LABEL value rather than getting split
+  # into a phantom property name when CMake expands `${_props}`.
+  set_tests_properties("${name}" PROPERTIES ${_props}
+    LABELS "unit;script")
 endfunction()

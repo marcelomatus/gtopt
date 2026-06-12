@@ -25,7 +25,7 @@ def _make_opts(tmp_path: Path, case_name: str = "test") -> dict:
         "hydrologies": "1",
         "discount_rate": 0.0,
         "last_stage": -1,
-        "compression": "zstd",
+        "compression": "snappy",
     }
 
 
@@ -71,7 +71,7 @@ class TestGTOptWriterWithRealParser:
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
         opts["hydrologies"] = "1"
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         sim = result["simulation"]
 
@@ -122,19 +122,52 @@ class TestGTOptWriterWithRealParser:
         assert "input_directory" in opts
         assert "output_directory" in opts
         assert "demand_fail_cost" in opts.get("model_options", {})
-        # Default solver type is sddp (top-level field)
+        # Default method is sddp (top-level field)
         assert opts["method"] == "sddp"
 
     def test_to_json_options_monolithic_solver(self, tmp_path):
-        """options block contains solver_type=monolithic when requested."""
+        """options block contains method=monolithic when requested."""
 
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path)
-        opts["solver_type"] = "mono"
+        opts["method"] = "mono"
         result = writer.to_json(opts)
         assert result["options"]["method"] == "monolithic"
+
+    def test_output_directory_colocated_json_is_results(self, tmp_path):
+        """JSON inside the data dir (output_file.parent == output_dir) keeps
+        the bare ``results`` (resolves case-local against the JSON location)."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        # _make_opts places output_file inside output_dir -> input_directory ".".
+        result = writer.to_json(_make_opts(tmp_path))
+        opts = result["options"]
+        assert opts["input_directory"] == "."
+        assert opts["output_directory"] == "results"
+
+    def test_output_directory_nests_under_input_dir_when_json_elsewhere(self, tmp_path):
+        """When the JSON lives outside the data dir, ``output_directory`` is
+        nested under the data dir so results land beside their inputs rather
+        than in a shared ``./results`` clobbered by sibling cases."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        data_dir = tmp_path / "case_data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        opts = _make_opts(tmp_path)
+        # JSON sits in tmp_path, data lives in tmp_path/case_data -> mismatch.
+        opts["output_dir"] = data_dir
+        opts["output_file"] = tmp_path / "case_data.json"
+        result = writer.to_json(opts)
+        out = result["options"]
+        assert out["input_directory"] == str(data_dir)
+        # output_directory parallels input_directory: <data_dir>/results.
+        assert out["output_directory"] == f"{data_dir}/results"
 
 
 class TestGTOptWriterProcessMethods:
@@ -146,17 +179,187 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out"})
         assert writer.planning["simulation"]["annual_discount_rate"] == 0.0
 
-    def test_process_options_default_solver_type(self):
+    def test_process_options_default_method(self):
         """process_options defaults to method='sddp' at top level."""
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
         assert writer.planning["options"]["method"] == "sddp"
 
-    def test_process_options_monolithic_solver_type(self):
+    def test_process_options_monolithic_method(self):
         """process_options normalizes 'mono' to 'monolithic' in JSON output."""
         writer = GTOptWriter(MagicMock())
-        writer.process_options({"output_dir": "out", "solver_type": "mono"})
+        writer.process_options({"output_dir": "out", "method": "mono"})
         assert writer.planning["options"]["method"] == "monolithic"
+
+    def test_process_options_cascade_method(self):
+        """process_options emits cascade_options with 4-level default config."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        opts = writer.planning["options"]
+        assert opts["method"] == "cascade"
+        assert "cascade_options" in opts
+        cascade = opts["cascade_options"]
+        assert "level_array" in cascade
+        levels = cascade["level_array"]
+        assert len(levels) == 4
+        # 2026-06-02 (final): cascade FLAT 1 % ladder.
+        # ``stationary_tol`` = [1 %, 1 %, 1 %, 1 %] on L0..L3;
+        # ``stationary_window`` = 2 on every level;
+        # ``stationary_gap_ceiling`` = 85 % on every level.
+        # Rationale: the realised Δgap on juan/IPLP plateaus once
+        # cuts saturate, and heterogeneous-aperture transitions
+        # re-tighten the bound regardless of the within-level exit
+        # criterion — so any sub-1 % per-iter floor only burned
+        # iters on noise.  Flat 1 % across every level exits at the
+        # same noise regime as the terminal L3 stationarity bar.
+        expected_stationary_tol = [0.01, 0.01, 0.01, 0.01]
+        for lvl, expected_tol in zip(levels, expected_stationary_tol):
+            so = lvl["sddp_options"]
+            assert so["stationary_gap_ceiling"] == 0.85
+            assert so["stationary_window"] == 2
+            assert so["stationary_tol"] == expected_tol
+        # Level 0: warmup (single-bus, 1 head aperture → THE wettest hydrology).
+        assert levels[0]["name"] == "warmup"
+        assert levels[0]["model_options"]["use_single_bus"] is True
+        assert levels[0]["sddp_options"]["num_apertures"] == 1
+        assert levels[0]["sddp_options"]["aperture_selection_mode"] == "head"
+        assert levels[0]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        # Level 1: uninodal (single-bus, 4 stride apertures).
+        assert levels[1]["name"] == "uninodal"
+        assert levels[1]["model_options"]["use_single_bus"] is True
+        assert levels[1]["sddp_options"]["num_apertures"] == 4
+        assert levels[1]["sddp_options"]["aperture_selection_mode"] == "stride"
+        assert levels[1]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        # Level 2: transport (8 stride apertures, no kirchhoff, no losses).
+        assert levels[2]["name"] == "transport"
+        assert levels[2]["model_options"]["use_single_bus"] is False
+        assert levels[2]["model_options"]["use_kirchhoff"] is False
+        assert levels[2]["model_options"]["use_line_losses"] is False
+        assert levels[2]["sddp_options"]["num_apertures"] == 8
+        assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
+        assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        # Level 3: full network — full per-phase aperture list (every
+        # scenario).  ``num_apertures`` and ``aperture_selection_mode``
+        # must be ABSENT so the C++ side iterates the full
+        # ``Phase.apertures`` list (vs hardcoding a fixed count that
+        # only matches juan/IPLP).
+        assert levels[3]["name"] == "full_network"
+        assert "num_apertures" not in levels[3]["sddp_options"]
+        assert "aperture_selection_mode" not in levels[3]["sddp_options"]
+        assert levels[3]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+
+    def test_process_options_cascade_iteration_split(self):
+        """Level budgets: L0 = 2·PDMaxIte, L1 = L2 = L3 = PDMaxIte.
+
+        L0 (warmup) gets 2× PDMaxIte because its 1-aperture iter is
+        the cheapest in the cascade and the bootstrap policy seeds
+        every later level — extra headroom there pays off downstream.
+        L1/L2/L3 each get the full PDMaxIte; earlier the deeper levels
+        were capped at PDMaxIte/2 but the asymmetric caps made the
+        transport / full_network exits opaque ("why did transport stop
+        at iter 6?").  Uniform PDMaxIte caps let each level either
+        stationary-converge or hit its own explicit budget — no magic
+        ratios.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 120,
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 240  # 2·PDMaxIte
+        assert levels[1]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+        assert levels[2]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+        assert levels[3]["sddp_options"]["max_iterations"] == 120  # PDMaxIte
+
+    def test_process_options_cascade_global_budget_is_sum_of_levels(self):
+        """Cascade-level max_iterations = sum of per-level budgets, not total_iter.
+
+        Regression: previously the cascade-global budget equalled total_iter,
+        so level 0 (which gets the largest budget) alone exhausted it and
+        the rest never ran.  The global budget must be >= the sum of
+        per-level budgets for all levels to execute.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 120,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        per_level_sum = sum(level["sddp_options"]["max_iterations"] for level in levels)
+        assert cascade["sddp_options"]["max_iterations"] == per_level_sum
+        # 240 (warmup, 2·PDMaxIte) + 120 (uninodal) + 120 (transport) + 120.
+        assert cascade["sddp_options"]["max_iterations"] == 600
+
+    def test_process_options_cascade_small_budget_still_runs_all_levels(self):
+        """With max_iterations=5 the cascade still allots ≥1 iter per level.
+
+        Regression: previously with PDMaxIte=5 from plpmat.dat, level 0
+        consumed all 5 iters and the rest never ran.  The cascade global
+        budget must now leave room for all four levels.  Each level's
+        per-level budget floors at 1.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "max_iterations": 5,
+            }
+        )
+        cascade = writer.planning["options"]["cascade_options"]
+        levels = cascade["level_array"]
+        assert levels[0]["sddp_options"]["max_iterations"] == 10  # 2·PDMaxIte
+        assert levels[1]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        assert levels[2]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        assert levels[3]["sddp_options"]["max_iterations"] == 5  # PDMaxIte
+        # 10 + 5 + 5 + 5.
+        assert cascade["sddp_options"]["max_iterations"] == 25
+
+    def test_process_options_cascade_inherits_all_cuts(self):
+        """Each cascade transition inherits ALL cuts from previous levels.
+
+        ``inherit_optimality_cuts = -1`` keeps the cut store forever
+        across the cascade: L1 sees L0's cuts, L2 sees L0+L1, L3 sees
+        L0+L1+L2.  Preserves the tightest available value-function
+        envelope at every level (at the cost of a larger master LP at
+        the tail).
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        # L0 (warmup) has no transition: it's the first level.
+        assert "transition" not in levels[0]
+        # L1/L2/L3 each have transition.inherit_optimality_cuts == -1.
+        for lvl in levels[1:]:
+            assert lvl["transition"]["inherit_optimality_cuts"] == -1
+
+    def test_process_options_cascade_stationary_tol_default(self):
+        """plp2gtopt defaults cascade.sddp_options.stationary_tol to 0.01.
+
+        The C++ default is 0.005 (0.5%) which is too tight relative to
+        the cuts' approximation floor on PLP-derived runs — the gap
+        plateau on juan-class cases sits well above 0.5 %, so the
+        level would never trip the stationary early-exit gate at the
+        default.  1 % is a more useful default for these cases.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "cascade"})
+        cascade = writer.planning["options"]["cascade_options"]
+        assert cascade["sddp_options"]["stationary_tol"] == 0.01
+
+    def test_process_options_cascade_no_cascade_for_sddp(self):
+        """cascade_options is NOT emitted for plain sddp."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "sddp"})
+        assert "cascade_options" not in writer.planning["options"]
 
     def test_process_options_no_num_apertures_in_sddp(self):
         """num_apertures is never emitted in sddp_options (C++ has no such field)."""
@@ -226,29 +429,37 @@ class TestGTOptWriterProcessMethods:
         assert "max_iterations" not in sddp
 
     def test_process_options_convergence_tol_from_plpmat(self):
-        """convergence_tol defaults to PDError from plpmat.dat when > 0."""
+        """convergence_tol takes the raw PDError value from plpmat.dat."""
         mock_parser = self._make_plpmat_parser(pd_error=0.001)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.001)
 
+    def test_process_options_convergence_tol_no_unit_conversion(self):
+        """PDError=1.0 is emitted verbatim (no implicit percentage→fraction)."""
+        mock_parser = self._make_plpmat_parser(pd_error=1.0)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_tol"] == pytest.approx(1.0)
+
     def test_process_options_convergence_tol_default(self):
-        """convergence_tol defaults to 0.1 when plpmat has no PDError."""
+        """convergence_tol defaults to 0.01 when plpmat has no PDError."""
         mock_parser = self._make_plpmat_parser(pd_error=0.0)
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_no_plpmat(self):
-        """convergence_tol defaults to 0.1 when no plpmat.dat is present."""
+        """convergence_tol defaults to 0.01 when no plpmat.dat is present."""
         mock_parser = MagicMock()
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
         writer.process_options({"output_dir": "out"})
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["convergence_tol"] == pytest.approx(0.1)
+        assert sddp["convergence_tol"] == pytest.approx(0.01)
 
     def test_process_options_convergence_tol_explicit_overrides(self):
         """Explicit convergence_tol overrides plpmat.dat value."""
@@ -258,11 +469,74 @@ class TestGTOptWriterProcessMethods:
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["convergence_tol"] == pytest.approx(0.05)
 
+    def test_process_options_secondary_convergence_keys_omitted_by_default(self):
+        """The secondary convergence knobs are *not* emitted when no
+        explicit value is supplied — gtopt now ships coherent defaults
+        (1 % gap target, 0.5 % stationary tol, 5 % gap ceiling, CI test
+        disabled, 3-iter bootstrap), so plp2gtopt suppresses the
+        redundant emit and lets a future gtopt default change propagate
+        without re-running the converter.  Only ``convergence_tol``
+        survives — it is PLP-derived (plpmat.dat::PDError)."""
+        mock_parser = self._make_plpmat_parser(pd_error=0.001)
+        writer = GTOptWriter(mock_parser)
+        writer.process_options({"output_dir": "out"})
+        sddp = writer.planning["options"]["sddp_options"]
+        # convergence_tol stays — comes from plpmat.dat PDError.
+        assert sddp["convergence_tol"] == pytest.approx(0.001)
+        # All five secondary knobs absent unless user opts in.
+        for key in (
+            "stationary_tol",
+            "stationary_window",
+            "stationary_gap_ceiling",
+            "convergence_confidence",
+            "min_iterations",
+        ):
+            assert key not in sddp, (
+                f"secondary convergence key '{key}' should be omitted by "
+                f"default but was emitted as {sddp[key]!r}"
+            )
+
+    def test_process_options_min_iterations_explicit_overrides(self):
+        """Explicit min_iterations is forwarded into the JSON."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "min_iterations": 10})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["min_iterations"] == 10
+
+    def test_process_options_convergence_confidence_explicit_overrides(self):
+        """Explicit convergence_confidence is forwarded into the JSON."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "convergence_confidence": 0.95})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["convergence_confidence"] == pytest.approx(0.95)
+
+    def test_process_options_stationary_tol_explicit_overrides(self):
+        """Explicit stationary_tol is forwarded into the JSON."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "stationary_tol": 0.005})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_tol"] == pytest.approx(0.005)
+
+    def test_process_options_stationary_gap_ceiling_explicit_overrides(self):
+        """Explicit stationary_gap_ceiling is forwarded into the JSON."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "stationary_gap_ceiling": 0.10})
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["stationary_gap_ceiling"] == pytest.approx(0.10)
+
     def test_process_options_demand_fail_cost_default(self):
-        """demand_fail_cost defaults to 1000 when not specified."""
+        """demand_fail_cost defaults to 0 when not specified.
+
+        Real demands receive their curtailment cost via per-demand
+        ``fcost`` (from plpcnfce.dat falla centrals).  The global
+        default is 0 so that synthetic demands created by C++
+        ``System::expand_batteries`` (for battery AC-side charging)
+        inherit fcost=0 and are truly dispatchable — without this
+        the LP would otherwise force batteries to charge at pmax.
+        """
         writer = GTOptWriter(MagicMock())
         writer.process_options({"output_dir": "out"})
-        assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 1000
+        assert writer.planning["options"]["model_options"]["demand_fail_cost"] == 0
 
     def test_process_options_with_discount(self):
         """process_options passes discount_rate to simulation."""
@@ -270,6 +544,38 @@ class TestGTOptWriterProcessMethods:
         writer.process_options({"output_dir": "out", "discount_rate": 0.08})
         assert writer.planning["simulation"]["annual_discount_rate"] == pytest.approx(
             0.08
+        )
+
+    def test_process_options_strict_storage_emin_default_false(self):
+        """plp2gtopt always emits ``strict_storage_emin = False``.
+
+        gtopt's C++ default for ``model_options.strict_storage_emin`` was
+        flipped to ``true`` in 3581a80e (per-stage emin floor as a HARD
+        lower bound on ``reservoir_sini`` and last-block ``efin``).  PLP's
+        per-stage LP, however, treats ``ve<u>`` as Free mid-stage and only
+        ``vf<u>`` (future volume) carries the ``vmin`` floor.  Without an
+        explicit override, plp2gtopt-generated cases would silently switch
+        to strict semantics and may go infeasible at iter-0 of an SDDP
+        cascade whenever an upstream Benders cut clamps ``sini`` near 0
+        but the schedule still demands ``efin >= emin``.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out"})
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is False
+        )
+
+    def test_process_options_strict_storage_emin_explicit_override(self):
+        """User can opt back into strict mode by setting it in model_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "model_options": {"strict_storage_emin": True},
+            }
+        )
+        assert (
+            writer.planning["options"]["model_options"]["strict_storage_emin"] is True
         )
 
     # ---- SDDP (default) scenario/scene tests --------------------------------
@@ -345,7 +651,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_monolithic_two_hydrologies(self):
         """Monolithic solver: 2 scenarios → 1 scene containing both."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2", "solver_type": "monolithic"})
+        writer.process_scenarios({"hydrologies": "1,2", "method": "monolithic"})
         scenarios = writer.planning["simulation"]["scenario_array"]
         assert len(scenarios) == 2
         assert scenarios[0]["probability_factor"] == pytest.approx(0.5)
@@ -360,7 +666,7 @@ class TestGTOptWriterProcessMethods:
     def test_process_scenarios_mono_alias(self):
         """'mono' is accepted as an alias for 'monolithic'."""
         writer = GTOptWriter(self._make_scenario_mock())
-        writer.process_scenarios({"hydrologies": "1,2,3", "solver_type": "mono"})
+        writer.process_scenarios({"hydrologies": "1,2,3", "method": "mono"})
         scenes = writer.planning["simulation"]["scene_array"]
         assert len(scenes) == 1
         assert scenes[0]["count_scenario"] == 3
@@ -397,7 +703,7 @@ class TestGTOptWriterProcessMethods:
         mock_parser = MagicMock()
         mock_parser.parsed_data = {}
         writer = GTOptWriter(mock_parser)
-        with patch("plp2gtopt.gtopt_writer.JunctionWriter") as mock_jw:
+        with patch("plp2gtopt._writer_hydro.JunctionWriter") as mock_jw:
             mock_jw.return_value.to_json_array.return_value = []
             writer.process_junctions({})  # should not raise
 
@@ -424,7 +730,7 @@ class TestSimulationWriter:
     def test_build_returns_required_keys(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         for key in (
             "block_array",
@@ -438,7 +744,7 @@ class TestSimulationWriter:
     def test_sddp_one_phase_per_stage(self, tmp_path):
         parser = PLPParser({"input_dir": self._CASES_DIR / "plp_min_1bus"})
         parser.parse_all()
-        opts = {"output_dir": tmp_path, "hydrologies": "1", "solver_type": "sddp"}
+        opts = {"output_dir": tmp_path, "hydrologies": "1", "method": "sddp"}
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == len(sim["stage_array"])
 
@@ -448,7 +754,7 @@ class TestSimulationWriter:
         opts = {
             "output_dir": tmp_path,
             "hydrologies": "1",
-            "solver_type": "monolithic",
+            "method": "monolithic",
         }
         sim = SimulationWriter(parser.parsed_data, opts).build()
         assert len(sim["phase_array"]) == 1
@@ -511,35 +817,120 @@ class TestLoadVariableScalesFile:
         assert not result
 
 
-class TestBuildStageToPhaseMap:
-    """Tests for GTOptWriter._build_stage_to_phase_map."""
+class TestKirchhoffMode:
+    """Tests for --kirchhoff-mode CLI default and L3 full_network propagation.
 
-    def test_returns_none_when_empty(self, tmp_path):
-        parser = PLPParser({"input_dir": _PLPMin1Bus})
-        parser.parse_all()
-        writer = GTOptWriter(parser)
-        writer.planning["stage_array"] = []
-        result = writer._build_stage_to_phase_map()
-        assert result is None
+    The ``--kirchhoff-mode`` flag was added to ``_parsers.py`` with a default
+    of ``"cycle_basis"`` and forwarded by ``main.py`` into
+    ``model_opts["kirchhoff_mode"]``, which is passed as
+    ``opts["model_options"]["kirchhoff_mode"]`` to ``process_options``.
+    Inside ``process_options``, the value is conditionally transferred to the
+    ``model_opts`` local dict and then to the L3 ``full_network`` level's
+    ``model_options`` block via the allow-list filter in
+    ``_build_default_cascade_options``.
+    """
 
-    def test_returns_mapping(self, tmp_path):
-        parser = PLPParser({"input_dir": _PLPMin1Bus})
-        parser.parse_all()
-        writer = GTOptWriter(parser)
-        writer.planning["stage_array"] = [
-            {"uid": 1, "phase_uid": 1},
-            {"uid": 2, "phase_uid": 1},
-            {"uid": 3, "phase_uid": 2},
-        ]
-        result = writer._build_stage_to_phase_map()
-        assert result == {1: 1, 2: 1, 3: 2}
+    def test_default_kirchhoff_mode_emitted_top_level(self):
+        """CLI default (cycle_basis) lands in top-level model_options."""
+        writer = GTOptWriter(MagicMock())
+        # Simulate what main.py does: always injects kirchhoff_mode from args.
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "sddp",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        model_opts = writer.planning["options"]["model_options"]
+        assert model_opts["kirchhoff_mode"] == "cycle_basis"
+
+    def test_override_kirchhoff_mode_emitted_top_level(self):
+        """Explicit node_angle override lands in top-level model_options."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "sddp",
+                "model_options": {"kirchhoff_mode": "node_angle"},
+            }
+        )
+        model_opts = writer.planning["options"]["model_options"]
+        assert model_opts["kirchhoff_mode"] == "node_angle"
+
+    def test_kirchhoff_mode_absent_when_not_passed(self):
+        """kirchhoff_mode is absent from model_options when not supplied.
+
+        The C++ gtopt runtime has its own default (cycle_basis); plp2gtopt
+        must NOT emit an implicit value so that a future C++ default change
+        propagates without re-running the converter.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "sddp"})
+        model_opts = writer.planning["options"]["model_options"]
+        assert "kirchhoff_mode" not in model_opts
+
+    def test_l3_full_network_propagates_cycle_basis(self):
+        """cascade L3 full_network model_options includes kirchhoff_mode=cycle_basis."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        l3 = levels[3]
+        assert l3["name"] == "full_network"
+        assert l3["model_options"]["kirchhoff_mode"] == "cycle_basis"
+
+    def test_l3_full_network_propagates_node_angle(self):
+        """cascade L3 full_network model_options includes kirchhoff_mode=node_angle."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "node_angle"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        l3 = levels[3]
+        assert l3["name"] == "full_network"
+        assert l3["model_options"]["kirchhoff_mode"] == "node_angle"
+
+    def test_l0_l1_l2_do_not_inherit_kirchhoff_mode(self):
+        """L0/L1/L2 model_options do NOT include kirchhoff_mode (single-bus levels).
+
+        L0 (warmup) and L1 (uninodal) force use_single_bus=True and do not
+        need kirchhoff_mode.  L2 (transport) explicitly sets use_kirchhoff=False
+        so kirchhoff_mode is irrelevant.  Only L3 (full_network) should carry it.
+        """
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "cascade",
+                "model_options": {"kirchhoff_mode": "cycle_basis"},
+            }
+        )
+        levels = writer.planning["options"]["cascade_options"]["level_array"]
+        for lvl in levels[:3]:  # L0, L1, L2
+            assert "kirchhoff_mode" not in lvl.get("model_options", {}), (
+                f"Level {lvl['name']} should not contain kirchhoff_mode"
+            )
+
+
+# ``TestBuildStageToPhaseMap`` retired in 2026-05 along with
+# ``GTOptWriter._build_stage_to_phase_map`` (was only used to wire
+# hot-start cuts into CSV, a path now retired in favour of Parquet).
 
 
 class TestProcessVariableScales:
     """Tests for GTOptWriter.process_variable_scales."""
 
     def test_reservoir_auto_scale(self, tmp_path):
-        """auto_rsv_energy_scale adds reservoir energy+flow scale entries."""
+        """auto_reservoir_energy_scale adds reservoir energy+flow scale entries."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -555,7 +946,7 @@ class TestProcessVariableScales:
         cp.centrals = [{"name": "rsv1", "type": "embalse", "energy_scale": 0.001}]
         writer.parser.parsed_data["central_parser"] = cp
 
-        writer.process_variable_scales({**opts, "auto_rsv_energy_scale": True})
+        writer.process_variable_scales({**opts, "auto_reservoir_energy_scale": True})
         scales = writer.planning["options"].get("variable_scales", [])
         rsv_scales = [s for s in scales if s["class_name"] == "Reservoir"]
         assert len(rsv_scales) == 2  # energy + flow
@@ -563,7 +954,7 @@ class TestProcessVariableScales:
         assert rsv_scales[1]["variable"] == "flow"
 
     def test_battery_auto_scale(self, tmp_path):
-        """auto_bat_energy_scale adds battery scale entries."""
+        """auto_battery_energy_scale adds battery scale entries."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -573,7 +964,7 @@ class TestProcessVariableScales:
         writer.planning["system"]["battery_array"] = [{"uid": 1, "name": "bat1"}]
         writer.planning["options"] = {}
 
-        writer.process_variable_scales({**opts, "auto_bat_energy_scale": True})
+        writer.process_variable_scales({**opts, "auto_battery_energy_scale": True})
         scales = writer.planning["options"].get("variable_scales", [])
         bat_scales = [s for s in scales if s["class_name"] == "Battery"]
         assert len(bat_scales) == 2
@@ -781,7 +1172,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -807,7 +1198,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -830,7 +1221,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -856,7 +1247,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2, 3])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -875,7 +1266,7 @@ class TestWriteFcostParquet:
         ]
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         filed = dw.write_fcost(demand_array, falla_by_bus, None, None, None)
@@ -896,7 +1287,7 @@ class TestWriteFcostParquet:
         cost_p, stage_p, central_p = self._make_mocks(fallas, costs, stages=[1, 2])
         demand_array = [{"uid": 1, "name": "d1", "bus": 1}]
         falla_by_bus = self._falla_by_bus(fallas)
-        opts = {"output_dir": tmp_path, "compression": "zstd"}
+        opts = {"output_dir": tmp_path, "compression": "snappy"}
         dw = DemandWriter(options=opts)
 
         dw.write_fcost(demand_array, falla_by_bus, cost_p, stage_p, central_p)
@@ -905,3 +1296,276 @@ class TestWriteFcostParquet:
         assert "stage" in df.columns
         assert "block" not in df.columns
         assert df["stage"].dtype == "int32"
+
+
+# ── Per-segment seepage / discharge_limit feasibility validation ──────────
+
+
+class TestValidatePiecewiseSegments:
+    """Per-segment feasibility check on the synthesised planning dict.
+
+    Mirrors the C++ side's `validate_planning.cpp::check_piecewise_feasibility`
+    so PLP authors get the same actionable warning whether they're
+    hand-writing JSON or generating it from PLP.  Warn-only — does not
+    abort.  Schedule-form (vector / file) emin/emax/fmin/fmax are
+    skipped (deferred to load-time).
+    """
+
+    @staticmethod
+    def _planning_with(seepages=None, discharge_limits=None):
+        return {
+            "system": {
+                "reservoir_array": [
+                    {"uid": 1, "name": "r1", "emin": 100.0, "emax": 1000.0},
+                ],
+                "waterway_array": [
+                    {"uid": 10, "name": "w1", "fmin": 0.0, "fmax": 100.0},
+                ],
+                "reservoir_seepage_array": seepages or [],
+                "reservoir_discharge_limit_array": discharge_limits or [],
+            },
+        }
+
+    def test_clean_seepage_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(efin) over [100, 1000] = constant + slope·efin.
+        # seg 0: f(100)=0, f(500)=4 ∈ [0, 100] ✓
+        # seg 1: f(500)=4, f(1000)=29 ∈ [0, 100] ✓
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -1.0},
+                        {"volume": 500, "slope": 0.05, "constant": -21.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_seepage_below_fmin_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = -5 + 0.01·100 = -4 < fmin=0.  The same input also
+        # fails the q(emin)=0 check (q(100) = -4 ≠ 0), so two warnings
+        # fire; assert that the fmin one is among them.
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -5.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        fmin_warns = [w for w in warns if "fmin" in w and "segment 0" in w]
+        assert len(fmin_warns) == 1
+        assert "seep1" in fmin_warns[0]
+
+    def test_seepage_above_fmax_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = 10 + 0.2·100 = 30 ∈ [0, 100] ✓ (lower bound ok)
+        # f(1000) = 10 + 0.2·1000 = 210 > fmax=100 ✗
+        # The same input also fails the q(emin)=0 check (q(100) = 30 ≠
+        # 0), so two warnings fire; assert that the fmax one is among
+        # them.
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.20, "constant": 10.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        fmax_warns = [w for w in warns if "fmax" in w]
+        assert len(fmax_warns) == 1
+        assert "seep1" in fmax_warns[0]
+
+    def test_seepage_q_at_emin_nonzero_single_segment_warns_no_fix(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Single segment with q(efin=100) = -0.5 + 0.01·100 = 0.5 m³/s.
+        # The validator can't auto-anchor (no second segment to preserve
+        # continuity with), so it emits a "cannot auto-anchor (single
+        # segment)" warning and leaves the data unchanged.
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -0.5},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        anchor_warns = [w for w in warns if "qfilt(efin=emin" in w]
+        assert len(anchor_warns) == 1
+        assert "single segment" in anchor_warns[0]
+        # Coefficients are NOT mutated when auto-anchor is impossible.
+        seg = planning["system"]["reservoir_seepage_array"][0]["segments"][0]
+        assert seg["slope"] == 0.01
+        assert seg["constant"] == -0.5
+
+    def test_seepage_q_at_emin_nonzero_two_segments_auto_anchored(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # First segment: q(emin=100) = 2 + 0.05·100 = 7 m³/s ≠ 0.
+        # Second segment starts at vol=500 → continuity anchor point.
+        # Auto-anchor target:
+        #   q_at_seg2 = 2 + 0.05·500 = 27
+        #   new_slope = 27 / (500 - 100) = 0.0675
+        #   new_constant = -0.0675 · 100 = -6.75
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.05, "constant": 2.0},
+                        {"volume": 500, "slope": 0.10, "constant": -20.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        anchor_warns = [w for w in warns if "auto-anchored" in w]
+        assert len(anchor_warns) == 1
+        assert "seep1" in anchor_warns[0]
+        # Segments mutated in place — verify the fixed coefficients.
+        seg0 = planning["system"]["reservoir_seepage_array"][0]["segments"][0]
+        assert seg0["slope"] == pytest.approx(0.0675)
+        assert seg0["constant"] == pytest.approx(-6.75)
+        # Sanity: the rebuilt curve now yields q(emin=100) ≈ 0
+        assert seg0["constant"] + seg0["slope"] * 100 == pytest.approx(0.0, abs=1e-12)
+
+    def test_seepage_q_at_emin_zero_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # First segment perfectly anchored at q(emin=100) = 0:
+        # constant + slope·100 = -1 + 0.01·100 = 0.0 ✓
+        # No warnings should fire (this also exercises the path that
+        # CIPRESES auto-rebuild produces).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.01, "constant": -1.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_clean_discharge_limit_emits_no_warning(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(efin) over [100, 1000] = -100 + 1·efin → [0, 900] all ≥ 0 ✓
+        planning = self._planning_with(
+            discharge_limits=[
+                {
+                    "name": "ddl1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 1.0, "intercept": -100.0},
+                    ],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_discharge_limit_negative_warns(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # f(100) = -3 + 0.02·100 = -1 < 0
+        planning = self._planning_with(
+            discharge_limits=[
+                {
+                    "name": "ddl1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        {"volume": 100, "slope": 0.02, "intercept": -3.0},
+                    ],
+                },
+            ],
+        )
+        warns = _validate_piecewise_segments(planning)
+        assert len(warns) == 1
+        assert "ddl1" in warns[0]
+        assert "negative" in warns[0]
+
+    def test_schedule_form_emin_defers(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Replace scalar emin with a vector schedule — validation
+        # must skip segment feasibility (deferred to per-stage load).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [
+                        # Obviously infeasible if emin were 0 — but
+                        # vector emin defers, so no warning.
+                        {"volume": 0, "slope": 0.01, "constant": -50.0},
+                    ],
+                },
+            ],
+        )
+        planning["system"]["reservoir_array"][0]["emin"] = [100.0, 200.0]
+        assert not _validate_piecewise_segments(planning)
+
+    def test_missing_reservoir_skips(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        # Seepage references a non-existent reservoir uid → skip
+        # (referential integrity is checked elsewhere).
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 999,
+                    "waterway": 10,
+                    "segments": [{"volume": 0, "slope": 0.0, "constant": -5.0}],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)
+
+    def test_empty_segments_skips(self):
+        from plp2gtopt.gtopt_writer import _validate_piecewise_segments
+
+        planning = self._planning_with(
+            seepages=[
+                {
+                    "name": "seep1",
+                    "reservoir": 1,
+                    "waterway": 10,
+                    "segments": [],
+                },
+            ],
+        )
+        assert not _validate_piecewise_segments(planning)

@@ -19,11 +19,11 @@ namespace gtopt
 {
 
 BatteryLP::BatteryLP(const Battery& pbattery, const InputContext& ic)
-    : StorageBase(pbattery, ic, ClassName)
+    : StorageBase(pbattery, ic, Element::class_name)
     , input_efficiency(
-          ic, ClassName, id(), std::move(object().input_efficiency))
+          ic, Element::class_name, id(), std::move(object().input_efficiency))
     , output_efficiency(
-          ic, ClassName, id(), std::move(object().output_efficiency))
+          ic, Element::class_name, id(), std::move(object().output_efficiency))
 {
 }
 
@@ -45,80 +45,90 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
                           const StageLP& stage,
                           LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
   static constexpr double flow_conversion_rate = 1.0;
 
   // Add capacity-related variables and constraints
-  if (!CapacityBase::add_to_lp(sc, scenario, stage, lp)) [[unlikely]] {
+  if (!CapacityBase::add_to_lp(sc, ampl_name, scenario, stage, lp)) [[unlikely]]
+  {
     return false;
+  }
+
+  // F9: register filter metadata for sum(...) predicates.  Battery `bus`
+  // is optional (standalone batteries are decomposed by
+  // `System::expand_batteries()`), so we only register `type`.
+  if (const auto& t = battery().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
   }
 
   // Get capacity information
   auto&& [opt_capacity, capacity_col] = capacity_and_col(stage, lp);
   const double stage_capacity = opt_capacity.value_or(LinearProblem::DblMax);
 
-  const auto stage_input_efficiency =
-      input_efficiency.optval(stage.uid()).value_or(1.0);
-  const auto stage_output_efficiency =
-      output_efficiency.optval(stage.uid()).value_or(1.0);
+  // Per-(stage, block) efficiency lookups since PR-E.  Battery's
+  // ``input_efficiency`` / ``output_efficiency`` are OptTBRealSched.
+  // StorageBase::add_to_lp expects callables (BlockUid → double),
+  // sampled inside its per-block SoC-balance loop.
+  const auto input_efficiency_at = [&](BlockUid b)
+  { return input_efficiency.optval(stage.uid(), b).value_or(1.0); };
+  const auto output_efficiency_at = [&](BlockUid b)
+  { return output_efficiency.optval(stage.uid(), b).value_or(1.0); };
 
   // Get blocks for this stage
   const auto& blocks = stage.blocks();
 
-  // Resolve energy_scale: per-element field > VariableScaleMap > default.
-  const auto es = [&]
-  {
-    if (battery().energy_scale.has_value()) {
-      return *battery().energy_scale;
-    }
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Battery", "energy", uid());
-    return (vs != 1.0) ? vs : Battery::default_energy_scale;
-  }();
-  // Resolve flow_scale: VariableScaleMap > default (1.0).
-  const auto fs = [&]
-  {
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Battery", "flow", uid());
-    return (vs != 1.0) ? vs : 1.0;
-  }();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  // add_col auto-resolves scale from metadata when class_name is set.
+  const auto es =
+      sc.options().variable_scale_map().lookup("Battery", "energy", uid());
 
   // Create finp/fout variables for each time block.
-  // Scale is set to flow_scale so that the user-constraint resolver and
-  // output infrastructure can automatically convert between LP and physical
-  // units via SparseCol::scale (physical_value = LP_value × flow_scale).
+  // Flow scale is resolved by add_col from VariableScaleMap metadata.
   BIndexHolder<ColIndex> finps;
   BIndexHolder<ColIndex> fouts;
   map_reserve(finps, blocks.size());
   map_reserve(fouts, blocks.size());
 
+  double fs = 1.0;
   for (auto&& block : blocks) {
     const auto buid = block.uid();
     finps[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "finp", uid()),
-        .scale = fs,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = FinpName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fouts[buid] = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fout", uid()),
-        .scale = fs,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = FoutName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
+    fs = lp.get_col_scale(finps[buid]);
   }
   const StorageOptions opts {
       .use_state_variable = battery().use_state_variable.value_or(false),
       .daily_cycle = battery().daily_cycle.value_or(true),
+      .max_cycles_day = battery().max_cycles_day.value_or(0.0),
+      .class_name = Element::class_name.full_name(),
+      .variable_uid = uid(),
       .energy_scale = es,
       .flow_scale = fs,
   };
   if (!StorageBase::add_to_lp(cname,
+                              ampl_name,
                               sc,
                               scenario,
                               stage,
                               lp,
                               flow_conversion_rate,
                               finps,
-                              stage_input_efficiency,
+                              input_efficiency_at,
                               fouts,
-                              stage_output_efficiency,
+                              output_efficiency_at,
                               stage_capacity,
                               capacity_col,
                               {},
@@ -131,9 +141,17 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
   }
 
   // Store finp variable indices for later use
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   finp_cols[st_key] = std::move(finps);
   fout_cols[st_key] = std::move(fouts);
+
+  // Register battery-specific PAMPL columns.  Storage-generic variables
+  // (energy/drain/eini/efin/soft_emin) are registered centrally by
+  // StorageBase::add_to_lp; `capainst` by CapacityBase::add_to_lp.
+  sc.add_ampl_variable(
+      ampl_name, uid(), ChargeName, scenario, stage, finp_cols.at(st_key));
+  sc.add_ampl_variable(
+      ampl_name, uid(), DischargeName, scenario, stage, fout_cols.at(st_key));
 
   return true;
 }
@@ -150,15 +168,15 @@ bool BatteryLP::add_to_lp(SystemContext& sc,
  */
 bool BatteryLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = Element::class_name;
 
   // Add finp variable solutions and costs to output
-  out.add_col_sol(cname, "finp", id(), finp_cols);
-  out.add_col_cost(cname, "finp", id(), finp_cols);
+  out.add_col_sol(cname, FinpName, id(), finp_cols);
+  out.add_col_cost(cname, FinpName, id(), finp_cols);
 
   // Add fout variable solutions and costs to output
-  out.add_col_sol(cname, "fout", id(), fout_cols);
-  out.add_col_cost(cname, "fout", id(), fout_cols);
+  out.add_col_sol(cname, FoutName, id(), fout_cols);
+  out.add_col_cost(cname, FoutName, id(), fout_cols);
 
   // Process storage and capacity outputs
   return StorageBase::add_to_output(out, cname)

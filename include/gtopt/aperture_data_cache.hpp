@@ -68,14 +68,12 @@ public:
       const std::size_t h1 = std::hash<ScenarioUid> {}(k.scenario_uid);
       const std::size_t h2 = std::hash<StageUid> {}(k.stage_uid);
       const std::size_t h3 = std::hash<BlockUid> {}(k.block_uid);
-      // NOLINTBEGIN(hicpp-signed-bitwise)
       auto combined = h1
           ^ ((h2 * std::size_t {0x9e3779b97f4a7c15ULL})
              + std::size_t {0x9e3779b9} + (h1 << 6) + (h1 >> 2));
       return combined
           ^ ((h3 * std::size_t {0x9e3779b97f4a7c15ULL})
              + std::size_t {0x9e3779b9} + (combined << 6) + (combined >> 2));
-      // NOLINTEND(hicpp-signed-bitwise)
     }
   };
 
@@ -95,11 +93,9 @@ public:
     {
       const std::size_t h1 = std::hash<Name> {}(k.class_name);
       const std::size_t h2 = std::hash<Name> {}(k.element_name);
-      // NOLINTBEGIN(hicpp-signed-bitwise)
       return h1
           ^ ((h2 * std::size_t {0x9e3779b97f4a7c15ULL})
              + std::size_t {0x9e3779b9} + (h1 << 6) + (h1 >> 2));
-      // NOLINTEND(hicpp-signed-bitwise)
     }
   };
 

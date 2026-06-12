@@ -16,12 +16,22 @@ struct json_data_contract<Junction>
       json_member_list<json_number<"uid", Uid>,
                        json_string<"name", Name>,
                        json_variant_null<"active", OptActive, jvtl_Active>,
-                       json_bool_null<"drain", OptBool>>;
+                       json_string_null<"type", OptName>,
+                       json_string_null<"description", OptName>,
+                       json_bool_null<"drain", OptBool>,
+                       json_number_null<"drain_capacity", OptReal>,
+                       json_number_null<"drain_cost", OptReal>>;
 
   constexpr static auto to_json_data(Junction const& junction)
   {
-    return std::forward_as_tuple(
-        junction.uid, junction.name, junction.active, junction.drain);
+    return std::forward_as_tuple(junction.uid,
+                                 junction.name,
+                                 junction.active,
+                                 junction.type,
+                                 junction.description,
+                                 junction.drain,
+                                 junction.drain_capacity,
+                                 junction.drain_cost);
   }
 };
 }  // namespace daw::json

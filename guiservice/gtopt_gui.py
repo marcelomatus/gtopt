@@ -432,6 +432,77 @@ def create_gui_url(port):
     return f"http://localhost:{port}/"
 
 
+def launch_ui_plus(port, guiservice_url, dev_mode, log_dir):
+    """Start the GUI Plus (Next.js) frontend as a child process.
+
+    Returns a tuple of (url, process, log_handle).  If launch fails, returns
+    (None, None, None) and prints a warning.
+    """
+    # Locate the guiservice-plus directory.  In a development checkout it lives
+    # alongside `guiservice/`; in an install prefix it may be copied under
+    # `share/gtopt/guiservice-plus/`.
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "guiservice-plus",
+        here.parent.parent / "guiservice-plus",
+        here.parent / "share" / "gtopt" / "guiservice-plus",
+    ]
+    ui_dir = next((d for d in candidates if (d / "package.json").exists()), None)
+    if ui_dir is None:
+        print(
+            "Warning: guiservice-plus directory not found; GUI Plus disabled.",
+            file=sys.stderr,
+        )
+        return None, None, None
+
+    npm = shutil.which("npm")
+    if npm is None:
+        print("Warning: `npm` not found on PATH; GUI Plus disabled.", file=sys.stderr)
+        return None, None, None
+
+    node_modules = ui_dir / "node_modules"
+    if not node_modules.exists():
+        print(f"Installing GUI Plus dependencies in {ui_dir}...")
+        install = subprocess.run(  # pylint: disable=subprocess-run-check
+            [npm, "install", "--no-audit", "--no-fund"],
+            cwd=str(ui_dir),
+        )
+        if install.returncode != 0:
+            print("Warning: `npm install` failed; GUI Plus disabled.", file=sys.stderr)
+            return None, None, None
+
+    env = os.environ.copy()
+    env["GTOPT_GUISERVICE_URL"] = guiservice_url
+    env["PORT"] = str(port)
+
+    if dev_mode:
+        cmd = [npm, "run", "dev", "--", "-p", str(port)]
+    else:
+        # `next start` needs a prebuilt `.next/` directory; fall back to dev
+        # if no build artefacts are present.
+        next_dir = ui_dir / ".next"
+        if not next_dir.exists():
+            cmd = [npm, "run", "dev", "--", "-p", str(port)]
+        else:
+            cmd = [npm, "run", "start", "--", "-p", str(port)]
+
+    log_file = log_dir / "ui_plus.log"
+    handle = open(log_file, "a", encoding="utf-8")  # pylint: disable=consider-using-with
+    proc = subprocess.Popen(  # pylint: disable=consider-using-with
+        cmd,
+        cwd=str(ui_dir),
+        env=env,
+        stdout=handle,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+
+    url = f"http://localhost:{port}"
+    print(f"GUI Plus starting at: {url} (log: {log_file})")
+    return url, proc, handle
+
+
 def main():
     """Main entry point for gtopt_gui."""
     parser = argparse.ArgumentParser(
@@ -519,6 +590,27 @@ an external webservice.
         type=str,
         default=None,
         help="Python executable for launching guiservice app.py (default: current interpreter or GTOPT_GUI_PYTHON)",
+    )
+
+    parser.add_argument(
+        "--ui-plus",
+        action="store_true",
+        help=(
+            "Launch the new Next.js frontend (guiservice-plus) alongside the "
+            "Flask guiservice and open it in the browser instead of the "
+            "legacy HTML UI."
+        ),
+    )
+    parser.add_argument(
+        "--ui-plus-port",
+        type=int,
+        default=5002,
+        help="Port for the Next.js GUI Plus frontend (default: 5002)",
+    )
+    parser.add_argument(
+        "--ui-plus-dev",
+        action="store_true",
+        help="Run GUI Plus in `next dev` mode (default: `next start`)",
     )
 
     args = parser.parse_args()
@@ -717,9 +809,25 @@ an external webservice.
     # Create URL
     url = create_gui_url(port)
 
+    # Optionally launch the GUI Plus (Next.js) frontend in a child process.
+    # It proxies API calls to the Flask guiservice via the GTOPT_GUISERVICE_URL
+    # environment variable.
+    ui_plus_process = None
+    ui_plus_url = None
+    if args.ui_plus:
+        ui_plus_url, ui_plus_process, _ui_plus_log_handle = launch_ui_plus(
+            port=args.ui_plus_port,
+            guiservice_url=f"http://localhost:{port}",
+            dev_mode=args.ui_plus_dev,
+            log_dir=Path(log_dir),
+        )
+        if ui_plus_process is not None:
+            atexit.register(lambda: _kill_process_group(ui_plus_process, "GUI Plus"))
+
     # Open browser
     if not args.no_browser:
-        print(f"Opening browser at {url}")
+        target_url = ui_plus_url or url
+        print(f"Opening browser at {target_url}")
         if config_path:
             print(f"\nTo work with your configuration file ({config_path.name}):")
             print("  1. Click the 'Upload Case' button")
@@ -727,9 +835,11 @@ an external webservice.
             print("  3. Or create a ZIP file containing your config and data files")
         # Use regular browser mode by default for better compatibility.
         app_mode = args.app_mode and not args.no_app_mode
-        open_browser(url, app_mode=app_mode)
+        open_browser(target_url, app_mode=app_mode)
     else:
         print(f"\nGUI service is running at: {url}")
+        if ui_plus_url:
+            print(f"GUI Plus is running at: {ui_plus_url}")
 
     # Show status summary
     print("\n" + "=" * 60)

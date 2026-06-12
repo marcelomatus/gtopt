@@ -15,6 +15,7 @@
 #include <functional>
 #include <optional>
 
+#include <gtopt/cost_helper.hpp>
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
@@ -25,7 +26,8 @@ namespace gtopt
 
 FlowLP::FlowLP(const Flow& pflow, const InputContext& ic)
     : ObjectLP<Flow>(pflow)
-    , discharge(ic, ClassName, id(), std::move(flow().discharge))
+    , discharge(ic, Element::class_name, id(), std::move(flow().discharge))
+    , fcost(ic, Element::class_name, id(), std::move(flow().fcost))
 {
 }
 
@@ -34,7 +36,7 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
                        const StageLP& stage,
                        LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -57,16 +59,32 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
-    //  adding flow variable
-    const auto block_discharge =
+    // ``discharge`` is OPTIONAL — when set, the column is FORCED to
+    // exactly ``discharge`` (legacy hard equality, regardless of
+    // ``fcost``).  When unset, the column is a free slack ``[0,
+    // +inf)`` priced at ``fcost`` so the LP only activates it when
+    // the junction balance demands it.  ``fcost`` itself is also
+    // optional — when neither field is set, no LP column is emitted.
+    const auto block_discharge_opt =
         discharge.at(scenario.uid(), stage.uid(), block.uid());
+    const auto block_fcost = fcost.optval(stage.uid(), buid);
+    if (!block_discharge_opt.has_value() && !block_fcost.has_value()) {
+      continue;
+    }
+    const double block_lowb = block_discharge_opt.value_or(0.0);
+    const double block_uppb = block_discharge_opt.value_or(DblMax);
+    const double block_cost = block_fcost.has_value()
+        ? CostHelper::block_ecost(scenario, stage, block, *block_fcost)
+        : 0.0;
 
-    auto col_name =
-        sc.lp_col_label(scenario, stage, block, cname, "flow", uid());
     const auto fcol = lp.add_col({
-        .name = std::move(col_name),
-        .lowb = block_discharge,
-        .uppb = block_discharge,
+        .lowb = block_lowb,
+        .uppb = block_uppb,
+        .cost = block_cost,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = FlowName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     fcols[buid] = fcol;
 
@@ -79,18 +97,24 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   flow_cols[st_key] = std::move(fcols);
+
+  // Register PAMPL-visible columns.
+  if (!flow_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, flow_cols.at(st_key));
+  }
 
   return true;
 }
 
 bool FlowLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
 
-  out.add_col_sol(cname, "flow", id(), flow_cols);
-  out.add_col_cost(cname, "flow", id(), flow_cols);
+  out.add_col_sol(cname, FlowName, id(), flow_cols);
+  out.add_col_cost(cname, FlowName, id(), flow_cols);
 
   return true;
 }
@@ -105,7 +129,7 @@ bool FlowLP::update_aperture(
     return true;
   }
 
-  const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {base_scenario.uid(), stage.uid()};
   const auto it = flow_cols.find(st_key);
   if (it == flow_cols.end()) {
     return true;  // no columns registered for this (scenario, stage)

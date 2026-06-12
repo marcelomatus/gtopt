@@ -1,0 +1,21 @@
+% 8-status priority-ordered rule table (Section 4.4)
+\begin{tabular}{rlll}
+  \toprule
+  \# & Status (regime) & Trigger condition & Treatment in picker \\
+  \midrule
+  1 & \texttt{demand\_fail}             & $\lambda^{\mathrm{CEN}}_{b,t} > \$800$/MWh                       & $\varepsilon{=}0$, marginal $=$ \texttt{demand\_fail\_cost} \\
+  2 & \texttt{renewable\_curtailment}   & $\lambda^{\mathrm{CEN}}_{b,t} \le \$0.5$/MWh                     & $\varepsilon{=}0$, marginal $=$ \texttt{renewable\_curtailment} \\
+  3 & \texttt{no\_candidates}           & no dispatched units in island                                    & propagate \texttt{NaN}; flag for analyst review \\
+  4 & \texttt{no\_cv\_match}            & all dispatched have empty SCVIC ladder OR all forced-at-pmin    & propagate \texttt{NaN}; flag \\
+  5 & forced-at-pmin (\textit{drop})    & \texttt{consigna}$\in\{$CI,MT,PMT,PP,PS,PC$\}$ AND $p_g \le \underline{p}_g + \delta$ & excluded from candidate pool \\
+  6 & \texttt{matched\_capped\_pmax}    & picked $g$ with $p_g \ge \overline{p}_g - \delta$                & valid; energy must come from off-merit unit \\
+  7 & \texttt{matched\_above}           & picked $g$ has $c_{g,\phi^\star} > \lambda$                      & valid; closest-CV is the next-up tier \\
+  8 & \texttt{matched\_interior}        & picked $g$ has $\underline{p}_g + \delta < p_g < \overline{p}_g - \delta$ & valid; the canonical case \\
+  \bottomrule
+\end{tabular}
+\\[3pt]
+{\footnotesize Priority is evaluated top-down: the first matching
+row determines the unit's regime at the (bus, quarter).
+$\delta = 0.05(\overline{p}_g-\underline{p}_g)$ is the interior
+tolerance.  Forced units at \emph{interior} dispatch remain valid
+candidates: rule~5 only excludes the forced-at-pmin case.}

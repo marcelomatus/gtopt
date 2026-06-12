@@ -36,15 +36,19 @@
 
 #include <atomic>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_class_name.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/sparse_row.hpp>
+#include <gtopt/state_variable.hpp>
 
 // Forward declaration to avoid including the heavy work_pool.hpp header.
 // Consumers that need the full AdaptiveWorkPool definition (e.g. to call
@@ -71,14 +75,11 @@ struct StateVarLink
 {
   ColIndex source_col {};  ///< Source column in source phase's LP
   ColIndex dependent_col {};  ///< Dependent column in target phase's LP
-  PhaseIndex source_phase {};  ///< Phase where the source column lives
-  PhaseIndex target_phase {};  ///< Phase where the dependent column lives
+  PhaseIndex source_phase_index {};  ///< Phase where the source column lives
+  PhaseIndex target_phase_index {};  ///< Phase where the dependent column lives
   double trial_value {0.0};  ///< Trial value from the last forward pass
   double source_low {0.0};  ///< Physical lower bound of source column
   double source_upp {0.0};  ///< Physical upper bound of source column
-  /// Row index of the explicit coupling constraint (row_dual mode only).
-  /// Set by propagate_trial_values_row_dual(); unknown_index otherwise.
-  RowIndex coupling_row {unknown_index};
   /// Variable scale factor: physical = LP × var_scale.
   /// Used by the elastic filter to scale the penalty per LP unit.
   double var_scale {1.0};
@@ -87,6 +88,101 @@ struct StateVarLink
   /// Pre-divided by scale_objective during link construction for consistency
   /// with the global penalty (which is also pre-divided by scale_objective).
   double scost {0.0};
+  /// Back-pointer to the StateVariable this link represents.
+  ///
+  /// The StateVariable lives in `SimulationLP::m_global_variable_map_`
+  /// (a `flat_map` populated once at LP build time, never reshuffled),
+  /// so its address is stable for the lifetime of the solver run — the
+  /// same lifetime that already couples source and dependent LP columns.
+  ///
+  /// Used by the SDDP solve passes to read/write runtime values
+  /// (col_sol, reduced_cost) directly on the state variable, avoiding
+  /// full per-LP `std::vector<double>` snapshots.  Nullable for test
+  /// fixtures that exercise cut builders in isolation.
+  const StateVariable* state_var {nullptr};
+  /// Identity of the state-variable element, for diagnostic logs.
+  /// Captured once at link collection time from the simulation registry
+  /// Key.  The string_views reference the same stable storage as the
+  /// map keys, so they outlive the link for the whole solver lifetime.
+  /// LP class identity stored by value.  Mirrors
+  /// `StateVariable::Key::class_name` — copied from the source Key
+  /// at link-collection time.  Zero-runtime access to both
+  /// PascalCase `full_name()` and snake_case `short_name()`.
+  LPClassName class_name {};
+  std::string_view col_name {};  ///< e.g. "efin", "sini"
+  Uid uid {unknown_uid};  ///< Element UID
+  /// Scenario / stage identity of the producing state variable.  The same
+  /// element uid + col_name is registered once per (scenario, stage) within
+  /// a scene, so these are needed to map a link to its counterpart in the
+  /// aperture-system state-variable registry (aperture-system cut path).
+  ScenarioUid scenario_uid {unknown_uid_of<Scenario>()};
+  StageUid stage_uid {unknown_uid_of<Stage>()};
+  /// Human-readable element name (e.g. "LMAULE", "RALCO").  Resolved
+  /// from `SimulationLP::m_ampl_element_names_` at link-collection time
+  /// via a reverse scan of the (class_name, name) → uid map.  Empty
+  /// when the element was never registered in the AMPL name map — in
+  /// that case diagnostic logs fall back to the numeric uid.
+  std::string_view name {};
+};
+
+// ─── Cut-emission box-edge bookkeeping ──────────────────────────────────────
+
+/// Per-cut tally of how many contributing links land in each decile band of
+/// the source-column box ``[source_low, source_upp]``.
+///
+/// Shared diagnostic structure used by both
+/// ``build_feasibility_cut_physical`` (single-cut path) and
+/// ``build_multi_cuts`` (per-link multi-cut path).  The same band-classifier
+/// drift between the two emitters used to silently produce subtly different
+/// degeneracy thresholds; centralising it here keeps the threshold tunable
+/// in exactly one place.
+///
+/// **Decile bands** (10 % of ``box_width = source_upp − source_low``):
+///   - ``upper`` ← clamped value within the top 10 % of the box
+///     (``≥ source_upp − 0.10 × box_width``).
+///   - ``lower`` ← clamped value within the bottom 10 % of the box.
+///   - ``inside`` ← everything else (the middle 80 %).
+///
+/// The "all-upper" pattern (``all_upper_degenerate()`` returns true) is the
+/// signature of a degenerate "every state floored at emax" cut: the master
+/// cannot satisfy a floor at every reservoir's emax simultaneously in one
+/// phase, so installing such a cut guarantees cascade-infeasibility on the
+/// next forward attempt.  Cut emitters use this signal to drop the cut
+/// rather than install a doomed retry chain.
+///
+/// Exposed (rather than kept anonymous) so that the band-classification
+/// invariant is unit-testable in isolation, without spinning up a full
+/// elastic clone.
+struct BoxEdgeStats
+{
+  int upper {};
+  int lower {};
+  int inside {};
+  std::string upper_names;  ///< Comma-joined element names for WARN message
+
+  /// Total active links contributing to a cut (= ``upper + lower + inside``).
+  [[nodiscard]] constexpr int total() const noexcept
+  {
+    return upper + lower + inside;
+  }
+
+  /// True when EVERY active link clamps at the upper edge.  The threshold
+  /// of ``≥ 2 active`` keeps the warning quiet for trivial single-link
+  /// cuts on a small reservoir while still flaring on the multi-reservoir
+  /// degenerate cascade observed on juan/gtopt_iplp.
+  [[nodiscard]] constexpr bool all_upper_degenerate() const noexcept
+  {
+    return total() >= 2 && upper == total();
+  }
+
+  /// Tally one link's clamp into the appropriate decile bucket.
+  /// ``clamped`` is the cut's implied source value after the per-link
+  /// ``std::clamp(dep_clone_phys, source_low, source_upp)``; the helper
+  /// compares it to the box's top / bottom 10 % bands.  Names land in
+  /// ``upper_names`` only when the link has a non-empty AMPL name —
+  /// otherwise the diagnostic falls back to the numeric uid in the WARN
+  /// message that consumes ``upper_names``.
+  void tally(double clamped, const StateVarLink& link);
 };
 
 // ─── Elastic relaxation result ──────────────────────────────────────────────
@@ -101,6 +197,13 @@ struct RelaxedVarInfo
   ColIndex sup_col {unknown_index};
   /// Undershoot slack col (sdn > 0 → solution > trial)
   ColIndex sdn_col {unknown_index};
+  /// Row index of the elastic fixing equation
+  /// `dep_col + sup_col − sdn_col = trial_value` added to the clone
+  /// by `relax_fixed_state_variable`.  The dual of this row at the
+  /// clone's Phase-1 optimum is the Farkas ray component that becomes
+  /// the feasibility-cut coefficient on `source_col` — matches
+  /// `plp-agrespd.f::AgrElastici` which reads `lp->getRowPrice()[row]`.
+  RowIndex fixing_row {unknown_index};
 
   /// Implicit bool conversion: true iff the column was relaxed.
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
@@ -110,101 +213,164 @@ struct RelaxedVarInfo
 // ─── Optimality cut ─────────────────────────────────────────────────────────
 
 /// Propagate trial values: fix dependent columns to source-column solution
-/// via column bounds (lo == hi).  Used in reduced_cost mode.
+/// via column bounds (lo == hi).  This is the standard SDDP bound-fixing
+/// formulation: the reduced cost of the fixed column at optimum is the
+/// shadow price of the implicit bound, which becomes the cut coefficient.
 void propagate_trial_values(std::span<StateVarLink> links,
                             std::span<const double> source_solution,
                             LinearInterface& target_li) noexcept;
 
-/// Propagate trial values using explicit coupling constraint rows (PLP-style).
-///
-/// Instead of fixing dependent columns via bounds, this function:
-/// 1. Keeps the dependent column at its physical bounds
-/// (source_low..source_upp)
-/// 2. Adds an explicit equality constraint: x_dep = trial_value
-/// 3. Stores the constraint's row index in link.coupling_row
-///
-/// The row duals of these coupling constraints are then used by
-/// build_benders_cut_from_row_duals() to construct the Benders cut.
-void propagate_trial_values_row_dual(std::span<StateVarLink> links,
-                                     std::span<const double> source_solution,
-                                     LinearInterface& target_li) noexcept;
+/// Propagate trial values using the source StateVariable's cached
+/// col_sol() instead of a full-LP solution span.  This is the only
+/// overload used by production SDDP code — the older span-based overload
+/// above is kept for tests that drive propagation directly.
+void propagate_trial_values(std::span<StateVarLink> links,
+                            LinearInterface& target_li) noexcept;
 
-/// Build a Benders optimality cut from reduced costs of dependent columns.
+/// Physical-space Benders optimality cut builder.
 ///
-///   scale_alpha · α_lp ≥ z_t + Σ_i rc_i · (x_{t-1,i} − v̂_i)
+///   α_phys ≥ z_t_phys + Σ_i rc_phys_i · (x_{t-1,i}_phys − v̂_i_phys)
 ///
-/// @param alpha_col       Column index of the α (future-cost) variable.
-/// @param links           State-variable linkage descriptors.
-/// @param reduced_costs   Reduced costs of dependent columns from the LP solve.
-/// @param objective_value Optimal objective value of the sub-problem.
-/// @param name            Name tag for the resulting cut row.
-/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
-/// @param cut_coeff_eps   Threshold below which state-var coefficients are
-///                        dropped (default 0.0 = keep all).
-/// Returns the cut as a SparseRow ready to add to the source phase.
-[[nodiscard]] auto build_benders_cut(ColIndex alpha_col,
-                                     std::span<const StateVarLink> links,
-                                     std::span<const double> reduced_costs,
-                                     double objective_value,
-                                     std::string_view name,
-                                     double scale_alpha = 1.0,
-                                     double cut_coeff_eps = 0.0) -> SparseRow;
-
-/// Build a Benders optimality cut from row duals of coupling constraints
-/// (PLP-style).
+/// Intended for use with `LinearInterface::add_equilibrated_row`, which
+/// folds `col_scales` and the per-row equilibration internally.  All
+/// inputs are in physical space:
 ///
-///   scale_alpha · α_lp ≥ z_t + Σ_i π_i · (x_{t-1,i} − v̂_i)
+/// @param alpha_col              α column index in the source phase's LP.
+/// @param links                  State-variable linkage descriptors (same
+///                               struct the LP-space overload consumes).
+///                               `link.dependent_col` selects the target
+///                               entry in @p reduced_costs_physical;
+///                               `link.source_col` selects the matching
+///                               entry in @p trial_values_physical.
+/// @param reduced_costs_physical Physical reduced costs of the target
+///                               LP's dependent columns — read from
+///                               `target_li.get_col_cost()` (which
+///                               applies `LP × scale_objective /
+///                               col_scale`).
+/// @param trial_values_physical  Physical trial values for each link's
+///                               source column — read from
+///                               `source_li.get_col_sol()[link.source_col]`
+///                               (= `LP × col_scale_source`).  Indexed
+///                               in parallel with `links`, so entry `i`
+///                               corresponds to `links[i]`.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                               i.e. `target_li.get_obj_value()`.
+/// @param cut_coeff_eps          Drop state-var coefficients below this
+///                               absolute threshold (default 0 =
+///                               keep all).
 ///
-/// where π_i = row_duals[link.coupling_row] is the dual of the explicit
-/// equality constraint that fixes the dependent column.
+/// Returns a SparseRow with:
+///   * row[alpha_col] = 1.0
+///   * row[source_col] = -rc_phys
+///   * row.lowb = obj_phys − Σ rc_phys · v̂_phys
+///   * row.uppb = DblMax, row.scale = 1.0
 ///
-/// @param alpha_col       Column index of the α (future-cost) variable.
-/// @param links           State-variable linkage descriptors.
-/// @param row_duals       Row duals from the LP solve (indexed by RowIndex).
-/// @param objective_value Optimal objective value of the sub-problem.
-/// @param name            Name tag for the resulting cut row.
-/// @param scale_alpha     Scale divisor for α (PLP varphi scale; default 1.0).
-/// @param cut_coeff_eps   Threshold below which state-var coefficients are
-///                        dropped (default 0.0 = keep all).
-/// Requires that propagate_trial_values_row_dual() was called first so that
-/// each link has a valid coupling_row index.
-[[nodiscard]] auto build_benders_cut_from_row_duals(
+/// The caller is expected to pass this row to
+/// `LinearInterface::add_equilibrated_row`, which applies the LP's
+/// column scales and per-row row-max equilibration to produce the
+/// final LP-space row.
+[[nodiscard]] auto build_benders_cut_physical(
     ColIndex alpha_col,
     std::span<const StateVarLink> links,
-    std::span<const double> row_duals,
-    double objective_value,
-    std::string_view name,
-    double scale_alpha = 1.0,
+    std::span<const double> reduced_costs_physical,
+    std::span<const double> trial_values_physical,
+    double objective_value_physical,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
-/// Remove state-variable coefficients whose absolute value is below @p eps.
+/// Physical-space Benders cut builder that reads reduced cost and trial
+/// value from each link's back-pointer state variable instead of taking
+/// flat spans.  The SDDP backward pass uses this overload: the forward
+/// pass already mirrors the target LP's `col_sol` / `reduced_cost` onto
+/// every `StateVariable` via `capture_state_variable_values`, so the
+/// builder can read the live values directly without re-taking the full
+/// per-LP snapshots.
 ///
-/// Unlike the eps filtering in build_benders_cut() (which skips tiny
-/// reduced costs before the RHS adjustment), this function filters
-/// the final cut coefficients and adjusts the RHS accordingly.
-/// Intended for post-rescale cleanup where previously significant
-/// coefficients may have become negligible.
+///   rc_phys  = state_var->reduced_cost_physical(scale_objective)
+///   v̂_phys  = state_var->col_sol_physical()
+///   lowb    = objective_value_physical − Σ rc_phys · v̂_phys
+///   row[src_col] = −rc_phys,  row[alpha_col] = 1.0
 ///
-/// @param row           The cut row to filter in-place
-/// @param alpha_col     α column index (never filtered)
-/// @param eps           Absolute tolerance (coefficients with |value| < eps
-///                      are removed)
-void filter_cut_coefficients(SparseRow& row, ColIndex alpha_col, double eps);
+/// The returned row carries no `already_lp_space` flag: `add_row` on an
+/// equilibrated LP will fold `col_scales` and run per-row row-max
+/// equilibration, so the resulting row is well-conditioned without any
+/// post-hoc `rescale_benders_cut` pass.
+///
+/// @param alpha_col               α column in the source phase's LP.
+/// @param links                   State-variable linkage descriptors.
+///                                Links with a null `state_var` contribute
+///                                zero (rc_phys = v̂_phys = 0), matching
+///                                the test-fixture convention.
+/// @param objective_value_physical Target subproblem optimum in $,
+///                                i.e. `target_li.get_obj_value()`.
+/// @param scale_objective         Global objective scale (required so
+///                                `reduced_cost_physical()` can descale
+///                                the LP reduced cost to $/phys_unit).
+/// @param cut_coeff_eps           Drop state-var coefficients below this
+///                                absolute threshold (default 0 = keep all).
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    double objective_value_physical,
+    double scale_objective,
+    double cut_coeff_eps = 0.0) -> SparseRow;
 
-/// Rescale a Benders cut row when the largest state-variable coefficient
-/// exceeds @p cut_coeff_max.
+/// Physical-space Benders cut builder that reads reduced cost from an
+/// arbitrary `LinearInterface` (typically an elastic clone) and trial
+/// value from each link's back-pointer `StateVariable`.  Intended for
+/// cut paths whose rc comes from a local LP solve rather than the base
+/// forward pass — the forward-pass feasibility cut and the aperture
+/// per-aperture cut both fit this shape.
 ///
-/// All terms (coefficients, α weight, and RHS) are divided uniformly by
-/// `max_coeff / cut_coeff_max`, preserving the constraint's feasible set.
-/// The α column at @p alpha_col is included in the scaling.
+///   rc_phys  = rc_source.get_col_cost()[link.dependent_col]
+///              (`ScaledView`: `LP × scale_objective / col_scale`)
+///   v̂_phys  = link.state_var->col_sol_physical()
 ///
-/// @param row           The cut row to rescale in-place
-/// @param alpha_col     α column index (to identify it for logging)
-/// @param cut_coeff_max Maximum allowed absolute coefficient value (> 0)
-/// @return true if the row was rescaled, false if no rescaling was needed
-bool rescale_benders_cut(SparseRow& row,
-                         ColIndex alpha_col,
-                         double cut_coeff_max);
+/// `scale_objective` is not a parameter: it is embedded in the
+/// `get_col_cost()` view.  The clone must have been solved (rc and col
+/// solution available) before this call.
+[[nodiscard]] auto build_benders_cut_physical(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    const LinearInterface& rc_source,
+    double objective_value_physical,
+    double cut_coeff_eps = 0.0) -> SparseRow;
+
+/// Physical-space *feasibility* cut builder — PLP / classical-Benders
+/// convention (no α term).  Produces a pure state-coupling constraint
+///   Σ πᵢ · sᵢ ≥ Σ πᵢ · v̂ᵢ + Σ slack_iᵢ
+/// where πᵢ is the dual of the fixing equation
+/// `dep_col + sup − sdn = v̂` at the elastic clone's Phase-1 optimum,
+/// and `slack_i = x[sup_i] - x[sdn_i]` is the net slack activation
+/// (the amount the trial had to move to become feasible).  Matches
+/// `plp-agrespd.f::AgrElastici` line-for-line (`lp->getRowPrice()[row]`
+/// for the coefficient, `(b[row] + dx) * ray[i]` for the RHS term).
+///
+/// Why no α: a feasibility cut certifies "this trial point leads to
+/// downstream infeasibility" — it carries no lower-bound information
+/// on the expected future cost.  Mixing α into the cut would let the
+/// master drive α negative to "satisfy" the cut trivially (the
+/// LB-frozen-at-0 pathology).
+///
+/// @param links                   State-variable linkage descriptors.
+///                                Each link contributes its
+///                                `source_col` coefficient derived
+///                                from its paired `link_info.fixing_row`.
+/// @param link_infos              RelaxedVarInfo per link (same order
+///                                and size as @p links).  Provides
+///                                `fixing_row` for the row-dual read
+///                                and `sup_col`/`sdn_col` for the
+///                                slack-activation term in the RHS.
+/// @param rc_source               Solved elastic clone — must have
+///                                `crossover = true` so `get_row_price()`
+///                                returns a valid vertex dual.
+/// @param cut_coeff_eps           Drop state-var coefficients below
+///                                this absolute threshold (default 0).
+[[nodiscard]] auto build_feasibility_cut_physical(
+    std::span<const StateVarLink> links,
+    std::span<const RelaxedVarInfo> link_infos,
+    LinearInterface& rc_source,
+    double cut_coeff_eps,
+    int niter) -> SparseRow;
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
@@ -215,37 +381,94 @@ bool rescale_benders_cut(SparseRow& row,
 [[nodiscard]] RelaxedVarInfo relax_fixed_state_variable(
     LinearInterface& li,
     const StateVarLink& link,
-    PhaseIndex phase,
+    PhaseIndex phase_index,
     double penalty);
 
 /// Result of the elastic-filter clone–solve step.
 /// Contains the solved LP clone and per-link slack column information.
 struct ElasticSolveResult
 {
-  LinearInterface clone;  ///< Solved elastic clone
+  LinearInterface clone;  ///< Elastic clone (solved when `solved == true`)
   /// One RelaxedVarInfo per outgoing link (same order as @p links)
   std::vector<RelaxedVarInfo> link_infos {};
+  /// True when the clone reached an optimal solution and its duals /
+  /// primal values are usable for cut construction.  False when the
+  /// clone itself came back non-optimal (i.e. state-variable
+  /// relaxation alone cannot restore feasibility — infeasibility is
+  /// rooted in rows the elastic filter cannot relax).  When false,
+  /// callers should treat the clone as diagnostic-only (write it to
+  /// disk for post-mortem) and NOT read duals from it.
+  bool solved {true};
 };
 
 /// Clone the LP, apply elastic relaxation on fixed state-variable columns,
 /// and solve the clone.  The original LP is never modified.
 ///
+/// α is intentionally outside the state-variable pool this filter
+/// operates on: callers (via `collect_state_variable_links`) already
+/// exclude α from @p links, so α never receives slack variables and
+/// its bounds are left untouched in the clone.  The Chinneck Phase-1
+/// objective zeroing applies to every column including α, but with α
+/// kept at whatever bounds the source LP has (pinned at 0 by
+/// bootstrap or freed by a prior optimality cut), the clone's solve
+/// measures the true feasibility gap on the forward state variables
+/// without α absorbing it.
+///
 /// @param li                The LP to clone (not modified)
 /// @param links             Outgoing state-variable links from the previous
-/// phase
+/// phase.  Must not contain the α column — `collect_state_variable_links`
+/// skips α by class name.
 /// @param penalty           Elastic penalty coefficient for slack variables
 /// @param opts              Solver options for the clone solve
-/// @param forward_col_sol   Optional warm-start column solution for the clone.
-/// @param forward_row_dual  Optional warm-start row duals for the clone.
 /// @return Solved elastic clone and per-link slack info, or nullopt if
 ///         no columns were fixed or the clone solve failed.
-[[nodiscard]] auto elastic_filter_solve(
-    const LinearInterface& li,
-    std::span<const StateVarLink> links,
-    double penalty,
-    const SolverOptions& opts,
-    std::span<const double> forward_col_sol = {},
-    std::span<const double> forward_row_dual = {})
+[[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
+                                        std::span<const StateVarLink> links,
+                                        double penalty,
+                                        const SolverOptions& opts)
+    -> std::optional<ElasticSolveResult>;
+
+/// Chinneck-style elastic IIS filter.
+///
+/// Single-pass deletion-filter approximation of Chinneck's elastic algorithm
+/// (2008, *Feasibility and Infeasibility in Optimization*, §3.5).
+///
+/// Procedure:
+/// 1. Clone the LP and relax every fixed state-variable bound with two
+///    penalised slack variables (same as `elastic_filter_solve()`).
+/// 2. Solve the relaxed clone with @p penalty.  If it is itself infeasible
+///    or some other solver error occurs, return nullopt.
+/// 3. Inspect the slack values:
+///      - links whose `sup` and `sdn` are both ≤ @p slack_tol are NOT
+///        contributing to the infeasibility ("non-essential")
+///      - links with at least one slack > @p slack_tol form the IIS
+///        candidate set
+/// 4. Re-fix the non-essential links to their original `trial_value`
+///    (drop their slack columns out of consideration by zeroing the
+///    upper bound on `sup`/`sdn`) and re-solve.  If the re-solve stays
+///    feasible at the same penalty cost, the IIS is confirmed.  If it
+///    becomes infeasible (one of the supposedly non-essential links was
+///    actually essential due to penalty competition), undo the re-fix
+///    and fall back to the conservative full-elastic IIS.
+///
+/// The returned `ElasticSolveResult` carries `link_infos` whose `sup_col`
+/// / `sdn_col` are reset to `unknown_index` for non-essential links, so
+/// downstream `build_multi_cuts()` skips them and emits cuts only on the
+/// IIS subset.
+///
+/// @param li        The LP to clone (not modified)
+/// @param links     Outgoing state-variable links from the previous phase
+/// @param penalty   Elastic penalty coefficient (smaller than for
+///                  `elastic_filter_solve` is fine — IIS uses *which*
+///                  slack is non-zero, not by how much it dominates cost)
+/// @param opts      Solver options
+/// @param slack_tol Tolerance for considering a slack "active" (default 1e-6)
+/// @return Solved IIS-filtered clone and link-infos, or nullopt on failure.
+[[nodiscard]] auto chinneck_filter_solve(const LinearInterface& li,
+                                         std::span<const StateVarLink> links,
+                                         double penalty,
+                                         const SolverOptions& opts,
+                                         double slack_tol = 1e-6)
     -> std::optional<ElasticSolveResult>;
 
 /// @brief Result structure for feasibility cut building
@@ -265,7 +488,6 @@ struct FeasibilityCutResult
 /// @param links       Outgoing state-variable links from the source phase
 /// @param penalty     Elastic penalty coefficient
 /// @param opts        Solver options
-/// @param name        Name for the resulting cut row
 /// @return A feasibility cut (SparseRow) and the ElasticSolveResult,
 ///         or nullopt if the elastic solve fails.
 [[nodiscard]] auto build_feasibility_cut(const LinearInterface& li,
@@ -273,34 +495,76 @@ struct FeasibilityCutResult
                                          std::span<const StateVarLink> links,
                                          double penalty,
                                          const SolverOptions& opts,
-                                         std::string_view name,
-                                         double scale_alpha = 1.0)
+                                         double scale_alpha = 1.0,
+                                         double scale_objective = 1.0)
     -> std::optional<FeasibilityCutResult>;
 
 /// Build per-slack bound-constraint cuts from a solved elastic clone.
 ///
 /// For each outgoing link whose slack was activated (non-zero) in the
-/// elastic-clone solution, this function generates one or two bound-cut
-/// rows on the source column:
-///   - sup > ε  ⟹  source_col ≤ dep_val   (upper-bound cut)
-///   - sdn > ε  ⟹  source_col ≥ dep_val   (lower-bound cut)
+/// elastic-clone solution, this function generates one feasibility cut
+/// on the source column:
 ///
-/// @param elastic  The solved elastic clone and per-link slack info
-/// @param links    Outgoing state-variable links (same order as elastic)
-/// @param name_prefix  Prefix for generated cut names
-/// @param slack_tol  Minimum slack magnitude to consider "active"
-/// @return Vector of bound-constraint cuts (may be empty)
-[[nodiscard]] auto build_multi_cuts(const ElasticSolveResult& elastic,
+///   π · source_col ≥ π · clamp(v̂ + dx · scale, source_low, source_upp)
+///
+///   π   = −row_dual[fixing_row]   (signed sensitivity dual at the
+///                                   elastic clone's optimum)
+///   dx  = sdn_val − sup_val       (net slack activation on the
+///                                   fixing row ``dep + sup − sdn = v̂``)
+///
+/// Per-link drops (mirroring PLP `osicallsc.cpp::osi_lp_get_feasible_cut`):
+///   1. ``|π| < cut_coeff_eps``                       — drop tiny duals.
+///   2. ``|π · dx| < 1e-9 × (|π · v̂| + 1e-8)``        — drop sub-tolerance
+///      slack activations (the ``dx``-relative low-activation filter).
+///
+/// Whole-family drop (gtopt-specific guard, no PLP equivalent):
+///   - When EVERY surviving per-link cut clamps at ``source_upp``
+///     (top 10 % of ``[source_low, source_upp]``), the family is a
+///     "every state floored at emax" degenerate cut.  Master retries
+///     installing such a family always cascade-fail (the master cannot
+///     reach emax on every reservoir simultaneously in one phase).
+///     The function CLEARS its return vector in that case so the
+///     caller sees "no cut produced" and declares infeasibility
+///     directly, skipping the wasted retry chain (juan/gtopt_iplp:
+///     28 backtracks → 0).  A WARN is emitted naming the reservoirs.
+///
+/// @param elastic        Solved elastic clone + per-link slack info
+///                       (non-const because reading dual prices may
+///                       trigger ``ensure_duals()`` on the backend).
+///                       Per-direction slack costs
+///                       (``slack_cost_sup``/``slack_cost_sdn``)
+///                       are read directly from the clone's slack
+///                       column costs via ``get_col_cost_raw()``,
+///                       which transparently picks up the asymmetric
+///                       bias applied at relaxation time and any
+///                       future per-link variation.  No external
+///                       penalty parameter needs to be plumbed
+///                       through — the elastic clone is the single
+///                       source of truth for slack pricing.
+/// @param links          Outgoing state-variable links (same order
+///                       as ``elastic.link_infos``).
+/// @param context        LP context for the generated cut rows.
+/// @param cut_coeff_eps  Threshold for the ``|π| < ε`` drop above
+///                       (default 1e-8 in production, override for
+///                       tests).
+/// @param niter          Iteration counter; controls the outward
+///                       FactEPS perturbation (``1e-10 × niter``).
+/// @return Vector of feasibility cuts (one per surviving link), OR
+///         an empty vector when the whole-family degeneracy guard
+///         fires.  Caller (``sddp_forward_pass.cpp``) treats empty
+///         as "no feasibility cut produced" and flags the scene
+///         infeasible.
+[[nodiscard]] auto build_multi_cuts(ElasticSolveResult& elastic,
                                     std::span<const StateVarLink> links,
-                                    std::string_view name_prefix,
-                                    double slack_tol = 1e-6)
-    -> std::vector<SparseRow>;
+                                    const LpContext& context,
+                                    double cut_coeff_eps,
+                                    int niter) -> std::vector<SparseRow>;
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 
 /// Compute an average cut from a collection of cuts (for Expected sharing)
-[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts,
-                                       std::string_view name) -> SparseRow;
+[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts)
+    -> SparseRow;
 
 /// Compute a probability-weighted average cut from a collection of cuts.
 ///
@@ -310,11 +574,9 @@ struct FeasibilityCutResult
 ///
 /// @param cuts    Collection of Benders optimality cuts (SparseRow)
 /// @param weights Per-cut probability weights (must be same size as cuts)
-/// @param name    Name for the resulting averaged cut row
 [[nodiscard]] auto weighted_average_benders_cut(
-    const std::vector<SparseRow>& cuts,
-    const std::vector<double>& weights,
-    std::string_view name) -> SparseRow;
+    const std::vector<SparseRow>& cuts, const std::vector<double>& weights)
+    -> SparseRow;
 
 /// Accumulate (sum) all cuts into a single combined cut.
 ///
@@ -329,9 +591,8 @@ struct FeasibilityCutResult
 ///   uppb = DblMax (unchanged)
 ///
 /// @param cuts  Collection of Benders optimality cuts (SparseRow)
-/// @param name  Name for the resulting accumulated cut row
-[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts,
-                                           std::string_view name) -> SparseRow;
+[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts)
+    -> SparseRow;
 
 // ─── BendersCut class ────────────────────────────────────────────────────────
 
@@ -415,13 +676,10 @@ public:
   ///
   /// @return Solved elastic clone and per-link slack info, or nullopt if no
   ///         columns were fixed or the clone solve failed.
-  [[nodiscard]] auto elastic_filter_solve(
-      const LinearInterface& li,
-      std::span<const StateVarLink> links,
-      double penalty,
-      const SolverOptions& opts,
-      std::span<const double> forward_col_sol = {},
-      std::span<const double> forward_row_dual = {})
+  [[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
+                                          std::span<const StateVarLink> links,
+                                          double penalty,
+                                          const SolverOptions& opts)
       -> std::optional<ElasticSolveResult>;
 
   /// Build a Benders feasibility cut using this object's elastic_filter_solve.
@@ -435,8 +693,8 @@ public:
                                            std::span<const StateVarLink> links,
                                            double penalty,
                                            const SolverOptions& opts,
-                                           std::string_view name,
-                                           double scale_alpha = 1.0)
+                                           double scale_alpha = 1.0,
+                                           double scale_objective = 1.0)
       -> std::optional<FeasibilityCutResult>;
 
 private:

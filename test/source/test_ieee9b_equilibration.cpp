@@ -23,7 +23,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 
@@ -34,52 +34,228 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 // ── IEEE 9-bus base JSON (no losses, single 1-h block) ──────────────────────
 // clang-format off
-constexpr std::string_view ieee9b_eq_json = R"({
-  "options": {
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {"names_level": 1},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "use_kirchhoff": true
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array": [{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}],
-    "scenario_array": [{"uid": 1, "probability_factor": 1}]
-  },
-  "system": {
-    "name": "ieee_9b_eq",
-    "bus_array": [
-      {"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"}, {"uid": 3, "name": "b3"},
-      {"uid": 4, "name": "b4"}, {"uid": 5, "name": "b5"}, {"uid": 6, "name": "b6"},
-      {"uid": 7, "name": "b7"}, {"uid": 8, "name": "b8"}, {"uid": 9, "name": "b9"}
-    ],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": "b1", "pmin": 10, "pmax": 250, "gcost": 20, "capacity": 250},
-      {"uid": 2, "name": "g2", "bus": "b2", "pmin": 10, "pmax": 300, "gcost": 35, "capacity": 300},
-      {"uid": 3, "name": "g3", "bus": "b3", "pmin":  0, "pmax": 270, "gcost": 30, "capacity": 270}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": "b5", "lmax": [[125.0]]},
-      {"uid": 2, "name": "d2", "bus": "b7", "lmax": [[100.0]]},
-      {"uid": 3, "name": "d3", "bus": "b9", "lmax":  [[90.0]]}
-    ],
-    "line_array": [
-      {"uid": 1, "name": "l1_4", "bus_a": "b1", "bus_b": "b4", "reactance": 0.0576,  "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 2, "name": "l2_7", "bus_a": "b2", "bus_b": "b7", "reactance": 0.0625,  "tmax_ab": 300, "tmax_ba": 300},
-      {"uid": 3, "name": "l3_9", "bus_a": "b3", "bus_b": "b9", "reactance": 0.0586,  "tmax_ab": 270, "tmax_ba": 270},
-      {"uid": 4, "name": "l4_5", "bus_a": "b4", "bus_b": "b5", "reactance": 0.085,   "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 5, "name": "l4_6", "bus_a": "b4", "bus_b": "b6", "reactance": 0.092,   "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 6, "name": "l5_7", "bus_a": "b5", "bus_b": "b7", "reactance": 0.161,   "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 7, "name": "l6_9", "bus_a": "b6", "bus_b": "b9", "reactance": 0.17,    "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 8, "name": "l7_8", "bus_a": "b7", "bus_b": "b8", "reactance": 0.072,   "tmax_ab": 250, "tmax_ba": 250},
-      {"uid": 9, "name": "l8_9", "bus_a": "b8", "bus_b": "b9", "reactance": 0.1008,  "tmax_ab": 250, "tmax_ba": 250}
-    ]
+constexpr std::string_view ieee9b_eq_json = R"(
+  {
+    "options": {
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {
+        "use_single_bus": false,
+        "use_kirchhoff": true,
+        "scale_objective": 1000,
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1,
+          "probability_factor": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "ieee_9b_eq",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        },
+        {
+          "uid": 2,
+          "name": "b2"
+        },
+        {
+          "uid": 3,
+          "name": "b3"
+        },
+        {
+          "uid": 4,
+          "name": "b4"
+        },
+        {
+          "uid": 5,
+          "name": "b5"
+        },
+        {
+          "uid": 6,
+          "name": "b6"
+        },
+        {
+          "uid": 7,
+          "name": "b7"
+        },
+        {
+          "uid": 8,
+          "name": "b8"
+        },
+        {
+          "uid": 9,
+          "name": "b9"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 10,
+          "pmax": 250,
+          "gcost": 20,
+          "capacity": 250
+        },
+        {
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 10,
+          "pmax": 300,
+          "gcost": 35,
+          "capacity": 300
+        },
+        {
+          "uid": 3,
+          "name": "g3",
+          "bus": "b3",
+          "pmin": 0,
+          "pmax": 270,
+          "gcost": 30,
+          "capacity": 270
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": "b5",
+          "lmax": [
+            [
+              125.0
+            ]
+          ]
+        },
+        {
+          "uid": 2,
+          "name": "d2",
+          "bus": "b7",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        },
+        {
+          "uid": 3,
+          "name": "d3",
+          "bus": "b9",
+          "lmax": [
+            [
+              90.0
+            ]
+          ]
+        }
+      ],
+      "line_array": [
+        {
+          "uid": 1,
+          "name": "l1_4",
+          "bus_a": "b1",
+          "bus_b": "b4",
+          "reactance": 0.0576,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 2,
+          "name": "l2_7",
+          "bus_a": "b2",
+          "bus_b": "b7",
+          "reactance": 0.0625,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        },
+        {
+          "uid": 3,
+          "name": "l3_9",
+          "bus_a": "b3",
+          "bus_b": "b9",
+          "reactance": 0.0586,
+          "tmax_ab": 270,
+          "tmax_ba": 270
+        },
+        {
+          "uid": 4,
+          "name": "l4_5",
+          "bus_a": "b4",
+          "bus_b": "b5",
+          "reactance": 0.085,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 5,
+          "name": "l4_6",
+          "bus_a": "b4",
+          "bus_b": "b6",
+          "reactance": 0.092,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 6,
+          "name": "l5_7",
+          "bus_a": "b5",
+          "bus_b": "b7",
+          "reactance": 0.161,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 7,
+          "name": "l6_9",
+          "bus_a": "b6",
+          "bus_b": "b9",
+          "reactance": 0.17,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 8,
+          "name": "l7_8",
+          "bus_a": "b7",
+          "bus_b": "b8",
+          "reactance": 0.072,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        },
+        {
+          "uid": 9,
+          "name": "l8_9",
+          "bus_a": "b8",
+          "bus_b": "b9",
+          "reactance": 0.1008,
+          "tmax_ab": 250,
+          "tmax_ba": 250
+        }
+      ]
+    }
   }
-})";
+)";
 // clang-format on
 
 // ── Result of one solve run ──────────────────────────────────────────────────
@@ -110,7 +286,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
 
   // Parse base planning and override equilibration_method + output_directory.
   Planning base;
-  base.merge(daw::json::from_json<Planning>(ieee9b_eq_json));
+  base.merge(parse_planning_json(ieee9b_eq_json));
   base.options.output_directory = out_dir.string();
   base.options.lp_matrix_options.equilibration_method = method;
 
@@ -127,7 +303,7 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   auto&& systems = planning_lp.systems();
   if (!systems.empty() && !systems.front().empty()) {
     const auto& li = systems.front().front().linear_interface();
-    res.obj_value = li.get_obj_value();
+    res.obj_value = li.get_obj_value_raw();
   }
 
   // Write output files.
@@ -158,10 +334,18 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   };
 
   // Read back all output CSV files.
-  res.generation = read_uid_values(out_dir / "Generator" / "generation_sol", 3);
-  res.flowp = read_uid_values(out_dir / "Line" / "flowp_sol", 9);
-  res.load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
-  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+  // CSV output is now sharded per (scene, phase); with no explicit
+  // scene/phase arrays both uids default to 0, so files are suffixed
+  // "_s0_p0".
+  res.generation =
+      read_uid_values(out_dir / "Generator" / "generation_sol_s0_p0", 3);
+  // `Line/flowp_sol` was retired by the signed-flow consolidation
+  // (`Line/flow_sol` is the unified positive-A→B / negative-B→A
+  // stream).  Read the consolidated stream — magnitude comparison
+  // across equilibration modes is invariant to the sign change.
+  res.flowp = read_uid_values(out_dir / "Line" / "flow_sol_s0_p0", 9);
+  res.load = read_uid_values(out_dir / "Demand" / "load_sol_s0_p0", 3);
+  res.balance_dual = read_uid_values(out_dir / "Bus" / "balance_dual_s0_p0", 9);
 
   return res;
 }
@@ -184,7 +368,8 @@ TEST_CASE(  // NOLINT
     REQUIRE(method.has_value());
 
     const auto out_dir = tmp_base / mode_name;
-    const auto res = solve_ieee9b_eq(*method, out_dir);
+    const auto res =
+        solve_ieee9b_eq(method.value_or(LpEquilibrationMethod::none), out_dir);
 
     CHECK(res.solve_status == 1);  // 1 scene successfully processed
     CHECK(res.obj_value > 0.0);
@@ -294,14 +479,13 @@ TEST_CASE(  // NOLINT
 
   SUBCASE("output CSV files exist")
   {
-    for (const auto* dir : {(tmp_base / "none").c_str(),
-                            (tmp_base / "row_max").c_str(),
-                            (tmp_base / "ruiz").c_str()})
-    {
-      const std::filesystem::path d(dir);
-      CHECK(std::filesystem::exists(d / "Generator" / "generation_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Line" / "flowp_sol.csv"));
-      CHECK(std::filesystem::exists(d / "Demand" / "load_sol.csv"));
+    for (const auto* mode : {"none", "row_max", "ruiz"}) {
+      CAPTURE(mode);
+      const auto d = tmp_base / mode;
+      CHECK(std::filesystem::exists(d / "Generator"
+                                    / "generation_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Line" / "flow_sol_s0_p0.csv"));
+      CHECK(std::filesystem::exists(d / "Demand" / "load_sol_s0_p0.csv"));
       CHECK(std::filesystem::exists(d / "solution.csv"));
     }
   }

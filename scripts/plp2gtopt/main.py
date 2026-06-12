@@ -3,28 +3,28 @@
 
 import argparse
 import logging
-import signal
 import sys
 from pathlib import Path
 
-from gtopt_config import DEFAULT_CONFIG_PATH, load_config, save_section
+from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
+from gtopt_shared.cli_signals import (
+    install_termination_handlers,
+    signal_handler,  # noqa: F401  re-export for back-compat / tests
+)
+from gtopt_shared.state_snapshot import (
+    write_plp2gtopt_readme,
+    write_state_snapshot,
+)
 
 from .plp2gtopt import (
     convert_plp_case,
+    print_pumped_storage_template,
     print_variable_scales_template,
     validate_plp_case,
 )
 from .info_display import display_plp_info
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+__version__ = get_version()
 
 _DESCRIPTION = """\
 Convert a PLP (PLPMAX/PLPOPT) case directory to gtopt JSON format.
@@ -84,18 +84,12 @@ examples:
   # Apply a 10% annual discount rate
   plp2gtopt -i input/ -d 0.10
 
-  # Reservoir energy scaling: default uses PLP FEscala per reservoir.
-  # Use C++ auto-scale instead:
-  plp2gtopt -i input/ --rsv-scale-mode auto
-
-  # Override specific reservoirs with --rsv-energy-scale:
-  plp2gtopt -i input/ --rsv-energy-scale 'RAPEL:500,COLBUN:15000'
+  # Reservoir/battery energy scaling: gtopt auto-scales from emax by default.
+  # Override specific reservoirs:
+  plp2gtopt -i input/ --reservoir-energy-scale 'RAPEL:500,COLBUN:15000'
 
   # Override specific battery energy scales:
-  plp2gtopt -i input/ --bat-energy-scale 'BESS1:100'
-
-  # Disable auto-scaling for variable_scales output:
-  plp2gtopt -i input/ --no-auto-rsv-energy-scale --no-auto-bat-energy-scale
+  plp2gtopt -i input/ --battery-energy-scale 'BESS1:100'
 
   # Load additional variable scales from a JSON file (lowest priority):
   plp2gtopt -i input/ --variable-scales-file scales.json
@@ -140,11 +134,40 @@ def _parse_name_value_pairs(spec: str) -> dict[str, float]:
     return result
 
 
-def signal_handler(sig, _frame):
-    """Handle termination signals gracefully."""
-    signame = signal.strsignal(sig)
-    print(f"\nCaught signal {signame}. Exiting...")
-    sys.exit(0)
+DEFAULT_LIFT_LINE_CAPS_FACTOR = 2.0
+
+
+def _parse_lift_line_caps(spec: str) -> dict[str, float]:
+    """Parse a --lift-line-caps spec into ``{line_name: factor}``.
+
+    Accepts either ``L1:F1,L2:F2`` (per-line override factor) or
+    ``L1,L2`` (uses the default factor 2.0). The factor multiplies
+    ``tmax_ab`` to produce ``loss_envelope``.
+
+    Raises ``ValueError`` if a numeric factor cannot be parsed.
+    """
+    result: dict[str, float] = {}
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            name, val_str = token.split(":", maxsplit=1)
+            name = name.strip()
+            try:
+                result[name] = float(val_str.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid factor in --lift-line-caps token '{token}': {exc}"
+                ) from exc
+        else:
+            result[token] = DEFAULT_LIFT_LINE_CAPS_FACTOR
+    return result
+
+
+# ``signal_handler`` is re-exported from gtopt_shared.cli_signals at the
+# top of this module.  Existing imports from ``plp2gtopt.main`` continue
+# to work.
 
 
 _CONF_SECTION = "plp2gtopt"
@@ -165,6 +188,7 @@ def make_parser() -> argparse.ArgumentParser:
         add_io_arguments,
         add_model_arguments,
         add_reservoir_battery_arguments,
+        add_ror_arguments,
         add_scenario_arguments,
         add_solver_arguments,
         add_stage_arguments,
@@ -185,25 +209,67 @@ def make_parser() -> argparse.ArgumentParser:
     add_solver_arguments(parser, conf)
     add_model_arguments(parser, conf)
     add_reservoir_battery_arguments(parser, conf)
+    add_ror_arguments(parser, conf)
     add_tech_arguments(parser, conf)
-    add_general_arguments(parser, conf, version=__version__)
+    add_general_arguments(parser, conf)
+
+    parser.add_argument(
+        "--from-state",
+        dest="from_state",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "load every parsed argument from a prior run's "
+            "``plp2gtopt_state.json`` snapshot (written automatically to "
+            "every output directory).  Reproduces the original invocation "
+            "byte-for-byte unless overriden by an explicit flag on the "
+            "current command line (e.g. ``--from-state foo/plp2gtopt_state.json "
+            "-o new_output_dir`` reuses every option except output dir).  "
+            "See <output_dir>/README.md for the snapshot format."
+        ),
+    )
 
     return parser
 
 
 # Keys and hard-coded defaults for the [plp2gtopt] config section.
+#
+# IMPORTANT: do NOT add ``demand_fail_cost`` here.  When unset (``None``)
+# the parser auto-derives the value from the average first-tier FALLA
+# gcost in plpcnfce.dat.  Writing ``demand_fail_cost = 0.0`` to the conf
+# disables that auto-detection silently — see _parsers.py:add_model_arguments.
 _SECTION_DEFAULTS: dict[str, str] = {
     "compression": "zstd",
-    "compression_level": "1",
+    # "zstd" matches the gtopt C++ default
+    # (`PlanningOptionsLP::default_output_compression`) and is a single
+    # unambiguous codec every downstream reader (pandas, polars, duckdb,
+    # Power BI / Power Query) opens natively — unlike "lz4", whose
+    # deprecated Hadoop-framed variant is frequently unreadable.  We do
+    # NOT set a default compression_level here (0 / omitted = the codec's
+    # own default); callers who want a higher zstd archival level must
+    # pass `--compression-level 1..22` explicitly.
     "output_format": "parquet",
     "input_format": "parquet",
-    "solver_type": "sddp",
-    "demand_fail_cost": "1000.0",
+    # On-disk layout for the per-element field Parquet files.  "long"
+    # (default) emits the tidy `[<index cols>, uid, value]` shape — read
+    # natively by gtopt (auto-sniffed) and ideal for Power BI / Power
+    # Query, which prefer long tables and need no unpivot step.  "wide"
+    # restores the legacy one-column-per-uid (`uid:N`) shape.
+    "layout": "long",
+    # `cascade` is the production-grade default since 2026-05-15.  See
+    # ``_parsers.py``'s ``--method`` default for the rationale.
+    "method": "cascade",
     "state_fail_cost": "1000.0",
-    "scale_objective": "10000000.0",
-    "scale_theta": "0.0001",
+    # Default 1.0 (was 1000): with the production-default `cascade` method,
+    # scale_objective=1 keeps the LP basis well-conditioned (it is the dominant
+    # kappa contributor once Benders cuts accumulate) and matches the
+    # method-aware C++ default for sddp/cascade.  The writer still remaps a
+    # legacy explicit 1000 to 1.0 for sddp/cascade and preserves 1000 for
+    # explicit monolithic requests.
+    "scale_objective": "1.0",
     "discount_rate": "0.0",
-    "rsv_scale_mode": "auto",
+    "reservoir_scale_mode": "auto",
 }
 
 
@@ -243,8 +309,87 @@ def _infer_output_dir(input_dir: Path, explicit_output: Path) -> Path:
     return explicit_output
 
 
+def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
+    """Apply --plp-legacy defaults in place, honouring explicit flags.
+
+    The bundle substitutes defaults so that gtopt output is as close to
+    PLP as possible, at the cost of LP quality / size.  Explicit user
+    flags take precedence — we only override values that the user
+    did not set on the command line.
+
+    Bundle table (see --plp-legacy help):
+
+      | Option           | Default (normal)       | --plp-legacy       |
+      |------------------|------------------------|--------------------|
+      | method           | sddp                   | sddp (=)           |
+      | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
+      | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
+      | pasada_mode      | auto                   | flow-turbine       |
+      | use_kirchhoff    | true                   | true (=)           |
+      | discount_rate    | 0.0                    | 0.0 (=)            |
+
+    `=` marks no-op bundle entries: gtopt's normal default already
+    matches PLP so no change is needed.  `reservoir_scale_mode` is
+    intentionally left alone (user preference).
+
+    Why pasada_mode = flow-turbine under --plp-legacy: PLP models every
+    `pasada` (run-of-river) central as an independent turbine driven by
+    its own afluent — there is no per-RoR junction / waterway / reservoir
+    chain because `pasada` centrals have no upstream/downstream hydro
+    relations in PLP.  The `auto` default runs name-based tech detection
+    and may divert some pasadas to generator-profile mode (solar/wind
+    look-alikes); under PLP-compat we always want flow+turbine so the
+    LP topology matches PLP exactly.
+    """
+    if not args.plp_legacy:
+        return
+
+    # argparse stores the final parsed value regardless of whether it
+    # came from the CLI or the default.  Inspect sys.argv directly to
+    # tell "user typed --method" apart from "default was sddp".
+    explicit_flags = {a.split("=", 1)[0] for a in sys.argv[1:]}
+    explicit_method = {"-M", "--method"} & explicit_flags
+    explicit_losses = {"--line-losses-mode"} & explicit_flags
+    explicit_use_losses = {"-L", "--use-line-losses"} & explicit_flags
+    explicit_pasada = {"--pasada-mode", "--pasada-hydro", "--no-pasada-hydro"} & (
+        explicit_flags
+    )
+
+    applied: list[str] = []
+    if not explicit_method and args.method != "sddp":
+        args.method = "sddp"
+        applied.append("method=sddp")
+    if not explicit_losses and args.line_losses_mode != "piecewise_direct":
+        args.line_losses_mode = "piecewise_direct"
+        applied.append("line_losses_mode=piecewise_direct")
+    if not explicit_use_losses and args.use_line_losses is None:
+        # Force explicit `true` in the JSON so the PLP-compat intent is
+        # self-documenting, even though the gtopt default is also true.
+        args.use_line_losses = True
+        applied.append("use_line_losses=true")
+    if not explicit_pasada and args.pasada_mode != "flow-turbine":
+        # PLP has no tech detection — every pasada is a hydro turbine
+        # driven by its afluent, regardless of the central's name.
+        args.pasada_mode = "flow-turbine"
+        applied.append("pasada_mode=flow-turbine")
+
+    # PLP itself uses soft volume bounds (per-stage rebalse-cost slack on
+    # vmin / vfin), so --plp-legacy ensures `soft_storage_bounds` is on.
+    explicit_ssb = {
+        "--soft-storage-bounds",
+        "--no-soft-storage-bounds",
+    } & explicit_flags
+    if not explicit_ssb and not args.soft_storage_bounds:
+        args.soft_storage_bounds = True
+        applied.append("soft_storage_bounds=true")
+
+    if applied:
+        logging.info("--plp-legacy: applying %s", ", ".join(applied))
+
+
 def build_options(args: argparse.Namespace) -> dict:
     """Convert parsed CLI arguments to a conversion options dict."""
+    _apply_plp_legacy_bundle(args)
     input_dir = _resolve_input_dir(args)
 
     # When -o is not given, infer the output dir:
@@ -267,6 +412,7 @@ def build_options(args: argparse.Namespace) -> dict:
         "last_time": args.last_time,
         "compression": args.compression,
         "compression_level": args.compression_level,
+        "layout": getattr(args, "layout", "long"),
         "output_format": args.output_format,
         "input_format": input_format,
         "hydrologies": "first" if args.first_scenario else args.hydrologies,
@@ -279,25 +425,120 @@ def build_options(args: argparse.Namespace) -> dict:
         "excel_file": args.excel_file,
         "name": name,
         "sys_version": args.sys_version,
-        "solver_type": args.solver_type,
+        "method": args.method,
+        # Forwarded to ``options.write_out`` (see
+        # ``gtopt_writer.write_planning_options``).  ``getattr`` with the
+        # canonical default keeps in-tree fixtures that build a minimal
+        # Namespace (test_main_coverage.py) working without rewiring.
+        "write_out": getattr(args, "write_out", None),
+        # cascade-reduced runtime knobs.  ``getattr`` with defaults makes
+        # this resilient to test fixtures that build a minimal Namespace
+        # by hand (e.g. test_main_coverage.py) — the actual CLI parser
+        # always populates every attr from add_solver_arguments.
+        "cascade_reduced_opts": {
+            "l1_reduce_ratio": getattr(args, "cascade_l1_reduce_ratio", 6),
+            "l2_reduce_ratio": getattr(args, "cascade_l2_reduce_ratio", 3),
+            "l1_min_buses": getattr(args, "cascade_l1_min_buses", 4),
+            "l2_min_buses": getattr(args, "cascade_l2_min_buses", 8),
+            "l1_uplift_pct": getattr(args, "cascade_l1_uplift_pct", 3.0),
+            "l2_uplift_pct": getattr(args, "cascade_l2_uplift_pct", 3.0),
+            "l1_uplift_collision": getattr(
+                args, "cascade_l1_uplift_collision", "replace"
+            ),
+            "l2_uplift_collision": getattr(
+                args, "cascade_l2_uplift_collision", "replace"
+            ),
+            "l1_aperture_ratio": getattr(args, "cascade_l1_aperture_ratio", 4),
+            "l2_aperture_ratio": getattr(args, "cascade_l2_aperture_ratio", 2),
+            "l1_distance": getattr(
+                args, "cascade_l1_distance", "reactance-shortest-path"
+            ),
+            "l2_distance": getattr(args, "cascade_l2_distance", "ptdf"),
+            "disable_l1": getattr(args, "cascade_disable_l1", False),
+            "disable_l2": getattr(args, "cascade_disable_l2", False),
+        },
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
+        # PLP-faithful soft volume bounds: routes per-reservoir efin
+        # through the C++ ``Reservoir.efin_cost`` slack and per-stage
+        # maintenance emin through the soft_emin / soft_emin_cost slack
+        # mechanism instead of hard constraints.  See add_model_arguments
+        # in _parsers.py for cost-source priority.  Default True;
+        # ``--plp-legacy`` also enforces True.
+        "soft_storage_bounds": args.soft_storage_bounds,
+        # Cap on the spillage-cost source used for ``efin_cost`` /
+        # ``soft_emin_cost`` when ``--soft-storage-bounds`` is on.
+        # Caps the per-reservoir vrebemb / global CVert before it
+        # becomes a slack price; 0 disables the cap.
+        "vert_cost_cap": args.vert_cost_cap,
+        # ``--drop-spillway-waterway`` (default False, opt-in): when on,
+        # suppress every ``_ver`` waterway and rely on junction-level
+        # drain to shed surplus water.  See JunctionWriter._process_central.
+        "drop_spillway_waterway": args.drop_spillway_waterway,
+        # ``--vrebemb-as-sink`` (default False, opt-in): for centrals in
+        # plpvrebemb.dat, route ``_ver`` to a synthetic ocean drain and drop
+        # ``fmax``/``fcost``.  See JunctionWriter._process_central.
+        "vrebemb_as_sink": args.vrebemb_as_sink,
+        # Plexos overlay: source of heat-rate / Fuel data to merge into
+        # the PLP-derived planning.  Resolved by _plexos_overlay.
+        "plexos_overlay": getattr(args, "plexos_overlay", None),
+        "plexos_overlay_report": getattr(args, "plexos_overlay_report", None),
+        # IPCC defaults fill-in for missing CO2 emission factors on Fuel
+        # elements (after the PLEXOS overlay).  Master switch +
+        # optional file / report overrides.  Resolved by
+        # ``gtopt_shared.emissions``.
+        "emissions": getattr(args, "emissions", False),
+        "emissions_file": getattr(args, "emissions_file", None),
+        "emissions_report": getattr(args, "emissions_report", None),
+        # ``--only-emissions`` (issue #519) implies ``--emissions``
+        # and stamps the carbon price + objective_mode = "emissions"
+        # on the planning JSON so gtopt runs the pure-emissions LP.
+        "only_emissions": getattr(args, "only_emissions", False),
+        "carbon_price": getattr(args, "carbon_price", None),
+        # Synthetic emissions ray (#520) — used by gtopt_writer when
+        # --only-emissions is set to build the boundary_cuts.csv.
+        "emissions_discount_rate": getattr(args, "emissions_discount_rate", 0.05),
+        "emissions_horizon_years": getattr(args, "emissions_horizon_years", None),
     }
     # Model-specific options nested under model_options.
     model_opts: dict = {
         "demand_fail_cost": args.demand_fail_cost,
-        "state_fail_cost": args.state_fail_cost,
+        # Renamed per §11.10 (docs/analysis/naming-conventions.md): the
+        # gtopt canonical option is `state_violation_cost`; the legacy
+        # `state_fail_cost` JSON key is still accepted via the
+        # naming-dialects registry for back-compat. CLI arg keeps the
+        # legacy `--state-fail-cost` spelling for unchanged user
+        # invocation.
+        "state_violation_cost": args.state_fail_cost,
         "scale_objective": args.scale_objective,
-        "scale_theta": args.scale_theta,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
+        # Default to the cycle-basis KVL formulation: smaller LP (no θ
+        # column per bus, one KVL row per fundamental cycle instead of
+        # one per line) and no theta-scale tuning.
+        "kirchhoff_mode": args.kirchhoff_mode,
     }
+    if args.scale_theta is not None:
+        model_opts["scale_theta"] = args.scale_theta
     if args.reserve_fail_cost is not None:
-        model_opts["reserve_fail_cost"] = args.reserve_fail_cost
+        # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
+        # legacy `reserve_fail_cost` JSON key still accepted via the
+        # naming-dialects registry.  CLI arg keeps the legacy spelling.
+        model_opts["reserve_shortage_cost"] = args.reserve_fail_cost
     if args.use_line_losses is not None:
         model_opts["use_line_losses"] = args.use_line_losses
+    if args.line_losses_mode is not None:
+        model_opts["line_losses_mode"] = args.line_losses_mode
+    if getattr(args, "loss_cost_eps", None) is not None:
+        model_opts["loss_cost_eps"] = args.loss_cost_eps
     opts["model_options"] = model_opts
+
+    if getattr(args, "aperture_chunk_size", None) is not None:
+        sddp_opts = opts.setdefault("sddp_options", {})
+        sddp_opts["aperture_chunk_size"] = args.aperture_chunk_size
+    if getattr(args, "lift_line_caps", None):
+        opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 
     if args.cut_sharing_mode is not None:
         opts["cut_sharing_mode"] = args.cut_sharing_mode
@@ -307,24 +548,69 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["boundary_max_iterations"] = args.boundary_max_iterations
     if args.no_boundary_cuts:
         opts["no_boundary_cuts"] = True
-    if args.hot_start_cuts:
-        opts["hot_start_cuts"] = True
+        # Keep the gtopt JSON consistent with the missing CSV: an
+        # explicit user-set boundary_cuts_mode wins; otherwise force
+        # `noload` so the solver doesn't try to load a file we never
+        # wrote.
+        opts.setdefault("boundary_cuts_mode", "noload")
+    # ``--hot-start-cuts`` was retired in 2026-05 alongside
+    # ``write_hot_start_cuts_csv``; internal hot-start cuts now travel
+    # via the typed Parquet path (``cuts_input_file``).
+    if args.alias_file is not None:
+        opts["alias_file"] = args.alias_file
     if args.stationary_tol is not None:
         opts["stationary_tol"] = args.stationary_tol
     if args.stationary_window is not None:
         opts["stationary_window"] = args.stationary_window
-    opts["rsv_scale_mode"] = args.rsv_scale_mode
-    if args.rsv_energy_scale is not None:
-        opts["rsv_energy_scale"] = _parse_name_value_pairs(args.rsv_energy_scale)
-    opts["auto_rsv_energy_scale"] = args.auto_rsv_energy_scale
-    if args.bat_energy_scale is not None:
-        opts["bat_energy_scale"] = _parse_name_value_pairs(args.bat_energy_scale)
-    opts["auto_bat_energy_scale"] = args.auto_bat_energy_scale
+    # `getattr` defensively — `test_main_coverage` builds Namespaces by
+    # hand and may not declare these attrs.  Defaults flow through the
+    # writer-side fallback (gtopt_writer.process_options).
+    if getattr(args, "min_iterations", None) is not None:
+        opts["min_iterations"] = args.min_iterations
+    if getattr(args, "convergence_confidence", None) is not None:
+        opts["convergence_confidence"] = args.convergence_confidence
+    if getattr(args, "stationary_gap_ceiling", None) is not None:
+        opts["stationary_gap_ceiling"] = args.stationary_gap_ceiling
+    opts["reservoir_scale_mode"] = args.reservoir_scale_mode
+    if args.reservoir_energy_scale is not None:
+        opts["reservoir_energy_scale"] = _parse_name_value_pairs(
+            args.reservoir_energy_scale
+        )
+    opts["auto_reservoir_energy_scale"] = args.auto_reservoir_energy_scale
+    if args.battery_energy_scale is not None:
+        opts["battery_energy_scale"] = _parse_name_value_pairs(
+            args.battery_energy_scale
+        )
+    opts["auto_battery_energy_scale"] = args.auto_battery_energy_scale
     if args.variable_scales_file is not None:
         opts["variable_scales_file"] = args.variable_scales_file
     opts["soft_emin_cost"] = args.soft_emin_cost
     opts["embed_reservoir_constraints"] = args.embed_reservoir_constraints
-    opts["emit_water_rights"] = args.emit_water_rights
+    opts["plp_legacy"] = args.plp_legacy
+    # Auto water-shortfall pricing (see plp2gtopt._water_value).
+    opts["auto_water_fail_cost"] = getattr(args, "auto_water_fail_cost", False)
+    opts["water_fail_cost"] = getattr(args, "water_fail_cost", None)
+    if getattr(args, "disable_discharge_limit_for", None):
+        opts["disable_discharge_limit_for"] = args.disable_discharge_limit_for
+    # ``--pmin-as-flowright`` may be:
+    #   - absent (None): feature disabled
+    #   - flag without value (""): use bundled default CSV
+    #   - a CSV path on disk: use that whitelist
+    #   - a comma-separated list of names: use those names
+    if getattr(args, "pmin_as_flowright", None) is not None:
+        opts["pmin_as_flowright"] = args.pmin_as_flowright
+    if getattr(args, "flow_right_fail_cost", None) is not None:
+        opts["flow_right_fail_cost"] = args.flow_right_fail_cost
+    opts["expand_water_rights"] = args.expand_water_rights
+    opts["expand_lng"] = args.expand_lng
+    opts["expand_ror"] = args.expand_ror
+    ps_files = getattr(args, "pumped_storage_files", None)
+    if ps_files:
+        opts["pumped_storage_files"] = [Path(p) for p in ps_files]
+    if args.ror_as_reservoirs is not None:
+        opts["ror_as_reservoirs"] = args.ror_as_reservoirs
+    if args.ror_as_reservoirs_file is not None:
+        opts["ror_as_reservoirs_file"] = args.ror_as_reservoirs_file
     opts["run_check"] = args.run_check
     # Technology detection
     opts["auto_detect_tech"] = args.auto_detect_tech
@@ -343,13 +629,35 @@ def build_options(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse arguments and initiate conversion."""
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    install_termination_handlers()
 
     no_args = len(sys.argv) == 1
 
     parser = make_parser()
     args = parser.parse_args(argv)
+
+    # ``--from-state PATH`` reload: rebuild args from a prior snapshot
+    # so the current invocation reproduces the original byte-for-byte
+    # (modulo any explicit overrides on the current CLI line).  The
+    # snapshot file is written at the END of every plp2gtopt run to
+    # ``<output_dir>/plp2gtopt_state.json`` — see the per-output
+    # ``README.md`` for the format.
+    if getattr(args, "from_state", None) is not None:
+        from gtopt_shared.state_snapshot import (  # noqa: PLC0415
+            apply_state_to_args,
+            load_state_snapshot,
+        )
+
+        try:
+            payload = load_state_snapshot(Path(args.from_state))
+        except (FileNotFoundError, ValueError) as exc:
+            parser.error(f"--from-state: {exc}")
+        else:
+            args = apply_state_to_args(
+                parser,
+                payload["args"],
+                list(argv) if argv is not None else sys.argv[1:],
+            )
 
     if args.init_config:
         _init_config()
@@ -413,8 +721,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.variable_scales_template:
         sys.exit(print_variable_scales_template(build_options(args)))
 
+    if getattr(args, "pumped_storage_template", False):
+        sys.exit(print_pumped_storage_template())
+
+    # Resolve options once so the snapshot + the converter share the
+    # exact same parsed-options dict (incl. resolved output_dir).
+    _opts_for_snapshot = build_options(args)
     try:
-        convert_plp_case(build_options(args))
+        critical_count = convert_plp_case(_opts_for_snapshot)
     except (RuntimeError, FileNotFoundError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         if no_args:
@@ -424,6 +738,38 @@ def main(argv: list[str] | None = None) -> None:
                 "or 'plp2gtopt --info <input_dir>' to inspect a case.",
                 file=sys.stderr,
             )
+        sys.exit(1)
+
+    # Post-conversion state snapshot + README.  Written AFTER
+    # ``convert_plp_case`` because the converter atomically replaces
+    # the entire output directory via temp-dir + rename, which would
+    # wipe any pre-conversion writes.  Best-effort — snapshot failure
+    # must not turn a successful conversion into an error.  See
+    # ``gtopt_shared.state_snapshot`` for the file format +
+    # reproducibility contract.
+    try:
+        _snapshot_out_dir = Path(_opts_for_snapshot["output_dir"])
+        write_state_snapshot(
+            output_dir=_snapshot_out_dir,
+            tool_name="plp2gtopt",
+            args=args,
+            tool_version=__version__,
+            extra=_opts_for_snapshot,
+        )
+        write_plp2gtopt_readme(_snapshot_out_dir)
+    except (OSError, KeyError, ValueError) as exc:
+        print(f"warning: failed to write state snapshot: {exc}", file=sys.stderr)
+
+    # A structural bug in the generated planning (duplicate entity names,
+    # missing references, etc.) surfaces as a CRITICAL finding from
+    # gtopt_check_json.  Exit nonzero so CI and shell callers notice —
+    # a silent success on a broken conversion is worse than a hard error.
+    if critical_count > 0:
+        print(
+            f"error: conversion completed with {critical_count} CRITICAL "
+            f"finding(s) — fix the underlying issue before using the output.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
 

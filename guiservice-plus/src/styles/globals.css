@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------
+ * Design tokens — CSS custom properties for shadcn/ui
+ * Light and dark modes are switched via the `class` strategy.
+ * ------------------------------------------------------------------ */
+
+@layer base {
+  :root {
+    --background: 210 20% 96%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 217 91% 45%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 32% 91%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 32% 91%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 214 32% 91%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 217 91% 45%;
+    --radius: 0.75rem;
+    --sidebar: 222 47% 11%;
+    --sidebar-foreground: 213 27% 84%;
+    --sidebar-accent: 217 91% 45%;
+  }
+
+  .dark {
+    --background: 222 47% 9%;
+    --foreground: 213 27% 94%;
+    --card: 222 47% 12%;
+    --card-foreground: 213 27% 94%;
+    --popover: 222 47% 12%;
+    --popover-foreground: 213 27% 94%;
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 32% 18%;
+    --secondary-foreground: 213 27% 94%;
+    --muted: 217 32% 18%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 217 32% 18%;
+    --accent-foreground: 213 27% 94%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 32% 20%;
+    --input: 217 32% 20%;
+    --ring: 217 91% 55%;
+    --sidebar: 222 47% 7%;
+    --sidebar-foreground: 213 27% 84%;
+    --sidebar-accent: 217 91% 55%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  .kpi-number {
+    @apply font-display tabular-nums tracking-tight;
+  }
+}

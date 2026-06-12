@@ -22,7 +22,7 @@ def laja_parser():
     """Parse the 2-year PLP Laja convention file."""
     resolved = find_compressed_path(_PLP_2Y / "plplajam.dat")
     if resolved is None:
-        pytest.skip("plplajam.dat not found in support/plp_2_years")
+        pytest.skip("plplajam.dat not found in support/plp/2_years")
     parser = LajaParser(resolved)
     parser.parse()
     return parser
@@ -243,8 +243,11 @@ class TestLajaParser:
         assert usage[0] == pytest.approx(0.0)  # Apr
 
     def test_initial_rights(self, laja_config):
-        assert laja_config["ini_irr"] == pytest.approx(544)
-        assert laja_config["ini_elec"] == pytest.approx(277)
+        # Fixture support/plp/2_years/plplajam.dat.xz updated in 4a3264cc6
+        # (PLP 2-year case). The "Derechos iniciales" line in that file is
+        # `234 145 0 0`, so ini_irr=234 / ini_elec=145.
+        assert laja_config["ini_irr"] == pytest.approx(234)
+        assert laja_config["ini_elec"] == pytest.approx(145)
 
     def test_districts(self, laja_config):
         districts = laja_config["districts"]
@@ -499,16 +502,18 @@ class TestLajaWriter:
     def test_volume_rights_initial(self, laja_config):
         writer = LajaWriter(laja_config)
 
+        # Initial values come from `Derechos iniciales` line in
+        # support/plp/2_years/plplajam.dat (234 / 145 / 0 / 0).
         vol_irr = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
-        assert vol_irr["eini"] == pytest.approx(544)
+        assert vol_irr["eini"] == pytest.approx(234)
         assert vol_irr["emax"] == pytest.approx(5000)
 
         vol_elec = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_electrico"
         )
-        assert vol_elec["eini"] == pytest.approx(277)
+        assert vol_elec["eini"] == pytest.approx(145)
 
     def test_district_flow_rights(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -520,7 +525,7 @@ class TestLajaWriter:
         )
         assert zaco_1o is not None
         # fail_cost = cost_irr_ns * cost_factor = 1100 * 1.5 = 1650
-        assert zaco_1o["fail_cost"] == pytest.approx(1650)
+        assert zaco_1o["fcost"] == pytest.approx(1650)
 
     def test_to_json_dict_keys(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -589,7 +594,7 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"].startswith("RieSaltos_")
         ]
         for fr in saltos_frs:
-            assert fr["fail_cost"] == pytest.approx(220)
+            assert fr["fcost"] == pytest.approx(220)
 
     def test_district_zero_pct_zero_demand_skipped(self):
         """Categories with pct<=0 AND demand<=0 should not generate FlowRights."""
@@ -684,14 +689,14 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
         # use_value is now cost_elec_uso × monthly_cost_elec (per-stage schedule)
-        assert "use_value" in elec
+        assert "uvalue" in elec
 
     def test_usage_cost_mixed(self, laja_config):
         """Mixed rights have use_value modulated by monthly_cost_mixed."""
         writer = LajaWriter(laja_config)
         mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
         # use_value is now cost_mixed × monthly_cost_mixed (per-stage schedule)
-        assert "use_value" in mixed
+        assert "uvalue" in mixed
 
     def test_usage_cost_zero_omitted(self):
         """When usage cost is 0, use_value should not be emitted."""
@@ -703,8 +708,8 @@ class TestLajaWriter:
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
         mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
-        assert "use_value" not in elec
-        assert "use_value" not in mixed
+        assert "uvalue" not in elec
+        assert "uvalue" not in mixed
 
     def test_user_constraints_partition(self, laja_config):
         """Laja writer emits 1 user constraint for the partition balance."""
@@ -870,8 +875,8 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         pampl_name = writer.generate_pampl(tmp_path)
 
-        assert pampl_name == "laja_agreement.pampl"
-        pampl_file = tmp_path / "laja_agreement.pampl"
+        assert pampl_name == "laja.pampl"
+        pampl_file = tmp_path / "laja.pampl"
         assert pampl_file.exists()
 
     def test_generate_pampl_contains_params(self, tmp_path):
@@ -879,7 +884,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "param irr_base = 100" in content
         assert "param elec_base = 0" in content
         assert "param vol_muerto = 0.0" in content
@@ -891,7 +896,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "param irr_usage[month]" in content
         assert "param elec_usage[month]" in content
         assert "param seasonal_1o_reg[month]" in content
@@ -901,7 +906,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "Laja Irrigation Agreement" in content
         assert "Convenio del Laja" in content
         assert "TEST_CENTRAL" in content
@@ -911,7 +916,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         writer.generate_pampl(tmp_path)
 
-        content = (tmp_path / "laja_agreement.pampl").read_text()
+        content = (tmp_path / "laja.pampl").read_text()
         assert "District: D1" in content
 
     def test_to_json_dict_with_output_dir(self, tmp_path):
@@ -920,7 +925,7 @@ class TestLajaPamplGeneration:
         writer = LajaWriter(cfg)
         result = writer.to_json_dict(output_dir=tmp_path)
         assert "user_constraint_file" in result
-        assert result["user_constraint_file"] == "laja_agreement.pampl"
+        assert result["user_constraint_file"] == "laja.pampl"
         assert "user_constraint_array" not in result
 
     def test_to_json_dict_without_output_dir(self):

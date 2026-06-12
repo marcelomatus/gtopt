@@ -108,6 +108,7 @@ TEST_CASE("UserParam with zero value")
 TEST_CASE("UserParam with negative value")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const UserParam param {
       .name = "neg_param",
@@ -117,3 +118,5 @@ TEST_CASE("UserParam with negative value")
   REQUIRE(param.value.has_value());
   CHECK(param.value.value_or(0.0) == doctest::Approx(-42.5));
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -68,4 +68,25 @@ using jvtl_TBRealFieldSched = jvtl_RealFieldSched2;
 using jvtl_STBRealFieldSched = jvtl_RealFieldSched3;
 using jvtl_TRealFieldSched = jvtl_RealFieldSched1;
 
+using gtopt::OptTBIntBoolFieldSched;
+using gtopt::TBIntBoolFieldSched;
+using jvtl_IntBoolFieldSched2 =
+    json_variant_type_list<IntBool,
+                           json_link_no_name<std::vector<std::vector<IntBool>>>,
+                           FileSched>;
+using jvtl_TBIntBoolFieldSched = jvtl_IntBoolFieldSched2;
+
+// Uid-valued per-(stage, block) schedule (see field_sched.hpp).  Uid is
+// a strong-type alias for `int32_t`, so the scalar arm is JSON-distinct
+// from both the inline matrix (array) and FileSched (string).
+using gtopt::OptTBUidFieldSched;
+using gtopt::OptTBUidSched;
+using gtopt::TBUidFieldSched;
+using gtopt::TBUidSched;
+using jvtl_UidFieldSched2 =
+    json_variant_type_list<Uid,
+                           json_link_no_name<std::vector<std::vector<Uid>>>,
+                           FileSched>;
+using jvtl_TBUidFieldSched = jvtl_UidFieldSched2;
+
 }  // namespace daw::json

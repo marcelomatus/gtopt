@@ -1,0 +1,14 @@
+[
+  {
+    "name": "NORTE",
+    "uid": 1
+  },
+  {
+    "name": "CENTRO",
+    "uid": 2
+  },
+  {
+    "name": "SUR",
+    "uid": 3
+  }
+]

@@ -15,6 +15,11 @@ import sys
 import textwrap
 from pathlib import Path
 
+from gtopt_config import (
+    add_color_argument,
+    add_log_level_argument,
+    add_version_argument,
+)
 from gtopt_diagram._graph_model import FilterOptions
 from gtopt_diagram._planning_diagram import (
     _build_planning_html,
@@ -270,6 +275,38 @@ Examples:
         help="Show only names/counts; omit pmax/gcost/reactance detail labels",
     )
     red.add_argument(
+        "--draw-logical",
+        dest="draw_logical",
+        action="store_true",
+        default=False,
+        help=(
+            "Also draw logical / LP-internal entities (Commitment, "
+            "ReserveZone, UserConstraint, DecisionVariable, Emission "
+            "family, Generator/Demand profile references).  OFF by "
+            "default — they clutter the topology view with abstract "
+            "LP rows that don't help with N-1 / dispatch inspection."
+        ),
+    )
+    red.add_argument(
+        "--collapse",
+        dest="collapse",
+        metavar="PREFIXES",
+        default="",
+        help=(
+            "Comma-separated list of group prefixes the interactive "
+            "HTML auto-collapses on load: ``basin``, ``community``, "
+            "``substation``, ``plant``, ``fuel``, ``reserve_zone``.  "
+            "Default (empty) treats grouping as a layout HINT — "
+            "members render expanded but vis.js physics gathers them "
+            "spatially via the shared group color.  Pass "
+            "``--collapse all`` to bubble every tier into single "
+            "double-click-to-expand nodes, or e.g. "
+            "``--collapse basin,community`` to bubble the outer tiers "
+            "only.  Ignored for SVG / DOT / PNG output (graphviz "
+            "always renders cluster boxes)."
+        ),
+    )
+    red.add_argument(
         "--show",
         action="store_true",
         default=False,
@@ -307,29 +344,9 @@ Examples:
         metavar="UID",
         help="Block UID for resolving file-referenced values (default: 1)",
     )
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        metavar="LEVEL",
-        help=(
-            "logging verbosity: DEBUG, INFO, WARNING, ERROR, CRITICAL "
-            "(default: %(default)s)"
-        ),
-    )
-    parser.add_argument(
-        "-V",
-        "--version",
-        action="version",
-        version="%(prog)s (gtopt-scripts)",
-    )
-    parser.add_argument(
-        "--no-color",
-        action="store_true",
-        default=False,
-        help="Disable coloured output.",
-    )
+    add_version_argument(parser)
+    add_log_level_argument(parser)
+    add_color_argument(parser)
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -485,6 +502,15 @@ Examples:
         voltage_threshold=args.voltage_threshold,
         hide_isolated=args.hide_isolated,
         compact=args.compact,
+        # CLI default OFF — opt back in with ``--draw-logical``.
+        draw_logical_elements=args.draw_logical,
+        # Parse the ``--collapse`` spec.  ``all`` is a shortcut for
+        # every recognised prefix.  Empty string = layout-hint mode.
+        collapse_groups=(
+            ["basin", "community", "substation", "plant", "fuel", "reserve_zone"]
+            if args.collapse.strip().lower() == "all"
+            else [s.strip() for s in args.collapse.split(",") if s.strip()]
+        ),
     )
     # Create resolver for file-referenced field values (pmax, lmax, etc.)
     resolver = None

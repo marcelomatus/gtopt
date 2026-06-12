@@ -70,8 +70,7 @@ public:
    * @param stage_capacity Stage capacity value
    * @return true if successful
    */
-  bool add_profile_to_lp(std::string_view cname,
-                         const SystemContext& sc,
+  bool add_profile_to_lp(std::string_view full_class_name,
                          const ScenarioLP& scenario,
                          const StageLP& stage,
                          LinearProblem& lp,
@@ -96,15 +95,26 @@ public:
       const auto buid = block.uid();
       const auto block_profile = profile.at(scenario.uid(), stage.uid(), buid);
       const auto block_scost =
-          sc.block_ecost(scenario, stage, block, stage_scost);
+          CostHelper::block_ecost(scenario, stage, block, stage_scost);
 
-      auto name =
-          sc.lp_col_label(scenario, stage, block, cname, profile_name, uid());
-      const auto scol = lp.add_col({.name = name, .cost = block_scost});
+      const auto block_ctx =
+          make_block_context(scenario.uid(), stage.uid(), block.uid());
+      const auto scol = lp.add_col(SparseCol {
+          .cost = block_scost,
+          .class_name = full_class_name,
+          .variable_name = profile_name,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
       scols[buid] = scol;
 
       const auto ecol = element_cols.at(buid);
-      auto srow = SparseRow {.name = std::move(name)};
+      auto srow = SparseRow {
+          .class_name = full_class_name,
+          .constraint_name = profile_name,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      };
       srow[scol] = 1;
       srow[ecol] = 1;
 
@@ -118,7 +128,7 @@ public:
     }
 
     // Store indices for this scenario and stage
-    const auto st_key = std::pair {scenario.uid(), stage.uid()};
+    const auto st_key = std::tuple {scenario.uid(), stage.uid()};
     spillover_cols[st_key] = std::move(scols);
     spillover_rows[st_key] = std::move(srows);
     capacity_info[st_key] = CapacityInfo {
@@ -170,17 +180,19 @@ public:
    * @param stage         Stage to update.
    * @return true on success.
    */
-  [[nodiscard]] bool update_aperture(
-      LinearInterface& li,
-      const ScenarioLP& base_scenario,
-      const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
-      const StageLP& stage) const
+  template<std::invocable<StageUid, BlockUid> F>
+    requires std::same_as<std::invoke_result_t<F, StageUid, BlockUid>,
+                          std::optional<double>>
+  [[nodiscard]] bool update_aperture(LinearInterface& li,
+                                     const ScenarioLP& base_scenario,
+                                     F&& value_fn,
+                                     const StageLP& stage) const
   {
     if (!is_active(stage)) {
       return true;
     }
 
-    const auto st_key = std::pair {base_scenario.uid(), stage.uid()};
+    const auto st_key = std::tuple {base_scenario.uid(), stage.uid()};
     const auto row_it = spillover_rows.find(st_key);
     if (row_it == spillover_rows.end()) {
       return true;  // no rows registered for this (scenario, stage)

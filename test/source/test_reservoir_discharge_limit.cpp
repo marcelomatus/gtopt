@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <filesystem>
+
 #include <doctest/doctest.h>
+#include <gtopt/generator_lp.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -17,7 +20,7 @@ TEST_CASE("ReservoirDischargeLimit construction and default values")
   CHECK(ddl.name == Name {});
   CHECK_FALSE(ddl.active.has_value());
 
-  CHECK(ddl.waterway == SingleId {unknown_uid});
+  CHECK_FALSE(ddl.waterway.has_value());  // default: empty OptSingleId
   CHECK(ddl.reservoir == SingleId {unknown_uid});
   CHECK(ddl.segments.empty());
 }
@@ -41,7 +44,8 @@ TEST_CASE("ReservoirDischargeLimit attribute assignment")
   CHECK(ddl.uid == 1);
   CHECK(ddl.name == "ddl_ralco");
   CHECK(std::get<IntBool>(ddl.active.value()) == 1);
-  CHECK(std::get<Uid>(ddl.waterway) == Uid {10});
+  REQUIRE(ddl.waterway.has_value());
+  CHECK(std::get<Uid>(ddl.waterway.value()) == Uid {10});
   CHECK(std::get<Uid>(ddl.reservoir) == Uid {20});
   REQUIRE(ddl.segments.size() == 2);
   CHECK(ddl.segments[0].volume == doctest::Approx(0.0));
@@ -136,10 +140,12 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -227,18 +233,27 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -271,10 +286,12 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // With multiple blocks, qeh should be the weighted average of flows
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -390,9 +407,12 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
                   .count_block = 1,
               },
           },
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -422,10 +442,12 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // ReservoirDischargeLimit with empty segments should not add any constraints
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -503,18 +525,27 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   // Build two systems: one without DDL, one with empty-segments DDL
@@ -561,10 +592,12 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // Set a very tight discharge limit and verify the LP respects it
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -652,18 +685,27 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   // System with DDL
@@ -698,14 +740,14 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
   auto res1 = sys1.linear_interface().resolve();
   REQUIRE(res1.has_value());
   CHECK(res1.value() == 0);
-  const auto obj_ddl = sys1.linear_interface().get_obj_value();
+  const auto obj_ddl = sys1.linear_interface().get_obj_value_raw();
 
   SimulationLP sim2(simulation, options);
   SystemLP sys2(system_no, sim2);
   auto res2 = sys2.linear_interface().resolve();
   REQUIRE(res2.has_value());
   CHECK(res2.value() == 0);
-  const auto obj_no = sys2.linear_interface().get_obj_value();
+  const auto obj_no = sys2.linear_interface().get_obj_value_raw();
 
   // With the DDL limiting flow to 50 m³/s, the hydro generation is capped
   // and more expensive thermal is needed → higher objective
@@ -719,10 +761,12 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
   // Two segments: seg1 for V < 5000, seg2 for V >= 5000.
   // eini=5000 → seg2 at construction. update_lp iter=0/phase=0 uses eini →
   // same segment → no change.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -741,12 +785,14 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
       },
   };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -760,61 +806,78 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 500.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 10000.0,
-      .emin = 0.0,
-      .emax = 10000.0,
-      .eini = 5000.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
-  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
-      .uid = Uid {1},
-      .name = "ddl1",
-      .waterway = Uid {1},
-      .reservoir = Uid {1},
-      .segments =
-          {
-              {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
-              {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
-          },
-  }};
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
+                  {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
+              },
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1.0,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -830,7 +893,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -863,10 +926,12 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // eini=1000 → seg1 (volume < 5000). update_lp iter=0/phase=0 uses eini.
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -885,12 +950,14 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
       },
   };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -904,61 +971,78 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 500.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 10000.0,
-      .emin = 0.0,
-      .emax = 10000.0,
-      .eini = 1000.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 1000.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
-  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
-      .uid = Uid {1},
-      .name = "ddl1",
-      .waterway = Uid {1},
-      .reservoir = Uid {1},
-      .segments =
-          {
-              {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
-              {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
-          },
-  }};
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
+                  {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
+              },
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1.0,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -974,7 +1058,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -984,9 +1068,17 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // eini=1000 → seg1. update_lp iter=0/phase=0 uses eini → same → 0
+  // eini=1000 → seg1.  As of the always-re-issue fix (`fix(reservoir):
+  // always re-issue update_lp coefficients + efin-only DRL`),
+  // `update_lp` no longer short-circuits when the in-memory
+  // `state.current_*` matches the incoming values — under
+  // `LowMemoryMode::compress` that short-circuit silently skipped
+  // re-issuing writes after `load_flat` reverted the live LP, causing
+  // primal-infeasible backward re-solves.  Now `update_lp` always
+  // emits one `set_coeff(efin_col)` + one `set_rhs` (count = 2 here,
+  // since the efin-only formulation removed the eini coefficient).
   const auto updated = system_lp.update_lp();
-  CHECK(updated == 0);
+  CHECK(updated == 2);
 
   // Re-solve after update_lp
   auto result2 = lp.resolve();
@@ -999,10 +1091,12 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   // ReservoirDischargeLimit with 1 segment → update_lp returns 0
-  const Array<Bus> bus_array = {{
-      .uid = Uid {1},
-      .name = "b1",
-  }};
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
 
   const Array<Generator> generator_array = {
       {
@@ -1021,12 +1115,14 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
       },
   };
 
-  const Array<Demand> demand_array = {{
-      .uid = Uid {1},
-      .name = "d1",
-      .bus = Uid {1},
-      .capacity = 50.0,
-  }};
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 50.0,
+      },
+  };
 
   const Array<Junction> junction_array = {
       {
@@ -1040,61 +1136,78 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
       },
   };
 
-  const Array<Waterway> waterway_array = {{
-      .uid = Uid {1},
-      .name = "ww1",
-      .junction_a = Uid {1},
-      .junction_b = Uid {2},
-      .fmin = 0.0,
-      .fmax = 500.0,
-  }};
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
 
-  const Array<Reservoir> reservoir_array = {{
-      .uid = Uid {1},
-      .name = "rsv1",
-      .junction = Uid {1},
-      .capacity = 10000.0,
-      .emin = 0.0,
-      .emax = 10000.0,
-      .eini = 5000.0,
-      .fmin = -1000.0,
-      .fmax = 1000.0,
-      .flow_conversion_rate = 1.0,
-  }};
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
 
-  const Array<Turbine> turbine_array = {{
-      .uid = Uid {1},
-      .name = "tur1",
-      .waterway = Uid {1},
-      .generator = Uid {1},
-      .production_factor = 1.0,
-  }};
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
 
   // Only 1 segment → update_lp skips (needs < 2 segments guard)
-  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {{
-      .uid = Uid {1},
-      .name = "ddl_single",
-      .waterway = Uid {1},
-      .reservoir = Uid {1},
-      .segments =
-          {
-              {.volume = 0.0, .slope = 1e-4, .intercept = 50.0},
-          },
-  }};
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl_single",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 50.0},
+              },
+      },
+  };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1.0,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -1110,7 +1223,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options_lp(opts);
   SimulationLP simulation_lp(simulation, options_lp);
   SystemLP system_lp(system, simulation_lp);
@@ -1124,3 +1237,347 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
   const auto updated = system_lp.update_lp();
   CHECK(updated == 0);
 }
+
+TEST_CASE("ReservoirDischargeLimitLP - add_to_output via write_out")  // NOLINT
+{
+  // Exercises ReservoirDischargeLimitLP::add_to_output (per-block vol_rows)
+  // by calling system_lp.write_out() after the solve.
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 80.0},
+  };
+
+  const Array<Junction> junction_array = {
+      {.uid = Uid {1}, .name = "j1"},
+      {.uid = Uid {2}, .name = "j2", .drain = true},
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 10000.0,
+          .emin = 0.0,
+          .emax = 10000.0,
+          .eini = 5000.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl1",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 1e-4, .intercept = 10.0},
+                  {.volume = 5000.0, .slope = 2e-4, .intercept = 30.0},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array = {{.uid = Uid {1}, .duration = 1}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 1}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_ddl_out";
+  std::filesystem::create_directories(tmpdir);
+
+  const System system = {
+      .name = "DDLOutputTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+  };
+
+  PlanningOptions opts;
+  opts.output_directory = tmpdir.string();
+  const PlanningOptionsLP options(opts);
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Objective should be non-negative: demand=80 MW served by a mix of
+  // cheap hydro (gcost=5) and expensive thermal (gcost=100).
+  CHECK(lp.get_obj_value_raw() >= 0.0);
+
+  // Verify the hydro generator's generation col has a non-negative value.
+  // With production_factor=1 and the DDL limiting discharge, the hydro
+  // gen produces some but not all the demand.
+  const auto& gen_lps = system_lp.elements<GeneratorLP>();
+  REQUIRE(gen_lps.size() == 2);
+  const auto& scenario_lp = simulation_lp.scenarios().front();
+  const auto& stage_lp = simulation_lp.stages().front();
+  const auto& hydro_gen_lp = gen_lps.front();
+  const auto& hydro_gen_cols =
+      hydro_gen_lp.generation_cols_at(scenario_lp, stage_lp);
+  CHECK_FALSE(hydro_gen_cols.empty());
+  const auto sol = lp.get_col_sol();
+  for (const auto& [buid, col] : hydro_gen_cols) {
+    CHECK(sol[col] >= 0.0);
+  }
+
+  // Exercises ReservoirDischargeLimitLP::add_to_output
+  CHECK_NOTHROW(system_lp.write_out());
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(
+    "ReservoirDischargeLimitLP - block flow binds at peak cap and dvol row "
+    "dual is non-zero")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(readability-container-data-pointer)
+
+  // Derivation (single block, duration = 1 h, stage duration = 1 h):
+  //   Tight cap (slope = 0):  flow_b ≤ intercept = 50  (max-of-blocks form)
+  //   Turbine production_factor = 1 ⇒ hydro MW = flow m³/s
+  //   Demand = 200 MW, hydro gcost = 1, thermal gcost = 100 ⇒
+  //   optimum pins flow at 50, thermal supplies the remaining 150 MW.
+  //   The dvol row is thus binding with a strictly positive dual price
+  //   (marginal value of relaxing the cap ≈ gcost_thermal − gcost_hydro = 99).
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 1.0,
+          .capacity = 500.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 100.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 200.0,
+      },
+  };
+
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 500.0,
+      },
+  };
+
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = 100000.0,
+          .emin = 0.0,
+          .emax = 100000.0,
+          .eini = 50000.0,
+      },
+  };
+
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  // Volume-independent cap: flow_b ≤ 50 m³/s for every block (max-of-blocks)
+  const Array<ReservoirDischargeLimit> reservoir_discharge_limit_array = {
+      {
+          .uid = Uid {1},
+          .name = "ddl_tight",
+          .waterway = Uid {1},
+          .reservoir = Uid {1},
+          .segments =
+              {
+                  {.volume = 0.0, .slope = 0.0, .intercept = 50.0},
+              },
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  const System system = {
+      .name = "DDLBindingTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .junction_array = junction_array,
+      .waterway_array = waterway_array,
+      .reservoir_array = reservoir_array,
+      .reservoir_discharge_limit_array = reservoir_discharge_limit_array,
+      .turbine_array = turbine_array,
+  };
+
+  // Enable LP name maps so we can look up the flow column and dvol row.
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.col_with_names = true;
+  opts.lp_matrix_options.row_with_names = true;
+  opts.lp_matrix_options.col_with_name_map = true;
+  opts.lp_matrix_options.row_with_name_map = true;
+  const PlanningOptionsLP options_lp(opts);
+
+  // The SystemLP(system, simulation_lp) overload defaults flat_opts to an
+  // empty LpMatrixOptions — the naming flags on `opts.lp_matrix_options`
+  // are NOT forwarded automatically.  Pass an explicit LpMatrixOptions
+  // with naming enabled so lp.col_name_map() / lp.row_name_map() are
+  // populated after flatten().
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  flat_opts.col_with_name_map = true;
+  flat_opts.row_with_name_map = true;
+
+  SimulationLP simulation_lp(simulation, options_lp);
+  SystemLP system_lp(system, simulation_lp, flat_opts);
+
+  auto&& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Locate the waterway flow column (unique: only one waterway, one block).
+  ColIndex flow_col {-1};
+  int flow_matches = 0;
+  for (const auto& [name, idx] : lp.col_name_map()) {
+    if (name.contains("waterway") && name.contains("flow")) {
+      flow_col = idx;
+      ++flow_matches;
+    }
+  }
+  REQUIRE(flow_matches == 1);
+
+  // Locate the dvol row (unique: only one RDL, one block).
+  RowIndex dvol_row {-1};
+  int dvol_matches = 0;
+  for (const auto& [name, idx] : lp.row_name_map()) {
+    if (name.contains("dvol")) {
+      dvol_row = idx;
+      ++dvol_matches;
+    }
+  }
+  REQUIRE(dvol_matches == 1);
+
+  // (b) Block flow hits the peak cap: flow_b = intercept = 50 m³/s.
+  const auto flow_val = lp.get_col_sol()[flow_col];
+  CHECK(flow_val == doctest::Approx(50.0).epsilon(1e-4));
+
+  // (a) Row is binding → dual is non-zero.  The sign depends on the
+  // solver's convention for ≤ constraints; we only require |dual| > 0.
+  const auto row_duals = lp.get_row_dual_raw();
+  REQUIRE(row_duals.size() == static_cast<std::size_t>(lp.get_numrows()));
+  const auto dvol_dual = row_duals[dvol_row];
+  CHECK(std::abs(dvol_dual) > 1e-6);
+}
+
+// NOLINTEND(readability-container-data-pointer)

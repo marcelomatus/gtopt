@@ -1,0 +1,4 @@
+name,vmax_hm3,production_factor,enabled,description
+EXAMPLE_CENTRAL_A,1.50,0.85,true,Useful regulation volume + production factor from operator ficha técnica — https://www.example.cl/ficha
+EXAMPLE_CENTRAL_B,0.75,1.20,true,Daily-cycle forebay from SEIA study RCA 123/2015 — production factor overrides PLP placeholder; pasada/serie only; bus>0 and efficiency>0 are required
+EXAMPLE_CENTRAL_C,2.00,0.50,false,enabled=false skips the row (kept as documentation) — source: internal operator communication

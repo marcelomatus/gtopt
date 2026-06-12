@@ -45,7 +45,8 @@ namespace gtopt
 class JunctionLP : public ObjectLP<Junction>
 {
 public:
-  static constexpr LPClassName ClassName {"Junction", "jun"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view DrainName {"drain"};
 
   /**
    * @brief Construct a JunctionLP from input data
@@ -112,7 +113,12 @@ public:
   [[nodiscard]] const auto& drain_cols_at(const ScenarioLP& scenario,
                                           const StageLP& stage) const
   {
-    return drain_cols.at({scenario.uid(), stage.uid()});
+    // `drain_cols[st_key]` is only inserted by `add_to_lp` when the
+    // junction's `drain()` is enabled.  Use the shared
+    // `find_or_empty_inner` helper so non-draining junctions return
+    // an empty inner map instead of throwing — pre-fix the throw
+    // manifested as a NULL-deref during cascade level transitions.
+    return find_or_empty_inner(drain_cols, scenario, stage);
   }
 
 private:
@@ -122,5 +128,11 @@ private:
 
 using JunctionLPId = ObjectId<class JunctionLP>;
 using JunctionLPSId = ObjectSingleId<class JunctionLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Junction::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Junction"`).
+static_assert(JunctionLP::Element::class_name == LPClassName {"Junction"},
+              "Junction::class_name must remain \"Junction\"");
 
 }  // namespace gtopt

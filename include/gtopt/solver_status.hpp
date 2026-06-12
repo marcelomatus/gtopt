@@ -31,7 +31,11 @@ class SolverMonitor;
 /// need access to the solver's atomic members or options struct.
 struct SolverStatusSnapshot
 {
-  int iteration {};  ///< Current iteration number
+  /// Current iteration number.  Strong-typed so the ~2 callers that
+  /// populate it don't need `static_cast<int>(IterationIndex)` unwraps;
+  /// the JSON serialiser (`solver_status.cpp`) renders it as an int
+  /// via `strong::formattable` without any conversion.
+  IterationIndex iteration_index {};
   double gap {};  ///< Current relative convergence gap
   double lower_bound {};  ///< Current lower bound
   double upper_bound {};  ///< Current upper bound
@@ -62,6 +66,21 @@ struct SolverStatusSnapshot
   int pool_tasks_active {};
   /// Current CPU load at snapshot time.
   double pool_cpu_load {};
+
+  // ── Memory and LP task stats ──
+
+  /// System memory usage % at snapshot time.
+  double pool_memory_percent {};
+  /// Process RSS in MB at snapshot time.
+  double pool_process_rss_mb {};
+  /// System available memory in MB at snapshot time.
+  double pool_available_memory_mb {};
+  /// Total LP tasks dispatched so far.
+  size_t lp_tasks_dispatched {};
+  /// Average CPU % per LP task.
+  double avg_lp_task_cpu_pct {};
+  /// Average RSS delta (MB) per LP task.
+  double avg_lp_task_rss_delta_mb {};
 };
 
 /// Write solver status JSON to a file.

@@ -48,4 +48,14 @@ gtopt::SolverBackend* gtopt_create_backend(  // NOLINT
   }
   return nullptr;
 }
+
+// Plugin-level infinity query (no instance allocated).  Shares the
+// `MDO_INFINITY` constant with `MindOptSolverBackend::infinity()`.
+double gtopt_solver_infinity(const char* solver_name)  // NOLINT
+{
+  if (std::strcmp(solver_name, "mindopt") == 0) {
+    return gtopt::MindOptSolverBackend::plugin_infinity();
+  }
+  return 0.0;
+}
 }

@@ -41,8 +41,12 @@ struct ElementTraits
    * @brief Gets a container of all elements of a specific type.
    * @param sc The system context.
    * @return A reference to the container of elements.
+   *
+   * @throws std::runtime_error — propagates from
+   * ``SystemLP::elements<X>()``.  See its docstring for the
+   * low_memory contract.
    */
-  [[nodiscard]] constexpr static auto&& get_elements(SystemContext& sc) noexcept
+  [[nodiscard]] constexpr static auto&& get_elements(SystemContext& sc)
   {
     return sc.system().template elements<Element>();
   }
@@ -108,8 +112,11 @@ struct ElementTraits<SystemContext, BusLP>
    * @brief Gets a container of all `BusLP` elements.
    * @param sc The system context.
    * @return A reference to the container of `BusLP` elements.
+   *
+   * @throws std::runtime_error — propagates from
+   * ``SystemLP::elements<BusLP>()``.
    */
-  [[nodiscard]] constexpr static auto&& get_elements(SystemContext& sc) noexcept
+  [[nodiscard]] constexpr static auto&& get_elements(SystemContext& sc)
   {
     return sc.system().template elements<BusLP>();
   }
@@ -172,9 +179,12 @@ struct ElementTraits<SystemContext, BusLP>
  * @brief Free function to get a container of all elements of a specific type.
  * @param sc The system context.
  * @return A reference to the container of elements.
+ *
+ * @throws std::runtime_error — propagates from the underlying
+ * ``ElementTraits::get_elements(sc)`` / ``SystemLP::elements<X>()``.
  */
 template<typename Element, typename SystemContext>
-[[nodiscard]] constexpr auto&& get_elements(SystemContext& sc) noexcept
+[[nodiscard]] constexpr auto&& get_elements(SystemContext& sc)
 {
   return ElementTraits<SystemContext, Element>::get_elements(sc);
 }

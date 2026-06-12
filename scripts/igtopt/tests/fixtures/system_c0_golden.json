@@ -1,0 +1,106 @@
+{
+  "options": {
+    "input_directory": "<scrubbed>",
+    "input_format": "parquet",
+    "model_options": {
+      "demand_fail_cost": 1000,
+      "scale_objective": 1000,
+      "use_kirchhoff": true,
+      "use_single_bus": false
+    },
+    "output_format": "csv"
+  },
+  "simulation": {
+    "annual_discount_rate": 0.1,
+    "block_array": [
+      {
+        "duration": 1,
+        "uid": 1
+      },
+      {
+        "duration": 2,
+        "uid": 2
+      },
+      {
+        "duration": 3,
+        "uid": 3
+      },
+      {
+        "duration": 4,
+        "uid": 4
+      },
+      {
+        "duration": 5,
+        "uid": 5
+      }
+    ],
+    "scenario_array": [
+      {
+        "probability_factor": 1,
+        "uid": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 0,
+        "uid": 1
+      },
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 1,
+        "uid": 2
+      },
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 2,
+        "uid": 3
+      },
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 3,
+        "uid": 4
+      },
+      {
+        "active": 1,
+        "count_block": 1,
+        "first_block": 4,
+        "uid": 5
+      }
+    ]
+  },
+  "system": {
+    "bus_array": [
+      {
+        "name": "b1",
+        "uid": 1
+      }
+    ],
+    "demand_array": [
+      {
+        "annual_capcost": 8760,
+        "bus": "b1",
+        "capacity": 0,
+        "expcap": 20,
+        "expmod": 10,
+        "lmax": "lmax",
+        "name": "d1",
+        "uid": 1
+      }
+    ],
+    "generator_array": [
+      {
+        "bus": "b1",
+        "capacity": 20,
+        "gcost": 100,
+        "name": "g1",
+        "uid": 1
+      }
+    ],
+    "name": "system_c0"
+  }
+}

@@ -32,18 +32,26 @@ struct json_data_contract<Flow>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_number_null<"direction", OptInt>,
       json_variant_null<"junction", OptSingleId, jvtl_SingleId>,
-      json_variant<"discharge", STBRealFieldSched, jvtl_STBRealFieldSched>>;
+      json_variant_null<"discharge",
+                        OptSTBRealFieldSched,
+                        jvtl_STBRealFieldSched>,
+      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(Flow const& flow)
   {
     return std::forward_as_tuple(flow.uid,
                                  flow.name,
                                  flow.active,
+                                 flow.type,
+                                 flow.description,
                                  flow.direction,
                                  flow.junction,
-                                 flow.discharge);
+                                 flow.discharge,
+                                 flow.fcost);
   }
 };
 }  // namespace daw::json

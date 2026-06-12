@@ -10,15 +10,29 @@
 
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
 
 class CoinMessageHandler;
 class OsiSolverInterface;
 
 namespace gtopt
 {
+
+/// Cached state used to replay options + logging + prob name onto a fresh
+/// OsiSolverInterface.  Mirrors the CPLEX plugin's CplexPrep: reset_solver_()
+/// and clone() read this cache and apply its fields to the new solver so
+/// backend state survives a load_problem() cycle or a deep-copy clone.
+struct OsiPrep
+{
+  std::optional<SolverOptions> options {};
+  std::string log_filename {};
+  int log_level {0};
+  std::string prob_name {};
+};
 
 /**
  * @brief Solver backend using COIN-OR Open Solver Interface.
@@ -48,6 +62,14 @@ public:
   [[nodiscard]] std::string_view solver_name() const noexcept override;
   [[nodiscard]] std::string solver_version() const override;
   [[nodiscard]] double infinity() const noexcept override;
+  [[nodiscard]] bool supports_mip() const noexcept override;
+
+  /// Plugin-level infinity constant — single source of truth shared
+  /// with the instance method `infinity()` and the plugin entry
+  /// `gtopt_solver_infinity`.  COIN-OR (CLP / CBC) returns `1e+30`
+  /// from `OsiSolverInterface::getInfinity()` for both backends, so
+  /// we report the same value here without instantiating a solver.
+  static double plugin_infinity() noexcept;
 
   // ---- problem name ----
   void set_prob_name(const std::string& name) override;
@@ -71,9 +93,17 @@ public:
 
   // ---- column ops ----
   void add_col(double lb, double ub, double obj) override;
+  void add_cols(int num_cols,
+                const int* colbeg,
+                const int* colind,
+                const double* colval,
+                const double* collb,
+                const double* colub,
+                const double* colobj) override;
   void set_col_lower(int index, double value) override;
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
+  void set_obj_coeffs(const double* values, int num_cols) override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -81,6 +111,12 @@ public:
                const double* elements,
                double rowlb,
                double rowub) override;
+  void add_rows(int num_rows,
+                const int* rowbeg,
+                const int* rowind,
+                const double* rowval,
+                const double* rowlb,
+                const double* rowub) override;
   void set_row_lower(int index, double value) override;
   void set_row_upper(int index, double value) override;
   void set_row_bounds(int index, double lb, double ub) override;
@@ -96,6 +132,7 @@ public:
   void set_integer(int index) override;
   [[nodiscard]] bool is_continuous(int index) const override;
   [[nodiscard]] bool is_integer(int index) const override;
+  int relax_all_integers() override;
 
   // ---- solution access ----
   [[nodiscard]] const double* col_lower() const override;
@@ -116,6 +153,10 @@ public:
   void initial_solve() override;
   void resolve() override;
 
+  // ---- robust-solve mode ----
+  void engage_robust_solve() override;
+  void disengage_robust_solve() noexcept override;
+
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
   [[nodiscard]] bool is_abandoned() const override;
@@ -130,7 +171,7 @@ public:
   [[nodiscard]] int get_log_level() const override;
 
   // ---- diagnostics ----
-  [[nodiscard]] double get_kappa() const override;
+  [[nodiscard]] std::optional<double> get_kappa() const override;
 
   // ---- logging ----
   void open_log(FILE* file, int level) override;
@@ -147,9 +188,18 @@ public:
   [[nodiscard]] std::unique_ptr<SolverBackend> clone() const override;
 
 private:
+  /// Recreate m_solver_ + m_handler_ from m_prep_.  Used by load_problem()
+  /// so every bulk load starts with a clean solver instance, guaranteeing
+  /// no leftover per-LP state (basis, factorization, work arrays).
+  void reset_solver_();
+
   OsiSolverType m_type_;
   std::shared_ptr<OsiSolverInterface> m_solver_;
   std::unique_ptr<CoinMessageHandler> m_handler_;
+
+  /// Cache of everything needed to replay backend state onto a fresh
+  /// OsiSolverInterface (see CplexPrep for the pattern).
+  OsiPrep m_prep_;
 
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
@@ -157,12 +207,27 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
 
+  /// Sanitised names cached from the most recent `push_names` call.
   /// Owned FILE* for set_log_filename; closed in clear_log_filename.
-  using log_file_ptr_t = std::unique_ptr<
-      FILE,
-      decltype([](FILE* f)
-               { (void)std::fclose(f); })>;  // NOLINT(cppcoreguidelines-owning-memory)
+  struct FileCloser
+  {
+    void operator()(FILE* f) const noexcept
+    {
+      (void)std::fclose(f);  // NOLINT(cppcoreguidelines-owning-memory)
+    }
+  };
+  using log_file_ptr_t = std::unique_ptr<FILE, FileCloser>;
   log_file_ptr_t m_log_file_ptr_;
+
+  /// Snapshot of OSI/CLP tolerances captured by engage_robust_solve().
+  struct RobustState
+  {
+    double dual_tolerance {};
+    double primal_tolerance {};
+    int presolve_passes {0};
+    int engage_count {0};
+  };
+  std::optional<RobustState> m_saved_robust_state_;
 };
 
 }  // namespace gtopt

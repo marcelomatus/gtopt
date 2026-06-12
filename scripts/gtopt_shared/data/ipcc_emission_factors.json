@@ -1,0 +1,309 @@
+{
+  "$schema": "gtopt-emission-defaults-v1",
+  "description": "Default per-fuel CO2 emission factors and net calorific values for stationary combustion in the energy industries. Consumed by `plp2gtopt --emissions-file` to fill missing emission_factors on Fuel elements that the PLP source / PLEXOS overlay did not populate. PLEXOS-shipped factors always take precedence; this file only fills gaps. Override with `--emissions-file PATH` pointing at a user-curated JSON of the same shape, or disable with `--no-emissions-file`.",
+  "source": "IPCC Guidelines for National Greenhouse Gas Inventories, 2006 \u2014 Volume 2 (Energy), Chapter 1 (Introduction), Table 1.4 (Default CO2 Emission Factors for Stationary Combustion in the Energy Industries) and Chapter 1, Table 1.2 (Default Net Calorific Values). Available at https://www.ipcc-nggip.iges.or.jp/public/2006gl/vol2.html.",
+  "units": {
+    "co2_combustion": "tCO2 / GJ \u2014 multiplies `Generator.heat_rate` (GJ / MWh) at LP build to recover per-MWh tCO2 (gtopt convention).",
+    "co2_upstream": "tCO2 / GJ \u2014 fuel-cycle upstream factor (extraction / processing / transport). IPCC stationary-combustion default = 0; populate from a fuel-cycle LCA when available.",
+    "heat_content": "GJ per fuel-unit (net calorific value, NCV / LHV). Carried through to `Fuel.heat_content` for downstream tooling; gtopt does not consume it directly when factors are already in tCO2/GJ.",
+    "ch4_combustion": "tCH4 / GJ \u2014 IPCC 2006 Vol 2 Ch 2 Table 2.2 stationary-combustion default. Mass-basis, NOT CO2-equivalent (no GWP weighting); EmissionZone basket applies weights if needed.",
+    "ch4_upstream": "tCH4 / GJ \u2014 fuel-cycle upstream methane (extraction/processing leakage). IPCC stationary-combustion default = 0; LNG and gas transport can add substantial values from a project-specific LCA.",
+    "n2o_combustion": "tN2O / GJ \u2014 IPCC 2006 Vol 2 Ch 2 Table 2.2 stationary-combustion default. Mass-basis.",
+    "n2o_upstream": "tN2O / GJ \u2014 fuel-cycle upstream N2O. IPCC stationary-combustion default = 0."
+  },
+  "notes": [
+    "All factors are net-calorific-value (NCV / LHV) basis, matching the IPCC default.",
+    "co2_combustion values are the IPCC 2006 default \u2014 NOT the 95% confidence-interval lower/upper bounds. For uncertainty propagation refer to Table 1.4 in the source document.",
+    "Biomass: IPCC default 112000 kg CO2/TJ is reported here as `co2_combustion_gross` for users running a gross-carbon-pricing scenario. The default `co2_combustion = 0` follows IPCC AFOLU-sector biogenic-zero accounting (combustion CO2 is offset by sustainable biomass uptake).",
+    "Natural gas vs LNG: combustion factor is identical (the fuel at the burner tip is the same gas). Liquefaction / transport / re-gasification add an upstream factor that varies by source; not in the IPCC stationary-combustion default.",
+    "Geothermal: stationary-combustion default = 0 (non-combustion). Non-condensable-gas (NCG) releases at individual fields can be material but are site-specific and not part of an IPCC default.",
+    "Aliases are normalized identically to fuel names: case folded, all of space / underscore / dash stripped. So `gas-natural`, `Gas Natural`, `GAS_NATURAL` all match the same entry.",
+    "CH4 / N2O factors are ~10^5 smaller than CO2 \u2014 kept in the same t/GJ mass basis (no GWP weighting at the factor level). Apply GWP weights via the EmissionZone basket if running a CO2-equivalent scenario (CH4=28, N2O=265 per IPCC AR5 GWP-100).",
+    "Biomass / biogas CH4 + N2O are NOT biogenic-zero (unlike CO2): they are combustion byproducts. The default carries non-zero values per IPCC Table 2.2."
+  ],
+  "fuels": [
+    {
+      "name": "diesel",
+      "aliases": [
+        "diesel oil",
+        "diesel-b",
+        "gas oil",
+        "gas/diesel oil",
+        "gasoil",
+        "petroleo diesel",
+        "petroleo_diesel",
+        "petrodiesel",
+        "die"
+      ],
+      "co2_combustion": 0.0741,
+      "co2_upstream": 0.0,
+      "heat_content": 43.0,
+      "ipcc_reference": "Table 1.4 \u2014 Gas/Diesel Oil (74100 kg CO2/TJ); Table 1.2 NCV 43.0 TJ/Gg; Table 2.2 \u2014 Gas/Diesel Oil (3 kg CH4/TJ, 0.6 kg N2O/TJ)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "fuel_oil",
+      "aliases": [
+        "fuel oil",
+        "residual fuel oil",
+        "heavy fuel oil",
+        "hfo",
+        "ifo",
+        "petroleo ifo",
+        "petroleo_ifo",
+        "bunker",
+        "bunker oil"
+      ],
+      "co2_combustion": 0.0774,
+      "co2_upstream": 0.0,
+      "heat_content": 40.4,
+      "ipcc_reference": "Table 1.4 \u2014 Residual Fuel Oil (77400 kg CO2/TJ); Table 1.2 NCV 40.4 TJ/Gg; Table 2.2 \u2014 Residual Fuel Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "natural_gas",
+      "aliases": [
+        "natural gas",
+        "gas natural",
+        "gas-natural",
+        "gn",
+        "ng",
+        "gas",
+        "pipeline gas",
+        "gas tuber\u00eda"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.0,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas (56100 kg CO2/TJ); Table 1.2 NCV 48.0 TJ/Gg. The plain 'gas' alias catches CEN-Chile fuel names of the form Gas_<plant>_<band> (LNG and pipeline NG share the same IPCC combustion factor 0.0561 tCO2/GJ \u2014 distinction only matters for upstream LCA factor).; Table 2.2 \u2014 Natural Gas (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "lng",
+      "aliases": [
+        "gnl",
+        "liquefied natural gas",
+        "regasified lng",
+        "regasified-lng",
+        "gnl regasificado",
+        "lng-regas"
+      ],
+      "co2_combustion": 0.0561,
+      "co2_upstream": 0.0,
+      "heat_content": 48.0,
+      "ipcc_reference": "Table 1.4 \u2014 Natural Gas at the burner tip (56100 kg CO2/TJ). Upstream LNG-chain factor (liquefaction + tanker + regas) varies 6\u201315 kg CO2/GJ by route and is NOT in the IPCC stationary-combustion default \u2014 populate co2_upstream from a project-specific LCA when carbon accounting matters.; Table 2.2 \u2014 combustion same as Natural Gas (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "coal_bituminous",
+      "aliases": [
+        "carbon",
+        "coal",
+        "bituminous coal",
+        "other bituminous coal",
+        "carbon bituminoso",
+        "hard coal"
+      ],
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 25.8,
+      "ipcc_reference": "Table 1.4 \u2014 Other Bituminous Coal (94600 kg CO2/TJ); Table 1.2 NCV 25.8 TJ/Gg; Table 2.2 \u2014 Other Bituminous Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_sub_bituminous",
+      "aliases": [
+        "sub-bituminous coal",
+        "sub bituminous coal",
+        "subbituminous coal",
+        "carbon sub-bituminoso",
+        "carbon subbituminoso"
+      ],
+      "co2_combustion": 0.0961,
+      "co2_upstream": 0.0,
+      "heat_content": 18.9,
+      "ipcc_reference": "Table 1.4 \u2014 Sub-Bituminous Coal (96100 kg CO2/TJ); Table 1.2 NCV 18.9 TJ/Gg; Table 2.2 \u2014 Sub-Bituminous Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_anthracite",
+      "aliases": [
+        "anthracite",
+        "carbon antracita",
+        "antracita"
+      ],
+      "co2_combustion": 0.0983,
+      "co2_upstream": 0.0,
+      "heat_content": 26.7,
+      "ipcc_reference": "Table 1.4 \u2014 Anthracite (98300 kg CO2/TJ); Table 1.2 NCV 26.7 TJ/Gg; Table 2.2 \u2014 Anthracite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coal_lignite",
+      "aliases": [
+        "lignite",
+        "lignito",
+        "carbon lignito",
+        "brown coal"
+      ],
+      "co2_combustion": 0.101,
+      "co2_upstream": 0.0,
+      "heat_content": 11.9,
+      "ipcc_reference": "Table 1.4 \u2014 Lignite (101000 kg CO2/TJ); Table 1.2 NCV 11.9 TJ/Gg; Table 2.2 \u2014 Lignite (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "coking_coal",
+      "aliases": [
+        "coking coal",
+        "carbon coquizable",
+        "coque metalurgico"
+      ],
+      "co2_combustion": 0.0946,
+      "co2_upstream": 0.0,
+      "heat_content": 28.2,
+      "ipcc_reference": "Table 1.4 \u2014 Coking Coal (94600 kg CO2/TJ); Table 1.2 NCV 28.2 TJ/Gg; Table 2.2 \u2014 Coking Coal (1, 1.5)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1.5e-06
+    },
+    {
+      "name": "petcoke",
+      "aliases": [
+        "petroleum coke",
+        "petroleum-coke",
+        "coque petroleo",
+        "coque de petroleo",
+        "coke",
+        "pet coke"
+      ],
+      "co2_combustion": 0.0975,
+      "co2_upstream": 0.0,
+      "heat_content": 32.5,
+      "ipcc_reference": "Table 1.4 \u2014 Petroleum Coke (97500 kg CO2/TJ); Table 1.2 NCV 32.5 TJ/Gg; Table 2.2 \u2014 Petroleum Coke (3, 0.6 \u2014 defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "lpg",
+      "aliases": [
+        "liquefied petroleum gas",
+        "liquefied petroleum gases",
+        "glp",
+        "gas licuado",
+        "gas licuado de petroleo",
+        "propane",
+        "butane",
+        "propano",
+        "butano"
+      ],
+      "co2_combustion": 0.0631,
+      "co2_upstream": 0.0,
+      "heat_content": 47.3,
+      "ipcc_reference": "Table 1.4 \u2014 Liquefied Petroleum Gases (63100 kg CO2/TJ); Table 1.2 NCV 47.3 TJ/Gg; Table 2.2 \u2014 LPG (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "kerosene",
+      "aliases": [
+        "other kerosene",
+        "queroseno",
+        "kerosene-type jet fuel",
+        "jet kerosene"
+      ],
+      "co2_combustion": 0.0719,
+      "co2_upstream": 0.0,
+      "heat_content": 43.8,
+      "ipcc_reference": "Table 1.4 \u2014 Other Kerosene (71900 kg CO2/TJ); Table 1.2 NCV 43.8 TJ/Gg; Table 2.2 \u2014 Other Kerosene (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "naphtha",
+      "aliases": [
+        "nafta"
+      ],
+      "co2_combustion": 0.0733,
+      "co2_upstream": 0.0,
+      "heat_content": 44.5,
+      "ipcc_reference": "Table 1.4 \u2014 Naphtha (73300 kg CO2/TJ); Table 1.2 NCV 44.5 TJ/Gg; Table 2.2 \u2014 Naphtha (3, 0.6 \u2014 defaults to liquid-fuel row)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "crude_oil",
+      "aliases": [
+        "crude oil",
+        "petroleo crudo",
+        "crudo"
+      ],
+      "co2_combustion": 0.0732,
+      "co2_upstream": 0.0,
+      "heat_content": 42.3,
+      "ipcc_reference": "Table 1.4 \u2014 Crude Oil (73300 kg CO2/TJ); Table 1.2 NCV 42.3 TJ/Gg; Table 2.2 \u2014 Crude Oil (3, 0.6)",
+      "ch4_combustion": 3e-06,
+      "n2o_combustion": 6e-07
+    },
+    {
+      "name": "biomass",
+      "aliases": [
+        "biomasa",
+        "wood",
+        "wood waste",
+        "wood/wood waste",
+        "biofuel",
+        "solid biomass",
+        "biomass solid",
+        "residuos forestales",
+        "le\u00f1a",
+        "lena"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.112,
+      "co2_upstream": 0.0,
+      "heat_content": 15.6,
+      "ipcc_reference": "Table 1.4 \u2014 Wood/Wood Waste (112000 kg CO2/TJ gross); biogenic-zero default per AFOLU-sector accounting (combustion CO2 offset by sustainable uptake). Use co2_combustion_gross for a non-zero biomass scenario.; Table 2.2 \u2014 Wood/Wood Waste (30 kg CH4/TJ, 4 kg N2O/TJ \u2014 NOT biogenic-zero like CO2: combustion byproducts)",
+      "ch4_combustion": 3e-05,
+      "n2o_combustion": 4e-06
+    },
+    {
+      "name": "biogas",
+      "aliases": [
+        "biog\u00e1s",
+        "biogas",
+        "landfill gas",
+        "gas de relleno sanitario",
+        "sewage gas"
+      ],
+      "co2_combustion": 0.0,
+      "co2_combustion_gross": 0.0546,
+      "co2_upstream": 0.0,
+      "heat_content": 50.4,
+      "ipcc_reference": "Table 1.4 \u2014 Other Biogas (54600 kg CO2/TJ gross). Biogenic-zero default; use co2_combustion_gross when biogenic CO2 must be priced.; Table 2.2 \u2014 Other Biogas (1, 0.1)",
+      "ch4_combustion": 1e-06,
+      "n2o_combustion": 1e-07
+    },
+    {
+      "name": "geothermal",
+      "aliases": [
+        "geotermia",
+        "geothermal steam",
+        "geotermico"
+      ],
+      "co2_combustion": 0.0,
+      "co2_upstream": 0.0,
+      "heat_content": 0.0,
+      "ipcc_reference": "Geothermal is non-combustion. IPCC stationary-combustion default = 0. Non-condensable-gas releases at specific fields are site-specific and not part of an IPCC default.; Geothermal: non-combustion (0, 0)",
+      "ch4_combustion": 0.0,
+      "n2o_combustion": 0.0
+    }
+  ]
+}

@@ -1,0 +1,410 @@
+{
+  "_provenance": {
+    "source": "/home/marce/Consolidado_de_proyectos_BESS_Stand_Alone_.xlsx",
+    "sheet": "Hoja1",
+    "plp_case": "/home/marce/git/gtopt/support/plp/2_years (via plp_with_overlay, 245 buses)",
+    "cen_infotecnica": "api-infotecnica.coordinador.cl: 1254 subestaciones, 1224 lineas",
+    "round_trip_efficiency": 0.94,
+    "leg_efficiency_sqrt_rte": 0.9695359714832658,
+    "annual_loss_self_discharge": 0.24,
+    "significant_distance_threshold_km": 5.0,
+    "per_km_ohm_by_voltage": {
+      "500": 0.024,
+      "345": 0.03,
+      "220": 0.06,
+      "110": 0.18,
+      "66": 0.5,
+      "23": 1.0,
+      "13": 1.5
+    },
+    "per_km_reactance_ohm_by_voltage": {
+      "500": 0.33,
+      "345": 0.35,
+      "220": 0.4,
+      "110": 0.42,
+      "66": 0.45,
+      "23": 0.5,
+      "13": 0.5
+    },
+    "km_per_hop_by_voltage": {
+      "500": 50,
+      "345": 50,
+      "220": 40,
+      "110": 25,
+      "66": 15,
+      "23": 8,
+      "13": 5
+    },
+    "regional_proxy_km": 100.0,
+    "summary": {
+      "total_bess": 22,
+      "total_power_mw": 2047.5,
+      "total_capacity_mwh": 10195.0,
+      "new_buses_added": 18,
+      "new_lines_added": 18,
+      "resolutions": {
+        "regional": 3,
+        "bfs-h1": 7,
+        "bfs-h2": 7,
+        "direct": 4,
+        "bfs-h3": 1
+      }
+    },
+    "per_bess": [
+      {
+        "project": "Mariscal",
+        "name": "mariscal",
+        "bess_uid": 10011,
+        "parent_plp_bus": "Chena110",
+        "bess_bus": "mariscal_bus",
+        "resolution": "regional",
+        "hops": -1,
+        "equivalent_line": {
+          "r_ohm": 18.0,
+          "x_ohm": 42.0,
+          "km": 100.0,
+          "voltage_kv": null
+        },
+        "pmax_mw": 30.0,
+        "emax_mwh": 150.0
+      },
+      {
+        "project": "Peñablanca",
+        "name": "penablanca",
+        "bess_uid": 10014,
+        "parent_plp_bus": "Miraflores110",
+        "bess_bus": "penablanca_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 4.5,
+          "x_ohm": 10.5,
+          "km": 25,
+          "voltage_kv": 110
+        },
+        "pmax_mw": 30.0,
+        "emax_mwh": 150.0
+      },
+      {
+        "project": "Rocío",
+        "name": "rocio",
+        "bess_uid": 10017,
+        "parent_plp_bus": "Nogales220",
+        "bess_bus": "rocio_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 4.8,
+          "x_ohm": 32.0,
+          "km": 80,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 30.0,
+        "emax_mwh": 150.0
+      },
+      {
+        "project": "Limar",
+        "name": "limar",
+        "bess_uid": 10018,
+        "parent_plp_bus": "DonGoyo220",
+        "bess_bus": "DonGoyo220",
+        "resolution": "direct",
+        "hops": 0,
+        "equivalent_line": null,
+        "pmax_mw": 102.5,
+        "emax_mwh": 410.0
+      },
+      {
+        "project": "Quelentaro",
+        "name": "quelentaro",
+        "bess_uid": 10021,
+        "parent_plp_bus": "Chuquicamata100",
+        "bess_bus": "quelentaro_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 4.5,
+          "x_ohm": 10.5,
+          "km": 25,
+          "voltage_kv": 100
+        },
+        "pmax_mw": 150.0,
+        "emax_mwh": 1200.0
+      },
+      {
+        "project": "Tatara",
+        "name": "tatara",
+        "bess_uid": 10022,
+        "parent_plp_bus": "Maitencillo110",
+        "bess_bus": "Maitencillo110",
+        "resolution": "direct",
+        "hops": 0,
+        "equivalent_line": null,
+        "pmax_mw": 30.0,
+        "emax_mwh": 120.0
+      },
+      {
+        "project": "SP El Destello",
+        "name": "speldestello",
+        "bess_uid": 10025,
+        "parent_plp_bus": "Parral154",
+        "bess_bus": "speldestello_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 15.0,
+          "x_ohm": 13.5,
+          "km": 30,
+          "voltage_kv": 66
+        },
+        "pmax_mw": 20.0,
+        "emax_mwh": 100.0
+      },
+      {
+        "project": "SP Umbrella",
+        "name": "spumbrella",
+        "bess_uid": 10028,
+        "parent_plp_bus": "Rancagua154",
+        "bess_bus": "spumbrella_bus",
+        "resolution": "regional",
+        "hops": -1,
+        "equivalent_line": {
+          "r_ohm": 18.0,
+          "x_ohm": 42.0,
+          "km": 100.0,
+          "voltage_kv": null
+        },
+        "pmax_mw": 40.0,
+        "emax_mwh": 200.0
+      },
+      {
+        "project": "SP Saria",
+        "name": "spsaria",
+        "bess_uid": 10031,
+        "parent_plp_bus": "ElCobre220",
+        "bess_bus": "spsaria_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 4.5,
+          "x_ohm": 10.5,
+          "km": 25,
+          "voltage_kv": 110
+        },
+        "pmax_mw": 60.0,
+        "emax_mwh": 300.0
+      },
+      {
+        "project": "SP Paradis",
+        "name": "spparadis",
+        "bess_uid": 10034,
+        "parent_plp_bus": "Charrua066",
+        "bess_bus": "spparadis_bus",
+        "resolution": "bfs-h3",
+        "hops": 3,
+        "equivalent_line": {
+          "r_ohm": 7.199999999999999,
+          "x_ohm": 48.0,
+          "km": 120,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 40.0,
+        "emax_mwh": 200.0
+      },
+      {
+        "project": "SP La Odisea",
+        "name": "splaodisea",
+        "bess_uid": 10037,
+        "parent_plp_bus": "Rancagua154",
+        "bess_bus": "splaodisea_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 7.5,
+          "x_ohm": 6.75,
+          "km": 15,
+          "voltage_kv": 66
+        },
+        "pmax_mw": 120.0,
+        "emax_mwh": 600.0
+      },
+      {
+        "project": "SP Santa Ema",
+        "name": "spsantaema",
+        "bess_uid": 10040,
+        "parent_plp_bus": "Rancagua154",
+        "bess_bus": "spsantaema_bus",
+        "resolution": "regional",
+        "hops": -1,
+        "equivalent_line": {
+          "r_ohm": 18.0,
+          "x_ohm": 42.0,
+          "km": 100.0,
+          "voltage_kv": null
+        },
+        "pmax_mw": 40.0,
+        "emax_mwh": 200.0
+      },
+      {
+        "project": "SP Las Gunneras",
+        "name": "splasgunneras",
+        "bess_uid": 10043,
+        "parent_plp_bus": "Nogales220",
+        "bess_bus": "splasgunneras_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 4.8,
+          "x_ohm": 32.0,
+          "km": 80,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 20.0,
+        "emax_mwh": 100.0
+      },
+      {
+        "project": "AR Aconcagua",
+        "name": "araconcagua",
+        "bess_uid": 10046,
+        "parent_plp_bus": "Nogales220",
+        "bess_bus": "araconcagua_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 2.4,
+          "x_ohm": 16.0,
+          "km": 40,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 290.0,
+        "emax_mwh": 1450.0
+      },
+      {
+        "project": "AR Los Cerezos",
+        "name": "arloscerezos",
+        "bess_uid": 10049,
+        "parent_plp_bus": "Tinguiririca220",
+        "bess_bus": "arloscerezos_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 9.0,
+          "x_ohm": 21.0,
+          "km": 50,
+          "voltage_kv": 154
+        },
+        "pmax_mw": 175.0,
+        "emax_mwh": 875.0
+      },
+      {
+        "project": "AR Punta Colorada",
+        "name": "arpuntacolorada",
+        "bess_uid": 10052,
+        "parent_plp_bus": "Maitencillo110",
+        "bess_bus": "arpuntacolorada_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 2.4,
+          "x_ohm": 16.0,
+          "km": 40,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 320.0,
+        "emax_mwh": 1600.0
+      },
+      {
+        "project": "BESS El Ganso",
+        "name": "besselganso",
+        "bess_uid": 10055,
+        "parent_plp_bus": "SanLuis220",
+        "bess_bus": "besselganso_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 4.8,
+          "x_ohm": 32.0,
+          "km": 80,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 150.0,
+        "emax_mwh": 750.0
+      },
+      {
+        "project": "BESS Santa Amelia de Tuniche",
+        "name": "besssantaameliadetuniche",
+        "bess_uid": 10058,
+        "parent_plp_bus": "Tinguiririca220",
+        "bess_bus": "besssantaameliadetuniche_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 9.0,
+          "x_ohm": 21.0,
+          "km": 50,
+          "voltage_kv": 154
+        },
+        "pmax_mw": 30.0,
+        "emax_mwh": 150.0
+      },
+      {
+        "project": "BESS San Nicolas del Parral",
+        "name": "besssannicolasdelparral",
+        "bess_uid": 10059,
+        "parent_plp_bus": "Parral154",
+        "bess_bus": "Parral154",
+        "resolution": "direct",
+        "hops": 0,
+        "equivalent_line": null,
+        "pmax_mw": 30.0,
+        "emax_mwh": 150.0
+      },
+      {
+        "project": "BESS Beltrán",
+        "name": "bessbeltran",
+        "bess_uid": 10062,
+        "parent_plp_bus": "SanLuis220",
+        "bess_bus": "bessbeltran_bus",
+        "resolution": "bfs-h2",
+        "hops": 2,
+        "equivalent_line": {
+          "r_ohm": 4.8,
+          "x_ohm": 32.0,
+          "km": 80,
+          "voltage_kv": 220
+        },
+        "pmax_mw": 150.0,
+        "emax_mwh": 750.0
+      },
+      {
+        "project": "BESS Aconcagua",
+        "name": "bessaconcagua",
+        "bess_uid": 10063,
+        "parent_plp_bus": "Torquemada110",
+        "bess_bus": "Torquemada110",
+        "resolution": "direct",
+        "hops": 0,
+        "equivalent_line": null,
+        "pmax_mw": 100.0,
+        "emax_mwh": 500.0
+      },
+      {
+        "project": "BESS El Salvador",
+        "name": "besselsalvador",
+        "bess_uid": 10066,
+        "parent_plp_bus": "Rancagua154",
+        "bess_bus": "besselsalvador_bus",
+        "resolution": "bfs-h1",
+        "hops": 1,
+        "equivalent_line": {
+          "r_ohm": 7.5,
+          "x_ohm": 6.75,
+          "km": 15,
+          "voltage_kv": 66
+        },
+        "pmax_mw": 90.0,
+        "emax_mwh": 90.0
+      }
+    ]
+  }
+}

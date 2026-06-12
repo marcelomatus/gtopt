@@ -17,6 +17,11 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_matrix_enums.hpp>
+#include <gtopt/lp_validation.hpp>
+#include <gtopt/phase.hpp>  // PhaseIndex
+#include <gtopt/planning_enums.hpp>  // CompressionCodec
+#include <gtopt/scene.hpp>  // SceneIndex
+#include <gtopt/sddp_enums.hpp>  // LowMemoryMode
 #include <gtopt/utils.hpp>
 
 namespace gtopt
@@ -37,7 +42,9 @@ struct LpMatrixOptions
                              ///< values with |v| > max(eps, stats_eps) update
                              ///< stats_min_abs. Defaults to 1e-10 for
                              ///< consistency with external LP analysis tools.
-  bool col_with_names {true};  ///< Include column names (state vars at level 0)
+  bool col_with_names {
+      false,
+  };  ///< Include column names (state vars at level 0)
   bool row_with_names {false};  ///< Include row names (level >= 1)
   bool col_with_name_map {false};  ///< Include column name mapping (level >= 1)
   bool row_with_name_map {false};  ///< Include row name mapping
@@ -46,40 +53,78 @@ struct LpMatrixOptions
   std::optional<LpEquilibrationMethod>
       equilibration_method {};  ///< Matrix equilibration method.
                                 ///< See LpEquilibrationMethod for options.
-                                ///< Default is `none` (no scaling).
+                                ///< Default is `row_max`.
   std::optional<FastSqrtMethod>
       fast_sqrt_method {};  ///< Approximate sqrt for Ruiz scaling.
                             ///< See FastSqrtMethod for options.
                             ///< Default is `ieee_halve`.
-  LpNamesLevel lp_names_level {LpNamesLevel::minimal};  ///< Computed naming
-                                                        ///< level (internal)
+  double scale_objective {1.0};  ///< Global divisor for all objective
+                                 ///< coefficients (numerical conditioning).
+                                 ///< Applied uniformly during flatten().
   std::string solver_name {};  ///< Solver backend name (empty = auto-detect)
 
-  /** @brief LP naming level (user-facing JSON/CLI option).
-   *
-   * - `minimal`:      State-variable column names only (default).
-   * - `only_cols`:    All column names + name-to-index maps.
-   * - `cols_and_rows`: Column + row names + maps + warn on duplicates.
-   *
-   * Accepts integer (0/1/2) or string name in JSON.
-   */
-  std::optional<LpNamesLevel> names_level {};
+  /// Low-memory build hint.  When set to a non-`off` value, `SystemLP`'s
+  /// constructor skips the initial `LinearInterface::load_flat()` call and
+  /// installs the flat LP as a deferred snapshot instead — the solver
+  /// backend is reconstructed lazily on first use.  Used by SDDP and
+  /// cascade methods to avoid loading every (scene, phase) backend
+  /// upfront only to release it again before the first solve.
+  /// Default `off`: backend is loaded eagerly (current behavior).
+  LowMemoryMode low_memory_mode {LowMemoryMode::off};
+
+  /// Codec for the deferred snapshot when `low_memory_mode == compress`.
+  /// `auto_select` defers to `select_codec()` which prefers lz4.
+  CompressionCodec memory_codec {CompressionCodec::auto_select};
+
+  /// Compute LP fingerprint (structural hash) during flatten.
+  /// Default false — only enabled when `--lp-fingerprint` is set.
+  bool compute_fingerprint {false};
+
+  /// Skip the entire `LinearProblem::flatten()` matrix-build body and
+  /// return an empty `FlatLinearProblem`.  Used by the write-out
+  /// rebuild path in `system_lp.cpp::rebuild_collections_if_needed`
+  /// where the produced flat LP is discarded — only the `add_to_lp`
+  /// side effects (XLP per-element col/row indices) are needed.
+  /// Setting this kills the CSC build pass, the row-bound scan, the
+  /// col-bound scan, the label-name pass and the equilibration pass
+  /// — typically 5–10× faster on the rebuild slice for juan-scale
+  /// cells.  Default false.
+  bool skip_matrix_build {false};
 
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
   OptReal lp_coeff_ratio_threshold {};
 
+  /// Build-time LP validation thresholds and on/off flag.  When enabled
+  /// (default true at the consumer site), LinearInterface emits
+  /// spdlog::warn lines as bad coefficients / bounds / RHS / objective
+  /// values land in the LP, capped per-kind to avoid log-spam.  See
+  /// LpValidationOptions for individual thresholds.
+  LpValidationOptions validation {};
+
+  /// Optional (scene, phase) UIDs of the LP cell currently being
+  /// flattened.  Used to prepend `[s14 p46]` to per-cell LP_QUALITY
+  /// messages so they line up with `SDDP Forward / Backward` info
+  /// lines (which also print UIDs, not internal indices).  Set by
+  /// `system_lp.cpp::flatten_from_collections` and read by
+  /// `LinearProblem::flatten`.  Stored as strong-typed UIDs, not a
+  /// pre-formatted string, so consumers can also use them for
+  /// structured logging or per-cell stat aggregation.  Not merged
+  /// across LpMatrixOptions.
+  std::optional<SceneUid> flatten_scene_uid {};
+  std::optional<PhaseUid> flatten_phase_uid {};
+
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —
   /// first-value-wins semantics like SolverOptions.
   void merge(const LpMatrixOptions& other)
   {
-    merge_opt(names_level, other.names_level);
     merge_opt(lp_coeff_ratio_threshold, other.lp_coeff_ratio_threshold);
     merge_opt(equilibration_method, other.equilibration_method);
     merge_opt(fast_sqrt_method, other.fast_sqrt_method);
     merge_opt(compute_stats, other.compute_stats);
+    validation.merge(other.validation);
   }
 };
 

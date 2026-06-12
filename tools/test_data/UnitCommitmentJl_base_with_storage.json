@@ -1,0 +1,408 @@
+{
+  "Parameters": {
+    "Version": "0.4",
+    "Time horizon (h)": 4,
+    "Investment cost weight": 0.1
+  },
+  "Generators": {
+    "g1": {
+      "Bus": "b1",
+      "Production cost curve (MW)": [100, 110, 130, 135],
+      "Production cost curve ($)": [1400, 1600, 2200, 2400],
+      "Startup delays (h)": [1, 2, 3],
+      "Startup costs ($)": [1000.0, 1500.0, 2000.0],
+      "Initial status (h)": -100,
+      "Initial power (MW)": 0,
+      "Type": "Thermal",
+      "Ramp up limit (MW)": 70.0,
+      "Ramp down limit (MW)": 60.0,
+      "Startup limit (MW)": 105.0,
+      "Shutdown limit (MW)": 120.0,
+      "Shutdown cost ($)": 500.0
+    },
+    "g2": {
+      "Bus": "b2",
+      "Production cost curve (MW)": [0, 47, 94, 140],
+      "Production cost curve ($)": [0, 2256.0, 4733.37, 7395.39],
+      "Startup delays (h)": [1, 4],
+      "Startup costs ($)": [3000.0, 4000.0],
+      "Ramp up limit (MW)": 70.0,
+      "Ramp down limit (MW)": 60.0,
+      "Startup limit (MW)": 50.0,
+      "Shutdown limit (MW)": 40.0,
+      "Shutdown cost ($)": 750.0,
+      "Minimum uptime (h)": 3,
+      "Minimum downtime (h)": 3,
+      "Maximum daily energy (MWh)": null,
+      "Maximum daily starts": null,
+      "Initial status (h)": -2,
+      "Initial power (MW)": 0,
+      "Reserve eligibility": ["r1", "r2"],
+      "Investment cost ($)": 5000,
+      "Type": "Thermal"
+    },
+    "g3": {
+      "Bus": "b3",
+      "Production cost curve (MW)": [0, 33, 66, 100],
+      "Production cost curve ($)": [0, 1113.75, 2369.07, 3891.54],
+      "Startup delays (h)": [1, 4, 8],
+      "Startup costs ($)": [1000.0, 2000.0, 3000.0],
+      "Ramp up limit (MW)": 70.0,
+      "Ramp down limit (MW)": 70.0,
+      "Startup limit (MW)": 70.0,
+      "Shutdown limit (MW)": 60.0,
+      "Minimum uptime (h)": 1,
+      "Minimum downtime (h)": 1,
+      "Maximum daily energy (MWh)": null,
+      "Maximum daily starts": null,
+      "Initial status (h)": -6,
+      "Initial power (MW)": 0,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal"
+    },
+    "g4": {
+      "Bus": "b6",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Initial status (h)": 2,
+      "Initial power (MW)": 50,
+      "Minimum uptime (h)": 3,
+      "Minimum downtime (h)": 4,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal",
+      "Ramp up limit (MW)": 70.0,
+      "Ramp down limit (MW)": 60.0,
+      "Startup limit (MW)": 105.0,
+      "Shutdown limit (MW)": 30.0
+    },
+    "g5": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Minimum uptime (h)": 3,
+      "Initial status (h)": 3,
+      "Initial power (MW)": 33,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal"
+    },
+    "g6": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Minimum uptime (h)": 10,
+      "Initial status (h)": 3,
+      "Initial power (MW)": 33,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal"
+    },
+    "g7": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Minimum downtime (h)": 3,
+      "Initial status (h)": -3,
+      "Initial power (MW)": 0,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal"
+    },
+    "g8": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Minimum downtime (h)": 10,
+      "Initial status (h)": -3,
+      "Initial power (MW)": 0,
+      "Reserve eligibility": ["r1"],
+      "Type": "Thermal"
+    },
+    "g9": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [33, 66, 100],
+      "Production cost curve ($)": [1113.75, 2369.07, 3891.54],
+      "Startup delays (h)": [1, 3, 5],
+      "Startup costs ($)": [500.0, 1000.0, 1500.0],
+      "Initial status (h)": -2,
+      "Initial power (MW)": 0,
+      "Type": "Thermal"
+    },
+    "g10": {
+      "Bus": "b8",
+      "Production cost curve (MW)": [50, 50],
+      "Production cost curve ($)": [1000.0, 1000.0],
+      "Initial status (h)": -1,
+      "Initial power (MW)": 0,
+      "Type": "Thermal"
+    },
+    "p1": {
+      "Bus": "b1",
+      "Type": "Profiled",
+      "Cost ($/MW)": 50.0,
+      "Minimum power (MW)": 10.0,
+      "Maximum power (MW)": 100.0
+    },
+    "p2": {
+      "Bus": "b2",
+      "Type": "Profiled",
+      "Cost ($/MW)": 30.0,
+      "Minimum power (MW)": 5.0,
+      "Maximum power (MW)": 80.0,
+      "Investment cost ($)": 1000
+    }
+  },
+  "Buses": {
+    "b1": {
+      "Load (MW)": 0.0
+    },
+    "b2": {
+      "Load (MW)": [26.01527, 24.46212, 23.29725, 22.90897]
+    },
+    "b3": {
+      "Load (MW)": [112.93263, 106.19039, 101.1337, 99.44814]
+    },
+    "b4": {
+      "Load (MW)": [57.30552, 53.88429, 51.31838, 50.46307]
+    },
+    "b5": {
+      "Load (MW)": [9.11134, 8.56738, 8.15941, 8.02342]
+    },
+    "b6": {
+      "Load (MW)": [13.42723, 12.62561, 12.02439, 11.82398]
+    },
+    "b7": {
+      "Load (MW)": 0.0
+    },
+    "b8": {
+      "Load (MW)": 0.0
+    },
+    "b9": {
+      "Load (MW)": [35.36638, 33.25495, 31.67138, 31.14353]
+    },
+    "b10": {
+      "Load (MW)": [10.78974, 10.14558, 9.66246, 9.50141]
+    },
+    "b11": {
+      "Load (MW)": [4.19601, 3.9455, 3.75762, 3.69499]
+    },
+    "b12": {
+      "Load (MW)": [7.31305, 6.87645, 6.549, 6.43985]
+    },
+    "b13": {
+      "Load (MW)": [16.18461, 15.21837, 14.49368, 14.25212]
+    },
+    "b14": {
+      "Load (MW)": [17.86302, 16.79657, 15.99673, 15.73012]
+    },
+    "b15": {
+      "Load (MW)": [-5.0, 10.0, 0.0, -3.0]
+    }
+  },
+  "Transmission lines": {
+    "l1": {
+      "Source bus": "b1",
+      "Target bus": "b2",
+      "Reactance (ohms)": 0.059,
+      "Susceptance (S)": 29.497,
+      "Normal flow limit (MW)": 300.0,
+      "Emergency flow limit (MW)": 400.0,
+      "Flow limit penalty ($/MW)": 1000.0
+    },
+    "l2": {
+      "Source bus": "b1",
+      "Target bus": "b5",
+      "Reactance (ohms)": 0.223,
+      "Susceptance (S)": 7.825
+    },
+    "l3": {
+      "Source bus": "b2",
+      "Target bus": "b3",
+      "Reactance (ohms)": 0.198,
+      "Susceptance (S)": 8.816
+    },
+    "l4": {
+      "Source bus": "b2",
+      "Target bus": "b4",
+      "Reactance (ohms)": 0.176,
+      "Susceptance (S)": 9.899
+    },
+    "l5": {
+      "Source bus": "b2",
+      "Target bus": "b5",
+      "Reactance (ohms)": 0.174,
+      "Susceptance (S)": 10.038
+    },
+    "l6": {
+      "Source bus": "b3",
+      "Target bus": "b4",
+      "Reactance (ohms)": 0.171,
+      "Susceptance (S)": 10.205
+    },
+    "l7": {
+      "Source bus": "b4",
+      "Target bus": "b5",
+      "Reactance (ohms)": 0.042,
+      "Susceptance (S)": 41.447
+    },
+    "l8": {
+      "Source bus": "b4",
+      "Target bus": "b7",
+      "Reactance (ohms)": 0.209,
+      "Susceptance (S)": 8.346
+    },
+    "l9": {
+      "Source bus": "b4",
+      "Target bus": "b9",
+      "Reactance (ohms)": 0.556,
+      "Susceptance (S)": 3.138
+    },
+    "l10": {
+      "Source bus": "b5",
+      "Target bus": "b6",
+      "Reactance (ohms)": 0.252,
+      "Susceptance (S)": 6.925
+    },
+    "l11": {
+      "Source bus": "b6",
+      "Target bus": "b11",
+      "Reactance (ohms)": 0.199,
+      "Susceptance (S)": 8.775
+    },
+    "l12": {
+      "Source bus": "b6",
+      "Target bus": "b12",
+      "Reactance (ohms)": 0.256,
+      "Susceptance (S)": 6.823
+    },
+    "l13": {
+      "Source bus": "b6",
+      "Target bus": "b13",
+      "Reactance (ohms)": 0.130,
+      "Susceptance (S)": 13.398
+    },
+    "l14": {
+      "Source bus": "b7",
+      "Target bus": "b8",
+      "Reactance (ohms)": 0.176,
+      "Susceptance (S)": 9.908
+    },
+    "l15": {
+      "Source bus": "b7",
+      "Target bus": "b9",
+      "Reactance (ohms)": 0.110,
+      "Susceptance (S)": 15.865
+    },
+    "l16": {
+      "Source bus": "b9",
+      "Target bus": "b10",
+      "Reactance (ohms)": 0.085,
+      "Susceptance (S)": 20.655
+    },
+    "l17": {
+      "Source bus": "b9",
+      "Target bus": "b14",
+      "Reactance (ohms)": 0.270,
+      "Susceptance (S)": 6.455
+    },
+    "l18": {
+      "Source bus": "b10",
+      "Target bus": "b11",
+      "Reactance (ohms)": 0.192,
+      "Susceptance (S)": 9.087
+    },
+    "l19": {
+      "Source bus": "b12",
+      "Target bus": "b13",
+      "Reactance (ohms)": 0.200,
+      "Susceptance (S)": 8.732
+    },
+    "l20": {
+      "Source bus": "b13",
+      "Target bus": "b14",
+      "Reactance (ohms)": 0.348,
+      "Susceptance (S)": 5.015
+    },
+    "l21": {
+      "Source bus": "b1",
+      "Target bus": "b3",
+      "Susceptance (S)": 10.0,
+      "Normal flow limit (MW)": 100.0,
+      "Flow limit penalty ($/MW)": 5000.0,
+      "Investment cost ($)": 1000,
+      "Max number of parallel circuits": 3
+    },
+    "l22": {
+      "Source bus": "b2",
+      "Target bus": "b6",
+      "Susceptance (S)": 15.0,
+      "Normal flow limit (MW)": 150.0,
+      "Flow limit penalty ($/MW)": 6000.0,
+      "Investment cost ($)": 5000,
+      "Max number of parallel circuits": 1
+    }
+  },
+  "Price-sensitive loads": {
+    "ps1": {
+      "Bus": "b3",
+      "Revenue ($/MW)": 100.0,
+      "Demand (MW)": 50.0
+    },
+    "ps2": {
+      "Bus": "b3",
+      "Revenue ($/MW)": [80.0, 90.0, 70.0, 85.0],
+      "Demand (MW)": [30.0, 40.0, 20.0, 35.0]
+    },
+    "ps3": {
+      "Bus": "b7",
+      "Revenue ($/MW)": 0.0,
+      "Demand (MW)": 0.0
+    }
+  },
+  "Storage units": {
+    "su1": {
+      "Bus": "b4",
+      "Maximum level (MWh)": 100.0,
+      "Minimum level (MWh)": 10.0,
+      "Maximum charge rate (MW)": 50.0,
+      "Minimum charge rate (MW)": 5.0,
+      "Maximum discharge rate (MW)": 40.0,
+      "Minimum discharge rate (MW)": 3.0,
+      "Charge cost ($/MW)": 2.0,
+      "Discharge cost ($/MW)": 1.5,
+      "Charge efficiency": 0.9,
+      "Discharge efficiency": 0.95,
+      "Loss factor": 0.01,
+      "Initial level (MWh)": 50.0,
+      "Last period minimum level (MWh)": 20.0,
+      "Last period maximum level (MWh)": 80.0,
+      "Allow simultaneous charging and discharging": false
+    },
+    "su2": {
+      "Bus": "b5",
+      "Maximum level (MWh)": [200.0, 200.0, 200.0, 200.0],
+      "Minimum level (MWh)": [20.0, 20.0, 20.0, 20.0],
+      "Maximum charge rate (MW)": 80.0,
+      "Maximum discharge rate (MW)": 60.0,
+      "Charge cost ($/MW)": 3.0,
+      "Discharge cost ($/MW)": 2.0,
+      "Initial level (MWh)": 100.0,
+      "Investment cost ($)": 5000,
+      "Allow simultaneous charging and discharging": true
+    }
+  },
+  "Reserves": {
+    "r1": {
+      "Type": "Spinning",
+      "Amount (MW)": 100.0,
+      "Shortfall penalty ($/MW)": 1000.0
+    },
+    "r2": {
+      "Type": "Spinning",
+      "Amount (MW)": 100.0,
+      "Shortfall penalty ($/MW)": -5
+    },
+    "r3": {
+      "Type": "Spinning",
+      "Amount (MW)": 50.0,
+      "Shortfall penalty ($/MW)": 500.0
+    }
+  }
+}

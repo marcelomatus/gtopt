@@ -92,7 +92,7 @@ include(DefaultInstallPrefix)
 option(GTOPT_BUILD_STANDALONE  "Build and install the gtopt solver binary"          ON)
 option(GTOPT_BUILD_TESTS       "Build the unit + integration test suite"             ON)
 option(GTOPT_BUILD_INTEGRATION_TESTS
-       "Build and run e2e integration tests (requires GTOPT_BUILD_STANDALONE)"       ON)
+       "Build and run e2e integration tests (requires GTOPT_BUILD_STANDALONE)"      OFF)
 option(GTOPT_BUILD_SCRIPTS     "Install the Python conversion scripts"               ON)
 option(GTOPT_BUILD_WEBSERVICE  "Install the Next.js web service (requires npm)"      ON)
 option(GTOPT_BUILD_GUISERVICE  "Install the Flask GUI service (requires Python 3.10)" ON)

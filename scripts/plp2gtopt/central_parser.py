@@ -254,3 +254,70 @@ class CentralParser(BaseParser):
             ) from e
 
         return current_gen, idx
+
+    def max_falla_cost(self) -> float:
+        """Maximum ``gcost`` across all PLP ``falla`` centrals.
+
+        Used as the global ``model_options.demand_fail_cost`` default
+        when no explicit value is provided: the system-wide upper
+        bound on unserved-load price.  Demands without an explicit
+        per-demand ``fcost`` fall back to this global, so it must be
+        at least as high as the most expensive curtailment tier
+        anywhere in the system — otherwise the LP would prefer
+        wholesale curtailment over generation that costs less than
+        the global default but more than the global.
+
+        Returns 0.0 when the central list has no ``falla`` centrals.
+        """
+        max_cost = 0.0
+        seen_any = False
+        for c in self.centrals:
+            if c.get("type") != "falla":
+                continue
+            try:
+                gcost = float(c.get("gcost", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not seen_any or gcost > max_cost:
+                max_cost = gcost
+                seen_any = True
+        return max_cost if seen_any else 0.0
+
+    def avg_falla_cost(self) -> float:
+        """Average demand-failure cost derived from PLP ``falla`` centrals.
+
+        For each bus with ``falla``-type centrals (tiered curtailment
+        rungs FALLA_bus_1 .. FALLA_bus_4), takes the MIN gcost on that
+        bus (the cheapest curtailment tier).  The returned value is the
+        mean of these per-bus minima — the average "first-tier"
+        demand-failure price across the system.
+
+        Returns 0.0 when the central list has no ``falla`` centrals.
+
+        Used as the diagnostic "avg failure cost ($/MWh)" row in the
+        plp2gtopt comparison table (``_comparison.py``).  It is NOT used
+        as the default for ``model_options.demand_fail_cost``; real
+        demands receive their curtailment cost via per-demand ``fcost``
+        set in ``gtopt_writer.write_fcost``, and the global default is
+        only a fallback for demands without an explicit fcost.  Synthetic
+        battery-charge demands (created by C++ ``System::expand_batteries``)
+        are pinned to fcost=0 in C++ regardless of the global, so this
+        method is purely diagnostic.
+        """
+        fcost_by_bus: Dict[int, float] = {}
+        for c in self.centrals:
+            if c.get("type") != "falla":
+                continue
+            try:
+                bus_val = int(c.get("bus", 0))
+            except (TypeError, ValueError):
+                continue
+            if bus_val <= 0:
+                continue
+            bus = bus_val
+            gcost = float(c.get("gcost", 0.0))
+            if bus not in fcost_by_bus or gcost < fcost_by_bus[bus]:
+                fcost_by_bus[bus] = gcost
+        if not fcost_by_bus:
+            return 0.0
+        return sum(fcost_by_bus.values()) / len(fcost_by_bus)

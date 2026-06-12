@@ -31,7 +31,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -62,7 +62,7 @@
  *   "capacity": 100,
  *   "pmax_charge": 60,
  *   "pmax_discharge": 60,
- *   "gcost": 0
+ *   "discharge_cost": 0
  * }
  * ```
  *
@@ -92,6 +92,7 @@
 
 #pragma once
 
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -126,9 +127,15 @@ namespace gtopt
  */
 struct Battery
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `BatteryLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Battery::class_name` directly (or
+  /// `BatteryLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Battery"};
+
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -136,6 +143,8 @@ struct Battery
   OptActive active {};  ///< Activation status (default: active)
   OptName
       type {};  ///< Optional battery type tag (e.g. "li-ion", "flow", "pumped")
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   /// External bus connection for the unified battery definition.
   /// When set, System::expand_batteries() auto-generates a discharge
@@ -154,37 +163,104 @@ struct Battery
   /// and discharge connect to the same external `bus`.
   OptSingleId source_generator {};
 
-  OptTRealFieldSched input_efficiency {};  ///< Charging efficiency [p.u.]
-  OptTRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
+  OptTBRealFieldSched input_efficiency {};  ///< Charging efficiency [p.u.]
+                                            ///< per-(stage, block).
+  OptTBRealFieldSched output_efficiency {};  ///< Discharging efficiency [p.u.]
+                                             ///< per-(stage, block).
   OptTRealFieldSched
       annual_loss {};  ///< Annual self-discharge rate [p.u./year]
 
-  OptTRealFieldSched emin {};  ///< Minimum state of charge [MWh]
-  OptTRealFieldSched
-      emax {};  ///< Maximum state of charge (usable capacity) [MWh]
-  OptTRealFieldSched
-      ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh]
+  OptTBRealFieldSched
+      emin {};  ///< Minimum state of charge [MWh] — per-(stage, block).
+                ///< Accepts a scalar (broadcast), a 2-D nested-array
+                ///< ``[[block0, block1, ...], ...]`` indexed by stage and
+                ///< block, or a file-backed schedule.  The 2-D form lets
+                ///< UC.jl-style ``Last period minimum level`` tighten the
+                ///< SoC bound on a single block (typically the last) of a
+                ///< stage without affecting the others.
+  OptTBRealFieldSched emax {};  ///< Maximum state of charge (usable capacity)
+                                ///< [MWh] — per-(stage, block); see ``emin``
+                                ///< for the accepted JSON / C++ shapes.
+  OptTBRealFieldSched
+      ecost {};  ///< Storage usage cost (penalty for SoC) [$/MWh] —
+                 ///< per-(stage, block); accepts a scalar (broadcasts),
+                 ///< a 2-D nested array, or a file-backed schedule.
   OptReal eini {};  ///< Initial state of charge [MWh].  Sets an equality
                     ///< constraint SoC_start = eini in the first stage of the
                     ///< first phase only.
   OptReal efin {};  ///< Minimum required terminal state of charge [MWh].
                     ///< Sets a >= constraint SoC_end >= efin in the last stage
                     ///< of the last phase (not an equality).
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/MWh].  When set (and > 0) the hard
+                         ///< ``SoC_end >= efin`` row becomes soft:
+                         ///< ``SoC_end + slack >= efin`` with the slack
+                         ///< priced at `efin_cost` in the objective.
+                         ///< Mirrors the `Reservoir.efin_cost`
+                         ///< mechanism (see storage_lp.hpp).  Mostly
+                         ///< relevant for very large batteries / LNG-
+                         ///< like seasonal storage; daily-cycle BESS
+                         ///< typically leave it unset.
 
-  OptTRealFieldSched
-      soft_emin {};  ///< Soft minimum SoC per stage [MWh].
-                     ///< Creates a penalized constraint: efin + slack >=
-                     ///< soft_emin.
+  OptTBRealFieldSched
+      soft_emin {};  ///< Soft minimum SoC [MWh] — per-(stage, block);
+                     ///< accepts a scalar (broadcasts), a 2-D nested
+                     ///< array, or a file-backed schedule.  Creates a
+                     ///< penalized constraint: efin + slack >= soft_emin.
                      ///< @see Reservoir::soft_emin for full documentation.
-  OptTRealFieldSched soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
-                                         ///< violation [$/MWh].
+  OptTBRealFieldSched
+      soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
+                          ///< violation [$/MWh] — per-(stage, block).
 
-  OptTRealFieldSched
-      pmax_charge {};  ///< Max charging power [MW] (unified definition)
-  OptTRealFieldSched
-      pmax_discharge {};  ///< Max discharging power [MW] (unified definition)
-  OptTRealFieldSched
-      gcost {};  ///< Discharge generation cost [$/MWh] (unified definition)
+  OptTBRealFieldSched
+      pmax_charge {};  ///< Max charging power [MW] (unified definition).
+                       ///< Per-(stage, block); accepts scalar, 2-D
+                       ///< ``[[block0, ...], ...]``, or file-backed.
+                       ///< Forwarded to the synthetic charge ``Demand.lmax``
+                       ///< by ``System::expand_batteries()``.
+  OptTBRealFieldSched
+      pmax_discharge {};  ///< Max discharging power [MW]
+                          ///< per-(stage, block).  Forwarded to the
+                          ///< synthetic discharge ``Generator.pmax``.
+  OptTBRealFieldSched
+      pmin_charge {};  ///< Minimum charging power [MW] per-(stage, block).
+                       ///< Forwarded to the synthetic charge ``Demand.lmin``.
+                       ///< By default a HARD floor every block; when
+                       ///< ``Battery.commitment`` is set, the synthetic
+                       ///< ``Converter`` gates the floor with a per-block
+                       ///< binary so the bound only fires when the
+                       ///< battery is actively charging.  Mirrors UC.jl
+                       ///< ``Minimum charge rate (MW)`` and PLEXOS
+                       ///< ``Battery.Min Charge Rate``.
+  OptTBRealFieldSched
+      pmin_discharge {};  ///< Minimum discharging power [MW] per-(stage,
+                          ///< block).  HARD floor on the synthetic
+                          ///< discharge ``Generator.pmin``.  Mirrors
+                          ///< UC.jl ``Minimum discharge rate (MW)`` and
+                          ///< PLEXOS ``Battery.Min Generation``.
+  OptTBRealFieldSched
+      discharge_cost {};  ///< Per-MWh cost paid when discharging the
+                          ///< battery (energy injected into the grid)
+                          ///< [$/MWh] per-(stage, block).  Mirrors
+                          ///< UC.jl ``Discharge cost ($/MW)`` and
+                          ///< PLEXOS ``Battery.Generation Cost``.
+                          ///< Forwarded to the synthetic discharge
+                          ///< ``Generator.gcost`` (also TB) by
+                          ///< ``System::expand_batteries()``.
+
+  OptTBRealFieldSched charge_cost {};
+  ///< Per-MWh cost paid when charging the battery [$/MWh]
+  ///< per-(stage, block).  Mirrors UC.jl's per-hour ``Charge cost
+  ///< ($/MW)`` and PLEXOS's battery charge cost.
+  ///< Counterpart to ``discharge_cost``: ``discharge_cost`` prices
+  ///< energy injected into the grid, ``charge_cost`` prices energy
+  ///< absorbed from it.  Wired through ``System::expand_batteries()``
+  ///< onto the synthetic charge-side Demand element by encoding the
+  ///< cost as a negative ``Demand.fcost`` — the demand-LP substitution
+  ///< (``demand_lp.cpp:249``) then stamps the column with the correct
+  ///< positive coefficient (``lcol_cost = -block_ecost``).  When
+  ///< unset (default), charging is free at the LP level (only the
+  ///< discharge cost is paid).
 
   OptTRealFieldSched capacity {};  ///< Installed energy capacity [MWh]
   OptTRealFieldSched expcap {};  ///< Energy capacity per expansion module [MWh]
@@ -195,6 +271,7 @@ struct Battery
       annual_capcost {};  ///< Annualized investment cost [$/MWh-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
   /// Whether to propagate SoC state across stage/phase boundaries via
   /// StateVariables (SDDP-style coupling). When false (the default for
@@ -209,11 +286,38 @@ struct Battery
   /// Default for batteries is true (enabled); can be disabled explicitly.
   OptBool daily_cycle {};
 
-  /// Energy scale factor: the LP energy variable is divided by this value so
-  /// that the LP works in scaled units (physical_energy / energy_scale).
-  /// Default is 1.0 (no scaling).  Output values are rescaled back to
-  /// physical units so results are invariant to the choice of energy_scale.
-  OptReal energy_scale {};
+  /// Daily energy-throughput limit — PLEXOS ``Battery.Max Cycles Day``.
+  /// Sets the HARD constraint ``Σ_blocks discharge·Δt ≤ N · capacity`` per
+  /// day, where ``N = max_cycles_day`` and ``capacity`` is the usable energy
+  /// (one full discharge of the usable capacity = one cycle).  The
+  /// discharge throughput is measured cell-side, i.e. the coefficient
+  /// includes the ``1/output_efficiency`` drain term (identical to the
+  /// SoC-drain coefficient in the energy balance), so losses count toward a
+  /// cycle.  This is a constraint, NOT an objective cost: it never enters
+  /// the objective and therefore does not distort marginal / LMP /
+  /// operational costs.  Unset ⇒ no constraint.  The time-model branch
+  /// (single per-day row for PLP-style daily-cycle stages vs. a rolling
+  /// 24 h window per day for chronological stages) is selected by the
+  /// existing ``daily_cycle`` flag, mirroring ``storage_lp.hpp``.
+  OptReal max_cycles_day {};
+
+  /// Gate the synthetic charge ``Demand`` and discharge ``Generator``
+  /// floors with per-block INTEGER commitment binaries on the linking
+  /// ``Converter``.  When unset (default), ``pmin_charge`` /
+  /// ``pmin_discharge`` are HARD floors that fire every block — correct
+  /// for must-run batteries and LP-only solves.  When set, the
+  /// ``Converter`` LP adds per-block binaries ``u_charge`` /
+  /// ``u_discharge`` and the C2-style rows ``load ≥ lmin × u_charge``,
+  /// ``load ≤ lmax × u_charge`` (and the analogous pair on the
+  /// discharge side), so the floor only fires WHEN the battery is
+  /// actively charging/discharging.  Mirrors UC.jl's conditional
+  /// ``Minimum charge/discharge rate (MW)`` semantics and PLEXOS
+  /// ``Battery.Commitment Status``.  Always introduces integer
+  /// columns — if you need LP-relax behaviour leave ``commitment``
+  /// unset (hard floors), which is the natural LP-only mode.
+  /// Propagated by ``System::expand_batteries()`` onto
+  /// ``Converter.commitment``.
+  OptBool commitment {};
 };
 
 }  // namespace gtopt

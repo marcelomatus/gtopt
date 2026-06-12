@@ -235,3 +235,98 @@ def test_no_description_for_non_suspect_name(tmp_path):
     gen = result[0]
     assert gen["type"] == "thermal"
     assert "description" not in gen
+
+
+# ---------------------------------------------------------------------------
+# Issue #524 — last-resort renewable:hydro fallback for PLP-only thermals
+# that have no fuel-cost signal and auto-detect didn't find a name match.
+# ---------------------------------------------------------------------------
+
+
+def test_524_fallback_hr0_no_pattern_with_autodetect(tmp_path):
+    """PLP termica + gcost=0 + no pattern match + auto-detect ON
+    → fallback to renewable:hydro (small distributed unit).
+    """
+    centrals = [
+        {
+            "name": "ALTO_HOSPICIO",  # not in CEN _FV / _EO suffix patterns
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 5.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+    assert result[0]["type"] == "renewable:hydro"
+
+
+def test_524_no_fallback_when_autodetect_off(tmp_path):
+    """Same input but auto-detect OFF → legacy behaviour preserved
+    (type stays "thermal", description gets the suspected note).
+    """
+    centrals = [
+        {
+            "name": "ALTO_HOSPICIO",
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 5.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": False}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+    assert result[0]["type"] == "thermal"  # unchanged
+    assert "description" not in result[0]  # no suspected pattern match
+
+
+def test_524_no_fallback_when_gcost_nonzero(tmp_path):
+    """Real thermal with gcost>0 keeps type=thermal even with
+    auto-detect on (fuel-cost signal indicates real combustion)."""
+    centrals = [
+        {
+            "name": "DIESEL_PEAKER",
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 50.0,
+            "pmin": 0.0,
+            "gcost": 200.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+    # detect_technology may refine via name (none here) but bare
+    # "thermal" + gcost>0 must NOT trigger the renewable fallback
+    assert result[0]["type"] in ("thermal", "diesel")  # tolerant on pattern hit
+
+
+def test_524_pattern_match_beats_fallback(tmp_path):
+    """When auto-detect catches the name (_FV → solar), the
+    fallback never runs."""
+    centrals = [
+        {
+            "name": "CAPRICORNIO_FV",
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 100.0,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+    assert result[0]["type"] == "solar"  # _FV suffix detection wins

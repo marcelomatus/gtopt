@@ -1,0 +1,55 @@
+% ===========================================================
+% conclusions.tex
+% ===========================================================
+\section{Conclusions}
+\label{sec:conclusions}
+
+A reconstruction methodology for per-bus, per-quarter marginal
+CO$_2$ emission factors in the Chilean power system has been
+presented.  The pipeline, distributed as the \texttt{cen2gtopt}
+subpackage of \texttt{gtopt}, combines the SCVIC merit-ladder, the
+published \texttt{generaci\'on-real} dispatch, the
+\texttt{instrucciones-operacionales-cmg} price-taker classification,
+the PLEXOS PID overlay for binding technical-minimum data, and the
+PCP/PID solution \texttt{.accdb} oracle, into a pipeline that runs
+on a warm cache in approximately \SI{6}{\second}.  Across the
+\num{2494} (bus, quarter) cells of 2026-04-22 the reconstructed
+marginal cost agrees with $\lambda^{\mathrm{CEN}}$ to a mean
+absolute error of \SI{0.152}{\USD\per\MWh}, a P90 of
+\SI{0.471}{\USD\per\MWh}, and a maximum of
+\SI{1.338}{\USD\per\MWh}; per-island marginal-unit coherence is
+exact (\num{0}/\num{474} disagreements).
+
+The pipeline closes a documented gap: CEN does not publish a per-bus
+per-quarter marginal CO$_2$ factor, and prior academic work has
+focused on system-level or zonal aggregates~\cite{Bonvallet2016,
+Moreno2014}.  This is, to our knowledge, the first public-data-only
+reconstruction at \SI{15}{\minute} resolution validated against the
+LP-solver-output values extracted from the PLEXOS \texttt{.accdb},
+and the first openly distributed pipeline for the SEN with a
+hash-keyed cache and multi-day Hive-partitioned orchestration.
+
+Three forward integrations are envisaged.  First, a multi-day rollout
+of the \texttt{cen2gtopt-marginal-period} orchestrator on a daily
+cron with public artefact publishing — closing the operator-facing
+gap relative to CAISO's \textit{Today's
+Outlook}~\cite{CAISOOutlook}.  Second, a CEN public dashboard
+(Streamlit/Flask over the parquet schema) that exposes today's
+$\lambda$, $\varepsilon$, and island map to non-Python consumers;
+the schema is already DuckDB-friendly.  Third, a counterfactual
+companion via \texttt{gtopt} stochastic dual dynamic
+programming~\cite{gtopt2026}: feeding the same SCVIC ladder, the
+same dispatch, and the same MLFs into the SDDP solver would produce
+a per-bus marginal loss + congestion decomposition at the cost of
+one auxiliary LP per perturbation, calibrating the empirical
+reverse-engineering's ground truth in the spirit of
+\cite{ValenzuelaASL2022}.  This third integration also opens a
+back-test window for the SDDP solver itself: any divergence between
+the gtopt-computed $\hat\lambda^{\mathrm{SDDP}}$ and the empirical
+$\hat\lambda$ on a closed historical day flags a solver/data
+discrepancy worth investigating.
+
+The pipeline source, the parquet outputs for the headline day, and
+the figures of this paper are available at
+\url{https://github.com/marcelomatus/gtopt}; \texttt{cen2gtopt}
+installs via \texttt{pip} from the \texttt{scripts/} directory.

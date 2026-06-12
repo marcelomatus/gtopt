@@ -1,0 +1,104 @@
+{
+  "options": {
+    "input_directory": ".",
+    "input_format": "parquet",
+    "lp_matrix_options": {
+      "equilibration_method": "ruiz"
+    },
+    "method": "sddp",
+    "model_options": {
+      "auto_scale": true,
+      "demand_fail_cost": 0.0,
+      "scale_objective": 1.0,
+      "state_violation_cost": 1000,
+      "strict_storage_emin": false,
+      "use_kirchhoff": true,
+      "use_single_bus": true
+    },
+    "output_compression": "zstd",
+    "output_directory": "results",
+    "output_format": "parquet",
+    "sddp_options": {
+      "aperture_drop_fcuts": true,
+      "convergence_tol": 0.01,
+      "cut_coeff_eps": 1e-08,
+      "elastic_mode": "multi_cut"
+    }
+  },
+  "simulation": {
+    "annual_discount_rate": 0.0,
+    "block_array": [
+      {
+        "duration": 1.0,
+        "uid": 1
+      }
+    ],
+    "phase_array": [
+      {
+        "count_stage": 1,
+        "first_stage": 0,
+        "uid": 1
+      }
+    ],
+    "scenario_array": [
+      {
+        "hydrology": 0,
+        "probability_factor": 1.0,
+        "uid": 1
+      }
+    ],
+    "scene_array": [
+      {
+        "count_scenario": 1,
+        "first_scenario": 0,
+        "uid": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "active": 1,
+        "count_block": 1,
+        "discount_factor": 1.0,
+        "first_block": 0,
+        "month": "january",
+        "uid": 1
+      }
+    ]
+  },
+  "system": {
+    "battery_array": [],
+    "bus_array": [
+      {
+        "name": "Bus1",
+        "reference_theta": 0.0,
+        "uid": 1,
+        "voltage": 1.0
+      }
+    ],
+    "capacity_profile_array": [],
+    "demand_array": [
+      {
+        "bus": 1,
+        "fcost": 9999.0,
+        "lmax": "lmax",
+        "name": "Bus1",
+        "uid": 1
+      }
+    ],
+    "generator_array": [
+      {
+        "bus": 1,
+        "capacity": 100.0,
+        "gcost": 50.0,
+        "name": "Thermal1",
+        "pmax": 100.0,
+        "pmin": 0.0,
+        "type": "thermal",
+        "uid": 1
+      }
+    ],
+    "line_array": [],
+    "name": "plp2gtopt",
+    "version": "plp2gtopt 1.0.0, from plp_min_1bus"
+  }
+}

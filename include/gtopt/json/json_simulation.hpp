@@ -42,7 +42,8 @@ struct SimulationConstructor
                                       OptName boundary_cuts_valuation_str,
                                       OptName probability_rescale_str,
                                       OptName kappa_warning_str,
-                                      OptReal kappa_threshold) const
+                                      OptReal kappa_threshold,
+                                      OptName block_hour_map) const
   {
     Simulation sim;
     sim.block_array = std::move(block_array);
@@ -56,19 +57,20 @@ struct SimulationConstructor
     sim.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_valuation_str) {
       sim.boundary_cuts_valuation =
-          gtopt::enum_from_name<gtopt::BoundaryCutsValuation>(
-              *boundary_cuts_valuation_str);
+          gtopt::require_enum<gtopt::BoundaryCutsValuation>(
+              "boundary_cuts_valuation", *boundary_cuts_valuation_str);
     }
     if (probability_rescale_str) {
       sim.probability_rescale =
-          gtopt::enum_from_name<gtopt::ProbabilityRescaleMode>(
-              *probability_rescale_str);
+          gtopt::require_enum<gtopt::ProbabilityRescaleMode>(
+              "probability_rescale", *probability_rescale_str);
     }
     if (kappa_warning_str) {
-      sim.kappa_warning =
-          gtopt::enum_from_name<gtopt::KappaWarningMode>(*kappa_warning_str);
+      sim.kappa_warning = gtopt::require_enum<gtopt::KappaWarningMode>(
+          "kappa_warning", *kappa_warning_str);
     }
     sim.kappa_threshold = kappa_threshold;
+    sim.block_hour_map = std::move(block_hour_map);
     return sim;
   }
 };
@@ -91,7 +93,8 @@ struct json_data_contract<Simulation>
       json_string_null<"boundary_cuts_valuation", OptName>,
       json_string_null<"probability_rescale", OptName>,
       json_string_null<"kappa_warning", OptName>,
-      json_number_null<"kappa_threshold", OptReal>>;
+      json_number_null<"kappa_threshold", OptReal>,
+      json_string_null<"block_hour_map", OptName>>;
 
   static auto to_json_data(Simulation const& simulation)
   {
@@ -108,7 +111,8 @@ struct json_data_contract<Simulation>
         detail::enum_to_opt_name(simulation.boundary_cuts_valuation),
         detail::enum_to_opt_name(simulation.probability_rescale),
         detail::enum_to_opt_name(simulation.kappa_warning),
-        simulation.kappa_threshold);
+        simulation.kappa_threshold,
+        simulation.block_hour_map);
   }
 };
 }  // namespace daw::json

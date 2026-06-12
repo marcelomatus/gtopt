@@ -64,6 +64,16 @@ else()
   message(STATUS "Solver plugin: MindOpt skipped (MindOpt not found; set MINDOPT_HOME or MINDOPT_ROOT_DIR)")
 endif()
 
+# ---- Gurobi plugin ----
+
+find_package(Gurobi QUIET)
+if(GUROBI_FOUND)
+  message(STATUS "Solver plugin: Gurobi enabled (${GUROBI_INCLUDE_DIR})")
+  add_subdirectory(gurobi)
+else()
+  message(STATUS "Solver plugin: Gurobi skipped (Gurobi not found; set GUROBI_HOME or GUROBI_ROOT_DIR)")
+endif()
+
 if(highs_FOUND OR HIGHS_FOUND)
   # Config-mode sets the highs::highs imported target.
   # Legacy Find-module mode sets HIGHS_INCLUDE_DIRS / HIGHS_LIBRARIES.

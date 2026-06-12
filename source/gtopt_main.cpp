@@ -1,6 +1,6 @@
 /**
  * @file      gtopt_main.cpp
- * @brief     Core application entry point for the gtopt optimizer
+ * @brief     Thin orchestrator for the gtopt optimizer
  * @date      Thu Feb 19 00:00:00 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -10,7 +10,6 @@
  *
  * Key options handled here:
  *  - `planning_files`: list of JSON case file stems to load and merge.
- *  - `fast_parsing`: use lenient (non-strict) JSON parsing.
  *  - `lp_only`: build all scene/phase LP matrices but skip solving;
  *    validating input without running the solver.
  *  - `json_file`: write the merged Planning to a JSON file before solving.
@@ -21,34 +20,33 @@
  *    the monolithic solver; one per iteration/scene/phase for SDDP) to the
  *    `log_directory`.  If `output_compression` is set (e.g. `"gzip"`), the
  *    files are compressed automatically and the originals removed.
+ *
+ * The heavy DAW JSON and Arrow/Parquet compilation is delegated to
+ * gtopt_json_io.cpp and gtopt_lp_runner.cpp respectively, enabling
+ * parallel compilation of these three translation units.
  */
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <fstream>
-#include <optional>
 #include <ranges>
 #include <string>
-#include <string_view>
 #include <utility>
-#include <vector>
 
-#include <daw/daw_read_file.h>
-#include <gtopt/error.hpp>
+#include <gtopt/gtopt_json_io.hpp>
+#include <gtopt/gtopt_lp_runner.hpp>
 #include <gtopt/gtopt_main.hpp>
-#include <gtopt/json/json_planning.hpp>
-#include <gtopt/json/json_user_constraint.hpp>
-#include <gtopt/lp_stats.hpp>
 #include <gtopt/main_options.hpp>
 #include <gtopt/output_context.hpp>
-#include <gtopt/pampl_parser.hpp>
-#include <gtopt/planning_lp.hpp>
 #include <gtopt/resolve_planning_args.hpp>
-#include <gtopt/solver_options.hpp>
 #include <gtopt/validate_planning.hpp>
+#include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
@@ -58,705 +56,213 @@ namespace gtopt
 namespace
 {
 
-constexpr auto FastParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::no,
-    daw::json::options::ExcludeSpecialEscapes::no,
-    daw::json::options::UseExactMappingsByDefault::no>;
-
-constexpr auto StrictParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::yes,
-    daw::json::options::ExcludeSpecialEscapes::yes,
-    daw::json::options::UseExactMappingsByDefault::no>;
-
-/// Same as StrictParsePolicy but rejects any JSON key not listed in the schema.
-/// Used by the --check-json pass to surface typos / unknown fields.
-constexpr auto ExactParsePolicy = daw::json::options::parse_flags<
-    daw::json::options::PolicyCommentTypes::hash,
-    daw::json::options::CheckedParseMode::yes,
-    daw::json::options::ExcludeSpecialEscapes::yes,
-    daw::json::options::UseExactMappingsByDefault::yes>;
-
-// ── --set key=value support ─────────────────────────────────────────────────
-
-/// Auto-detect the JSON type of a value string.
-/// Returns the value ready for embedding in a JSON document:
-///  - "true"/"false"/"null" → bare keyword
-///  - integer string        → bare number
-///  - decimal / scientific  → bare number
-///  - anything else         → JSON-quoted string
-[[nodiscard]] std::string to_json_value(const std::string& v)
+/// Resolve the directory used for log/trace files.
+///
+/// Prefers `opts.log_directory` when set; otherwise falls back to
+/// `<output_directory>/logs` (with `output_directory` itself defaulting
+/// to "output").  Does *not* create the directory — callers do that.
+[[nodiscard]] std::filesystem::path resolve_log_dir(const MainOptions& opts)
 {
-  if (v == "true" || v == "false" || v == "null") {
-    return v;
+  if (opts.log_directory.has_value()) {
+    return {opts.log_directory.value()};
   }
-  // Try integer
-  {
-    char* end = nullptr;
-    (void)std::strtoll(v.c_str(), &end, /*base=*/10);
-    if (end != v.c_str() && *end == '\0') {
-      return v;
-    }
-  }
-  // Try floating-point
-  {
-    char* end = nullptr;
-    (void)std::strtod(v.c_str(), &end);
-    if (end != v.c_str() && *end == '\0') {
-      return v;
-    }
-  }
-  // String: escape backslashes and double-quotes
-  std::string escaped;
-  escaped.reserve(v.size() + 2);
-  escaped += '"';
-  for (const char c : v) {
-    if (c == '"' || c == '\\') {
-      escaped += '\\';
-    }
-    escaped += c;
-  }
-  escaped += '"';
-  return escaped;
+  return std::filesystem::path(opts.output_directory.value_or("output"))
+      / "logs";
 }
 
-/// Build a minimal Planning JSON overlay from a dotted key and a JSON value.
-/// The key is a dotted path relative to `planning.options`, e.g.
-/// `"sddp_options.forward_solver_options.threads"`.  The result is a valid
-/// JSON string like:
-/// `{"options":{"sddp_options":{"forward_solver_options":{"threads":8}}}}`
-[[nodiscard]] std::string build_set_option_json(const std::string& dotted_key,
-                                                const std::string& json_val)
+/// Pick the run number `N` shared by every log file produced this run.
+///
+/// Scans @p log_dir for the smallest `N >= 1` such that neither
+/// `gtopt_N.log` nor `trace_N.log` already exists, so a single run
+/// pairs `gtopt_3.log` with `trace_3.log` (matching N — the user
+/// shouldn't have to cross-reference two different counters).
+///
+/// The result is cached in a function-local static so the second
+/// caller (typically `setup_trace_log` after `setup_file_logging`)
+/// reuses the same N even if the first caller has already created
+/// `gtopt_N.log` on disk.  Within one process @p log_dir is constant,
+/// so the cache is safe.
+///
+/// When every slot is taken, falls back to a timestamp-derived number.
+/// Failures creating the directory only emit a warning.
+[[nodiscard]] int pick_run_number(const std::filesystem::path& log_dir)
 {
-  // Split the key on '.'
-  std::vector<std::string_view> parts;
-  std::string_view key_sv {dotted_key};
-  while (true) {
-    const auto dot = key_sv.find('.');
-    if (dot == std::string_view::npos) {
-      parts.push_back(key_sv);
-      break;
-    }
-    parts.push_back(key_sv.substr(0, dot));
-    key_sv.remove_prefix(dot + 1);
+  static int cached = 0;
+  if (cached != 0) {
+    return cached;
   }
-
-  // Build nested JSON under "options"
-  std::string json = "{\"options\":{";
-  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-    json += '"';
-    json += parts[i];
-    json += "\":{";
-  }
-  json += '"';
-  json += parts.back();
-  json += "\":";
-  json += json_val;
-  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
-    json += '}';
-  }
-  json += "}}";
-  return json;
-}
-
-/// Set a single field on a SolverOptions struct.
-/// @return true if the field was recognised and set.
-bool try_set_solver_field(SolverOptions& so,
-                          std::string_view field,
-                          const std::string& value)
-{
-  if (field == "threads") {
-    so.threads = std::stoi(value);
-    return true;
-  }
-  if (field == "algorithm") {
-    if (const auto algo = enum_from_name<LPAlgo>(value)) {
-      so.algorithm = *algo;
-    } else {
-      so.algorithm = static_cast<LPAlgo>(std::stoi(value));
-    }
-    return true;
-  }
-  if (field == "presolve") {
-    so.presolve = (value == "true" || value == "1");
-    return true;
-  }
-  if (field == "log_level") {
-    so.log_level = std::stoi(value);
-    return true;
-  }
-  if (field == "optimal_eps") {
-    so.optimal_eps = std::stod(value);
-    return true;
-  }
-  if (field == "feasible_eps") {
-    so.feasible_eps = std::stod(value);
-    return true;
-  }
-  if (field == "barrier_eps") {
-    so.barrier_eps = std::stod(value);
-    return true;
-  }
-  if (field == "time_limit") {
-    so.time_limit = std::stod(value);
-    return true;
-  }
-  if (field == "reuse_basis") {
-    so.reuse_basis = (value == "true" || value == "1");
-    return true;
-  }
-  if (field == "log_mode") {
-    if (const auto mode = enum_from_name<SolverLogMode>(value)) {
-      so.log_mode = mode;
-    } else {
-      so.log_mode = static_cast<SolverLogMode>(std::stoi(value));
-    }
-    return true;
-  }
-  return false;
-}
-
-/// Try to handle a --set key=value as a direct SolverOptions field set.
-/// Returns true if the key matched a solver_options path and was applied.
-bool try_set_solver_options_path(Planning& planning,
-                                 const std::string& key,
-                                 const std::string& value)
-{
-  // solver_options.<field>
-  constexpr std::string_view pfx_so = "solver_options.";
-  if (key.starts_with(pfx_so)) {
-    return try_set_solver_field(
-        planning.options.solver_options, key.substr(pfx_so.size()), value);
-  }
-
-  // sddp_options.forward_solver_options.<field>
-  constexpr std::string_view pfx_fwd = "sddp_options.forward_solver_options.";
-  if (key.starts_with(pfx_fwd)) {
-    auto& fso = planning.options.sddp_options.forward_solver_options;
-    if (!fso) {
-      fso = SolverOptions {};
-    }
-    return try_set_solver_field(*fso, key.substr(pfx_fwd.size()), value);
-  }
-
-  // sddp_options.backward_solver_options.<field>
-  constexpr std::string_view pfx_bwd = "sddp_options.backward_solver_options.";
-  if (key.starts_with(pfx_bwd)) {
-    auto& bso = planning.options.sddp_options.backward_solver_options;
-    if (!bso) {
-      bso = SolverOptions {};
-    }
-    return try_set_solver_field(*bso, key.substr(pfx_bwd.size()), value);
-  }
-
-  // monolithic_options.solver_options.<field>
-  constexpr std::string_view pfx_mono = "monolithic_options.solver_options.";
-  if (key.starts_with(pfx_mono)) {
-    auto& mso = planning.options.monolithic_options.solver_options;
-    if (!mso) {
-      mso = SolverOptions {};
-    }
-    return try_set_solver_field(*mso, key.substr(pfx_mono.size()), value);
-  }
-
-  return false;
-}
-
-/// Apply all `--set key=value` overrides to a Planning object.
-/// Each entry in @p set_options is `"dotted.path=value"`.  The function
-/// first tries a direct setter for SolverOptions paths (which have required
-/// non-optional fields), then falls back to a JSON overlay approach for all
-/// other paths.
-/// @return true if all options were applied successfully, false on any error.
-[[nodiscard]] bool apply_set_options(
-    Planning& planning, const std::vector<std::string>& set_options)
-{
-  for (const auto& opt : set_options) {
-    const auto eq_pos = opt.find('=');
-    if (eq_pos == std::string::npos || eq_pos == 0) {
-      spdlog::error("--set: invalid format '{}' (expected key=value)", opt);
-      return false;
-    }
-    const auto key = opt.substr(0, eq_pos);
-    const auto value = opt.substr(eq_pos + 1);
-
-    // Direct setter for SolverOptions paths (non-optional struct fields)
-    try {
-      if (try_set_solver_options_path(planning, key, value)) {
-        spdlog::info("--set {}={} applied", key, value);
-        continue;
-      }
-    } catch (const std::exception& ex) {
-      spdlog::error("--set {}={}: {}", key, value, ex.what());
-      return false;
-    }
-
-    // JSON overlay approach for all other paths
-    const auto json_val = to_json_value(value);
-    auto json = build_set_option_json(key, json_val);
-
-    try {
-      auto overlay = daw::json::from_json<Planning>(json, FastParsePolicy);
-      planning.merge(std::move(overlay));
-      spdlog::info("--set {}={} applied", key, value);
-    } catch (const daw::json::json_exception& ex) {
-      // If auto-typed value failed (e.g. number where string expected),
-      // retry with the value as a quoted string
-      if (json_val.front() != '"') {
-        auto str_json = build_set_option_json(key, "\"" + value + "\"");
-        try {
-          auto overlay =
-              daw::json::from_json<Planning>(str_json, FastParsePolicy);
-          planning.merge(std::move(overlay));
-          spdlog::info("--set {}={} applied (as string)", key, value);
-          continue;
-        } catch (...) {  // NOLINT(bugprone-empty-catch)
-        }
-      }
-      spdlog::error("--set {}={}: unknown option or invalid value", key, value);
-      return false;
-    }
-  }
-  return true;
-}
-
-// ── end --set support ───────────────────────────────────────────────────────
-
-/**
- * @brief Parse planning JSON files into a Planning object.
- *
- * Iterates over each path in @p planning_files, reads the JSON, and merges
- * it into a single Planning.  Returns an error string on the first failure.
- *
- * @param planning_files Paths to input JSON files (without extension).
- * @param strict_parsing Use strict parse policy when true.
- * @param check_json     Warn (via spdlog) about unrecognised JSON fields.
- * @return The merged Planning or an error message.
- */
-[[nodiscard]] std::expected<Planning, std::string> parse_planning_files(
-    const std::vector<std::string>& planning_files,
-    bool strict_parsing,
-    bool check_json,
-    const std::optional<std::string>& input_directory = {})
-{
-  const spdlog::stopwatch sw;
-  Planning my_planning;
-
-  for (const auto& planning_file : planning_files) {
-    try {
-      std::filesystem::path fpath(planning_file);
-      fpath.replace_extension(".json");
-
-      // Check existence before calling daw::read_file, which is noexcept
-      // and would call std::terminate via std::filesystem::file_size if
-      // the file is missing.  If the file is not found in the current
-      // directory, try the input_directory as a fallback.
-      if (!std::filesystem::exists(fpath) && input_directory.has_value()) {
-        auto alt =
-            std::filesystem::path(input_directory.value()) / fpath.filename();
-        if (std::filesystem::exists(alt)) {
-          spdlog::info("  Found '{}' in input_directory '{}'",
-                       fpath.filename().string(),
-                       input_directory.value());
-          fpath = std::move(alt);
-        }
-      }
-      if (!std::filesystem::exists(fpath)) {
-        return std::unexpected(
-            std::format("Input file '{}' does not exist", fpath.string()));
-      }
-
-      // NOLINTNEXTLINE(clang-analyzer-unix.Stream) - stream leak false
-      // positive in daw::read_file
-      const auto json_result = daw::read_file(fpath.string());
-
-      if (!json_result) {
-        return std::unexpected(
-            std::format("Failed to read input file '{}'", planning_file));
-      }
-
-      spdlog::info(std::format("  Parsing input file {}", fpath.string()));
-
-      // Optional pre-pass: parse with exact-mapping policy to surface any
-      // JSON key not listed in the schema.  This parses the file a second
-      // time (performance trade-off), but only when --check-json is
-      // explicitly requested.  Warnings only — parsing always proceeds with
-      // the normal policy below.
-      if (check_json) {
-        try {
-          (void)daw::json::from_json<Planning>(json_result.value(),
-                                               ExactParsePolicy);
-        } catch (const daw::json::json_exception& jex) {
-          spdlog::warn("Unknown JSON field in '{}': {}",
-                       fpath.string(),
-                       to_formatted_string(jex, json_result.value().c_str()));
-        }
-      }
-
-      try {
-        if (strict_parsing) {
-          auto plan = daw::json::from_json<Planning>(json_result.value(),
-                                                     StrictParsePolicy);
-          my_planning.merge(std::move(plan));
-        } else {
-          auto plan = daw::json::from_json<Planning>(json_result.value(),
-                                                     FastParsePolicy);
-          my_planning.merge(std::move(plan));
-        }
-      } catch (const daw::json::json_exception& jex) {
-        return std::unexpected(
-            std::format("JSON parsing error in file '{}': {}",
-                        fpath.string(),
-                        to_formatted_string(jex, json_result.value().c_str())));
-      }
-
-    } catch (const std::exception& ex) {
-      return std::unexpected(
-          std::format("Unexpected error processing file '{}': {}",
-                      planning_file,
-                      ex.what()));
-    }
-  }
-
-  spdlog::info(std::format("  Parse all input files time {:.3f}s",
-                           sw.elapsed().count()));
-  return my_planning;
-}
-
-/**
- * @brief Write the merged Planning to a JSON file.
- *
- * @param planning  The planning object to serialise.
- * @param json_file Output path stem (extension is replaced with ".json").
- * @return void on success or an error message.
- */
-[[nodiscard]] std::expected<void, std::string> write_json_output(
-    const Planning& planning, const std::string& json_file)
-{
-  const spdlog::stopwatch sw;
-  std::filesystem::path jpath(json_file);
-
   try {
-    jpath.replace_extension(".json");
-  } catch (const std::filesystem::filesystem_error& ex) {
-    return std::unexpected(
-        std::format("Filesystem error processing JSON output path '{}': {}",
-                    json_file,
-                    ex.what()));
+    std::filesystem::create_directories(log_dir);
+  } catch (const std::filesystem::filesystem_error& fe) {
+    spdlog::warn(
+        "could not create log directory '{}': {}", log_dir.string(), fe.what());
   }
-
-  std::ofstream jfile(jpath);
-  if (!jfile) {
-    return std::unexpected(
-        std::format("Failed to create JSON output file '{}'", jpath.string()));
+  constexpr int max_files = 10000;
+  for (int n = 1; n <= max_files; ++n) {
+    const auto gtopt_path = log_dir / std::format("gtopt_{}.log", n);
+    const auto trace_path = log_dir / std::format("trace_{}.log", n);
+    if (!std::filesystem::exists(gtopt_path)
+        && !std::filesystem::exists(trace_path))
+    {
+      cached = n;
+      return cached;
+    }
   }
-
-  try {
-    jfile << daw::json::to_json(planning) << '\n';
-  } catch (const daw::json::json_exception& ex) {
-    return std::unexpected(
-        std::format("JSON serialization error for file '{}': {}",
-                    jpath.string(),
-                    ex.what()));
-  }
-
-  spdlog::info(std::format("  Write system json file time {:.3f}s",
-                           sw.elapsed().count()));
-  return {};
+  // All slots used — fall back to timestamp-derived run number.
+  const auto now = std::chrono::system_clock::now();
+  const auto ts = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch())
+          .count());
+  cached = static_cast<int>(ts & 0x7fffffffULL);
+  return cached;
 }
 
-/**
- * @brief Log pre-solve system statistics.
- *
- * Delegates to `gtopt_check_json --info` via posix_spawn (no shell, timeout-
- * protected, output captured).  Each output line is forwarded through the
- * spdlog INFO stream so that stats always appear in the same log channel as
- * the rest of the solver output.  Falls back to the built-in C++
- * implementation when the script is not installed or exits non-zero.
- *
- * @param planning_files The list of planning JSON file stems/paths.
- * @param planning        The parsed planning (used for the built-in fallback).
- */
-void log_pre_solve_stats(
-    [[maybe_unused]] const std::vector<std::string>& planning_files,
-    const Planning& planning)
+/// Build the path `<log_dir>/<stem>_<N>.log` for the current run.
+[[nodiscard]] std::string numbered_log_path(
+    const std::filesystem::path& log_dir, std::string_view stem)
 {
-  // Pre-solve stats are now printed by the built-in C++ code.
-  // The external gtopt_check_json tool (richer output with global indicators)
-  // is invoked by the run_gtopt wrapper script as a pre-step.
-
-  const auto& sys = planning.system;
-  const auto& sim = planning.simulation;
-  const auto& plan_opts = planning.options;
-
-  spdlog::info("=== System statistics ===");
-  spdlog::info(std::format("  System name     : {}", sys.name));
-  spdlog::info(std::format("  System version  : {}", sys.version));
-  spdlog::info("=== System elements  ===");
-  spdlog::info(std::format("  Buses           : {}", sys.bus_array.size()));
-  spdlog::info(
-      std::format("  Generators      : {}", sys.generator_array.size()));
-  spdlog::info(std::format("  Generator profs : {}",
-                           sys.generator_profile_array.size()));
-  spdlog::info(std::format("  Demands         : {}", sys.demand_array.size()));
-  spdlog::info(
-      std::format("  Demand profs    : {}", sys.demand_profile_array.size()));
-  spdlog::info(std::format("  Lines           : {}", sys.line_array.size()));
-  spdlog::info(std::format("  Batteries       : {}", sys.battery_array.size()));
-  spdlog::info(
-      std::format("  Converters      : {}", sys.converter_array.size()));
-  spdlog::info(
-      std::format("  Reserve zones   : {}", sys.reserve_zone_array.size()));
-  spdlog::info(std::format("  Reserve provisions   : {}",
-                           sys.reserve_provision_array.size()));
-  spdlog::info(
-      std::format("  Junctions       : {}", sys.junction_array.size()));
-  spdlog::info(
-      std::format("  Waterways       : {}", sys.waterway_array.size()));
-  spdlog::info(std::format("  Flows           : {}", sys.flow_array.size()));
-  spdlog::info(
-      std::format("  Reservoirs      : {}", sys.reservoir_array.size()));
-  spdlog::info(std::format("  ReservoirSeepages     : {}",
-                           sys.reservoir_seepage_array.size()));
-  spdlog::info(std::format("  Turbines        : {}", sys.turbine_array.size()));
-  if (!sys.flow_right_array.empty()) {
-    spdlog::info(
-        std::format("  Flow rights     : {}", sys.flow_right_array.size()));
-  }
-  if (!sys.volume_right_array.empty()) {
-    spdlog::info(
-        std::format("  Volume rights   : {}", sys.volume_right_array.size()));
-  }
-  if (!sys.user_constraint_array.empty()) {
-    spdlog::info(std::format("  User constraints: {}",
-                             sys.user_constraint_array.size()));
-  }
-  if (!sys.user_param_array.empty()) {
-    spdlog::info(
-        std::format("  User params     : {}", sys.user_param_array.size()));
-  }
-  spdlog::info("=== Simulation statistics ===");
-  spdlog::info(std::format("  Blocks          : {}", sim.block_array.size()));
-  spdlog::info(std::format("  Stages          : {}", sim.stage_array.size()));
-  spdlog::info(
-      std::format("  Scenarios       : {}", sim.scenario_array.size()));
-  spdlog::info("=== Key options ===");
-  const auto& mo = plan_opts.model_options;
-  spdlog::info(
-      std::format("  use_kirchhoff   : {}",
-                  mo.use_kirchhoff.value_or(false) ? "true" : "false"));
-  spdlog::info(
-      std::format("  use_single_bus  : {}",
-                  mo.use_single_bus.value_or(false) ? "true" : "false"));
-  spdlog::info(std::format("  scale_objective : {}",
-                           mo.scale_objective.value_or(1'000.0)));
-  spdlog::info(
-      std::format("  scale_theta     : {}",
-                  mo.scale_theta.has_value()
-                      ? std::format("{:.6g}", *mo.scale_theta)
-                      : std::format("{:.6g} (auto)",
-                                    PlanningOptionsLP::default_scale_theta)));
-  spdlog::info(std::format(
-      "  equilibration   : {}",
-      enum_name(plan_opts.lp_matrix_options.equilibration_method.value_or(
-          LpEquilibrationMethod::none))));
-  spdlog::info(
-      std::format("  demand_fail_cost: {}", mo.demand_fail_cost.value_or(0.0)));
-  spdlog::info(std::format("  input_directory : {}",
-                           plan_opts.input_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_directory: {}",
-                           plan_opts.output_directory.value_or("(default)")));
-  spdlog::info(std::format("  output_format   : {}",
-                           plan_opts.output_format
-                               ? enum_name(*plan_opts.output_format)
-                               : "(default)"));
+  return (log_dir / std::format("{}_{}.log", stem, pick_run_number(log_dir)))
+      .string();
 }
 
-/**
- * @brief Log post-solve solution statistics.
- *
- * Solve time is already printed unconditionally as "planning {:.3f}s" and
- * scale_objective is already printed in log_pre_solve_stats, so neither is
- * repeated here.
- *
- * @param planning_lp  The solved PlanningLP model.
- * @param optimal      True when the solver returned an optimal solution.
- */
-void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
-{
-  spdlog::info("=== Solution statistics ===");
-  spdlog::info(std::format("  Status          : {}",
-                           optimal ? "optimal" : "non-optimal"));
+/// Name of the async default logger we register; reused as the idempotent
+/// guard so a second call to ``ensure_default_logger_async`` is a no-op.
+constexpr std::string_view kAsyncLoggerName = "gtopt_async";
 
-  if (optimal && !planning_lp.systems().empty()
-      && !planning_lp.systems().front().empty())
+/// Initialise spdlog's async thread pool exactly once per process.
+///
+/// All sinks attached to async loggers afterwards dispatch their writes
+/// through a background thread pool + bounded message queue, so the
+/// application's hot threads never block on disk I/O nor on the sink
+/// mutex.  Queue size = 65536 messages, 2 worker threads.
+///
+/// **Overflow policy** is set to ``overrun_oldest`` in
+/// ``ensure_default_logger_async`` (NOT ``block``): under the
+/// burst-y log pattern of cascade level transitions (every parallel
+/// scene-build emits LP-element log lines simultaneously) a
+/// ``block`` policy would freeze producer threads — including the
+/// main thread — when the queue fills, deadlocking the solve.
+/// Observed on juan/IPLP L1→L2 with the original 8192/1/block
+/// config: main thread parked in ``hrtimer_nanosleep`` indefinitely
+/// while 71 worker threads waited on the queue futex.  Losing a
+/// few oldest log lines under sustained backpressure is strictly
+/// preferable to halting the solve.
+///
+/// The pool must be initialised before any async logger is created;
+/// guarded with a function-local flag so subsequent calls are no-ops.
+void ensure_async_thread_pool()
+{
+  static const bool initialised = []
   {
-    const auto& lp_if =
-        planning_lp.systems().front().front().linear_interface();
-    const auto& plp_opts = planning_lp.options();
-    const double scale = plp_opts.scale_objective();
-    const double obj_scaled = lp_if.get_obj_value();
-    const double obj_unscaled = obj_scaled * scale;
-    spdlog::info(std::format("  LP variables    : {}", lp_if.get_numcols()));
-    spdlog::info(std::format("  LP constraints  : {}", lp_if.get_numrows()));
-    spdlog::info(std::format("  Obj (scaled)    : {:.6g}", obj_scaled));
-    spdlog::info(std::format("  Obj (unscaled)  : {:.6g}", obj_unscaled));
-    spdlog::info(std::format("  Solver kappa    : {:.6g}", lp_if.get_kappa()));
+    constexpr std::size_t queue_size = 65536;
+    constexpr std::size_t worker_threads = 2;
+    spdlog::init_thread_pool(queue_size, worker_threads);
+    return true;
+  }();
+  (void)initialised;
+}
+
+/// Replace spdlog's default logger with an `async_logger` wrapping the
+/// current sinks.  All subsequent ``spdlog::info(...)`` /
+/// ``spdlog::warn(...)`` / etc. calls — including the stdout console
+/// stream — dispatch via the background thread pool.  Idempotent: a
+/// second call is a no-op (detected by the registered name).
+///
+/// Must be called early in ``gtopt_main`` so every later sink-attaching
+/// helper (``setup_file_logging``, ``setup_trace_log``) just pushes onto
+/// the already-async default logger.
+void ensure_default_logger_async()
+{
+  auto current = spdlog::default_logger();
+  if (current && current->name() == kAsyncLoggerName) {
+    return;  // already async
   }
+  ensure_async_thread_pool();
+  const auto previous_level = current ? current->level() : spdlog::level::info;
+  std::vector<spdlog::sink_ptr> sinks;
+  if (current) {
+    const auto& current_sinks = current->sinks();
+    sinks.assign(current_sinks.begin(), current_sinks.end());
+  }
+  // ``overrun_oldest``: when the bounded queue is full, the new
+  // message overwrites the oldest one rather than blocking the
+  // producer thread.  This trades occasional log-line loss under
+  // sustained backpressure for guaranteed solver forward
+  // progress — see the ``ensure_async_thread_pool`` docstring for
+  // the juan/IPLP deadlock that motivated the switch from
+  // ``block``.  The 65536-slot queue + 2 workers means the
+  // overrun window only opens during truly sustained bursts
+  // (level transitions × 16 scenes × many LP-element log lines);
+  // normal iteration logging fits comfortably.
+  auto async = std::make_shared<spdlog::async_logger>(
+      std::string {kAsyncLoggerName},
+      sinks.begin(),
+      sinks.end(),
+      spdlog::thread_pool(),
+      spdlog::async_overflow_policy::overrun_oldest);
+  async->set_level(previous_level);
+  spdlog::set_default_logger(async);
 }
 
 /// Set up trace-level file sink for detailed SPDLOG_TRACE output.
 ///
-/// When --trace-log is given explicitly, uses that path; otherwise
-/// auto-creates a numbered file inside the log directory
-/// (e.g. logs/trace_1.log, logs/trace_2.log).
+/// **Opt-in only**: requires the user to pass `--trace-log` / `-T`
+/// (with or without a path).  When `trace_log` is unset this function
+/// is a no-op — the global spdlog level stays at INFO and no trace
+/// file is created.  This avoids the ~MB-scale auto-trace file +
+/// global level=trace overhead that previously fired on every run.
+///
+/// Path resolution:
+///   - `-T PATH`  → write to PATH verbatim
+///   - `-T`       → write to auto-numbered `<log_dir>/trace_<N>.log`
+///                 (same `N` as the matching `gtopt_<N>.log`)
+///
+/// Assumes the default logger has already been upgraded to async via
+/// ``ensure_default_logger_async`` (called at the top of
+/// ``gtopt_main``).  Just appends the new trace sink to the existing
+/// default logger and raises its level to ``trace``.
 void setup_trace_log(const MainOptions& opts)
 {
-  const auto log_dir = std::filesystem::path(
-      opts.log_directory.has_value()
-          ? opts.log_directory.value()
-          : (std::filesystem::path(opts.output_directory.value_or("output"))
-             / "logs")
-                .string());
-  std::string trace_path;
-
-  if (opts.trace_log.has_value()) {
-    trace_path = opts.trace_log.value();
-  } else {
-    // Find the next available trace_N.log in log_dir
-    try {
-      std::filesystem::create_directories(log_dir);
-    } catch (const std::filesystem::filesystem_error& fe) {
-      spdlog::warn("could not create log directory '{}': {}",
-                   log_dir.string(),
-                   fe.what());
-    }
-    int n = 1;
-    constexpr int max_trace_files = 10000;
-    for (; n <= max_trace_files; ++n) {
-      auto candidate = log_dir / std::format("trace_{}.log", n);
-      if (!std::filesystem::exists(candidate)) {
-        trace_path = candidate.string();
-        break;
-      }
-    }
-    if (trace_path.empty()) {
-      // All slots used — fall back to timestamp-based name
-      const auto now = std::chrono::system_clock::now();
-      const auto ts = std::chrono::duration_cast<std::chrono::seconds>(
-                          now.time_since_epoch())
-                          .count();
-      trace_path = (log_dir / std::format("trace_{}.log", ts)).string();
-    }
+  if (!opts.trace_log.has_value()) {
+    return;  // ← gated; keep global level at INFO
   }
+  // Empty string means "user passed -T without an argument" → auto-name.
+  const std::string trace_path = opts.trace_log.value().empty()
+      ? numbered_log_path(resolve_log_dir(opts), "trace")
+      : opts.trace_log.value();
 
   try {
     const auto parent = std::filesystem::path(trace_path).parent_path();
     if (!parent.empty()) {
       std::filesystem::create_directories(parent);
     }
+    // NOTE: do NOT call `ensure_default_logger_async()` here.  The
+    // gtopt_main entry point already installs the async wrapper; if
+    // the caller subsequently asked for sync mode (via
+    // `--no-async-logger` or `-T`), `gtopt_main` invoked
+    // `switch_to_sync_default_logger()` immediately afterwards.
+    // Re-asserting async here would silently undo that switch — and
+    // under `-T` it would re-enable the very `overrun_oldest` policy
+    // that drops trace lines under load.  Just attach the sink to
+    // whichever default logger is currently registered.
     auto trace_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
         trace_path, /*truncate=*/true);
     trace_sink->set_level(spdlog::level::trace);
-    // Keep the first sink (assumed to be the console/stdout sink) at its
-    // current level so trace messages only go to the file, not terminal.
-    auto& sinks = spdlog::default_logger()->sinks();
-    if (!sinks.empty()) {
-      sinks.front()->set_level(spdlog::default_logger()->level());
-    }
-    sinks.push_back(std::move(trace_sink));
-    spdlog::set_level(spdlog::level::trace);
+    // Explicit pattern: drop the `[file.cpp:NNN]` source-location field
+    // that spdlog's default pattern (`%+`) renders for SPDLOG_INFO /
+    // SPDLOG_WARN macros.  End-users don't care about source location;
+    // a uniform `[date time] [level] message` is easier to scan and
+    // matches the stdout sink's terse pattern (`[%H:%M:%S.%e] %v`).
+    // TRACE-level lines emitted via `spdlog::trace(...)` (function form)
+    // never carried source-location anyway, so this is a no-op for them.
+    trace_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+    auto logger = spdlog::default_logger();
+    logger->sinks().push_back(std::move(trace_sink));
+    logger->set_level(spdlog::level::trace);
     spdlog::info("trace log file: {}", trace_path);
   } catch (const spdlog::spdlog_ex& ex) {
     spdlog::warn("could not open trace log file: {}", ex.what());
   }
-}
-
-/// Load user constraints from external file(s) referenced in planning.
-///
-/// Supports both .pampl and JSON array formats.  Resolves relative paths
-/// against input_directory and assigns UIDs to avoid collisions.
-[[nodiscard]] std::expected<void, std::string> load_user_constraints(
-    Planning& planning)
-{
-  std::vector<std::string> uc_paths;
-  if (const auto& uc_file = planning.system.user_constraint_file) {
-    uc_paths.push_back(*uc_file);
-  }
-  for (const auto& f : planning.system.user_constraint_files) {
-    uc_paths.push_back(f);
-  }
-
-  for (const auto& uc_name : uc_paths) {
-    auto filepath = std::filesystem::path {uc_name};
-    // Resolve relative paths against input_directory
-    if (filepath.is_relative() && planning.options.input_directory) {
-      auto alt =
-          std::filesystem::path {*planning.options.input_directory} / filepath;
-      if (std::filesystem::exists(alt)) {
-        filepath = std::move(alt);
-      }
-    }
-    const auto ext = filepath.extension().string();
-
-    try {
-      // Determine next UID to avoid collisions with inline constraints
-      const auto& existing = planning.system.user_constraint_array;
-      Uid next_uid = Uid {1};
-      for (const auto& uc : existing) {
-        if (uc.uid >= next_uid) {
-          next_uid = uc.uid + Uid {1};
-        }
-      }
-
-      if (ext == ".pampl") {
-        auto pampl_result =
-            PamplParser::parse_file(filepath.string(), next_uid);
-        spdlog::info(
-            std::format("Loaded {} constraint(s) and {} param(s) from PAMPL"
-                        " file '{}'",
-                        pampl_result.constraints.size(),
-                        pampl_result.params.size(),
-                        filepath.string()));
-
-        auto& arr = planning.system.user_constraint_array;
-        arr.insert(arr.end(),
-                   std::make_move_iterator(pampl_result.constraints.begin()),
-                   std::make_move_iterator(pampl_result.constraints.end()));
-
-        auto& parr = planning.system.user_param_array;
-        parr.insert(parr.end(),
-                    std::make_move_iterator(pampl_result.params.begin()),
-                    std::make_move_iterator(pampl_result.params.end()));
-      } else {
-        // Default: treat as JSON array of UserConstraint
-        auto file_content = daw::read_file(filepath.string());
-        if (!file_content) {
-          return std::unexpected(std::format(
-              "Cannot read user_constraint_file '{}'", filepath.string()));
-        }
-        auto loaded =
-            daw::json::from_json<std::vector<UserConstraint>>(*file_content);
-        spdlog::info(
-            std::format("Loaded {} user constraint(s) from JSON file '{}'",
-                        loaded.size(),
-                        filepath.string()));
-
-        auto& arr = planning.system.user_constraint_array;
-        arr.insert(arr.end(),
-                   std::make_move_iterator(loaded.begin()),
-                   std::make_move_iterator(loaded.end()));
-      }
-
-    } catch (const std::exception& ex) {
-      return std::unexpected(
-          std::format("Error loading user_constraint_file '{}': {}",
-                      filepath.string(),
-                      ex.what()));
-    }
-  }
-  return {};
 }
 
 /// Apply --set overrides, CLI flags, codec probing, user constraint
@@ -793,15 +299,14 @@ void setup_trace_log(const MainOptions& opts)
     return std::unexpected(std::move(uc_result.error()));
   }
 
-  // Warn when demand_fail_cost is 0 or not set
-  {
-    const auto dfc =
-        planning.options.model_options.demand_fail_cost.value_or(0.0);
-    if (dfc == 0.0) {
-      spdlog::warn(
-          "demand_fail_cost is 0: unserved load has no penalty. "
-          "Set demand_fail_cost > 0 to penalize load shedding.");
-    }
+  // Warn when there is no demand-shedding penalty anywhere in the
+  // model.  See `has_no_shedding_penalty` for the full rule.
+  if (has_no_shedding_penalty(planning)) {
+    spdlog::warn(
+        "demand_fail_cost is 0 and no demand carries a `fcost` "
+        "or `ecost` field: unserved load has no penalty.  Set "
+        "the global `demand_fail_cost > 0` OR a per-demand "
+        "`fcost` to penalize load shedding.");
   }
 
   // Validate planning (referential integrity, ranges, completeness)
@@ -809,7 +314,7 @@ void setup_trace_log(const MainOptions& opts)
     const auto vresult = validate_planning(planning);
     if (!vresult.ok()) {
       return std::unexpected(
-          std::format("Planning validation failed with {} error(s)",  // NOLINT
+          std::format("Planning validation failed with {} error(s)",
                       vresult.errors.size()));
     }
   }
@@ -817,171 +322,113 @@ void setup_trace_log(const MainOptions& opts)
   return 0;
 }
 
-/// Prepare LP build options and apply per-solver config.
-///
-/// Logs pre-build statistics if @p do_stats is true.  The returned
-/// LpMatrixOptions should be passed to the PlanningLP constructor.
-[[nodiscard]] LpMatrixOptions prepare_matrix_options(Planning& planning,
-                                                     const MainOptions& opts,
-                                                     bool do_stats)
-{
-  // CLI --lp-names-level overrides --set; fall back to merged planning.
-  const auto eff_names_level = opts.lp_names_level
-      ? opts.lp_names_level
-      : planning.options.lp_matrix_options.names_level;
-  auto flat_opts = make_lp_matrix_options(
-      eff_names_level,
-      opts.matrix_eps,
-      do_stats,
-      opts.solver,
-      planning.options.lp_matrix_options.equilibration_method);
-
-  if (do_stats) {
-    log_pre_solve_stats(opts.planning_files, planning);
-  }
-
-  // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
-  if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
-    if (const auto it = opts.solver_configs.find(solver_key);
-        it != opts.solver_configs.end())
-    {
-      auto& so = planning.options.solver_options;
-      auto conf = it->second;
-      conf.overlay(so);
-      so = conf;
-    }
-  }
-
-  return flat_opts;
-}
-
-/// Log LP coefficient statistics for all scene x phase LPs.
-void log_lp_coefficient_stats(const PlanningLP& planning_lp)
-{
-  std::vector<ScenePhaseLPStats> lp_entries;
-  for (auto&& [si, phase_systems] :
-       std::views::enumerate(planning_lp.systems()))
-  {
-    for (auto&& [pi, system_lp] : std::views::enumerate(phase_systems)) {
-      const auto& li = system_lp.linear_interface();
-      lp_entries.push_back({
-          .scene_uid = static_cast<int>(system_lp.scene().uid()),
-          .phase_uid = static_cast<int>(system_lp.phase().uid()),
-          .num_vars = static_cast<int>(li.get_numcols()),
-          .num_constraints = static_cast<int>(li.get_numrows()),
-          .stats_nnz = li.lp_stats_nnz(),
-          .stats_zeroed = li.lp_stats_zeroed(),
-          .stats_max_abs = li.lp_stats_max_abs(),
-          .stats_min_abs = li.lp_stats_min_abs(),
-          .stats_max_col = static_cast<int>(li.lp_stats_max_col()),
-          .stats_min_col = static_cast<int>(li.lp_stats_min_col()),
-          .stats_max_col_name = std::string(li.lp_stats_max_col_name()),
-          .stats_min_col_name = std::string(li.lp_stats_min_col_name()),
-          .row_type_stats =
-              [&]
-          {
-            std::vector<RowTypeStats> rts;
-            for (const auto& e : li.lp_row_type_stats()) {
-              rts.push_back({
-                  .type = e.type,
-                  .count = e.count,
-                  .nnz = e.nnz,
-                  .max_abs = e.max_abs,
-                  .min_abs = e.min_abs,
-              });
-            }
-            return rts;
-          }(),
-      });
-    }
-  }
-  log_lp_stats_summary(lp_entries,
-                       planning_lp.options().lp_coeff_ratio_threshold());
-}
-
-/// Run the solver and return whether an optimal solution was found.
-[[nodiscard]] bool run_solver(PlanningLP& planning_lp)
-{
-  const spdlog::stopwatch solve_sw;
-
-  const auto& plp_opts_ref = planning_lp.options();
-  const auto method = plp_opts_ref.method_type_enum();
-  const SolverOptions solver_opts =
-      (method == MethodType::sddp || method == MethodType::cascade)
-      ? plp_opts_ref.sddp_forward_solver_options()
-      : plp_opts_ref.monolithic_solver_options();
-  const auto result = planning_lp.resolve(solver_opts);
-  const auto solve_elapsed =
-      std::chrono::duration<double>(solve_sw.elapsed()).count();
-  spdlog::info(std::format("  Optimization time {:.3f}s", solve_elapsed));
-
-  if (result.has_value()) {
-    return true;
-  }
-
-  const auto& err = result.error();
-  // Use warn for non-optimal (e.g. time-limit with feasible incumbent),
-  // error only for hard failures such as infeasibility.
-  const auto msg = std::format(
-      "Solver did not find an optimal solution: "
-      "{} (code={})",
-      err.message,
-      static_cast<int>(err.code));
-  if (err.code == ErrorCode::SolverError) {
-    spdlog::warn(msg);
-  } else {
-    spdlog::error(msg);
-  }
-  // Format optional tolerances: show "(default)" when not set.
-  const auto eps_str = [](std::optional<double> v) -> std::string
-  { return v ? std::format("{}", *v) : "(default)"; };
-  spdlog::error(
-      std::format("  Solver options used:"
-                  " algorithm={}, threads={}, presolve={},"
-                  " optimal_eps={}, feasible_eps={}, barrier_eps={},"
-                  " log_level={}",
-                  solver_opts.algorithm,
-                  solver_opts.threads,
-                  solver_opts.presolve,
-                  eps_str(solver_opts.optimal_eps),
-                  eps_str(solver_opts.feasible_eps),
-                  eps_str(solver_opts.barrier_eps),
-                  solver_opts.log_level));
-  return false;
-}
-
-/// Write solution output and save planning JSON to the output directory.
-[[nodiscard]] std::expected<void, std::string> write_solution_output(
-    PlanningLP& planning_lp)
-{
-  spdlog::info("=== Output writing ===");
-  const spdlog::stopwatch out_sw;
-  try {
-    planning_lp.write_out();
-  } catch (const std::exception& ex) {
-    return std::unexpected(std::format("Error writing output: {}", ex.what()));
-  }
-
-  // Save the merged planning JSON into the output directory so that
-  // post-processing tools have a self-contained reference.
-  {
-    const auto out_dir = planning_lp.options().output_directory();
-    const auto planning_json =
-        (std::filesystem::path(out_dir) / "planning.json").string();
-    auto pj_result = write_json_output(planning_lp.planning(), planning_json);
-    if (pj_result) {
-      spdlog::info("  planning JSON saved to {}", planning_json);
-    } else {
-      spdlog::warn("  failed to save planning JSON: {}", pj_result.error());
-    }
-  }
-
-  spdlog::info(
-      std::format("  Write output time {:.3f}s", out_sw.elapsed().count()));
-  return {};
-}
-
 }  // namespace
+
+bool has_no_shedding_penalty(const Planning& planning) noexcept
+{
+  // Global shedding penalty?
+  const auto dfc =
+      planning.options.model_options.demand_fail_cost.value_or(0.0);
+  if (dfc != 0.0) {
+    return false;
+  }
+  // Any per-demand fcost / ecost?
+  const auto& demands = planning.system.demand_array;
+  const bool any_per_demand_penalty = std::ranges::any_of(
+      demands,
+      [](const auto& d) { return d.fcost.has_value() || d.ecost.has_value(); });
+  return !any_per_demand_penalty;
+}
+
+void install_async_default_logger()
+{
+  ensure_default_logger_async();
+}
+
+void switch_to_sync_default_logger()
+{
+  auto current = spdlog::default_logger();
+  if (!current) {
+    return;
+  }
+  if (current->name() != kAsyncLoggerName) {
+    return;  // already synchronous
+  }
+  // Drain any messages already enqueued on the async wrapper before we
+  // detach its sinks.  Otherwise messages "logged" up to this point
+  // might never reach disk because we're about to drop the only owner
+  // of the async_logger handle.
+  try {
+    current->flush();
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  }
+  const auto previous_level = current->level();
+  std::vector<spdlog::sink_ptr> sinks;
+  {
+    const auto& current_sinks = current->sinks();
+    sinks.assign(current_sinks.begin(), current_sinks.end());
+  }
+  auto sync = std::make_shared<spdlog::logger>(
+      "gtopt_sync", sinks.begin(), sinks.end());
+  sync->set_level(previous_level);
+  spdlog::set_default_logger(std::move(sync));
+}
+
+void flush_default_logger_best_effort() noexcept
+{
+  try {
+    if (auto logger = spdlog::default_logger()) {
+      logger->flush();
+    }
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  }
+}
+
+void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
+{
+  const auto log_dir = resolve_log_dir(opts);
+
+  // Pick `gtopt_N.log` with the same `N` that `setup_trace_log` will
+  // use for `trace_N.log` — so the user can pair the two by suffix.
+  const std::string log_path = numbered_log_path(log_dir, "gtopt");
+
+  try {
+    auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+        log_path, /*truncate=*/true);
+    // Inherit the default logger's level so --verbose / --quiet behave
+    // the same on the file as they did on stdout.
+    file_sink->set_level(spdlog::default_logger()->level());
+    // Match the trace sink: drop source-location, keep date + level.
+    file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+
+    // Ensure the default logger is async — gtopt_main does this at
+    // entry, but setup_file_logging is a public API and may be called
+    // standalone (e.g. from the webservice path).  Idempotent.
+    ensure_default_logger_async();
+
+    auto logger = spdlog::default_logger();
+    auto& sinks = logger->sinks();
+    if (suppress_stdout) {
+      sinks.clear();
+      // Belt-and-suspenders: even when the user pipes / redirects
+      // stdout (non-tty → suppress_stdout=true), fatal-level messages
+      // should still surface on stderr so an early failure
+      // (apply_set_options rejecting an unknown --set key, missing
+      // input file, etc.) produces a visible diagnostic without the
+      // user having to find the gtopt_N.log.  The stderr sink is
+      // gated at err-level so routine info/warn lines stay quiet
+      // and only the failure reason hits the user's terminal.
+      auto stderr_sink =
+          std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+      stderr_sink->set_level(spdlog::level::err);
+      stderr_sink->set_pattern("gtopt: [%l] %v");
+      sinks.push_back(std::move(stderr_sink));
+    }
+    sinks.push_back(std::move(file_sink));
+  } catch (const spdlog::spdlog_ex& ex) {
+    spdlog::warn("could not open log file '{}': {}", log_path, ex.what());
+  }
+}
 
 [[nodiscard]] std::expected<int, std::string> gtopt_main(
     const MainOptions& raw_opts)
@@ -993,19 +440,43 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   }
   const auto& opts = *resolved;
 
-  setup_trace_log(opts);
+  // Upgrade the default logger to async once, before any sink-attaching
+  // helper runs.  All subsequent spdlog::info / warn / trace calls
+  // (including the stdout colour sink) dispatch via the background
+  // thread pool, so SDDP workers don't block on the sink mutex.
+  ensure_default_logger_async();
 
-  const auto strict_parsing = !opts.fast_parsing.value_or(false);
-  if (!strict_parsing) {  // NOLINT
-    spdlog::info("using fast json parsing");
+  // Two cases force the default logger back to synchronous:
+  //   1. The user explicitly disabled async via `--no-async-logger` /
+  //      `--async-logger=false`.
+  //   2. Trace mode is enabled (`--trace-log` / `-T`).  The async
+  //      wrapper's bounded queue + `overrun_oldest` policy silently
+  //      drops trace bursts, which defeats the purpose of trace mode
+  //      (we want EVERY trace line on disk for post-mortem analysis).
+  //      Sync mode takes a sink mutex per log call — slower under
+  //      load but deterministic.
+  // Idempotent: no-op when the default logger is already sync.
+  const bool async_disabled = !opts.async_logger.value_or(true);
+  const bool trace_enabled = opts.trace_log.has_value();
+  if (async_disabled || trace_enabled) {
+    switch_to_sync_default_logger();
   }
 
+  setup_trace_log(opts);
+
   try {
-    // Parse planning JSON files
-    auto parse_result = parse_planning_files(opts.planning_files,
-                                             strict_parsing,
-                                             opts.check_json.value_or(false),
-                                             opts.input_directory);
+    // Parse planning JSON files.  `opts.naming_dialect` arrives from the
+    // CLI flag `--naming-dialect <name>`; when set, the parse-time
+    // alias canonicalization emits a once-per-alias warning for any
+    // input key whose dialect tag differs.  Empty preserves the silent
+    // legacy behaviour.  A dialect set only via JSON (not CLI) is
+    // honoured at output rename time but does not trigger this input
+    // warn — surfacing that case would require a two-pass parse.
+    const std::string_view enforce_dialect = opts.naming_dialect.has_value()
+        ? std::string_view {*opts.naming_dialect}
+        : std::string_view {};
+    auto parse_result = parse_planning_files(
+        opts.planning_files, opts.input_directory, enforce_dialect);
     if (!parse_result) {
       return std::unexpected(std::move(parse_result.error()));
     }
@@ -1020,6 +491,41 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       return *cfg;
     }
 
+    // ── Resolve relative input_directory against JSON file location ──
+    //
+    // When the first planning file resides in a subdirectory (e.g.
+    // "subdir/case.json" or "/abs/path/case.json"), relative paths in
+    // the JSON—such as input_directory="." or input_directory="data"—
+    // must be resolved relative to the JSON file's parent, not CWD.
+    // This handles the webservice scenario where a zip is extracted to
+    // an input directory and the JSON is in a nested subdirectory.
+    //
+    // Only applied when the CLI did not explicitly set these directories
+    // (opts.*_directory is nullopt), so user CLI overrides are respected.
+    if (!opts.planning_files.empty()) {
+      namespace fs = std::filesystem;
+      const auto json_dir = fs::path(opts.planning_files.front()).parent_path();
+      if (!json_dir.empty() && json_dir != ".") {
+        auto resolve_if_relative =
+            [&](std::optional<std::string>& json_dir_opt,
+                const std::optional<std::string>& cli_opt,
+                const char* default_val)
+        {
+          if (!cli_opt.has_value()) {
+            const auto effective = json_dir_opt.value_or(default_val);
+            if (fs::path(effective).is_relative()) {
+              json_dir_opt = (json_dir / effective).string();
+            }
+          }
+        };
+        resolve_if_relative(
+            my_planning.options.input_directory, opts.input_directory, "input");
+        resolve_if_relative(my_planning.options.output_directory,
+                            opts.output_directory,
+                            "output");
+      }
+    }
+
     // Write JSON output if requested
     if (opts.json_file) {
       auto wr = write_json_output(my_planning, opts.json_file.value());
@@ -1028,67 +534,143 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
       }
     }
 
-    // Build the LP model
-    try {
-      const bool do_stats = opts.print_stats.value_or(true)
-          || my_planning.options.lp_matrix_options.compute_stats.value_or(
-              false);
-      const auto flat_opts =
-          prepare_matrix_options(my_planning, opts, do_stats);
-
-      spdlog::info("=== Building LP model ===");
-      const spdlog::stopwatch build_sw;
-      PlanningLP planning_lp {std::move(my_planning),  // NOLINT
-                              flat_opts};
-      spdlog::info(
-          std::format("  Build lp time {:.3f}s", build_sw.elapsed().count()));
-
-      // Log the active solver backend so monitoring tools can display it.
-      if (!planning_lp.systems().empty()
-          && !planning_lp.systems().front().empty())
-      {
-        const auto& li =
-            planning_lp.systems().front().front().linear_interface();
-        spdlog::info(std::format("  Solver: {}", li.solver_id()));
+    // Save pre-solve state snapshot:
+    // ``<output_directory>/gtopt_state.json``.
+    //
+    // The ``<tool>_state.json`` naming convention is shared with the
+    // Python converters (``plexos2gtopt_state.json``,
+    // ``plp2gtopt_state.json``) so the originating tool is obvious
+    // from the filename across all output directories.
+    //
+    // Captures the FULLY-MERGED Planning (all input ``-s`` files
+    // unified + every CLI override applied via ``--set``, ``--no-mip``,
+    // ``--solver``, ``--no-scale``, ``--method``, etc.) as a single
+    // self-contained JSON the solver is about to consume.
+    //
+    // Reproducibility contract: re-running ``gtopt -s
+    // <output_directory>/gtopt_state.json`` with no other CLI flags
+    // produces a byte-identical LP and (modulo solver non-determinism)
+    // a byte-identical solution.  The snapshot is the canonical
+    // "this is what was solved" record — drop it into a bug report,
+    // an audit trail, or a regression-test fixture.
+    //
+    // Always-on; distinct from the user-facing ``--json-file PATH``
+    // (which writes the same JSON to an explicit path the operator
+    // chooses).  Distinct from the POST-solve ``planning.json`` sidecar
+    // written by ``gtopt_lp_runner`` after solving: that one carries
+    // the final state as gtopt left it (which may differ from the
+    // pre-solve inputs if any auto-defaults were resolved during
+    // build).  For replay use the pre-solve snapshot here.
+    //
+    // Silent on missing output directory: when ``output_directory`` is
+    // unset and no default applies (e.g. ``--lp-only`` smoke tests),
+    // skip the snapshot — the LP build is the only meaningful artefact.
+    {
+      // Resolution order — matches what ``PlanningOptionsLP`` does later
+      // when actually writing per-class output, so the snapshot lands
+      // next to the LP outputs regardless of how the operator
+      // configured the directory:
+      //   1. ``my_planning.options.output_directory`` (JSON-side)
+      //   2. ``opts.output_directory`` (CLI ``--output-directory``)
+      //   3. ``"output"`` (built-in default, same as
+      //      ``PlanningOptionsLP::output_directory``)
+      const std::string out_dir = my_planning.options.output_directory.value_or(
+          opts.output_directory.value_or(std::string {"output"}));
+      const auto snapshot_path =
+          (std::filesystem::path(out_dir) / "gtopt_state.json").string();
+      // Best-effort: ensure the directory exists (the post-solve
+      // write_out will recreate it anyway, but we land HERE first).
+      std::error_code ec;
+      std::filesystem::create_directories(out_dir, ec);
+      // Snapshot is SELF-CONTAINED: the PAMPL files were already
+      // parsed and merged into ``user_constraint_array`` (+
+      // ``user_param_array``) before we got here.  Strip the
+      // ``user_constraint_file`` / ``user_constraint_files``
+      // references so a reload doesn't re-parse them on top of the
+      // already-merged constraints (which would trigger gtopt's
+      // unique-name guard, e.g. ``non-unique name Campiche_starting
+      // or uid 2018``).  Make a copy so the in-memory planning we
+      // pass on to ``build_solve_and_output`` keeps the original
+      // file refs intact.
+      Planning snapshot_planning = my_planning;
+      snapshot_planning.system.user_constraint_file.reset();
+      snapshot_planning.system.user_constraint_files.clear();
+      auto snap = write_json_output(snapshot_planning, snapshot_path);
+      if (snap) {
+        spdlog::info("  pre-solve state snapshot: {}", snapshot_path);
+      } else {
+        spdlog::warn("  failed to save pre-solve state snapshot {}: {}",
+                     snapshot_path,
+                     snap.error());
       }
 
-      if (opts.lp_file) {
-        planning_lp.write_lp(opts.lp_file.value());
+      // README.md — self-documenting output-directory guide.  Same
+      // ``<tool>_state.json`` convention + reproducibility narrative
+      // as the Python converters' READMEs (see
+      // ``scripts/gtopt_shared/state_snapshot.py`` ::
+      // ``write_gtopt_readme``).  Best-effort; failure to write is a
+      // warning, not a fatal.
+      const auto readme_path =
+          (std::filesystem::path(out_dir) / "README.md").string();
+      try {
+        std::ofstream f(readme_path, std::ios::trunc);
+        f << R"MD(# gtopt output directory
+
+This directory contains the output of a `gtopt` run.
+
+| File / dir | Purpose |
+|---|---|
+| `planning.json` | Post-solve planning sidecar (Planning as gtopt left it after solving — useful for downstream tooling). |
+| `gtopt_state.json` | **Pre-solve state snapshot** — fully-merged Planning (all `-s` inputs unified + every CLI override applied) written immediately BEFORE solve.  See *Reproducing this run* below. |
+| `solver_status.json` | One-line solver outcome (status, method, elapsed time, scenes done). |
+| `<Class>/` | Per-LP-class output Parquet streams (`Generator/generation_sol.parquet`, `Bus/balance_dual.parquet`, `Line/flowp_sol.parquet`, …).  Which fields appear depends on `--write-out`. |
+| `logs/` | Per-(scene, phase) solver logs (`cplex_sc0_ph0.log`, `gtopt_1.log`). |
+| `README.md` | This file. |
+
+## Reproducing this run
+
+`gtopt` writes a **pre-solve state snapshot** to `gtopt_state.json` at the
+START of every run, capturing the fully-merged Planning (all `-s` input
+files unified + every CLI override applied — `--set`, `--no-mip`,
+`--solver`, `--no-scale`, `--method`, etc.).
+
+### Re-run with the same options
+
+```bash
+gtopt -s gtopt_state.json
+```
+
+The snapshot is self-contained; PAMPL `user_constraint_file` references
+are stripped before write (constraints are inlined into
+`user_constraint_array`), so a reload doesn't re-parse them on top of
+already-merged constraints.
+
+### Reproducibility contract
+
+Re-running with no other CLI flags produces a **stable** LP across
+iterations: snapshot N=2 vs snapshot N=3 written from a snapshot reload
+are byte-identical, including the per-block LP coefficients.  Use the
+snapshot for bug reports, audit trails, and regression-test fixtures.
+
+### Inspect the snapshot
+
+```bash
+jq '.options' gtopt_state.json
+jq '.simulation' gtopt_state.json
+jq '.system | keys' gtopt_state.json
+```
+)MD";
+        if (f) {
+          spdlog::info("  output README: {}", readme_path);
+        }
+      } catch (const std::exception& ex) {
+        spdlog::warn("  failed to write README {}: {}", readme_path, ex.what());
       }
-
-      if (do_stats) {
-        log_lp_coefficient_stats(planning_lp);
-      }
-
-      // lp_only: skip solving if only LP assembly was requested
-      if (opts.lp_only.value_or(false) || planning_lp.options().lp_only()) {
-        spdlog::info("lp_only: all LP matrices built, skipping solve");
-        return 0;
-      }
-
-      // Solve the LP
-      spdlog::info("=== System optimization ===");
-      const bool optimal = run_solver(planning_lp);
-
-      if (do_stats) {
-        log_post_solve_stats(planning_lp, optimal);
-      }
-
-      if (!optimal) {
-        return 1;
-      }
-
-      // Write solution output
-      if (auto wr = write_solution_output(planning_lp); !wr) {
-        return std::unexpected(std::move(wr.error()));
-      }
-
-      return 0;
-
-    } catch (const std::exception& ex) {
-      return std::unexpected(
-          std::format("Error during LP creation or solving: {}", ex.what()));
     }
+
+    // Build, solve, and write output
+    return build_solve_and_output(std::move(my_planning), opts);
+
   } catch (const std::exception& ex) {
     return std::unexpected(
         std::format("Unexpected critical error: {}", ex.what()));

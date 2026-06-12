@@ -26,15 +26,7 @@ import logging
 import sys
 from pathlib import Path
 
-try:
-    from importlib.metadata import version as _pkg_version, PackageNotFoundError
-
-    try:
-        __version__ = _pkg_version("gtopt-scripts")
-    except PackageNotFoundError:
-        __version__ = "dev"
-except ImportError:
-    __version__ = "dev"
+from gtopt_config import get_version
 
 from gtopt_check_pampl._checks import (
     Finding,
@@ -52,6 +44,8 @@ from gtopt_check_pampl._config import (
     load_config,
     run_interactive_setup,
 )
+
+__version__ = get_version()
 
 # ── ANSI colour helpers ─────────────────────────────────────────────────────
 

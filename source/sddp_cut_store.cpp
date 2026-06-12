@@ -5,7 +5,7 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * Implements SDDPCutStore methods extracted from sddp_method.cpp.
+ * Implements SDDPCutManager methods extracted from sddp_method.cpp.
  */
 
 #include <algorithm>
@@ -14,14 +14,17 @@
 #include <map>
 #include <ranges>
 #include <set>
+#include <unordered_map>
 #include <vector>
 
+#include <gtopt/label_maker.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_method.hpp>
-#include <gtopt/sddp_state_io.hpp>
+#include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
@@ -35,52 +38,104 @@ namespace gtopt
 
 // ── store_cut ──────────────────────────────────────────────────────────────
 
-void SDDPCutStore::store_cut(SceneIndex scene,
-                             PhaseIndex /*src_phase*/,
-                             const SparseRow& cut,
-                             CutType type,
-                             RowIndex row,
-                             bool single_cut_storage,
-                             SceneUid scene_uid_val,
-                             PhaseUid phase_uid_val)
+// ── SceneCutStore::store ───────────────────────────────────────────────────
+//
+// Migrated from `SDDPCutManager::store_cut` in step 2 of
+// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
+// The legacy `SDDPCutManager::store_cut` (below) is a 1-line forwarder that
+// drops the unused `src_phase_index` parameter (kept on the legacy signature
+// for backward compatibility).
+
+void SceneCutStore::store(const SparseRow& cut,
+                          CutType type,
+                          RowIndex row,
+                          SceneUid scene_uid_val,
+                          PhaseUid phase_uid_val)
 {
+  // Extract iter_uid from the source row's context (IterationContext =
+  // tuple<SceneUid, PhaseUid, IterationUid, int>).  Cuts built outside
+  // the standard SDDP backward path may carry a different context type
+  // (or none); in that case iteration_index defaults to ``-1`` which
+  // downstream consumers treat as "unknown iteration" (no hot-start
+  // offset, no dedup contribution).
+  //
+  // No ``LabelMaker.make_row_label(cut)`` here — ``StoredCut.name``
+  // was removed (the LP row label is generated independently inside
+  // ``LinearInterface::add_rows`` from the ``SparseRow``'s own
+  // class/constraint/uid/context fields, so storing a duplicate
+  // name on the cut was redundant).
+  IterationIndex stored_iter {};
+  // Default ``extra = -1`` (sentinel = "no source context attached").
+  // Replaced when ``cut.context`` is an :type:`IterationContext` —
+  // matches :member:`StoredCut::extra` default so unset values
+  // round-trip cleanly through save/load.
+  int stored_extra = -1;
+  if (std::holds_alternative<IterationContext>(cut.context)) {
+    const auto& ctx = std::get<IterationContext>(cut.context);
+    stored_iter = index_of(std::get<2>(ctx));
+    stored_extra = std::get<3>(ctx);
+  }
+
   StoredCut stored {
       .type = type,
-      .phase = phase_uid_val,
-      .scene = scene_uid_val,
-      .name = cut.name,
+      .phase_uid = phase_uid_val,
+      .scene_uid = scene_uid_val,
+      .iteration_index = stored_iter,
+      .extra = stored_extra,
       .rhs = cut.lowb,
+      .scale = cut.scale,
       .row = row,
   };
   stored.coefficients.reserve(cut.cmap.size());
   for (const auto& [col, coeff] : cut.cmap) {
     stored.coefficients.emplace_back(col, coeff);
   }
-  if (single_cut_storage) {
-    m_scene_cuts_[scene].push_back(std::move(stored));
-  } else {
-    m_scene_cuts_[scene].push_back(stored);
-    const std::scoped_lock lock(m_cuts_mutex_);
-    m_stored_cuts_.push_back(std::move(stored));
-  }
+  m_cuts_.push_back(std::move(stored));
+}
+
+void SDDPCutManager::store_cut(SceneIndex scene_index,
+                               PhaseIndex /*src_phase_index*/,
+                               const SparseRow& cut,
+                               CutType type,
+                               RowIndex row,
+                               SceneUid scene_uid_val,
+                               PhaseUid phase_uid_val)
+{
+  // Forwarder — see `SceneCutStore::store` above for the
+  // implementation.  Single-writer during the forward/backward pass
+  // (phase access within a scene is serial), so no lock needed.
+  m_scene_cuts_[scene_index].store(
+      cut, type, row, scene_uid_val, phase_uid_val);
 }
 
 // ── clear ──────────────────────────────────────────────────────────────────
 
-void SDDPCutStore::clear() noexcept
+void SDDPCutManager::clear()
 {
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    m_stored_cuts_.clear();
-  }
   for (auto& sc : m_scene_cuts_) {
     sc.clear();
   }
 }
 
+// ── SceneCutStore::forget_first ────────────────────────────────────────────
+//
+// Per-scene erase used by the manager's `forget_first_cuts` cross-scene
+// loop.  Plain `m_cuts_.erase(begin, begin+take)` with the size clamp
+// hoisted into the helper so the manager loop reads naturally.
+
+void SceneCutStore::forget_first(std::ptrdiff_t count)
+{
+  if (count <= 0 || m_cuts_.empty()) {
+    return;
+  }
+  const auto take = std::min(count, std::ssize(m_cuts_));
+  m_cuts_.erase(m_cuts_.begin(), m_cuts_.begin() + take);
+}
+
 // ── forget_first_cuts ──────────────────────────────────────────────────────
 
-void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
+void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
+                                       PlanningLP& planning_lp)
 {
   if (count <= 0) {
     return;
@@ -93,8 +148,8 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
 
   auto resolve_key = [&](const StoredCut& cut) -> std::optional<ScenePhaseKey>
   {
-    auto pit = phase_map.find(cut.phase);
-    auto sit = scene_map.find(cut.scene);
+    auto pit = phase_map.find(cut.phase_uid);
+    auto sit = scene_map.find(cut.scene_uid);
     if (pit == phase_map.end() || sit == scene_map.end()) {
       return std::nullopt;
     }
@@ -102,31 +157,39 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
   };
 
   std::map<ScenePhaseKey, std::vector<int>> rows_to_delete;
-  std::set<std::string> names_to_forget;
+  // Forgotten cut identities for cross-scene cleanup.  Uses the full
+  // ``CutKey`` (5-tuple) so multi-cut feasibility siblings and
+  // cross-scene shared copies are distinguished correctly — see
+  // :class:`CutKey` for the uniqueness contract.
+  std::set<CutKey> cuts_to_forget;
 
-  int n = 0;
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    n = std::min(count, static_cast<int>(m_stored_cuts_.size()));
-    for (const auto& cut : m_stored_cuts_ | std::views::take(n)) {
-      if (!cut.name.empty()) {
-        names_to_forget.insert(cut.name);
-      }
+  // `count` is a per-scene cap: forget the first `count` cuts of each
+  // scene (covering inherited cuts transferred across cascade levels,
+  // which are prepended to each per-scene vector in the same order).
+  std::ptrdiff_t n = 0;
+  for (auto& sc : m_scene_cuts_) {
+    const auto take = std::min(count, std::ssize(sc));
+    for (const auto& cut : sc | std::views::take(take)) {
+      cuts_to_forget.insert(cut.key());
       if (auto key = resolve_key(cut)) {
         rows_to_delete[*key].push_back(static_cast<int>(cut.row));
       }
     }
-    m_stored_cuts_.erase(m_stored_cuts_.begin(), m_stored_cuts_.begin() + n);
+    sc.forget_first(count);
+    n = std::max(n, take);
   }
 
   std::map<ScenePhaseKey, int> deleted_count;
   int total_deleted = 0;
   for (auto& [key, rows] : rows_to_delete) {
-    auto& li = planning_lp.system(key.first, key.second).linear_interface();
+    auto& sys = planning_lp.system(key.first, key.second);
+    auto& li = sys.linear_interface();
     std::ranges::sort(rows);
     li.delete_rows(rows);
-    deleted_count[key] = static_cast<int>(rows.size());
-    total_deleted += static_cast<int>(rows.size());
+    sys.record_cut_deletion(rows);
+    const auto n = static_cast<int>(std::ssize(rows));
+    deleted_count[key] = n;
+    total_deleted += n;
   }
 
   auto shift_row = [&](StoredCut& cut)
@@ -138,57 +201,80 @@ void SDDPCutStore::forget_first_cuts(int count, PlanningLP& planning_lp)
     }
   };
 
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    std::ranges::for_each(m_stored_cuts_, shift_row);
-  }
-
-  for (auto&& [si, cuts] : enumerate<SceneIndex>(m_scene_cuts_)) {
-    std::erase_if(
-        cuts,
-        [&](const StoredCut& c)
-        { return !c.name.empty() && names_to_forget.contains(c.name); });
-    std::ranges::for_each(cuts, shift_row);
+  for (auto&& [si, sc] : enumerate<SceneIndex>(m_scene_cuts_)) {
+    std::erase_if(sc.cuts(),
+                  [&](const StoredCut& c)
+                  { return cuts_to_forget.contains(c.key()); });
+    std::ranges::for_each(sc.cuts(), shift_row);
   }
 
   SPDLOG_INFO(
       "SDDP: forgot {} inherited cuts ({} LP rows deleted)", n, total_deleted);
 }
 
-// ── update_stored_cut_duals ────────────────────────────────────────────────
+// ── SceneCutStore::clear_with_lp ───────────────────────────────────────────
+//
+// Per-scene rollback for `SDDPOptions::forward_infeas_rollback`.
+// `scene_index` resolves to a cell row only by matching `phase_uid`
+// onto the local PhaseIndex via `build_phase_uid_map`; the
+// `cut.scene_uid` field is informational on the cut-store side
+// (it records *which* scene generated the cut) but the LP cell the
+// row lives on is always `(scene_index, resolved_phase)` because
+// `store_cut` is only ever called by the scene that owns the cell.
+//
+// Migrated from `SDDPCutManager::clear_scene_cuts` to `SceneCutStore`
+// in step 2 of
+// `docs/analysis/investigations/sddp/sddp_cut_store_split_plan_2026-04-30.md`.
+// The legacy `SDDPCutManager::clear_scene_cuts` (below) becomes a thin
+// forwarder; future cleanup deprecates + removes it once every caller
+// is migrated to `at(s).clear_with_lp(...)`.
 
-void SDDPCutStore::update_stored_cut_duals(PlanningLP& planning_lp)
+std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
+                                            SceneIndex scene_index)
 {
+  if (m_cuts_.empty()) {
+    return 0;
+  }
+
   const auto phase_map = build_phase_uid_map(planning_lp);
-  const auto scene_map = build_scene_uid_map(planning_lp);
-
-  auto update_dual = [&](StoredCut& cut)
-  {
-    auto pit = phase_map.find(cut.phase);
-    auto sit = scene_map.find(cut.scene);
-    if (pit == phase_map.end() || sit == scene_map.end()) {
-      return;
+  std::map<PhaseIndex, std::vector<int>> rows_to_delete;
+  for (const auto& cut : m_cuts_) {
+    const auto pit = phase_map.find(cut.phase_uid);
+    if (pit == phase_map.end()) {
+      continue;
     }
-    auto& li = planning_lp.system(sit->second, pit->second).linear_interface();
-    const auto row_idx = static_cast<std::size_t>(cut.row);
-    const auto duals = li.get_row_dual_raw();
-    if (row_idx < duals.size()) {
-      cut.dual = duals[row_idx];
-    }
-  };
+    rows_to_delete[pit->second].push_back(static_cast<int>(cut.row));
+  }
 
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    std::ranges::for_each(m_stored_cuts_, update_dual);
+  std::ptrdiff_t total_deleted = 0;
+  for (auto& [phase_idx, rows] : rows_to_delete) {
+    auto& sys = planning_lp.system(scene_index, phase_idx);
+    auto& li = sys.linear_interface();
+    std::ranges::sort(rows);
+    li.delete_rows(rows);
+    sys.record_cut_deletion(rows);
+    total_deleted += std::ssize(rows);
   }
-  for (auto& sc : m_scene_cuts_) {
-    std::ranges::for_each(sc, update_dual);
+
+  m_cuts_.clear();
+  return total_deleted;
+}
+
+std::ptrdiff_t SDDPCutManager::clear_scene_cuts(SceneIndex scene_index,
+                                                PlanningLP& planning_lp)
+{
+  // Forwarder — see `SceneCutStore::clear_with_lp` above for the
+  // implementation.  Bounds-check kept here because the forwarder must
+  // tolerate an out-of-range `scene_index` from older callers.
+  if (scene_index >= std::ssize(m_scene_cuts_)) {
+    return 0;
   }
+  return m_scene_cuts_[scene_index].clear_with_lp(planning_lp, scene_index);
 }
 
 // ── prune_inactive_cuts ────────────────────────────────────────────────────
 
-void SDDPCutStore::prune_inactive_cuts(
+void SDDPCutManager::prune_inactive_cuts(
     const SDDPOptions& options,
     PlanningLP& planning_lp,
     const StrongIndexVector<SceneIndex,
@@ -206,12 +292,14 @@ void SDDPCutStore::prune_inactive_cuts(
   using ScenePhaseKey = std::pair<SceneIndex, PhaseIndex>;
   std::map<ScenePhaseKey, std::vector<Index>> all_deleted;
 
-  for (auto&& [scene, scene_states] : enumerate<SceneIndex>(scene_phase_states))
+  for (auto&& [scene_index, scene_states] :
+       enumerate<SceneIndex>(scene_phase_states))
   {
-    for (auto&& [phase, psi] : enumerate<PhaseIndex>(scene_states)) {
-      auto& li = planning_lp.system(scene, phase).linear_interface();
+    for (auto&& [phase_index, psi] : enumerate<PhaseIndex>(scene_states)) {
+      auto& sys = planning_lp.system(scene_index, phase_index);
+      auto& li = sys.linear_interface();
 
-      const auto total_rows = static_cast<Index>(li.get_numrows());
+      const auto total_rows = li.get_numrows();
       const auto base = static_cast<Index>(psi.base_nrows);
       const auto num_cut_rows = total_rows - base;
       if (num_cut_rows <= max_cuts) {
@@ -219,6 +307,9 @@ void SDDPCutStore::prune_inactive_cuts(
       }
 
       const auto duals = li.get_row_dual_raw();
+      if (duals.empty()) {
+        continue;  // solution vectors released (low-memory mode)
+      }
 
       struct CutInfo
       {
@@ -228,6 +319,9 @@ void SDDPCutStore::prune_inactive_cuts(
       std::vector<CutInfo> cut_infos;
       cut_infos.reserve(total_rows - base);
       for (auto r = base; r < total_rows; ++r) {
+        if (static_cast<std::size_t>(r) >= duals.size()) {
+          break;
+        }
         cut_infos.push_back(CutInfo {
             .row = r,
             .abs_dual = std::abs(duals[r]),
@@ -254,14 +348,15 @@ void SDDPCutStore::prune_inactive_cuts(
           "SDDP: pruning {} inactive cuts from scene {} phase {} "
           "({} cut rows, max {})",
           rows_to_delete.size(),
-          planning_lp.simulation().scenes()[scene].uid(),
-          planning_lp.simulation().phases()[phase].uid(),
+          planning_lp.simulation().uid_of(scene_index),
+          planning_lp.simulation().uid_of(phase_index),
           num_cut_rows,
           max_cuts);
 
       li.delete_rows(rows_to_delete);
-      total_pruned += static_cast<int>(rows_to_delete.size());
-      all_deleted[{scene, phase}] = std::move(rows_to_delete);
+      sys.record_cut_deletion(rows_to_delete);
+      total_pruned += static_cast<int>(std::ssize(rows_to_delete));
+      all_deleted[{scene_index, phase_index}] = std::move(rows_to_delete);
     }
   }
 
@@ -274,8 +369,8 @@ void SDDPCutStore::prune_inactive_cuts(
 
   auto resolve_key = [&](const StoredCut& cut) -> std::optional<ScenePhaseKey>
   {
-    auto pit = phase_map.find(cut.phase);
-    auto sit = scene_map.find(cut.scene);
+    auto pit = phase_map.find(cut.phase_uid);
+    auto sit = scene_map.find(cut.scene_uid);
     if (pit == phase_map.end() || sit == scene_map.end()) {
       return std::nullopt;
     }
@@ -317,12 +412,8 @@ void SDDPCutStore::prune_inactive_cuts(
     }
   };
 
-  {
-    const std::scoped_lock lk(m_cuts_mutex_);
-    update_cuts(m_stored_cuts_);
-  }
   for (auto& sc : m_scene_cuts_) {
-    update_cuts(sc);
+    update_cuts(sc.cuts());
   }
 
   SPDLOG_INFO("SDDP: pruned {} inactive cuts across all LPs", total_pruned);
@@ -330,8 +421,8 @@ void SDDPCutStore::prune_inactive_cuts(
 
 // ── cap_stored_cuts ────────────────────────────────────────────────────────
 
-void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
-                                   const PlanningLP& planning_lp)
+void SDDPCutManager::cap_stored_cuts(const SDDPOptions& options,
+                                     const PlanningLP& planning_lp)
 {
   const auto max_cuts = options.max_stored_cuts;
   if (max_cuts <= 0) {
@@ -339,28 +430,16 @@ void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
   }
   const auto limit = static_cast<std::size_t>(max_cuts);
 
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
   int total_dropped = 0;
 
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    auto& cuts = m_scene_cuts_[scene];
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    auto& cuts = m_scene_cuts_[scene_index];
     if (cuts.size() > limit) {
       const auto excess = cuts.size() - limit;
       cuts.erase(cuts.begin(),
                  cuts.begin() + static_cast<std::ptrdiff_t>(excess));
       total_dropped += static_cast<int>(excess);
-    }
-  }
-
-  if (!options.single_cut_storage) {
-    const std::scoped_lock lock(m_cuts_mutex_);
-    const auto total_limit = limit * static_cast<std::size_t>(num_scenes);
-    if (m_stored_cuts_.size() > total_limit) {
-      const auto excess = m_stored_cuts_.size() - total_limit;
-      m_stored_cuts_.erase(
-          m_stored_cuts_.begin(),
-          m_stored_cuts_.begin() + static_cast<std::ptrdiff_t>(excess));
     }
   }
 
@@ -372,14 +451,13 @@ void SDDPCutStore::cap_stored_cuts(const SDDPOptions& options,
 
 // ── build_combined_cuts ────────────────────────────────────────────────────
 
-std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
+std::vector<StoredCut> SDDPCutManager::build_combined_cuts(
     const PlanningLP& planning_lp) const
 {
   std::vector<StoredCut> combined;
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto& cuts = m_scene_cuts_[scene];
+  const auto num_scenes = planning_lp.simulation().scene_count();
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto& cuts = m_scene_cuts_[scene_index];
     combined.insert(combined.end(), cuts.begin(), cuts.end());
   }
   return combined;
@@ -387,89 +465,100 @@ std::vector<StoredCut> SDDPCutStore::build_combined_cuts(
 
 // ── apply_cut_sharing_for_iteration ────────────────────────────────────────
 
-void SDDPCutStore::apply_cut_sharing_for_iteration(
-    std::size_t cuts_before,
-    IterationIndex iteration,
+void SDDPCutManager::apply_cut_sharing_for_iteration(
+    IterationIndex iteration_index,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
-    const LabelMaker& label_maker)
+    [[maybe_unused]] const LabelMaker& label_maker)
 {
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
-  const auto num_phases =
-      static_cast<Index>(planning_lp.simulation().phases().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
+  const auto num_phases = planning_lp.simulation().phase_count();
 
   if (options.cut_sharing == CutSharingMode::none || num_scenes <= 1) {
     return;
   }
 
-  auto to_sparse_row = [](const StoredCut& sc) -> SparseRow
+  // ``to_sparse_row`` populates the row's label metadata so that
+  // ``LinearInterface::generate_labels_from_maps`` can synthesise a
+  // unique LP-row name for the shared cut after it lands in the
+  // destination scene's LP.  Without ``class_name`` /
+  // ``constraint_name`` set the labeller throws
+  // ``"row N has metadata without a class_name (unlabelable)"`` (juan/
+  // gtopt_iplp iter-1 reproducer at row 5251).  ``variable_uid`` and
+  // ``context`` carry the originating cut's identity so two shared
+  // cuts on the same destination phase but from different source
+  // scenes do not collide on the duplicate-label check at
+  // ``generate_labels_from_maps:1581``.
+  auto to_sparse_row = [iteration_index](const StoredCut& sc,
+                                         int extra) -> SparseRow
   {
     auto row = SparseRow {
-        .name = sc.name,
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
+        .scale = sc.scale,
+        .variable_uid = sc.phase_uid,
+        .context = make_iteration_context(
+            sc.scene_uid, sc.phase_uid, uid_of(iteration_index), extra),
     };
+    sddp_loaded_cut_tag.apply_to(row);
     for (const auto& [col, coeff] : sc.coefficients) {
       row[col] = coeff;
     }
     return row;
   };
 
-  flat_map<SceneUid, SceneIndex> scene_uid_map;
-  const auto& scenes = planning_lp.simulation().scenes();
-  for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
-    scene_uid_map[sc_lp.uid()] = si;
-  }
-
   const auto& phases = planning_lp.simulation().phases();
   auto phase_uid_fn = [&](PhaseIndex pi) -> PhaseUid
   { return phases[pi].uid(); };
 
+  // Iterate each phase step; for each scene, use its per-scene offset
+  // (captured by the caller in `SceneCutStore::cuts_before()` before
+  // the backward pass — replaces the parallel `m_scene_cuts_before_`
+  // vector retired in step 4 of the cut-store split plan) to find
+  // cuts newly added this iteration.  Only optimality cuts are shared
+  // across scenes (feasibility cuts are scene-local by construction).
   for (const auto pi : iota_range<PhaseIndex>(0, num_phases - 1)) {
     StrongIndexVector<SceneIndex, std::vector<SparseRow>> per_scene_cuts;
     per_scene_cuts.resize(num_scenes);
 
     const auto pi_uid = phase_uid_fn(pi);
 
-    if (options.single_cut_storage) {
-      for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
-        const auto& cuts = m_scene_cuts_[si];
-        const auto offset = m_scene_cuts_before_[static_cast<std::size_t>(si)];
-        for (std::size_t ci = offset; ci < cuts.size(); ++ci) {
-          const auto& sc = cuts[ci];
-          if (sc.type != CutType::Optimality || sc.phase != pi_uid) {
-            continue;
-          }
-          per_scene_cuts[si].push_back(to_sparse_row(sc));
-        }
-      }
-    } else {
-      for (std::size_t ci = cuts_before; ci < m_stored_cuts_.size(); ++ci) {
-        const auto& sc = m_stored_cuts_[ci];
-        if (sc.type != CutType::Optimality || sc.phase != pi_uid) {
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      const auto& sc = m_scene_cuts_[si];
+      const auto& cuts = sc.cuts();
+      const auto offset = sc.cuts_before();
+      // ``int`` matches ``make_iteration_context``'s ``extra`` slot, so
+      // ``ci`` flows straight through ``to_sparse_row`` with no cast.
+      // ``std::ssize(cuts)`` returns a signed type so the range-end
+      // doesn't trigger a sign-conversion narrowing.
+      for (const auto ci : iota_range<int>(offset, std::ssize(cuts))) {
+        const auto& sc = cuts[ci];
+        if (sc.type != CutType::Optimality || sc.phase_uid != pi_uid) {
           continue;
         }
-        auto sit = scene_uid_map.find(sc.scene);
-        if (sit != scene_uid_map.end()) {
-          per_scene_cuts[sit->second].push_back(to_sparse_row(sc));
-        }
+        per_scene_cuts[si].push_back(to_sparse_row(sc, ci));
       }
     }
 
+    // ``share_cuts_for_phase`` builds a per-scene
+    // ``IterationContext`` internally (using the destination scene's
+    // UID) so the accumulated/expected shared cut row carries
+    // unique label metadata in every destination scene's LP — see
+    // its ``stamp_for_scene`` helper.  Without that, the new
+    // SparseRow synthesised by ``accumulate_benders_cuts`` /
+    // ``average_benders_cut`` would land in the LP with empty
+    // ``class_name`` and ``generate_labels_from_maps`` would
+    // throw "row N has metadata without a class_name
+    // (unlabelable)".
     gtopt::share_cuts_for_phase(
-        pi,
-        per_scene_cuts,
-        options.cut_sharing,
-        planning_lp,
-        label_maker.lp_label("sddp", "share", pi, iteration));
+        pi, per_scene_cuts, options.cut_sharing, planning_lp, iteration_index);
   }
 }
 
 // ── save_cuts_for_iteration ────────────────────────────────────────────────
 
-void SDDPCutStore::save_cuts_for_iteration(
-    IterationIndex iter,
+void SDDPCutManager::save_cuts_for_iteration(
+    IterationIndex iteration_index,
     std::span<const uint8_t> scene_feasible,
     const SDDPOptions& options,
     PlanningLP& planning_lp,
@@ -477,7 +566,7 @@ void SDDPCutStore::save_cuts_for_iteration(
     const StrongIndexVector<SceneIndex,
                             StrongIndexVector<PhaseIndex, PhaseStateInfo>>&
     /*scene_phase_states*/,
-    int current_iteration)
+    SDDPWorkPool* pool)
 {
   if (options.cuts_output_file.empty()) {
     return;
@@ -486,95 +575,160 @@ void SDDPCutStore::save_cuts_for_iteration(
   const auto cut_dir =
       std::filesystem::path(options.cuts_output_file).parent_path();
 
+  // Per-stage timing for the iter-end gap audit.  Each stage's
+  // duration is reported in a single INFO line at the end so
+  // operators can break down "post-iter housekeeping took X s" into
+  // its components without rebuilding with TRACE logging on.
+  using Clock = std::chrono::steady_clock;
+  const auto elapsed_s = [](Clock::time_point start) noexcept
+  { return std::chrono::duration<double>(Clock::now() - start).count(); };
+  double dt_combined = 0.0;
+  double dt_per_scene = 0.0;
+  double dt_rename = 0.0;
+
   // Helper: save all cuts to a file
   auto save_all = [&](const std::string& filepath) -> std::expected<void, Error>
   {
-    if (options.single_cut_storage) {
-      const auto combined = build_combined_cuts(planning_lp);
-      return save_cuts_csv(combined, planning_lp, filepath);
-    }
-    return save_cuts_csv(m_stored_cuts_, planning_lp, filepath);
+    // Always serialise from the per-scene union so feasibility cuts
+    // (which live exclusively in `m_scene_cuts_` to avoid the
+    // combined-vector mutex) are included regardless of the
+    // `single_cut_storage` flag.  Under `single_cut_storage=false`
+    // optimality cuts also live in `m_scene_cuts_` alongside the
+    // combined vector, so the union view via `build_combined_cuts`
+    // contains both types without duplication.
+    const auto combined = build_combined_cuts(planning_lp);
+    return save_cuts_parquet(combined, planning_lp, filepath);
   };
 
-  // Save to a versioned file: sddp_cuts_<iter>.csv
+  // ── Save to a versioned file: sddp_cuts_<iter>.csv ──
   if (!cut_dir.empty()) {
+    const auto t0 = Clock::now();
     const auto versioned_file =
-        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iter)).string();
+        (cut_dir / std::format(sddp_file::versioned_cuts_fmt, iteration_index))
+            .string();
     auto result = save_all(versioned_file);
     if (!result.has_value()) {
       SPDLOG_WARN("SDDP: could not save versioned cuts at iter {}: {}",
-                  iter,
+                  iteration_index,
                   result.error().message);
     }
+    dt_combined = elapsed_s(t0);
   }
 
-  // Save per-scene cuts
-  if (!cut_dir.empty()) {
-    const auto num_scenes =
-        static_cast<Index>(planning_lp.simulation().scenes().size());
-    const auto& scenes = planning_lp.simulation().scenes();
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      auto result = save_scene_cuts_csv(m_scene_cuts_[scene],
-                                        scene,
-                                        scenes[scene].uid(),
-                                        planning_lp,
-                                        cut_dir.string());
-      if (!result.has_value()) {
-        SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
-                    iter,
-                    result.error().message);
-        break;
-      }
-    }
-  }
-
-  // Save state variable column solutions (latest + versioned)
-  if (!cut_dir.empty()) {
-    const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    auto sr = save_state_csv(
-        planning_lp, state_file, IterationIndex {current_iteration});
-    if (!sr.has_value()) {
-      SPDLOG_WARN("SDDP: could not save state at iter {}: {}",
-                  iter,
-                  sr.error().message);
-    }
-    const auto versioned_state =
-        (cut_dir / std::format(sddp_file::versioned_state_fmt, iter)).string();
-    sr = save_state_csv(
-        planning_lp, versioned_state, IterationIndex {current_iteration});
-    if (!sr.has_value()) {
-      SPDLOG_WARN("SDDP: could not save versioned state at iter {}: {}",
-                  iter,
-                  sr.error().message);
-    }
-  }
-
-  // Rename cut files for infeasible scenes
-  const auto num_scenes =
-      static_cast<Index>(planning_lp.simulation().scenes().size());
+  const auto num_scenes = planning_lp.simulation().scene_count();
   const auto& scenes = planning_lp.simulation().scenes();
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    if (scene_feasible[static_cast<std::size_t>(scene)] != 0U) {
-      continue;
-    }
-    if (cut_dir.empty()) {
-      continue;
-    }
-    const auto suid = scenes[scene].uid();
-    const auto scene_file =
-        cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
-    const auto error_file =
-        cut_dir / std::format(sddp_file::error_scene_cuts_fmt, suid);
-    std::error_code ec;
-    if (std::filesystem::exists(scene_file, ec)) {
-      std::filesystem::rename(scene_file, error_file, ec);
-      if (!ec) {
-        SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
-                     scene,
-                     error_file.string());
+
+  // ── Save per-scene cuts (parallelised when a pool is available) ──
+  //
+  // Sequential cost on the juan/gtopt_iplp case: ~16 sequential CSV
+  // writes, dominated by per-cut label formatting; profiled at
+  // 0.5–1 s/iter.  Dispatching them via the SDDP work pool overlaps
+  // formatting + I/O across workers (the pool is otherwise idle in
+  // this post-iter gap), reducing the wall to a single write's
+  // duration.
+  if (!cut_dir.empty()) {
+    const auto t0 = Clock::now();
+    if (pool != nullptr && num_scenes > Index {1}) {
+      std::vector<std::future<std::expected<void, Error>>> futures;
+      futures.reserve(static_cast<std::size_t>(num_scenes));
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        const auto scene_uid = scenes[scene_index].uid();
+        const auto cut_dir_str = cut_dir.string();
+        // Capture by value/reference appropriately: per-scene cut
+        // vectors are read-only here (no mutation by the writer);
+        // `planning_lp` is also read-only for `save_scene_cuts_parquet`.
+        auto fut = pool->submit(
+            [this, scene_index, scene_uid, &planning_lp, cut_dir_str]
+            {
+              return save_scene_cuts_parquet(m_scene_cuts_[scene_index],
+                                             scene_index,
+                                             scene_uid,
+                                             planning_lp,
+                                             cut_dir_str);
+            });
+        if (fut.has_value()) {
+          futures.push_back(std::move(*fut));
+        }
+      }
+      for (auto& f : futures) {
+        auto result = f.get();
+        if (!result.has_value()) {
+          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                      iteration_index,
+                      result.error().message);
+          // Continue draining other futures rather than break — we
+          // want every worker's result observed before we move on so
+          // the pool's accounting and the `f.get()` blocking
+          // semantics are honoured in order.
+        }
+      }
+    } else {
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        auto result = save_scene_cuts_parquet(m_scene_cuts_[scene_index],
+                                              scene_index,
+                                              scenes[scene_index].uid(),
+                                              planning_lp,
+                                              cut_dir.string());
+        if (!result.has_value()) {
+          SPDLOG_WARN("SDDP: could not save per-scene cuts at iter {}: {}",
+                      iteration_index,
+                      result.error().message);
+          break;
+        }
       }
     }
+    dt_per_scene = elapsed_s(t0);
   }
+
+  // Note (2026-05-14): the per-iter `sddp_state.csv` write was
+  // removed.  Previously this block dumped LP state-variable
+  // column solutions for real-time monitoring, but the file had
+  // no readers anywhere in the codebase (recovery / hot-start
+  // reconstruct from the cuts, which ARE versioned).  The
+  // versioned `sddp_state_<iter>.csv` had already been retired
+  // earlier for the same reason plus the cumulative I/O cost
+  // (~8 GB/run on juan); removing the latest-only write
+  // completes the cleanup.
+
+  // ── Rename cut files for infeasible scenes ──
+  {
+    const auto t0 = Clock::now();
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      if (scene_feasible[scene_index] != 0U) {
+        continue;
+      }
+      if (cut_dir.empty()) {
+        continue;
+      }
+      const auto suid = scenes[scene_index].uid();
+      const auto scene_file =
+          cut_dir / std::format(sddp_file::scene_cuts_fmt, suid);
+      const auto error_file =
+          cut_dir / std::format(sddp_file::error_scene_cuts_fmt, suid);
+      std::error_code ec;
+      if (std::filesystem::exists(scene_file, ec)) {
+        std::filesystem::rename(scene_file, error_file, ec);
+        if (!ec) {
+          SPDLOG_TRACE("SDDP: renamed cut file for infeasible scene {} to {}",
+                       scene_index,
+                       error_file.string());
+        }
+      }
+    }
+    dt_rename = elapsed_s(t0);
+  }
+
+  const auto dt_total = dt_combined + dt_per_scene + dt_rename;
+  SPDLOG_INFO(
+      "SDDP Iter [i{}]: save_cuts_for_iteration {:.2f}s "
+      "— combined={:.2f}s per_scene={:.2f}s rename={:.3f}s "
+      "(parallel={})",
+      gtopt::uid_of(iteration_index),
+      dt_total,
+      dt_combined,
+      dt_per_scene,
+      dt_rename,
+      pool != nullptr ? "yes" : "no");
 }
 
 }  // namespace gtopt

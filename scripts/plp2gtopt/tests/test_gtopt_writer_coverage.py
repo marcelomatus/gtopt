@@ -23,7 +23,7 @@ def _make_opts(tmp_path: Path, case_name: str = "test") -> dict:
         "hydrologies": "1",
         "discount_rate": 0.0,
         "last_stage": -1,
-        "compression": "zstd",
+        "compression": "snappy",
     }
 
 
@@ -53,6 +53,26 @@ class TestProcessOptions:
         writer.process_options(opts)
         sddp = writer.planning["options"].get("sddp_options", {})
         assert sddp.get("cut_sharing_mode") == "shared"
+
+    def test_process_options_backward_solver_threads_default(self, tmp_path):
+        """No backward_solver_options block by default — defer to C++ default."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.process_options(_make_opts(tmp_path))
+        sddp = writer.planning["options"]["sddp_options"]
+        assert "backward_solver_options" not in sddp
+
+    def test_process_options_backward_solver_threads_override(self, tmp_path):
+        """`backward_solver_threads` option overrides the default."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["backward_solver_threads"] = 4
+        writer.process_options(opts)
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["backward_solver_options"] == {"threads": 4}
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +158,7 @@ class TestProcessVariableScales:
         writer.process_variable_scales({})
         assert "variable_scales" not in writer.planning["options"]
 
-    def test_auto_rsv_energy_scale(self, tmp_path):
+    def test_auto_reservoir_energy_scale(self, tmp_path):
         """Auto reservoir energy scaling uses FEscala from planos parser."""
         parser = MagicMock()
         mock_planos = MagicMock()
@@ -159,15 +179,15 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_rsv_energy_scale": True})
+        writer.process_variable_scales({"auto_reservoir_energy_scale": True})
 
         scales = writer.planning["options"]["variable_scales"]
         rsv_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 1]
         assert len(rsv_energy) == 1
         assert rsv_energy[0]["scale"] == pytest.approx(0.001)
 
-    def test_explicit_rsv_energy_scale(self):
-        """Explicit --rsv-energy-scale overrides auto."""
+    def test_explicit_reservoir_energy_scale(self):
+        """Explicit --reservoir-energy-scale overrides auto."""
         parser = MagicMock()
         parser.parsed_data = {
             "planos_parser": None,
@@ -184,15 +204,15 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "rsv_energy_scale": {"RSV1": 42.0},
-                "auto_rsv_energy_scale": True,
+                "reservoir_energy_scale": {"RSV1": 42.0},
+                "auto_reservoir_energy_scale": True,
             }
         )
         scales = writer.planning["options"]["variable_scales"]
         rsv_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 1]
         assert rsv_energy[0]["scale"] == pytest.approx(42.0)
 
-    def test_auto_bat_energy_scale(self):
+    def test_auto_battery_energy_scale(self):
         """Auto battery energy scaling sets 0.01."""
         parser = MagicMock()
         parser.parsed_data = {
@@ -208,7 +228,7 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_bat_energy_scale": True})
+        writer.process_variable_scales({"auto_battery_energy_scale": True})
         scales = writer.planning["options"]["variable_scales"]
         bat_energy = [s for s in scales if s["variable"] == "energy" and s["uid"] == 10]
         assert len(bat_energy) == 1
@@ -217,8 +237,8 @@ class TestProcessVariableScales:
         bat_flow = [s for s in scales if s["variable"] == "flow" and s["uid"] == 10]
         assert len(bat_flow) == 1
 
-    def test_explicit_bat_energy_scale(self):
-        """Explicit --bat-energy-scale overrides auto."""
+    def test_explicit_battery_energy_scale(self):
+        """Explicit --battery-energy-scale overrides auto."""
         parser = MagicMock()
         parser.parsed_data = {
             "planos_parser": None,
@@ -235,8 +255,8 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "bat_energy_scale": {"BAT1": 0.5},
-                "auto_bat_energy_scale": True,
+                "battery_energy_scale": {"BAT1": 0.5},
+                "auto_battery_energy_scale": True,
             }
         )
         scales = writer.planning["options"]["variable_scales"]
@@ -311,7 +331,7 @@ class TestProcessVariableScales:
         }
         writer.process_variable_scales(
             {
-                "auto_rsv_energy_scale": True,
+                "auto_reservoir_energy_scale": True,
                 "variable_scales_file": str(file_path),
             }
         )
@@ -341,48 +361,13 @@ class TestProcessVariableScales:
             },
             "simulation": {},
         }
-        writer.process_variable_scales({"auto_rsv_energy_scale": True})
+        writer.process_variable_scales({"auto_reservoir_energy_scale": True})
         # scale=1.0 is filtered out
         assert "variable_scales" not in writer.planning["options"]
 
 
-# ---------------------------------------------------------------------------
-# _build_stage_to_phase_map (lines 1096-1116)
-# ---------------------------------------------------------------------------
-
-
-class TestBuildStageToPhaseMap:
-    """Tests for _build_stage_to_phase_map."""
-
-    def test_empty_stage_array(self):
-        """Returns None when stage_array is empty."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {"stage_array": []}
-        result = writer._build_stage_to_phase_map()
-        assert result is None
-
-    def test_missing_stage_array(self):
-        """Returns None when stage_array is absent."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {}
-        result = writer._build_stage_to_phase_map()
-        assert result is None
-
-    def test_valid_stage_array(self):
-        """Returns correct mapping from stage UID to phase UID."""
-        parser = MagicMock()
-        writer = GTOptWriter(parser)
-        writer.planning = {
-            "stage_array": [
-                {"uid": 1, "phase_uid": 1},
-                {"uid": 2, "phase_uid": 1},
-                {"uid": 3, "phase_uid": 2},
-            ],
-        }
-        result = writer._build_stage_to_phase_map()
-        assert result == {1: 1, 2: 1, 3: 2}
+# ``_build_stage_to_phase_map`` was retired in 2026-05 alongside the
+# hot-start CSV writer; the coverage tests it backed are dropped here.
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +429,7 @@ def test_write_creates_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _normalize_solver_type
+# _normalize_method
 # ---------------------------------------------------------------------------
 
 
@@ -454,12 +439,13 @@ def test_write_creates_json(tmp_path):
         ("sddp", "sddp"),
         ("mono", "monolithic"),
         ("monolithic", "monolithic"),
+        ("cascade", "cascade"),
         ("other", "sddp"),
     ],
 )
-def test_normalize_solver_type(input_val, expected):
-    """_normalize_solver_type maps aliases correctly."""
-    assert GTOptWriter._normalize_solver_type(input_val) == expected
+def test_normalize_method(input_val, expected):
+    """_normalize_method maps aliases correctly."""
+    assert GTOptWriter._normalize_method(input_val) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +457,8 @@ class TestProcessOptionsModelOpts:
     """Tests for model_options sub-fields in process_options."""
 
     def test_reserve_fail_cost(self, tmp_path):
-        """process_options sets reserve_fail_cost when provided."""
+        """process_options accepts legacy reserve_fail_cost (renamed to
+        reserve_shortage_cost in §11.10)."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -487,8 +474,68 @@ class TestProcessOptionsModelOpts:
         }
         writer.process_options(opts)
         mo = writer.planning["options"]["model_options"]
-        assert mo["reserve_fail_cost"] == 500.0
+        assert mo["reserve_shortage_cost"] == 500.0
         assert mo["use_line_losses"] is True
+
+
+class TestScaleObjectiveMethodAware:
+    """``scale_objective`` is method-aware (commit ab041592f).
+
+    The C++ default is 1.0 for sddp/cascade (it is the dominant LP
+    basis-condition contributor once Benders cuts accumulate) and 1000
+    for monolithic.  plp2gtopt's CLI/conf default is the monolithic
+    1000, so the writer must emit 1.0 for sddp/cascade while honoring a
+    deliberate non-1000 override verbatim for any method.
+    """
+
+    @pytest.mark.parametrize("method", ["sddp", "cascade", "cascade-reduced"])
+    def test_sddp_cascade_default_becomes_one(self, tmp_path, method):
+        """The monolithic 1000 default is rewritten to 1.0 for sddp/cascade."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, f"so_{method.replace('-', '_')}")
+        opts["method"] = method
+        # The conf/CLI default arrives in model_options as 1000.
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        assert writer.planning["options"]["model_options"]["scale_objective"] == 1.0
+
+    def test_cascade_propagates_into_cascade_options(self, tmp_path):
+        """The 1.0 value also lands in the cascade-level model_options base."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_casc_prop")
+        opts["method"] = "cascade"
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        casc = writer.planning["options"]["cascade_options"]
+        assert casc["model_options"]["scale_objective"] == 1.0
+
+    def test_monolithic_keeps_1000(self, tmp_path):
+        """Monolithic retains the 1000 value (matches its C++ default)."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_mono")
+        opts["method"] = "monolithic"
+        opts["model_options"] = {"scale_objective": 1000.0}
+        writer.process_options(opts)
+        mo = writer.planning["options"]["model_options"]
+        assert mo["scale_objective"] == 1000.0
+
+    def test_explicit_override_forwarded_for_cascade(self, tmp_path):
+        """A deliberate non-1000 value is honored verbatim, even for cascade."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path, "so_override")
+        opts["method"] = "cascade"
+        opts["model_options"] = {"scale_objective": 500.0}
+        writer.process_options(opts)
+        mo = writer.planning["options"]["model_options"]
+        assert mo["scale_objective"] == 500.0
 
 
 # ---------------------------------------------------------------------------
@@ -539,7 +586,7 @@ class TestProcessStageBlocksPhase:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "mono")
-        opts["solver_type"] = "monolithic"
+        opts["method"] = "monolithic"
         writer.process_options(opts)
         writer.process_stage_blocks(opts)
         phases = writer.planning["simulation"]["phase_array"]
@@ -555,7 +602,7 @@ class TestProcessWaterRights:
     """Tests for process_water_rights."""
 
     def test_disabled_by_default(self, tmp_path):
-        """process_water_rights does nothing when emit_water_rights is False."""
+        """process_water_rights does nothing when expand_water_rights is False."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -572,7 +619,7 @@ class TestProcessWaterRights:
         parser.parse_all()
         writer = GTOptWriter(parser)
         opts = _make_opts(tmp_path, "wr_on")
-        opts["emit_water_rights"] = True
+        opts["expand_water_rights"] = True
         # plp_min_1bus has no laja/maule data, so this should be a no-op
         writer.to_json(opts)
         # Should still complete without error
@@ -655,3 +702,44 @@ class TestProcessFlowTurbines:
         }
         writer.process_flow_turbines({"_pasada_hydro_names": {"CENT1"}})
         assert "flow_array" not in writer.planning["system"]
+
+
+# ---------------------------------------------------------------------------
+# _load_alias_file
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAliasFile:
+    """Tests for GTOptWriter._load_alias_file."""
+
+    def test_none_returns_none(self):
+        assert GTOptWriter._load_alias_file(None) is None
+
+    def test_valid_alias(self, tmp_path):
+        path = tmp_path / "alias.json"
+        path.write_text(json.dumps({"CANUTILLAR": "CHAPO", "OLD": "NEW"}))
+        result = GTOptWriter._load_alias_file(path)
+        assert result == {"CANUTILLAR": "CHAPO", "OLD": "NEW"}
+
+    def test_missing_file_raises(self, tmp_path):
+        path = tmp_path / "nope.json"
+        with pytest.raises(RuntimeError, match="Cannot read alias file"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_malformed_json_raises(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("{broken json")
+        with pytest.raises(RuntimeError, match="Cannot read alias file"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_non_dict_raises(self, tmp_path):
+        path = tmp_path / "list.json"
+        path.write_text(json.dumps(["a", "b"]))
+        with pytest.raises(RuntimeError, match="flat JSON object"):
+            GTOptWriter._load_alias_file(path)
+
+    def test_non_string_values_raise(self, tmp_path):
+        path = tmp_path / "numbers.json"
+        path.write_text(json.dumps({"A": 1, "B": "ok"}))
+        with pytest.raises(RuntimeError, match="flat JSON object"):
+            GTOptWriter._load_alias_file(path)

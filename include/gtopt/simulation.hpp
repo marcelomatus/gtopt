@@ -82,6 +82,15 @@ struct Simulation
    */
   OptName boundary_cuts_file {};
 
+  /** @brief Path to a parquet/csv file mapping blocks to calendar hours.
+   *
+   * Metadata reference produced by plp2gtopt (from ``indhor.csv``) and
+   * consumed by downstream post-processing tools (e.g. ``ts2gtopt``'s
+   * ``build_hour_block_map``) to reconstruct hourly series from
+   * block-granularity solver output.  Not used by the LP solver itself.
+   */
+  OptName block_hour_map {};
+
   /** @brief Valuation basis for boundary cut coefficients and RHS.
    *
    * - `end_of_horizon` (default): no discounting applied.
@@ -126,6 +135,7 @@ struct Simulation
     gtopt::merge(iteration_array, std::move(sim.iteration_array));
     merge_opt(annual_discount_rate, sim.annual_discount_rate);
     merge_opt(boundary_cuts_file, std::move(sim.boundary_cuts_file));
+    merge_opt(block_hour_map, std::move(sim.block_hour_map));
     merge_opt(boundary_cuts_valuation, sim.boundary_cuts_valuation);
     merge_opt(probability_rescale, sim.probability_rescale);
     merge_opt(kappa_warning, sim.kappa_warning);

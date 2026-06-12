@@ -7,7 +7,6 @@
  *
  * Covers source/gtopt_main.cpp:
  *   - error path when a planning file does not exist
- *   - fast-parsing path
  *   - lp_only=true (build all LPs but skip solve)
  *   - json_file output
  *   - stats=true (pre- and post-solve statistics)
@@ -25,7 +24,9 @@
 #include <vector>
 
 #include <doctest/doctest.h>
+#include <gtopt/as_label.hpp>
 #include <gtopt/gtopt_main.hpp>
+#include <gtopt/planning.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
@@ -34,27 +35,62 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace  // NOLINT
 {
 // Minimal planning JSON usable by gtopt_main (no input-directory needed).
-constexpr auto minimal_json = R"({
-  "options": {
-    "demand_fail_cost": 1000,
-    "output_compression": "uncompressed"
-  },
-  "simulation": {
-    "block_array": [{"uid": 1, "duration": 1}],
-    "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-    "scenario_array": [{"uid": 1}]
-  },
-  "system": {
-    "name": "gtopt_main_test",
-    "bus_array": [{"uid": 1, "name": "b1"}],
-    "generator_array": [
-      {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-    ],
-    "demand_array": [
-      {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-    ]
+constexpr auto minimal_json = R"(
+  {
+    "options": {
+      "output_compression": "uncompressed",
+      "model_options": {
+        "demand_fail_cost": 1000
+      }
+    },
+    "simulation": {
+      "block_array": [
+        {
+          "uid": 1,
+          "duration": 1
+        }
+      ],
+      "stage_array": [
+        {
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1
+        }
+      ],
+      "scenario_array": [
+        {
+          "uid": 1
+        }
+      ]
+    },
+    "system": {
+      "name": "gtopt_main_test",
+      "bus_array": [
+        {
+          "uid": 1,
+          "name": "b1"
+        }
+      ],
+      "generator_array": [
+        {
+          "uid": 1,
+          "name": "g1",
+          "bus": 1,
+          "gcost": 10.0,
+          "capacity": 200.0
+        }
+      ],
+      "demand_array": [
+        {
+          "uid": 1,
+          "name": "d1",
+          "bus": 1,
+          "capacity": 50.0
+        }
+      ]
+    }
   }
-})";
+)";
 
 // Write content to a .json temp file and return its stem (path without .json).
 std::filesystem::path write_tmp_json(const std::string& name,
@@ -84,18 +120,6 @@ TEST_CASE("gtopt_main - lp_only=true completes successfully")
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-  });
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
-}
-
-TEST_CASE("gtopt_main - fast_parsing path, lp_only=true")
-{
-  const auto stem = write_tmp_json("gtopt_main_fast_parse", minimal_json);
-  auto result = gtopt_main(MainOptions {
-      .planning_files = {stem.string()},
-      .lp_only = true,
-      .fast_parsing = true,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -169,15 +193,39 @@ TEST_CASE("gtopt_main - multiple planning files merged")
 {
   // Split the minimal JSON into two fragments that merge into one valid plan:
   // part1 provides options + simulation, part2 provides the system components.
-  constexpr auto part1 = R"({
-    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {"name": "merge_test"}
-  })";
+  constexpr auto part1 = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "merge_test"
+      }
+    }
+  )";
 
   constexpr auto part2 = R"({
     "system": {
@@ -216,28 +264,77 @@ TEST_CASE("gtopt_main - returns error for invalid JSON content")
 TEST_CASE("gtopt_main - stats=true, lp_only (covers log_pre_solve_stats)")
 {
   // Richer system to exercise more stat counters
-  constexpr auto rich_json = R"({
-    "options": {"demand_fail_cost": 500, "output_compression": "uncompressed"},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 2}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "rich_stats_test",
-      "bus_array": [{"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 100.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ],
-      "line_array": [
-        {"uid": 1, "name": "l1", "bus_a": 1, "bus_b": 2,
-         "tmax_ab": 100.0, "tmax_ba": 100.0, "reactance": 0.1}
-      ]
+  constexpr auto rich_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 500
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 2
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "rich_stats_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          },
+          {
+            "uid": 2,
+            "name": "b2"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 100.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ],
+        "line_array": [
+          {
+            "uid": 1,
+            "name": "l1",
+            "bus_a": 1,
+            "bus_b": 2,
+            "tmax_ab": 100.0,
+            "tmax_ba": 100.0,
+            "reactance": 0.1
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_rich_stats", rich_json);
   auto result = gtopt_main(MainOptions {
@@ -308,22 +405,56 @@ TEST_CASE("gtopt_main - solver non-optimal for infeasible LP (pmin > pmax)")
   // bounds. The solver returns non-optimal, covering lines 350-375
   // (the non-optimal logging block) and line 359 (spdlog::warn for
   // SolverError).
-  constexpr auto infeasible_json = R"({
-    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "infeasible_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0,
-         "pmin": 100.0, "pmax": 50.0, "capacity": 200.0}
-      ]
+  constexpr auto infeasible_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "infeasible_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "pmin": 100.0,
+            "pmax": 50.0,
+            "capacity": 200.0
+          }
+        ]
+      }
     }
-  })";
+  )";
   const auto stem = write_tmp_json("gtopt_main_infeasible", infeasible_json);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_infeasible_out")
@@ -341,22 +472,56 @@ TEST_CASE("gtopt_main - solver non-optimal with stats=true")
 {
   // Same infeasible LP but with print_stats=true to cover the non-optimal
   // branch of log_post_solve_stats.
-  constexpr auto infeasible_stats_json = R"({
-    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "infeasible_stats_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0,
-         "pmin": 100.0, "pmax": 50.0, "capacity": 200.0}
-      ]
+  constexpr auto infeasible_stats_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "infeasible_stats_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "pmin": 100.0,
+            "pmax": 50.0,
+            "capacity": 200.0
+          }
+        ]
+      }
     }
-  })";
+  )";
   const auto stem =
       write_tmp_json("gtopt_main_infeasible_stats", infeasible_stats_json);
   auto result = gtopt_main(MainOptions {
@@ -377,25 +542,62 @@ TEST_CASE("gtopt_main - demand with missing FileSched file throws exception")
   // This covers:
   //   - array_index_traits.cpp lines 221-223 (the throw in read_arrow_table)
   //   - gtopt_main.cpp lines 402-404 (catch std::exception around LP creation)
-  constexpr auto filesched_json = R"({
-    "options": {"demand_fail_cost": 1000, "output_compression": "uncompressed"},
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "filesched_missing_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1,
-         "lmax": "nonexistent_lmax_filesched_xyz"}
-      ]
+  constexpr auto filesched_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "filesched_missing_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "lmax": "nonexistent_lmax_filesched_xyz"
+          }
+        ]
+      }
     }
-  })";
+  )";
   const auto stem =
       write_tmp_json("gtopt_main_missing_filesched", filesched_json);
   auto result = gtopt_main(MainOptions {
@@ -448,7 +650,7 @@ TEST_CASE("gtopt_main - lp_algorithm primal solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::primal),
+      .algorithm = LPAlgo::primal,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -466,7 +668,7 @@ TEST_CASE("gtopt_main - lp_algorithm dual solves correctly")  // NOLINT
       .planning_files = {stem.string()},
       .output_directory = out_dir,
       .use_single_bus = true,
-      .algorithm = std::to_underlying(LPAlgo::dual),
+      .algorithm = LPAlgo::dual,
   });
   REQUIRE(result.has_value());
   CHECK(*result == 0);
@@ -476,28 +678,65 @@ TEST_CASE("gtopt_main - lp_algorithm from JSON options")  // NOLINT
 {
   // Verify that lp_algorithm can be specified in the JSON options field
   // and is propagated through the planning options to the solver.
-  constexpr auto json_with_algo = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "lp_algorithm": 1
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}],
-      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "json_algo_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ]
+  constexpr auto json_with_algo = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "solver_options": {
+          "algorithm": "primal"
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "json_algo_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_json_algo", json_with_algo);
   const auto out_dir =
@@ -517,28 +756,65 @@ TEST_CASE("gtopt_main - presolve=false solves correctly")  // NOLINT
   // Verify that disabling presolve (via JSON solver_options) still produces
   // an optimal solution.  presolve is not a CLI flag — it is configured
   // exclusively through the JSON solver_options block.
-  constexpr auto json_no_presolve = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "lp_presolve": false
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}],
-      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "no_presolve",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ]
+  constexpr auto json_no_presolve = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "solver_options": {
+          "presolve": false
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "no_presolve",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
     }
-  })";
+  )";
   const auto stem = write_tmp_json("gtopt_main_no_presolve", json_no_presolve);
   const auto out_dir =
       (std::filesystem::temp_directory_path() / "gtopt_main_no_presolve_out")
@@ -567,7 +843,6 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "none",
       .log_directory = log_dir.string(),
@@ -590,42 +865,75 @@ TEST_CASE("gtopt_main - lp_debug writes LP files to log directory")  // NOLINT
   std::filesystem::remove_all(log_dir);
 }
 
-TEST_CASE("gtopt_main - check_json=true warns on unknown fields")  // NOLINT
+TEST_CASE("gtopt_main - unknown JSON fields cause hard failure")  // NOLINT
 {
-  // JSON with an unknown field "bogus_option" to trigger the ExactParsePolicy
-  // pre-pass warning.  Covers lines 127-136 (check_json branch).
-  constexpr auto json_with_unknown = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "bogus_option": 42
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}],
-      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "check_json_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ]
+  // With UseExactMappingsByDefault=yes on StrictParsePolicy, any unknown JSON
+  // key in the planning file causes a hard parse failure.
+  constexpr auto json_with_unknown = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "bogus_option": 42,
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "check_json_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_check_json", json_with_unknown);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .lp_only = true,
-      .check_json = true,
   });
-  // The unknown field triggers a warning but parsing still succeeds
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
+  // Unknown field hard-fails: gtopt_main returns std::unexpected.
+  REQUIRE_FALSE(result.has_value());
 }
 
 TEST_CASE("gtopt_main - output_format=parquet full solve")  // NOLINT
@@ -701,18 +1009,39 @@ TEST_CASE("gtopt_main - multiple files full solve")  // NOLINT
 {
   // Two files that merge into a complete planning, then do a full solve
   // (not lp_only) to cover the output-writing path with merged data.
-  constexpr auto merge_part1 = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed"
-    },
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {"name": "merge_solve_test"}
-  })";
+  constexpr auto merge_part1 = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "merge_solve_test"
+      }
+    }
+  )";
 
   constexpr auto merge_part2 = R"({
     "system": {
@@ -746,29 +1075,66 @@ TEST_CASE(
 {
   // JSON with top-level lp_threads and lp_presolve to cover the deprecated
   // backward-compat paths (lines 578-582 in gtopt_main.cpp).
-  constexpr auto json_with_solver_opts = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "lp_threads": 1,
-      "lp_presolve": false
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}],
-      "stage_array":  [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "solver_opts_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}
-      ]
+  constexpr auto json_with_solver_opts = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "solver_options": {
+          "threads": 1,
+          "presolve": false
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "solver_opts_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto stem =
       write_tmp_json("gtopt_main_solver_opts", json_with_solver_opts);
@@ -788,31 +1154,77 @@ TEST_CASE("gtopt_main - use_kirchhoff=true with multi-bus system")  // NOLINT
 {
   // Multi-bus system with kirchhoff=true to cover the use_kirchhoff option
   // path and the multi-bus (use_single_bus=false) code path.
-  constexpr auto kirchhoff_json = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed"
-    },
-    "simulation": {
-      "block_array":    [{"uid": 1, "duration": 1}],
-      "stage_array":    [{"uid": 1, "first_block": 0, "count_block": 1}],
-      "scenario_array": [{"uid": 1}]
-    },
-    "system": {
-      "name": "kirchhoff_test",
-      "bus_array": [{"uid": 1, "name": "b1"}, {"uid": 2, "name": "b2"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 2, "capacity": 50.0}
-      ],
-      "line_array": [
-        {"uid": 1, "name": "l1", "bus_a": 1, "bus_b": 2,
-         "tmax_ab": 100.0, "tmax_ba": 100.0, "reactance": 0.1}
-      ]
+  constexpr auto kirchhoff_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "kirchhoff_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          },
+          {
+            "uid": 2,
+            "name": "b2"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 2,
+            "capacity": 50.0
+          }
+        ],
+        "line_array": [
+          {
+            "uid": 1,
+            "name": "l1",
+            "bus_a": 1,
+            "bus_b": 2,
+            "tmax_ab": 100.0,
+            "tmax_ba": 100.0,
+            "reactance": 0.1
+          }
+        ]
+      }
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_kirchhoff", kirchhoff_json);
   const auto out_dir =
@@ -841,14 +1253,13 @@ TEST_CASE("gtopt_main - empty planning_files returns error")  // NOLINT
   (void)result;
 }
 
-TEST_CASE("gtopt_main - names_level=cols_and_rows with stats")  // NOLINT
+TEST_CASE("gtopt_main - lp_debug with stats")  // NOLINT
 {
-  // Exercise names_level=cols_and_rows (names + map) with stats to cover the
-  // make_lp_matrix_options paths for higher naming levels.
+  // Exercise lp_debug (all names + map) with stats to cover the
+  // make_lp_matrix_options paths.
   const auto stem = write_tmp_json("gtopt_main_lp_names2", minimal_json);
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
-      .lp_names_level = LpNamesLevel::cols_and_rows,
       .lp_only = true,
       .print_stats = true,
   });
@@ -869,7 +1280,6 @@ TEST_CASE(
   auto result = gtopt_main(MainOptions {
       .planning_files = {stem.string()},
       .use_single_bus = true,
-      .lp_names_level = LpNamesLevel::only_cols,
       .lp_debug = true,
       .lp_compression = "gzip",
       .log_directory = log_dir.string(),
@@ -910,7 +1320,7 @@ TEST_CASE(  // NOLINT
       {
         "uid": 100,
         "name": "uc_gen_limit",
-        "expression": "generator(\"g1\").generation <= 150"
+        "expression": "generator('g1').generation <= 150"
       }
     ])";
   }
@@ -918,8 +1328,10 @@ TEST_CASE(  // NOLINT
   // Planning JSON referencing the external constraint file
   const auto planning_json = std::format(R"({{
     "options": {{
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed"
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "demand_fail_cost": 1000
+      }}
     }},
     "simulation": {{
       "block_array": [{{"uid": 1, "duration": 1}}],
@@ -954,6 +1366,81 @@ TEST_CASE(  // NOLINT
   CHECK(*result == 0);
 
   std::filesystem::remove(uc_path);
+}
+
+TEST_CASE(  // NOLINT
+    "gtopt_main - user_constraint_files (plural) loads multiple files")
+{
+  // Verifies B2: separate PAMPL files (e.g. laja.pampl + maule.pampl) load
+  // independently via the plural `user_constraint_files` field.  Each file
+  // contributes its own constraints and uids do not collide.
+  const auto uc_path_1 =
+      std::filesystem::temp_directory_path() / "gtopt_main_uc_plural_1.json";
+  const auto uc_path_2 =
+      std::filesystem::temp_directory_path() / "gtopt_main_uc_plural_2.json";
+  {
+    std::ofstream f1(uc_path_1);
+    f1 << R"([
+      {
+        "uid": 100,
+        "name": "uc_file1",
+        "expression": "generator('g1').generation <= 180"
+      }
+    ])";
+  }
+  {
+    std::ofstream f2(uc_path_2);
+    f2 << R"([
+      {
+        "uid": 200,
+        "name": "uc_file2",
+        "expression": "generator('g1').generation >= 10"
+      }
+    ])";
+  }
+
+  const auto planning_json = std::format(R"({{
+    "options": {{
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "demand_fail_cost": 1000
+      }}
+    }},
+    "simulation": {{
+      "block_array":    [{{"uid": 1, "duration": 1}}],
+      "stage_array":    [{{"uid": 1, "first_block": 0, "count_block": 1}}],
+      "scenario_array": [{{"uid": 1}}]
+    }},
+    "system": {{
+      "name": "uc_files_test",
+      "user_constraint_files": ["{}", "{}"],
+      "bus_array": [{{"uid": 1, "name": "b1"}}],
+      "generator_array": [
+        {{"uid": 1, "name": "g1", "bus": 1, "gcost": 10.0, "capacity": 200.0}}
+      ],
+      "demand_array": [
+        {{"uid": 1, "name": "d1", "bus": 1, "capacity": 50.0}}
+      ]
+    }}
+  }})",
+                                         uc_path_1.string(),
+                                         uc_path_2.string());
+
+  const auto stem =
+      write_tmp_json("gtopt_main_uc_files", std::string_view(planning_json));
+  const auto out_dir =
+      (std::filesystem::temp_directory_path() / "gtopt_main_uc_files_out")
+          .string();
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {stem.string()},
+      .output_directory = out_dir,
+      .use_single_bus = true,
+  });
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  std::filesystem::remove(uc_path_1);
+  std::filesystem::remove(uc_path_2);
 }
 
 TEST_CASE("gtopt_main - demand_fail_cost=0 triggers warning")  // NOLINT
@@ -1016,35 +1503,66 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "gtopt_main - auto trace log without explicit trace_log path")
+    "gtopt_main - trace log gated on --trace-log opt-in")
 {
-  // When trace_log is NOT set, gtopt_main auto-creates a numbered
-  // trace_N.log in the log directory (lines 365-390).
-  const auto stem = write_tmp_json("gtopt_main_auto_trace", minimal_json);
-  const auto log_dir =
-      std::filesystem::temp_directory_path() / "gtopt_main_auto_trace_logs";
-  std::filesystem::remove_all(log_dir);
+  // Pin the post-2026-05-14 contract: with no `trace_log` set, gtopt_main
+  // does NOT auto-create a `trace_N.log`.  The user must opt in via
+  // `-T` / `--trace-log` (an empty string triggers the auto-numbered
+  // `<log_dir>/trace_<N>.log` path; a non-empty string is taken
+  // verbatim).  Default behavior keeps the global spdlog level at INFO,
+  // avoiding the previous always-on trace overhead on every run.
+  const auto stem = write_tmp_json("gtopt_main_trace_gating", minimal_json);
 
-  auto result = gtopt_main(MainOptions {
-      .planning_files = {stem.string()},
-      .lp_only = true,
-      .log_directory = log_dir.string(),
-  });
-  REQUIRE(result.has_value());
-  CHECK(*result == 0);
-
-  // Should have created trace_1.log in the log directory
-  bool found_trace = false;
-  if (std::filesystem::exists(log_dir)) {
-    for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
-      if (entry.path().filename().string().starts_with("trace_")) {
-        found_trace = true;
-        break;
+  // ── Subcase 1: no trace_log → no trace file ──────────────────────
+  {
+    const auto log_dir =
+        std::filesystem::temp_directory_path() / "gtopt_main_trace_gated_off";
+    std::filesystem::remove_all(log_dir);
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_only = true,
+        .log_directory = log_dir.string(),
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    bool found_trace = false;
+    if (std::filesystem::exists(log_dir)) {
+      for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+        if (entry.path().filename().string().starts_with("trace_")) {
+          found_trace = true;
+          break;
+        }
       }
     }
+    CHECK_FALSE(found_trace);
+    std::filesystem::remove_all(log_dir);
   }
-  CHECK(found_trace);
-  std::filesystem::remove_all(log_dir);
+
+  // ── Subcase 2: trace_log = "" → auto-numbered trace_<N>.log ──────
+  {
+    const auto log_dir =
+        std::filesystem::temp_directory_path() / "gtopt_main_trace_gated_auto";
+    std::filesystem::remove_all(log_dir);
+    auto result = gtopt_main(MainOptions {
+        .planning_files = {stem.string()},
+        .lp_only = true,
+        .trace_log = std::string {""},  // ← empty = auto-name
+        .log_directory = log_dir.string(),
+    });
+    REQUIRE(result.has_value());
+    CHECK(*result == 0);
+    bool found_trace = false;
+    if (std::filesystem::exists(log_dir)) {
+      for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
+        if (entry.path().filename().string().starts_with("trace_")) {
+          found_trace = true;
+          break;
+        }
+      }
+    }
+    CHECK(found_trace);
+    std::filesystem::remove_all(log_dir);
+  }
 }
 
 TEST_CASE(  // NOLINT
@@ -1052,19 +1570,20 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;
 
-  const auto& reg = SolverRegistry::instance();
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   REQUIRE(!solvers.empty());
 
   for (const auto& solver_name : solvers) {
     CAPTURE(solver_name);
 
-    SUBCASE(std::string(solver_name).c_str())
+    SUBCASE(solver_name.c_str())
     {
       const auto stem = write_tmp_json(
-          std::format("gtopt_main_solver_log_{}", solver_name), minimal_json);
+          as_label("gtopt_main_solver_log", solver_name), minimal_json);
       const auto log_dir = std::filesystem::temp_directory_path()
-          / std::format("gtopt_main_solver_log_{}_logs", solver_name);
+          / as_label("gtopt_main_solver_log", solver_name, "logs");
       std::filesystem::remove_all(log_dir);
 
       auto result = gtopt_main(MainOptions {
@@ -1085,9 +1604,7 @@ TEST_CASE(  // NOLINT
       if (std::filesystem::exists(log_dir)) {
         for (const auto& entry : std::filesystem::directory_iterator(log_dir)) {
           const auto name = entry.path().filename().string();
-          if (name.starts_with(std::string(solver_name))
-              && name.ends_with(".log"))
-          {
+          if (name.starts_with(solver_name) && name.ends_with(".log")) {
             found_log = true;
             CHECK(std::filesystem::file_size(entry.path()) > 0);
             break;
@@ -1110,37 +1627,86 @@ TEST_CASE(  // NOLINT
 
   // Multi-phase problem for monolithic solver with a boundary cuts file
   // that doesn't exist — should warn but still solve successfully.
-  constexpr auto multi_phase_json = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "sddp_options": {
-        "boundary_cuts_file": "/tmp/nonexistent_bc_file.csv"
+  constexpr auto multi_phase_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "sddp_options": {
+          "boundary_cuts_file": "/tmp/nonexistent_bc_file.csv"
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          },
+          {
+            "uid": 2,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          },
+          {
+            "uid": 2,
+            "first_block": 1,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ],
+        "phase_array": [
+          {
+            "uid": 1,
+            "first_stage": 0,
+            "count_stage": 1
+          },
+          {
+            "uid": 2,
+            "first_stage": 1,
+            "count_stage": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "gtopt_main_bc_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10,
+            "capacity": 200
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50
+          }
+        ]
       }
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
-      "stage_array": [
-        {"uid": 1, "first_block": 0, "count_block": 1},
-        {"uid": 2, "first_block": 1, "count_block": 1}
-      ],
-      "scenario_array": [{"uid": 1}],
-      "phase_array": [
-        {"uid": 1, "first_stage": 0, "count_stage": 1},
-        {"uid": 2, "first_stage": 1, "count_stage": 1}
-      ]
-    },
-    "system": {
-      "name": "gtopt_main_bc_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-      ]
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_bc_test", multi_phase_json);
   auto result = gtopt_main(MainOptions {
@@ -1157,39 +1723,88 @@ TEST_CASE(  // NOLINT
   using namespace gtopt;
 
   // 2-phase problem that triggers SDDP solver via JSON options
-  constexpr auto sddp_json = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "method": "sddp",
-      "sddp_options": {
-        "max_iterations": 5,
-        "convergence_tol": 0.01
+  constexpr auto sddp_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "method": "sddp",
+        "sddp_options": {
+          "max_iterations": 5,
+          "convergence_tol": 0.01
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          },
+          {
+            "uid": 2,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          },
+          {
+            "uid": 2,
+            "first_block": 1,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ],
+        "phase_array": [
+          {
+            "uid": 1,
+            "first_stage": 0,
+            "count_stage": 1
+          },
+          {
+            "uid": 2,
+            "first_stage": 1,
+            "count_stage": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "gtopt_main_sddp_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10,
+            "capacity": 200
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50
+          }
+        ]
       }
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
-      "stage_array": [
-        {"uid": 1, "first_block": 0, "count_block": 1},
-        {"uid": 2, "first_block": 1, "count_block": 1}
-      ],
-      "scenario_array": [{"uid": 1}],
-      "phase_array": [
-        {"uid": 1, "first_stage": 0, "count_stage": 1},
-        {"uid": 2, "first_stage": 1, "count_stage": 1}
-      ]
-    },
-    "system": {
-      "name": "gtopt_main_sddp_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-      ]
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_sddp_test", sddp_json);
   auto result = gtopt_main(MainOptions {
@@ -1208,39 +1823,88 @@ TEST_CASE(  // NOLINT
   // Top-level solver_options.log_mode=detailed should propagate to
   // SDDP forward solver via merge, even without setting it explicitly in
   // sddp_options.forward_solver_options.
-  constexpr auto sddp_log_json = R"({
-    "options": {
-      "demand_fail_cost": 1000,
-      "output_compression": "uncompressed",
-      "method": "sddp",
-      "sddp_options": {
-        "max_iterations": 3,
-        "convergence_tol": 0.01
+  constexpr auto sddp_log_json = R"(
+    {
+      "options": {
+        "output_compression": "uncompressed",
+        "method": "sddp",
+        "sddp_options": {
+          "max_iterations": 3,
+          "convergence_tol": 0.01
+        },
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          },
+          {
+            "uid": 2,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          },
+          {
+            "uid": 2,
+            "first_block": 1,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ],
+        "phase_array": [
+          {
+            "uid": 1,
+            "first_stage": 0,
+            "count_stage": 1
+          },
+          {
+            "uid": 2,
+            "first_stage": 1,
+            "count_stage": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "sddp_log_merge_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10,
+            "capacity": 200
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50
+          }
+        ]
       }
-    },
-    "simulation": {
-      "block_array": [{"uid": 1, "duration": 1}, {"uid": 2, "duration": 1}],
-      "stage_array": [
-        {"uid": 1, "first_block": 0, "count_block": 1},
-        {"uid": 2, "first_block": 1, "count_block": 1}
-      ],
-      "scenario_array": [{"uid": 1}],
-      "phase_array": [
-        {"uid": 1, "first_stage": 0, "count_stage": 1},
-        {"uid": 2, "first_stage": 1, "count_stage": 1}
-      ]
-    },
-    "system": {
-      "name": "sddp_log_merge_test",
-      "bus_array": [{"uid": 1, "name": "b1"}],
-      "generator_array": [
-        {"uid": 1, "name": "g1", "bus": 1, "gcost": 10, "capacity": 200}
-      ],
-      "demand_array": [
-        {"uid": 1, "name": "d1", "bus": 1, "capacity": 50}
-      ]
     }
-  })";
+  )";
 
   const auto stem = write_tmp_json("gtopt_main_sddp_log", sddp_log_json);
   const auto log_dir =
@@ -1274,4 +1938,175 @@ TEST_CASE(  // NOLINT
   CHECK(found_log);
 
   std::filesystem::remove_all(log_dir);
+}
+
+TEST_CASE(
+    "gtopt_main - file in subdirectory resolves "
+    "input_directory")  // NOLINT
+{
+  // Simulate the webservice scenario: a JSON file with input_directory="."
+  // resides in a subdirectory relative to CWD.  Data files (referenced by
+  // the JSON) are in the same subdirectory.  gtopt_main must resolve the
+  // relative input_directory against the JSON file's parent so that the
+  // data files are found correctly.
+  namespace fs = std::filesystem;
+  const auto base_dir = fs::temp_directory_path() / "gtopt_main_subdir_test";
+  const auto sub_dir = base_dir / "case_sub";
+  fs::create_directories(sub_dir);
+
+  // Write a minimal JSON with input_directory="." in the subdirectory
+  constexpr auto json_with_dot_input = R"(
+    {
+      "options": {
+        "input_directory": ".",
+        "output_compression": "uncompressed",
+        "model_options": {
+          "demand_fail_cost": 1000
+        }
+      },
+      "simulation": {
+        "block_array": [
+          {
+            "uid": 1,
+            "duration": 1
+          }
+        ],
+        "stage_array": [
+          {
+            "uid": 1,
+            "first_block": 0,
+            "count_block": 1
+          }
+        ],
+        "scenario_array": [
+          {
+            "uid": 1
+          }
+        ]
+      },
+      "system": {
+        "name": "subdir_test",
+        "bus_array": [
+          {
+            "uid": 1,
+            "name": "b1"
+          }
+        ],
+        "generator_array": [
+          {
+            "uid": 1,
+            "name": "g1",
+            "bus": 1,
+            "gcost": 10.0,
+            "capacity": 200.0
+          }
+        ],
+        "demand_array": [
+          {
+            "uid": 1,
+            "name": "d1",
+            "bus": 1,
+            "capacity": 50.0
+          }
+        ]
+      }
+    }
+  )";
+
+  const auto json_path = sub_dir / "case_sub.json";
+  {
+    std::ofstream ofs(json_path);
+    ofs << json_with_dot_input;
+  }
+
+  const auto out_dir = base_dir / "output";
+  const auto original_cwd = fs::current_path();
+  fs::current_path(base_dir);
+
+  // Use relative path "case_sub/case_sub" (stem, no extension) to the JSON
+  auto result = gtopt_main(MainOptions {
+      .planning_files = {"case_sub/case_sub"},
+      .output_directory = out_dir.string(),
+      .use_single_bus = true,
+  });
+
+  fs::current_path(original_cwd);
+
+  // Should succeed: input_directory="." is resolved to "case_sub"
+  // (the JSON file's parent directory), not CWD.
+  REQUIRE(result.has_value());
+  CHECK(*result == 0);
+
+  fs::remove_all(base_dir);
+}
+
+/// Regression: `demand_fail_cost == 0` should NOT trigger the
+/// "no shedding penalty" warning when any demand carries `fcost`
+/// or `ecost`.  This pins the cross-check added in `gtopt_main.cpp`
+/// against the global-only check used previously.
+TEST_CASE("gtopt_main - has_no_shedding_penalty cross-checks demand_array")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // ── (a) global=0, no per-demand → warning should fire ──────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK(has_no_shedding_penalty(p));
+  }
+
+  // ── (b) global=0 BUT one demand has fcost=100 → no warning ─────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .fcost = 100.0,
+            .capacity = 10.0,
+        },
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
+
+  // ── (c) global=1000, no per-demand → no warning ────────────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {1000.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
+
+  // ── (d) demand_fail_cost unset (nullopt) → behaves like 0 ──────
+  {
+    Planning p;
+    // demand_fail_cost left default (nullopt) — value_or(0.0) → 0.
+    p.system.demand_array = Array<Demand> {
+        Demand {.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .capacity = 10.0},
+    };
+    CHECK(has_no_shedding_penalty(p));
+  }
+
+  // ── (e) global=0 but a demand has only ecost ────────────────────
+  {
+    Planning p;
+    p.options.model_options.demand_fail_cost = OptReal {0.0};
+    p.system.demand_array = Array<Demand> {
+        Demand {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .ecost = 50.0,
+            .capacity = 10.0,
+        },
+    };
+    CHECK_FALSE(has_no_shedding_penalty(p));
+  }
 }

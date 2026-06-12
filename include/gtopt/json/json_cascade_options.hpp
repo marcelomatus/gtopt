@@ -27,41 +27,52 @@ struct json_data_contract<CascadeTransition>
 {
   using type =
       json_member_list<json_number_null<"inherit_optimality_cuts", OptInt>,
-                       json_number_null<"inherit_feasibility_cuts", OptInt>,
                        json_number_null<"inherit_targets", OptInt>,
                        json_number_null<"target_rtol", OptReal>,
                        json_number_null<"target_min_atol", OptReal>,
-                       json_number_null<"target_penalty", OptReal>,
-                       json_number_null<"optimality_dual_threshold", OptReal>>;
+                       json_number_null<"target_penalty", OptReal>>;
 
   constexpr static auto to_json_data(CascadeTransition const& opt)
   {
     return std::forward_as_tuple(opt.inherit_optimality_cuts,
-                                 opt.inherit_feasibility_cuts,
                                  opt.inherit_targets,
                                  opt.target_rtol,
                                  opt.target_min_atol,
-                                 opt.target_penalty,
-                                 opt.optimality_dual_threshold);
+                                 opt.target_penalty);
   }
 };
 
 template<>
 struct json_data_contract<CascadeLevelMethod>
 {
-  using type = json_member_list<json_number_null<"max_iterations", OptInt>,
-                                json_number_null<"min_iterations", OptInt>,
-                                json_array_null<"apertures",
-                                                std::optional<Array<Uid>>,
-                                                json_number_no_name<Uid>>,
-                                json_number_null<"convergence_tol", OptReal>>;
+  using type =
+      json_member_list<json_number_null<"max_iterations", OptInt>,
+                       json_number_null<"min_iterations", OptInt>,
+                       json_array_null<"apertures",
+                                       std::optional<Array<Uid>>,
+                                       json_number_no_name<Uid>>,
+                       json_number_null<"num_apertures", OptInt>,
+                       json_string_null<"aperture_selection_mode", OptName>,
+                       json_number_null<"convergence_tol", OptReal>,
+                       json_number_null<"stationary_tol", OptReal>,
+                       json_number_null<"stationary_gap_ceiling", OptReal>,
+                       json_number_null<"stationary_window", OptInt>,
+                       json_string_null<"elastic_mode", OptName>,
+                       json_number_null<"elastic_penalty", OptReal>>;
 
   constexpr static auto to_json_data(CascadeLevelMethod const& opt)
   {
     return std::forward_as_tuple(opt.max_iterations,
                                  opt.min_iterations,
                                  opt.apertures,
-                                 opt.convergence_tol);
+                                 opt.num_apertures,
+                                 opt.aperture_selection_mode,
+                                 opt.convergence_tol,
+                                 opt.stationary_tol,
+                                 opt.stationary_gap_ceiling,
+                                 opt.stationary_window,
+                                 opt.elastic_mode,
+                                 opt.elastic_penalty);
   }
 };
 
@@ -71,14 +82,23 @@ struct json_data_contract<CascadeLevel>
   using type =
       json_member_list<json_number_null<"uid", OptUid>,
                        json_string_null<"name", OptName>,
+                       json_bool_null<"active", OptBool>,
                        json_class_null<"model_options", ModelOptions>,
+                       json_string_null<"system_file", OptName>,
+                       json_string_null<"aperture_system_file", OptName>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
                        json_class_null<"transition", CascadeTransition>>;
 
   constexpr static auto to_json_data(CascadeLevel const& opt)
   {
-    return std::forward_as_tuple(
-        opt.uid, opt.name, opt.model_options, opt.sddp_options, opt.transition);
+    return std::forward_as_tuple(opt.uid,
+                                 opt.name,
+                                 opt.active,
+                                 opt.model_options,
+                                 opt.system_file,
+                                 opt.aperture_system_file,
+                                 opt.sddp_options,
+                                 opt.transition);
   }
 };
 

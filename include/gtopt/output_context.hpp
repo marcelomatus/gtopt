@@ -11,13 +11,16 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/phase.hpp>
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/single_id.hpp>
 #include <gtopt/system_context.hpp>
@@ -55,16 +58,198 @@ public:
   template<typename Type = double>
   using FieldVector = std::vector<FieldType<Type>>;
 
-  using ClassFieldName = std::pair<std::string_view, Name>;
+  /// Map key for `field_vector_map`: (cname, fname, sname).
+  /// All three are static `string_view` literals (class_name / field-name
+  /// constants / fixed suffix tag), so this is a zero-allocation key —
+  /// replaces the former `pair<string_view, Name>` whose `Name` (std::string)
+  /// was freshly heap-allocated via `as_label(fname, sname)` on every call.
+  using ClassFieldName = std::array<std::string_view, 3>;
+  struct ClassFieldNameHash
+  {
+    [[nodiscard]] std::size_t operator()(const ClassFieldName& k) const noexcept
+    {
+      // Mix three string_view hashes with golden-ratio constants.  Keys
+      // are short (≤ 2 dozen chars each) and the population is tiny
+      // (a few dozen per OutputContext) so a plain combine is fine.
+      constexpr std::uint64_t kMix = 0x9e3779b97f4a7c15ULL;
+      const std::uint64_t h0 = std::hash<std::string_view> {}(k[0]);
+      const std::uint64_t h1 = std::hash<std::string_view> {}(k[1]);
+      const std::uint64_t h2 = std::hash<std::string_view> {}(k[2]);
+      std::uint64_t h = h0;
+      h ^= h1 + kMix + (h << 6U) + (h >> 2U);
+      h ^= h2 + kMix + (h << 6U) + (h >> 2U);
+      return static_cast<std::size_t>(h);
+    }
+  };
   template<typename Type = double>
-  using FieldVectorMap = std::map<ClassFieldName, FieldVector<Type>>;
+  using FieldVectorMap =
+      std::unordered_map<ClassFieldName, FieldVector<Type>, ClassFieldNameHash>;
 
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
-                         SceneUid scene_uid = SceneUid {0},
-                         PhaseUid phase_uid = PhaseUid {0});
+                         SceneUid scene_uid = make_uid<Scene>(0),
+                         PhaseUid phase_uid = make_uid<Phase>(0),
+                         bool is_continuous_phase = false);
 
-  [[nodiscard]] auto&& options() const { return sc.get().options(); }
+  [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
+
+  /// Physical primal value at the given LP column.  Equivalent to
+  /// `linear_interface().get_col_sol()[col]` but reads from the
+  /// already-cached `col_sol_span` so callers in `add_to_output`
+  /// don't need to re-fetch the LP-solution view.  Used by the
+  /// reconstruction sites (e.g. the planned P0 demand-failure
+  /// rewrite) that need to read a surviving variable's primal value
+  /// in order to compute the substituted variable's output.
+  [[nodiscard]] constexpr double primal(ColIndex col) const noexcept
+  {
+    return col_sol_span[col];
+  }
+
+  /// Physical LP reduced cost (in `$/[unit]`) at the given LP column.
+  /// Counterpart to :func:`primal` that reads the already-cached
+  /// `col_cost_span`.  Used by `LineLP::add_to_output` (and any other
+  /// reconstruction site) that combines per-direction LP columns into
+  /// a single output stem and needs the rc of each piece to choose a
+  /// signed combined rc.
+  [[nodiscard]] constexpr double cost(ColIndex col) const noexcept
+  {
+    return col_cost_span[col];
+  }
+
+  // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
+  //
+  // Counterpart to the index-emit overloads below.  These take a
+  // holder whose values are already physical doubles (rather than
+  // LP column / row indices) and emit them directly, applying the
+  // same per-block factor pipeline as the index variant so the CSV
+  // output is bit-for-bit compatible with the LP-emitted form.
+  //
+  // Use case: model rewrites that fold an LP variable away via
+  // substitution (e.g. the planned P0 demand-failure rewrite
+  // `fail = lmax − load`).  The substituted variable no longer
+  // exists as an LP column, so its `:sol` / `:cost` outputs must be
+  // reconstructed from observable quantities (parameters + the
+  // surviving variable's primal/dual values) and emitted directly.
+  // The new `add_to_output` site builds an
+  // `STBIndexHolder<double>` of reconstructed values and hands it
+  // to these methods — same semantics, no LP column lookup.
+
+  constexpr void add_col_sol_values(std::string_view cname,
+                                    std::string_view col_name,
+                                    const Id& id,
+                                    const STBIndexHolder<double>& holder)
+  {
+    if (!emit_solution(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     block_factor_matrix_t {});
+  }
+
+  /// Extras-gated variant of `add_col_sol_values`.  Same on-disk
+  /// shape (`<col_name>_sol.parquet`) and same encoding; gated on
+  /// `OutputFlags::extras` instead of `solution` so the caller can
+  /// keep the stream around for opt-in audits without bloating the
+  /// default footprint.  Used by `GeneratorLP::add_to_output` for
+  /// the per-block VOM / fuel cost decomposition (no current consumer
+  /// reads these — `srmc_sol` already covers the marginal-cost use
+  /// case).
+  constexpr void add_col_sol_values_extras(std::string_view cname,
+                                           std::string_view col_name,
+                                           const Id& id,
+                                           const STBIndexHolder<double>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "sol",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     block_factor_matrix_t {});
+  }
+
+  constexpr void add_col_cost_values(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<double>& holder)
+  {
+    if (!emit_reduced_cost(cname)) {
+      return;
+    }
+    // Mirrors the `:cost` factor pipeline of `add_col_cost`: applies
+    // `block_icost_factors` so the emitted scalar lands on the same
+    // physical-cost scale that an LP-derived reduced cost would.
+    // Callers that wish to emit values already on physical scale
+    // (no further multiplication) should construct the holder so
+    // each entry is `physical_value × block_ecost_factor[s,t,b]`.
+    add_field_values(cname,
+                     col_name,
+                     "cost",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
+  /// Extras-gated variant of `add_col_cost_values`.  Same on-disk
+  /// shape (`<col_name>_cost.parquet`) and same factor pipeline;
+  /// gated on `OutputFlags::extras` instead of `reduced_cost` so the
+  /// caller can keep the stream around for opt-in audits without
+  /// bloating the default footprint.  Used by `LineLP::add_to_output`
+  /// for the inactive-direction reduced cost ``flown_cost`` that
+  /// complements the default-emitted signed combined ``flow_cost``.
+  constexpr void add_col_cost_values_extras(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<double>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     col_name,
+                     "cost",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
+  constexpr void add_row_dual_values(std::string_view cname,
+                                     std::string_view row_name,
+                                     const Id& id,
+                                     const STBIndexHolder<double>& holder)
+  {
+    if (!emit_dual(cname)) {
+      return;
+    }
+    add_field_values(cname,
+                     row_name,
+                     "dual",
+                     id,
+                     holder,
+                     &stb_prelude,
+                     sc.get().block_icost_factors());
+  }
+
+  /// Read-only view of the accumulated Parquet field map, keyed by
+  /// `(class_name, field_name, suffix)`.  Exposed for regression tests
+  /// that need to assert on the schema (column presence, naming) without
+  /// going end-to-end through the Parquet writer.  Not part of the
+  /// production code path — `write` consumes the map directly.
+  [[nodiscard]] constexpr const auto& fields() const noexcept
+  {
+    return field_vector_map;
+  }
 
   // ── STB/GSTB block-indexed overloads ─────────────────────────────
 
@@ -73,6 +258,9 @@ public:
                              const Id& id,
                              const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -88,6 +276,9 @@ public:
                              const Id& id,
                              const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -98,11 +289,152 @@ public:
               block_factor_matrix_t {});
   }
 
+  /// Integer-snapping variant of ``add_col_sol`` for binary / integer
+  /// LP columns (commitment ``status`` / ``startup`` / ``shutdown``).
+  /// The MIP solver returns these within a small feasibility tolerance
+  /// (~1e-6) of 0 or 1, but in practice the float32 grid + per-column
+  /// decimal rounding leaves a sub-percent tail of fractional reports
+  /// (verified 2026-05-29 on CEN PCP MIP K=4: 1,657 / 103,523
+  /// status_sol entries were fractional, e.g. 0.058, 0.629, despite
+  /// CPLEX reporting gap = 0 %).  Snap each value to ``int(round(v))``
+  /// after the standard ``add_field`` collection so the output parquet
+  /// carries clean 0/1 integers, matching the LP variable's declared
+  /// type.  Calling site for ``SimpleCommitmentLP`` / ``CommitmentLP``.
+  ///
+  /// LP-relax gate: when the phase is solved as a continuous LP (via
+  /// ``model_options.continuous_phases`` or per-phase ``continuous:
+  /// true``), the binary variable is genuinely fractional and the
+  /// fractional reading is the meaningful output — snapping would
+  /// corrupt it.  The dual-extraction pass also re-solves
+  /// LP-relaxed, but with the binaries fixed at their MIP 0/1
+  /// values, so col_sol is already integer-valued there and snapping
+  /// would be a no-op; we still skip it to keep the policy "snap iff
+  /// the solver was asked to enforce integrality on this phase".
+  constexpr void add_col_sol_integer(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_solution(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
+    if (m_is_continuous_phase_) {
+      return;
+    }
+    // Post-process: snap the just-appended entry's values to the
+    // nearest integer.  ``add_field`` returns early on empty
+    // holder / span, in which case ``field_vector_map`` may be
+    // unchanged — guard via ``find`` + ``back()`` existence.
+    const ClassFieldName key {cname, col_name, "sol"};
+    auto it = field_vector_map.find(key);
+    if (it == field_vector_map.end() || it->second.empty()) {
+      return;
+    }
+    auto& entry = it->second.back();
+    auto& values = std::get<1>(entry);
+    for (auto& v : values) {
+      v = std::round(v);
+    }
+  }
+
+  /// Extras-gated variant of `add_col_sol(..., STBIndexHolder<ColIndex>)`.
+  /// File name stays `<col_name>_sol.parquet`; only the gate moves to
+  /// `OutputFlags::extras`.  Used by LineLP for piecewise-segment
+  /// slices, line losses, and overload slacks — none of which any
+  /// current consumer reads.
+  constexpr void add_col_sol_extras(std::string_view cname,
+                                    std::string_view col_name,
+                                    const Id& id,
+                                    const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "sol",
+              id,
+              holder,
+              col_sol_span,
+              &stb_prelude,
+              block_factor_matrix_t {});
+  }
+
+  /// Sum-of-cols solution overload: writes Σ col_sol[col] for each
+  /// block.  Used by `piecewise_direct` line-loss mode to emit
+  /// `Line.flowp:sol` / `Line.flown:sol` as the per-block segment-sum
+  /// even though no aggregator LP column was created.  The output
+  /// scalar is the same value the AMPL resolver computes for
+  /// `line.flowp` via the multi-col registration (see
+  /// `AmplVariable::block_cols_sum` and `LineLP::add_to_lp`), so
+  /// downstream consumers — solution.csv, the `line.flow` derivation,
+  /// PAMPL user-constraints — see a consistent flow scalar across LP /
+  /// AMPL / output regardless of whether the line is aggregator-mode or
+  /// direct-mode.
+  constexpr void add_col_sol(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<std::vector<ColIndex>>& holder)
+  {
+    if (!emit_solution(cname)) {
+      return;
+    }
+    add_field_sum(cname,
+                  col_name,
+                  "sol",
+                  id,
+                  holder,
+                  col_sol_span,
+                  &stb_prelude,
+                  block_factor_matrix_t {});
+  }
+
+  /// Extras-gated variant of
+  /// `add_col_sol(..., STBIndexHolder<std::vector<ColIndex>>)`.
+  /// Used by `LineLP` to publish the consolidated
+  /// ``Line/loss_sol.parquet`` from a merged ``lossp ∪ lossn`` holder:
+  /// per-(line, scenario, stage, block) value is
+  /// ``Σ col_sol[col_k]`` over whichever direction-specific loss
+  /// columns were populated on that cell (at most one of A→B / B→A
+  /// has loss at any block; merging gives one schema-stable file
+  /// instead of paired direction parquets).  Empty-skip semantics
+  /// mirror the non-extras overload.
+  constexpr void add_col_sol_extras(
+      std::string_view cname,
+      std::string_view col_name,
+      const Id& id,
+      const STBIndexHolder<std::vector<ColIndex>>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
+    add_field_sum(cname,
+                  col_name,
+                  "sol",
+                  id,
+                  holder,
+                  col_sol_span,
+                  &stb_prelude,
+                  block_factor_matrix_t {});
+  }
+
   constexpr void add_col_cost(std::string_view cname,
                               std::string_view col_name,
                               const Id& id,
                               const GSTBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -118,6 +450,31 @@ public:
                               const Id& id,
                               const STBIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost(cname)) {
+      return;
+    }
+    add_field(cname,
+              col_name,
+              "cost",
+              id,
+              holder,
+              col_cost_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
+  }
+
+  /// Extras-gated variant of `add_col_cost(..., STBIndexHolder<ColIndex>)`.
+  /// Used by GeneratorLP for heat-rate slack reduced costs and by
+  /// LineLP for overload-slack reduced costs.  Both streams are
+  /// retained for future audit use but read by no current consumer.
+  constexpr void add_col_cost_extras(std::string_view cname,
+                                     std::string_view col_name,
+                                     const Id& id,
+                                     const STBIndexHolder<ColIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -133,6 +490,9 @@ public:
                               const Id& id,
                               const GSTBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -148,6 +508,32 @@ public:
                               const Id& id,
                               const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
+    add_field(cname,
+              row_name,
+              "dual",
+              id,
+              holder,
+              row_dual_span,
+              &stb_prelude,
+              sc.get().block_icost_factors());
+  }
+
+  /// Extras-gated variant of `add_row_dual(..., STBIndexHolder<RowIndex>)`.
+  /// Used by GeneratorLP for the capacity-row dual.  The dual is the
+  /// shadow price on the per-block `gen <= pmax` constraint —
+  /// informative for capacity-expansion studies, but unused by the
+  /// dispatch / marginal-unit pipelines.
+  constexpr void add_row_dual_extras(std::string_view cname,
+                                     std::string_view row_name,
+                                     const Id& id,
+                                     const STBIndexHolder<RowIndex>& holder)
+  {
+    if (!emit_extras(cname)) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -166,6 +552,9 @@ public:
                               const STBIndexHolder<RowIndex>& holder,
                               const STIndexHolder<double>& st_scale)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
     add_field_st_scaled(
         cname, row_name, "dual", id, holder, row_dual_span, st_scale);
   }
@@ -176,6 +565,9 @@ public:
                                   const Id& id,
                                   const STBIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -193,6 +585,9 @@ public:
                              const Id& id,
                              const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -208,6 +603,9 @@ public:
                               const Id& id,
                               const STIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -223,6 +621,9 @@ public:
                               const Id& id,
                               const STIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -240,6 +641,9 @@ public:
                              const Id& id,
                              const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_solution(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "sol",
@@ -255,6 +659,9 @@ public:
                               const Id& id,
                               const TIndexHolder<ColIndex>& holder)
   {
+    if (!emit_reduced_cost(cname)) {
+      return;
+    }
     add_field(cname,
               col_name,
               "cost",
@@ -270,6 +677,9 @@ public:
                               const Id& id,
                               const TIndexHolder<RowIndex>& holder)
   {
+    if (!emit_dual(cname)) {
+      return;
+    }
     add_field(cname,
               row_name,
               "dual",
@@ -280,6 +690,49 @@ public:
               sc.get().stage_icost_factors());
   }
 
+  /// Which output fields were requested for this context.
+  [[nodiscard]] auto output_flags() const noexcept -> OutputFlags
+  {
+    return m_output_selection_.atoms;
+  }
+  [[nodiscard]] auto output_selection() const noexcept -> const OutputSelection&
+  {
+    return m_output_selection_;
+  }
+
+  // Per-(atom, cname) gating.  The `cname` is the element-class
+  // string each `*LP::add_to_output` passes as the first argument to
+  // `add_col_sol` / `add_col_cost` / `add_row_dual` — i.e. the same
+  // top-level directory name the parquet output uses (`Generator`,
+  // `Bus`, `Line`, …).  When the user supplies a per-atom class
+  // allow-list (e.g. `--write-out rc:Generator,Line`), only those
+  // cnames pass the gate.  When no scope is configured for an atom,
+  // every cname passes.
+
+  [[nodiscard]] auto emit_solution(std::string_view cname) const noexcept
+      -> bool
+  {
+    return m_output_selection_.emits(OutputFlags::solution, cname);
+  }
+  [[nodiscard]] auto emit_dual(std::string_view cname) const noexcept -> bool
+  {
+    return m_output_selection_.emits(OutputFlags::dual, cname);
+  }
+  [[nodiscard]] auto emit_reduced_cost(std::string_view cname) const noexcept
+      -> bool
+  {
+    return m_output_selection_.emits(OutputFlags::reduced_cost, cname);
+  }
+  /// Opt-in gate for streams that no current consumer reads (heat-rate
+  /// slacks, per-block cost decomposition, line piecewise / loss /
+  /// overload slack columns, capacity row duals).  `*LP::add_to_output`
+  /// routes those calls through `add_*_extras` overloads which check
+  /// this gate instead of the default sol/dual/rc gate.
+  [[nodiscard]] auto emit_extras(std::string_view cname) const noexcept -> bool
+  {
+    return m_output_selection_.emits(OutputFlags::extras, cname);
+  }
+
   void write() const;
 
 private:
@@ -287,6 +740,9 @@ private:
 
   SceneUid m_scene_uid_;
   PhaseUid m_phase_uid_;
+  bool m_is_continuous_phase_ {false};
+
+  OutputSelection m_output_selection_ {OutputFlags::all};
 
   ScaledView col_sol_span;
   ScaledView col_cost_span;
@@ -330,9 +786,90 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
+  }
+
+  /// add_field variant that **emits precomputed values directly** —
+  /// no LP-side index lookup.  `IndexHolder` is expected to be
+  /// `STBIndexHolder<double>` whose per-block values are already in
+  /// the desired physical scale.  The same `factor` pipeline as
+  /// `add_field` is applied (block-level scale on each value) so the
+  /// CSV output is byte-compatible with the LP-emitted form when
+  /// the caller has prepared values that match the LP would have
+  /// produced.  Backs the `add_col_sol_values` / `add_col_cost_values`
+  /// / `add_row_dual_values` public overloads, used by model rewrites
+  /// that fold an LP variable away via algebraic substitution (e.g.
+  /// the planned P0 demand-failure `fail = lmax − load`).
+  template<typename Prelude, typename Factor = std::span<double>>
+  void add_field_values(std::string_view cname,
+                        std::string_view fname,
+                        std::string_view sname,
+                        const Id& id,
+                        const STBIndexHolder<double>& holder,
+                        const Prelude* prelude,
+                        const Factor& factor)
+  {
+    if (holder.empty()) {
+      return;
+    }
+
+    // Identity projection: the holder already carries doubles, so
+    // pass each one through unchanged into the standard flat()
+    // pipeline.  `factor` still applies post-projection — matching
+    // the index-based `add_field` so block scaling stays uniform.
+    auto&& [values, valid] =
+        sc.get().flat(holder, [](double v) { return v; }, factor);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
+  }
+
+  /// add_field variant for **sum-of-cols** holders.  `IndexHolder` is
+  /// expected to be `STBIndexHolder<std::vector<ColIndex>>` (a per-
+  /// block list of cols).  Each block's projection is
+  /// `Σ value_span[c]` over the cols in the list, then optionally
+  /// multiplied by the per-block factor like the single-col variant.
+  /// Used to emit `flowp` / `flown` solution and reduced-cost columns
+  /// for `piecewise_direct` line-loss mode where no aggregator LP col
+  /// exists.
+  template<typename IndexHolder,
+           typename Span,
+           typename Prelude,
+           typename Factor = std::span<double>>
+  void add_field_sum(std::string_view cname,
+                     std::string_view fname,
+                     std::string_view sname,
+                     const Id& id,
+                     const IndexHolder& holder,
+                     const Span& value_span,
+                     const Prelude* prelude,
+                     const Factor& factor)
+  {
+    if (holder.empty() || value_span.empty()) {
+      return;
+    }
+
+    auto sum_proj = [&](const auto& cols)
+    {
+      double s = 0.0;
+      for (const auto& c : cols) {
+        s += value_span[c];
+      }
+      return s;
+    };
+    auto&& [values, valid] = sc.get().flat(holder, std::move(sum_proj), factor);
+
+    if (values.empty()) {
+      return;
+    }
+
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), prelude);
   }
 
   /// add_field variant with additional per-(scenario,stage) back-scale.
@@ -359,9 +896,8 @@ private:
       return;
     }
 
-    field_vector_map[ClassFieldName {cname, as_label(fname, sname)}]
-        .emplace_back(
-            field_name(id), std::move(values), std::move(valid), &stb_prelude);
+    field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
+        field_name(id), std::move(values), std::move(valid), &stb_prelude);
   }
 };
 

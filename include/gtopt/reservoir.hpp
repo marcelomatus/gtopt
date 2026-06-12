@@ -19,6 +19,16 @@
  * - The default `flow_conversion_rate = 0.0036` converts m³/s × h → hm³:
  *   `volume = 0.0036 × flow_m3s × duration_h`
  *
+ * ### Scaling
+ * LP variable scaling for reservoir energy/volume variables is controlled via
+ * `PlanningOptions::variable_scales`.  No per-element `energy_scale` field is
+ * exposed — use the `variable_scales` option array instead:
+ * ```json
+ * "variable_scales": [
+ *   {"class_name": "Reservoir", "variable": "energy", "uid": 1, "scale": 1000}
+ * ]
+ * ```
+ *
  * ### JSON Example
  * ```json
  * {
@@ -43,9 +53,9 @@
 #include <array>
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/reservoir_discharge_limit.hpp>
-#include <gtopt/reservoir_enums.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 #include <gtopt/reservoir_seepage.hpp>
 
@@ -71,12 +81,15 @@ namespace gtopt
  */
 struct Reservoir
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ReservoirLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `Reservoir::class_name` directly (or
+  /// `ReservoirLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Reservoir"};
+
   /// @name Default physical constants
   /// @{
-  static constexpr Real default_spillway_capacity = 6'000.0;  ///< [m³/s]
-  static constexpr Real default_fmin = -10'000.0;  ///< [m³/s]
-  static constexpr Real default_fmax = +10'000.0;  ///< [m³/s]
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
   static constexpr Real default_mean_production_factor =
@@ -86,75 +99,102 @@ struct Reservoir
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId junction {unknown_uid};  ///< ID of the associated hydraulic junction
 
-  OptReal spillway_capacity {
-      default_spillway_capacity};  ///< Maximum uncontrolled spill capacity
-                                   ///< [m³/s]
-  OptReal spillway_cost {};  ///< Penalty cost per unit of spilled water [$/hm³]
+  /// Optional downstream junction for spill routing.  When set, the
+  /// reservoir's drain (spillway) variable is also added with coefficient
+  /// `+1.0` (m³/s as inflow) to that junction's balance row, so spilled
+  /// water flows downstream instead of vanishing.  Mirrors PLP's `qv` chain
+  /// where the vertimiento variable appears in BOTH the source reservoir's
+  /// balance AND the downstream junction's balance (PLP `SerVer` field in
+  /// `plpcnfce.dat`).  When unset (default), drain depletes storage only —
+  /// matches the behaviour for reservoirs whose `SerVer = 0` (spill to sea).
+  OptSingleId spill_junction {};
+
+  OptReal spillway_capacity {};  ///< Maximum uncontrolled spill capacity
+                                 ///< [m³/s].  When unset, ``StorageLP``
+                                 ///< falls back to ``+DblMax`` (clamped to
+                                 ///< solver +inf at flatten time), so the
+                                 ///< drain teleport is unbounded.
+  OptReal spillway_cost {};  ///< Penalty cost per unit of spillway flow
+                             ///< [$/(m³/s)/h] — applied via
+                             ///< CostHelper::block_ecost(...) on the drain
+                             ///< column (m³/s), so the LP pays
+                             ///< ``spillway_cost · q · duration`` per block.
+                             ///< Same unit convention as ``Waterway.fcost``.
 
   OptTRealFieldSched capacity {};  ///< Total usable storage capacity [hm³]
   OptTRealFieldSched annual_loss {};  ///< Annual fractional evaporation/seepage
                                       ///< loss [p.u./year]
-  OptTRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³]
-  OptTRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³]
-  OptTRealFieldSched
+  OptTBRealFieldSched emin {};  ///< Minimum allowed stored volume [hm³] —
+                                ///< per-(stage, block); accepts a scalar
+                                ///< (broadcasts), a 2-D nested array, or a
+                                ///< file-backed schedule.
+  OptTBRealFieldSched emax {};  ///< Maximum allowed stored volume [hm³] —
+                                ///< same shapes as ``emin``.
+  OptTBRealFieldSched
       ecost {};  ///< Shadow cost of stored water (water value) [$/hm³]
+                 ///< per-(stage, block); accepts a scalar (broadcasts),
+                 ///< a 2-D nested array, or a file-backed schedule.
   OptReal eini {};  ///< Initial stored volume at start of horizon [hm³].
                     ///< Sets an equality constraint vol_start = eini in the
                     ///< first stage of the first phase only.
   OptReal efin {};  ///< Minimum required stored volume at end of horizon
                     ///< [hm³].  Sets a >= constraint vol_end >= efin in the
                     ///< last stage of the last phase (not an equality).
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/hm³].  When set (and > 0), the hard
+                         ///< ``vol_end >= efin`` row becomes soft:
+                         ///< ``vol_end + slack >= efin`` with `slack`
+                         ///< priced at `efin_cost` in the objective.
+                         ///< This mirrors PLP's per-stage rebalse-cost
+                         ///< slack on the end-of-horizon volume target,
+                         ///< letting the LP miss `efin` at a cost rather
+                         ///< than going infeasible when upstream Benders
+                         ///< cuts have clamped `sini` below what one
+                         ///< stage of inflows can recover.  Without this
+                         ///< field, ``efin`` is enforced as a hard >=
+                         ///< constraint (the historical behaviour).
 
   OptReal mean_production_factor {};  ///< Expected turbine production factor
                                       ///< [MWh/hm³].  Converts the global
-                                      ///< `state_fail_cost` ($/MWh) into
+                                      ///< `state_violation_cost` ($/MWh) into
                                       ///< reservoir-specific units ($/hm³).
                                       ///< Defaults to 5.0 MWh/hm³.
-  OptTRealFieldSched
+  OptTBRealFieldSched
       scost {};  ///< State cost: elastic penalty for SDDP state variable
-                 ///< violations [$/hm³].  If not set, computed as
+                 ///< violations [$/hm³] — per-(stage, block).  If not
+                 ///< set, computed as
                  ///< `state_fail_cost × mean_production_factor`.
 
-  OptTRealFieldSched
-      soft_emin {};  ///< Soft minimum volume per stage [hm³].
+  OptTBRealFieldSched
+      soft_emin {};  ///< Soft minimum volume [hm³] — per-(stage, block);
+                     ///< accepts a scalar (broadcasts), a 2-D nested
+                     ///< array, or a file-backed schedule.
                      ///< Creates a penalized constraint: efin + slack >=
                      ///< soft_emin, where the slack variable has a penalty cost
                      ///< (soft_emin_cost) in the objective.  Unlike emin (a
                      ///< hard variable bound), this allows the volume to drop
                      ///< below the threshold at a cost.  Corresponds to PLP's
                      ///< plpminembh.dat "holgura" (slack) constraint.
-  OptTRealFieldSched
+  OptTBRealFieldSched
       soft_emin_cost {};  ///< Penalty cost per unit of soft_emin
-                          ///< violation [$/hm³].  Applied to the slack
-                          ///< variable that relaxes the soft_emin constraint.
-                          ///< Must be > 0 for the constraint to be active.
+                          ///< violation [$/hm³] — per-(stage, block).
+                          ///< Applied to the slack variable that relaxes
+                          ///< the soft_emin constraint.  Must be > 0 for
+                          ///< the constraint to be active.
 
-  OptReal fmin {
-      default_fmin};  ///< Minimum net flow into the reservoir junction [m³/s]
-  OptReal fmax {
-      default_fmax};  ///< Maximum net flow into the reservoir junction [m³/s]
+  OptReal fmin {};  ///< Minimum net flow into the reservoir junction [m³/s].
+                    ///< When unset, ``ReservoirLP::add_to_lp`` falls back to
+                    ///< ``-DblMax`` (clamped to solver -inf at flatten time).
+  OptReal fmax {};  ///< Maximum net flow into the reservoir junction [m³/s].
+                    ///< When unset, ``ReservoirLP::add_to_lp`` falls back to
+                    ///< ``+DblMax`` (clamped to solver +inf at flatten time).
 
-  OptReal energy_scale {};  ///< Energy scale factor: LP variable =
-                            ///< physical_energy / energy_scale [dimensionless].
-                            ///< When set, overrides auto-scaling regardless of
-                            ///< energy_scale_mode.
-  OptName energy_scale_mode {};  ///< How to determine energy_scale: `"manual"`
-                                 ///< (use explicit field, default 1.0) or
-                                 ///< `"auto"` (compute max(1, emax/1000) like
-                                 ///< PLP).  Default: `"auto"`.
-
-  /// Parse energy_scale_mode string to enum (auto_scale if unset).
-  [[nodiscard]] EnergyScaleMode energy_scale_mode_enum() const noexcept
-  {
-    if (energy_scale_mode.has_value()) {
-      return enum_from_name<EnergyScaleMode>(*energy_scale_mode)
-          .value_or(EnergyScaleMode::auto_scale);
-    }
-    return EnergyScaleMode::auto_scale;
-  }
   OptReal flow_conversion_rate {
       default_flow_conversion_rate};  ///< Converts m³/s × hours into hm³
                                       ///< [hm³/(m³/s·h)]

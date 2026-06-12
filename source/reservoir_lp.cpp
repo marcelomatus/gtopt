@@ -10,8 +10,6 @@
  * constraints and relationships with other system components.
  */
 
-#include <cmath>
-
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/reservoir_lp.hpp>
@@ -22,9 +20,9 @@ namespace gtopt
 {
 
 ReservoirLP::ReservoirLP(const Reservoir& preservoir, const InputContext& ic)
-    : StorageBase(preservoir, ic, ClassName)
-    , capacity(ic, ClassName, id(), std::move(reservoir().capacity))
-    , scost(ic, ClassName, id(), std::move(reservoir().scost))
+    : StorageBase(preservoir, ic, Element::class_name)
+    , capacity(ic, Element::class_name, id(), std::move(reservoir().capacity))
+    , scost(ic, Element::class_name, id(), std::move(reservoir().scost))
 {
 }
 
@@ -47,7 +45,8 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
                             const StageLP& stage,
                             LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr const auto& cname = Element::class_name;
+  static constexpr auto ampl_name = Element::class_name.snake_case();
 
   if (!is_active(stage)) {
     return true;
@@ -67,94 +66,88 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
   const auto fmin = reservoir().fmin.value_or(-LinearProblem::DblMax);
   const auto fmax = reservoir().fmax.value_or(+LinearProblem::DblMax);
 
-  // Resolve energy_scale: explicit field > auto-scale > VariableScaleMap.
-  const double energy_scale = [&]
-  {
-    // 1. Explicit per-element field always wins.
-    if (reservoir().energy_scale.has_value()) {
-      return *reservoir().energy_scale;
-    }
-    // 2. VariableScaleMap override (from PlanningOptions::variable_scales).
-    const auto vs =
-        sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
-    if (vs != 1.0) {
-      return vs;
-    }
-    // 3. Auto-scale mode: round up capacity/1000 to next power of 10.
-    //    cap=6000 → 6 → 10;  cap=6e6 → 6000 → 10000.
-    if (reservoir().energy_scale_mode_enum() == EnergyScaleMode::auto_scale) {
-      const auto raw = stage_capacity / 1000.0;
-      if (raw <= 1.0) {
-        return 1.0;
-      }
-      return std::pow(10.0, std::ceil(std::log10(raw)));
-    }
-    return Reservoir::default_energy_scale;
-  }();
+  // Resolve energy_scale from VariableScaleMap (default 1.0 if not set).
+  const double energy_scale =
+      sc.options().variable_scale_map().lookup("Reservoir", "energy", uid());
 
-  // Resolve flow_scale independently from energy_scale.
-  // Default 1.0: extraction flow fext stays in physical m³/s.
-  // Setting flow_scale = energy_scale keeps energy-balance
-  // coefficients O(1) but couples two different physical quantities.
-  const double flow_scale = [&]
-  {
-    const auto fs =
-        sc.options().variable_scale_map().lookup("Reservoir", "flow", uid());
-    return (fs != 1.0) ? fs : 1.0;
-  }();
   BIndexHolder<ColIndex> rcols;
-  BIndexHolder<ColIndex> scols;
   map_reserve(rcols, blocks.size());
-  map_reserve(scols, blocks.size());
+
+  // flow_scale is resolved by add_col from the VariableScaleMap metadata.
+  // We read back the resolved value from the first column for StorageOptions.
+  double flow_scale = 1.0;
 
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
+    // LP-size: a reservoir that cannot extract (``fmin == fmax == 0``,
+    // a pure pass-through / accumulation node) has a degenerate
+    // extraction column fixed at 0.  Its junction-balance and
+    // energy-balance coefficients are then dead, so skip the column
+    // entirely — mirrors the waterway zero-flow skip.  StorageBase's
+    // ``has_fout`` / ``has_finp`` ``.contains(buid)`` checks tolerate
+    // the missing block.  Write-out rule: an absent extraction column
+    // reads 0 (no water extracted this block).
+    if (fmin == 0.0 && fmax == 0.0) [[unlikely]] {
+      continue;
+    }
+
     // rsv_fext: physical flow bounds [m³/s].
-    // flatten() converts to LP units by dividing by flow_scale.
+    // add_col auto-resolves flow_scale from VariableScaleMap metadata.
     const auto rc = lp.add_col(SparseCol {
-        .name = sc.lp_col_label(scenario, stage, block, cname, "fext", uid()),
         .lowb = fmin,
         .uppb = fmax,
-        .scale = flow_scale,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = ExtractionName,
+        .variable_uid = uid(),
+        .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
 
     rcols[buid] = rc;
+    flow_scale = lp.get_col_scale(rc);
 
     // The extraction adds flow to the junction balance (in m³/s).
-    // Since rsv_fext_LP = fext_m3s / flow_scale, restore the physical unit
-    // by using flow_scale as the coefficient.
+    // Physical coefficient is 1.0; flatten() multiplies by col_scale.
     auto& brow = lp.row_at(balance_rows.at(buid));
-    brow[rc] = flow_scale;
+    brow[rc] = 1.0;
   }
 
   const auto mpf = reservoir().mean_production_factor.value_or(
       Reservoir::default_mean_production_factor);
-  const auto stage_scost = sc.state_fail_cost(stage, scost);
+  // `scost` is per-(stage, block) since PR-D; the StateVariable
+  // penalty is fundamentally per-stage (one state column per stage),
+  // so we sample the first block — the same choice taken by other
+  // stage-scoped consumers (e.g. PR-A's `ecost` fallback in DemandLP).
+  const auto& first_block = stage.blocks().front();
+  const auto stage_scost = sc.state_violation_cost(stage, first_block, scost);
   const double rsv_scost = stage_scost.value_or(1.0) * mpf;
 
   const StorageOptions opts {
       .use_state_variable = reservoir().use_state_variable.value_or(true),
       .daily_cycle = reservoir().daily_cycle.value_or(false),
+      .class_name = Element::class_name.full_name(),
+      .variable_uid = uid(),
       .energy_scale = energy_scale,
       .flow_scale = flow_scale,
       .scost = rsv_scost,
   };
-  if (!StorageBase::add_to_lp(cname,
-                              sc,
-                              scenario,
-                              stage,
-                              lp,
-                              flow_conversion_rate(),
-                              rcols,
-                              1.0,
-                              rcols,
-                              1.0,
-                              stage_capacity,
-                              std::nullopt,
-                              spillway_cost(),
-                              spillway_capacity(),
-                              opts))
+  if (!StorageBase::add_to_lp(
+          cname,
+          ampl_name,
+          sc,
+          scenario,
+          stage,
+          lp,
+          flow_conversion_rate(),
+          rcols,
+          [](BlockUid) { return 1.0; },
+          rcols,
+          [](BlockUid) { return 1.0; },
+          stage_capacity,
+          std::nullopt,
+          spillway_cost(),
+          spillway_capacity(),
+          opts))
   {
     SPDLOG_CRITICAL("Failed to add storage constraints for reservoir {}",
                     uid());
@@ -162,9 +155,45 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
     return false;
   }
 
+  // PLP-style spill routing: when the reservoir specifies an optional
+  // `spill_junction`, also wire the drain column into that junction's
+  // per-block balance row with coefficient +1 (m³/s as inflow).  This
+  // mirrors PLP's `qv` chain (qv28 appears in COLBUN's balance AND in
+  // the downstream MACHICURA junction balance via SerVer).  When unset
+  // the drain remains a pure storage sink — matching PLP behaviour for
+  // reservoirs whose `SerVer = 0`.
+  if (const auto& spill_junction_uid = reservoir().spill_junction;
+      spill_junction_uid.has_value())
+  {
+    const auto& spill_junction =
+        sc.element<JunctionLP>(JunctionLPSId {*spill_junction_uid});
+    if (spill_junction.is_active(stage)) {
+      const auto& spill_balance_rows =
+          spill_junction.balance_rows_at(scenario, stage);
+      if (const auto* dcols_ptr = find_drain_cols(scenario, stage); dcols_ptr) {
+        for (auto&& block : blocks) {
+          const auto buid = block.uid();
+          auto& sbrow = lp.row_at(spill_balance_rows.at(buid));
+          sbrow[dcols_ptr->at(buid)] = 1.0;
+        }
+      }
+    }
+  }
+
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   extraction_cols[st_key] = std::move(rcols);
+
+  // Register reservoir-specific PAMPL columns.  Storage-generic variables
+  // (energy/drain/eini/efin/soft_emin) are registered centrally by
+  // StorageBase::add_to_lp.
+  sc.add_ampl_variable(ampl_name,
+                       uid(),
+                       ExtractionName,
+                       scenario,
+                       stage,
+                       extraction_cols.at(st_key));
+
   return true;
 }
 
@@ -181,14 +210,18 @@ bool ReservoirLP::add_to_lp(SystemContext& sc,
  */
 bool ReservoirLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr const auto& cname = Element::class_name;
 
   // Extraction columns have .scale = flow_scale; auto-descaled by
   // LinearInterface's get_col_sol() / get_col_cost().
-  out.add_col_sol(cname, "extraction", id(), extraction_cols);
-  out.add_col_cost(cname, "extraction", id(), extraction_cols);
+  out.add_col_sol(cname, ExtractionName, id(), extraction_cols);
+  out.add_col_cost(cname, ExtractionName, id(), extraction_cols);
 
-  return StorageBase::add_to_output(out, ClassName.full_name());
+  // Publish the per-block volume-balance dual under `water_value`
+  // rather than the storage-generic `energy` stem.  See
+  // `ReservoirLP::WaterValueName` for the rationale.
+  return StorageBase::add_to_output(
+      out, Element::class_name.full_name(), WaterValueName);
 }
 
 }  // namespace gtopt

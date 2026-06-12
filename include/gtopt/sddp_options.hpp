@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
@@ -47,20 +48,37 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptReal convergence_tol {};
 
   // ── Advanced tuning ────────────────────────────────────────────────────────
-  /** @brief Penalty for elastic slack variables in feasibility (default: 1e6)
-   */
+  //
+  // Naming conventions for fields below — kept stable on purpose:
+  //
+  //   * ``scale_*``       -> mirrors ``scale_objective`` / ``scale_theta``
+  //                          in ``model_options`` and ``lp_matrix_options``
+  //                          (any ``scale_X`` is "divisor that keeps the
+  //                          LP coefficients of variable X near unity").
+  //   * ``*_eps``         -> mirrors ``optimal_eps``, ``feasible_eps``,
+  //                          ``barrier_eps``, ``stats_eps``, ``matrix_eps``
+  //                          (numerical-tolerance parameters).
+  //   * ``*_threshold``   -> trigger thresholds on derived metrics
+  //                          (e.g. ``lp_coeff_ratio_threshold``,
+  //                          ``prune_dual_threshold``).
+  //
+  // Renaming any of ``scale_alpha`` / ``multi_cut_threshold`` /
+  // ``cut_coeff_eps`` would break: existing JSON inputs, golden test
+  // fixtures, the formulation white paper, and external CI pipelines
+  // that pin these keys.  The names are kept as the canonical
+  // representation; the doxygen blocks below carry the
+  // expert-facing explanation.
+  /** @brief Penalty for elastic slack variables in feasibility.
+   *  Default: `PlanningOptionsLP::default_sddp_elastic_penalty`
+   *  (see `planning_options_lp.hpp`). */
   OptReal elastic_penalty {};
-  /** @brief Lower bound for future cost variable α (default: 0.0) */
-  OptReal alpha_min {};
-  /** @brief Upper bound for future cost variable α (default: 1e12) */
-  OptReal alpha_max {};
-  /** @brief Scale divisor for future cost variable α (default: 1000).
+  /** @brief Scale divisor for future cost variable α (default: 0 = auto).
    *
    * The LP alpha variable is α_lp = α / scale_alpha, with an objective
    * coefficient of scale_alpha so that the physical contribution is
-   * preserved.  Analogous to PLP's varphi scale — improves numerical
-   * conditioning when α values are orders of magnitude larger than other
-   * LP variables. */
+   * preserved.  When 0 (default), auto-computed as max(var_scale) across
+   * all state variables — keeps α O(1) relative to the largest state
+   * variable in LP units. */
   OptReal scale_alpha {};
 
   // ── Cut file management ────────────────────────────────────────────────────
@@ -74,7 +92,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  - cuts:  recover only Benders cuts.
    *  - full:  recover cuts + state variable solutions (default). */
   std::optional<RecoveryMode> recovery_mode {};
-  /** @brief Save cuts to CSV after each iteration (default: true).
+  /** @brief Save cuts after each iteration (default: true).
    *  When false, cuts are only saved at the end of the solve or on stop. */
   OptBool save_per_iteration {};
   /** @brief File path for loading initial cuts (hot-start; empty = cold start)
@@ -83,11 +101,21 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /** @brief Path to a sentinel file; if it exists, the solver stops gracefully
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
-  /** @brief Elastic filter mode: single_cut (default, alias "cut") or
-   *         multi_cut or backpropagate */
+  /** @brief Elastic filter mode: chinneck (default, alias "iis"),
+   *         single_cut (alias "cut"), or multi_cut.
+   *         See ElasticFilterMode in sddp_enums.hpp for semantics.
+   *         The legacy "backpropagate" mode is no longer supported;
+   *         it falls through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
-  /** @brief Forward-pass infeasibility count threshold for switching from
-   *         single_cut to multi_cut (default: 10; 0 = never auto-switch) */
+  /** @brief Forward-pass infeasibility count threshold for switching
+   *         from single_cut to multi_cut.  Default:
+   *         `PlanningOptionsLP::default_sddp_multi_cut_threshold`
+   *         (see `planning_options_lp.hpp`).  `0 = always multi_cut`;
+   *         `< 0 = disabled`.
+   *
+   *         The counter is **persistent**: it accumulates across
+   *         iterations and is not reset when a (scene, phase) solves
+   *         feasibly.  Switch fires when `infeas_count >= threshold`. */
   OptInt multi_cut_threshold {};
   /** @brief Aperture UIDs for the backward pass.
    *
@@ -97,6 +125,54 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   overriding per-phase apertures
    */
   std::optional<Array<Uid>> apertures {};
+
+  /** @brief First-N selector applied to each phase's `Phase::apertures`.
+   *
+   * - absent (nullopt) – no truncation; use the full per-phase list
+   * - `0`              – no apertures (pure Benders, same as `apertures=[]`)
+   * - `N > 0`          – take `Phase::apertures.first(N)` per phase
+   *
+   * Designed to pair with the wettest-first sort applied to
+   * `Phase::apertures` by `plp2gtopt`: `num_apertures = N` picks the N
+   * wettest apertures *per phase*, without the writer having to
+   * materialise an explicit cross-phase UID whitelist.
+   *
+   * **Interaction with `apertures`**: the two compose.  `apertures` is
+   * the global UID whitelist for `aperture_array` lookup; truncation
+   * by `num_apertures` happens on `Phase::apertures` first, then each
+   * surviving UID is resolved against the (possibly whitelisted)
+   * aperture pool by `build_effective_apertures`.  A UID truncated
+   * away by `num_apertures` is dropped before the whitelist check;
+   * a UID present after truncation but absent from the whitelist is
+   * dropped at lookup time.
+   *
+   * **Cascade levels**: each `CascadeLevelMethod` can override
+   * `num_apertures` via the existing `merge_opt` path — e.g. L0
+   * (uninodal) sets `num_apertures = 4`, L1 (transport) sets
+   * `num_apertures = 8`, L2 (full) leaves it absent (= all apertures
+   * per phase).  No `apertures` whitelist is needed at any level.
+   */
+  OptInt num_apertures {};
+
+  /** @brief Selection rule used by `num_apertures` to pick a subset
+   *  from each phase's `Phase::apertures` list.
+   *
+   * - `"head"` (default): take the first N entries = the N **wettest**
+   *   apertures per phase.  Best when the level wants to concentrate
+   *   on the wet tail (e.g. cascade L0 uninodal).
+   * - `"stride"` / `"interleave"` / `"spread"`: take N entries evenly
+   *   spaced across the full ordered list (indices `i × total / N`).
+   *   Samples the full wetness spectrum — first pick is still wettest,
+   *   last pick is near driest.  Best for representative coverage.
+   * - `"tail"` / `"last"`: take the last N entries = the N **driest**
+   *   apertures per phase (mirror of `head`).  Useful for value-function
+   *   exploration of dry-tail scenarios.
+   *
+   * Has no effect when `num_apertures` is absent or `≥ len(Phase::apertures)`.
+   * Each cascade level can override via its own `sddp_options`.
+   */
+  OptName aperture_selection_mode {};
+
   /** @brief Directory for aperture-specific scenario data.
    *
    * When present, scenarios referenced by `Aperture::source_scenario` are
@@ -105,6 +181,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * to use different affluent data than the forward-pass scenarios.
    */
   OptName aperture_directory {};
+
+  /** @brief Global default **aperture system** for the SDDP backward pass.
+   *
+   * Path to a Planning JSON whose `.system` (and its
+   * `.options.model_options`) replaces the regular forward system when
+   * solving apertures in the backward pass.  This is the global tier of
+   * the resolution chain: `Phase::aperture_system_file` →
+   * `CascadeLevel::aperture_system_file` → this field → regular system.
+   *
+   * The parent `simulation` is reused unchanged; the reduced system must
+   * keep the same reservoir/storage/α inter-phase state elements (matched
+   * by `uid`).  Lets the backward pass solve a cheaper, simplified model
+   * (aggregated thermals, single-bus, no Kirchhoff) while the forward pass
+   * keeps full detail — the per-aperture cuts are averaged anyway, so the
+   * forward detail is largely lost after averaging.
+   */
+  OptName aperture_system_file {};
 
   /** @brief Timeout in seconds for individual aperture LP solves in the
    *  SDDP backward pass.
@@ -124,12 +217,129 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool save_aperture_lp {};
 
-  /** @brief Enable warm-start for SDDP resolves.
-   *  When true, previous forward-pass primal/dual solutions are loaded
-   *  into clone LPs before resolving (backward pass, elastic filter,
-   *  apertures).  Combined with solver_options.reuse_basis, this enables
-   *  efficient incremental re-solves.  Default when unset: true. */
-  OptBool warm_start {};
+  /** @brief Comma-separated list of SDDP passes whose LP-debug dump
+   *  is active.  Honoured only when `PlanningOptions::lp_debug=true`
+   *  (the umbrella toggle).  Empty / unset defaults to
+   *  `"forward,aperture"` (legacy behaviour); set to
+   *  `"forward,backward,aperture"` (or simply `"all"`) to add the
+   *  backward-pass tgt LP dump used during the off↔compress
+   *  symmetry investigation.
+   *
+   *  Each pass writes via the shared `LpDebugWriter` to
+   *  `log_directory` and respects the
+   *  `lp_debug_scene_min/max` + `lp_debug_phase_min/max` filter
+   *  window.  Filenames follow `sddp_file::debug_lp_fmt` (forward),
+   *  `debug_backward_lp_fmt` (backward), and `debug_aperture_lp_fmt`
+   *  (aperture).
+   *
+   *  Recognised tokens (case-insensitive, comma-separated):
+   *  `forward`, `backward`, `aperture`, `all`.  Unknown tokens emit
+   *  a one-time warning and are skipped.
+   *
+   *  Replaces the old `--lp-dump-backward <dir>` CLI flag and
+   *  `GTOPT_DUMP_BACKWARD_LP=<dir>` env var (both still honoured as
+   *  translation shims that set `lp_debug=true`,
+   *  `lp_debug_passes=backward`, and `log_directory=<dir>`).
+   */
+  OptName lp_debug_passes {};
+
+  /** @brief Use the manual (load_flat) clone route for aperture clones
+   *  instead of the backend's native `clone()` (`CPXcloneprob`).
+   *
+   * When true, `solve_apertures_for_phase` builds each aperture clone
+   * by replaying the source phase LP's stored `FlatLinearProblem`
+   * snapshot through `load_flat()` on a fresh `LinearInterface`.  The
+   * manual route uses only env-local solver calls and does NOT
+   * acquire `s_global_clone_mutex`, so 80 aperture clones can be
+   * built simultaneously instead of one-at-a-time under the lock.
+   *
+   * When false (default), the legacy native route is used —
+   * `phase_li.clone(CloneKind::shallow)` calls the backend's
+   * `clone()` (e.g. `CPXcloneprob`) under `s_global_clone_mutex`.
+   * That path is structurally serialised because the previous
+   * unguarded design crashed three CPLEX threads at the same
+   * instruction pointer (commit `1d7a05c1`).
+   *
+   * Pre-condition for `true`: the source phase LP must hold an
+   * uncompressed `FlatLinearProblem` snapshot — i.e.
+   * `low_memory_mode = compress` (or `snapshot`).  The aperture
+   * pass already decompresses the source via
+   * `DecompressionGuard` (sddp_aperture_pass.cpp:390, 579), so
+   * this is satisfied for typical SDDP runs.  When the
+   * pre-condition is not met, the call site falls back to the
+   * native route with a one-time WARN log.
+   *
+   * Default: false (preserve legacy behaviour).
+   */
+  OptBool aperture_use_manual_clone {};
+
+  /** @brief Drop feasibility cuts from aperture clone replay.
+   *  When true, feasibility cut rows (fcut) are filtered out during
+   *  clone-from-flat replay so they don't conflict with perturbed
+   *  trial states.  Default: true. */
+  OptBool aperture_drop_fcuts {true};
+
+  /** @brief Number of apertures solved serially per backward-pass task.
+   *
+   * Controls the chunked aperture pass.  Each chunk is submitted as
+   * **one** SDDP work-pool task that clones the phase LP **once**
+   * and solves its inner apertures sequentially.  By default each
+   * inner solve is an independent cold barrier (the shared clone only
+   * amortizes the LP reconstruction); set `aperture_warm_start = true`
+   * to additionally warm-start every aperture after the first off the
+   * previous one's resident basis (a few simplex pivots instead of a
+   * fresh barrier).
+   *
+   * Pairs with the per-phase aperture wetness sort applied by
+   * `plp2gtopt` (driest → wettest within each phase): consecutive
+   * apertures in a chunk have similar bounds, maximising warm-
+   * start reuse.
+   *
+   * Sentinel encoding (resolved at SDDPMethod setup):
+   *
+   *   * absent / `nullopt` / `0` → **auto** — currently resolves to
+   *     `1` (the legacy 1-task-per-aperture path).  Measured on the
+   *     juan/IPLP 16-scene × 16-aperture × 51-phase case under the
+   *     parallel-safe manual-clone route, K=1 is consistently fastest
+   *     because per-aperture solves are small (≪ 100 ms) and the
+   *     work-pool fan-out wins over chunked warm-start reuse.  The
+   *     `compute_auto_aperture_chunk_size` formula is retained for
+   *     future workloads where clone setup dominates per-aperture
+   *     solve cost.
+   *   * `1`  → legacy behaviour: one task per aperture, one clone
+   *     per task, no inner serial loop.
+   *   * `K > 1` → use exactly `K` apertures per task.
+   *   * `-1` → cap at `A_max` per phase: a single task per scene that
+   *     iterates every aperture in series.  Useful for licence-
+   *     constrained or memory-tight runs.
+   *
+   * Default: `nullopt` (auto = 1).
+   */
+  OptInt aperture_chunk_size {};
+
+  /** @brief Warm-start in-chunk aperture re-solves (opt-in).
+   *
+   * Only meaningful when more than one aperture is solved per chunk
+   * (`aperture_chunk_size > 1`).  When true, the first aperture in each
+   * chunk is solved normally (barrier + crossover, which leaves an
+   * optimal simplex basis on the shared clone); every subsequent
+   * aperture re-optimizes that resident basis with a warm simplex solve
+   * (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1` + primal
+   * simplex) instead of a fresh cold barrier.
+   *
+   * Aperture deltas are bound-only (`update_aperture` rewrites flow-col
+   * bounds), so the basis stays valid across apertures — no basis is
+   * saved or restored; the clone's resident basis is reused in place.
+   *
+   * NOTE: warm and cold solves reach the same optimum but may land on
+   * different optimal vertices under degeneracy, so the per-aperture cut
+   * (built from reduced costs) can differ from the cold reference and the
+   * SDDP iteration path may shift.  Hence opt-in; default false keeps the
+   * legacy cold-barrier behaviour byte-for-byte.
+   *
+   * Default: false.
+   */
+  OptBool aperture_warm_start {};
 
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
@@ -173,6 +383,19 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt boundary_max_iterations {};
 
+  /** @brief Derive a terminal soft cost for the state variables named in the
+   * boundary cut, from that cut's own coefficients.
+   *
+   * - `none` (default): leave soft costs untouched; the cut only feeds the
+   *   future-cost (α) row and `scale_alpha`.
+   * - `min` / `avg` / `max`: for every reservoir / battery named in the cut,
+   *   set its `efin_cost` to the negated min / avg / max of its cut
+   *   coefficient (the marginal water value), softening `vol_end >= efin`.
+   *   Replaces converter-side `efin_cost` so the boundary-cut file is the
+   *   single source of truth.
+   */
+  std::optional<BoundaryCutSoftCost> boundary_cut_soft_cost {};
+
   /** @brief How to handle cuts referencing state variables not in the model.
    *
    * - `skip_coeff` (default): drop the missing coefficient, load the cut.
@@ -181,26 +404,34 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<MissingCutVarMode> missing_cut_var_mode {};
 
-  /** @brief CSV file with named-variable cuts for hot-start across all phases.
+  /** @brief Apply an α-rebase (mean-shift) to boundary cuts on load.
    *
-   * Unlike boundary cuts (which apply only to the last phase), these cuts
-   * include a `phase` column indicating which phase they belong to.  The
-   * solver resolves named state-variable headers (reservoir / battery /
-   * junction) to LP column indices in the specified phase, then adds each cut
-   * as:
+   * When enabled, for each scene the per-cut RHS is shifted so the
+   * scene's cut intercepts sum to zero, and the offset is carried
+   * via `LinearInterface::add_obj_constant` so `get_obj_value()`
+   * remains algebraically identical to the unshifted formulation.
    *
-   *   α_phase ≥ rhs + Σ_i coeff_i · state_var_i[phase]
+   * The rewrite is mathematically exact: α' = α − c̄ where c̄ is the
+   * per-scene mean of installed cut RHSs (post-`bc_discount`).
+   * Cuts on disk round-trip cleanly (the shift is recomputed each
+   * load) and all `get_obj_value()` readers (SDDP bounds, cut
+   * intercepts, forward-pass costs) see the same physical value
+   * whether the shift is on or off.
    *
-   * Format:
-   *
-   * ```text
-   * name,iteration,scene,phase,rhs,Reservoir1,Reservoir2,...
-   * hs_1_1_3,1,1,3,-5000.0,0.25,0.75,...
-   * ```
-   *
-   * If empty, no named hot-start cuts are loaded.
+   * Default: false — pre-existing tests assert against the on-disk
+   * RHS magnitudes, so the shift is opt-in for measurement /
+   * conditioning experiments.  Enable to centre boundary cut RHSs
+   * around 0 (helps LP equilibration on cases where boundary cut
+   * intercepts dominate runtime cut intercepts by orders of
+   * magnitude).
    */
-  OptName named_cuts_file {};
+  OptBool boundary_cuts_mean_shift {};
+
+  // ``named_cuts_file`` (the CSV-based "named hot-start cuts" option)
+  // was retired in 2026-05.  Internal hot-start cuts now travel via
+  // ``cuts_input_file`` (Parquet) only — the typed schema is faster
+  // to parse, lossless on float coefficients, and carries scene /
+  // phase / iteration / extra directly without a name column.
 
   /// Maximum retained cuts per (scene, phase) LP.  0 = unlimited (default).
   OptInt max_cuts_per_phase {};
@@ -213,25 +444,30 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptBool single_cut_storage {};
   /// Maximum total stored cuts per scene (0 = unlimited).  Default: 0.
   OptInt max_stored_cuts {};
-  /// Reuse cached LP clones for aperture solves.  Default: true.
-  OptBool use_clone_pool {};
 
   /// Run in simulation mode: no training iterations (max_iterations=0),
   /// forward-only evaluation of the policy from loaded cuts.
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
-  /** @brief How Benders cut coefficients are extracted from solved subproblems.
-   *
-   * - `reduced_cost` (default): uses reduced costs of fixed dependent columns.
-   * - `row_dual`: adds explicit coupling constraint rows and reads their duals
-   *   (PLP-style).
-   *
-   * Both are mathematically equivalent; row_dual may be preferred for
-   * cross-validation with PLP or when LP solver presolve affects reduced-cost
-   * reporting for fixed variables.
-   */
-  std::optional<CutCoeffMode> cut_coeff_mode {};
+  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
+  /// Trades CPU time (reconstruction + optional decompression, or full
+  /// re-flatten under `rebuild`) for significant memory savings on large
+  /// problems.  Under `rebuild`, the initial up-front build loop is
+  /// skipped entirely and each per-(scene, phase) LP is built lazily
+  /// inside the same task that solves or clones it.
+  ///
+  /// When unset, `PlanningOptionsLP::sddp_low_memory()` resolves to
+  /// `compress` for SDDP/cascade methods (the historical default was
+  /// `off`).  Pass `--memory-saving off` to restore the eager-resident
+  /// behaviour.
+  std::optional<LowMemoryMode> low_memory_mode {};
+
+  /// In-memory compression codec for low_memory level 2.
+  /// Selects the algorithm used to compress the saved FlatLinearProblem.
+  /// Default: auto (picks best available: lz4 > snappy > zstd > gzip).
+  /// Accepted values: "auto", "none", "lz4", "snappy", "zstd", "gzip".
+  std::optional<CompressionCodec> memory_codec {};
 
   /** @brief Absolute tolerance for filtering numerically tiny Benders cut
    * coefficients.
@@ -248,22 +484,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Typical useful values: 1e-12 to 1e-8.
    */
   OptReal cut_coeff_eps {};
-
-  /** @brief Maximum allowed absolute coefficient in a Benders cut row.
-   *
-   * When the largest state-variable coefficient in a newly built cut
-   * exceeds this threshold, the entire row (all coefficients, the α
-   * weight, and the RHS) is uniformly divided by
-   * `max_coeff / cut_coeff_max`.  This preserves the constraint's feasible set
-   * while
-   * improving numerical conditioning.
-   *
-   * A warning is logged each time a cut is rescaled.
-   *
-   * Default: 0.0 (disabled — no rescaling).
-   * Typical useful values: 1e6 to 1e8.
-   */
-  OptReal cut_coeff_max {};
 
   /** @brief How update_lp elements obtain reservoir/battery volume between
    * phases.
@@ -331,6 +551,30 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Default: 0.95 (95% CI).  Set to 0.0 to disable. */
   OptReal convergence_confidence {};
 
+  /** @brief Absolute gap ceiling for the secondary convergence tests.
+   *
+   * Hard guard against premature convergence: when ``gap >=
+   * stationary_gap_ceiling`` (relative gap), neither the stationary nor
+   * the statistical CI test can fire — only the primary
+   * ``convergence_tol`` test is allowed to declare convergence.
+   *
+   * Defends against heterogeneous-scene σ explosion (juan run
+   * 2026-05-02 declared CI convergence at iter 2 with gap = 25 %
+   * because σ ≈ 77 M dominated the 38 M absolute gap).  Tightening
+   * this option to e.g. 0.05 forces the solver to keep iterating
+   * until the gap closes below 5 %.
+   *
+   * Default: 0.5 (50 %).  Set to 1.0 to disable the ceiling. */
+  OptReal stationary_gap_ceiling {};
+
+  /** @brief Consecutive structural failures before terminal-skip kicks in.
+   *
+   * After this many iterations of "elastic filter produced no
+   * feasibility cut" failures at the same scene, mark it terminal:
+   * skip its forward pass each iter until *new* cuts arrive
+   * globally.  Default: 2.  Set to 0 to disable. */
+  OptInt terminal_failure_threshold {};
+
   // ── LP solver options (per-pass override)
   // ───────────────────────────────────
 
@@ -341,6 +585,76 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt forward_max_fallbacks {};
 
+  /** @brief Scene-level fail-stop forward pass (default: true).
+   *
+   *  When true (the new default), an infeasible phase that produces a
+   *  feasibility cut on its predecessor causes the scene's forward pass
+   *  to **stop immediately for the current iteration**: the cut is
+   *  installed on phase p-1, the scene is marked failed-this-iter, and
+   *  control returns to the caller.  The next iteration starts fresh
+   *  from p1 with the newly accumulated cuts (preserved in the global
+   *  cut store).
+   *
+   *  When false, the legacy PLP-style backtracking forward pass is
+   *  restored: after installing the fcut on p-1, `phase_idx` is
+   *  decremented and p-1 is re-solved under the new cut.  If p-1 is
+   *  still infeasible, a fresh fcut is installed on p-2 and the
+   *  cascade continues — bounded by `forward_max_attempts`.  Kept
+   *  available for regression tests and academic fixtures that depend
+   *  on the cascade dynamics.
+   */
+  OptBool forward_fail_stop {};
+
+  /** @brief Per-scene rollback on forward-pass infeasibility (default:
+   *  false).
+   *
+   *  When `true`, a scene declared infeasible in the forward pass has
+   *  every cut it has accumulated in the global cut store deleted from
+   *  its LP cells and from `m_cut_store_.scene_cuts()[scene]` — both
+   *  forward-pass feasibility cuts and earlier backward-pass
+   *  optimality cuts go.  The bad trajectory that produced any of
+   *  them is no longer trusted, and the scene starts fresh next
+   *  iteration with whatever cuts arrive from peers via cut sharing
+   *  or their own backward-pass.
+   *
+   *  Stall guard: at iteration k+1's forward dispatch, a scene that
+   *  failed at iteration k retries iff the global stored-cut count
+   *  has grown since the failure.  If every previously-failed scene
+   *  is "stalled" (no new cuts arrived), the run aborts with a
+   *  `SolverError`/`no recovery path` error to avoid an infinite loop
+   *  on degenerate single-scene runs or all-scenes-failed iterations.
+   *
+   *  When `false` (default): cuts persist across iterations even when
+   *  the scene that produced them was declared infeasible — legacy
+   *  behaviour, preserved as the safe default until the rollback
+   *  feature has soaked.
+   */
+  OptBool forward_infeas_rollback {};
+
+  /** @brief Re-solve target phase t LP before extracting cut data
+   *  (default: true).
+   *
+   *  When ``true`` (default), the backward pass at phase t re-solves
+   *  LP_t at the forward-pass trial state v̂_{t-1} **before** building
+   *  the cut for α_{t-1}.  Cuts on α_t added earlier in the same
+   *  backward pass — when this loop processed phase t+1 — are now
+   *  reflected in z_t and the reduced costs, producing a textbook
+   *  one-iter-tight Benders cut on α_{t-1}.  The aperture-success
+   *  path picks up the same in-pass cuts automatically because each
+   *  aperture clone is forked from LP_t (with cut replay under both
+   *  native ``CPXcloneprob`` and manual ``clone_from_flat`` routes).
+   *
+   *  When ``false``, cuts use the forward-pass cached
+   *  ``forward_full_obj_physical`` and StateVariable-mirrored reduced
+   *  costs.  Cheaper per iteration, but a fresh cut at phase T takes
+   *  ≈ T iterations to fully ripple to phase 1.
+   *
+   *  Cost: one extra LP resolve per (scene, phase) per backward pass.
+   *  On juan/iplp scale (50 phases × 7 scenes ≈ 350 extra resolves
+   *  per iter, ≈75 ms each) this is +26 s per iter — typically
+   *  recovered by needing 5-10× fewer iterations to converge. */
+  OptBool backward_resolve_target {};
+
   /** @brief Maximum algorithm fallback attempts for backward-pass and
    *  aperture solves.
    *
@@ -349,6 +663,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *  (no fallback — fail immediately).
    */
   OptInt backward_max_fallbacks {};
+
+  /** @brief SDDP work pool CPU over-commit factor.
+   *  Multiplied by hardware_concurrency to set max pool threads.
+   *  Default 4.0 — extra threads keep CPUs busy while others block on
+   *  the clone mutex. */
+  OptReal pool_cpu_factor {};
+
+  /** @brief Process memory limit in MB for the SDDP work pool.
+   *  When non-zero, the pool blocks task dispatch if process RSS exceeds
+   *  this value.  Accepts values parsed by parse_memory_size (e.g. 5G).
+   *  0 = no limit (default). */
+  OptReal pool_memory_limit_mb {};
 
   /** @brief Maximum iteration spread between fastest and slowest scene
    *  when cut_sharing is none and multiple scenes exist.
@@ -361,6 +687,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * 0 = synchronous (current behavior, default).
    */
   OptInt max_async_spread {};
+
+  /** @brief How to drain in-flight cuts after the aggregate-convergence
+   *  stop signal fires in `SDDPMethod::solve_async`.
+   *
+   *  See `CutDrainMode` for the full rationale.  Summary:
+   *   - `count`     — per-scene count snapshot; legacy asymmetric.
+   *   - `iteration` — filter by `cut.iteration_index <= certified`;
+   *                   symmetric, deterministic.  Default.
+   *   - `all`       — keep every cut; maximises retention, gives up
+   *                   run-to-run determinism.
+   */
+  std::optional<CutDrainMode> cut_drain_mode {};
 
   /** @brief Optional LP solver configuration for SDDP forward pass.
    *
@@ -379,14 +717,14 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * `PlanningOptions::solver_options`.  Backward-pass-specific options
    * take precedence over the global ones.
    *
-   * Typical use: use dual simplex with reuse_basis for the backward pass
-   * (warm-started resolves after adding cuts).
+   * Typical use: use dual simplex for the backward pass.
    */
   std::optional<SolverOptions> backward_solver_options {};
 
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
+    merge_opt(cut_drain_mode, opts.cut_drain_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
     merge_opt(update_lp_skip, opts.update_lp_skip);
@@ -394,8 +732,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(elastic_penalty, opts.elastic_penalty);
-    merge_opt(alpha_min, opts.alpha_min);
-    merge_opt(alpha_max, opts.alpha_max);
     merge_opt(scale_alpha, opts.scale_alpha);
     merge_opt(cut_recovery_mode, opts.cut_recovery_mode);
     merge_opt(recovery_mode, opts.recovery_mode);
@@ -405,33 +741,46 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(elastic_mode, opts.elastic_mode);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     merge_opt(apertures, std::move(opts.apertures));
+    merge_opt(num_apertures, opts.num_apertures);
+    merge_opt(aperture_selection_mode, std::move(opts.aperture_selection_mode));
     merge_opt(aperture_directory, std::move(opts.aperture_directory));
+    merge_opt(aperture_system_file, std::move(opts.aperture_system_file));
     merge_opt(aperture_timeout, opts.aperture_timeout);
     merge_opt(save_aperture_lp, opts.save_aperture_lp);
+    merge_opt(aperture_use_manual_clone, opts.aperture_use_manual_clone);
+    merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
+    merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
+    merge_opt(aperture_warm_start, opts.aperture_warm_start);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
+    merge_opt(boundary_cut_soft_cost, opts.boundary_cut_soft_cost);
+    merge_opt(boundary_cuts_mean_shift, opts.boundary_cuts_mean_shift);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
-    merge_opt(named_cuts_file, std::move(opts.named_cuts_file));
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);
     merge_opt(cut_prune_interval, opts.cut_prune_interval);
     merge_opt(prune_dual_threshold, opts.prune_dual_threshold);
     merge_opt(single_cut_storage, opts.single_cut_storage);
     merge_opt(max_stored_cuts, opts.max_stored_cuts);
-    merge_opt(use_clone_pool, opts.use_clone_pool);
     merge_opt(simulation_mode, opts.simulation_mode);
-    merge_opt(cut_coeff_mode, opts.cut_coeff_mode);
+    merge_opt(low_memory_mode, opts.low_memory_mode);
+    merge_opt(memory_codec, opts.memory_codec);
     merge_opt(cut_coeff_eps, opts.cut_coeff_eps);
-    merge_opt(cut_coeff_max, opts.cut_coeff_max);
     merge_opt(state_variable_lookup_mode, opts.state_variable_lookup_mode);
-    merge_opt(warm_start, opts.warm_start);
     merge_opt(convergence_mode, opts.convergence_mode);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_window, opts.stationary_window);
     merge_opt(convergence_confidence, opts.convergence_confidence);
+    merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
+    merge_opt(terminal_failure_threshold, opts.terminal_failure_threshold);
     merge_opt(forward_max_fallbacks, opts.forward_max_fallbacks);
+    merge_opt(forward_fail_stop, opts.forward_fail_stop);
+    merge_opt(forward_infeas_rollback, opts.forward_infeas_rollback);
+    merge_opt(backward_resolve_target, opts.backward_resolve_target);
     merge_opt(backward_max_fallbacks, opts.backward_max_fallbacks);
     merge_opt(max_async_spread, opts.max_async_spread);
+    merge_opt(pool_cpu_factor, opts.pool_cpu_factor);
+    merge_opt(pool_memory_limit_mb, opts.pool_memory_limit_mb);
     if (opts.forward_solver_options.has_value()) {
       if (forward_solver_options.has_value()) {
         forward_solver_options->merge(*opts.forward_solver_options);

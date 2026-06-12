@@ -137,7 +137,7 @@ TEST_CASE("Waterway construction and default values")
   CHECK_FALSE(waterway.active.has_value());
 
   CHECK(waterway.junction_a == SingleId {unknown_uid});
-  CHECK(waterway.junction_b == SingleId {unknown_uid});
+  CHECK_FALSE(waterway.junction_b.has_value());  // OptSingleId default: empty
 
   CHECK_FALSE(waterway.capacity.has_value());
 
@@ -149,9 +149,13 @@ TEST_CASE("Waterway construction and default values")
   REQUIRE(waterway.fmin.has_value());
   CHECK(std::get<Real>(waterway.fmin.value_or(Real {-1.0})) == 0.0);
 
-  // fmax has a default of 300000.0
-  REQUIRE(waterway.fmax.has_value());
-  CHECK(std::get<Real>(waterway.fmax.value_or(Real {0.0})) == 300'000.0);
+  // Waterway.fmax now defaults to an empty optional.  WaterwayLP
+  // (via system_context::block_maxmin_at) reads ``value_or(capacity_max)``
+  // so an absent fmax falls back to ``capacity.value_or(DblMax)`` →
+  // clamped to solver +inf at flatten time.  The previous ``300'000.0``
+  // finite default was a magic-cap that silently restricted any
+  // waterway whose fmax was not explicitly set in the JSON.
+  CHECK_FALSE(waterway.fmax.has_value());
 }
 
 TEST_CASE("Waterway attribute assignment")
@@ -177,7 +181,8 @@ TEST_CASE("Waterway attribute assignment")
   CHECK(std::get<IntBool>(waterway.active.value()) == 1);
 
   CHECK(std::get<Uid>(waterway.junction_a) == Uid {101});
-  CHECK(std::get<Uid>(waterway.junction_b) == Uid {102});
+  REQUIRE(waterway.junction_b.has_value());
+  CHECK(std::get<Uid>(waterway.junction_b.value()) == Uid {102});
 
   CHECK(*std::get_if<Real>(&waterway.capacity.value()) == 1000.0);
   CHECK(*std::get_if<Real>(&waterway.lossfactor.value()) == 0.05);
@@ -233,9 +238,12 @@ TEST_CASE("Reservoir construction and default values")
 
   CHECK(reservoir.junction == SingleId {unknown_uid});
 
-  // Check defaults with values
-  REQUIRE(reservoir.spillway_capacity.has_value());
-  CHECK(reservoir.spillway_capacity.value_or(0.0) == doctest::Approx(6000.0));
+  // Reservoir.spillway_capacity now defaults to an empty optional —
+  // ``StorageLP`` falls back to ``+DblMax`` (clamped to solver +inf at
+  // flatten time), so the drain teleport is genuinely unbounded.  The
+  // previous ``6000`` finite default was a magic-cap that silently
+  // restricted the drain on reservoirs with no explicit value.
+  CHECK_FALSE(reservoir.spillway_capacity.has_value());
 
   CHECK_FALSE(reservoir.spillway_cost.has_value());
 
@@ -247,15 +255,15 @@ TEST_CASE("Reservoir construction and default values")
   CHECK_FALSE(reservoir.eini.has_value());
   CHECK_FALSE(reservoir.efin.has_value());
 
-  REQUIRE(reservoir.fmin.has_value());
-  CHECK(reservoir.fmin.value_or(0.0)
-        == doctest::Approx(Reservoir::default_fmin));
-
-  REQUIRE(reservoir.fmax.has_value());
-  CHECK(reservoir.fmax.value_or(0.0)
-        == doctest::Approx(Reservoir::default_fmax));
-
-  CHECK_FALSE(reservoir.energy_scale.has_value());
+  // Reservoir.fmin / fmax now default to an empty optional — the
+  // LP consumer (``ReservoirLP::add_to_lp``) falls back to
+  // ``±DblMax`` which the flatten code clamps to the solver's true
+  // infinity, so an unset bound is genuinely unbounded.  The previous
+  // ``±10'000`` finite defaults were a magic-cap that silently
+  // restricted reservoirs whose ``Reservoir.fmin/fmax`` was not set
+  // explicitly in the JSON.
+  CHECK_FALSE(reservoir.fmin.has_value());
+  CHECK_FALSE(reservoir.fmax.has_value());
 
   REQUIRE(reservoir.flow_conversion_rate.has_value());
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
@@ -289,7 +297,6 @@ TEST_CASE("Reservoir attribute assignment")
   reservoir.eini = 25000.0;
   reservoir.efin = 20000.0;
 
-  reservoir.energy_scale = 2.0;
   reservoir.flow_conversion_rate = 0.0036;
 
   CHECK(reservoir.uid == 9001);
@@ -313,7 +320,6 @@ TEST_CASE("Reservoir attribute assignment")
   CHECK(reservoir.eini.value_or(0.0) == doctest::Approx(25000.0));
   CHECK(reservoir.efin.value_or(0.0) == doctest::Approx(20000.0));
 
-  CHECK(reservoir.energy_scale.value_or(0.0) == doctest::Approx(2.0));
   CHECK(reservoir.flow_conversion_rate.value_or(0.0)
         == doctest::Approx(0.0036));
 }
@@ -324,8 +330,38 @@ TEST_CASE("Reservoir with time-varying volume limits")
 
   Reservoir reservoir;
 
-  std::vector<Real> emin_schedule = {8000.0, 10000.0, 12000.0, 9000.0};
-  std::vector<Real> emax_schedule = {40000.0, 45000.0, 50000.0, 42000.0};
+  // ``Reservoir.emin/emax`` is ``OptTBRealFieldSched`` (per-(stage, block))
+  // since 2026-05-18.  Encode the per-stage schedule as a Mx1 nested vector
+  // (one block per stage); the ``at(stage, block)`` resolver returns the
+  // single per-stage value.
+  std::vector<std::vector<Real>> emin_schedule = {
+      {
+          8000.0,
+      },
+      {
+          10000.0,
+      },
+      {
+          12000.0,
+      },
+      {
+          9000.0,
+      },
+  };
+  std::vector<std::vector<Real>> emax_schedule = {
+      {
+          40000.0,
+      },
+      {
+          45000.0,
+      },
+      {
+          50000.0,
+      },
+      {
+          42000.0,
+      },
+  };
 
   reservoir.emin = emin_schedule;
   reservoir.emax = emax_schedule;
@@ -333,8 +369,9 @@ TEST_CASE("Reservoir with time-varying volume limits")
   REQUIRE(reservoir.emin.has_value());
   REQUIRE(reservoir.emax.has_value());
 
-  auto* emin_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emin.value());
-  auto* emax_vec_ptr = std::get_if<std::vector<Real>>(&reservoir.emax.value());
+  using Mat = std::vector<std::vector<Real>>;
+  auto* emin_vec_ptr = std::get_if<Mat>(&reservoir.emin.value());
+  auto* emax_vec_ptr = std::get_if<Mat>(&reservoir.emax.value());
 
   REQUIRE(emin_vec_ptr != nullptr);
   REQUIRE(emax_vec_ptr != nullptr);
@@ -342,10 +379,10 @@ TEST_CASE("Reservoir with time-varying volume limits")
   CHECK(emin_vec_ptr->size() == 4);
   CHECK(emax_vec_ptr->size() == 4);
 
-  CHECK((*emin_vec_ptr)[0] == doctest::Approx(8000.0));
-  CHECK((*emin_vec_ptr)[3] == doctest::Approx(9000.0));
-  CHECK((*emax_vec_ptr)[0] == doctest::Approx(40000.0));
-  CHECK((*emax_vec_ptr)[3] == doctest::Approx(42000.0));
+  CHECK((*emin_vec_ptr)[0][0] == doctest::Approx(8000.0));
+  CHECK((*emin_vec_ptr)[3][0] == doctest::Approx(9000.0));
+  CHECK((*emax_vec_ptr)[0][0] == doctest::Approx(40000.0));
+  CHECK((*emax_vec_ptr)[3][0] == doctest::Approx(42000.0));
 }
 
 TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT

@@ -1,9 +1,11 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/block_lp.hpp>
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/linear_interface.hpp>  // ScaledView
 
 namespace gtopt
 {
@@ -11,7 +13,16 @@ namespace gtopt
 class DemandLP : public CapacityObjectLP<Demand>
 {
 public:
-  static constexpr LPClassName ClassName {"Demand", "dem"};
+  static constexpr std::string_view LoadName {"load"};
+  static constexpr std::string_view FailName {"fail"};
+  static constexpr std::string_view BalanceName {"balance"};
+  static constexpr std::string_view CapacityName {"capacity"};
+  static constexpr std::string_view EminName {"emin"};
+  static constexpr std::string_view LmanName {"lman"};
+  /// Filter metadata keys published by `add_to_lp` for `sum(...)`
+  /// predicate matching.
+  static constexpr std::string_view TypeKey {"type"};
+  static constexpr std::string_view BusKey {"bus"};
 
   using CapacityBase = CapacityObjectLP<Demand>;
 
@@ -45,12 +56,23 @@ public:
     return load_cols.at({scenario.uid(), stage.uid()});
   }
 
-  [[nodiscard]]
-  constexpr const auto& fail_cols_at(const ScenarioLP& scenario,
-                                     const StageLP& stage) const
-  {
-    return fail_cols.at({scenario.uid(), stage.uid()});
-  }
+  /// Reconstructed failure quantity at (scenario, stage, block).
+  ///
+  /// After the P0 demand-failure substitution (`fail = lmax − load`)
+  /// the `fail` LP variable no longer exists.  The value is derived
+  /// at read time from the surviving `load_cols` primal solution and
+  /// the cached `block_lmax_values_` (post-capacity-clamp `lmax`).
+  /// Returns `0.0` when no `load_cols` entry exists for the (s, t, b)
+  /// — semantically "no failure because there is no demand to serve
+  /// here".  `col_sol` is the LP's primal-solution view (the same
+  /// span that `OutputContext::col_sol_span` wraps); callers pass it
+  /// in to avoid per-call re-fetch.  Used by
+  /// `SystemLP::accumulate_convergence_indicators` to track
+  /// `unserved_demand`.
+  [[nodiscard]] double fail_sol_at(const ScenarioLP& scenario,
+                                   const StageLP& stage,
+                                   const BlockLP& block,
+                                   const ScaledView& col_sol) const noexcept;
 
   /// @name Parameter accessors for user constraint resolution
   /// @{
@@ -58,33 +80,63 @@ public:
   {
     return lmax.at(s, b);
   }
-  [[nodiscard]] auto param_fcost(StageUid s) const { return fcost.at(s); }
-  [[nodiscard]] auto param_lossfactor(StageUid s) const
+  [[nodiscard]] auto param_fcost(StageUid s, BlockUid b) const
   {
-    return lossfactor.at(s);
+    return fcost.at(s, b);
+  }
+  [[nodiscard]] auto param_lossfactor(StageUid s, BlockUid b) const
+  {
+    return lossfactor.at(s, b);
   }
   /// @}
 
 private:
   OptTBRealSched lmax;
-  OptTRealSched lossfactor;
-  OptTRealSched fcost;
+  OptTBRealSched lmin;
+  OptTBRealSched lossfactor;
+  OptTBRealSched fcost;
 
   OptTRealSched emin;
   OptTRealSched ecost;
 
   STBIndexHolder<ColIndex> load_cols;
   STBIndexHolder<RowIndex> capacity_rows;
-  STIndexHolder<ColIndex> emin_cols;
+
+  /// Stage-level emin-balance constraint row index (one per
+  /// (scenario, stage) when emin is active).  Post-collapse this
+  /// is `sum_b bdur*mcol ≤ stage_emin` (soft, ecost set) or
+  /// `sum_b bdur*mcol = stage_emin` (hard, no ecost) — direct on
+  /// the surviving `mcol` (`lman`) per-block columns; the
+  /// pre-collapse stage-aggregator `emin_col` is gone.  Kept for
+  /// potential dual-value diagnostics.
   STIndexHolder<RowIndex> emin_rows;
 
   STBIndexHolder<ColIndex> lman_cols;
 
-  STBIndexHolder<ColIndex> fail_cols;
-  STBIndexHolder<RowIndex> balance_rows;
+  /// Cached `block_lmax` post-capacity-clamp values populated during
+  /// `add_to_lp` and consumed by `fail_sol_at` / `add_to_output` to
+  /// reconstruct `Demand/fail_sol.csv` after the P0 demand-failure
+  /// substitution removed the `fail` LP column.  One entry per
+  /// (scenario, stage, block) that participates in the load path.
+  STBIndexHolder<double> block_lmax_values_;
+
+  /// Cached AMPL offset values for Option C blocks.  Only populated
+  /// for (scenario, stage, block) cells where the column represents
+  /// `neg_fail = load − lmax` (i.e. `fail_substituted == true` in
+  /// `add_to_lp`).  Used by `add_to_output` to distinguish Option C
+  /// reconstruction (`load = col_primal + offset`,
+  /// `fail = −col_primal`) from the forced/non-substituted path where
+  /// the column already represents `load` directly.
+  STBIndexHolder<double> block_offset_values_;
 };
 
 using DemandLPId = ObjectId<DemandLP>;
 using DemandLPSId = ObjectSingleId<DemandLP>;
+
+// Pin the data-struct constant value so an accidental rename of the
+// `Demand::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"Demand"`).
+static_assert(DemandLP::Element::class_name == LPClassName {"Demand"},
+              "Demand::class_name must remain \"Demand\"");
 
 }  // namespace gtopt

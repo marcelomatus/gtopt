@@ -13,12 +13,18 @@
 
 #include <algorithm>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <ranges>
+#include <stdexcept>
 #include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
+#include <gtopt/lp_equilibration.hpp>
+#include <gtopt/map_reserve.hpp>
+#include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -26,6 +32,42 @@ namespace gtopt
 
 namespace
 {
+
+// ── Strong-typed std::vector lookup helpers ──────────────────────────
+// `ColIndex` / `RowIndex` are `strong::type<Index, ...>` (Index = int32_t).
+// `std::vector` indexes by `size_type` (unsigned), so the strong-type → vector
+// bridge here uses iterator arithmetic (`std::next` with the underlying
+// `Index` value): the iterator's `difference_type` is `ptrdiff_t` (signed,
+// wider than `Index`), so the conversion is widening — no narrowing /
+// `static_cast` / `-1` sentinel is involved.
+template<typename T>
+[[nodiscard]] inline auto try_at(const std::vector<T>& vec,
+                                 std::optional<ColIndex> idx) noexcept
+    -> const T*
+{
+  if (!idx) {
+    return nullptr;
+  }
+  const auto i = idx->value_of();
+  if (i < 0 || std::cmp_greater_equal(i, vec.size())) {
+    return nullptr;
+  }
+  return std::addressof(*std::next(vec.cbegin(), i));
+}
+template<typename T>
+[[nodiscard]] inline auto try_at(const std::vector<T>& vec,
+                                 std::optional<RowIndex> idx) noexcept
+    -> const T*
+{
+  if (!idx) {
+    return nullptr;
+  }
+  const auto i = idx->value_of();
+  if (i < 0 || std::cmp_greater_equal(i, vec.size())) {
+    return nullptr;
+  }
+  return std::addressof(*std::next(vec.cbegin(), i));
+}
 
 // ── Fast sqrt implementations ───────────────────────────────────────
 // Ruiz scaling is iterative and self-correcting, so approximate sqrt
@@ -35,7 +77,7 @@ namespace
 [[nodiscard]] inline auto sqrt_ieee_halve(double x) noexcept -> double
 {
   auto bits = std::bit_cast<uint64_t>(x);
-  bits = (bits >> 1) + 0x1FF8'0000'0000'0000ULL;
+  bits = (bits >> 1U) + 0x1FF8'0000'0000'0000ULL;
   return std::bit_cast<double>(bits);
 }
 
@@ -72,13 +114,17 @@ namespace
 // Returns the per-row scale factors (max |coeff| per row, or 1.0 for
 // empty rows).
 
-auto apply_row_max_equilibration(
+[[nodiscard]] auto apply_row_max_equilibration(
     std::span<const FlatLinearProblem::index_t> matind,
     std::span<double> matval,
     std::span<double> rowlb,
     std::span<double> rowub,
     double infinity) -> std::vector<double>
 {
+  // Bulk row-max equilibration used at build time.  The per-row scaling
+  // math is shared with the single-row `equilibrate_row_in_place`
+  // primitive in `lp_equilibration.cpp`; this variant just stays
+  // CSC-oriented because it already holds the whole matrix in hand.
   const auto nrows = rowlb.size();
 
   // 1. Compute row max |coefficient| from the CSC matrix.
@@ -137,22 +183,40 @@ struct RuizScalingResult
   // col_scales are updated in-place (passed by reference)
 };
 
-auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
-                        std::span<const FlatLinearProblem::index_t> matind,
-                        std::span<double> matval,
-                        std::span<double> rowlb,
-                        std::span<double> rowub,
-                        std::span<double> collb,
-                        std::span<double> colub,
-                        std::span<double> objval,
-                        std::span<double> col_scales,
-                        double infinity,
-                        FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
-                        int max_iterations = 10,
-                        double tolerance = 1e-3) -> std::vector<double>
+[[nodiscard]] auto apply_ruiz_scaling(
+    std::span<const FlatLinearProblem::index_t> matbeg,
+    std::span<const FlatLinearProblem::index_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    std::span<double> collb,
+    std::span<double> colub,
+    std::span<double> objval,
+    std::span<double> col_scales,
+    std::span<const FlatLinearProblem::index_t> colpin,
+    double infinity,
+    FastSqrtMethod sqrt_method = FastSqrtMethod::ieee_halve,
+    int max_iterations = 10,
+    double tolerance = 1e-3) -> std::vector<double>
 {
   const auto nrows = rowlb.size();
   const auto ncols = collb.size();
+
+  // ``colpin`` carries column indices exempt from rescaling — the
+  // union of (a) integer-declared columns (where a non-unit scale
+  // would turn the physical bound 1 into a non-integer LP upper bound
+  // and break backend integer enforcement) and (b) ``pin_scale``-
+  // tagged semantically-binary continuous columns (LP-relaxed
+  // commitment status / startup / shutdown — see SparseCol::pin_scale
+  // and task #50).  Build a dense bitmap so the inner loops branch
+  // O(1) without a linear-scan of ``colpin`` per iteration.
+  std::vector<bool> is_pinned_col(ncols, false);
+  for (const auto idx : colpin) {
+    const auto j = static_cast<size_t>(idx);
+    if (j < ncols) {
+      is_pinned_col[j] = true;
+    }
+  }
 
   // Cumulative row scales (product of per-iteration sqrt factors).
   std::vector<double> cum_row_scales(nrows, 1.0);
@@ -192,7 +256,13 @@ auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
     }
 
     // 3. Compute column reciprocal factors and track convergence.
+    //    Pinned columns are kept at col_factor = 1.0 — see the
+    //    ``is_pinned_col`` rationale at the top of this function.
     for (size_t j = 0; j < ncols; ++j) {
+      if (is_pinned_col[j]) [[unlikely]] {
+        col_factor[j] = 1.0;
+        continue;
+      }
       const double n = col_inf_norm[j];
       if (n > 0.0) {
         max_deviation = std::max(max_deviation, std::abs(n - 1.0));
@@ -265,11 +335,30 @@ auto apply_ruiz_scaling(std::span<const FlatLinearProblem::index_t> matbeg,
 
 auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
 {
-  const size_t ncols = get_numcols();
-  const size_t nrows = get_numrows();
-  if (ncols == 0 || nrows == 0) [[unlikely]] {
+  // Caller-requested bypass: the LinearProblem-builder side has done
+  // its work (cols / rows / cmaps populated, XLP per-element index
+  // maps stamped via `add_to_lp`), and the caller doesn't want the
+  // CSC matrix.  Used by `system_lp.cpp::rebuild_collections_if_needed`
+  // where the FlatLinearProblem is discarded.  Returning empty
+  // short-circuits the two CSC passes, the row/col bound scans, the
+  // label-name materialisation, and the equilibration loop — typically
+  // 5–10× faster on juan-scale rebuild slices.
+  if (opts.skip_matrix_build) [[unlikely]] {
     return {};
   }
+  const size_t ncols = get_numcols();
+  const size_t nrows = get_numrows();
+  if (ncols == 0) [[unlikely]] {
+    return {};
+  }
+  // ``nrows == 0`` with ``ncols > 0`` is rare in production (every
+  // gtopt build adds bus_balance rows), but unit tests exercise it
+  // directly by calling ``add_col`` without rows.  Fall through so
+  // colub / collb / col_scales / colint get populated and the test
+  // can verify the per-column post-flatten state.  The CSC matrix
+  // passes below are no-ops when ``nrows == 0`` (the row-iteration
+  // loops simply skip), and ``apply_equilibration`` short-circuits
+  // when there are no rows to scale.
 
   using fp_index_t = FlatLinearProblem::index_t;
   std::vector<fp_index_t> matbeg(ncols + 1, 0);
@@ -279,12 +368,34 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // Two-pass approach avoids creating an intermediate SparseMatrix
   // of ncols flat_maps, reducing memory allocations and sort overhead.
 
+  // KNOWN ISSUE — 2026-05-11 line-losses SEGFAULT under g++-15 Release
+  // ---------------------------------------------------------------
+  // The 6 ``Kirchhoff × line-losses`` / ``IEEE 9-bus losses`` tests in
+  // ``test_kirchhoff_modes_ieee.cpp`` and ``test_ieee9b_losses.cpp``
+  // SEGFAULT at this Pass 1 inner loop under g++-15 ``-O3 -DNDEBUG``
+  // (CMake ``CIFast`` / ``Release``).  gdb pins the crash at:
+  //   ``movslq (%rsi, %rax, 4), %rdx``  → ``j = sign_extend(keys[rax])``
+  //   ``addl  $0x1, (%rbx, %rdx, 4)``    → ``++matbeg[j]``
+  // with ``%rdx = 0xffffffffbff00000`` — bit-for-bit the high half of
+  // double ``-1.0`` as written into the per-segment ``linkrow[seg] =
+  // -1.0`` step in ``line_losses::add_segments``.  Same source under:
+  //   * g++-15 -O0 (Debug):  PASSES.
+  //   * clang++23 -O3 Release: PASSES (all 6, 50/50 assertions).
+  // The bug is therefore a g++-15-specific codegen pathology at -O3,
+  // not a real correctness defect in our LP-build path.  Working
+  // around with ``-fno-strict-aliasing`` on g++ Release is the
+  // suggested short-term mitigation (under evaluation as of this
+  // comment); the longer-term fix is to bisect the specific GCC
+  // optimization pass and either narrow it down or upstream a GCC
+  // bug report.
+
   // Pass 1: count non-zeros per column to build matbeg
   const auto eps = opts.eps;
   for (const auto& row : rows) {
     for (const auto& [j, v] : row.cmap) {
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
-        ++matbeg[static_cast<size_t>(j)];
+        ++matbeg[j];
       }
     }
   }
@@ -318,8 +429,10 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   double stats_min = std::numeric_limits<double>::max();
   size_t stats_nnz = 0;
   size_t stats_zeroed = 0;
-  fp_index_t stats_max_col = -1;
-  fp_index_t stats_min_col = -1;
+  std::optional<ColIndex> stats_max_col_idx;
+  std::optional<ColIndex> stats_min_col_idx;
+  std::optional<RowIndex> stats_max_row_idx;
+  std::optional<RowIndex> stats_min_row_idx;
 
   // Effective minimum for stats min/max tracking:
   //   max(eps, stats_eps) — applied after the matrix eps filter.
@@ -329,25 +442,43 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   const double eff_stats_eps =
       (eps >= 0) ? std::max(eps, opts.stats_eps) : opts.stats_eps;
 
+  // Pre-pass: collect col_scales before Pass 2 so that matrix coefficients
+  // can be scaled by col_scale during the row traversal.
+  // physical_value = LP_value × col_scale, so LP_coeff = phys_coeff ×
+  // col_scale.
+  std::vector<double> col_scales(ncols, 1.0);
+  for (const auto& [i, col] : enumerate(cols)) {
+    col_scales[i] = col.scale;
+  }
+
   std::vector<double> rowlb(nrows);
   std::vector<double> rowub(nrows);
 
-  for (const auto& [i, row] : std::views::enumerate(rows)) {
+  // `enumerate<RowIndex>` makes the loop counter a strong `RowIndex` so
+  // assignment into `stats_max_row_idx` is direct (no static_cast at the
+  // call site; the strong-type construction lives inside the factory).
+  for (const auto& [i, row] : enumerate<RowIndex>(rows)) {
+    const auto i_sz =
+        i.value_of();  // Index (int32_t) for legacy std::vector indexing
     const auto rs = row.scale;
     const auto inv_rs = (rs != 1.0) ? 1.0 / rs : 1.0;
-    rowlb[i] = (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
+    rowlb[i_sz] =
+        (rs != 1.0 && row.lowb > -m_infinity_ && row.lowb < m_infinity_)
         ? row.lowb * inv_rs
         : row.lowb;
-    rowub[i] = (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
+    rowub[i_sz] =
+        (rs != 1.0 && row.uppb > -m_infinity_ && row.uppb < m_infinity_)
         ? row.uppb * inv_rs
         : row.uppb;
 
     for (const auto& [j, v_raw] : row.cmap) {
-      const auto v = v_raw * inv_rs;
+      assert(j >= 0 && "column index in row.cmap must be non-negative");
+      const auto cs = col_scales[static_cast<size_t>(j)];
+      const auto v = v_raw * cs * inv_rs;
       if (eps < 0 || std::abs(v) > eps) [[likely]] {
         const auto c = static_cast<size_t>(j);
         const auto pos = static_cast<size_t>(colpos[c]);
-        matind[pos] = static_cast<fp_index_t>(i);
+        matind[pos] = i_sz;  // RowIndex → Index (int32_t) → fp_index_t (int)
         matval[pos] = v;
         ++colpos[c];
 
@@ -360,11 +491,13 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
           // tools that use LP-file precision (typically ~1e-10 floor).
           if (abs_v > stats_max) {
             stats_max = abs_v;
-            stats_max_col = static_cast<fp_index_t>(j);
+            stats_max_col_idx = j;  // j is ColIndex from row.cmap
+            stats_max_row_idx = i;  // i is RowIndex from enumerate<RowIndex>
           }
           if (abs_v >= eff_stats_eps && abs_v < stats_min) {
             stats_min = abs_v;
-            stats_min_col = static_cast<fp_index_t>(j);
+            stats_min_col_idx = j;
+            stats_min_row_idx = i;
           }
         }
       } else if (do_stats && eps >= 0 && v != 0.0) [[unlikely]] {
@@ -381,14 +514,67 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   }
   matbeg[0] = 0;
 
+  // ── matind-sortedness invariant ──────────────────────────────────────
+  //
+  // CSC backends (CPLEX `CPXcopylp`, HiGHS `passLp`, …) require the row
+  // indices within each column to be ASCENDING.  Pass 2 above guarantees
+  // this STRUCTURALLY — without an explicit sort — because:
+  //
+  //   1. `for (const auto& [i, row] : enumerate<RowIndex>(rows))` walks
+  //      the rows vector by ascending vector index (and therefore by
+  //      ascending `RowIndex`, since rows are appended in
+  //      RowIndex-creation order).
+  //   2. For each row, the per-column write cursor `colpos[c]` advances
+  //      monotonically, so the entries appended to column c's slice of
+  //      `matind` are in row-ascending order by construction.
+  //
+  // The two ordered structures we rely on:
+  //   * `rows` (std::vector<SparseRow>) — index-order = RowIndex-order.
+  //   * `row.cmap` (`std::flat_map<ColIndex, double>`) — col-ascending.
+  //
+  // The CPLEX backend's `load_problem` previously sorted `matind` per
+  // column on every CPXcopylp call as a defensive measure.  That sort
+  // is redundant given this invariant; the backend's fast-path now
+  // passes the buffers through to CPXcopylp directly.  Setting
+  // `GTOPT_CPLEX_VERIFY_MATIND_SORTED=1` re-enables a debug-only pass
+  // that asserts ascending row indices column-by-column — use this
+  // after a flatten refactor to confirm the invariant before
+  // re-relying on the fast path.
+#ifndef NDEBUG
+  // Debug-build assertion: walks every column, verifies ascending
+  // matind within.  Fires once per `flatten()` call (cheap relative
+  // to the matrix scan above).  Catches a flatten regression at the
+  // source so the CPLEX backend's runtime-only fallback is never
+  // exercised in tests.
+  for (size_t c = 0; c < ncols; ++c) {
+    const auto beg = static_cast<size_t>(matbeg[c]);
+    const auto end = static_cast<size_t>(matbeg[c + 1]);
+    for (auto k = beg + 1; k < end; ++k) {
+      assert(matind[k] >= matind[k - 1]
+             && "flatten() matind-sortedness invariant violated: pass 2 "
+                "must produce ascending row indices within each column");
+    }
+  }
+#endif
+
   std::vector<double> collb(ncols);
   std::vector<double> colub(ncols);
   std::vector<double> objval(ncols);
-  std::vector<double> col_scales(ncols, 1.0);
   std::vector<fp_index_t> colint;
   colint.reserve(colints);
 
-  for (const auto& [i, col] : std::views::enumerate(cols)) {
+  // ``colpin`` mirrors ``colint`` but carries cols flagged with
+  // ``pin_scale = true`` (a strict superset that includes every
+  // integer col plus any semantically-binary continuous col — e.g.
+  // LP-relaxed commitment status / startup / shutdown).  Passed into
+  // ``apply_ruiz_scaling`` so the Ruiz pass treats the whole pin set
+  // identically: ``col_factor[j] = 1.0`` for every pinned column,
+  // never multiplying ``col_scales[j]`` away from the auto-scaler's
+  // pinned 1.0.  See task #50.
+  std::vector<fp_index_t> colpin;
+  colpin.reserve(colints);
+
+  for (const auto& [i, col] : enumerate(cols)) {
     // SparseCol bounds are physical; convert to LP units by dividing
     // by the column scale factor.  Infinite bounds are preserved as-is
     // (IEEE 754 guarantees inf / finite = inf, but we skip the division
@@ -399,35 +585,110 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                                                : col.lowb;
     colub[i] = (s != 1.0 && col.uppb > -inf && col.uppb < inf) ? col.uppb / s
                                                                : col.uppb;
-    objval[i] = col.cost;
-    col_scales[i] = col.scale;
+    // Objective cost: physical cost × col_scale.  Since LP variable =
+    // physical / col_scale, this ensures obj = cost_phys × x_phys.
+    objval[i] = col.cost * s;
 
     if (col.is_integer) [[unlikely]] {
       colint.push_back(static_cast<fp_index_t>(i));
     }
+    if (col.is_integer || col.pin_scale) [[unlikely]] {
+      colpin.push_back(static_cast<fp_index_t>(i));
+    }
   }
 
-  // Name vectors
-  using fp_name_vec_t = FlatLinearProblem::name_vec_t;
-  auto build_name_vector = [](auto& source, bool move_names) -> fp_name_vec_t
+  // Name vectors — delegated to LabelMaker which honors LpNamesLevel and
+  // handles the `is_state` gating for minimal-level labels.  The same
+  // LabelMaker is copied into FlatLinearProblem so LinearInterface can
+  // continue generating labels for rows/cols added after load_flat().
+  //
+  // Fallback: if the caller did not explicitly install a LabelMaker via
+  // set_label_maker() (leaving it at LpNamesLevel::none), derive an
+  // effective one from the naming bools in LpMatrixOptions.
+  //
+  // Gating: flatten() populates colnm / rownm whenever the caller asks
+  // for them via `col_with_names` / `row_with_names`.  Per-entry label
+  // content is decided by LabelMaker, so an entry may be an empty
+  // string when the level disables it — callers never need to gate.
+  const LabelMaker effective_lm = [&]
   {
-    fp_name_vec_t names;
-    names.reserve(source.size());
-
-    for (auto& item : source) {
-      names.emplace_back(move_names ? std::move(item.name) : item.name);
+    if (m_label_maker_.names_level() != LpNamesLevel::none) {
+      return m_label_maker_;
     }
-    return names;
-  };
+    const auto lvl = (opts.row_with_name_map || opts.col_with_names)
+        ? LpNamesLevel::all
+        : LpNamesLevel::none;
+    return LabelMaker {lvl};
+  }();
+
+  using fp_name_vec_t = FlatLinearProblem::name_vec_t;
 
   fp_name_vec_t colnm;
   if (opts.col_with_names || opts.col_with_name_map) [[unlikely]] {
-    colnm = build_name_vector(cols, opts.move_names);
+    colnm.reserve(cols.size());
+    for (const auto& col : cols) {
+      colnm.emplace_back(effective_lm.make_col_label(col));
+    }
   }
 
   fp_name_vec_t rownm;
   if (opts.row_with_names || opts.row_with_name_map) [[unlikely]] {
-    rownm = build_name_vector(rows, opts.move_names);
+    rownm.reserve(rows.size());
+    for (const auto& row : rows) {
+      rownm.emplace_back(effective_lm.make_row_label(row));
+    }
+  }
+
+  // Lightweight label metadata — always populated regardless of
+  // `col_with_names` / `row_with_names`.  Lets `LinearInterface::
+  // generate_labels_from_maps` synthesise real gtopt labels on demand
+  // at `write_lp` time (e.g. the SDDP error-LP dump path) without
+  // requiring the user to pre-enable `--lp-debug` at build time.
+  //
+  // TODO(lazy-label-meta): defer this materialisation until the first
+  // `OutputContext` col/row name lookup in `write_out` (or the SDDP
+  // error-LP dump in `write_lp`).  Memory budget — see
+  // `LinearInterface::drop_label_meta_buffers()`: ~1 MB compressed per
+  // cell, ~3 MB live; on a Juan-scale 816-cell run that is ~800 MB
+  // held until process exit (already freed by
+  // `drop_label_meta_buffers()` post-`write_out`, but lazy
+  // construction would also save the *peak* during planning, when all
+  // cells flatten before any cell writes out).
+  //
+  // The lazy point is here in `flatten()`: replace the eager fill
+  // below with a deferred builder that captures `cols` / `rows` by
+  // shared_ptr (or recomputes from the SystemLP via a lambda) and
+  // materialises on first read.  Blockers:
+  //   * `LinearInterface::add_col` / `add_row` build their dedup
+  //     `m_col_meta_index_` / `m_row_meta_index_` from the labels;
+  //     post-flatten path must keep these eagerly populated for
+  //     duplicate-detection to work.  A split (lazy frozen labels,
+  //     eager dedup index) is feasible — the index can be built from
+  //     the SparseCol fields directly without going through
+  //     SparseColLabel — but requires care in `load_flat`.
+  //   * `LinearProblem::flatten` returns the FlatLinearProblem by
+  //     value; lazy holders inside it must survive the move into
+  //     `LinearInterface::load_flat`.  Trivial, but worth verifying
+  //     no one captures `flat_lp.col_labels_meta` by reference.
+  std::vector<SparseColLabel> col_labels_meta;
+  col_labels_meta.reserve(cols.size());
+  for (const auto& col : cols) {
+    col_labels_meta.push_back(SparseColLabel {
+        .class_name = col.class_name,
+        .variable_name = col.variable_name,
+        .variable_uid = col.variable_uid,
+        .context = col.context,
+    });
+  }
+  std::vector<SparseRowLabel> row_labels_meta;
+  row_labels_meta.reserve(rows.size());
+  for (const auto& row : rows) {
+    row_labels_meta.push_back(SparseRowLabel {
+        .class_name = row.class_name,
+        .constraint_name = row.constraint_name,
+        .variable_uid = row.variable_uid,
+        .context = row.context,
+    });
   }
 
   // Index name maps
@@ -438,15 +699,20 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     fp_index_map_t map;
     map.reserve(names.size());
 
-    for (const auto& [i, name] : std::views::enumerate(names)) {
+    for (const auto& [i, name] : enumerate(names)) {
       if (name.empty()) [[unlikely]] {
         continue;  // skip empty names to avoid false-positive duplicates
       }
       if (auto [it, inserted] = map.try_emplace(name, i); !inserted)
           [[unlikely]]
       {
-        SPDLOG_WARN(
-            "linear problem using repeated {} name {}", entity_type, name);
+        throw std::runtime_error(
+            std::format("linear problem using repeated {} name '{}' "
+                        "(first at index {}, duplicate at index {})",
+                        entity_type,
+                        name,
+                        it->second,
+                        i));
       }
     }
     return map;
@@ -462,18 +728,16 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     rowmp = build_name_map(rownm, "row");
   }
 
-  // Populate col name strings for stats from colnm (which may have been
-  // moved from cols, so we must read from colnm, not cols).
+  // `stats_*_col_name` are kept as default-empty: name material is now
+  // resolved at log-emission time directly from the always-populated
+  // `col_labels_meta` (`class_name` / `variable_name` / `variable_uid`).
+  // We deliberately do not consult `colnm` / `rownm` here: those vectors
+  // are empty under the default LpNamesLevel (production runs do not
+  // request them), so the legacy `colnm[stats_max_col]` materialisation
+  // both spent cycles producing empty strings and tied the stats path
+  // to a label vector that may never be built.
   std::string stats_max_col_name;
   std::string stats_min_col_name;
-  if (do_stats && !colnm.empty()) {
-    if (stats_max_col >= 0) {
-      stats_max_col_name = colnm[static_cast<size_t>(stats_max_col)];
-    }
-    if (stats_min_col >= 0) {
-      stats_min_col_name = colnm[static_cast<size_t>(stats_min_col)];
-    }
-  }
 
   // ── Matrix equilibration scaling ────────────────────────────────────
   // Dispatch to the selected equilibration method.  The row_scales
@@ -482,7 +746,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // Column scales are updated in-place inside col_scales.
 
   const auto eq_method =
-      opts.equilibration_method.value_or(LpEquilibrationMethod::none);
+      opts.equilibration_method.value_or(LpEquilibrationMethod::row_max);
 
   std::vector<double> row_scales_vec;
   if (eq_method == LpEquilibrationMethod::row_max) {
@@ -491,6 +755,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   } else if (eq_method == LpEquilibrationMethod::ruiz) {
     const auto sqrt_method =
         opts.fast_sqrt_method.value_or(FastSqrtMethod::ieee_halve);
+    // Pass ``colpin`` (= integer ∪ pin_scale) instead of ``colint``
+    // alone so Ruiz pins both integers AND semantically-binary
+    // continuous cols (task #50).
     row_scales_vec = apply_ruiz_scaling(matbeg,
                                         matind,
                                         matval,
@@ -500,6 +767,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
                                         colub,
                                         objval,
                                         col_scales,
+                                        colpin,
                                         m_infinity_,
                                         sqrt_method);
   }
@@ -521,9 +789,9 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       if (row_scales_vec.empty()) {
         row_scales_vec.resize(nrows, 1.0);
       }
-      for (const auto& [i, row] : std::views::enumerate(rows)) {
+      for (const auto& [i, row] : enumerate(rows)) {
         if (row.scale != 1.0) {
-          row_scales_vec[static_cast<size_t>(i)] *= row.scale;
+          row_scales_vec[i] *= row.scale;
         }
       }
     }
@@ -532,34 +800,46 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   if (!row_scales_vec.empty() && do_stats) {
     // Recompute coefficient stats after equilibration so the reported
     // ratio reflects the actual matrix sent to the solver.
+    //
+    // The layout iteration stays in `size_t c` (matbeg/matval/matind are
+    // CSC-side std::vectors keyed by raw size_t); when a candidate min/max
+    // is found we build the strong-typed `ColIndex` / `RowIndex` directly
+    // from the matrix metadata: `matind[k]` is already `Index` (int32_t),
+    // the underlying type of RowIndex, so `RowIndex{matind[k]}` is a
+    // strong-type construction with no narrowing.  For the column we
+    // reuse the column iteration variable wrapped via the locally-scoped
+    // `iota_range<ColIndex>` factory, which hides the size_t→Index
+    // construction inside the factory itself.
     stats_max = 0.0;
     stats_min = std::numeric_limits<double>::max();
-    stats_max_col = -1;
-    stats_min_col = -1;
-    for (size_t c = 0; c < ncols; ++c) {
+    stats_max_col_idx.reset();
+    stats_min_col_idx.reset();
+    stats_max_row_idx.reset();
+    stats_min_row_idx.reset();
+    auto col_idx_view = iota_range<ColIndex>(0, ncols);
+    auto col_iter = col_idx_view.begin();
+    for (size_t c = 0; c < ncols; ++c, ++col_iter) {
+      const auto c_strong = *col_iter;  // ColIndex (constructed by iota_range)
       const auto beg = static_cast<size_t>(matbeg[c]);
       const auto end = static_cast<size_t>(matbeg[c + 1]);
       for (size_t k = beg; k < end; ++k) {
         const double abs_v = std::abs(matval[k]);
         if (abs_v > stats_max) {
           stats_max = abs_v;
-          stats_max_col = static_cast<fp_index_t>(c);
+          stats_max_col_idx = c_strong;
+          stats_max_row_idx = RowIndex {matind[k]};
         }
         if (abs_v >= eff_stats_eps && abs_v < stats_min) {
           stats_min = abs_v;
-          stats_min_col = static_cast<fp_index_t>(c);
+          stats_min_col_idx = c_strong;
+          stats_min_row_idx = RowIndex {matind[k]};
         }
       }
     }
-    // Update column name references for the new min/max columns.
-    stats_max_col_name = (stats_max_col >= 0
-                          && static_cast<size_t>(stats_max_col) < colnm.size())
-        ? colnm[static_cast<size_t>(stats_max_col)]
-        : "";
-    stats_min_col_name = (stats_min_col >= 0
-                          && static_cast<size_t>(stats_min_col) < colnm.size())
-        ? colnm[static_cast<size_t>(stats_min_col)]
-        : "";
+    // Stats names stay default-empty by design — the LP_QUALITY emission
+    // below resolves the offending element from `col_labels_meta` /
+    // `row_labels_meta`, which are always populated regardless of
+    // `LpNamesLevel`.
   }
 
   // ── Per-row-type coefficient statistics ──────────────────────────────
@@ -604,6 +884,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       double min_abs {std::numeric_limits<double>::max()};
     };
     std::unordered_map<std::string_view, TypeAccum> type_map;
+    map_reserve(type_map, 32);
 
     for (size_t r = 0; r < nrows; ++r) {
       const auto type = extract_row_type(rownm[r]);
@@ -643,6 +924,207 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
         });
   }
 
+  // ── Global objective scaling ──────────────────────────────────────
+  // Divide all objective coefficients by scale_objective to improve
+  // numerical conditioning.  Applied after equilibration since it is
+  // a uniform divisor that does not affect relative magnitudes.
+  const auto scale_obj = opts.scale_objective;
+  if (scale_obj != 1.0) {
+    const auto inv_scale = 1.0 / scale_obj;
+    for (auto& v : objval) {
+      v *= inv_scale;
+    }
+  }
+
+  // ── LP_QUALITY verdict (Phase 3) ──────────────────────────────────
+  // Once-per-flatten emission of the post-equilibration coefficient
+  // envelope.  Reads only the locally-tracked stats_* values populated
+  // during the pre/post-equilibration sweeps above (O(1)) — no extra
+  // matrix scan.  Skipped silently when the matrix is empty (stats
+  // would be the default 0/inf sentinels) or the validation option is
+  // explicitly disabled.
+  if (do_stats && stats_nnz > 0 && opts.validation.effective_enable()) {
+    const double effective_min =
+        (stats_min_col_idx && stats_min < std::numeric_limits<double>::max())
+        ? stats_min
+        : 0.0;
+    const double ratio = stats_max / std::max(effective_min, 1e-30);
+
+    // Locate the offending col/row from the always-populated label-meta
+    // vectors.  Every SparseCol / SparseRow that reaches the LP through
+    // the per-element `*_lp.cpp` builders MUST set `class_name`; if any
+    // metadata at all has been populated in this LP we treat a missing
+    // `class_name` for a min/max coefficient as a programming error and
+    // throw — silently logging an anonymous coefficient hides the bug.
+    // Pure unit-test LPs that build raw `SparseCol{}` / `SparseRow{}`
+    // (no element pipeline) have all-empty metadata and are exempt:
+    // there is nothing to enforce.
+    const auto* cmax = try_at(col_labels_meta, stats_max_col_idx);
+    const auto* cmin = try_at(col_labels_meta, stats_min_col_idx);
+    const auto* rmax = try_at(row_labels_meta, stats_max_row_idx);
+    const auto* rmin = try_at(row_labels_meta, stats_min_row_idx);
+
+    const auto any_col_metadata = std::ranges::any_of(
+        col_labels_meta, [](const auto& l) { return !l.class_name.empty(); });
+    const auto any_row_metadata = std::ranges::any_of(
+        row_labels_meta, [](const auto& l) { return !l.class_name.empty(); });
+
+    if (any_col_metadata) {
+      if (cmax == nullptr || cmax->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: max col index {} has missing or empty class_name "
+            "— every SparseCol added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced col {}",
+            stats_max_col_idx ? stats_max_col_idx->value_of() : -1,
+            stats_max_col_idx ? stats_max_col_idx->value_of() : -1));
+      }
+      if (cmin == nullptr || cmin->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: min col index {} has missing or empty class_name "
+            "— every SparseCol added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced col {}",
+            stats_min_col_idx ? stats_min_col_idx->value_of() : -1,
+            stats_min_col_idx ? stats_min_col_idx->value_of() : -1));
+      }
+    }
+    if (any_row_metadata) {
+      if (rmax == nullptr || rmax->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: max row index {} has missing or empty class_name "
+            "— every SparseRow added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced row {}",
+            stats_max_row_idx ? stats_max_row_idx->value_of() : -1,
+            stats_max_row_idx ? stats_max_row_idx->value_of() : -1));
+      }
+      if (rmin == nullptr || rmin->class_name.empty()) {
+        throw std::runtime_error(std::format(
+            "LP_QUALITY: min row index {} has missing or empty class_name "
+            "— every SparseRow added to the LP must set `.class_name`; "
+            "check the *_lp.cpp builder that produced row {}",
+            stats_min_row_idx ? stats_min_row_idx->value_of() : -1,
+            stats_min_row_idx ? stats_min_row_idx->value_of() : -1));
+      }
+    }
+
+    const bool have_full = any_col_metadata && any_row_metadata;
+
+    const double max_threshold = opts.validation.effective_coeff_warn_max();
+    const double ratio_threshold =
+        opts.lp_coeff_ratio_threshold.value_or(1.0e7);
+    const bool max_exceeds = stats_max > max_threshold;
+    const bool ratio_exceeds = ratio > ratio_threshold;
+    const bool any_threshold_hit = max_exceeds || ratio_exceeds;
+
+    // Per-cell LP_QUALITY is verbose (one line per scene × phase ×
+    // flatten), so the unconditional emission lives at debug level — at
+    // info level we only fire on a real conditioning issue.  Skip the
+    // entire block when neither path will produce output: no threshold
+    // hit AND debug logging disabled.  This is the common case in a
+    // healthy run.  Costs one virtual call (`should_log`) per flatten,
+    // vs. building `ctx_prefix` + invoking format machinery on every
+    // call.
+    auto* logger = spdlog::default_logger_raw();
+    const bool emit_anything = any_threshold_hit
+        || (logger != nullptr && logger->should_log(spdlog::level::debug));
+    if (!emit_anything) {
+      // nothing to log — leave fast
+    } else {
+      // Build `[s14 p46]` prefix only now that we know we'll log.
+      // spdlog formats the message lazily through fmt::format_to, so
+      // the args themselves cost nothing until the per-emission call.
+      const std::string ctx_prefix = (opts.flatten_scene_uid.has_value()
+                                      && opts.flatten_phase_uid.has_value())
+          ? std::format("[s{} p{}] ",
+                        opts.flatten_scene_uid->value(),
+                        opts.flatten_phase_uid->value())
+          : std::string {};
+
+      // Two emission paths share the same content; only the level
+      // differs.  spdlog::log itself short-circuits when the level is
+      // disabled, so passing `level::debug` for healthy runs incurs only
+      // a level check (no formatting) when debug logging is off.
+      const auto emit_full = [&](spdlog::level::level_enum lvl)
+      {
+        spdlog::log(lvl,
+                    "{}LP_QUALITY: nnz={} max={:.2e} [col={} {}[{}].{} row={} "
+                    "{}[{}].{}] min={:.2e} [col={} {}[{}].{} row={} {}[{}].{}] "
+                    "ratio={:.2e}",
+                    ctx_prefix,
+                    stats_nnz,
+                    stats_max,
+                    stats_max_col_idx->value_of(),
+                    cmax->class_name,
+                    cmax->variable_uid,
+                    cmax->variable_name,
+                    stats_max_row_idx->value_of(),
+                    rmax->class_name,
+                    rmax->variable_uid,
+                    rmax->constraint_name,
+                    effective_min,
+                    stats_min_col_idx->value_of(),
+                    cmin->class_name,
+                    cmin->variable_uid,
+                    cmin->variable_name,
+                    stats_min_row_idx->value_of(),
+                    rmin->class_name,
+                    rmin->variable_uid,
+                    rmin->constraint_name,
+                    ratio);
+      };
+      const auto emit_short = [&](spdlog::level::level_enum lvl)
+      {
+        spdlog::log(lvl,
+                    "{}LP_QUALITY: nnz={} max={:.2e} min={:.2e} ratio={:.2e}",
+                    ctx_prefix,
+                    stats_nnz,
+                    stats_max,
+                    effective_min,
+                    ratio);
+      };
+
+      const auto level =
+          any_threshold_hit ? spdlog::level::warn : spdlog::level::debug;
+      if (have_full) {
+        emit_full(level);
+      } else {
+        emit_short(level);
+      }
+      if (any_threshold_hit) {
+        // Spell out which threshold tripped on warn-level lines.
+        if (max_exceeds) {
+          if (have_full) {
+            spdlog::warn(
+                "{}LP_QUALITY: max |coeff|={:.2e} [col={} {}[{}].{} row={} "
+                "{}[{}].{}] EXCEEDS threshold {:.2e}",
+                ctx_prefix,
+                stats_max,
+                stats_max_col_idx->value_of(),
+                cmax->class_name,
+                cmax->variable_uid,
+                cmax->variable_name,
+                stats_max_row_idx->value_of(),
+                rmax->class_name,
+                rmax->variable_uid,
+                rmax->constraint_name,
+                max_threshold);
+          } else {
+            spdlog::warn(
+                "{}LP_QUALITY: max |coeff|={:.2e} EXCEEDS threshold {:.2e}",
+                ctx_prefix,
+                stats_max,
+                max_threshold);
+          }
+        }
+        if (ratio_exceeds) {
+          spdlog::warn("{}LP_QUALITY: ratio={:.2e} EXCEEDS threshold {:.2e}",
+                       ctx_prefix,
+                       ratio,
+                       ratio_threshold);
+        }
+      }
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),
@@ -655,23 +1137,53 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rowlb = std::move(rowlb),
       .rowub = std::move(rowub),
       .colint = std::move(colint),
+      // Copy (not move) the SOS2 sets: the source LinearProblem may be
+      // reused (e.g. tests calling flatten() twice on the same problem
+      // to compare LpMatrixOptions variants) and we must keep its
+      // sos2_sets intact.  Cheap in practice — empty for the vast
+      // majority of LPs, and bounded by the per-line K count for the
+      // tangent_signed_flow L-secant path (issue #504).
+      .sos2_sets = sos2_sets,
       .col_scales = std::move(col_scales),
       .row_scales = std::move(row_scales_vec),
+      .equilibration_method = eq_method,
+      .scale_objective = scale_obj,
+      // `m_obj_constant_` is on the physical (user-facing) cost
+      // scale; convert to the LP raw scale so that
+      // `LinearInterface::get_obj_value_raw()` can compose it
+      // additively with the solver's raw value (and
+      // `get_obj_value()` falls out as raw × scale_objective).
+      .obj_constant_raw = m_obj_constant_ / scale_obj,
       .colnm = std::move(colnm),
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
+      .col_labels_meta = std::move(col_labels_meta),
+      .row_labels_meta = std::move(row_labels_meta),
+      // Hand the eager dedup maps off to LinearInterface.  These were
+      // built incrementally during `add_col` / `add_row`; copying
+      // them into FlatLinearProblem and then moving into
+      // `m_col_meta_index_` saves a full rehash pass at `load_flat`
+      // time (~50 ms on 500K cols / 300K rows).  Copy (not move)
+      // because LinearProblem may legitimately be reused after
+      // `flatten()` (e.g. in tests that call flatten() twice on the
+      // same problem to compare opts) and would lose its dedup
+      // invariant if we drained the map.
+      .col_meta_index = m_col_meta_index_,
+      .row_meta_index = m_row_meta_index_,
       .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,
       .stats_max_abs = stats_max,
       .stats_min_abs =
-          stats_min_col >= 0 ? stats_min : std::numeric_limits<double>::max(),
-      .stats_max_col = stats_max_col,
-      .stats_min_col = stats_min_col,
+          stats_min_col_idx ? stats_min : std::numeric_limits<double>::max(),
+      .stats_max_col = stats_max_col_idx,
+      .stats_min_col = stats_min_col_idx,
       .stats_max_col_name = std::move(stats_max_col_name),
       .stats_min_col_name = std::move(stats_min_col_name),
       .row_type_stats = std::move(row_type_stats_vec),
+      .variable_scale_map = std::move(m_vsm_),
+      .label_maker = effective_lm,
   };
 }
 

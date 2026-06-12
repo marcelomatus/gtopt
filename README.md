@@ -17,6 +17,7 @@ This project includes comprehensive documentation for different use cases:
 - **[README.md](README.md)** (this file) - Project overview, quick installation, and basic usage
 - **[Understanding gtopt](docs/overview.md)** - Global overview: repository layout, architecture layers, data flow, and technology stack
 - **[Planning Guide](docs/planning-guide.md)** - Complete planning guide: time structure, system elements, JSON format, and worked examples
+- **[Unit Commitment Guide](docs/unit-commitment.md)** - Three-bin UC formulation, startup tiers, piecewise heat rate, emission framework, and worked examples
 - **[Mathematical Formulation](docs/formulation/mathematical-formulation.md)** - Full LP/MIP optimization formulation with LaTeX notation
 - **[Building Guide](BUILDING.md)** - Detailed build instructions for all platforms, dependencies, and troubleshooting
 - **[Usage Guide](docs/usage.md)** - Complete command-line reference, examples, and advanced usage patterns
@@ -27,6 +28,7 @@ This project includes comprehensive documentation for different use cases:
 - **[SDDP Method](docs/methods/sddp.md)** - SDDP solver: theory, options, monitoring API, elastic filter modes, and JSON configuration
 - **[Cascade Method](docs/methods/cascade.md)** - Cascade solver: multi-level hybrid SDDP with warm-start
 - **[Monolithic Method](docs/methods/monolithic.md)** - Default monolithic solver, boundary cuts, and sequential mode
+- **[LP Fingerprint](docs/lp-fingerprint.md)** - LP structural fingerprint: formulation integrity verification, regression detection, and CI golden-reference comparison
 - **[Changelog](CHANGELOG.md)** - Release history and notable changes
 - **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines, code style, and testing
 - **[webservice/INSTALL.md](webservice/INSTALL.md)** - Web service installation, deployment, and API reference
@@ -49,6 +51,7 @@ This project includes comprehensive documentation for different use cases:
 
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
+* **Unit Commitment**: tight three-bin (u,v,w) MIP formulation with startup tiers, piecewise heat rate, ramp constraints, min up/down time, and emission pricing.
 * **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.
@@ -61,13 +64,9 @@ Install all dependencies, build, and install `gtopt` system-wide:
 ```bash
 # 1. Install dependencies
 sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14 libboost-container-dev coinor-libcbc-dev \
-  ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short \
-  | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release \
-  --codename --short).deb
+sudo apt-get install -y gcc-14 g++-14 libboost-container-dev coinor-libcbc-dev ca-certificates lsb-release wget
+wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
+sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
 sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 
@@ -149,6 +148,7 @@ validating, and post-processing data for use with gtopt:
 | `gtopt_check_lp` | Diagnose infeasible LP files (static + solver + AI) |
 | `gtopt_check_output` | Analyze solver output completeness and correctness |
 | `gtopt_compress_lp` | Compress LP debug files |
+| `gtopt_check_fingerprint` | Compute, verify, and compare LP structural fingerprints |
 
 ### Install
 
@@ -222,6 +222,26 @@ gtopt_gui system_c0.json
 5. View results with interactive charts and tables
 
 For detailed usage and options, see [guiservice/GTOPT_GUI.md](guiservice/GTOPT_GUI.md).
+
+### GUI Plus (Next.js / React front-end)
+
+An alternative modern front-end — **GUI Plus** — is available under
+[`guiservice-plus/`](guiservice-plus/). It is a Next.js 15 + React 19 +
+Tailwind v4 + shadcn/ui single-page app that sits on top of the existing
+Flask `guiservice` and offers an interactive topology editor (ReactFlow),
+technology-coloured dispatch stack charts, SDDP convergence views, a merit
+order table, and a KPI dashboard.
+
+```bash
+# Launch both the Flask guiservice and GUI Plus together
+gtopt_gui --ui-plus --ui-plus-port 5002
+
+# Or run it standalone against an existing Flask guiservice
+cd guiservice-plus && npm install
+GTOPT_GUISERVICE_URL=http://localhost:5001 npm run dev -- -p 5002
+```
+
+See [guiservice-plus/README.md](guiservice-plus/README.md) for details.
 
 ### Quick Start with gtopt_guisrv
 

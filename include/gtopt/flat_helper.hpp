@@ -38,6 +38,7 @@
 #pragma once
 
 #include <functional>
+#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -108,9 +109,27 @@ class FlatHelper
 public:
   explicit FlatHelper(const SimulationLP& simulation)
       : m_simulation_(simulation)
+      // Active scenarios = (a) the scenario's own ``is_active()`` is true
+      // AND (b) the scenario's parent scene is active.  The earlier
+      // implementation only checked (a) and silently included scenarios
+      // whose parent scene had ``"active": 0`` set, producing
+      // column-length mismatches at write time
+      // (``Column 3 ... expected length 3570 but got length 8160`` —
+      // ratio = N_total_scenarios / N_active_scenarios = 16/7 on
+      // juan/gtopt_iplp 2026-05-02 trace_34).  We walk the active
+      // scene list and pick up each active scene's scenarios; this
+      // produces the expected length consistently with the write
+      // path's per-scene iteration.
       , m_active_scenarios_(std::ranges::to<std::vector>(
-            simulation.scenarios() | std::views::filter(&ScenarioLP::is_active)
-            | std::views::transform(&ScenarioLP::uid)))
+            simulation.scenes() | std::views::filter(&SceneLP::is_active)
+            | std::views::transform(
+                [](const SceneLP& scene)
+                {
+                  return scene.scenarios()
+                      | std::views::filter(&ScenarioLP::is_active)
+                      | std::views::transform(&ScenarioLP::uid);
+                })
+            | std::views::join))
       , m_active_stages_(std::ranges::to<std::vector>(
             simulation.stages() | std::views::filter(&StageLP::is_active)
             | std::views::transform(&StageLP::uid)))
@@ -230,6 +249,16 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    // Early-exit when the holder is empty.  This is the only allocation
+    // win — measurement showed that lazy allocation of `values`/`valid`
+    // with a hit-index backfill is slower than the eager allocation
+    // because the hot-loop `push_back` + later backfill beats plain
+    // `valid[idx] = true` for dense holders.  Keep the eager path and
+    // only skip work when there's nothing to iterate for.
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -271,6 +300,10 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -291,13 +324,23 @@ public:
              enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
-            const auto value = proj(stiter->second.at(buid));
-            values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
+            // Tolerant inner lookup: the P1 zero-bound skip in
+            // `generator_lp.cpp:131` / `waterway_lp.cpp:72` /
+            // `demand_lp.cpp:206` may have elided individual block
+            // entries while leaving the outer (scenario, stage) key
+            // populated.  `.at(buid)` would throw `std::out_of_range`
+            // on those missing blocks; treat them the same as the
+            // outer-key-missing case (valid[idx] = false).
+            if (auto it = stiter->second.find(buid); it != stiter->second.end())
+            {
+              const auto value = proj(it->second);
+              values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
 
-            valid[idx] = true;
-            ++count;
+              valid[idx] = true;
+              ++count;
 
-            need_values = true;
+              need_values = true;
+            }
           }
           need_valids |= count != ++idx;
         }
@@ -326,6 +369,10 @@ public:
                                     const Factor& factor,
                                     const STIndexHolder<double>& st_scale) const
   {
+    if (hstb.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_blocks_.size();
 
     std::vector<double> values(size);
@@ -349,14 +396,20 @@ public:
              enumerate<BlockIndex>(m_active_stage_blocks_[ti]))
         {
           if (has_stuid) {
-            const auto value = proj(stiter->second.at(buid));
-            values[idx] =
-                factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
+            // Tolerant inner lookup (see the non-st_scale overload
+            // above): P1 zero-bound skips may elide individual block
+            // entries while keeping the outer (scenario, stage) key.
+            if (auto it = stiter->second.find(buid); it != stiter->second.end())
+            {
+              const auto value = proj(it->second);
+              values[idx] =
+                  factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
 
-            valid[idx] = true;
-            ++count;
+              valid[idx] = true;
+              ++count;
 
-            need_values = true;
+              need_values = true;
+            }
           }
           need_valids |= count != ++idx;
         }
@@ -374,6 +427,10 @@ public:
                                     Projection proj,
                                     const Factor& factor = Factor()) const
   {
+    if (hst.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_scenarios_.size() * m_active_stages_.size();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);
@@ -412,6 +469,10 @@ public:
                                     Projection proj = {},
                                     const Factor& factor = {}) const
   {
+    if (ht.empty()) {
+      return std::pair {std::vector<double> {}, std::vector<bool> {}};
+    }
+
     const auto size = m_active_stages_.size();
     std::vector<double> values(size);
     std::vector<bool> valid(size, false);

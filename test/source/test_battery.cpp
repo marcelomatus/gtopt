@@ -14,6 +14,7 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -298,7 +299,8 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;  // flexible demand – LP always feasible
+  opts.model_options.demand_fail_cost =
+      1000.0;  // flexible demand – LP always feasible
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -397,7 +399,7 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -441,7 +443,7 @@ TEST_CASE(  // NOLINT
       },
   };
 
-  // Battery with explicit energy_scale = 10.0 (large scale for testing)
+  // Battery with energy scale set via variable_scales option (scale = 10.0)
   const Array<Battery> battery_array = {
       {
           .uid = Uid {1},
@@ -453,7 +455,6 @@ TEST_CASE(  // NOLINT
           .emax = 100.0,
           .eini = 50.0,
           .capacity = 100.0,
-          .energy_scale = 10.0,
       },
   };
 
@@ -490,7 +491,15 @@ TEST_CASE(  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  // Set energy scale via variable_scales (not per-element field)
+  opts.variable_scales = {
+      {
+          .class_name = "Battery",
+          .variable = "energy",
+          .scale = 10.0,
+      },
+  };
   const PlanningOptionsLP options {opts};
   SimulationLP simulation_lp(simulation, options);
   SystemLP system_lp(system, simulation_lp);
@@ -569,7 +578,6 @@ TEST_CASE(  // NOLINT
             .emax = 200.0,
             .eini = 50.0,
             .capacity = 200.0,
-            .energy_scale = scale,
         },
     };
 
@@ -610,7 +618,15 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
+    // Set energy scale via variable_scales (not per-element field)
+    opts.variable_scales = {
+        {
+            .class_name = "Battery",
+            .variable = "energy",
+            .scale = scale,
+        },
+    };
     const PlanningOptionsLP options {opts};
     SimulationLP simulation_lp(simulation, options);
     SystemLP system_lp(system, simulation_lp);
@@ -620,7 +636,7 @@ TEST_CASE(  // NOLINT
     REQUIRE(result.has_value());
     CHECK(result.value() == 0);
 
-    return li.get_obj_value();
+    return li.get_obj_value_raw();
   };
 
   const auto obj_scale_1 = solve_with_scale(1.0);
@@ -733,7 +749,7 @@ TEST_CASE(  // NOLINT
     };
 
     PlanningOptions opts;
-    opts.demand_fail_cost = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
     // Set energy scale via variable_scales option (not per-element field)
     opts.variable_scales = {
         {
@@ -760,12 +776,10 @@ TEST_CASE(  // NOLINT
     REQUIRE_FALSE(col_scales.empty());
     const auto col_upp = li.get_col_upp();
     const auto col_upp_raw = li.get_col_upp_raw();
-    const auto ncols = static_cast<std::size_t>(li.get_numcols());
     double max_upp = 0.0;
     double max_upp_raw = 0.0;
     int n_scaled = 0;
-    for (std::size_t i = 0; i < ncols; ++i) {
-      const auto ci = ColIndex {static_cast<int>(i)};
+    for (const auto ci : iota_range<ColIndex>(0, li.get_numcols())) {
       if (col_scales[ci] == doctest::Approx(scale).epsilon(1e-12)) {
         ++n_scaled;
         max_upp = std::max(max_upp, col_upp[ci]);
@@ -775,9 +789,11 @@ TEST_CASE(  // NOLINT
     // Multiple energy columns (eini + per-block) should carry the scale
     REQUIRE(n_scaled > 0);
 
-    return {.objective = li.get_obj_value(),
-            .max_col_upper = max_upp,
-            .max_col_upper_raw = max_upp_raw};
+    return {
+        .objective = li.get_obj_value_raw(),
+        .max_col_upper = max_upp,
+        .max_col_upper_raw = max_upp_raw,
+    };
   };
 
   // Use scales != 1.0 to distinguish energy columns from unscaled columns

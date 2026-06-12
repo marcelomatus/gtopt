@@ -279,7 +279,7 @@ gtopt's elastic filter is more sophisticated than PLP's:
 |---------|-------|-----|
 | Clone LP before relaxation | Yes (preserves original) | No (modifies LP) |
 | Penalized slack variables | Yes (sup/sdn per link) | Artificial variables |
-| Three modes | `single_cut`, `multi_cut`, `backpropagate` | Single mode |
+| Three modes | `single_cut`, `multi_cut`, `chinneck` (IIS) | Single mode |
 | Iterative backpropagation | Yes (backward through phases) | Partial |
 | Auto-escalation | Infeasibility counter → multi_cut | No |
 | Infeasibility tracking | Per-scene per-phase counter | None |
@@ -474,7 +474,7 @@ The cascade method is a **novel engineering synthesis** of established technique
   (e.g., Level 0: copper-plate, Level 1: transport, Level 2: Kirchhoff)
 - Name-based state target transfer with elastic penalties and tolerance bands
 - Explicit cut inheritance policies (`inherit_optimality_cuts`,
-  `inherit_feasibility_cuts`, `inherit_targets`) with configurable lifetimes
+  `inherit_targets`) with configurable lifetimes
 - Global iteration budget distributed across levels
 
 No published algorithm combines all of these.

@@ -59,13 +59,20 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 |------------------------|---------|-----------|---------------|-------------|
 | `demand_fail_cost`     | number  | *(none)*  | $/MWh         | Penalty cost for unserved demand (value of lost load) |
 | `reserve_fail_cost`    | number  | *(none)*  | $/MWh         | Penalty cost for unserved spinning reserve |
-| `use_line_losses`      | boolean | `true`    | --            | Enable resistive line loss modeling |
+| `hydro_fail_cost`      | number  | *(none)*  | $/m³          | Default penalty cost for unmet hydro (irrigation) rights. Per-element `fail_cost` overrides this |
+| `hydro_use_value`      | number  | *(none)*  | $/m³          | Default value (benefit) of exercising hydro rights. Per-element `use_value` overrides this |
+| `state_fail_cost`      | number  | *(none)*  | $/MWh         | Penalty cost for SDDP state-variable violations. Fallback when a reservoir/storage element lacks its own `scost`; converted via element's `mean_production_factor` |
+| `use_line_losses`      | boolean | `true`    | --            | **Deprecated** — use `line_losses_mode` instead. Enable resistive line-loss modeling |
+| `line_losses_mode`     | string  | `"adaptive"` | --         | Line-loss model: `"none"`, `"linear"`, `"piecewise"`, `"bidirectional"`, `"adaptive"`, `"dynamic"` |
 | `loss_segments`        | integer | `1`       | --            | Number of piecewise-linear segments for quadratic line losses (1 = linear) |
 | `use_kirchhoff`        | boolean | `true`    | --            | Enable DC Kirchhoff voltage-law constraints |
 | `use_single_bus`       | boolean | `false`   | --            | Collapse network to a single bus (copper-plate model) |
 | `kirchhoff_threshold`  | number  | `0`       | kV            | Minimum bus voltage below which Kirchhoff is not applied |
 | `scale_objective`      | number  | `1000`    | dimensionless | Divisor applied to all objective coefficients for numerical stability |
 | `scale_theta`          | number  | `1000`    | dimensionless | Scaling factor for voltage-angle variables |
+| `emission_cost`        | number or schedule | *(none)* | $/tCO₂ | System-wide CO₂ emission price. Generators with non-zero `emission_rate` incur an extra cost of `emission_cost × emission_rate` per MWh |
+| `emission_cap`         | number or schedule | *(none)* | tCO₂/year | Per-stage CO₂ emission cap. The dual of the cap constraint is the endogenous carbon price |
+| `continuous_phases`    | string  | `"none"`  | --            | Phase range where all integer/binary variables relax to continuous. Syntax: `"all"`, `"none"`, `"0"`, `"1,3:5,8:"`, `":3"` |
 
 > **Note**: `annual_discount_rate` has moved to the `simulation`
 > section (see [Section 2](#2-simulation)).  For backward
@@ -78,14 +85,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `output_directory`   | string  | `"output"`   | Root directory for output result files |
 | `output_format`      | string  | `"parquet"`  | Output format: `"parquet"` or `"csv"` |
 | `output_compression` | string  | `"zstd"`     | Compression codec: `"uncompressed"`, `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` |
-| `lp_build_options.names_level` | string/int | `"minimal"` (0) | LP naming level: `"minimal"` (0) = state-variable cols only, `"only_cols"` (1) = all column + row names (required for LP file output), `"cols_and_rows"` (2) = same as 1 + warn on duplicates |
 | `use_uid_fname`      | boolean | `true`       | Use element UIDs instead of names in output filenames |
+
+> **LP variable/row names** are enabled automatically when the CLI flag
+> `--lp-file` or `--lp-debug` is set; there is no separate JSON or CLI
+> option to control the naming level.  See
+> [Planning Options → LpMatrixOptions](planning-options.md#lpmatrixoptions-fields).
 
 #### Solver selection
 
 | Field         | Type   | Default        | Description |
 |---------------|--------|----------------|-------------|
 | `method` | string | `"monolithic"` | Planning solver: `"monolithic"` (default), `"sddp"`, or `"cascade"`. See [SDDP Solver](methods/sddp.md), [Cascade Solver](methods/cascade.md), and [Monolithic Solver](methods/monolithic.md) |
+| `build_mode` | string | `"scene-parallel"` | How `PlanningLP::create_systems` assembles per-cell `SystemLP`s: `"serial"`, `"scene-parallel"` (default), `"full-parallel"`, or `"direct-parallel"`. Serial builds in the calling thread with no pool/build-buffer overhead |
 
 #### Logging and debugging
 
@@ -94,8 +106,19 @@ optional -- when absent, the solver applies built-in defaults (shown below).
 | `log_directory`             | string  | `"logs"` | Directory for log, trace, and error LP files |
 | `lp_debug`                  | boolean | `false`  | Save LP debug files to `log_directory` before solving. Monolithic: one file per `(scene, phase)` named `gtopt_lp_<scene>_<phase>.lp`. SDDP: one file per `(iteration, scene, phase)` named `gtopt_iter_<iter>_<scene>_<phase>.lp` |
 | `lp_compression`            | string  | `""`     | Compression codec for LP debug files: `""` (inherit from output), `"none"` (no compression), or a codec name (`"zstd"`, `"gzip"`, `"lz4"`, `"bzip2"`, `"xz"`) |
-| `lp_build`             | boolean | `false`  | Build all LP matrices but skip solving entirely. Combine with `lp_debug: true` to export every scene/phase LP |
+| `lp_only`                   | boolean | `false`  | Build all LP matrices but skip solving entirely (CLI: `--lp-only` / `-c`). Combine with `lp_debug: true` to export every scene/phase LP |
 | `lp_coeff_ratio_threshold`  | number  | `1e7`    | When the global max/min coefficient ratio exceeds this value, per-scene/phase breakdown is printed |
+| `lp_debug_scene_min`        | integer | —        | Minimum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_scene_max`        | integer | —        | Maximum scene UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_min`        | integer | —        | Minimum phase UID (inclusive) for LP debug file saving |
+| `lp_debug_phase_max`        | integer | —        | Maximum phase UID (inclusive) for LP debug file saving |
+| `lp_fingerprint`            | boolean | `false`  | Compute LP structural fingerprint after solving. Output: `lp_fingerprint_scene_{S}_phase_{P}.json` per scene/phase. See [LP Fingerprint](lp-fingerprint.md) |
+
+#### Constraint handling
+
+| Field             | Type   | Default    | Description |
+|-------------------|--------|------------|-------------|
+| `constraint_mode` | string | `"strict"` | User-constraint runtime error policy: `"normal"` (warn + drop offending constraint), `"strict"` (default; abort with diagnostic), `"debug"` (strict + verbose per-row lowering trace). See [User Constraints → constraint_mode](user-constraints.md#constraint_mode--runtime-error-policy) |
 
 #### Deprecated LP solver fields
 
@@ -145,6 +168,12 @@ over the corresponding `solver_options` sub-fields.
 | `feasible_eps` | number  | solver default | Feasibility tolerance (omit to keep solver default) |
 | `barrier_eps`  | number  | solver default | Barrier convergence tolerance (omit to keep solver default) |
 | `log_level`    | integer | `0`         | Solver output verbosity (0 = silent) |
+| `log_mode`     | string  | `"nolog"`   | Solver log-file policy: `"nolog"` (no files) or `"detailed"` (one file per scene/phase/aperture, `<solver>_sc<N>_ph<N>[_ap<N>].log`) |
+| `time_limit`   | number  | solver default | Per-LP wall-clock time limit in seconds. Exceeding it aborts the solve; caller must check `is_optimal()` |
+| `scaling`      | string  | solver default | Internal solver scaling strategy. See `SolverScaling` enum |
+| `crossover`    | boolean | `true`      | When `algorithm == barrier`, convert the interior-point solution to a simplex basis (required for duals). SDDP forward pass sets it false for speed |
+| `max_fallbacks`| integer | `2`         | On non-optimal exit, cycle through barrier → dual → primal up to this many times. `0` disables fallback |
+| `reuse_basis`  | boolean | `false`    | Enable basis-reuse optimizations for resolve on cloned LPs (forces dual simplex, disables presolve) |
 
 **Example:**
 
@@ -175,9 +204,8 @@ Resolution priority when the solver looks up a scale:
 2. Per-class entry matching `(class_name, variable)` with `uid = -1`
 3. Fallback: `1.0` (no scaling)
 
-> **Note:** Per-element fields (`Battery::energy_scale`,
-> `Reservoir::energy_scale`) and global options (`scale_theta`) take
-> precedence over entries in `variable_scales`.
+> **Note:** Global options (`scale_theta`) take precedence over entries
+> in `variable_scales`.
 
 | Field        | Type    | Default | Description |
 |--------------|---------|---------|-------------|
@@ -225,9 +253,9 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 | Field                | Type    | Default        | Description |
 |----------------------|---------|----------------|-------------|
-| `elastic_penalty`    | number  | `1e6`          | Penalty for elastic slack variables in feasibility |
-| `elastic_mode`       | string  | `"single_cut"` | Elastic filter mode: `"single_cut"` (alias `"cut"`), `"multi_cut"`, or `"backpropagate"` |
-| `multi_cut_threshold`| integer | `10`           | Forward-pass infeasibility count before auto-switching from single_cut to multi_cut (0 = never) |
+| `elastic_penalty`    | number  | `1e2`          | Penalty for elastic slack variables in feasibility |
+| `elastic_mode`       | string  | `"chinneck"`   | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `multi_cut_threshold`| integer | `3`            | Cumulative forward-pass infeasibility count at a (scene, phase) before auto-switching to multi_cut (counter is persistent; 0 = always; <0 = disabled) |
 | `alpha_min`          | number  | `0.0`          | Lower bound for future cost variable alpha |
 | `alpha_max`          | number  | `1e12`         | Upper bound for future cost variable alpha |
 | `cut_sharing_mode`   | string  | `"none"`       | Cut sharing across scenes: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
@@ -287,7 +315,8 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 | `prune_dual_threshold` | number  | `1e-8`   | Dual threshold for inactive cut detection |
 | `single_cut_storage`   | boolean | `false`  | Store cuts in per-scene vectors only |
 | `max_stored_cuts`      | integer | `0`      | Maximum total stored cuts per scene (0 = unlimited) |
-| `use_clone_pool`       | boolean | `true`   | Reuse cached LP clones for aperture solves |
+| `low_memory_mode`      | string  | `"compress"` (SDDP/cascade) / `"off"` (monolithic) | `off`, `compress`, or `rebuild` (`snapshot` is a back-compat alias for `compress`; see SDDP method docs) |
+| `memory_codec`         | string  | `"auto"` | Compression codec for `compress` mode |
 
 #### Simulation mode
 
@@ -366,7 +395,6 @@ forgetting semantics and the two-phase solve behavior.
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
 | `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_feasibility_cuts`   | integer | `0`     | Same semantics as `inherit_optimality_cuts` |
 | `inherit_targets`            | integer | `0`     | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
 | `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
 | `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
@@ -450,7 +478,6 @@ forgetting semantics and the two-phase solve behavior.
           },
           "transition": {
             "inherit_optimality_cuts": true,
-            "inherit_feasibility_cuts": true,
             "optimality_dual_threshold": 1e-6
           }
         }
@@ -578,6 +605,7 @@ A stage groups consecutive blocks into a planning/investment period.
 | `count_block`    | integer | —     | Yes      | Number of consecutive blocks in this stage |
 | `discount_factor`| number  | p.u.  | No       | Present-value cost multiplier for this stage |
 | `active`         | boolean | —     | No       | Whether the stage is active |
+| `chronological`  | boolean | —     | No       | Whether blocks are sequential time periods (enables unit commitment). Default: `false`. See [Unit Commitment](unit-commitment.md) |
 
 ### 2.3 Scenario
 
@@ -715,6 +743,7 @@ A generation unit connected to a bus.
 | `capmax`           | number\|array\|string| MW          | No       | Absolute maximum capacity |
 | `annual_capcost`   | number\|array\|string| $/MW-year   | No       | Annualized investment cost |
 | `annual_derating`  | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `emission_rate`  | number\|array\|string| tCO₂/MWh   | No       | CO₂ emission rate. Used with `model_options.emission_cost` and `emission_cap`. See [Unit Commitment — Emission](unit-commitment.md#6-emission-cost-and-cap) |
 
 > **Note:** Fields that accept `number|array|string` can be a numeric constant,
 > an inline array (indexed by `[stage][block]`), or a filename referencing an
@@ -854,6 +883,11 @@ be defined manually (see §3.6 Converter).
 | `capmax`            | number\|array\|string| MWh         | No       | Absolute maximum energy capacity |
 | `annual_capcost`    | number\|array\|string| $/MWh-year  | No       | Annualized investment cost |
 | `annual_derating`   | number\|array\|string| p.u./year   | No       | Annual capacity derating factor |
+| `type`              | string              | —            | No       | Optional battery type tag (metadata, e.g. `"lithium"`, `"flow"`) |
+| `soft_emin`         | number\|array\|string| MWh         | No       | Soft minimum energy per stage (penalized slack below `emin`) |
+| `soft_emin_cost`    | number\|array\|string| $/MWh       | No       | Penalty cost per unit of `soft_emin` slack violation |
+| `use_state_variable`| boolean             | —            | No       | Enable stage/phase coupling of the battery state variable |
+| `daily_cycle`       | boolean             | —            | No       | Enforce daily cycling (initial SoC equals final SoC each day) |
 
 ### 3.6 Converter
 
@@ -923,8 +957,12 @@ A water reservoir connected to a junction.  Volume units: **hm³** (1 hm³ = 10�
 | `efin`                 | number              | hm³        | No       | Target final stored volume |
 | `fmin`                 | number              | m³/s        | No       | Minimum net inflow |
 | `fmax`                 | number              | m³/s        | No       | Maximum net inflow |
-| `energy_scale`         | number              | —           | No       | Multiplicative scaling factor for volume |
 | `flow_conversion_rate` | number              | hm³/(m³/s·h)| No     | Converts m³/s × hours to hm³ (default: 0.0036) |
+| `scost`                | number\|array\|string| $/hm³     | No       | Short-run water shortage cost |
+| `soft_emin`            | number\|array\|string| hm³       | No       | Soft minimum volume per stage (penalized slack below `emin`) |
+| `soft_emin_cost`       | number\|array\|string| $/hm³     | No       | Penalty cost per unit of `soft_emin` slack violation |
+| `use_state_variable`   | boolean             | —           | No       | Enable stage/phase coupling of the reservoir state variable |
+| `daily_cycle`          | boolean             | —           | No       | Enforce daily cycling (initial volume equals final volume each day) |
 
 ### 3.10 Turbine
 
@@ -1043,9 +1081,8 @@ element is used unchanged.
 | `active`                     | boolean | —              | No       | Whether the element is active |
 | `turbine`                    | integer\|string | —      | Yes      | Associated turbine UID or name |
 | `reservoir`                  | integer\|string | —      | Yes      | Associated reservoir UID or name |
-| `mean_efficiency`            | number  | MW·s/m³        | No       | Fallback efficiency (default: 1.0) |
+| `mean_production_factor`     | number  | MW·s/m³        | No       | Fallback production factor (default: 1.0) |
 | `segments`                   | array   | —              | No       | Piecewise-linear concave segments |
-| `sddp_efficiency_update_skip`| integer | —              | No       | SDDP iterations to skip between updates |
 
 Each segment in the `segments` array has the following fields:
 
@@ -1075,7 +1112,7 @@ negative).
       "name": "eff_colbun",
       "turbine": "COLBUN",
       "reservoir": "COLBUN",
-      "mean_efficiency": 1.53,
+      "mean_production_factor": 1.53,
       "segments": [
         { "volume": 0.0, "slope": 0.0002294, "constant": 1.2558 },
         { "volume": 500.0, "slope": 0.0001, "constant": 1.53 }
@@ -1095,7 +1132,7 @@ excessive drawdown).
 The constraint per stage is:
 
 ```text
-qeh ≤ slope × V_avg + constant
+qeh ≤ slope × V_avg + intercept
 ```
 
 where `qeh` is the stage-average hourly discharge [m³/s], `V_avg` is the
@@ -1111,16 +1148,17 @@ Generalizes the PLP "Ralco" constraint (`plpralco.dat`).
 | `uid`       | integer | —       | Yes      | Unique identifier |
 | `name`      | string  | —       | Yes      | Discharge limit element name |
 | `active`    | boolean | —       | No       | Whether the element is active |
+| `waterway`  | integer\|string | — | Yes   | Source waterway UID or name |
 | `reservoir` | integer\|string | — | Yes   | Associated reservoir UID or name |
 | `segments`  | array   | —       | No       | Piecewise-linear segments |
 
 Each segment has:
 
-| Field      | Type   | Units        | Description |
-|------------|--------|-------------|-------------|
-| `volume`   | number | hm³         | Volume breakpoint |
-| `slope`    | number | m³/s / hm³  | Discharge limit slope |
-| `constant` | number | m³/s        | Discharge limit intercept |
+| Field       | Type   | Units        | Description |
+|-------------|--------|-------------|-------------|
+| `volume`    | number | hm³         | Volume breakpoint |
+| `slope`     | number | m³/s / hm³  | Discharge limit slope |
+| `intercept` | number | m³/s        | Discharge limit intercept |
 
 ### 3.15 Generator Profile
 
@@ -1199,10 +1237,121 @@ reference and examples.
 
 **System-level fields:**
 
-| Field                    | Type            | Description |
-|--------------------------|-----------------|-------------|
-| `user_constraint_array`  | array           | Inline array of UserConstraint objects |
-| `user_constraint_file`   | string          | Path to external JSON file with constraint array |
+| Field                     | Type            | Description |
+|---------------------------|-----------------|-------------|
+| `user_constraint_array`   | array           | Inline array of UserConstraint objects |
+| `user_constraint_file`    | string          | Path to external JSON file with constraint array |
+| `user_constraint_files`   | array of string | Paths to multiple external JSON files with constraint arrays |
+
+### 3.20 Flow Right
+
+Water-right constraints on waterway flow (m³/s).  See
+**[Irrigation Agreements](irrigation-agreements.md)** for the full reference.
+
+**JSON array name:** `flow_right_array`
+
+| Field        | Type            | Units | Required | Description |
+|--------------|-----------------|-------|----------|-------------|
+| `uid`        | integer         | —     | Yes      | Unique identifier |
+| `name`       | string          | —     | Yes      | Flow right name |
+| `active`     | boolean         | —     | No       | Activation flag (default: true) |
+| `waterway`   | integer\|string | —     | Yes      | Target waterway UID or name |
+| `fmin`       | number\|array\|string | m³/s | No | Minimum required flow (floor right) |
+| `fmax`       | number\|array\|string | m³/s | No | Maximum allowed flow (ceiling right) |
+| `fcost`      | number\|array\|string | $/m³/s | No | Penalty cost per unit of right violation |
+
+See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
+
+### 3.21 Volume Right
+
+Water-right constraints on reservoir volume (hm³).  See
+**[Irrigation Agreements](irrigation-agreements.md)** for the full reference.
+
+**JSON array name:** `volume_right_array`
+
+| Field        | Type            | Units | Required | Description |
+|--------------|-----------------|-------|----------|-------------|
+| `uid`        | integer         | —     | Yes      | Unique identifier |
+| `name`       | string          | —     | Yes      | Volume right name |
+| `active`     | boolean         | —     | No       | Activation flag (default: true) |
+| `reservoir`  | integer\|string | —     | Yes      | Target reservoir UID or name |
+| `emin`       | number\|array\|string | hm³ | No | Minimum required volume (floor right) |
+| `emax`       | number\|array\|string | hm³ | No | Maximum allowed volume (ceiling right) |
+| `ecost`      | number\|array\|string | $/hm³ | No | Penalty cost per unit of right violation |
+| `saving_rate`| number\|array\|string | — | No | Water-saving attribution rate |
+
+See [irrigation-agreements.md](irrigation-agreements.md) for details and examples.
+
+### 3.22 User Parameter
+
+Named scalar parameters usable in user constraint expressions.
+
+**JSON array name:** `user_param_array`
+
+| Field   | Type    | Units | Required | Description |
+|---------|---------|-------|----------|-------------|
+| `uid`   | integer | —     | Yes      | Unique identifier |
+| `name`  | string  | —     | Yes      | Parameter name (used in constraint expressions) |
+| `value` | number\|array\|string | — | Yes | Parameter value (per block/stage/scenario schedule) |
+
+### 3.23 Commitment
+
+Unit commitment parameters for a generator.  Each entry links to exactly one
+generator and enables binary on/off scheduling with startup/shutdown costs,
+ramp constraints, and minimum up/down times.  Requires the associated stage
+to have `chronological: true`.
+
+> **Full documentation**: See [Unit Commitment Guide](unit-commitment.md)
+> for the mathematical formulation, worked examples, and advanced features.
+
+**JSON array name:** `commitment_array`
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `uid` | integer | — | Yes | Unique identifier |
+| `name` | string | — | No | Human-readable name |
+| `active` | boolean | — | No | Whether this commitment is active (default: `true`) |
+| `generator` | integer\|string | — | **Yes** | Foreign key to Generator (uid or name) |
+| `startup_cost` | number\|array\|string | $/start | No | Cost per startup event |
+| `shutdown_cost` | number\|array\|string | $/stop | No | Cost per shutdown event |
+| `noload_cost` | number | $/hr | No | Fixed hourly cost when committed |
+| `min_up_time` | number | hours | No | Minimum online duration after startup |
+| `min_down_time` | number | hours | No | Minimum offline duration after shutdown |
+| `ramp_up` | number | MW/hr | No | Normal ramp-up rate |
+| `ramp_down` | number | MW/hr | No | Normal ramp-down rate |
+| `startup_ramp` | number | MW | No | Max output in startup block (default: Pmax) |
+| `shutdown_ramp` | number | MW | No | Max output in shutdown block (default: Pmax) |
+| `initial_status` | number | — | No | Initial state: 1.0 = online, 0.0 = offline |
+| `initial_hours` | number | hours | No | Hours in current state at t=0 |
+| `relax` | boolean | — | No | LP relaxation: u,v,w ∈ [0,1] instead of {0,1} |
+| `must_run` | boolean | — | No | Force u = 1 at all times |
+| `commitment_period` | number | hours | No | Coarser binary variable resolution |
+| `pmax_segments` | array\<number\> | MW | No | Cumulative power breakpoints for piecewise heat rate |
+| `heat_rate_segments` | array\<number\> | GJ/MWh | No | Heat rate per segment |
+| `fuel_cost` | number\|array\|string | $/GJ | No | Fuel cost |
+| `fuel_emission_factor` | number\|array\|string | tCO₂/GJ | No | Fuel CO₂ emission intensity |
+| `hot_start_cost` | number | $/start | No | Startup cost for hot start |
+| `warm_start_cost` | number | $/start | No | Startup cost for warm start |
+| `cold_start_cost` | number | $/start | No | Startup cost for cold start |
+| `hot_start_time` | number | hours | No | Max offline hours for hot start |
+| `cold_start_time` | number | hours | No | Min offline hours for cold start |
+
+> **Startup tiers** require all five fields (`hot_start_cost`, `warm_start_cost`,
+> `cold_start_cost`, `hot_start_time`, `cold_start_time`) to be present.
+> If `cold_start_time < hot_start_time` (physically invalid), tiers are
+> skipped with a warning and the flat `startup_cost` is used instead.
+
+### 3.24 Model Options
+
+System-wide modeling options that control emission pricing and LP relaxation.
+
+**JSON path:** `options.model_options`
+
+| Field | Type | Units | Required | Description |
+|-------|------|-------|----------|-------------|
+| `emission_cost` | number\|array\|string | $/tCO₂ | No | System-wide carbon price. Generators with `emission_rate` incur an additional objective cost. See [Emission Cost](unit-commitment.md#6-emission-cost-and-cap) |
+| `emission_cap` | number\|array\|string | tCO₂ | No | Annual CO₂ cap per stage. Creates a constraint limiting total emissions from all generators with `emission_rate` |
+| `continuous_phases` | string | — | No | Phase range expression for LP relaxation of UC binaries: `"all"`, `"none"`, `"1,3:5"`, etc. Default: `"none"`. See [Relaxation Control](unit-commitment.md#9-relaxation-control) |
 
 ---
 
@@ -1330,6 +1479,8 @@ See `cases/c0/system_c0.json` for a minimal working example with:
 
 ## See also
 
+- **[Unit Commitment Guide](unit-commitment.md)** — Dedicated guide for
+  the three-bin UC formulation, emission framework, and worked examples
 - **[Mathematical Formulation](formulation/mathematical-formulation.md)**
   — Full LP/MIP optimization formulation with academic references
 - **[Planning Guide](planning-guide.md)** — Step-by-step planning guide

@@ -24,7 +24,7 @@ namespace gtopt
 {
 GeneratorProfileLP::GeneratorProfileLP(
     const GeneratorProfile& pgenerator_profile, InputContext& ic)
-    : ProfileObjectLP(pgenerator_profile, ic, ClassName)
+    : ProfileObjectLP(pgenerator_profile, ic, Element::class_name)
 {
 }
 
@@ -51,12 +51,11 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  return add_profile_to_lp(ClassName.short_name(),
-                           sc,
+  return add_profile_to_lp(Element::class_name.full_name(),
                            scenario,
                            stage,
                            lp,
-                           "spo",
+                           SpilloverName,
                            generation_cols,
                            capacity_col,
                            stage_capacity);
@@ -64,7 +63,8 @@ bool GeneratorProfileLP::add_to_lp(const SystemContext& sc,
 
 bool GeneratorProfileLP::add_to_output(OutputContext& out) const
 {
-  return add_profile_to_output(ClassName.full_name(), out, "spillover");
+  return add_profile_to_output(
+      Element::class_name.full_name(), out, SpilloverName);
 }
 
 bool GeneratorProfileLP::update_aperture(

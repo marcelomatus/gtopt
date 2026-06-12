@@ -78,7 +78,8 @@ TEST_CASE(
   CHECK(ddl.uid != unknown_uid);
   CHECK(ddl.name == "rsv1_dlim_1");
   CHECK(std::get<Uid>(ddl.reservoir) == Uid {1});  // Overwritten to rsv uid
-  CHECK(std::get<Uid>(ddl.waterway) == Uid {5});
+  REQUIRE(ddl.waterway.has_value());
+  CHECK(std::get<Uid>(ddl.waterway.value()) == Uid {5});
   REQUIRE(ddl.segments.size() == 1);
   CHECK(ddl.segments[0].intercept == doctest::Approx(10.0));
 }

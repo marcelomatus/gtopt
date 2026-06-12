@@ -26,6 +26,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/stage_enums.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -61,6 +62,11 @@ struct Stage
   /// Used for seasonal parameter lookups (e.g., irrigation schedules).
   std::optional<MonthType> month {};
 
+  /// Whether blocks in this stage are chronologically ordered.
+  /// When true, unit commitment constraints (startup/shutdown transitions)
+  /// are enforced.  When false or absent, commitment is silently skipped.
+  OptBool chronological {};
+
   static constexpr std::string_view class_name = "stage";
 
   [[nodiscard]] constexpr auto is_active() const noexcept
@@ -69,8 +75,27 @@ struct Stage
   }
 };
 
-using StageUid = StrongUidType<Stage>;
-using StageIndex = StrongIndexType<Stage>;
+using StageUid = UidOf<Stage>;
+using StageIndex = StrongPositionIndexType<Stage>;
 using OptStageIndex = std::optional<StageIndex>;
+
+/// @brief First stage index — the root of the planning horizon.
+[[nodiscard]] constexpr auto first_stage_index() noexcept -> StageIndex
+{
+  return StageIndex {0};
+}
+
+/// @brief Next stage index (stage_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(StageIndex stage_index) noexcept -> StageIndex
+{
+  return ++stage_index;
+}
+
+/// @brief Previous stage index (stage_index - 1), preserving strong type.
+[[nodiscard]] constexpr auto previous(StageIndex stage_index) noexcept
+    -> StageIndex
+{
+  return --stage_index;
+}
 
 }  // namespace gtopt

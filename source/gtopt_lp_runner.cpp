@@ -1,0 +1,1001 @@
+/**
+ * @file      gtopt_lp_runner.cpp
+ * @brief     LP build, solve, stats, and output writing
+ * @date      2026-04-08
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * Separated from gtopt_main.cpp so that the heavy Arrow/Parquet headers
+ * (pulled in via planning_lp.hpp) compile in their own translation unit,
+ * enabling parallel compilation.
+ */
+
+#include <chrono>
+#include <expected>
+#include <filesystem>
+#include <format>
+#include <optional>
+#include <ranges>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <gtopt/battery.hpp>
+#include <gtopt/demand.hpp>
+#include <gtopt/error.hpp>
+#include <gtopt/field_sched.hpp>
+#include <gtopt/flow.hpp>
+#include <gtopt/generator.hpp>
+#include <gtopt/gtopt_json_io.hpp>
+#include <gtopt/gtopt_lp_runner.hpp>
+#include <gtopt/line.hpp>
+#include <gtopt/lp_stats.hpp>
+#include <gtopt/main_options.hpp>
+#include <gtopt/memory_compress.hpp>
+#include <gtopt/memory_monitor.hpp>
+#include <gtopt/output_context.hpp>
+#include <gtopt/planning_lp.hpp>
+#include <gtopt/reservoir.hpp>
+#include <gtopt/sddp_common.hpp>  // format_si()
+#include <gtopt/sddp_cut_io.hpp>  // boundary_cut_coeff_stats, select_cut_coeff
+#include <gtopt/solve_outcome.hpp>
+#include <gtopt/solver_stats.hpp>
+#include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
+#include <gtopt/waterway.hpp>
+#include <spdlog/spdlog.h>
+#include <spdlog/stopwatch.h>
+
+namespace gtopt
+{
+
+namespace
+{
+
+// ── Boundary-cut → terminal soft-cost derivation ────────────────────────────
+//
+// When the active method's boundary-cut options request a soft cost
+// (`boundary_cut_soft_cost = min|avg|max`), derive each cut variable's
+// terminal `efin_cost` from that cut's own coefficients — the marginal water
+// value (cut ships `-wv`, so `efin_cost = -select(stat)`).  This is the
+// user-side decision (gated by the option) that replaces the converter
+// baking `efin_cost`, and runs BEFORE the LP is built so the soft-`efin`
+// slack column is created with the right price.  Reuses the single shared
+// `boundary_cut_coeff_stats` parse (same Arrow path as the cut loader).
+void apply_boundary_cut_soft_costs(Planning& planning)
+{
+  const auto method = planning.options.method.value_or(MethodType::monolithic);
+  const bool is_mono = method == MethodType::monolithic;
+  const auto& mono = planning.options.monolithic_options;
+  const auto& sddp = planning.options.sddp_options;
+
+  // Default to the lower-bound (min) water value when unspecified: a single
+  // shared derivation for plexos2gtopt and plp2gtopt (both just emit
+  // boundary_cuts.csv + efin).  The cut-file presence below is the real gate,
+  // so absent option + present cut file ⇒ derive efin_cost with the min
+  // (capped at max(1, …) inside cut_soft_cost).
+  const auto soft_opt =
+      is_mono ? mono.boundary_cut_soft_cost : sddp.boundary_cut_soft_cost;
+  const auto soft = soft_opt.value_or(BoundaryCutSoftCost::min);
+  const std::string file =
+      (is_mono ? mono.boundary_cuts_file : sddp.boundary_cuts_file)
+          .value_or(Name {});
+  if (file.empty()) {
+    return;
+  }
+
+  // Resolve relative to input_directory (mirrors the cut-loader resolution).
+  std::filesystem::path path {file};
+  if (!path.is_absolute()) {
+    path = std::filesystem::path {planning.options.input_directory.value_or(
+               Name {})}
+        / path;
+  }
+  if (!std::filesystem::exists(path)) {
+    spdlog::warn(
+        "boundary_cut_soft_cost set but cut file '{}' not found — "
+        "leaving efin_cost untouched",
+        path.string());
+    return;
+  }
+
+  const auto stats = boundary_cut_coeff_stats(path.string());
+  if (stats.empty()) {
+    return;
+  }
+
+  std::size_t applied = 0;
+  const auto apply_to = [&](auto& elements)
+  {
+    for (auto& el : elements) {
+      // Only soften an existing terminal floor; efin_cost is inert without
+      // an `efin` target.
+      if (!el.efin.has_value()) {
+        continue;
+      }
+      const auto it = stats.find(el.name);
+      if (it == stats.end()) {
+        continue;
+      }
+      // `cut_soft_cost` already maps the chosen bound to the water value
+      // (negation + min/max swap), so `min`/`max` are the lower/upper bound
+      // of the COST; sign is preserved.
+      el.efin_cost = cut_soft_cost(it->second, soft);
+      ++applied;
+    }
+  };
+  apply_to(planning.system.reservoir_array);
+  apply_to(planning.system.battery_array);
+
+  spdlog::info(
+      "boundary_cut_soft_cost={}: derived efin_cost on {} element(s) from '{}'",
+      enum_name(soft),
+      applied,
+      path.string());
+}
+
+// ── FieldSched footprint diagnostics ────────────────────────────────────────
+//
+// Aggregate the dynamic bytes held by every parquet-loaded `OptT*FieldSched`
+// across the System's major element arrays.  Used at LP-build time to
+// answer "how much RSS is the parquet → variant materialisation actually
+// taking?" without needing to enumerate every element-class field at the
+// call site.  Not exhaustive: only counts the high-volume classes
+// (generator, demand, line, reservoir, waterway, flow, battery, turbine);
+// small ones (bus, junction, etc.) are excluded since their FieldSched
+// footprint is negligible (<1 MiB total in production cases).
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Generator& g)
+{
+  return field_sched_dynamic_bytes(g.pmin) + field_sched_dynamic_bytes(g.pmax)
+      + field_sched_dynamic_bytes(g.gcost)
+      + field_sched_dynamic_bytes(g.capacity)
+      + field_sched_dynamic_bytes(g.expcap)
+      + field_sched_dynamic_bytes(g.lossfactor)
+      + field_sched_dynamic_bytes(g.emission_rate);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Demand& d)
+{
+  return field_sched_dynamic_bytes(d.lmax) + field_sched_dynamic_bytes(d.fcost)
+      + field_sched_dynamic_bytes(d.ecost)
+      + field_sched_dynamic_bytes(d.capacity)
+      + field_sched_dynamic_bytes(d.expcap)
+      + field_sched_dynamic_bytes(d.lossfactor);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Line& l)
+{
+  return field_sched_dynamic_bytes(l.tmax_ab)
+      + field_sched_dynamic_bytes(l.tmax_ba)
+      + field_sched_dynamic_bytes(l.capacity)
+      + field_sched_dynamic_bytes(l.expcap) + field_sched_dynamic_bytes(l.tcost)
+      + field_sched_dynamic_bytes(l.lossfactor)
+      + field_sched_dynamic_bytes(l.reactance)
+      + field_sched_dynamic_bytes(l.resistance)
+      + field_sched_dynamic_bytes(l.voltage)
+      + field_sched_dynamic_bytes(l.tap_ratio)
+      + field_sched_dynamic_bytes(l.phase_shift_deg);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Reservoir& r)
+{
+  return field_sched_dynamic_bytes(r.emin) + field_sched_dynamic_bytes(r.emax)
+      + field_sched_dynamic_bytes(r.capacity)
+      + field_sched_dynamic_bytes(r.annual_loss);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Waterway& w)
+{
+  return field_sched_dynamic_bytes(w.fmin) + field_sched_dynamic_bytes(w.fmax)
+      + field_sched_dynamic_bytes(w.fcost)
+      + field_sched_dynamic_bytes(w.capacity)
+      + field_sched_dynamic_bytes(w.lossfactor);
+}
+
+[[nodiscard]] inline std::size_t sum_field_sched_bytes(const Battery& b)
+{
+  return field_sched_dynamic_bytes(b.emin) + field_sched_dynamic_bytes(b.capmax)
+      + field_sched_dynamic_bytes(b.capacity)
+      + field_sched_dynamic_bytes(b.expcap)
+      + field_sched_dynamic_bytes(b.input_efficiency)
+      + field_sched_dynamic_bytes(b.output_efficiency)
+      + field_sched_dynamic_bytes(b.soft_emin_cost);
+}
+
+template<typename Elem>
+[[nodiscard]] std::size_t sum_array_field_sched_bytes(
+    const std::vector<Elem>& arr)
+{
+  std::size_t total = 0;
+  for (const auto& elem : arr) {
+    total += sum_field_sched_bytes(elem);
+  }
+  return total;
+}
+
+[[nodiscard]] std::size_t total_input_schedule_bytes(const System& sys)
+{
+  // Note: Turbine and Flow have minimal/no FieldSched fields and are
+  // skipped.  Add them here if a future case starts loading sizable
+  // schedules into them.
+  return sum_array_field_sched_bytes(sys.generator_array)
+      + sum_array_field_sched_bytes(sys.demand_array)
+      + sum_array_field_sched_bytes(sys.line_array)
+      + sum_array_field_sched_bytes(sys.reservoir_array)
+      + sum_array_field_sched_bytes(sys.waterway_array)
+      + sum_array_field_sched_bytes(sys.battery_array);
+}
+
+/// Compute the effective equilibration method when none is set by the user.
+///
+/// Kirchhoff constraints on multi-bus networks produce heterogeneous row and
+/// column scales (reactances span multiple orders of magnitude, loss segments
+/// introduce tiny coefficients).  Ruiz equilibration handles this much better
+/// than single-pass row_max.  For single-bus or non-Kirchhoff models the
+/// simpler row_max default is retained.
+[[nodiscard]] constexpr auto effective_equilibration_method(
+    const Planning& planning) noexcept -> LpEquilibrationMethod
+{
+  const auto& lp_opts = planning.options.lp_matrix_options;
+  if (lp_opts.equilibration_method.has_value()) {
+    return *lp_opts.equilibration_method;
+  }
+  const auto& mo = planning.options.model_options;
+  const bool use_kirchhoff = mo.use_kirchhoff.value_or(true);
+  const bool use_single_bus = mo.use_single_bus.value_or(false);
+  return (use_kirchhoff && !use_single_bus) ? LpEquilibrationMethod::ruiz
+                                            : LpEquilibrationMethod::row_max;
+}
+
+/// Log pre-solve system statistics.
+void log_pre_solve_stats(
+    [[maybe_unused]] const std::vector<std::string>& planning_files,
+    const Planning& planning)
+{
+  const auto& sys = planning.system;
+  const auto& sim = planning.simulation;
+  const auto& plan_opts = planning.options;
+
+  // Single normalized element list:
+  //  - snake_case keys, plural, fixed 18-char column → all colons align
+  //  - zero-count rows are suppressed when the element type is optional
+  //    (rights, user constraints/params, pumps); core element types are
+  //    always shown so the absence (e.g. lines=0) is still visible.
+  spdlog::info("=== System statistics ===");
+  spdlog::info("  system             : {}", sys.name);
+  spdlog::info("  version            : {}", sys.version);
+  spdlog::info("=== System elements ===");
+  const auto log_count = [](std::string_view label, std::size_t n)
+  { spdlog::info("  {:<18} : {}", label, n); };
+  const auto log_count_if = [&](std::string_view label, std::size_t n)
+  {
+    if (n != 0) {
+      log_count(label, n);
+    }
+  };
+  log_count("buses", sys.bus_array.size());
+  log_count("generators", sys.generator_array.size());
+  log_count_if("generator_profiles", sys.generator_profile_array.size());
+  log_count("demands", sys.demand_array.size());
+  log_count_if("demand_profiles", sys.demand_profile_array.size());
+  log_count("lines", sys.line_array.size());
+  log_count_if("batteries", sys.battery_array.size());
+  log_count_if("converters", sys.converter_array.size());
+  log_count_if("reserve_zones", sys.reserve_zone_array.size());
+  log_count_if("reserve_provisions", sys.reserve_provision_array.size());
+  log_count_if("junctions", sys.junction_array.size());
+  log_count_if("waterways", sys.waterway_array.size());
+  log_count_if("flows", sys.flow_array.size());
+  log_count_if("reservoirs", sys.reservoir_array.size());
+  log_count_if("reservoir_seepages", sys.reservoir_seepage_array.size());
+  log_count_if("turbines", sys.turbine_array.size());
+  log_count_if("pumps", sys.pump_array.size());
+  log_count_if("flow_rights", sys.flow_right_array.size());
+  log_count_if("volume_rights", sys.volume_right_array.size());
+  log_count_if("user_constraints", sys.user_constraint_array.size());
+  log_count_if("user_params", sys.user_param_array.size());
+  spdlog::info("=== Simulation ===");
+  log_count("blocks", sim.block_array.size());
+  log_count("stages", sim.stage_array.size());
+  log_count("scenarios", sim.scenario_array.size());
+  spdlog::info("=== Key options ===");
+  const auto& mo = plan_opts.model_options;
+  const auto log_kv = [](std::string_view label, std::string_view value)
+  { spdlog::info("  {:<18} : {}", label, value); };
+  log_kv("use_kirchhoff", mo.use_kirchhoff.value_or(false) ? "true" : "false");
+  log_kv("kirchhoff_mode",
+         mo.kirchhoff_mode.has_value() ? std::string(*mo.kirchhoff_mode)
+                                       : "node_angle (default)");
+  log_kv("use_single_bus",
+         mo.use_single_bus.value_or(false) ? "true" : "false");
+  log_kv("scale_objective",
+         std::format("{}", mo.scale_objective.value_or(1'000.0)));
+  log_kv("scale_theta",
+         mo.scale_theta.has_value() ? std::format("{:.6g}", *mo.scale_theta)
+                                    : "auto (median reactance)");
+  log_kv("scale_loss_link",
+         mo.scale_loss_link.has_value()
+             ? std::format("{:.6g}", *mo.scale_loss_link)
+             : "auto (median R/V²)");
+  log_kv("loss_cost_eps",
+         mo.loss_cost_eps.has_value() ? std::format("{:.6g}", *mo.loss_cost_eps)
+                                      : "0 (default; no per-MWh loss cost)");
+  log_kv(
+      "equilibration",
+      std::format("{}{}",
+                  enum_name(effective_equilibration_method(planning)),
+                  plan_opts.lp_matrix_options.equilibration_method.has_value()
+                      ? ""
+                      : " (default)"));
+  log_kv("demand_fail_cost",
+         std::format("{}", mo.demand_fail_cost.value_or(0.0)));
+  log_kv("input_directory", plan_opts.input_directory.value_or("(default)"));
+  log_kv("output_directory", plan_opts.output_directory.value_or("(default)"));
+  log_kv("output_format",
+         plan_opts.output_format
+             ? std::string {enum_name(*plan_opts.output_format)}
+             : std::string {"(default)"});
+}
+
+/// Resolve a `PlanningLP&` to whichever instance actually owns the
+/// populated `(scene × phase)` grid.  In cascade mode, the caller's
+/// `planning_lp` is cleared at the level-0→1 transition and the
+/// final-level LP is re-attached via `set_output_delegate(...)`; the
+/// caller has no cells of its own so any post-solve stats / size
+/// walk would see an empty grid.  Follow the delegate chain (depth
+/// = 1 by construction; the cascade only installs delegates on LPs
+/// that have no delegate of their own) so the summary numbers
+/// reflect the level that actually solved.
+[[nodiscard]] const PlanningLP& resolve_owning_lp(
+    const PlanningLP& planning_lp) noexcept
+{
+  if (planning_lp.systems().empty() && planning_lp.output_delegate() != nullptr)
+  {
+    return *planning_lp.output_delegate();
+  }
+  // Returning the parameter by const-ref is intentional: every caller passes
+  // a long-lived `PlanningLP` lvalue (never a temporary), so the delegate
+  // chain (depth 1) cannot dangle.
+  return planning_lp;  // NOLINT(bugprone-return-const-ref-from-parameter)
+}
+
+/// Aggregate solver activity counters across every (scene, phase) LP.
+///
+/// Walks the whole grid so the summary covers monolithic runs
+/// (one solve per cell) and SDDP/cascade runs (many solves per cell
+/// plus elastic-clone retries folded back via `merge_solver_stats`).
+[[nodiscard]] SolverStats aggregate_solver_stats(const PlanningLP& planning_lp)
+{
+  SolverStats agg;
+  const auto& owner = resolve_owning_lp(planning_lp);
+  for (const auto& phase_systems : owner.systems()) {
+    for (const auto& sys : phase_systems) {
+      agg += sys.solver_stats();
+    }
+  }
+  return agg;
+}
+
+/// Emit a per-cell breakdown at DEBUG level.  Kept behind spdlog's
+/// level gate so normal info-level runs stay concise — the aggregate
+/// summary at INFO level is the expected end-user view.
+void log_per_cell_solver_stats(const PlanningLP& planning_lp)
+{
+  if (!spdlog::should_log(spdlog::level::debug)) {
+    return;
+  }
+  SPDLOG_DEBUG("  per-cell solver stats:");
+  const auto& owner = resolve_owning_lp(planning_lp);
+  for (const auto& phase_systems : owner.systems()) {
+    for (const auto& sys : phase_systems) {
+      [[maybe_unused]] const auto& s = sys.solver_stats();
+      SPDLOG_DEBUG(
+          "    scene={} phase={}: load_problem={} solves={} (init={}, "
+          "resolve={}, fallback={}, crossover={}) infeas={} time={:.3f}s "
+          "kappa={:.3g}",
+          sys.scene().uid(),
+          sys.phase().uid(),
+          s.load_problem_calls,
+          s.total_solve_calls(),
+          s.initial_solve_calls,
+          s.resolve_calls,
+          s.fallback_solves,
+          s.crossover_solves,
+          s.infeasible_count,
+          s.total_solve_time_s,
+          s.max_kappa);
+    }
+  }
+}
+
+/// Post-validation: flag a mismatch between the configured low_memory
+/// mode and the actual load_problem / solve counts captured by
+/// SolverStats.
+///
+/// Heuristic (per-cell reasoning, summed across scene × phase):
+///
+///   * `low_memory == off`      → exactly one `load_problem` call per
+///     cell; `total_backend_solves > num_cells` (each solve reuses the
+///     resident backend).  If `load_problem_calls > num_cells`, some
+///     backend was reconstructed unexpectedly.
+///
+///   * `low_memory != off`      → the backend is released between
+///     solves, so every backend solve requires a matching
+///     reconstruction.  Expect
+///     `load_problem_calls ≈ total_backend_solves ≥ num_cells`.  If
+///     `load_problem_calls ≤ num_cells`, the low-memory option was
+///     configured but never exercised (no release / rebuild happened).
+void validate_low_memory_usage(const PlanningLP& planning_lp,
+                               const SolverStats& agg)
+{
+  const auto mode = planning_lp.options().sddp_low_memory();
+  const auto& owner = resolve_owning_lp(planning_lp);
+  std::size_t num_cells = 0;
+  for (const auto& phase_systems : owner.systems()) {
+    num_cells += phase_systems.size();
+  }
+  if (num_cells == 0) {
+    return;
+  }
+  const auto load_calls = agg.load_problem_calls;
+  const auto backend_solves = agg.total_backend_solves();
+
+  if (mode == LowMemoryMode::off) {
+    spdlog::info(
+        "  low_memory      : off ({} load_problem for {} cells, {} solves)",
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls > num_cells) {
+      spdlog::warn(
+          "low_memory=off but load_problem={} exceeds num_cells={}: "
+          "backend was reconstructed {} extra time(s) — unexpected rebuild",
+          load_calls,
+          num_cells,
+          load_calls - num_cells);
+    }
+  } else {
+    spdlog::info(
+        "  low_memory      : {} ({} load_problem for {} cells, {} solves)",
+        enum_name(mode),
+        load_calls,
+        num_cells,
+        backend_solves);
+    if (load_calls <= num_cells) {
+      spdlog::warn(
+          "low_memory={} was requested but not effective: "
+          "load_problem={} ≤ num_cells={} — the backend was never "
+          "reconstructed between solves (expected load_problem ≈ "
+          "backend_solves={})",
+          enum_name(mode),
+          load_calls,
+          num_cells,
+          backend_solves);
+    } else if (backend_solves > load_calls + num_cells) {
+      spdlog::warn(
+          "low_memory={} ratio unexpected: {} load_problem for {} "
+          "backend solves — some solves reused a live backend",
+          enum_name(mode),
+          load_calls,
+          backend_solves);
+    }
+  }
+}
+
+/// Log post-solve solution statistics.
+void log_post_solve_stats(const PlanningLP& planning_lp, bool optimal)
+{
+  spdlog::info("=== Solution statistics ===");
+  spdlog::info("  Status          : {}", optimal ? "optimal" : "non-optimal");
+
+  // Resolve once: in cascade mode `planning_lp.systems()` is empty
+  // (caller cells released at the level-0→1 transition); the
+  // populated grid lives in the output-delegate LP.  All downstream
+  // size / obj / stats reads must use the resolved owner.
+  const auto& owner = resolve_owning_lp(planning_lp);
+
+  if (optimal && !owner.systems().empty() && !owner.systems().front().empty()) {
+    const auto& lp_if = owner.systems().front().front().linear_interface();
+    const double obj_scaled = lp_if.get_obj_value_raw();
+    const double obj_unscaled = lp_if.get_obj_value();
+    spdlog::info("  LP variables    : {}", lp_if.get_numcols());
+    spdlog::info("  LP constraints  : {}", lp_if.get_numrows());
+    // Render with SI suffix (`format_si` from sddp_common.hpp) so the
+    // operator can compare the scaled and unscaled magnitudes at a
+    // glance — `{:.6g}` produced unhelpful `1.41448e+06` on juan
+    // (trace_28).  Raw value is still recoverable from the planning
+    // JSON if a pricing audit needs full precision.
+    spdlog::info("  Obj (scaled)    : {}", format_si(obj_scaled));
+    spdlog::info("  Obj (unscaled)  : {}", format_si(obj_unscaled));
+  }
+
+  // Aggregated solver-activity counters.  Printed for every run (not
+  // just optimal ones) so failures still expose where the backend spent
+  // its time — infeasible counts, load_problem rebuilds under
+  // low-memory mode, fallback retries, etc.
+  const auto agg = aggregate_solver_stats(planning_lp);
+  spdlog::info("  load_problem    : {}", agg.load_problem_calls);
+  // Suppress the (initial=, resolve=) breakdown when one of them is
+  // zero — typical SDDP runs always have initial=0 (the first solve
+  // is recorded as a resolve under the resolve-on-cell pattern).  The
+  // bare ``solves: N`` line is then unambiguous.
+  if (agg.initial_solve_calls != 0 && agg.resolve_calls != 0) {
+    spdlog::info("  solves          : {} (initial={}, resolve={})",
+                 agg.total_solve_calls(),
+                 agg.initial_solve_calls,
+                 agg.resolve_calls);
+  } else {
+    spdlog::info("  solves          : {}", agg.total_solve_calls());
+  }
+  if (agg.fallback_solves != 0 || agg.crossover_solves != 0) {
+    // Same compaction: only show the breakdown if both sub-counters
+    // are non-zero, otherwise the headline value plus its single
+    // contributor is enough.
+    if (agg.fallback_solves != 0 && agg.crossover_solves != 0) {
+      spdlog::info("  solve retries   : fallback={} crossover={}",
+                   agg.fallback_solves,
+                   agg.crossover_solves);
+    } else if (agg.fallback_solves != 0) {
+      spdlog::info("  solve retries   : fallback={}", agg.fallback_solves);
+    } else {
+      spdlog::info("  solve retries   : crossover={}", agg.crossover_solves);
+    }
+  }
+  if (agg.infeasible_count != 0) {
+    if (agg.primal_infeasible != 0 && agg.dual_infeasible != 0) {
+      spdlog::info("  infeasible      : {} (primal={}, dual={})",
+                   agg.infeasible_count,
+                   agg.primal_infeasible,
+                   agg.dual_infeasible);
+    } else if (agg.primal_infeasible != 0) {
+      spdlog::info("  infeasible      : {} (primal)", agg.infeasible_count);
+    } else {
+      spdlog::info("  infeasible      : {} (dual)", agg.infeasible_count);
+    }
+  }
+  if (agg.total_solve_calls() != 0) {
+    spdlog::info("  avg LP size     : {:.0f} vars, {:.0f} rows",
+                 agg.avg_ncols(),
+                 agg.avg_nrows());
+  }
+  if (const auto n = agg.total_solve_calls(); n != 0) {
+    spdlog::info("  solve wall time : {:.3f}s (avg {:.3f}s / {} solves)",
+                 agg.total_solve_time_s,
+                 agg.total_solve_time_s / static_cast<double>(n),
+                 n);
+  } else {
+    spdlog::info("  solve wall time : {:.3f}s", agg.total_solve_time_s);
+  }
+  if (agg.max_kappa > 0.0) {
+    spdlog::info("  Solver kappa    : {:.6g} (max across grid)", agg.max_kappa);
+  }
+
+  validate_low_memory_usage(planning_lp, agg);
+
+  log_per_cell_solver_stats(planning_lp);
+
+  // Per-codec memory-compression stats land at the end of the
+  // Solution statistics block — silent when no codec was used,
+  // one INFO line per codec otherwise.  Emitted here (instead of
+  // mid-`run_solver`) so the operator sees a single contiguous
+  // Solution-statistics block.
+  log_compression_stats();
+}
+
+/// Log LP coefficient statistics for all scene x phase LPs.
+void log_lp_coefficient_stats(const PlanningLP& planning_lp)
+{
+  std::vector<ScenePhaseLPStats> lp_entries;
+  {
+    size_t total_cells = 0;
+    for ([[maybe_unused]] const auto& phase_systems : planning_lp.systems()) {
+      total_cells += phase_systems.size();
+    }
+    lp_entries.reserve(total_cells);
+  }
+  for (auto&& [si, phase_systems] :
+       enumerate<SceneIndex>(planning_lp.systems()))
+  {
+    for (auto&& [pi, system_lp] : enumerate<PhaseIndex>(phase_systems)) {
+      const auto& li = system_lp.linear_interface();
+      lp_entries.push_back({
+          .scene_uid = system_lp.scene().uid(),
+          .phase_uid = system_lp.phase().uid(),
+          .num_vars = li.get_numcols(),
+          .num_constraints = li.get_numrows(),
+          .stats_nnz = li.lp_stats_nnz(),
+          .stats_zeroed = li.lp_stats_zeroed(),
+          .stats_max_abs = li.lp_stats_max_abs(),
+          .stats_min_abs = li.lp_stats_min_abs(),
+          .stats_max_col = li.lp_stats_max_col(),
+          .stats_min_col = li.lp_stats_min_col(),
+          .stats_max_col_name = li.lp_stats_max_col_name(),
+          .stats_min_col_name = li.lp_stats_min_col_name(),
+          .row_type_stats =
+              [&]
+          {
+            auto view = li.lp_row_type_stats()
+                | std::views::transform(
+                            [](const auto& e) -> RowTypeStats
+                            {
+                              return {
+                                  .type = e.type,
+                                  .count = e.count,
+                                  .nnz = e.nnz,
+                                  .max_abs = e.max_abs,
+                                  .min_abs = e.min_abs,
+                              };
+                            });
+            return std::vector<RowTypeStats>(view.begin(), view.end());
+          }(),
+      });
+    }
+  }
+  log_lp_stats_summary(lp_entries,
+                       planning_lp.options().lp_coeff_ratio_threshold());
+}
+
+/// Prepare LP build options and apply per-solver config.
+[[nodiscard]] LpMatrixOptions prepare_matrix_options(Planning& planning,
+                                                     const MainOptions& opts,
+                                                     bool do_stats)
+{
+  // --lp-file and --lp-debug require all col+row names to be generated so
+  // the solver can write a readable .lp dump.
+  const bool enable_names =
+      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
+  const auto eq_method = effective_equilibration_method(planning);
+  auto flat_opts = make_lp_matrix_options(
+      enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
+
+  if (do_stats) {
+    log_pre_solve_stats(opts.planning_files, planning);
+  }
+
+  // Apply per-solver config from .gtopt.conf [solver.<name>] sections.
+  if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+    if (const auto it = opts.solver_configs.find(solver_key);
+        it != opts.solver_configs.end())
+    {
+      auto& so = planning.options.solver_options;
+      auto conf = it->second;
+      conf.overlay(so);
+      so = conf;
+    }
+  }
+
+  // Auto-discover a per-solver parameter file at
+  //   <input_directory>/solvers/<solver_name>.prm
+  // when `solver_options.param_file` has not been set explicitly (CLI
+  // --set or JSON).  This is the convention emitted by plexos2gtopt /
+  // plp2gtopt next to the case JSON so backend-native tuning travels
+  // with the case data.
+  if (auto& so = planning.options.solver_options;
+      !so.param_file.has_value() || so.param_file->empty())
+  {
+    if (const auto& solver_key = flat_opts.solver_name; !solver_key.empty()) {
+      const std::filesystem::path candidate =
+          std::filesystem::path(
+              planning.options.input_directory.value_or(std::string {"input"}))
+          / "solvers" / (solver_key + ".prm");
+      std::error_code ec;
+      if (std::filesystem::exists(candidate, ec) && !ec) {
+        so.param_file = candidate.string();
+        spdlog::info("Auto-loaded {} parameter file: {}",
+                     solver_key,
+                     so.param_file.value());
+      }
+    }
+  }
+
+  return flat_opts;
+}
+
+/// Run the solver and return whether an optimal solution was found.
+[[nodiscard]] SolveOutcome run_solver(PlanningLP& planning_lp)
+{
+  const spdlog::stopwatch solve_sw;
+
+  const auto& plp_opts_ref = planning_lp.options();
+  const auto method = plp_opts_ref.method_type_enum();
+  const SolverOptions solver_opts =
+      (method == MethodType::sddp || method == MethodType::cascade)
+      ? plp_opts_ref.sddp_forward_solver_options()
+      : plp_opts_ref.monolithic_solver_options();
+  const auto result = planning_lp.resolve(solver_opts);
+  const auto solve_elapsed =
+      std::chrono::duration<double>(solve_sw.elapsed()).count();
+  spdlog::info("  Optimization time {:.3f}s", solve_elapsed);
+
+  // NOTE: per-codec `log_compression_stats()` used to fire here but
+  // that printed an un-indented `compression[lz4]: …` line right
+  // between the `Status` and `solves` rows of the
+  // `log_post_solve_stats` block (everything got the same wall
+  // timestamp from spdlog so the order looked random).  Moved to
+  // `log_post_solve_stats` itself, after the per-cell solver / size
+  // / kappa rows, so the operator sees a single coherent
+  // Solution-statistics block.
+
+  // Classification lives in `gtopt/solve_outcome.hpp` so the tri-state
+  // dispatch (Optimal / Partial / Failed) is also reachable from
+  // unit tests without standing up a real solver.
+  const auto outcome = classify_solve_outcome(result);
+  if (outcome == SolveOutcome::Optimal) {
+    return outcome;
+  }
+
+  const auto& err = result.error();
+  const bool is_partial = (outcome == SolveOutcome::Partial);
+
+  const auto msg = std::format(
+      "Solver did not find an optimal solution: "
+      "{} (code={})",
+      err.message,
+      static_cast<int>(err.code));
+  if (is_partial) {
+    spdlog::warn(msg);
+  } else {
+    spdlog::error(msg);
+  }
+  // Format optional tolerances: show "(default)" when not set.
+  const auto eps_str = [](std::optional<double> v) -> std::string
+  { return v ? std::format("{}", *v) : "(default)"; };
+  spdlog::error(
+      "  Solver options used:"
+      " algorithm={}, threads={}, presolve={},"
+      " optimal_eps={}, feasible_eps={}, barrier_eps={},"
+      " log_level={}",
+      solver_opts.algorithm,
+      solver_opts.threads,
+      solver_opts.presolve,
+      eps_str(solver_opts.optimal_eps),
+      eps_str(solver_opts.feasible_eps),
+      eps_str(solver_opts.barrier_eps),
+      solver_opts.log_level);
+  return is_partial ? SolveOutcome::Partial : SolveOutcome::Failed;
+}
+
+/// Write solution output and save planning JSON to the output directory.
+[[nodiscard]] std::expected<void, std::string> write_solution_output(
+    PlanningLP& planning_lp)
+{
+  spdlog::info("=== Output writing ===");
+  const spdlog::stopwatch out_sw;
+  try {
+    planning_lp.write_out();
+  } catch (const std::exception& ex) {
+    return std::unexpected(std::format("Error writing output: {}", ex.what()));
+  }
+
+  // Save the merged planning JSON into the output directory so that
+  // post-processing tools have a self-contained reference.
+  {
+    const auto out_dir = planning_lp.options().output_directory();
+    const auto planning_json =
+        (std::filesystem::path(out_dir) / "planning.json").string();
+    auto pj_result = write_json_output(planning_lp.planning(), planning_json);
+    if (pj_result) {
+      spdlog::info("  planning JSON saved to {}", planning_json);
+    } else {
+      spdlog::warn("  failed to save planning JSON: {}", pj_result.error());
+    }
+  }
+
+  // The `out_sw` stopwatch measures the final `PlanningLP::write_out()`
+  // flush + planning.json sidecar.  Under SDDP the simulation pass
+  // defers per-cell output to this single chunked pass (see the
+  // "Output is NOT written here" comment in sddp_iteration.cpp), so the
+  // majority of write time is captured here.  Print *both* numbers so
+  // the report is honest: the runner stopwatch, plus the process-wide
+  // cumulative per-cell write_out wall fed by `SystemLP::write_out`.
+  const auto cells = SystemLP::total_write_cells();
+  const auto cum_ms = SystemLP::total_write_ms();
+  if (cells > 0) {
+    spdlog::info(
+        "  Write output time {:.3f}s "
+        "(final flush; cumulative per-cell write_out wall {:.3f}s "
+        "across {} cells, avg {:.1f} ms/cell)",
+        out_sw.elapsed().count(),
+        cum_ms / 1000.0,
+        cells,
+        cum_ms / static_cast<double>(cells));
+  } else {
+    spdlog::info("  Write output time {:.3f}s", out_sw.elapsed().count());
+  }
+  return {};
+}
+
+}  // namespace
+
+// ── Public API ────────────────────────────────────────────────────────
+
+std::expected<int, std::string> build_solve_and_output(Planning&& planning,
+                                                       const MainOptions& opts)
+{
+  try {
+    const bool do_stats = opts.print_stats.value_or(true)
+        || planning.options.lp_matrix_options.compute_stats.value_or(false);
+    const auto flat_opts = prepare_matrix_options(planning, opts, do_stats);
+
+    // When running cascade, pre-apply the effective level-0 model overrides
+    // to planning.options.model_options so the initial PlanningLP matches
+    // what level 0 will solve — avoids a wasted first build that cascade
+    // would throw away and rebuild.
+    if (planning.options.method.value_or(MethodType::monolithic)
+        == MethodType::cascade)
+    {
+      const auto& co = planning.options.cascade_options;
+      planning.options.model_options.merge(co.model_options);
+      if (!co.level_array.empty() && co.level_array.front().model_options) {
+        planning.options.model_options.merge(
+            *co.level_array.front().model_options);
+      }
+    }
+
+    // Snapshot RSS at the parsing/build boundary so we can attribute
+    // memory growth to the LP-build phase specifically (the JSON+parquet
+    // input materialisation already happened inside Planning's ctor; the
+    // delta from here through the next sample isolates the LP-flatten
+    // and snapshot-compress cost).  Companion sample after `Build lp
+    // time` reports the delta.  Diagnostic only — no behaviour change.
+    const auto rss_pre_build = MemoryMonitor::get_system_memory_snapshot();
+    const auto sched_bytes = total_input_schedule_bytes(planning.system);
+    spdlog::info(
+        "  Memory before LP build: rss={:.0f} MiB, available={:.1f} GiB, "
+        "input schedules ≈ {:.1f} MiB ({} generators / {} demands / "
+        "{} lines / {} reservoirs / {} waterways / {} batteries)",
+        rss_pre_build.process_rss_mb,
+        rss_pre_build.available_mb / 1024.0,
+        static_cast<double>(sched_bytes) / (1024.0 * 1024.0),
+        planning.system.generator_array.size(),
+        planning.system.demand_array.size(),
+        planning.system.line_array.size(),
+        planning.system.reservoir_array.size(),
+        planning.system.waterway_array.size(),
+        planning.system.battery_array.size());
+
+    // User-side opt-in (gated by `boundary_cut_soft_cost`): derive terminal
+    // soft costs from the boundary-cut coefficients BEFORE the LP is built so
+    // the soft-`efin` slack columns are priced correctly.
+    apply_boundary_cut_soft_costs(planning);
+
+    spdlog::info("=== Building LP model ===");
+    const spdlog::stopwatch build_sw;
+    PlanningLP planning_lp {std::move(planning), flat_opts};
+
+    // Log the active solver backend (with version) once.  The
+    // "Building LP done in ..." line from planning_lp already covers
+    // the build wall time, so a redundant "Build lp time ..." line is
+    // intentionally not emitted here.
+    if (!planning_lp.systems().empty()
+        && !planning_lp.systems().front().empty())
+    {
+      const auto& li = planning_lp.systems().front().front().linear_interface();
+      spdlog::info("  Build lp time {:.3f}s — solver={}",
+                   build_sw.elapsed().count(),
+                   li.solver_id());
+    } else {
+      spdlog::info("  Build lp time {:.3f}s", build_sw.elapsed().count());
+    }
+    const auto rss_post_build = MemoryMonitor::get_system_memory_snapshot();
+    const auto build_delta_mib =
+        rss_post_build.process_rss_mb - rss_pre_build.process_rss_mb;
+    spdlog::info(
+        "  Memory after LP build:  rss={:.2f} GiB ({:+.0f} MiB build delta — "
+        "flat-LP arrays + lz4-compressed snapshots; original parquet input "
+        "is dropped after each cell's flatten so System retains only "
+        "scalars + file references)",
+        rss_post_build.process_rss_mb / 1024.0,
+        build_delta_mib);
+
+    const bool want_lp_only =
+        opts.lp_only.value_or(false) || planning_lp.options().lp_only();
+
+    // lp_only is now SDDP-independent: under rebuild / compress modes
+    // the PlanningLP ctor no longer eagerly flattens every cell, so
+    // for the dump-and-exit path we explicitly drive a parallel
+    // "build all LPs" pass here before writing / exiting.  SDDPMethod
+    // is never instantiated under lp_only.
+    if (want_lp_only) {
+      planning_lp.build_all_lps_eagerly();
+    }
+
+    // Runner-level LP dump:
+    //
+    //  * ``--lp-file <path>``: always honour the explicit path.
+    //  * ``--lp-only --lp-debug`` (monolithic, no explicit ``--lp-file``):
+    //    write a single ``<log_directory>/monolithic.lp`` here, because
+    //    ``run_solver`` (and therefore ``MonolithicMethod::solve``
+    //    → ``LpDebugWriter``) is skipped under ``--lp-only`` and would
+    //    leave the user with no LP file.
+    //
+    // For a normal ``--lp-debug`` run that DOES reach the solver, the
+    // ``LpDebugWriter`` inside ``MonolithicMethod::solve`` produces the
+    // per-(scene, phase) ``gtopt_lp_scene_0_phase_0.lp`` file.
+    // Writing ``monolithic.lp`` here too would produce a byte-identical
+    // duplicate (verified 2026-05-21, docs/analysis/lp-debug-two-files.md)
+    // and would ignore the lp_debug compression / filter options that
+    // ``LpDebugWriter`` honours.  Restrict to the ``--lp-only`` case.
+    const bool monolithic_lp_only_debug = want_lp_only
+        && opts.lp_debug.value_or(false)
+        && planning_lp.options().method_type_enum() == MethodType::monolithic
+        && !opts.lp_file.has_value();
+
+    if (opts.lp_file) {
+      planning_lp.write_lp(opts.lp_file.value());
+    } else if (monolithic_lp_only_debug) {
+      const auto log_dir = planning_lp.options().log_directory();
+      std::error_code ec;
+      std::filesystem::create_directories(log_dir, ec);
+      const auto lp_path =
+          (std::filesystem::path(log_dir) / "monolithic.lp").string();
+      spdlog::info("lp_debug (monolithic --lp-only): writing LP to {}",
+                   lp_path);
+      planning_lp.write_lp(lp_path);
+    }
+
+    if (do_stats) {
+      log_lp_coefficient_stats(planning_lp);
+    }
+
+    // Short-circuit: under `--lp-only`, exit once the LP file is on
+    // disk and the coefficient histogram has been printed.  Stats
+    // remain enabled — only the downstream solver setup is skipped.
+    if (want_lp_only) {
+      spdlog::info("lp_only: LP written, skipping solve");
+      return 0;
+    }
+
+    // Solve the LP
+    spdlog::info("=== System optimization ===");
+    const auto outcome = run_solver(planning_lp);
+    const bool optimal = (outcome == SolveOutcome::Optimal);
+
+    if (do_stats) {
+      log_post_solve_stats(planning_lp, optimal);
+    }
+
+    if (outcome == SolveOutcome::Failed) {
+      return 1;  // hard failure — nothing useful to persist
+    }
+
+    if (outcome == SolveOutcome::Partial) {
+      // Time-limit, MIP gap, or sentinel-stop: the cell still holds a
+      // feasible (or near-feasible) solution from the last successful
+      // iteration / forward pass.  Persist whatever the cells have so
+      // the operator can inspect / resume / use the partial result.
+      // SDDP + cascade also produced their per-iter cut + state files
+      // via `save_per_iteration` / `cascade_progress.json`; those
+      // already on-disk artifacts complement the per-element parquets
+      // written below.
+      spdlog::warn(
+          "=== Writing PARTIAL output ===  the solver returned a "
+          "non-optimal solution (time-limit / gap / sentinel-stop); "
+          "what follows is the last-known feasible state.");
+    }
+
+    // Write solution output (runs for both Optimal and Partial).
+    if (auto wr = write_solution_output(planning_lp); !wr) {
+      // Soften the failure mode under Partial: a write_out error on a
+      // partial cell is not fatal — the user already has the SDDP cuts
+      // and cascade progress file from earlier in the run.
+      if (outcome == SolveOutcome::Partial) {
+        spdlog::warn(
+            "Partial write_out failed: {} — earlier-iteration "
+            "artifacts (cuts, progress file) are unaffected.",
+            wr.error());
+        return 1;
+      }
+      return std::unexpected(std::move(wr.error()));
+    }
+
+    return optimal ? 0 : 1;
+
+  } catch (const std::exception& ex) {
+    return std::unexpected(
+        std::format("Error during LP creation or solving: {}", ex.what()));
+  }
+}
+
+}  // namespace gtopt

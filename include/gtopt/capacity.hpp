@@ -54,6 +54,8 @@ struct Capacity
       annual_capcost {};  ///< Annual cost of capacity (per unit per year)
   OptTRealFieldSched annual_derating {};  ///< Annual derating factor (capacity
                                           ///< degradation rate)
+  OptBool integer_expmod {};  ///< When true, expmod variable is
+                              ///< integer-constrained (discrete modules)
 };
 
 }  // namespace gtopt

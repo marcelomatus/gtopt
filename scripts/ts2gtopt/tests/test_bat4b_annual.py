@@ -382,7 +382,10 @@ class TestHelpers:
         assert bat["bus"] == "b3"
         assert bat["pmax_charge"] == 60
         assert bat["pmax_discharge"] == 60
-        assert bat["gcost"] == 0
+        # ``gcost`` is not a Battery JSON field (charge/discharge prices
+        # live on the associated demand / generator, not the storage
+        # element) — removed from the unified definition.
+        assert "gcost" not in bat
         assert "converter_array" not in case["system"]
 
 
@@ -988,9 +991,19 @@ class TestGtoptEndToEnd:
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
         assert (out / "solution.csv").exists(), "solution.csv not found"
-        assert (out / "Demand" / "fail_sol.csv").exists(), "fail_sol.csv not found"
-        assert (out / "Generator" / "generation_sol.csv").exists(), (
-            "generation_sol.csv not found"
+        # CSV shards are suffixed `_s<scene>_p<phase>` in the current
+        # output format; accept any sharded file whose stem starts
+        # with the variable name.
+        demand_csvs = list((out / "Demand").glob("fail_sol*.csv"))
+        assert demand_csvs, (
+            "Demand/fail_sol[*].csv not found; "
+            f"Demand dir contents: {[p.name for p in (out / 'Demand').iterdir()]}"
+        )
+        gen_csvs = list((out / "Generator").glob("generation_sol*.csv"))
+        assert gen_csvs, (
+            "Generator/generation_sol[*].csv not found; "
+            f"Generator dir contents: "
+            f"{[p.name for p in (out / 'Generator').iterdir()]}"
         )
 
     @pytest.mark.integration
@@ -1000,22 +1013,33 @@ class TestGtoptEndToEnd:
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
 
-        gen_path = out / "Generator" / "generation_sol.csv"
-        load_path = out / "Demand" / "load_sol.csv"
-        if not gen_path.exists() or not load_path.exists():
-            pytest.skip("generation_sol or load_sol not produced")
+        # Output writer emits per-(scene,phase) files such as
+        # ``generation_sol_s0_p0.csv``; pick the first one (this case has
+        # exactly one scene × one phase).
+        gen_csvs = sorted((out / "Generator").glob("generation_sol*.csv"))
+        load_csvs = sorted((out / "Demand").glob("load_sol*.csv"))
+        assert gen_csvs, (
+            f"Generator/generation_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Generator').iterdir()]}"
+        )
+        assert load_csvs, (
+            f"Demand/load_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Demand').iterdir()]}"
+        )
 
-        gen_df = pd.read_csv(gen_path)
-        load_df = pd.read_csv(load_path)
+        gen_df = pd.read_csv(gen_csvs[0])
+        load_df = pd.read_csv(load_csvs[0])
 
-        uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
-        uid_load = [c for c in load_df.columns if c.startswith("uid:")]
-
-        total_gen = gen_df[uid_gen].sum(axis=1)
-        total_load = load_df[uid_load].sum(axis=1)
-
-        # Total generation ≥ total load in every row (with 1 MW tolerance for solver noise)
-        slack = (total_gen - total_load).min()
+        # Output is long-format (one row per (scenario, stage, block, uid)
+        # with a 'value' column).  Sum across uids per (stage, block) to
+        # get total dispatch / total load, then compare row-by-row.
+        gen_per_block = gen_df.groupby(["stage", "block"])["value"].sum()
+        load_per_block = load_df.groupby(["stage", "block"])["value"].sum()
+        joined = gen_per_block.to_frame("gen").join(
+            load_per_block.to_frame("load"), how="inner"
+        )
+        # Total generation ≥ total load in every block (with 1 MW tolerance for solver noise)
+        slack = (joined["gen"] - joined["load"]).min()
         assert slack >= -1.0, (
             f"Generation deficit of {-slack:.2f} MW detected in at least one block"
         )
@@ -1029,16 +1053,21 @@ class TestGtoptEndToEnd:
         _, _, rc, stderr = self._run_gtopt(gtopt_bin, tmp_path / "case", _YEAR)
         assert rc == 0, f"gtopt crashed: {stderr}"
         out = tmp_path / "case" / "output"
-        gen_path = out / "Generator" / "generation_sol.csv"
-        if not gen_path.exists():
-            pytest.skip("generation_sol.csv not produced")
+        gen_csvs = sorted((out / "Generator").glob("generation_sol*.csv"))
+        assert gen_csvs, (
+            f"Generator/generation_sol*.csv not found; "
+            f"contents: {[p.name for p in (out / 'Generator').iterdir()]}"
+        )
 
-        gen_df = pd.read_csv(gen_path)
-        uid_gen = [c for c in gen_df.columns if c.startswith("uid:")]
-        gen_df["total"] = gen_df[uid_gen].sum(axis=1)
+        gen_df = pd.read_csv(gen_csvs[0])
+        # Output is long-format (one row per (scenario, stage, block, uid)
+        # with a 'value' column).  Sum across uids per (stage, block) to
+        # collapse the multi-generator dispatch into a single time series,
+        # then mean across blocks within each stage.
+        per_block = gen_df.groupby(["stage", "block"])["value"].sum()
         # Stage 1 = January (summer), Stage 7 = July (winter)
-        jan_mean = gen_df[gen_df["stage"] == 1]["total"].mean()
-        jul_mean = gen_df[gen_df["stage"] == 7]["total"].mean()
+        jan_mean = per_block.loc[1].mean()
+        jul_mean = per_block.loc[7].mean()
         assert jul_mean > jan_mean, (
             f"Expected winter (Jul) generation > summer (Jan), "
             f"got Jul={jul_mean:.1f} MW, Jan={jan_mean:.1f} MW"

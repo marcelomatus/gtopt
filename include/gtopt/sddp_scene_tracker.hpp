@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <utility>
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
@@ -21,6 +22,8 @@
 #include <gtopt/iteration.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/strong_index_vector.hpp>
+#include <gtopt/utils.hpp>
 
 namespace gtopt
 {
@@ -31,7 +34,7 @@ struct SceneBounds
   double upper_bound {};
   double lower_bound {};
   bool feasible {true};
-  IterationIndex iteration {};
+  IterationIndex iteration_index {};
 };
 
 /// Tracks per-scene iteration progress for async SDDP execution.
@@ -52,63 +55,60 @@ public:
       , m_scene_converged_(static_cast<std::size_t>(num_scenes), false)
       , m_scene_converged_iter_(static_cast<std::size_t>(num_scenes),
                                 IterationIndex {-1})
-      , m_num_scenes_(num_scenes)
       , m_max_spread_(max_spread)
   {
   }
 
-  /// Record that @p scene completed iteration @p iter with the given
-  /// bounds.  Maintains a ring buffer of depth max_spread + 1 per scene.
-  void report_complete(SceneIndex scene,
-                       IterationIndex iter,
+  /// Record that @p scene completed iteration @p iteration_index with
+  /// the given bounds.  Maintains a ring buffer of depth max_spread + 1
+  /// per scene.
+  void report_complete(SceneIndex scene_index,
+                       IterationIndex iteration_index,
                        double ub,
                        double lb,
                        bool feasible)
   {
-    const auto si = static_cast<std::size_t>(scene);
-    m_history_[si].push_back(SceneBounds {
+    m_history_[scene_index].push_back(SceneBounds {
         .upper_bound = ub,
         .lower_bound = lb,
         .feasible = feasible,
-        .iteration = iter,
+        .iteration_index = iteration_index,
     });
     // Keep ring buffer bounded
     const auto max_depth = static_cast<std::size_t>(m_max_spread_) + 2;
-    while (m_history_[si].size() > max_depth) {
-      m_history_[si].pop_front();
+    while (m_history_[scene_index].size() > max_depth) {
+      m_history_[scene_index].pop_front();
     }
-    m_scene_completed_iter_[si] = iter;
-    m_completion_counts_[iter]++;
+    m_scene_completed_iter_[scene_index] = iteration_index;
+    m_completion_counts_[iteration_index]++;
   }
 
-  /// True when ALL scenes have completed at least iteration @p iter.
-  [[nodiscard]] bool all_complete(IterationIndex iter) const
+  /// True when ALL scenes have completed at least iteration
+  /// @p iteration_index.
+  [[nodiscard]] bool all_complete(IterationIndex iteration_index) const
   {
-    auto it = m_completion_counts_.find(iter);
-    return it != m_completion_counts_.end() && it->second >= m_num_scenes_;
+    auto it = m_completion_counts_.find(iteration_index);
+    return it != m_completion_counts_.end()
+        && std::cmp_greater_equal(it->second, m_scene_completed_iter_.size());
   }
 
-  /// Get per-scene bounds for iteration @p iter.
-  /// Requires `all_complete(iter)` to return true.
-  [[nodiscard]] auto bounds_for_iteration(IterationIndex iter) const
+  /// Get per-scene bounds for iteration @p iteration_index.
+  /// Requires `all_complete(iteration_index)` to return true.
+  [[nodiscard]] auto bounds_for_iteration(IterationIndex iteration_index) const
       -> std::vector<SceneBounds>
   {
     std::vector<SceneBounds> result;
-    result.reserve(static_cast<std::size_t>(m_num_scenes_));
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      const auto& hist = m_history_[static_cast<std::size_t>(si)];
-      bool found = false;
-      for (const auto& entry : hist) {
-        if (entry.iteration == iter) {
-          result.push_back(entry);
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        // Should not happen when all_complete(iter) is true
+    result.reserve(m_history_.size());
+    for (const auto& hist : m_history_) {
+      auto it = std::ranges::find_if(
+          hist,
+          [&](const auto& e) { return e.iteration_index == iteration_index; });
+      if (it != hist.end()) {
+        result.push_back(*it);
+      } else {
+        // Should not happen when all_complete(iteration_index) is true
         result.push_back(SceneBounds {
-            .iteration = iter,
+            .iteration_index = iteration_index,
         });
       }
     }
@@ -119,101 +119,121 @@ public:
   /// Returns IterationIndex{-1} if no scene has completed any iteration.
   [[nodiscard]] auto min_completed_iteration() const -> IterationIndex
   {
-    auto min_iter = IterationIndex {std::numeric_limits<int>::max()};
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      min_iter = std::min(
-          min_iter, m_scene_completed_iter_[static_cast<std::size_t>(si)]);
+    return *std::ranges::min_element(m_scene_completed_iter_);
+  }
+
+  /// Minimum completed iteration across **non-converged (active)**
+  /// scenes only.  Once a scene converges its
+  /// ``m_scene_completed_iter_`` entry is frozen at the convergence
+  /// iteration and never advances again; without excluding those
+  /// scenes here, the global minimum stays pinned and the
+  /// ``solve_async`` ``max_spread`` gate at
+  /// ``sddp_iteration.cpp:1322-1328`` permanently blocks every still-
+  /// active scene from advancing past ``min + max_spread``.
+  ///
+  /// Result: the outer ``while(!all_done)`` loop in ``solve_async``
+  /// (sddp_iteration.cpp:1758) keeps spinning because some scenes are
+  /// stuck in ``idle`` with no work scheduled — observed on
+  /// juan/IPLP hs8 where 6 wettest scenes converged at iter 51 and
+  /// the 9 dry scenes wedged at iter 54 against ``min=51 + 2 = 53``.
+  ///
+  /// Returns the same value as ``min_completed_iteration()`` when no
+  /// scene has converged yet.  Returns ``IterationIndex::max()`` when
+  /// all scenes have converged (caller should treat as "no spread
+  /// constraint").
+  [[nodiscard]] auto min_completed_iteration_among_active() const
+      -> IterationIndex
+  {
+    auto active_min = IterationIndex {std::numeric_limits<int>::max()};
+    bool any_active = false;
+    for (const auto si :
+         iota_range<SceneIndex>(0, std::ssize(m_scene_converged_)))
+    {
+      if (m_scene_converged_[si]) {
+        continue;
+      }
+      any_active = true;
+      active_min = std::min(active_min, m_scene_completed_iter_[si]);
     }
-    return min_iter;
+    return any_active ? active_min
+                      : IterationIndex {std::numeric_limits<int>::max()};
   }
 
   /// Maximum completed iteration across all scenes.
   [[nodiscard]] auto max_completed_iteration() const -> IterationIndex
   {
-    auto max_iter = IterationIndex {-1};
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      max_iter = std::max(
-          max_iter, m_scene_completed_iter_[static_cast<std::size_t>(si)]);
-    }
-    return max_iter;
+    return *std::ranges::max_element(m_scene_completed_iter_);
   }
 
-  /// Snapshot of per-scene completed iteration indices.
+  /// Snapshot of per-scene completed iteration indices, as raw int for
+  /// the JSON serialisation boundary (`SolverStatusSnapshot`,
+  /// `SDDPIterationResult`).  The unwrap here is legitimate — downstream
+  /// consumers only print/JSON-serialise these values and never use them
+  /// as `IterationIndex` identities.
   [[nodiscard]] auto scene_iterations() const -> std::vector<int>
   {
     std::vector<int> result;
-    result.reserve(static_cast<std::size_t>(m_num_scenes_));
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      result.push_back(static_cast<int>(
-          m_scene_completed_iter_[static_cast<std::size_t>(si)]));
+    result.reserve(m_scene_completed_iter_.size());
+    for (const auto& iteration_index : m_scene_completed_iter_) {
+      result.push_back(static_cast<int>(iteration_index));
     }
     return result;
   }
 
   /// Mark a scene as individually converged at the given iteration.
-  void mark_converged(SceneIndex scene, IterationIndex iter)
+  void mark_converged(SceneIndex scene_index, IterationIndex iteration_index)
   {
-    const auto si = static_cast<std::size_t>(scene);
-    m_scene_converged_[si] = true;
-    m_scene_converged_iter_[si] = iter;
+    m_scene_converged_[scene_index] = true;
+    m_scene_converged_iter_[scene_index] = iteration_index;
   }
 
   /// True if a specific scene has individually converged.
-  [[nodiscard]] bool is_converged(SceneIndex scene) const
+  [[nodiscard]] bool is_converged(SceneIndex scene_index) const
   {
-    return m_scene_converged_[static_cast<std::size_t>(scene)];
+    return m_scene_converged_[scene_index];
   }
 
   /// True when ALL scenes have individually converged.
   [[nodiscard]] bool all_converged() const
   {
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      if (!m_scene_converged_[static_cast<std::size_t>(si)]) {
-        return false;
-      }
-    }
-    return true;
+    return std::ranges::all_of(m_scene_converged_, std::identity {});
   }
 
   /// Number of scenes that have individually converged.
   [[nodiscard]] auto num_converged() const -> Index
   {
-    Index count = 0;
-    for (Index si = 0; si < m_num_scenes_; ++si) {
-      if (m_scene_converged_[static_cast<std::size_t>(si)]) {
-        ++count;
-      }
-    }
-    return count;
+    return static_cast<Index>(std::ranges::count(m_scene_converged_, true));
   }
 
   /// Iteration at which a scene converged (-1 if not yet converged).
-  [[nodiscard]] auto converged_iteration(SceneIndex scene) const
+  [[nodiscard]] auto converged_iteration(SceneIndex scene_index) const
       -> IterationIndex
   {
-    return m_scene_converged_iter_[static_cast<std::size_t>(scene)];
+    return m_scene_converged_iter_[scene_index];
   }
 
-  [[nodiscard]] auto num_scenes() const -> Index { return m_num_scenes_; }
+  [[nodiscard]] auto num_scenes() const -> Index
+  {
+    return static_cast<Index>(m_scene_completed_iter_.size());
+  }
   [[nodiscard]] auto max_spread() const -> int { return m_max_spread_; }
 
 private:
   /// Per-scene bounds history (ring buffer, depth = max_spread + 2).
-  std::vector<std::deque<SceneBounds>> m_history_;
+  StrongIndexVector<SceneIndex, std::deque<SceneBounds>> m_history_;
 
   /// Per-scene last completed iteration (-1 = none).
-  std::vector<IterationIndex> m_scene_completed_iter_;
+  StrongIndexVector<SceneIndex, IterationIndex> m_scene_completed_iter_;
 
   /// Per-scene convergence flag.
-  std::vector<bool> m_scene_converged_;
+  StrongIndexVector<SceneIndex, bool> m_scene_converged_;
 
   /// Iteration at which each scene converged (-1 = not yet).
-  std::vector<IterationIndex> m_scene_converged_iter_;
+  StrongIndexVector<SceneIndex, IterationIndex> m_scene_converged_iter_;
 
   /// How many scenes have completed iteration K.
   flat_map<IterationIndex, int> m_completion_counts_;
 
-  Index m_num_scenes_ {0};
   int m_max_spread_ {0};
 };
 

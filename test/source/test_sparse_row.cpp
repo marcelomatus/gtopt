@@ -1,3 +1,6 @@
+#include <array>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -10,7 +13,6 @@ TEST_SUITE("SparseRow")
   TEST_CASE("SparseRow - Default Construction")
   {
     const SparseRow row;
-    CHECK(row.name.empty());
     CHECK(row.lowb == 0.0);
     CHECK(row.uppb == 0.0);
     CHECK(row.size() == 0);
@@ -262,5 +264,25 @@ TEST_SUITE("SparseRow")
     CHECK(values[0] == 0.0);
     CHECK(values[1] == 1e-15);
     CHECK(values[2] == 1.0);
+  }
+
+  TEST_CASE("row_index_size — sized-range factory")
+  {
+    SUBCASE("empty container")
+    {
+      const std::vector<double> v;
+      CHECK(row_index_size(v) == RowIndex {0});
+    }
+    SUBCASE("non-empty container")
+    {
+      const std::vector<double> v(128, 0.0);
+      CHECK(row_index_size(v) == RowIndex {128});
+    }
+    SUBCASE("constexpr-friendly")
+    {
+      constexpr std::array<int, 3> arr {};
+      constexpr auto idx = row_index_size(arr);
+      static_assert(idx == RowIndex {3});
+    }
   }
 }

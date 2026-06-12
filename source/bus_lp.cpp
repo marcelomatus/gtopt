@@ -23,7 +23,12 @@ namespace gtopt
 auto BusLP::needs_kirchhoff(const SystemContext& sc) const -> bool
 {
   const auto& opts = sc.options();
+  // Theta columns are needed only in the B–θ formulation.  In
+  // `cycle_basis` mode KVL is enforced by per-cycle sums of signed
+  // line flows (Σ ε · x_τ · f = Σ ε · φ) — there is no θ variable to
+  // create, so this returns false to short-circuit `lazy_add_theta`.
   return !opts.use_single_bus() && opts.use_kirchhoff()
+      && opts.kirchhoff_mode() == KirchhoffMode::node_angle
       && bus().needs_kirchhoff(opts.kirchhoff_threshold());
 }
 
@@ -34,49 +39,58 @@ auto BusLP::lazy_add_theta(const SystemContext& sc,
                            std::span<const BlockLP> blocks) const
     -> const BIndexHolder<ColIndex>&
 {
-  static constexpr std::string_view cname = ClassName.short_name();
-
   BIndexHolder<ColIndex> tblocks;
   map_reserve(tblocks, blocks.size());
 
-  // Look up theta scale from VariableScale framework.
-  // Convention: physical = LP × scale_theta (same as energy_scale).
-  // LP = physical / scale_theta.  Per-bus overrides via UID entries.
-  const auto scale_theta =
-      sc.options().variable_scale_map().lookup("Bus", "theta", uid());
-
   if (stage.is_active() && needs_kirchhoff(sc)) [[likely]] {
-    std::ranges::for_each(
-        blocks,
-        [&](const BlockLP& block)
-        {
-          const auto buid = block.uid();
-          auto tname =
-              sc.lp_col_label(scenario, stage, block, cname, "theta", uid());
+    std::ranges::for_each(blocks,
+                          [&](const BlockLP& block)
+                          {
+                            const auto buid = block.uid();
+                            const auto ctx = make_block_context(
+                                scenario.uid(), stage.uid(), block.uid());
 
-          const auto& theta = reference_theta();
-          if (theta) [[unlikely]] {
-            tblocks[buid] = lp.add_col(SparseCol {
-                .name = std::move(tname),
-                .lowb = *theta,
-                .uppb = *theta,
-                .scale = scale_theta,
-            });
-          } else [[likely]] {
-            constexpr double theta_bound =
-                2 * std::numbers::pi;  // Default bound for theta
-            tblocks[buid] = lp.add_col(SparseCol {
-                .name = std::move(tname),
-                .lowb = -theta_bound,
-                .uppb = +theta_bound,
-                .scale = scale_theta,
-            });
-          }
-        });
+                            const auto& theta = reference_theta();
+                            if (theta) [[unlikely]] {
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = *theta,
+                                  .uppb = *theta,
+                                  .class_name = Element::class_name.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            } else [[likely]] {
+                              // Adaptive theta bound = Σ_l (tmax_l ·
+                              // x_τ_l) computed at planning-options
+                              // build time by `auto_scale_theta` and
+                              // stored on `model_options.theta_max`.
+                              // Falls back to `2π` (`default_theta_max`)
+                              // only when `auto_scale=false`.  This
+                              // bound never artificially caps line
+                              // flows below `tmax` — replaces the old
+                              // hardcoded `±2π` which silently capped
+                              // flow at `2π / x_τ` on networks with
+                              // large reactance · capacity products
+                              // (e.g. IEEE 9-bus, where the ±2π bound
+                              // dropped the optimum from $7K to $55K
+                              // by forcing artificial load-shedding).
+                              const double theta_bound =
+                                  sc.options().theta_max();
+                              tblocks[buid] = lp.add_col(SparseCol {
+                                  .lowb = -theta_bound,
+                                  .uppb = +theta_bound,
+                                  .class_name = Element::class_name.full_name(),
+                                  .variable_name = ThetaName,
+                                  .variable_uid = uid(),
+                                  .context = ctx,
+                              });
+                            }
+                          });
   }
 
   // Store the theta columns for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   return theta_cols[st_key] = std::move(tblocks);
 }
 
@@ -85,7 +99,29 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                       const StageLP& stage,
                       LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  static constexpr auto ampl_name = Element::class_name.snake_case();
+
+  // Theta columns are lazy-created by lines that need Kirchhoff; the
+  // resolver retains a special-case fallback for `bus.theta`/`bus.angle`
+  // via `lookup_theta_col`, so we do NOT register a per-block variable
+  // here — `theta_cols` may still be empty at this point in the solve
+  // sequence.  The element-name registration is hoisted into
+  // `system_lp.cpp::register_all_ampl_element_names` (runs once per
+  // SimulationLP via std::call_once from the SystemLP constructor).
+  //
+  // `theta_cols` is `mutable` and lazy — populated on first cache-miss
+  // in `theta_cols_at` (called from `kirchhoff::add_line_kvl_rows` via
+  // LineLP).  Erase any stale entry for this (scenario, stage) so the
+  // lazy populator fires fresh on every add_to_lp.  Cheap insurance
+  // against future re-flatten paths re-using BusLP across rebuilds.
+  theta_cols.erase(std::tuple {scenario.uid(), stage.uid()});
+
+  // F9: register filter metadata for sum(...) predicates.
+  if (const auto& t = bus().type) {
+    AmplElementMetadata metadata;
+    metadata.emplace_back(TypeKey, *t);
+    sc.register_ampl_element_metadata(ampl_name, uid(), std::move(metadata));
+  }
 
   if (!is_active(stage)) {
     return true;
@@ -100,12 +136,15 @@ bool BusLP::add_to_lp(const SystemContext& sc,
                         [&](const BlockLP& block)
                         {
                           brows[block.uid()] = lp.add_row({
-                              .name = sc.lp_row_label(
-                                  scenario, stage, block, cname, "bal", uid()),
+                              .class_name = Element::class_name.full_name(),
+                              .constraint_name = BalanceName,
+                              .variable_uid = uid(),
+                              .context = make_block_context(
+                                  scenario.uid(), stage.uid(), block.uid()),
                           });
                         });
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   balance_rows[st_key] = std::move(brows);
 
   return true;
@@ -113,14 +152,19 @@ bool BusLP::add_to_lp(const SystemContext& sc,
 
 bool BusLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  out.add_row_dual(cname, "balance", pid, balance_rows);
+  out.add_row_dual(cname, BalanceName, pid, balance_rows);
 
   // Physical = LP × scale_theta, auto-descaled by LinearInterface.
-  out.add_col_sol(cname, "theta", pid, theta_cols);
-  out.add_col_cost(cname, "theta", pid, theta_cols);
+  // `theta:cost` is **not** emitted — reduced cost of a free
+  // structural variable is zero by complementary slackness at LP
+  // optimality, and no downstream tooling consumes
+  // `Bus/theta_cost.*` (verified by grep across scripts/ /
+  // guiservice/ / integration_test/, 2026-05-14).  Mirrors the
+  // line.flow:cost / line.theta:dual drops in commit ceabc88c.
+  out.add_col_sol(cname, ThetaName, pid, theta_cols);
 
   return true;
 }

@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from gtopt_config import add_common_arguments, configure_logging, get_version
+
 from gtopt2pp.convert import (
     convert,
     format_diagnostic,
@@ -13,6 +15,8 @@ from gtopt2pp.convert import (
     run_dcopp,
     run_diagnostic,
 )
+
+__version__ = get_version()
 
 logger = logging.getLogger(__name__)
 
@@ -243,14 +247,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "connected by lines, or missing load/generation."
         ),
     )
+    add_common_arguments(parser)
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
     args = _parse_args(argv)
+    configure_logging(args)
     case = load_gtopt_case(args.case_file)
 
     # Validate source JSON before conversion

@@ -45,14 +45,113 @@ from ._comparison import (  # noqa: F401  — re-exported for backward compat
     _vis_len,
     compute_comparison_indicators,
 )
+from .base_writer import convert_tree_to_long
 
 # pylint: enable=unused-import
 
 logger = logging.getLogger(__name__)
 
 
-def _log_stats(planning: dict, elapsed: float) -> None:
-    """Print conversion statistics using styled terminal tables."""
+def _features_rows(options: dict | None) -> list[tuple[str, str]]:
+    """Return ``(name, value)`` rows for the active plp2gtopt feature toggles.
+
+    ``options`` is the CLI-derived opts dict assembled in ``main.build_opts``
+    (passed through to writers and reachable here verbatim).  The output
+    captures the user-visible *features* — soft-constraint toggles,
+    auto-water-fail-cost pricing, topology rewrites, expansion modes —
+    not numeric scales (those live in their own arrays).  ``None`` /
+    legacy callers that don't pass options yield no rows so the table
+    section is silently omitted.
+    """
+    if not options:
+        return []
+
+    o = options  # alias
+    rows: list[tuple[str, str]] = []
+
+    # --- Soft constraints / water-shortfall pricing ---
+    rows.append(
+        ("auto_water_fail_cost", "on" if o.get("auto_water_fail_cost") else "off")
+    )
+    if o.get("water_fail_cost") is not None:
+        rows.append(("water_fail_cost", f"{o['water_fail_cost']} $/MWh (manual)"))
+    rows.append(
+        ("soft_storage_bounds", "on" if o.get("soft_storage_bounds") else "off")
+    )
+    # ``pmin_as_flowright`` is the internal opts key for the
+    # ``--soft-min-flows`` CLI flag (kept for legacy reasons).  Only show
+    # the bool toggle here; the whitelist source (bundled CSV vs. path)
+    # is logged elsewhere by the writer.
+    pmf = o.get("pmin_as_flowright")
+    rows.append(("soft_min_flows", "off" if pmf in (None, False) else "on"))
+    if o.get("flow_right_fail_cost") is not None:
+        rows.append(("flow_right_fail_cost", f"{o['flow_right_fail_cost']} $/MWh"))
+    if (sec := o.get("soft_emin_cost")) is not None:
+        rows.append(("soft_emin_cost", f"{sec} $/dam³"))
+
+    # --- Topology / spillway rewrites ---
+    rows.append(
+        (
+            "drop_spillway_waterway",
+            "on" if o.get("drop_spillway_waterway") else "off",
+        )
+    )
+    rows.append(("vrebemb_as_sink", "on" if o.get("vrebemb_as_sink") else "off"))
+    # ``vert_cost_cap`` is only consulted by
+    # ``junction_writer._resolve_storage_bound_cost`` on the legacy
+    # (vrebemb → CVert → CLI default) cascade.  When
+    # ``auto_water_fail_cost`` is on the WaterValueResolver branch is
+    # taken instead and the cap is dead code — don't show a stale row
+    # that suggests it's active.  Mirrors the CLI help text for
+    # ``--spillway-cost-cap`` which warns it's "obsolete when
+    # --auto-water-fail-cost is on".
+    if (vcc := o.get("vert_cost_cap")) is not None and not o.get(
+        "auto_water_fail_cost"
+    ):
+        rows.append(("spillway_cost_cap", f"{vcc} $/hm³"))
+
+    # --- Hydro modelling ---
+    if (rar := o.get("ror_as_reservoirs")) is not None:
+        rows.append(
+            (
+                "ror_as_reservoirs",
+                "all" if rar is True else (f"{len(rar)} named" if rar else "none"),
+            )
+        )
+    rows.append(
+        (
+            "embed_reservoir_constraints",
+            "on" if o.get("embed_reservoir_constraints") else "off",
+        )
+    )
+    pasada = o.get("pasada_mode")
+    if pasada and pasada != "flow-turbine":
+        rows.append(("pasada_mode", str(pasada)))
+
+    # --- Expansion ---
+    if o.get("expand_water_rights"):
+        rows.append(("expand_water_rights", "on"))
+    if o.get("expand_lng"):
+        rows.append(("expand_lng", "on"))
+    if o.get("expand_ror"):
+        rows.append(("expand_ror", "on"))
+
+    # --- Legacy compat ---
+    if o.get("plp_legacy"):
+        rows.append(("plp_legacy", "on"))
+
+    return rows
+
+
+def _log_stats(planning: dict, elapsed: float, options: dict | None = None) -> None:
+    """Print conversion statistics using styled terminal tables.
+
+    When ``options`` is supplied (the CLI-derived opts dict from
+    ``main.build_opts``), the table includes a "Features" group listing
+    every active plp2gtopt feature toggle so users can verify which
+    soft-constraint / topology / pricing rewrites were applied to the
+    case at a glance.
+    """
     from gtopt_check_json._terminal import print_table  # noqa: PLC0415
 
     sys_data = planning.get("system", {})
@@ -71,9 +170,13 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     all_elems = [
         ("Buses", len(sys_data.get("bus_array", []))),
         ("Generators", len(sys_data.get("generator_array", []))),
-        ("Generator profiles", len(sys_data.get("generator_profile_array", []))),
+        (
+            "Capacity profiles",
+            len(sys_data.get("capacity_profile_array", []))
+            + len(sys_data.get("generator_profile_array", []))
+            + len(sys_data.get("demand_profile_array", [])),
+        ),
         ("Demands", len(sys_data.get("demand_array", []))),
-        ("Demand profiles", len(sys_data.get("demand_profile_array", []))),
         ("Lines", len(sys_data.get("line_array", []))),
         ("Batteries", len(sys_data.get("battery_array", []))),
         ("Converters", len(sys_data.get("converter_array", []))),
@@ -138,9 +241,18 @@ def _log_stats(planning: dict, elapsed: float) -> None:
     mo = opts.get("model_options", {})
     rows.append(("use_kirchhoff", str(mo.get("use_kirchhoff", False))))
     rows.append(("use_single_bus", str(mo.get("use_single_bus", False))))
-    rows.append(("scale_objective", str(mo.get("scale_objective", 10_000_000))))
-    rows.append(("scale_theta", str(mo.get("scale_theta", 0.0001))))
+    rows.append(("scale_objective", str(mo.get("scale_objective", 1_000))))
     rows.append(("demand_fail_cost", str(mo.get("demand_fail_cost", 0))))
+
+    # Features — plp2gtopt-level conversion toggles (soft constraints,
+    # auto water-fail-cost, topology rewrites, expansion modes).  Only
+    # appears when callers pass ``options`` to ``_log_stats``.  Wrapped
+    # in a visible separator row so it stands apart from the system /
+    # model-options block above.
+    feat_rows = _features_rows(options)
+    if feat_rows:
+        rows.append(("── Features ──", ""))
+        rows.extend(feat_rows)
 
     # Skipped centrals
     skipped = planning.get("_skipped_isolated", [])
@@ -279,7 +391,7 @@ def run_post_check(
     planning: dict[str, Any],
     parser: PLPParser,
     output_dir: str | Path | None = None,
-) -> None:
+) -> int:
     """Run gtopt_check_json validation on the generated planning dict.
 
     Prints system statistics, a PLP-vs-gtopt element comparison, and
@@ -296,6 +408,13 @@ def run_post_check(
         Absolute path to the case output directory.  Passed through to
         :func:`_gtopt_indicators` so that FieldSched file references
         can be resolved from Parquet/CSV files on disk.
+
+    Returns
+    -------
+    The number of CRITICAL findings.  Callers should exit with status 1
+    when this is nonzero — critical findings indicate structural bugs
+    (e.g. duplicate entity names) that must be fixed before using the
+    converted case.
     """
     base_dir = str(output_dir) if output_dir is not None else ""
 
@@ -351,7 +470,7 @@ def run_post_check(
         )
     except ImportError:
         logger.debug("gtopt_check_json not available; skipping JSON validation checks")
-        return
+        return 0
 
     # Run validation checks (all non-AI checks)
     findings = run_all_checks(
@@ -374,7 +493,7 @@ def run_post_check(
 
     if not findings:
         print_status("All checks passed — no issues found.", ok=True)
-        return
+        return 0
 
     # Collect all findings into the warnings table
     rows: list[tuple[str, str, str]] = []
@@ -409,6 +528,39 @@ def run_post_check(
         )
 
     print_summary(critical_count, warning_count, note_count)
+    return critical_count
+
+
+_BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
+
+
+def install_solver_param_files(output_dir: Path) -> list[Path]:
+    """Copy every bundled solver param file into ``<output_dir>/solvers/``.
+
+    gtopt's ``prepare_matrix_options`` auto-loads
+    ``<input_directory>/solvers/<solver_name>.prm`` when the user does
+    not pass ``solver_options.param_file`` explicitly, so shipping the
+    curated parameter files next to the JSON case means a fresh
+    plp2gtopt output is solver-tuned out of the box.  Covers ``.prm``
+    (CPLEX / Gurobi / MindOpt) and ``.opts`` (HiGHS) — including the
+    ``<solver>_warmstart`` siblings loaded for the advanced-basis pass.
+
+    Returns the list of installed file paths (empty when no bundled files).
+    """
+    if not _BUNDLED_SOLVERS_DIR.is_dir():
+        return []
+    target_dir = output_dir / "solvers"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    installed: list[Path] = []
+    logger = logging.getLogger(__name__)
+    for src in sorted(
+        [*_BUNDLED_SOLVERS_DIR.glob("*.prm"), *_BUNDLED_SOLVERS_DIR.glob("*.opts")]
+    ):
+        dst = target_dir / src.name
+        shutil.copyfile(src, dst)
+        installed.append(dst)
+        logger.info("installed solver param file: %s", dst)
+    return installed
 
 
 def create_zip_output(output_file: Path, output_dir: Path, zip_path: Path) -> None:
@@ -472,7 +624,7 @@ def validate_plp_case(options: dict[str, Any]) -> bool:
         writer = GTOptWriter(parser)
         planning = writer.to_json(options)
 
-        _log_stats(planning, 0.0)
+        _log_stats(planning, 0.0, options)
         logger.info("Validation passed.")
         return True
     except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
@@ -480,7 +632,7 @@ def validate_plp_case(options: dict[str, Any]) -> bool:
         return False
 
 
-def convert_plp_case(options: dict[str, Any]) -> None:
+def convert_plp_case(options: dict[str, Any]) -> int:
     """Convert PLP input files to GTOPT format.
 
     Args:
@@ -492,6 +644,12 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             excel_file (optional, defaults to output_file with .xlsx suffix),
             run_check (optional, default True) — run post-conversion
             validation via gtopt_check_json.
+
+    Returns:
+        The number of CRITICAL findings from post-conversion validation
+        (0 on a clean conversion).  Nonzero indicates a structural bug
+        in the generated planning — callers (main) must propagate this
+        as a nonzero process exit status so CI / shell callers notice.
 
     Raises:
         RuntimeError: If any step of the conversion fails.
@@ -596,6 +754,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             # Fix temp dir paths in the planning dict and re-write the
             # JSON.
             if not json_inside:
+                from .gtopt_writer import _strip_internal_keys  # noqa: PLC0415
+
                 tmp_str = str(tmp_options["output_dir"])
                 final_str = str(output_dir)
                 plan_json = json.dumps(writer.planning)
@@ -603,25 +763,49 @@ def convert_plp_case(options: dict[str, Any]) -> None:
                     plan_json = plan_json.replace(tmp_str, final_str)
                     writer.planning = json.loads(plan_json)
                 with open(output_file, "w", encoding="utf-8") as f:
-                    json.dump(writer.planning, f, indent=4)
+                    json.dump(_strip_internal_keys(writer.planning), f, indent=4)
 
             # Mark last build step done before printing tables
             progress.step("validate")
             progress.done()
 
+        # Install any bundled <solver>.prm files into <output_dir>/solvers/
+        # so gtopt's prepare_matrix_options auto-loads them when this case
+        # is later solved (source/gtopt_lp_runner.cpp).  See the
+        # ``solvers/`` package directory for the curated parameter files.
+        install_solver_param_files(output_dir)
+
         # --- Outside the progress context: print tables ---
-        _log_stats(writer.planning, elapsed)
+        _log_stats(writer.planning, elapsed, options)
 
         if options.get("show_simulation", False):
             show_simulation_summary(writer.planning)
 
         if not excel_output and options.get("zip_output", False):
-            zip_path = output_file.with_suffix(".zip")
+            # Place the zip next to (not inside) the output directory to
+            # avoid rglob picking it up during creation.
+            zip_path = output_dir.parent / f"{output_dir.name}.zip"
             create_zip_output(output_file, output_dir, zip_path)
 
         # Post-conversion validation
+        critical_count = 0
         if do_check:
-            run_post_check(writer.planning, parser, output_dir=output_dir)
+            critical_count = run_post_check(
+                writer.planning, parser, output_dir=output_dir
+            )
+
+        # Final step: re-emit the per-element field tables (incl. apertures
+        # and FlowRights) in long layout — tidy ``[<index cols>, uid,
+        # value]``.  gtopt auto-detects and reads either shape; long is the
+        # default because Power BI / Power Query prefer it (no unpivot) and
+        # it matches gtopt's own solve-output default.  Deliberately the
+        # LAST step so every in-pipeline reader (stats, PLP-vs-gtopt
+        # comparison, post-check validation) still sees the wide files;
+        # structural tables are skipped automatically.  Per-file detection
+        # on the gtopt side makes even a partial conversion safe to read.
+        if not excel_output and options.get("layout", "long") == "long":
+            n_long = convert_tree_to_long(output_dir, options)
+            logger.debug("Converted %d field file(s) to long layout", n_long)
 
     except RuntimeError:
         raise
@@ -646,6 +830,8 @@ def convert_plp_case(options: dict[str, Any]) -> None:
             log_handler.close()
         if tmp_dir is not None and tmp_dir.exists():
             shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return critical_count
 
 
 def generate_variable_scales_template(options: dict[str, Any]) -> str:
@@ -784,5 +970,32 @@ def print_variable_scales_template(options: dict[str, Any]) -> int:
         print(output)
         return 0
     except (RuntimeError, FileNotFoundError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def print_pumped_storage_template() -> int:
+    """Print a pumped-storage parameters JSON template to stdout.
+
+    The template is :func:`gtopt_expand.pumped_storage_default_config`
+    populated with HB Maule reference values (pump.pdf §4) and
+    ``vmin`` / ``vmax`` set to ``0.0`` — those two fields, when left at
+    zero, fall back to the upper reservoir's ``emin`` / ``emax`` in
+    ``plpcnfce.dat`` at expansion time.  The ``name`` field drives all
+    emitted element names; change it to match the plant before use
+    (or leave the default and rely on the filename stem).
+
+    Returns:
+        0 on success, 1 on error.
+    """
+    try:
+        from gtopt_expand import pumped_storage_default_config  # noqa: PLC0415
+
+        template = pumped_storage_default_config(
+            name="pumped_storage", vmin=0.0, vmax=0.0
+        )
+        print(json.dumps(template, indent=2))
+        return 0
+    except (RuntimeError, ImportError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

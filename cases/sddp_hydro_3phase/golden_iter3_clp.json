@@ -1,0 +1,39 @@
+{
+  "// description": [
+    "CLP-specific golden for sddp_hydro_3phase at MAX_ITERATIONS=3.",
+    "The test fixture converges within 3 iterations, so this matches the",
+    "iter=50 fully-converged state under CLP.  See `golden_iter50_clp.json`",
+    "for the rationale behind the reduced pin set (alternate-optimum",
+    "dispatch across solvers + low_memory modes)."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 323100.0,
+  "solver_status": {
+    "converged": true,
+    "lower_bound": 323100.0,
+    "upper_bound": 323100.0,
+    "gap": 0.0
+  },
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0}
+  ],
+  "element_samples": [
+    {
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

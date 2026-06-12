@@ -26,7 +26,6 @@
 #   readability-function-cognitive-complexity – subjective; not enforced
 #   readability-redundant-member-init – project uses explicit {} init for clarity
 #   bugprone-easily-swappable-parameters – too noisy in LP/math API functions
-#   bugprone-derived-method-shadowing-base-method – false positives in templates
 #   bugprone-lambda-function-name – __func__ in lambdas; harmless pattern
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access – []  preferred
 #                                  over .at() in hot LP-assembly paths
@@ -36,16 +35,43 @@
 #     unix.Stream}
 #   clang-diagnostic-{c2y-extensions,          – compiler-version noise; not actionable
 #     constexpr-local-var-non-literal-type,
-#     deprecated-declarations,
 #     template-param-default-arg-redefinition}
 #   llvm-prefer-static-over-anonymous-namespace – misc-use-anonymous-namespace
 #                                  (enabled) takes the opposite, preferred stance
 #   illegal-initializer-type    – Clang-specific; no violations in codebase
+#   misc-no-recursion           – recursion is idiomatic (parsers, LP-element
+#                                  traversal, ensure_backend chains).  The
+#                                  check is widely considered over-pedantic.
+#   cppcoreguidelines-pro-bounds-pointer-arithmetic – intrinsic to
+#                                  std::to_chars/from_chars, dlopen plugin
+#                                  scanning, codec buffer walking, and
+#                                  constraint-parser tokeniser; incompatible
+#                                  with low-level / systems C++.
+#   bugprone-empty-catch        – ``catch (...) {}`` is the documented
+#                                  best-effort pattern in monitor / atexit
+#                                  / logger sites.  See the explanatory
+#                                  comment that sits next to every such
+#                                  block in the codebase.
+#   hicpp-signed-bitwise        – POSIX ``WIFEXITED/WIFSIGNALED/
+#                                  WEXITSTATUS`` macros expand to signed
+#                                  bitwise ops; no portable alternative.
+#   concurrency-mt-unsafe       – all current uses are ``getenv``
+#                                  (startup), ``dlerror`` (post-dlopen),
+#                                  ``::_exit`` (single-threaded child of
+#                                  the plugin-validation fork), and
+#                                  ``popen`` (SDDP-infeasibility probe).
+#                                  None of those have a thread-safe
+#                                  replacement in standard C++ / POSIX.
+#                                  ``FunctionSet=posix`` does *not* drop
+#                                  them — they are on the POSIX
+#                                  mt-unsafe list — so disabling the
+#                                  check project-wide is the only clean
+#                                  alternative to 21 per-site NOLINTs.
 Checks: "*,\
   -altera-*,\
   -boost-use-ranges,\
-  -bugprone-derived-method-shadowing-base-method,\
   -bugprone-easily-swappable-parameters,\
+  -bugprone-empty-catch,\
   -bugprone-lambda-function-name,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -clang-analyzer-cplusplus.NewDeleteLeaks,\
@@ -53,12 +79,13 @@ Checks: "*,\
   -clang-analyzer-unix.Stream,\
   -clang-diagnostic-c2y-extensions,\
   -clang-diagnostic-constexpr-local-var-non-literal-type,\
-  -clang-diagnostic-deprecated-declarations,\
   -clang-diagnostic-template-param-default-arg-redefinition,\
+  -concurrency-mt-unsafe,\
   -cppcoreguidelines-avoid-magic-numbers,\
   -cppcoreguidelines-macro-to-enum,\
   -cppcoreguidelines-macro-usage,\
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,\
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,\
   -fuchsia-default-arguments-calls,\
   -fuchsia-default-arguments-declarations,\
   -fuchsia-multiple-inheritance,\
@@ -68,6 +95,7 @@ Checks: "*,\
   -google-build-using-namespace,\
   -google-readability-casting,\
   -google-readability-namespace-comments,\
+  -hicpp-signed-bitwise,\
   -illegal-initializer-type,\
   -llvm-header-guard,\
   -llvm-include-order,\
@@ -77,6 +105,7 @@ Checks: "*,\
   -misc-confusable-identifiers,\
   -misc-include-cleaner,\
   -misc-multiple-inheritance,\
+  -misc-no-recursion,\
   -misc-non-private-member-variables-in-classes,\
   -modernize-macro-to-enum,\
   -modernize-use-trailing-return-type,\

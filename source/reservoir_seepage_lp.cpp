@@ -28,8 +28,9 @@ namespace gtopt
 ReservoirSeepageLP::ReservoirSeepageLP(const ReservoirSeepage& pseepage,
                                        InputContext& ic)
     : ObjectLP<ReservoirSeepage>(pseepage)
-    , m_slope_sched_(ic, ClassName, id(), std::move(seepage().slope))
-    , m_constant_sched_(ic, ClassName, id(), std::move(seepage().constant))
+    , m_slope_sched_(ic, Element::class_name, id(), std::move(seepage().slope))
+    , m_constant_sched_(
+          ic, Element::class_name, id(), std::move(seepage().constant))
 {
 }
 
@@ -38,7 +39,14 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
                                    const StageLP& stage,
                                    LinearProblem& lp)
 {
-  static constexpr std::string_view cname = ClassName.short_name();
+  // Intentional exception: the PAMPL class name here is SeepageName
+  // ("seepage") rather than Element::class_name.snake_case()
+  // ("reservoir_seepage"). Matching the downstream PAMPL convention that names
+  // this element after the seepage constraint — not the ObjectLP wrapper — so
+  // `seepage.flow` remains the canonical variable path.  Element-name
+  // registration is hoisted into
+  // `system_lp.cpp::register_all_ampl_element_names`.
+  static constexpr std::string_view ampl_name = SeepageName;
 
   if (!is_active(stage)) {
     return true;
@@ -50,14 +58,6 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
   const auto eini_col = reservoir.eini_col_at(scenario, stage);
   const auto efin_col = reservoir.efin_col_at(scenario, stage);
-
-  // The volume columns are in LP (scaled) units: LP_vol = phys_vol /
-  // energy_scale.  The seepage slope is in physical units [m³/s per hm³].
-  // Multiplying the slope by energy_scale converts it to [m³/s / LP_unit] so
-  // the constraint
-  //   filt_flow = slope_lp * V_avg_lp + constant
-  // is dimensionally correct.
-  const double energy_scale = reservoir.energy_scale();
 
   // Determine effective slope and intercept (RHS).
   // Priority: piecewise segments (volume-dependent) > per-stage schedule >
@@ -72,8 +72,8 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
     effective_rhs = coeffs.intercept;
   }
 
-  // Convert slope from physical to LP units.
-  const Real lp_slope = effective_slope * energy_scale;
+  // Physical slope — flatten() applies col_scale to matrix coefficients.
+  const Real lp_slope = effective_slope;
 
   const auto& blocks = stage.blocks();
 
@@ -88,12 +88,23 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
     auto frow =
         SparseRow {
-            .name =
-                sc.lp_row_label(scenario, stage, block, cname, "filt", uid()),
+            .class_name = Element::class_name.full_name(),
+            .constraint_name = SeepageName,
+            .variable_uid = uid(),
+            .context =
+                make_block_context(scenario.uid(), stage.uid(), block.uid()),
         }
             .equal(effective_rhs);
 
-    frow[eini_col] = frow[efin_col] = -lp_slope * 0.5;
+    // Anchor seepage to vfin only: q_filt = constant + slope · efin.
+    // This makes the linearised constraint physically consistent at the
+    // segment endpoints — in particular, when vfin → 0 in Tramo 1
+    // (constant = 0, slope = first-segment slope), the row forces
+    // q_filt → 0 as required by the PLP physics.  The previous
+    // mid-stage average form (-0.5·slope on each of eini and efin)
+    // pinned q_filt to a non-zero value even at vfin = 0 because of
+    // the eini contribution.
+    frow[efin_col] = -lp_slope;
 
     frow[fcol] = 1;
 
@@ -102,16 +113,31 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
   }
 
   // storing the indices for this scenario and stage
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   seepage_rows[st_key] = std::move(frows);
   seepage_cols[st_key] = std::move(fcols);
 
-  // Store the coefficient state for later updates
+  // Register PAMPL-visible column under the canonical `flow` name
+  // (matching waterway/flow_right).  The seepage constant/slope row is
+  // exposed as a dual via add_to_output.
+  if (!seepage_cols.at(st_key).empty()) {
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         WaterwayLP::FlowName,
+                         scenario,
+                         stage,
+                         seepage_cols.at(st_key));
+  }
+
+  // Store the coefficient state for later updates.  The reservoir cache
+  // captures everything `update_lp` reads from `ReservoirLP` so that
+  // path no longer needs `sys.element<ReservoirLP>(reservoir_sid())`.
   m_states_[st_key] = ReservoirSeepageState {
       .eini_col = eini_col,
       .efin_col = efin_col,
       .current_slope = effective_slope,
       .current_rhs = effective_rhs,
+      .reservoir_cache = make_reservoir_ref_cache(reservoir, scenario, stage),
   };
 
   return true;
@@ -119,12 +145,12 @@ bool ReservoirSeepageLP::add_to_lp(const SystemContext& sc,
 
 bool ReservoirSeepageLP::add_to_output(OutputContext& out) const
 {
-  static constexpr std::string_view cname = ClassName.full_name();
+  static constexpr std::string_view cname = Element::class_name.full_name();
   const auto pid = id();
 
-  out.add_col_sol(cname, "seepage", pid, seepage_cols);
-  out.add_col_cost(cname, "seepage", pid, seepage_cols);
-  out.add_row_dual(cname, "seepage", pid, seepage_rows);
+  out.add_col_sol(cname, SeepageName, pid, seepage_cols);
+  out.add_col_cost(cname, SeepageName, pid, seepage_cols);
+  out.add_row_dual(cname, SeepageName, pid, seepage_rows);
 
   return true;
 }
@@ -138,45 +164,66 @@ int ReservoirSeepageLP::update_lp(SystemLP& sys,
   }
 
   auto& li = sys.linear_interface();
-  const auto& rsv = sys.element<ReservoirLP>(reservoir_sid());
-  const auto default_volume = rsv.reservoir().eini.value_or(0.0);
 
-  const auto st_key = std::pair {scenario.uid(), stage.uid()};
+  const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_states_.at(st_key);
 
+  // Segment selection uses the *start-of-stage* volume (vini), which by
+  // the time `update_lp` runs has already been propagated from the
+  // predecessor phase's solved efin via `physical_eini`'s cross-phase
+  // lookup (storage_lp.hpp::physical_eini(sys,...,sid) walks back to
+  // `prev_sys->element(...).physical_efin(...)`).  Using vini matches
+  // PLP's filtration construction, which evaluates the segment at the
+  // start-of-stage state — the only volume value that is actually known
+  // at the moment we build / update the stage's LP, since the
+  // current-stage `efin` is still a free variable awaiting solve.
+  //
+  // Routed through `physical_eini_from_cache` against `state.reservoir_cache`
+  // (populated in `add_to_lp`) so this path no longer touches the current
+  // SystemLP's `Collection<ReservoirLP>`.  Cross-phase predecessor lookup
+  // continues to work either via the pre-bound `prev_phase_efin_col`
+  // (production path) or the element-lookup fallback (test paths).
   const auto vini =
-      rsv.physical_eini(sys, scenario, stage, default_volume, reservoir_sid());
-  const auto vfin = rsv.physical_efin(sys, scenario, stage, default_volume);
-  const Real volume = (vini + vfin) / 2.0;
-
-  const auto coeffs = select_seepage_coeffs(seepage().segments, volume);
+      physical_eini_from_cache(sys, scenario, stage, state.reservoir_cache);
+  const auto coeffs = select_seepage_coeffs(seepage().segments, vini);
 
   const auto new_slope = coeffs.slope;
   const auto new_rhs = coeffs.intercept;
 
-  if (new_slope == state.current_slope && new_rhs == state.current_rhs) {
-    return 0;
-  }
-
+  // No in-memory short-circuit: under `LowMemoryMode::compress` /
+  // `snapshot`, `load_flat` reverts the LP's structural matval and
+  // RHS to the snapshot's construction-time values on every
+  // reconstruct, but `state.current_slope` / `state.current_rhs`
+  // (in-memory) survive the reconstruct unchanged.  A
+  // `new_slope == state.current_slope && new_rhs == state.current_rhs`
+  // early-return then skipped re-issuing the writes — leaving the
+  // live LP with construction-time (slope, rhs) while the cuts that
+  // backward built had assumed the updated (slope, rhs).  Result:
+  // primal-infeasible target re-solves under compress, while off
+  // (live backend retains every previous mutation) ran clean.
+  // Always re-issue both `set_coeff` and `set_rhs`; the per-call
+  // cost (one solver-side O(1) write each) is negligible against
+  // the LP solve, and correctness in both modes is restored.
   int total = 0;
   const auto& frows = seepage_rows.at(st_key);
 
   for (const auto& [buid, row] : frows) {
-    if (new_slope != state.current_slope) {
-      li.set_coeff(row, state.eini_col, -new_slope * 0.5);
-      li.set_coeff(row, state.efin_col, -new_slope * 0.5);
-    }
-    if (new_rhs != state.current_rhs) {
-      li.set_rhs(row, new_rhs);
-    }
+    // Anchor on efin only — see add_to_lp() above for rationale.
+    li.set_coeff(row, state.efin_col, -new_slope);
+    // Equality row (constructed with ``.equal(effective_rhs)`` above).
+    // Use the explicit ``set_row_equal_to`` form; the legacy
+    // ``set_rhs`` API was removed because the same call on a
+    // ``<=`` row silently force-equality'd it (the RALCO discharge-
+    // limit regression in commit 488555548).
+    li.set_row_equal_to(row, new_rhs);
     ++total;
   }
 
   SPDLOG_TRACE(
       "ReservoirSeepageLP uid={}: updated constraints "
-      "(volume={:.1f}, slope={:.6f}, rhs={:.6f})",
+      "(vini={:.1f}, slope={:.6f}, rhs={:.6f})",
       uid(),
-      volume,
+      vini,
       new_slope,
       new_rhs);
 

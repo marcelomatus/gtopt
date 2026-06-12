@@ -42,6 +42,7 @@
 #pragma once
 
 #include <gtopt/field_sched.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 #include <gtopt/right_bound_rule.hpp>
 #include <gtopt/stage_enums.hpp>
@@ -71,11 +72,17 @@ namespace gtopt
  */
 struct VolumeRight
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `VolumeRightLP` exposes no separate `ClassName` member; callers
+  /// reach the constant via `VolumeRight::class_name` directly (or
+  /// `VolumeRightLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"VolumeRight"};
+
   /// @name Default constants
   /// @{
   static constexpr Real default_flow_conversion_rate =
       0.0036;  ///< [hm³/(m³/s·h)]
-  static constexpr Real default_energy_scale = 1.0;  ///< [dimensionless]
   /// @}
 
   Uid uid {unknown_uid};  ///< Unique identifier
@@ -106,15 +113,30 @@ struct VolumeRight
 
   // ── Storage-like fields (rights accounting) ────────────────────────
 
-  OptTRealFieldSched emin {};  ///< Minimum accumulated right volume [hm³]
-  OptTRealFieldSched emax {};  ///< Maximum accumulated right volume [hm³]
-  OptTRealFieldSched ecost {};  ///< Shadow cost of accumulated rights [$/hm³]
+  OptTBRealFieldSched emin {};  ///< Minimum accumulated right volume [hm³]
+                                ///< — per-(stage, block); accepts a scalar
+                                ///< (broadcasts), a 2-D nested array, or
+                                ///< a file-backed schedule.
+  OptTBRealFieldSched emax {};  ///< Maximum accumulated right volume [hm³]
+                                ///< — same shapes as ``emin``.
+  OptTBRealFieldSched ecost {};  ///< Shadow cost of accumulated rights
+                                 ///< [$/hm³] — per-(stage, block); accepts
+                                 ///< a scalar (broadcasts), a 2-D nested
+                                 ///< array, or a file-backed schedule.
   OptReal eini {};  ///< Initial accumulated volume at start of horizon [hm³]
   OptReal efin {};  ///< Minimum required accumulated volume at end [hm³]
+  OptReal efin_cost {};  ///< Penalty cost per unit of `efin` shortfall
+                         ///< [$/hm³].  Mirrors `Reservoir.efin_cost`
+                         ///< — see storage_lp.hpp for semantics.
 
-  OptTRealFieldSched soft_emin {};  ///< Soft minimum volume per stage [hm³]
-  OptTRealFieldSched
-      soft_emin_cost {};  ///< Penalty cost for soft_emin violation [$/hm³]
+  OptTBRealFieldSched soft_emin {};  ///< Soft minimum volume [hm³] —
+                                     ///< per-(stage, block); accepts a
+                                     ///< scalar (broadcasts), a 2-D
+                                     ///< nested array, or a file-backed
+                                     ///< schedule.
+  OptTBRealFieldSched
+      soft_emin_cost {};  ///< Penalty cost for soft_emin violation
+                          ///< [$/hm³] — per-(stage, block).
 
   // ── Right demand fields ────────────────────────────────────────────
 
@@ -152,9 +174,6 @@ struct VolumeRight
   OptReal flow_conversion_rate {
       default_flow_conversion_rate,
   };  ///< Converts m³/s × hours into hm³ [hm³/(m³/s·h)]
-
-  OptReal energy_scale {};  ///< LP scaling factor [dimensionless]
-  OptName energy_scale_mode {};  ///< `"manual"` or `"auto"`
 
   /// Whether to propagate accumulated volume state across phases via
   /// StateVariables (SDDP-style coupling — Tilmant's "dummy reservoir").

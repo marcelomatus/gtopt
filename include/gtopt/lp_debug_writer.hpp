@@ -35,6 +35,26 @@ class LinearInterface;
       && (!phase_max || phase_uid <= *phase_max);
 }
 
+/// SDDP passes enumerated for `lp_debug_passes` membership tests.
+/// Kept as a tiny enum (string-tag pairs lower in the .cpp) rather than
+/// a bit-flag so call sites stay readable: `lp_debug_passes_includes(s,
+/// LpDebugPass::backward)`.
+enum class LpDebugPass : std::uint8_t
+{
+  forward,
+  backward,
+  aperture,
+};
+
+/// Return true iff @p passes (a comma-separated list of pass tokens,
+/// case-insensitive, whitespace-tolerant) selects @p which.  An empty
+/// or unset @p passes string falls back to the legacy default
+/// `"forward,aperture"`.  The literal token `"all"` matches every
+/// pass.  Unknown tokens are silently skipped (the surrounding
+/// configuration layer is responsible for warning the user).
+[[nodiscard]] bool lp_debug_passes_includes(std::string_view passes,
+                                            LpDebugPass which) noexcept;
+
 /// @name Compression utility functions (detail — exposed for testing)
 /// @{
 

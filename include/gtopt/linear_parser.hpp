@@ -281,7 +281,8 @@ public:
   [[nodiscard]] static ParseResult parse(std::string_view expression)
   {
     // Remove whitespace
-    const std::string cleaned = removeWhitespace(expression);
+    const std::string cleaned_buf = removeWhitespace(expression);
+    const std::string_view cleaned = cleaned_buf;
 
     if (cleaned.empty()) {
       throw std::invalid_argument("Empty expression");
@@ -305,8 +306,8 @@ public:
       const std::size_t op_length = getOpLength(constraint_type);
 
       // Split into left and right sides
-      const std::string left_side = cleaned.substr(0, op_pos);
-      const std::string right_side = cleaned.substr(op_pos + op_length);
+      const std::string_view left_side = cleaned.substr(0, op_pos);
+      const std::string_view right_side = cleaned.substr(op_pos + op_length);
 
       if (left_side.empty() || right_side.empty()) {
         throw std::invalid_argument("Empty left or right side of constraint");
@@ -345,9 +346,9 @@ public:
               constraint_info);
 
       // Split into three parts
-      const std::string part1 = cleaned.substr(0, pos1);
-      const std::string part2 = cleaned.substr(pos1 + 2, pos2 - pos1 - 2);
-      const std::string part3 = cleaned.substr(pos2 + 2);
+      const std::string_view part1 = cleaned.substr(0, pos1);
+      const std::string_view part2 = cleaned.substr(pos1 + 2, pos2 - pos1 - 2);
+      const std::string_view part3 = cleaned.substr(pos2 + 2);
 
       if (part1.empty() || part2.empty() || part3.empty()) {
         throw std::invalid_argument("Empty parts in range constraint");
@@ -372,7 +373,7 @@ public:
         final_coeffs = std::move(coeffs2);
 
         // Check if operators are <= (normal) or >= (reversed)
-        const std::string op1 = cleaned.substr(pos1, 2);
+        const std::string_view op1 = cleaned.substr(pos1, 2);
         if (op1 == "<=") {
           lower_bound = const1 - const2;
           upper_bound = const3 - const2;
@@ -412,7 +413,7 @@ public:
 
   // Example usage and testing
   static void printResult(const ParseResult& result);
-  static int do_main();
+  [[nodiscard]] static int do_main();
 };
 
 }  // namespace gtopt

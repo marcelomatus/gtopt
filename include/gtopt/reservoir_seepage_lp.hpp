@@ -24,6 +24,7 @@
 #include <gtopt/reservoir_seepage.hpp>
 #include <gtopt/schedule.hpp>
 #include <gtopt/sddp_common.hpp>
+#include <gtopt/update_context.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 namespace gtopt
@@ -32,6 +33,7 @@ namespace gtopt
 // Forward declaration to avoid circular includes (system_lp.hpp includes
 // reservoir_seepage_lp.hpp).
 class SystemLP;
+class SimulationLP;
 
 /**
  * @brief LP wrapper for ReservoirSeepage systems
@@ -49,7 +51,7 @@ class SystemLP;
 class ReservoirSeepageLP : public ObjectLP<ReservoirSeepage>
 {
 public:
-  static constexpr LPClassName ClassName {"ReservoirSeepage", "fil"};
+  static constexpr std::string_view SeepageName {"seepage"};
 
   /// Constructs a ReservoirSeepageLP from a ReservoirSeepage and input context.
   /// Initialises per-stage slope/constant schedules from the seepage
@@ -90,13 +92,27 @@ public:
     return seepage_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Public accessor for the per-block row indices.  Mirrors
+  /// `seepage_cols_at`; surfaced for diagnostic / unit-test access to
+  /// the seepage constraint's row bounds (e.g. to confirm
+  /// segment-driven RHS updates landed via `update_lp`).
+  [[nodiscard]] const auto& seepage_rows_at(const ScenarioLP& scenario,
+                                            const StageLP& stage) const
+  {
+    return seepage_rows.at({scenario.uid(), stage.uid()});
+  }
+
   /**
    * @brief Update reservoir-dependent LP coefficients for this seepage.
    *
-   * When the ReservoirSeepage has piecewise-linear segments, selects the active
-   * segment based on the reservoir's current volume (vini from previous
-   * phase) and updates:
-   * - The coefficient on eini/efin columns: -slope * 0.5
+   * When the ReservoirSeepage has piecewise-linear segments, selects the
+   * active segment from the *end-of-stage* volume (vfin) — vfin is the
+   * SDDP cut anchor and the LP's free decision variable, so anchoring
+   * the segment choice to it keeps the linearised seepage curve
+   * consistent with the regime where the LP is operating.  Updates:
+   * - The coefficient on the efin column: -slope_i  (efin-only form,
+   *   so q_filt = constant_i + slope_i * efin → 0 when vfin = 0 in
+   *   Tramo 1).
    * - The RHS (row bounds): intercept = constant_i - slope_i * volume_i
    *
    * Only dispatches set_coeff/set_rhs calls when the new value differs
@@ -115,6 +131,9 @@ public:
     ColIndex efin_col {};  ///< Stage efin column
     Real current_slope {0.0};  ///< Current physical slope in the LP constraint
     Real current_rhs {0.0};  ///< Current RHS in the LP constraint
+    /// Cached reservoir refs so `update_lp` doesn't need
+    /// `sys.element<ReservoirLP>(reservoir_sid())` on the current sys.
+    ReservoirRefCache reservoir_cache {};
   };
 
 private:
@@ -129,5 +148,12 @@ private:
   /// Per-(scenario, stage) state for coefficient tracking
   IndexHolder2<ScenarioUid, StageUid, ReservoirSeepageState> m_states_;
 };
+
+// Pin the data-struct constant value so an accidental rename of the
+// `ReservoirSeepage::class_name` literal fails the build (LP row labels and
+// CSV outputs depend on the exact string `"ReservoirSeepage"`).
+static_assert(ReservoirSeepageLP::Element::class_name
+                  == LPClassName {"ReservoirSeepage"},
+              "ReservoirSeepage::class_name must remain \"ReservoirSeepage\"");
 
 }  // namespace gtopt

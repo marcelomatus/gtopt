@@ -2,6 +2,7 @@
 
 """Writer for converting central data to JSON format."""
 
+import csv
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 import typing
@@ -16,6 +17,66 @@ from .mance_parser import ManceParser
 from .mance_writer import ManceWriter
 from .stage_parser import StageParser
 from .tech_detect import detect_technology, suspect_technology
+
+
+# ----------------------------------------------------------------------
+# CEN cogen reference cache (best-effort load of the bundled CSV).
+# See ``share/gtopt/cogen/cen_chile_cogen.csv``.
+# ----------------------------------------------------------------------
+_CEN_COGEN_NAMES: Optional[set[str]] = None
+_CEN_COGEN_PREFIXES: tuple[str, ...] = ()
+
+
+def _load_cen_cogen_reference() -> tuple[set[str], tuple[str, ...]]:
+    """Load (exact-names, prefix-tuple) from
+    ``share/gtopt/cogen/cen_chile_cogen.csv``.  Cached after first call.
+    Returns ``(set(), ())`` if the file is missing.
+    """
+    global _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+    if _CEN_COGEN_NAMES is not None:
+        return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+    names: set[str] = set()
+    prefixes: list[str] = []
+    candidates = [
+        Path("/home/marce/git/gtopt/share/gtopt/cogen/cen_chile_cogen.csv"),
+        Path(__file__).resolve().parents[2]
+        / "share"
+        / "gtopt"
+        / "cogen"
+        / "cen_chile_cogen.csv",
+    ]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    name = str(row.get("name_upper", "")).strip().upper()
+                    if not name:
+                        continue
+                    source = str(row.get("source", "")).lower()
+                    if source.startswith("pattern_prefix:"):
+                        prefixes.append(name)
+                    else:
+                        names.add(name)
+            break
+        except OSError:
+            continue
+    _CEN_COGEN_NAMES = names
+    _CEN_COGEN_PREFIXES = tuple(prefixes)
+    return _CEN_COGEN_NAMES, _CEN_COGEN_PREFIXES
+
+
+def _is_cen_cogen(gen_name: str) -> bool:
+    """True iff ``gen_name`` matches the CEN cogen reference list."""
+    name = str(gen_name).strip().upper()
+    if not name:
+        return False
+    names, prefixes = _load_cen_cogen_reference()
+    if name in names:
+        return True
+    return any(name.startswith(p) for p in prefixes)
 
 
 class Generator(TypedDict):
@@ -123,6 +184,27 @@ class CentralWriter(BaseWriter):
                 auto_detect=auto_detect_tech,
             )
 
+            # Last-resort fallback (#524): when auto-detect is on AND
+            # detect_technology still returned bare ``"thermal"`` AND
+            # the central has no fuel-cost signal (``gcost`` is the
+            # zero scalar), the central is almost certainly a small
+            # distributed renewable that PLP catch-all'd into the
+            # thermal bucket and that name-pattern detection couldn't
+            # refine (e.g. local plant names without the canonical
+            # ``_FV`` / ``_EO`` suffix).  Default to
+            # ``renewable:hydro`` — the most common case for CEN
+            # PLP-only thermals with HR=0 is small ROR / mini-hydros.
+            # Downstream consumers can refine via ``--tech-overrides``.
+            #
+            # Gated on ``auto_detect_tech=True`` so the legacy "suspected"
+            # description workflow (auto-detect off) is preserved.
+            if (
+                auto_detect_tech
+                and gen_type == "thermal"
+                and (not isinstance(gcost, (int, float)) or float(gcost or 0) == 0.0)
+            ):
+                gen_type = "renewable:hydro"
+
             generator: Dict[str, Any] = {
                 "uid": central_number,
                 "name": central_name,
@@ -133,6 +215,21 @@ class CentralWriter(BaseWriter):
                 "pmin": pmin,
                 "type": gen_type,
             }
+            # Self-describing cogen flag — same lookup used by
+            # plexos2gtopt + gtopt_marginal_units.  Bundled CSV at
+            # ``share/gtopt/cogen/cen_chile_cogen.csv`` carries the full
+            # CEN cogen list (Cogeneración SIP tags + pulp-mill / sulfur
+            # / refinery prefixes from CEN-SIP + Informe-CEN sources).
+            # The emissions-overlay fallback later sets the same flag
+            # when ``--emissions-file`` carries ``thermal:cogen``
+            # generator_overrides; this layer catches cogens BEFORE the
+            # overlay runs so the flag is present even without
+            # ``--emissions``.
+            if _is_cen_cogen(central_name):
+                # First-class C++ field; see include/gtopt/generator.hpp +
+                # generator_enums.hpp.  L1 ("dispatched") means LP-free
+                # dispatch — downstream tools still skip in merit walk-up.
+                generator["cogen_mode"] = "dispatched"
             if not auto_detect_tech:
                 suspected = suspect_technology(plp_type, central_name)
                 if suspected:

@@ -45,16 +45,16 @@ from __future__ import annotations
 
 import calendar
 import copy
-import functools
 import json
 import logging
 import math
-import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from gtopt_shared.csv_io import write_csv
 
 logger = logging.getLogger(__name__)
 
@@ -67,33 +67,14 @@ _META_COLS = {"_month", "_hour", "_year", "_dt", "_duration"}
 # ---------------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=8)
-def _probe_parquet_codec(requested: str) -> str:
-    """Return the best available PyArrow Parquet codec for *requested*.
-
-    Uses ``pyarrow.Codec`` to test whether the codec is compiled into the
-    linked Arrow library.  Falls back to ``"gzip"`` when *requested* is
-    unavailable, printing a warning to *stderr*.  Results are cached via
-    ``lru_cache`` so the probe runs **at most once per unique codec name**.
-    """
-    if not requested or requested in ("none", "uncompressed"):
-        return requested
-    try:
-        import pyarrow as pa  # noqa: PLC0415
-
-        pa.Codec(requested)
-        return requested
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-        print(
-            f"Warning: Parquet codec '{requested}' is not available in this "
-            "Arrow build; falling back to gzip",
-            file=sys.stderr,
-        )
-        return "gzip"
-
-
-# Best available codec — probed once at module import time.
-_DEFAULT_COMPRESSION: str = _probe_parquet_codec("zstd")
+# Re-export the shared parquet codec helpers from gtopt_shared.parquet.
+# Existing internal references to ``_probe_parquet_codec`` /
+# ``_DEFAULT_COMPRESSION`` continue to work; the canonical bodies live
+# in ``gtopt_shared/parquet.py``.
+from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-import-position
+    DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
+    probe_parquet_codec as _probe_parquet_codec,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1013,7 +994,7 @@ def write_schedule(
         comp = probed if probed else None
         write_df.to_parquet(output_path, index=False, compression=comp)
     elif output_format == "csv":
-        write_df.to_csv(output_path, index=False)
+        write_csv(write_df, output_path)
     else:
         raise ValueError(
             f"output_format must be 'parquet' or 'csv', got '{output_format}'"
@@ -1257,7 +1238,7 @@ def _write_hourly_result(
         probed = _probe_parquet_codec(compression)
         result.to_parquet(out_path, index=False, compression=probed or None)
     else:
-        result.to_csv(out_path, index=False)
+        write_csv(result, out_path)
 
 
 def reconstruct_output_hours(

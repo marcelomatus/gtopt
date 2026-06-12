@@ -1,0 +1,73 @@
+% =====================================================================
+% lp_duality.tex --- primal/dual LP for cost and emission, with
+% lambda <-> epsilon as parallel duals.
+% =====================================================================
+\begin{tikzpicture}[
+  font=\scriptsize,
+  box/.style={draw, rounded corners=3pt, inner sep=4pt,
+              text width=44mm, align=left,
+              font=\scriptsize},
+  cbox/.style={box, fill=blue!8},
+  ebox/.style={box, fill=green!10},
+  jbox/.style={box, fill=orange!10},
+  arr/.style={draw, -{Stealth[length=4pt]}, thick},
+  darr/.style={draw, -{Stealth[length=4pt]}, thick, dashed},
+]
+
+  % cost LP --- primal
+  \node[cbox] (cp) at (0,0)
+    {\textbf{Cost primal} (LP-c)\\[1pt]
+     $\displaystyle\min_p \sum_g c_g\, p_g$\\
+     s.t.\ $\sum_g p_g = D_t\;\,[\lambda_t]$\\
+     \phantom{s.t.\ }$0\!\le\!p_g\!\le\!\bar p_g\;\,[\mu_g]$};
+
+  % cost LP --- dual
+  \node[cbox] (cd) [right=22mm of cp]
+    {\textbf{Cost dual} (LP-c$^\star$)\\[1pt]
+     $\displaystyle\max_{\lambda,\mu}\; D_t\lambda - \!\sum_g\bar p_g\mu_g$\\
+     s.t.\ $\lambda - \mu_g \le c_g\;\forall g$\\
+     KKT: $\lambda_t = c_{m(t)}$};
+
+  % emission LP --- primal
+  \node[ebox] (ep) [below=10mm of cp]
+    {\textbf{Emission primal} (LP-e)\\[1pt]
+     $\displaystyle\min_p \sum_g e_g\, p_g$\\
+     s.t.\ $\sum_g p_g = D_t\;\,[\varepsilon_t]$\\
+     \phantom{s.t.\ }$0\!\le\!p_g\!\le\!\bar p_g\;\,[\nu_g]$};
+
+  % emission LP --- dual
+  \node[ebox] (ed) [right=22mm of ep]
+    {\textbf{Emission dual} (LP-e$^\star$)\\[1pt]
+     $\displaystyle\max_{\varepsilon,\nu}\;
+        D_t\varepsilon - \!\sum_g\bar p_g\nu_g$\\
+     s.t.\ $\varepsilon - \nu_g \le e_g\;\forall g$\\
+     KKT: $\varepsilon_t = e_{m'(t)}$};
+
+  % joint LP
+  \node[jbox] (jp) [below=10mm of ep]
+    {\textbf{Joint primal} (LP-j, $p_{\mathrm{CO}_2}\!>\!0$)\\[1pt]
+     $\displaystyle\min_p \sum_g (c_g\!+\!p_{\mathrm{CO}_2}e_g)p_g$\\
+     s.t.\ $\sum_g p_g = D_t\;\,[\tilde\lambda_t]$};
+
+  \node[jbox] (jd) [right=22mm of jp]
+    {\textbf{Joint dual} (LP-j$^\star$)\\[1pt]
+     KKT: $\tilde\lambda_t =
+            c_{m''(t)} + p_{\mathrm{CO}_2}\!\cdot\! e_{m''(t)}$\\
+     $\Rightarrow$ $m''(t)$ shifts as
+     $p_{\mathrm{CO}_2}\!\uparrow$};
+
+  % strong duality arrows
+  \draw[arr] (cp) -- node[above,font=\tiny]
+                    {strong duality} (cd);
+  \draw[arr] (ep) -- node[above,font=\tiny]
+                    {strong duality} (ed);
+  \draw[arr] (jp) -- node[above,font=\tiny]
+                    {strong duality} (jd);
+
+  % parallel between cost and emission
+  \draw[darr] (cd.south) -- node[right,font=\tiny]
+                            {analogue (swap $c_g\!\to\!e_g$)} (ed.north);
+  \draw[darr] (ed.south) -- node[right,font=\tiny]
+                            {add $p_{\mathrm{CO}_2}$ adder} (jd.north);
+
+\end{tikzpicture}

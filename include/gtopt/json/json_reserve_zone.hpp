@@ -14,18 +14,26 @@ struct json_data_contract<ReserveZone>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant_null<"urreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drreq", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
-      json_variant_null<"urcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"drcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+      json_variant_null<"urmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveZone const& obj)
   {
     return std::forward_as_tuple(obj.uid,
                                  obj.name,
                                  obj.active,
+                                 obj.type,
+                                 obj.description,
                                  obj.urreq,
                                  obj.drreq,
+                                 obj.urmin,
+                                 obj.drmin,
                                  obj.urcost,
                                  obj.drcost);
   }

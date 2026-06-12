@@ -1,13 +1,14 @@
 {
   "options": {
     "annual_discount_rate": 0.0,
-    "use_lp_names": 1,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": 1000,
-    "use_kirchhoff": true
+    "model_options": {
+      "use_single_bus": false,
+      "use_kirchhoff": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
   },
   "simulation": {
     "block_array": [

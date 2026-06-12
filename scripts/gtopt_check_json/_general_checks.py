@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """General validation checks: uniqueness, SDDP options, boundary cuts, AI."""
 
+import csv
 from typing import Any
 
 from gtopt_check_json._checks_common import (
@@ -353,10 +354,18 @@ def check_boundary_cuts(
         )
         return findings
 
-    # Read CSV header
+    # Read CSV header via ``csv.reader`` so quoted column names (which
+    # the PyArrow-backed writer in plp2gtopt now emits by default) are
+    # unquoted properly.  A naive ``split(",")`` would leave the
+    # quote characters attached, breaking the ``col.lower() in
+    # fixed_cols`` membership test below — symptom observed on a fresh
+    # juan/IPLP conversion as a spurious "13 unknown state variable(s)"
+    # warning that named the fixed columns themselves
+    # (``"iteration"``, ``"scene"``, ``"rhs"``) as unknowns.
     try:
-        with open(cuts_path, encoding="utf-8") as fh:
-            header_line = fh.readline().strip()
+        with open(cuts_path, encoding="utf-8", newline="") as fh:
+            reader = csv.reader(fh)
+            header_row = next(reader, None)
     except OSError as exc:
         findings.append(
             Finding(
@@ -368,14 +377,15 @@ def check_boundary_cuts(
         )
         return findings
 
-    if not header_line:
+    if not header_row:
         return findings
 
-    columns = [c.strip() for c in header_line.split(",")]
+    columns = [c.strip() for c in header_row]
 
     # Determine where state-variable columns start.
-    # Format: name,[iteration,]scene,rhs,StateVar1,...
-    # Detect "iteration" column presence.
+    # Format: [iteration,]scene,rhs,StateVar1,...
+    # The legacy leading ``name`` column was retired in 2026-05 but is
+    # still listed as fixed so any legacy file on disk still parses.
     fixed_cols = {"name", "iteration", "scene", "rhs"}
     state_var_start = 0
     for i, col_name in enumerate(columns):

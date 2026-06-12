@@ -197,6 +197,11 @@ class BatteryWriter(BaseWriter):
                     continue
 
                 source_gen = cenpc if dcmod == 1 and cenpc else None
+                # Self-reference (cenpc == battery name) is not real
+                # generation coupling — see the matching guard in the
+                # plpcenbat path below for rationale.
+                if source_gen == name:
+                    source_gen = None
 
                 entries.append(
                     {
@@ -238,7 +243,21 @@ class BatteryWriter(BaseWriter):
                 # When injection centrals (NIny > 0) are present, the first
                 # injection central is the source generator that directly
                 # charges the battery (generation-coupled mode).
+                #
+                # Self-reference exception: PLP cases sometimes list the
+                # battery itself as its own injection central (e.g.
+                # plp_min_bess `BESS1 → BESS1`).  That is the standalone /
+                # auto-expand pattern, not generation coupling — there is
+                # no external generator to reference.  Setting
+                # ``source_generator = <battery name>`` would dangle
+                # against ``System::expand_batteries`` (which creates the
+                # discharge generator at LP time, not in the JSON), so
+                # gtopt_check_json flags it as a CRITICAL broken
+                # reference.  Drop the self-reference so the unified
+                # auto-expand path runs cleanly.
                 source_gen = injections[0]["name"] if injections else None
+                if source_gen == name:
+                    source_gen = None
 
                 entries.append(
                     {
@@ -337,7 +356,12 @@ class BatteryWriter(BaseWriter):
                 bat["bus"] = entry["bus"]
                 bat["pmax_charge"] = entry["pmax_charge"]
                 bat["pmax_discharge"] = entry["pmax_discharge"]
-                bat["gcost"] = 0.0
+                # `discharge_cost` (was `gcost` before the
+                # `e54b795a4` unified-battery rename) — per-MWh cost
+                # paid when discharging.  Forwarded to the synthetic
+                # discharge `Generator.gcost` by
+                # `System::expand_batteries()`.
+                bat["discharge_cost"] = 0.0
                 # Generation-coupled mode: include source_generator reference
                 source_gen = entry.get("source_generator")
                 if source_gen:

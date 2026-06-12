@@ -1,0 +1,541 @@
+# ========================================================================
+# gas_offtake user constraints (132) — emitted by plexos2gtopt
+#   hard:   132   soft:     0
+# Origin: PLEXOS Constraint objects (DBSEN_PRGDIARIO.xml)
+# Soft rows declare a named slack column via the AMPL-style
+# ``var slack_<ident>;`` syntax — the PAMPL parser binds each
+# declaration to the matching ``constraint <ident>`` by naming
+# convention (gtopt-side: ``UserConstraint::slack_name``), so
+# CPLEX logs and LP dumps reference the per-UC slack label
+# instead of the generic ``slack``.  The output parquet schema
+# is unchanged — per-row violations live in
+# ``UserConstraint/slack_sol.parquet`` keyed by uid.
+# ========================================================================
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Engie': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Engie:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Engie_GN_B': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Engie_GN_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Engie_GN_C': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Engie_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Engie_GN_D': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Engie_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Engie': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Engie:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Engie_GN_B': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Engie_GN_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Engie_GN_C': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Engie_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Engie_GN_D': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Engie_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Engie': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Engie:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Engie_GN_B': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Engie_GN_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Engie_GN_C': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Engie_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Engie_GN_D': all 6 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Engie_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GN_C': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GN_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_B': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_D': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_E': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_F': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_F:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_G': all 8 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_G:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Colbun_GNL_INF': all 7 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Colbun_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Engie_GNL_INF': all 5 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Engie_GNL_INF:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_NuevaRenca_GN_D': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_NuevaRenca_GN_D:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_NuevaRenca_GNL_B': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_NuevaRenca_GNL_B:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_NuevaRenca_GNL_E': all 4 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_NuevaRenca_GNL_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Enel_GN_E': all 9 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Enel_GN_E:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Enel_Mejillones_GN_A': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Enel_Mejillones_GN_A:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay0_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay0_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay1_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay1_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay2_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay2_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay3_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay3_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay4_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay4_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay5_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay5_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay6_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay6_Enel_Mejillones_GN_C:
+  0 <= 0;
+
+# PLEXOS Constraint 'Gas_MaxOpDay7_Enel_Mejillones_GN_C': all 12 LHS term(s) provably contribute 0 at this run date (shadow Lines with Lin_Units=0, fully-offline Generators, or Fuel.offtake terms with no consuming generators).  Emitted as an inactive stub to preserve provenance; a follow-up run where the zeroed elements come online can flip active=True and restore the real LHS.  (File: DBSEN_PRGDIARIO.xml)
+inactive constraint Gas_MaxOpDay7_Enel_Mejillones_GN_C:
+  0 <= 0;

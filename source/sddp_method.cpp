@@ -20,18 +20,21 @@
 #include <ranges>
 #include <set>
 #include <span>
-#include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
+#include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
+#include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_aperture.hpp>
-#include <gtopt/sddp_clone_pool.hpp>
 #include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_sharing.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_pool.hpp>
+#include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_status.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -49,6 +52,22 @@ namespace gtopt
 
 // assign_padded / align_up moved to sddp_forward_pass.cpp
 
+const StateVariable* find_alpha_state_var(const SimulationLP& sim,
+                                          SceneIndex scene_index,
+                                          PhaseIndex phase_index,
+                                          SystemKind kind) noexcept
+{
+  auto svar = sim.state_variable(StateVariable::Key {
+      .uid = sddp_alpha_uid,
+      .col_name = sddp_alpha_col_name,
+      .class_name = sddp_alpha_lp_class,
+      .lp_key = {.scene_index = scene_index,
+                 .phase_index = phase_index,
+                 .kind = kind},
+  });
+  return svar ? &svar->get() : nullptr;
+}
+
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
   return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);
@@ -57,7 +76,7 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
   return enum_from_name<ElasticFilterMode>(name).value_or(
-      ElasticFilterMode::single_cut);
+      ElasticFilterMode::chinneck);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -65,17 +84,17 @@ ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 std::vector<double> compute_scene_weights(
     std::span<const SceneLP> scenes,
     std::span<const uint8_t> scene_feasible,
-    ProbabilityRescaleMode rescale_mode) noexcept
+    ProbabilityRescaleMode rescale_mode)
 {
   const auto num_scenes = scene_feasible.size();
   std::vector<double> weights(num_scenes, 0.0);
   double total = 0.0;
 
-  for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+  for (const auto& [si, feasible] : enumerate(scene_feasible)) {
     if (feasible == 0U) {
       continue;  // Infeasible → weight stays 0
     }
-    if (std::cmp_less(si, scenes.size())) {
+    if (si < scenes.size()) {
       for (const auto& sc : scenes[si].scenarios()) {
         weights[si] += sc.probability_factor();
       }
@@ -97,14 +116,14 @@ std::vector<double> compute_scene_weights(
   } else {
     // All infeasible or zero probability → equal weight among feasible
     int feasible_count = 0;
-    for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+    for (const auto& [si, feasible] : enumerate(scene_feasible)) {
       if (feasible != 0U) {
         ++feasible_count;
       }
     }
     if (feasible_count > 0) {
       const double eq_w = 1.0 / static_cast<double>(feasible_count);
-      for (const auto [si, feasible] : std::views::enumerate(scene_feasible)) {
+      for (const auto& [si, feasible] : enumerate(scene_feasible)) {
         if (feasible != 0U) {
           weights[si] = eq_w;
         }
@@ -122,61 +141,6 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 }
 
 // ─── Kappa threshold checking ───────────────────────────────────────────────
-
-void SDDPMethod::update_max_kappa(SceneIndex scene,
-                                  PhaseIndex phase,
-                                  const LinearInterface& li,
-                                  IterationIndex iteration)
-{
-  const double kappa = li.get_kappa();
-
-  // Negative kappa means the backend doesn't support the query (e.g.
-  // MindOpt returns -1).  Propagate -1 only when no real value was
-  // recorded yet; otherwise skip so that real values are preserved.
-  if (kappa >= 0.0) {
-    m_max_kappa_[scene][phase] = std::max(m_max_kappa_[scene][phase], kappa);
-  } else if (m_max_kappa_[scene][phase] < 0.0) {
-    m_max_kappa_[scene][phase] = kappa;
-  }
-
-  const auto& sim = planning_lp().planning().simulation;
-  const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);
-  if (mode == KappaWarningMode::none || kappa < 0.0) {
-    return;
-  }
-
-  constexpr double default_kappa_threshold = 1e9;
-  const double threshold =
-      sim.kappa_threshold.value_or(default_kappa_threshold);
-  if (kappa <= threshold) {
-    return;
-  }
-
-  spdlog::warn("{}: high kappa {:.2e} (threshold {:.2e})",
-               sddp_log("Kappa", iteration, scene_uid(scene), phase_uid(phase)),
-               kappa,
-               threshold);
-
-  if (mode == KappaWarningMode::save_lp && !m_options_.log_directory.empty()) {
-    std::filesystem::create_directories(m_options_.log_directory);
-    const auto stem = (std::filesystem::path(m_options_.log_directory)
-                       / std::format("kappa_sc{}_ph{}_it{}",
-                                     scene_uid(scene),
-                                     phase_uid(phase),
-                                     iteration))
-                          .string();
-    if (auto r = li.write_lp(stem)) {
-      spdlog::warn("Saved high-kappa LP to {}.lp", stem);
-    }
-  }
-}
-
-// ─── Free-function building blocks ──────────────────────────────────────────
-// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
-
-// Now implemented in benders_cut.cpp; this file uses them via benders_cut.hpp.
-
-// ── Helper: local utilities ─────────────────────────────────────────────────
 
 namespace
 {
@@ -225,150 +189,8 @@ SDDPMethod::SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts) noexcept
             }
             return ApertureDataCache {dir_path};
           }())
-    , m_label_maker_(planning_lp.options())
+    , m_label_maker_ {}
 {
-}
-
-void SDDPMethod::clear_stored_cuts() noexcept
-{
-  m_cut_store_.clear();
-}
-
-void SDDPMethod::forget_first_cuts(int count)
-{
-  m_cut_store_.forget_first_cuts(count, planning_lp());
-}
-
-void SDDPMethod::update_stored_cut_duals()
-{
-  m_cut_store_.update_stored_cut_duals(planning_lp());
-}
-
-// ── Initialisation ──────────────────────────────────────────────────────────
-
-void SDDPMethod::initialize_alpha_variables(SceneIndex scene)
-{
-  const auto& phases = planning_lp().simulation().phases();
-
-  auto& phase_states = m_scene_phase_states_[scene];
-  phase_states.resize(phases.size());
-
-  // Add α (future-cost) variable to every phase except the last
-  for (auto&& [pi, _phase] : enumerate<PhaseIndex>(phases)) {
-    if (pi == PhaseIndex {phases.size() - 1}) {
-      break;
-    }
-    auto& state = phase_states[pi];
-    auto& li = planning_lp().system(scene, pi).linear_interface();
-
-    const auto sa = m_options_.scale_alpha;
-    state.alpha_col = li.add_col(sddp_label("sddp", "alpha", scene, pi),
-                                 m_options_.alpha_min / sa,
-                                 m_options_.alpha_max / sa);
-    li.set_obj_coeff(state.alpha_col, sa);
-    li.set_col_scale(state.alpha_col, sa);
-  }
-
-  // Last phase: no future cost
-  phase_states[PhaseIndex {phases.size() - 1}].alpha_col =
-      ColIndex {unknown_index};
-}
-
-void SDDPMethod::collect_state_variable_links(SceneIndex scene)
-{
-  const auto& sim = planning_lp().simulation();
-  const auto& phases = sim.phases();
-  const auto scale_obj = planning_lp().options().scale_objective();
-
-  auto& phase_states = m_scene_phase_states_[scene];
-
-  for (auto&& [phase, _ph] : enumerate<PhaseIndex>(phases)) {
-    auto& state = phase_states[phase];
-
-    // Read column bounds from the source phase LP
-    const auto& src_li = planning_lp().system(scene, phase).linear_interface();
-    const auto col_lo = src_li.get_col_low_raw();
-    const auto col_hi = src_li.get_col_upp_raw();
-
-    const auto next_phase = phase + PhaseIndex {1};
-
-    for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
-      // Per-variable state cost from StateVariable (set at registration time
-      // by ReservoirLP, BatteryLP, etc.).  Pre-divide by scale_objective so
-      // it is consistent with the global penalty.
-      const auto link_scost =
-          (svar.scost() > 0.0) ? svar.scost() / scale_obj : 0.0;
-
-      for (const auto& dep : svar.dependent_variables()) {
-        if (dep.phase_index() != next_phase || dep.scene_index() != scene) {
-          continue;
-        }
-
-        state.outgoing_links.push_back(StateVarLink {
-            .source_col = svar.col(),
-            .dependent_col = dep.col(),
-            .source_phase = phase,
-            .target_phase = dep.phase_index(),
-            .source_low = col_lo[svar.col()],
-            .source_upp = col_hi[svar.col()],
-            .var_scale = svar.var_scale(),
-            .scost = link_scost,
-        });
-      }
-    }
-
-    SPDLOG_TRACE("SDDP: scene {} phase {} has {} outgoing state-variable links",
-                 scene,
-                 phase,
-                 state.outgoing_links.size());
-  }
-}
-
-// ── Elastic filter via LP clone (PLP pattern) ───────────────────────────────
-
-std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
-    SceneIndex scene, PhaseIndex phase, const SolverOptions& opts)
-{
-  if (phase == PhaseIndex {0}) {
-    return std::nullopt;
-  }
-
-  const auto& li = planning_lp().system(scene, phase).linear_interface();
-  const auto prev = phase - PhaseIndex {1};
-  const auto& prev_state = m_scene_phase_states_[scene][prev];
-
-  // Delegate to BendersCut member (uses work pool when set).
-  // Enable warm-start on the clone resolve when configured.
-  // Use the previous iteration's forward-pass solution (if any) as hint.
-  auto elastic_opts = opts;
-  elastic_opts.reuse_basis = m_options_.warm_start;
-  elastic_opts.crossover = false;
-  const auto& cur_state = m_scene_phase_states_[scene][phase];
-
-  // Scale the elastic penalty by cost_factor so it is consistent with all
-  // other LP objective coefficients that go through stage_ecost / cost_factor.
-  // The per-variable physical-unit scaling (var_scale) is applied inside
-  // relax_fixed_state_variable() using each link's var_scale field.
-  const auto scale_obj = planning_lp().options().scale_objective();
-  const auto scaled_penalty = m_options_.elastic_penalty / scale_obj;
-
-  auto result = m_benders_cut_.elastic_filter_solve(li,
-                                                    prev_state.outgoing_links,
-                                                    scaled_penalty,
-                                                    elastic_opts,
-                                                    cur_state.forward_col_sol,
-                                                    cur_state.forward_row_dual);
-
-  if (result.has_value()) {
-    SPDLOG_TRACE(
-        "SDDP elastic: scene {} phase {} solved via clone "
-        "(obj={:.4f})",
-        scene,
-        phase,
-        result->clone.get_obj_value());
-  }
-
-  return result;
 }
 
 bool SDDPMethod::check_sentinel_stop() const
@@ -398,448 +220,6 @@ bool SDDPMethod::should_stop() const
 
 // ── Coefficient updates ─────────────────────────────────────────────────────
 
-bool SDDPMethod::should_dispatch_update_lp(IterationIndex iteration) const
-{
-  // Three-way logic from the preallocated iteration vector:
-  //  - update_lp == false  → explicitly skip
-  //  - update_lp == true   → force dispatch (bypass skip count)
-  //  - not specified        → default behaviour (respect global skip count)
-  if (std::cmp_less(Index {iteration}, m_iterations_.size())) {
-    const auto& iter_lp = m_iterations_[iteration];
-
-    if (iter_lp.has_explicit_update_lp()) {
-      return iter_lp.should_update_lp();
-    }
-    // Default: apply global skip count using relative iteration
-    const auto skip = planning_lp().options().sddp_update_lp_skip();
-    const auto rel =
-        static_cast<int>(iteration) - static_cast<int>(m_iteration_offset_);
-    if (skip > 0 && rel > 0 && (rel % (skip + 1)) != 0) {
-      return false;
-    }
-  }
-  return true;
-}
-
-int SDDPMethod::update_lp_for_phase(SceneIndex scene, PhaseIndex phase)
-{
-  auto& sys = planning_lp().system(scene, phase);
-
-  // Set previous phase's SystemLP so that update_lp elements
-  // (seepage, production factor, discharge limit) can look up the
-  // previous phase's efin when computing reservoir volume via
-  // physical_eini.  In warm_start mode, skip this — physical_eini
-  // falls back to the warm solution or vini instead.
-  const auto lookup = planning_lp().options().sddp_state_variable_lookup_mode();
-  if (phase > PhaseIndex {0} && lookup == StateVariableLookupMode::cross_phase)
-  {
-    const auto prev = phase - PhaseIndex {1};
-    sys.set_prev_phase_sys(&planning_lp().system(scene, prev));
-  } else {
-    sys.set_prev_phase_sys(nullptr);
-  }
-
-  return sys.update_lp();
-}
-
-void SDDPMethod::dispatch_update_lp(SceneIndex scene, IterationIndex iteration)
-{
-  if (!should_dispatch_update_lp(iteration)) {
-    return;
-  }
-
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
-
-  for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
-    const auto updated = update_lp_for_phase(scene, phase);
-
-    if (updated > 0) {
-      SPDLOG_TRACE(
-          "{}: updated {} LP elements",
-          sddp_log("Update", iteration, scene_uid(scene), phase_uid(phase)),
-          updated);
-    }
-  }
-}
-
-// ── Forward pass ────────────────────────────────────────────────────────────
-
-// ── SDDP task priority helpers ───────────────────────────────────────────────
-
-namespace
-{
-
-/// Build an `SDDPTaskKey` tuple for an SDDP LP solve task.
-///
-/// The key is `(iteration, is_backward, phase, is_nonlp)` where:
-///  - `is_backward`: 0 = forward pass, 1 = backward pass
-///  - `is_nonlp`:    0 = LP solve/resolve, 1 = other (e.g. write_lp)
-///
-/// With the default `std::less<SDDPTaskKey>` comparator (lexicographic),
-/// smaller tuples have **higher** execution priority:
-///  - Lower iteration → higher priority
-///  - Forward pass (0) → higher priority than backward (1)
-///  - Lower phase index → higher priority
-///  - LP solve (0) → higher priority than non-LP (1)
-///
-/// Both forward and backward LP solves use `TaskPriority::Medium`.
-/// The tuple key alone provides the full SDDP ordering, removing the
-/// need for the old High/Medium tier split.
-
-BasicTaskRequirements<SDDPTaskKey> make_forward_lp_task_req(
-    IterationIndex iteration, PhaseIndex phase) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(
-          iteration, SDDPPassDirection::forward, phase, SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-BasicTaskRequirements<SDDPTaskKey> make_backward_lp_task_req(
-    IterationIndex iteration, PhaseIndex phase) noexcept
-{
-  return BasicTaskRequirements<SDDPTaskKey> {
-      .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(
-          iteration, SDDPPassDirection::backward, phase, SDDPTaskKind::lp),
-      .name = {},
-  };
-}
-
-}  // namespace
-
-// ── forward_pass() — now in sddp_forward_pass.cpp ───────────────────────────
-
-// ── Helper: store a cut for sharing and persistence (thread-safe) ───────────
-
-void SDDPMethod::store_cut(SceneIndex scene,
-                           PhaseIndex src_phase,
-                           const SparseRow& cut,
-                           CutType type,
-                           RowIndex row)
-{
-  m_cut_store_.store_cut(scene,
-                         src_phase,
-                         cut,
-                         type,
-                         row,
-                         m_options_.single_cut_storage,
-                         scene_uid(scene),
-                         phase_uid(src_phase));
-}
-
-// ── Helper: resolve an LP via the work pool (avoids naked direct calls) ─────
-
-auto SDDPMethod::resolve_via_pool(
-    LinearInterface& li,
-    const SolverOptions& opts,
-    const BasicTaskRequirements<SDDPTaskKey>& task_req)
-    -> std::expected<int, Error>
-{
-  if (m_pool_ == nullptr) {
-    // No pool available — fall back to direct solve
-    return li.resolve(opts);
-  }
-
-  auto fut =
-      m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
-  return li.resolve(opts);
-}
-
-// ── Helper: resolve a clone via the work pool ───────────────────────────────
-
-auto SDDPMethod::resolve_clone_via_pool(
-    LinearInterface& clone,
-    const SolverOptions& opts,
-    const BasicTaskRequirements<SDDPTaskKey>& task_req)
-    -> std::expected<int, Error>
-{
-  if (m_pool_ == nullptr) {
-    return clone.resolve(opts);
-  }
-
-  // Submit resolve to the pool.  The clone reference is safe because we
-  // call future.get() synchronously before this scope exits.
-  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
-                             task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN(
-      "resolve_clone_via_pool: pool submit failed, falling back to direct");
-  return clone.resolve(opts);
-}
-
-// ── feasibility_backpropagate() — now in sddp_feasibility.cpp ───────────────
-
-// ── Per-phase backward-pass step (optimality cut only; no feasibility sharing)
-
-auto SDDPMethod::backward_pass_single_phase(SceneIndex scene,
-                                            PhaseIndex phase,
-                                            int cut_offset,
-                                            const SolverOptions& opts,
-                                            IterationIndex iteration)
-    -> std::expected<int, Error>
-{
-  auto& phase_states = m_scene_phase_states_[scene];
-  int cuts_added = 0;
-
-  const auto prev_phase = phase - PhaseIndex {1};
-  auto& src_li = planning_lp().system(scene, prev_phase).linear_interface();
-  const auto& src_state = phase_states[prev_phase];
-
-  // Use cached forward-pass solution for cut generation.
-  const auto& target_state = phase_states[phase];
-
-  const auto coeff_mode = m_options_.cut_coeff_mode;
-
-  const auto sa = m_options_.scale_alpha;
-  const auto ceps = m_options_.cut_coeff_eps;
-  const auto cmax = m_options_.cut_coeff_max;
-  // Use row duals when available; fall back to reduced costs when
-  // forward_row_dual is empty (e.g. elastic solve cleared it).
-  const bool use_row_duals = coeff_mode == CutCoeffMode::row_dual
-      && !target_state.forward_row_dual.empty();
-  auto cut = use_row_duals
-      ? build_benders_cut_from_row_duals(
-            src_state.alpha_col,
-            src_state.outgoing_links,
-            target_state.forward_row_dual,
-            target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa,
-            ceps)
-      : build_benders_cut(
-            src_state.alpha_col,
-            src_state.outgoing_links,
-            target_state.forward_col_cost,
-            target_state.forward_full_obj,
-            sddp_label("sddp", "scut", scene, phase, iteration, cut_offset),
-            sa,
-            ceps);
-  rescale_benders_cut(cut, src_state.alpha_col, cmax);
-  filter_cut_coefficients(cut, src_state.alpha_col, ceps);
-
-  const auto cut_row = src_li.add_row(cut);
-  store_cut(scene, prev_phase, cut, CutType::Optimality, cut_row);
-  ++cuts_added;
-  m_phase_grid_.record(static_cast<int>(iteration),
-                       static_cast<int>(scene_uid(scene)),
-                       static_cast<int>(phase_uid(phase)),
-                       GridCell::Backward);
-
-  SPDLOG_TRACE(
-      "{}: cut for phase {} rhs={:.4f}",
-      sddp_log("Backward", iteration, scene_uid(scene), phase_uid(phase)),
-      phase_uid(prev_phase),
-      cut.lowb);
-
-  // Re-solve source and handle iterative feasibility backpropagation.
-  // Feasibility cuts are never shared between scenes — they stay local.
-  if (phase > PhaseIndex {0}) {
-    auto r = src_li.resolve(opts);
-    // Track max kappa from backward resolve
-    if (r.has_value() && src_li.is_optimal()) {
-      update_max_kappa(scene, prev_phase, src_li, iteration);
-    }
-    if (!r.has_value() || !src_li.is_optimal()) {
-      SPDLOG_WARN(
-          "{}: non-optimal after cut (status {}), starting feasibility "
-          "backpropagation",
-          sddp_log(
-              "Backward", iteration, scene_uid(scene), phase_uid(prev_phase)),
-          src_li.get_status());
-      auto bp_result = feasibility_backpropagate(
-          scene, prev_phase, cut_offset + cuts_added, opts, iteration);
-      if (!bp_result.has_value()) {
-        return std::unexpected(std::move(bp_result.error()));
-      }
-      cuts_added += *bp_result;
-    }
-  }
-
-  return cuts_added;
-}
-
-// ── Backward pass with iterative feasibility backpropagation ────────────────
-
-auto SDDPMethod::backward_pass(SceneIndex scene,
-                               const SolverOptions& opts,
-                               IterationIndex iteration)
-    -> std::expected<int, Error>
-{
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
-  int total_cuts = 0;
-
-  SPDLOG_DEBUG("{}: starting ({} phases)",
-               sddp_log("Backward", iteration, scene_uid(scene)),
-               num_phases);
-
-  // Iterate backward from last phase to phase 1
-  for (const auto phase :
-       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
-  {
-    if (should_stop()) {
-      return std::unexpected(Error {
-          .code = ErrorCode::SolverError,
-          .message = std::format(
-              "{}: cancelled",
-              sddp_log(
-                  "Backward", iteration, scene_uid(scene), phase_uid(phase))),
-      });
-    }
-
-    auto step_result =
-        backward_pass_single_phase(scene, phase, total_cuts, opts, iteration);
-    if (!step_result.has_value()) {
-      return std::unexpected(std::move(step_result.error()));
-    }
-    total_cuts += *step_result;
-  }
-
-  SPDLOG_DEBUG("{}: done, {} cuts added",
-               sddp_log("Backward", iteration, scene_uid(scene)),
-               total_cuts);
-  return total_cuts;
-}
-
-// ── Cut sharing (delegated to sddp_cut_sharing.hpp free function) ───────────
-
-void SDDPMethod::share_cuts_for_phase(
-    PhaseIndex phase,
-    const StrongIndexVector<SceneIndex, std::vector<SparseRow>>& scene_cuts,
-    IterationIndex iteration)
-{
-  gtopt::share_cuts_for_phase(phase,
-                              scene_cuts,
-                              m_options_.cut_sharing,
-                              planning_lp(),
-                              sddp_label("sddp", "share", phase, iteration));
-}
-
-// ── Cut pruning ─────────────────────────────────────────────────────────────
-
-void SDDPMethod::prune_inactive_cuts()
-{
-  m_cut_store_.prune_inactive_cuts(
-      m_options_, planning_lp(), m_scene_phase_states_);
-}
-
-// ── Cut capping ─────────────────────────────────────────────────────────────
-
-void SDDPMethod::cap_stored_cuts()
-{
-  m_cut_store_.cap_stored_cuts(m_options_, planning_lp());
-}
-
-std::vector<StoredCut> SDDPMethod::build_combined_cuts() const
-{
-  return m_cut_store_.build_combined_cuts(planning_lp());
-}
-
-// ── Clone pool (now in sddp_clone_pool.hpp/cpp) ─────────────────────────────
-
-// ── Cut persistence (delegated to sddp_cut_io.hpp free functions) ───────────
-
-auto SDDPMethod::save_cuts(const std::string& filepath) const
-    -> std::expected<void, Error>
-{
-  if (m_options_.single_cut_storage) {
-    const auto combined = m_cut_store_.build_combined_cuts(planning_lp());
-    return save_cuts_csv(combined, planning_lp(), filepath);
-  }
-  return save_cuts_csv(m_cut_store_.stored_cuts(), planning_lp(), filepath);
-}
-
-auto SDDPMethod::save_scene_cuts(SceneIndex scene,
-                                 const std::string& directory) const
-    -> std::expected<void, Error>
-{
-  return save_scene_cuts_csv(m_cut_store_.scene_cuts()[scene],
-                             scene,
-                             scene_uid(scene),
-                             planning_lp(),
-                             directory);
-}
-
-auto SDDPMethod::save_all_scene_cuts(const std::string& directory) const
-    -> std::expected<void, Error>
-{
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    auto result = save_scene_cuts(scene, directory);
-    if (!result.has_value()) {
-      return result;
-    }
-  }
-  return {};
-}
-
-auto SDDPMethod::load_cuts(const std::string& filepath)
-    -> std::expected<CutLoadResult, Error>
-{
-  return load_cuts_csv(
-      planning_lp(), filepath, m_options_.scale_alpha, m_label_maker_);
-}
-
-auto SDDPMethod::load_scene_cuts_from_directory(const std::string& directory)
-    -> std::expected<CutLoadResult, Error>
-{
-  return gtopt::load_scene_cuts_from_directory(
-      planning_lp(), directory, m_options_.scale_alpha, m_label_maker_);
-}
-
-auto SDDPMethod::load_boundary_cuts(const std::string& filepath)
-    -> std::expected<CutLoadResult, Error>
-{
-  return load_boundary_cuts_csv(planning_lp(),
-                                filepath,
-                                m_options_,
-                                m_label_maker_,
-                                m_scene_phase_states_);
-}
-
-auto SDDPMethod::load_named_cuts(const std::string& filepath)
-    -> std::expected<CutLoadResult, Error>
-{
-  return load_named_cuts_csv(planning_lp(),
-                             filepath,
-                             m_options_,
-                             m_label_maker_,
-                             m_scene_phase_states_);
-}
-
-auto SDDPMethod::save_state(const std::string& filepath) const
-    -> std::expected<void, Error>
-{
-  return save_state_csv(
-      planning_lp(), filepath, IterationIndex {m_current_iteration_.load()});
-}
-
-auto SDDPMethod::load_state(const std::string& filepath)
-    -> std::expected<void, Error>
-{
-  return load_state_csv(planning_lp(), filepath);
-}
-
-// ── Monitoring API ───────────────────────────────────────────────────────────
-// Implementation moved to sddp_monitor.cpp (write_solver_status free fn).
-// maybe_write_api_status below builds the snapshot and delegates.
-
-// ─── Private helper method implementations ───────────────────────────────────
-
 auto SDDPMethod::validate_inputs() const -> std::optional<Error>
 {
   const auto& sim = planning_lp().simulation();
@@ -867,89 +247,351 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: initializing solver (no initial solve pass)");
 
-  // Clamp min_iterations: max_iterations always wins
-  m_options_.min_iterations =
-      std::min(m_options_.min_iterations, m_options_.max_iterations);
+  // Clamp ``min_iterations`` to ``max_iterations`` so any user-set
+  // ``min_iterations`` cannot stretch a deliberately tiny run
+  // (e.g. ``max_iterations = 0`` for simulation-only mode, or
+  // ``max_iterations = 1`` for fast integration tests).  The current
+  // default (``min_iterations = 1``) only matters for users who
+  // explicitly bump it (cascade L0 sets ``min_iterations = 3``).
+  // Silent in INFO; promoted to DEBUG so the `--trace` log records
+  // the clamp.
+  if (m_options_.min_iterations > m_options_.max_iterations) {
+    SPDLOG_DEBUG("SDDP: clamping min_iterations {} → {} (max_iterations cap)",
+                 m_options_.min_iterations,
+                 m_options_.max_iterations);
+    m_options_.min_iterations = m_options_.max_iterations;
+  }
 
   const auto init_start = std::chrono::steady_clock::now();
 
   const auto& sim = planning_lp().simulation();
-  const auto num_scenes = static_cast<Index>(sim.scenes().size());
-  const auto num_phases = static_cast<Index>(sim.phases().size());
+  const auto num_scenes = sim.scene_count();
+  const auto num_phases = sim.phase_count();
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
+
+  // Loud warning when cross-scene cut sharing is requested on a
+  // multi-scene run.  gtopt implements multi-cut SDDP (one α per
+  // scene), so cuts from scene S only validly bound α^k_S; the
+  // `accumulate`/`expected`/`max` modes broadcast S's cut onto every
+  // other scene's α, which is mathematically valid only when the
+  // scenes literally share the same sample-path realization (same
+  // inflows, demands, etc. at every (phase, block)).  Production
+  // runs (e.g. juan/gtopt_iplp with 16 distinct hydrology samples)
+  // do not satisfy that condition; the broadcast cuts produce
+  // LB > UB that compounds across iterations.  See
+  // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
+  // and the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
+  if (m_options_.cut_sharing != CutSharingMode::none && num_scenes > 1) {
+    SPDLOG_WARN(
+        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting "
+        "is mathematically valid only when scenes share IDENTICAL "
+        "sample-path realizations (same inflows / demands / capacities "
+        "at every phase and block).  Heterogeneous-realization runs "
+        "may produce LB > UB.  Use cut_sharing=none for production "
+        "multi-scenario runs.  See "
+        "docs/analysis/investigations/sddp/"
+        "sddp_cut_sharing_fix_plan_2026-04-30.md.",
+        enum_name(m_options_.cut_sharing),
+        num_scenes);
+  }
 
   m_scene_phase_states_.resize(num_scenes);
   m_cut_store_.resize_scenes(num_scenes);
   m_infeasibility_counter_.resize(num_scenes);
   m_max_kappa_.resize(num_scenes);
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    m_infeasibility_counter_[scene].resize(num_phases, 0);
-    m_max_kappa_[scene].resize(num_phases, -1.0);
+  m_max_kappa_iter_.resize(num_scenes);
+  // Reset on every solve() — `forward_infeas_rollback` semantics start
+  // fresh per call (`SceneRetryState{}` clears the
+  // global_cuts_at_last_failure optional).
+  m_scene_retry_state_.assign(num_scenes, SceneRetryState {});
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    m_infeasibility_counter_[scene_index].resize(num_phases, 0);
+    m_max_kappa_[scene_index].resize(num_phases, -1.0);
+    m_max_kappa_iter_[scene_index].resize(num_phases, IterationIndex {});
   }
 
-  // Auto-scale alpha: when scale_alpha == 0, compute as the maximum
-  // state variable var_scale across all phases.  This ensures the
-  // alpha LP variable is O(1) relative to the largest state variable.
-  if (m_options_.scale_alpha <= 0.0) {
-    double max_var_scale = 1.0;
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      for (auto&& [phase, _ph] : enumerate<PhaseIndex>(sim.phases())) {
-        for (const auto& [key, svar] : sim.state_variables(scene, phase)) {
-          max_var_scale = std::max(max_var_scale, svar.var_scale());
-        }
+  // ── Resolve aperture_chunk_size (sentinel → concrete K) ────────────────
+  //
+  // Sentinel encoding (from `SddpOptions::aperture_chunk_size`):
+  //   *  0 → auto: pick K so that the resulting per-phase task count
+  //         (`scenes × ⌈A/K⌉`) tracks the work pool's target
+  //         concurrency (`parallel_factor × physical_concurrency`).
+  //   *  1 → legacy 1-aperture-per-task path.
+  //   * >1 → use this K verbatim.
+  //   * -1 → cap at A_max per phase (one task per scene, fully serial
+  //         inside).
+  //
+  // Computed once at setup time and stored back into
+  // `m_options_.aperture_chunk_size` so every per-phase call site
+  // (`solve_apertures_for_phase`) reads the same resolved value.
+  // A_max uses the per-phase aperture override when present
+  // (`PhaseLP::apertures()`), otherwise falls back to the global
+  // `simulation.aperture_array` size — matches the runtime resolution
+  // in `solve_apertures_for_phase`.
+  {
+    const auto& global_aps = sim.apertures();
+    int max_aps_per_phase = 0;
+    for (const auto& plp : sim.phases()) {
+      // PhaseLP::apertures() returns a vector<Uid> by reference;
+      // empty means "use the global aperture_array", non-empty
+      // overrides per phase (and may include duplicates which carry
+      // weight semantics).  Either way, the chunk-size budget tracks
+      // the count the runtime will actually iterate.
+      const auto& per_phase = plp.apertures();
+      const int n = !per_phase.empty() ? static_cast<int>(per_phase.size())
+                                       : static_cast<int>(global_aps.size());
+      max_aps_per_phase = std::max(n, max_aps_per_phase);
+    }
+    const int requested = m_options_.aperture_chunk_size;
+    int resolved = 1;
+    std::string_view source = "user";
+    if (max_aps_per_phase <= 0) {
+      // No apertures anywhere — chunk_size doesn't matter; pick 1 for safety.
+      resolved = 1;
+      source = "no-apertures";
+    } else if (requested == 0) {
+      // Auto path: apply the work-pool-saturation formula then round
+      // DOWN to the nearest power of two (1, 2, 4, 8, 16, …) so chunk
+      // shapes are balanced.  On juan/IPLP 16-scene × 16-aperture ×
+      // 51-phase under barrier + split crossover + the bulk-API
+      // `set_col_bounds_bulk` path (b85011e1) the auto-selected K=4
+      // matches K=8 = 142.6 s, both ahead of legacy K=1 = 147.3 s.
+      // Users who want a specific K override via
+      // `aperture_chunk_size: K` in JSON or `--aperture-chunk-size K`
+      // on the CLI; "auto" (or 0) maps here.
+      resolved = compute_auto_aperture_chunk_size(
+          max_aps_per_phase,
+          static_cast<int>(num_scenes),
+          static_cast<int>(physical_concurrency()),
+          /*parallel_factor=*/2.0);
+      source = "auto";
+    } else if (requested == -1) {
+      resolved = max_aps_per_phase;
+      source = "fully-serial";
+    } else {
+      resolved = std::min(std::max(requested, 1), max_aps_per_phase);
+      source = "user";
+    }
+    SPDLOG_INFO(
+        "SDDP Aperture: chunk_size={} ({}: A_max={} S={} cores={} pf=2.0)",
+        resolved,
+        source,
+        max_aps_per_phase,
+        num_scenes,
+        physical_concurrency());
+    m_options_.aperture_chunk_size = resolved;
+  }
+
+  // ── Low-memory mode: configure all SystemLPs ──────────────────────────────
+  if (m_options_.low_memory_mode != LowMemoryMode::off) {
+    const auto codec = select_codec(m_options_.memory_codec);
+    // Under a configured process memory limit, also drop the disposable XLP
+    // collection wrappers on every `release_backend()` so the resident
+    // floor is bounded to the active working set instead of all cells'
+    // ~30 MB wrappers (the dominant compress-mode floor on large models).
+    // Off when no limit — keeps the P3 keep-resident speed default.
+    const bool drop_collections = m_options_.pool_memory_limit_mb > 0.0;
+    SPDLOG_INFO("SDDP: low_memory mode {} (codec: {}){}",
+                enum_name(m_options_.low_memory_mode),
+                codec_name(codec),
+                drop_collections
+                    ? " + drop-collections-on-release (memory limit set)"
+                    : "");
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        auto& sys = planning_lp().system(scene_index, phase_index);
+        sys.set_low_memory(m_options_.low_memory_mode, codec);
+        sys.set_drop_collections_on_release(drop_collections);
       }
     }
-    m_options_.scale_alpha = max_var_scale;
-    SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (max state var_scale)",
-                m_options_.scale_alpha);
   }
 
-  SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    initialize_alpha_variables(scene);
-    collect_state_variable_links(scene);
-    SPDLOG_DEBUG("SDDP: scene {} initialized ({} state links)",
-                 scene_uid(scene),
-                 m_scene_phase_states_[scene].empty()
-                     ? 0
-                     : m_scene_phase_states_[scene][PhaseIndex {0}]
-                           .outgoing_links.size());
-  }
+  // Resolve relative SDDP file paths against `input_directory` (mirrors the
+  // aperture-directory resolution at sddp_method.cpp:179-186).  Defined here
+  // (ahead of the α-scale block) because the boundary-cut path is needed to
+  // derive scale_alpha below; the cut loaders further down reuse the same
+  // lambda.  Without this, gtopt invoked from a cwd other than the case dir
+  // silently skips boundary / named / hot-start cut files even when the JSON
+  // wires them up correctly.  Absolute paths pass through unchanged.
+  const auto resolve_input = [&](const std::string& path) -> std::string
+  {
+    if (path.empty()) {
+      return path;
+    }
+    const std::filesystem::path p {path};
+    if (p.is_absolute()) {
+      return path;
+    }
+    return (std::filesystem::path {planning_lp().options().input_directory()}
+            / p)
+        .string();
+  };
 
-  // Save per-(scene, phase) base row counts before any cuts are loaded.
-  // Rows below this threshold are structural constraints and are never
-  // pruned; rows above it are Benders cuts (including hot-start cuts).
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    for (const auto phase : iota_range<PhaseIndex>(0, num_phases)) {
-      auto& li = planning_lp().system(scene, phase).linear_interface();
-      li.save_base_numrows();
-      m_scene_phase_states_[scene][phase].base_nrows = li.base_numrows();
+  // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
+  // master optimum so that the LP-space α coefficient lands O(1)
+  // after the cut row's α-pivot equilibration (see
+  // ``LinearInterface::add_row`` step 3 + ``SparseRow::pivot_col``).
+  //
+  // Estimator:
+  //   α_phys at convergence ≈ Σ_t z_t = sum of per-phase block
+  //   costs at the master's optimal trajectory.  We don't have z_t
+  //   pre-solve, but a robust upper-bound proxy is
+  //
+  //     α_estimate = max_lp_coef × scale_objective × num_phases²
+  //
+  //   where:
+  //     - max_lp_coef = max ``lp_stats_max_abs`` across all cells
+  //       (pre-equilibration semantic max; post-equilibration would
+  //       be 1.0 — both work as a conservative size proxy)
+  //     - scale_objective folds back to physical
+  //     - num_phases² is the triangular weight (each later phase's
+  //       cost contributes to all earlier α's, so Σ α_t scales as
+  //       N(N+1)/2 of the per-phase magnitude)
+  //
+  // Rounded UP to the next power of 10 (mirrors
+  // ``auto_scale_reservoirs``'s ``scale_for()`` helper) so the LP
+  // coefficient log shows clean numbers (e.g. ``scale_alpha = 1e9``
+  // not ``2.6e9``) — easier to debug and compare across runs.
+  //
+  // The previous heuristic (`max state var_scale`, e.g. juan
+  // reservoir 1453) tied scale_alpha to the wrong axis: state
+  // variables drop out of cut-row LP coefficients (s_v cancels), so
+  // their magnitude doesn't drive cut-row κ.  α's magnitude does.
+  if (m_options_.scale_alpha <= 0.0) {
+    // Boundary-cut workflow: derive scale_alpha from the cut coefficients
+    // through the SAME shared computation MonolithicMethod uses
+    // (`boundary_cut_scale_alpha`).  The rule no longer depends on any
+    // per-method state, so α is scaled identically regardless of solver
+    // method.  Only when no boundary-cut file is supplied (cuts are produced
+    // dynamically by the backward pass) do we fall back to the α-magnitude
+    // proxy below — there are no input coefficients to read in that case.
+    double cut_scale = 0.0;
+    if (!m_options_.boundary_cuts_file.empty()) {
+      const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
+      if (std::filesystem::exists(bc_path)) {
+        cut_scale = boundary_cut_scale_alpha(
+            planning_lp(), bc_path, /*option_scale_alpha=*/0.0);
+      }
+    }
+
+    if (cut_scale > 0.0) {
+      m_options_.scale_alpha = cut_scale;
+      SPDLOG_INFO("SDDP: auto scale_alpha = {:.2e} (from boundary-cut coeffs)",
+                  m_options_.scale_alpha);
+    } else {
+      // No input cuts — proxy α's magnitude from the LP coefficient scale.
+      //   scale_alpha ≈ scale_obj × num_phases × max_lp_coef
+      // Rationale: α_phys at master optimum ≈ Σ_t block_cost_t = O(N)
+      // per-phase magnitudes, rounded UP to the next power of ten.
+      double max_lp_coef = 1.0;
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+          const auto& li =
+              planning_lp().system(scene_index, phase_index).linear_interface();
+          max_lp_coef = std::max(max_lp_coef, li.lp_stats_max_abs());
+        }
+      }
+      const auto scale_obj = planning_lp().options().scale_objective();
+      const auto num_phases_d = static_cast<double>(num_phases);
+      const auto raw_estimate = max_lp_coef * scale_obj * num_phases_d;
+      const auto raw_clamped = std::max(raw_estimate, 1.0);
+      m_options_.scale_alpha =
+          std::pow(10.0, std::ceil(std::log10(raw_clamped)));
+      SPDLOG_INFO(
+          "SDDP: auto scale_alpha = {:.2e} (raw_estimate={:.3e} = "
+          "max_lp_coef={:.3e} × scale_obj={:.0f} × num_phases={})",
+          m_options_.scale_alpha,
+          raw_estimate,
+          max_lp_coef,
+          scale_obj,
+          num_phases);
     }
   }
 
-  // ── Initialize clone pool (skipped in simulation mode) ───────────────────
-  if (m_options_.use_clone_pool && m_options_.max_iterations > 0) {
-    m_clone_pool_.allocate(num_scenes, num_phases);
-    SPDLOG_DEBUG("SDDP: clone pool allocated for {} scene×phase slots",
-                 static_cast<std::size_t>(num_scenes)
-                     * static_cast<std::size_t>(num_phases));
+  // The setup steps below (add_col for alpha, get_col bounds for
+  // state links, save_base_numrows, cut loading) trigger the
+  // reconstruct-from-snapshot transparently per-cell when the backend
+  // is released — so no eager build pass is needed here regardless of
+  // low_memory mode.
+
+  SPDLOG_INFO("SDDP: adding alpha variables and collecting state links");
+  // Per-scene setup is independent across scenes: each writes to its
+  // own slot of m_scene_phase_states_.  Under compress mode every
+  // add_col(alpha) / bound-read triggers a snapshot reconstruct per
+  // cell via ensure_backend, so a serial loop over 16 scenes × 51
+  // phases = ~100s wall on large problems.  Dispatch per-scene to the
+  // solver work pool for ~16× speedup on that critical path.
+  {
+    auto pool = make_solver_work_pool(
+        m_options_.pool_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
+        /*pool_label=*/"SDDP alpha-setup pool");
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_scenes);
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      auto result = pool->submit(
+          [this, scene_index, num_phases]
+          {
+            initialize_alpha_variables(scene_index);
+            collect_state_variable_links(scene_index);
+            // Save per-(scene, phase) base row counts in the same
+            // scope so we amortize the ensure_backend rebuilds across
+            // all per-cell setup work.
+            for (const auto phase_index :
+                 iota_range<PhaseIndex>(0, num_phases)) {
+              auto& li = planning_lp()
+                             .system(scene_index, phase_index)
+                             .linear_interface();
+              li.save_base_numrows();
+              m_scene_phase_states_[scene_index][phase_index].base_nrows =
+                  li.base_numrows();
+            }
+            SPDLOG_DEBUG(
+                "SDDP: scene {} initialized ({} state links)",
+                uid_of(scene_index),
+                m_scene_phase_states_[scene_index].empty()
+                    ? 0
+                    : m_scene_phase_states_[scene_index][first_phase_index()]
+                          .outgoing_links.size());
+          });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      }
+    }
+    for (auto& fut : futures) {
+      fut.get();
+    }
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────
   // Recovery cuts (explicit input, scene recovery) require
   // recovery_mode >= cuts.  Without --recover, the solver starts cold.
+  // All individual load events are logged at DEBUG; one summary INFO line
+  // is emitted at the end so a user can tell cold-vs-warm at a glance.
   m_iteration_offset_ = IterationIndex {};
+
+  std::size_t cuts_count = 0;
+  std::string cuts_source;  // "" → cold; otherwise file or dir path
+  std::size_t boundary_count = 0;
+
+  // `resolve_input` is defined above the α-scale block (it is also used to
+  // locate the boundary-cut file for scale_alpha).
 
   if (m_options_.recovery_mode >= RecoveryMode::cuts) {
     if (!m_options_.cuts_input_file.empty()) {
-      auto result = load_cuts(m_options_.cuts_input_file);
+      const auto cuts_path = resolve_input(m_options_.cuts_input_file);
+      auto result = load_cuts(cuts_path);
       if (result.has_value()) {
-        m_iteration_offset_ =
-            std::max(m_iteration_offset_, result->max_iteration);
-        SPDLOG_INFO("SDDP hot-start: loaded {} cuts (max_iter={})",
-                    result->count,
-                    result->max_iteration);
+        // load_cuts() already updated m_iteration_offset_ via next() so
+        // the first new iteration is strictly past result->max_iteration.
+        cuts_count = result->count;
+        cuts_source = cuts_path;
+        SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts (max_iter={})",
+                     result->count,
+                     result->max_iteration);
       } else {
         SPDLOG_WARN("SDDP hot-start: could not load cuts: {}",
                     result.error().message);
@@ -962,15 +604,29 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       if (!cut_dir.empty() && std::filesystem::exists(cut_dir)) {
         auto result = load_scene_cuts_from_directory(cut_dir.string());
         if (result.has_value() && result->count > 0) {
-          m_iteration_offset_ = std::max(
-              m_iteration_offset_, IterationIndex {result->max_iteration});
-          SPDLOG_INFO("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
-                      result->count,
-                      cut_dir.string(),
-                      result->max_iteration);
+          // Start strictly past the highest loaded iteration; otherwise
+          // the first new save_cuts_for_iteration would collide with a
+          // loaded cut at the same index in m_cut_store_.
+          m_iteration_offset_ =
+              std::max(m_iteration_offset_, next(result->max_iteration));
+          cuts_count = result->count;
+          cuts_source = cut_dir.string();
+          SPDLOG_DEBUG("SDDP hot-start: loaded {} cuts from {} (max_iter={})",
+                       result->count,
+                       cut_dir.string(),
+                       result->max_iteration);
         }
       }
     }
+  }
+
+  // ── Apply caller-supplied offset hint (e.g. cascade level base) ───────
+  // Composed with the hot-start offset via std::max, so hot-start cuts
+  // always win when they demand a higher offset.  This is what gives
+  // each cascade level a disjoint iteration-index range in m_cut_store_
+  // without relying on inherited cuts to carry the offset forward.
+  if (const auto hint = m_options_.iteration_offset_hint; hint.has_value()) {
+    m_iteration_offset_ = std::max(m_iteration_offset_, *hint);
   }
 
   // ── Load boundary cuts (future-cost function for last phase) ──────────
@@ -978,70 +634,116 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // PLP's "planos de embalse"), NOT recovery state.  They do NOT
   // affect the iteration offset — the solver always starts from
   // iteration 0 (or from the recovery offset if recovery cuts exist).
+  // Missing file with a non-empty config path = WARN (silent skip used
+  // to mask common "cwd ≠ case dir" mistakes).
   if (!m_options_.boundary_cuts_file.empty()) {
-    auto result = load_boundary_cuts(m_options_.boundary_cuts_file);
-    if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} boundary cuts from {}",
-                  result->count,
-                  m_options_.boundary_cuts_file);
-    } else {
-      SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
-                  result.error().message);
-    }
-  }
-
-  // ── Load named cuts (all phases, named state variables) ────────────────
-  // Named cuts are also part of the problem specification — always load,
-  // but do NOT affect the iteration offset.
-  if (!m_options_.named_cuts_file.empty()) {
-    auto result = load_named_cuts(m_options_.named_cuts_file);
-    if (result.has_value()) {
-      SPDLOG_INFO("SDDP: loaded {} named cuts from {}",
-                  result->count,
-                  m_options_.named_cuts_file);
-    } else {
-      SPDLOG_WARN("SDDP: could not load named cuts: {}",
-                  result.error().message);
-    }
-  }
-
-  if (m_iteration_offset_ > 0) {
-    SPDLOG_INFO("SDDP: iteration offset set to {} from hot-start cuts",
-                m_iteration_offset_);
-  }
-
-  // ── Load state variable column solutions ──────────────────────────────────
-  // Recover state when recovery_mode is "full" and cuts were loaded.
-  if (m_options_.recovery_mode == RecoveryMode::full
-      && (m_options_.cut_recovery_mode != HotStartMode::none
-          || m_iteration_offset_ > 0)
-      && !m_options_.cuts_output_file.empty())
-  {
-    const auto cut_dir =
-        std::filesystem::path(m_options_.cuts_output_file).parent_path();
-    const auto state_file = (cut_dir / sddp_file::state_cols).string();
-    if (std::filesystem::exists(state_file)) {
-      auto result = load_state(state_file);
+    const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
+    if (std::filesystem::exists(bc_path)) {
+      auto result = load_boundary_cuts(bc_path);
       if (result.has_value()) {
-        SPDLOG_INFO("SDDP: loaded state variables from {}", state_file);
+        boundary_count = result->count;
+        // Capture the per-scene α-rebase offsets (zero unless the
+        // mean-shift opt-in fired and the scene received cuts).
+        // Used by SDDP UB / LB display sites to add c̄_scene back so
+        // the user sees the pre-shift physical objective regardless
+        // of the LP-side cut storage convention.
+        m_scene_alpha_offsets_ = std::move(result->alpha_offsets_per_scene);
+        SPDLOG_DEBUG(
+            "SDDP: loaded {} boundary cuts from {}", result->count, bc_path);
       } else {
-        SPDLOG_WARN("SDDP: could not load state variables: {}",
+        SPDLOG_WARN("SDDP: could not load boundary cuts: {}",
                     result.error().message);
+      }
+    } else {
+      SPDLOG_WARN(
+          "SDDP: boundary_cuts_file '{}' not found (resolved to '{}') — "
+          "α at the last phase will stay pinned at 0",
+          m_options_.boundary_cuts_file,
+          bc_path);
+    }
+  }
+
+  // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
+  // The "named" hot-start path was retired in 2026-05; internal cuts
+  // travel via the Parquet ``cuts_input_file`` route only.  Boundary
+  // cuts (CSV) are still loaded above when ``boundary_cuts_file`` is
+  // set.
+  {
+    const auto fmt_count = [](std::size_t n) -> std::string
+    { return n == 0 ? std::string {"none"} : std::to_string(n); };
+    SPDLOG_INFO(
+        "SDDP HotStart: cuts={} boundary={} iter_offset={}",
+        cuts_source.empty() ? std::string {"cold"} : fmt_count(cuts_count),
+        fmt_count(boundary_count),
+        m_iteration_offset_);
+  }
+
+  // ── Low-memory: release every per-cell backend after initialization ─────
+  //
+  // `release_backend` is a no-op under `LowMemoryMode::off`, so the loop
+  // runs unconditionally.  Cut loaders already populated `m_active_cuts_`
+  // via `record_cut_row`, so the persistent state needed to reconstruct
+  // each cell is intact.  Eager release here keeps the memory profile
+  // uniform under compress: the forward pass's per-phase
+  // `ensure_lp_built` will reload each cell on first touch.
+  //
+  // Under `compress` each release does real work (zstd/lz4 compression
+  // of a multi-MB flat LP).  For 800+ cells that's seconds of CPU.
+  // Dispatch across the solver work pool when more than one cell is
+  // in the grid; otherwise fall through to a direct call.
+  if (m_options_.low_memory_mode != LowMemoryMode::off
+      && num_scenes * num_phases > 1)
+  {
+    auto pool = make_solver_work_pool(
+        m_options_.pool_cpu_factor,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
+        /*pool_label=*/"SDDP backend-release pool");
+    std::vector<std::future<void>> futures;
+    futures.reserve(static_cast<std::size_t>(num_scenes)
+                    * static_cast<std::size_t>(num_phases));
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        auto result = pool->submit(
+            [this, scene_index, phase_index]
+            {
+              planning_lp().system(scene_index, phase_index).release_backend();
+            });
+        if (result.has_value()) {
+          futures.push_back(std::move(*result));
+        }
+      }
+    }
+    for (auto& fut : futures) {
+      fut.get();
+    }
+  } else {
+    for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        planning_lp().system(scene_index, phase_index).release_backend();
       }
     }
   }
 
   // ── Build preallocated iteration vector ───────────────────────────────────
   {
+    // `next(offset, n)` returns the exclusive upper bound of a training
+    // run starting at `m_iteration_offset_` and taking `max_iterations`
+    // steps — the strong-index analogue of `offset + n` kept strongly
+    // typed so the iota_range and array subscripts below don't need
+    // any cast back from `Index`.
     const auto total_iterations =
-        static_cast<Index>(m_iteration_offset_) + m_options_.max_iterations;
+        next(m_iteration_offset_, m_options_.max_iterations);
     m_iterations_.resize(total_iterations);
-    for (auto i = Index {0}; i < total_iterations; ++i) {
-      m_iterations_[IterationIndex {i}] = IterationLP {
+    for (const auto iidx :
+         iota_range<IterationIndex>(IterationIndex {0}, total_iterations))
+    {
+      m_iterations_[iidx] = IterationLP {
           Iteration {
-              .index = i,
+              .index = value_of(iidx),
           },
-          IterationIndex {i},
+          iidx,
       };
     }
     // Overlay user-specified entries from simulation.iteration_array
@@ -1070,452 +772,12 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
 void SDDPMethod::reset_live_state() noexcept
 {
-  m_current_iteration_.store(0);
-  m_current_gap_.store(1.0);
-  m_current_lb_.store(0.0);
-  m_current_ub_.store(0.0);
-  m_converged_.store(false);
+  // Publish a fresh default-initialised snapshot.  Callers of the
+  // live-query API see `(iteration=0, gap=1.0, lb=0.0, ub=0.0,
+  // converged=false)` as a single coherent reset.
+  publish_live_metrics_(LiveMetrics {});
   m_current_pass_.store(0);
   m_scenes_done_.store(0);
-}
-
-auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
-                                             const SolverOptions& opts,
-                                             IterationIndex iter)
-    -> std::expected<ForwardPassOutcome, Error>
-{
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-
-  m_current_pass_.store(1);
-  m_scenes_done_.store(0);
-
-  SPDLOG_INFO("{}: dispatching {} scene(s) to work pool",
-              sddp_log("Forward", iter),
-              num_scenes);
-
-  const auto fwd_start = std::chrono::steady_clock::now();
-  std::vector<std::future<std::expected<double, Error>>> futures;
-  futures.reserve(num_scenes);
-
-  // Forward-pass scene tasks use High priority; lower iteration = higher key.
-  const auto fwd_req = make_forward_lp_task_req(iter, PhaseIndex {0});
-
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    auto fut = pool.submit([this, scene, iter, &opts]
-                           { return forward_pass(scene, opts, iter); },
-                           fwd_req);
-    futures.push_back(std::move(fut.value()));
-  }
-
-  ForwardPassOutcome out;
-  out.scene_upper_bounds.resize(num_scenes, 0.0);
-  out.scene_feasible.resize(num_scenes, 1);
-
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene);
-    auto fwd = futures[si_sz].get();
-    if (!fwd.has_value()) {
-      SPDLOG_WARN("{}: failed: {}",
-                  sddp_log("Forward", iter, scene_uid(scene)),
-                  fwd.error().message);
-      out.has_feasibility_issue = true;
-      out.scene_feasible[si_sz] = 0;
-      m_scenes_done_.fetch_add(1);
-      continue;
-    }
-    out.scene_upper_bounds[si_sz] = *fwd;
-    ++out.scenes_solved;
-    m_scenes_done_.fetch_add(1);
-    if ((scene + 1) % 4 == 0 || scene + 1 == num_scenes) {
-      SPDLOG_DEBUG("{}: {}/{} scenes completed",
-                   sddp_log("Forward", iter),
-                   scene + 1,
-                   num_scenes);
-    }
-  }
-
-  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                                - fwd_start)
-                      .count();
-
-  m_current_pass_.store(0);
-
-  if (out.scenes_solved == 0) {
-    return std::unexpected(Error {
-        .code = ErrorCode::SolverError,
-        .message = "SDDP: all scenes infeasible in forward pass",
-    });
-  }
-
-  return out;
-}
-
-auto SDDPMethod::run_backward_pass_all_scenes(
-    std::span<const uint8_t> scene_feasible,
-    SDDPWorkPool& pool,
-    const SolverOptions& opts,
-    IterationIndex iter) -> BackwardPassOutcome
-{
-  // Enable warm-start for backward pass LP re-solves.  After adding a single
-  // cut row, the previous basis is still near-optimal — dual simplex handles
-  // this in very few pivots.  This is especially important when barrier is the
-  // default algorithm, since barrier would ignore the basis entirely.
-  auto bwd_opts = opts;
-  if (m_options_.warm_start) {
-    bwd_opts.reuse_basis = true;
-  }
-
-  m_current_pass_.store(2);
-  m_scenes_done_.store(0);
-
-  // When cut sharing is enabled, use the phase-synchronized backward pass:
-  // all scenes complete a phase before cuts are shared and the next phase
-  // is processed.  When sharing is disabled (None), scenes run their full
-  // backward pass independently in parallel with no synchronization.
-  if (m_options_.cut_sharing != CutSharingMode::none) {
-    auto result =
-        run_backward_pass_synchronized(scene_feasible, pool, bwd_opts, iter);
-    m_current_pass_.store(0);
-    return result;
-  }
-
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-
-  SPDLOG_INFO(
-      "{}: dispatching {} scene(s) to work pool "
-      "(cut_sharing=none, apertures={})",
-      sddp_log("Backward", iter),
-      num_scenes,
-      !m_options_.apertures || !m_options_.apertures->empty() ? "enabled"
-                                                              : "disabled");
-
-  const auto bwd_start = std::chrono::steady_clock::now();
-  std::vector<std::future<std::expected<int, Error>>> futures;
-  futures.reserve(num_scenes);
-
-  // Backward-pass scene tasks use Medium priority; scenes with lower index
-  // get slightly higher priority_key (phase 0 = lowest phase index).
-  const auto bwd_req = make_backward_lp_task_req(iter, PhaseIndex {0});
-
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    if (scene_feasible[static_cast<std::size_t>(scene)] == 0U) {
-      continue;
-    }
-    const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
-    auto fut = use_ap
-        ? pool.submit(
-              [this, scene, &bwd_opts, iter]
-              { return backward_pass_with_apertures(scene, bwd_opts, iter); },
-              bwd_req)
-        : pool.submit([this, scene, &bwd_opts, iter]
-                      { return backward_pass(scene, bwd_opts, iter); },
-                      bwd_req);
-    futures.push_back(std::move(fut.value()));
-  }
-
-  BackwardPassOutcome out;
-  int bwd_done = 0;
-  const auto bwd_total = static_cast<int>(futures.size());
-  for (auto& fut : futures) {
-    auto bwd = fut.get();
-    ++bwd_done;
-    if (!bwd.has_value()) {
-      SPDLOG_WARN(
-          "{}: failed: {}", sddp_log("Backward", iter), bwd.error().message);
-      out.has_feasibility_issue = true;
-      m_scenes_done_.fetch_add(1);
-      continue;
-    }
-    out.total_cuts += *bwd;
-    m_scenes_done_.fetch_add(1);
-    if (bwd_done % 4 == 0 || bwd_done == bwd_total) {
-      SPDLOG_DEBUG("{}: {}/{} scenes completed",
-                   sddp_log("Backward", iter),
-                   bwd_done,
-                   bwd_total);
-    }
-  }
-
-  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                                - bwd_start)
-                      .count();
-
-  m_current_pass_.store(0);
-  return out;
-}
-
-// ── Phase-synchronized backward pass (for cut sharing) ──────────────────────
-
-auto SDDPMethod::run_backward_pass_synchronized(
-    std::span<const uint8_t> scene_feasible,
-    SDDPWorkPool& pool,
-    const SolverOptions& opts,
-    IterationIndex iter) -> BackwardPassOutcome
-{
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-  const auto num_phases =
-      static_cast<Index>(planning_lp().simulation().phases().size());
-
-  const auto bwd_start = std::chrono::steady_clock::now();
-  BackwardPassOutcome out;
-
-  // Per-scene cumulative cut count for unique cut labels across phase steps
-  std::vector<int> per_scene_cut_count(static_cast<std::size_t>(num_scenes), 0);
-
-  // Apertures enabled unless explicitly set to empty array
-  const bool use_apertures =
-      !m_options_.apertures || !m_options_.apertures->empty();
-
-  // Process phases backward: all scenes complete one phase before
-  // sharing cuts and moving to the previous phase.
-  for (const auto phase :
-       iota_range<PhaseIndex>(1, num_phases) | std::views::reverse)
-  {
-    const auto cuts_before_step = m_cut_store_.stored_cuts().size();
-
-    // Submit all feasible scenes for this phase step in parallel
-    std::vector<std::pair<SceneIndex, std::future<std::expected<int, Error>>>>
-        futures;
-    futures.reserve(num_scenes);
-
-    const auto bwd_req = make_backward_lp_task_req(iter, phase);
-
-    for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-      if (scene_feasible[static_cast<std::size_t>(scene)] == 0U) {
-        continue;
-      }
-      const int offset = per_scene_cut_count[static_cast<std::size_t>(scene)];
-
-      auto fut = use_apertures
-          ? pool.submit(
-                [this, scene, phase, offset, &opts, iter]
-                {
-                  return backward_pass_with_apertures_single_phase(
-                      scene, phase, offset, opts, iter);
-                },
-                bwd_req)
-          : pool.submit(
-                [this, scene, phase, offset, &opts, iter]
-                {
-                  return backward_pass_single_phase(
-                      scene, phase, offset, opts, iter);
-                },
-                bwd_req);
-      futures.emplace_back(scene, std::move(fut.value()));
-    }
-
-    // Wait for all scenes to complete this phase step
-    for (auto& [scene, fut] : futures) {
-      auto step_result = fut.get();
-      if (!step_result.has_value()) {
-        SPDLOG_WARN("SDDP backward synchronized: scene {} phase {} failed: {}",
-                    scene,
-                    phase,
-                    step_result.error().message);
-        out.has_feasibility_issue = true;
-        m_scenes_done_.fetch_add(1);
-        continue;
-      }
-      out.total_cuts += *step_result;
-      per_scene_cut_count[static_cast<std::size_t>(scene)] += *step_result;
-      m_scenes_done_.fetch_add(1);
-    }
-
-    // Share optimality cuts generated in this phase step across all scenes.
-    // Feasibility cuts are stored but only optimality cuts are shared.
-    const auto src_phase = phase - PhaseIndex {1};
-
-    StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
-    scene_cuts.resize(num_scenes);
-
-    // Build scene UID → SceneIndex lookup for cut sharing
-    flat_map<SceneUid, SceneIndex> scene_uid_map;
-    const auto& scenes = planning_lp().simulation().scenes();
-    for (auto&& [si, sc_lp] : enumerate<SceneIndex>(scenes)) {
-      scene_uid_map[sc_lp.uid()] = si;
-    }
-
-    {
-      const std::scoped_lock lock(m_cut_store_.cuts_mutex());
-      for (std::size_t ci = cuts_before_step;
-           ci < m_cut_store_.stored_cuts().size();
-           ++ci)
-      {
-        const auto& sc = m_cut_store_.stored_cuts()[ci];
-        // Only share optimality cuts; feasibility cuts stay local
-        if (sc.type != CutType::Optimality) {
-          continue;
-        }
-        if (sc.phase != phase_uid(src_phase)) {
-          continue;
-        }
-        auto row = SparseRow {
-            .name = sc.name,
-            .lowb = sc.rhs,
-            .uppb = LinearProblem::DblMax,
-        };
-        for (const auto& [col, coeff] : sc.coefficients) {
-          row[ColIndex {col}] = coeff;
-        }
-        auto sit = scene_uid_map.find(sc.scene);
-        if (sit != scene_uid_map.end()) {
-          scene_cuts[sit->second].push_back(std::move(row));
-        }
-      }
-    }
-
-    share_cuts_for_phase(src_phase, scene_cuts, iter);
-
-    SPDLOG_TRACE(
-        "SDDP backward synchronized: phase {} cuts shared across {} scenes",
-        phase,
-        num_scenes);
-  }
-
-  out.elapsed_s = std::chrono::duration<double>(std::chrono::steady_clock::now()
-                                                - bwd_start)
-                      .count();
-  return out;
-}
-
-void SDDPMethod::compute_iteration_bounds(
-    SDDPIterationResult& ir,
-    std::span<const uint8_t> scene_feasible,
-    std::span<const double> weights) const
-{
-  const auto num_scenes =
-      static_cast<Index>(planning_lp().simulation().scenes().size());
-
-  double weighted_upper = 0.0;
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene);
-    weighted_upper += weights[si_sz] * ir.scene_upper_bounds[si_sz];
-  }
-  ir.upper_bound = weighted_upper;
-
-  ir.scene_lower_bounds.resize(num_scenes, 0.0);
-  double weighted_lower = 0.0;
-  for (const auto scene : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto si_sz = static_cast<std::size_t>(scene);
-    if (scene_feasible[si_sz] == 0U) {
-      continue;
-    }
-    const double lb_si = planning_lp()
-                             .system(scene, PhaseIndex {0})
-                             .linear_interface()
-                             .get_obj_value();
-    ir.scene_lower_bounds[si_sz] = lb_si;
-    weighted_lower += weights[si_sz] * lb_si;
-  }
-  ir.lower_bound = weighted_lower;
-}
-
-void SDDPMethod::apply_cut_sharing_for_iteration(std::size_t cuts_before,
-                                                 IterationIndex iteration)
-{
-  m_cut_store_.apply_cut_sharing_for_iteration(
-      cuts_before, iteration, m_options_, planning_lp(), m_label_maker_);
-}
-
-void SDDPMethod::finalize_iteration_result(SDDPIterationResult& ir,
-                                           IterationIndex iter)
-{
-  ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-  // Only declare convergence if both the gap tolerance is met AND
-  // we have completed at least min_iterations (default 2).
-  ir.converged = (ir.gap < m_options_.convergence_tol)
-      && (iter >= m_iteration_offset_
-              + IterationIndex {m_options_.min_iterations - 1});
-
-  m_current_iteration_.store(iter);
-  m_current_gap_.store(ir.gap);
-  m_current_lb_.store(ir.lower_bound);
-  m_current_ub_.store(ir.upper_bound);
-  m_converged_.store(ir.converged);
-
-  SPDLOG_TRACE(
-      "SDDP iter {}: LB={:.4f} UB={:.4f} gap={:.6f} gap_change={:.6f} "
-      "cuts={} infeas_cuts={} fwd={:.3f}s bwd={:.3f}s total={:.3f}s{}",
-      iter,
-      ir.lower_bound,
-      ir.upper_bound,
-      ir.gap,
-      ir.gap_change,
-      ir.cuts_added,
-      ir.infeasible_cuts_added,
-      ir.forward_pass_s,
-      ir.backward_pass_s,
-      ir.iteration_s,
-      ir.converged ? " [CONVERGED]" : "");
-
-  SPDLOG_INFO("SDDP iter {}: gap={:.6f} gap_change={:.6f} ({:.3f}s){}",
-              iter,
-              ir.gap,
-              ir.gap_change,
-              ir.iteration_s,
-              ir.converged ? " [CONVERGED]" : "");
-}
-
-void SDDPMethod::maybe_write_api_status(
-    const std::string& status_file,
-    const std::vector<SDDPIterationResult>& results,
-    std::chrono::steady_clock::time_point solve_start,
-    const SolverMonitor& monitor) const
-{
-  if (!m_options_.enable_api || status_file.empty()) {
-    return;
-  }
-  const double elapsed = std::chrono::duration<double>(
-                             std::chrono::steady_clock::now() - solve_start)
-                             .count();
-  // Query the actual solver identity from the first available LP
-  std::string solver_id;
-  if (!planning_lp().systems().empty()
-      && !planning_lp().systems().front().empty())
-  {
-    solver_id =
-        planning_lp().systems().front().front().linear_interface().solver_id();
-  }
-
-  const SolverStatusSnapshot snapshot {
-      .iteration = m_current_iteration_.load(),
-      .gap = m_current_gap_.load(),
-      .lower_bound = m_current_lb_.load(),
-      .upper_bound = m_current_ub_.load(),
-      .converged = m_converged_.load(),
-      .max_iterations = m_options_.max_iterations,
-      .min_iterations = m_options_.min_iterations,
-      .current_pass = m_current_pass_.load(),
-      .scenes_done = m_scenes_done_.load(),
-      .solver = std::move(solver_id),
-      .method = "sddp",
-      .phase_grid = &m_phase_grid_,
-  };
-  write_solver_status(status_file, results, elapsed, snapshot, monitor);
-}
-
-void SDDPMethod::save_cuts_for_iteration(
-    IterationIndex iter, std::span<const uint8_t> scene_feasible)
-{
-  m_cut_store_.save_cuts_for_iteration(iter,
-                                       scene_feasible,
-                                       m_options_,
-                                       planning_lp(),
-                                       m_label_maker_,
-                                       m_scene_phase_states_,
-                                       m_current_iteration_.load());
-}
-
-// ── solve() — now in sddp_iteration.cpp ─────────────────────────────────────
-
-// ─── SDDPPlanningMethod ─────────────────────────────────────────────────────
-
-SDDPPlanningMethod::SDDPPlanningMethod(SDDPOptions opts) noexcept
-    : m_sddp_opts_(std::move(opts))
-{
 }
 
 auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
@@ -1528,13 +790,6 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
       : 0;
   SPDLOG_INFO(
       "SDDPMethod: starting {} scene(s) × {} phase(s)", num_scenes, num_phases);
-
-  // lp_only: LP already built in PlanningLP constructor — skip all
-  // solving.
-  if (m_sddp_opts_.lp_only) {
-    SPDLOG_INFO("SDDP: lp_only mode — LP built, skipping solve");
-    return 0;
-  }
 
   SDDPMethod sddp(planning_lp, m_sddp_opts_);
   auto results = sddp.solve(opts);
@@ -1549,9 +804,8 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   if (!m_last_results_.empty()) {
     const auto& last = m_last_results_.back();
     // Count only training iterations (all but the final simulation pass).
-    const int training_iters = static_cast<int>(m_last_results_.size()) > 1
-        ? static_cast<int>(m_last_results_.size()) - 1
-        : static_cast<int>(m_last_results_.size());
+    const auto n = std::ssize(m_last_results_);
+    const auto training_iters = n > 1 ? n - 1 : n;
     planning_lp.set_sddp_summary({
         .gap = last.gap,
         .gap_change = last.gap_change,
@@ -1572,12 +826,12 @@ auto SDDPPlanningMethod::solve(PlanningLP& planning_lp,
   if (!m_last_results_.empty()) {
     const auto& last = m_last_results_.back();
     if (last.converged) {
-      SPDLOG_INFO("SDDP: converged (gap={:.6f})", last.gap);
+      SPDLOG_INFO("SDDP: converged (gap={:.2f}%)", 100.0 * last.gap);
     } else {
       SPDLOG_WARN(
           "SDDP: max_iterations reached without convergence "
-          "(gap={:.6f}), returning best solution",
-          last.gap);
+          "(gap={:.2f}%), returning best solution",
+          100.0 * last.gap);
     }
     return 0;
   }

@@ -7,7 +7,6 @@
 namespace daw::json
 {
 using gtopt::ReserveProvision;
-using gtopt::String;
 
 template<>
 struct json_data_contract<ReserveProvision>
@@ -16,34 +15,48 @@ struct json_data_contract<ReserveProvision>
       json_number<"uid", Uid>,
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
+      json_string_null<"type", OptName>,
+      json_string_null<"description", OptName>,
       json_variant<"generator", SingleId>,
-      json_string<"reserve_zones", String>,
+      // Typed array of ReserveZone references — each element is a
+      // Uid (number) or Name (string).  Replaces the legacy
+      // colon/comma-delimited string form: `"reserve_zones": [1,
+      // "ZONE_A"]` rather than `"reserve_zones": "1:ZONE_A"`.
+      json_array_null<"reserve_zones",
+                      gtopt::Array<SingleId>,
+                      json_variant_no_name<SingleId, jvtl_SingleId>>,
       json_variant_null<"urmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"drmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"urmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"ur_capacity_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"dr_capacity_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"ur_provision_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"dr_provision_factor",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,
-      json_variant_null<"urcost", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"drcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
+      json_variant_null<"urcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"drcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
 
   constexpr static auto to_json_data(ReserveProvision const& obj)
   {
     return std::forward_as_tuple(obj.uid,
                                  obj.name,
                                  obj.active,
+                                 obj.type,
+                                 obj.description,
                                  obj.generator,
                                  obj.reserve_zones,
                                  obj.urmax,
                                  obj.drmax,
+                                 obj.urmin,
+                                 obj.drmin,
                                  obj.ur_capacity_factor,
                                  obj.dr_capacity_factor,
                                  obj.ur_provision_factor,

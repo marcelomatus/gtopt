@@ -1,0 +1,61 @@
+{
+  "// description": [
+    "Golden reference for sddp_hydro_3phase at MAX_ITERATIONS=0 —",
+    "pure sim pass with no loaded boundary cuts.  The reservoir has",
+    "no future-value signal and is drained immediately (efin=0 in",
+    "every phase); hydro runs flat-out (25 MW) and thermal covers",
+    "the rest (75 MW).  No solver_status.json is emitted at iter=0."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 104700.0,
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 104700.0},
+    {"scene": 0, "phase": 2, "status": 0, "obj_value": 109200.0},
+    {"scene": 0, "phase": 3, "status": 0, "obj_value": 109200.0}
+  ],
+  "element_samples": [
+    {
+      "// Reservoir drained immediately — no future-cost incentive to store:": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "// Reservoir drained at the horizon too:": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "// Hydro runs at full 25 MW in phase 1 block 1 (drain-it-all):": "",
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 25.0
+    },
+    {
+      "// Thermal fills the 75 MW remainder:": "",
+      "class": "Generator",
+      "stem": "generation_sol",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:2",
+      "expected": 75.0
+    },
+    {
+      "// LMP pinned at thermal marginal cost (50 $/MWh):": "",
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

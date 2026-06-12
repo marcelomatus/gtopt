@@ -32,6 +32,7 @@
 
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
@@ -54,6 +55,13 @@ namespace gtopt
  */
 struct Converter
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `ConverterLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Converter::class_name` directly (or
+  /// `ConverterLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Converter"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Human-readable name
   OptActive active {};  ///< Activation status (default: active)
@@ -77,6 +85,25 @@ struct Converter
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
+
+  /// Gate the inner ``Demand.{lmin,lmax}`` and ``Generator.{pmin,pmax}``
+  /// bounds with per-block INTEGER commitment binaries.  When set,
+  /// the LP adds two integer columns per block — ``u_charge``,
+  /// ``u_discharge``, each in ``{0, 1}`` — plus C2-style rows:
+  ///
+  ///     load    ≥ lmin × u_charge       load    ≤ lmax × u_charge
+  ///     gen     ≥ pmin × u_discharge    gen     ≤ pmax × u_discharge
+  ///
+  /// and resets the static col floors on ``load`` / ``gen`` to 0 so
+  /// the bounds only fire when the corresponding binary is 1.
+  /// Mirrors UC.jl's conditional ``Minimum charge/discharge rate
+  /// (MW)`` semantics.  Always integer (commitment is a MIP feature
+  /// by convention — for LP-only solves leave ``commitment`` unset
+  /// and accept hard static floors).  Set by
+  /// ``System::expand_batteries()`` when ``Battery.commitment`` is
+  /// enabled.
+  OptBool commitment {};
 };
 
 }  // namespace gtopt

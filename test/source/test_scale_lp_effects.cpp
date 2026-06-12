@@ -14,13 +14,14 @@
  */
 
 #include <cmath>
+#include <numbers>
 #include <string>
 #include <string_view>
 
 #include <doctest/doctest.h>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/cost_helper.hpp>
-#include <gtopt/json/json_planning.hpp>
+#include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
@@ -28,6 +29,8 @@
 #include <gtopt/stage_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness,
+// readability-static-accessed-through-instance)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -41,59 +44,172 @@ auto make_ieee4b_json(double scale_obj,
                       bool use_kirchhoff = true) -> std::string
 {
   return std::format(
-      R"({{
-  "options": {{
-    "annual_discount_rate": 0.0,
-    "lp_matrix_options": {{"names_level": 2}},
-    "output_format": "csv",
-    "output_compression": "uncompressed",
-    "use_single_bus": false,
-    "demand_fail_cost": 1000,
-    "scale_objective": {},
-    "scale_theta": {},
-    "use_kirchhoff": {}
-  }},
-  "simulation": {{
-    "block_array": [{{"uid": 1, "duration": 1}}],
-    "stage_array": [{{"uid": 1, "first_block": 0, "count_block": 1, "active": 1}}],
-    "scenario_array": [{{"uid": 1, "probability_factor": 1}}]
-  }},
-  "system": {{
-    "name": "ieee_4b_scale_test",
-    "bus_array": [
-      {{"uid": 1, "name": "b1"}}, {{"uid": 2, "name": "b2"}},
-      {{"uid": 3, "name": "b3"}}, {{"uid": 4, "name": "b4"}}
-    ],
-    "generator_array": [
-      {{"uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 300, "gcost": 20, "capacity": 300}},
-      {{"uid": 2, "name": "g2", "bus": "b2", "pmin": 0, "pmax": 200, "gcost": 35, "capacity": 200}}
-    ],
-    "demand_array": [
-      {{"uid": 1, "name": "d3", "bus": "b3", "lmax": [[150.0]]}},
-      {{"uid": 2, "name": "d4", "bus": "b4", "lmax": [[100.0]]}}
-    ],
-    "line_array": [
-      {{"uid": 1, "name": "l1_2", "bus_a": "b1", "bus_b": "b2", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 2, "name": "l1_3", "bus_a": "b1", "bus_b": "b3", "reactance": 0.02, "tmax_ab": 300, "tmax_ba": 300}},
-      {{"uid": 3, "name": "l2_3", "bus_a": "b2", "bus_b": "b3", "reactance": 0.03, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 4, "name": "l2_4", "bus_a": "b2", "bus_b": "b4", "reactance": 0.02, "tmax_ab": 200, "tmax_ba": 200}},
-      {{"uid": 5, "name": "l3_4", "bus_a": "b3", "bus_b": "b4", "reactance": 0.03, "tmax_ab": 150, "tmax_ba": 150}}
-    ]
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{
+        "use_single_bus": false,
+        "demand_fail_cost": 1000,
+        "scale_objective": {},
+        "scale_theta": {},
+        "use_kirchhoff": {}
+      }}
+    }},
+    "simulation": {{
+      "block_array": [
+        {{
+          "uid": 1,
+          "duration": 1
+        }}
+      ],
+      "stage_array": [
+        {{
+          "uid": 1,
+          "first_block": 0,
+          "count_block": 1,
+          "active": 1
+        }}
+      ],
+      "scenario_array": [
+        {{
+          "uid": 1,
+          "probability_factor": 1
+        }}
+      ]
+    }},
+    "system": {{
+      "name": "ieee_4b_scale_test",
+      "bus_array": [
+        {{
+          "uid": 1,
+          "name": "b1"
+        }},
+        {{
+          "uid": 2,
+          "name": "b2"
+        }},
+        {{
+          "uid": 3,
+          "name": "b3"
+        }},
+        {{
+          "uid": 4,
+          "name": "b4"
+        }}
+      ],
+      "generator_array": [
+        {{
+          "uid": 1,
+          "name": "g1",
+          "bus": "b1",
+          "pmin": 0,
+          "pmax": 300,
+          "gcost": 20,
+          "capacity": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "g2",
+          "bus": "b2",
+          "pmin": 0,
+          "pmax": 200,
+          "gcost": 35,
+          "capacity": 200
+        }}
+      ],
+      "demand_array": [
+        {{
+          "uid": 1,
+          "name": "d3",
+          "bus": "b3",
+          "lmax": [
+            [
+              150.0
+            ]
+          ]
+        }},
+        {{
+          "uid": 2,
+          "name": "d4",
+          "bus": "b4",
+          "lmax": [
+            [
+              100.0
+            ]
+          ]
+        }}
+      ],
+      "line_array": [
+        {{
+          "uid": 1,
+          "name": "l1_2",
+          "bus_a": "b1",
+          "bus_b": "b2",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 2,
+          "name": "l1_3",
+          "bus_a": "b1",
+          "bus_b": "b3",
+          "reactance": 0.02,
+          "tmax_ab": 300,
+          "tmax_ba": 300
+        }},
+        {{
+          "uid": 3,
+          "name": "l2_3",
+          "bus_a": "b2",
+          "bus_b": "b3",
+          "reactance": 0.03,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 4,
+          "name": "l2_4",
+          "bus_a": "b2",
+          "bus_b": "b4",
+          "reactance": 0.02,
+          "tmax_ab": 200,
+          "tmax_ba": 200
+        }},
+        {{
+          "uid": 5,
+          "name": "l3_4",
+          "bus_a": "b3",
+          "bus_b": "b4",
+          "reactance": 0.03,
+          "tmax_ab": 150,
+          "tmax_ba": 150
+        }}
+      ]
+    }}
   }}
-}})",
+)",
       scale_obj,
       scale_theta_val,
       use_kirchhoff ? "true" : "false");
 }
 
 /// Solve the IEEE 4-bus case and return (scaled_obj, kappa).
+/// Kappa is -1.0 when the backend reported std::nullopt (unavailable).
 auto solve_ieee4b(double scale_obj,
                   double scale_theta_val,
                   bool use_kirchhoff = true) -> std::pair<double, double>
 {
   auto json = make_ieee4b_json(scale_obj, scale_theta_val, use_kirchhoff);
   Planning base;
-  base.merge(daw::json::from_json<Planning>(json));
+  base.merge(parse_planning_json(json));
+  // Pin node_angle: this file's tests assert kappa / obj differ as
+  // scale_theta varies — meaningful only under the B-θ formulation,
+  // since cycle_basis (post-2026-05-14 default) has no theta vars.
+  base.options.model_options.kirchhoff_mode = OptName {"node_angle"};
 
   PlanningLP planning_lp(std::move(base));
   MonolithicMethod solver;
@@ -105,7 +221,7 @@ auto solve_ieee4b(double scale_obj,
   REQUIRE(!systems.front().empty());
   const auto& li = systems.front().front().linear_interface();
 
-  return {li.get_obj_value(), li.get_kappa()};
+  return {li.get_obj_value_raw(), li.get_kappa().value_or(-1.0)};
 }
 
 // ---------------------------------------------------------------
@@ -148,7 +264,7 @@ TEST_CASE(  // NOLINT
   for (const auto st : {0.01, 0.001, 0.0001}) {
     auto json = make_ieee4b_json(scale_obj, st);
     Planning base;
-    base.merge(daw::json::from_json<Planning>(json));
+    base.merge(parse_planning_json(json));
     PlanningLP planning_lp(std::move(base));
 
     auto result = planning_lp.resolve();
@@ -159,15 +275,16 @@ TEST_CASE(  // NOLINT
 
     // LP obj should be the same regardless of scale_theta
     constexpr double expected_obj = 250.0 * 20.0 / scale_obj;
-    CHECK(li.get_obj_value() == doctest::Approx(expected_obj).epsilon(1e-4));
+    CHECK(li.get_obj_value_raw()
+          == doctest::Approx(expected_obj).epsilon(1e-4));
 
     // Theta column physical bounds should be ±2π (invariant of scale).
     // Raw LP bounds should be ±2π / scale_theta.
     const auto& col_map = li.col_name_map();
-    constexpr double two_pi = 2.0 * 3.14159265358979323846;
+    constexpr double two_pi = 2.0 * std::numbers::pi;
 
     for (const auto& [name, idx] : col_map) {
-      if (name.find("theta") != std::string::npos) {
+      if (name.contains("theta")) {
         const auto col_low = li.get_col_low();
         const auto col_upp = li.get_col_upp();
         const auto col_low_raw = li.get_col_low_raw();
@@ -255,11 +372,13 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "CostHelper — cost_factor inversely proportional to scale_objective")
+    "CostHelper — cost_factor independent of scale_objective")
 {
+  // scale_objective is now applied in flatten(), not in CostHelper.
+  // cost_factor = probability × discount × duration (no scale_obj).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
-    opt.scale_objective = scale;
+    opt.model_options.scale_objective = scale;
     const PlanningOptionsLP options {opt};
 
     Scenario scenario;
@@ -279,7 +398,8 @@ TEST_CASE(  // NOLINT
     const double cost = 100.0;
     const double ecost =
         helper.block_ecost(scenarios[0], stages[0], block, cost);
-    CHECK(ecost == doctest::Approx(cost / scale));
+    // cost_factor = 1.0 * 1.0 * 1.0 = 1.0, so ecost = cost
+    CHECK(ecost == doctest::Approx(cost));
   }
 }
 
@@ -288,11 +408,13 @@ TEST_CASE(  // NOLINT
 // ---------------------------------------------------------------
 
 TEST_CASE(  // NOLINT
-    "CostHelper — inverse cost factors scale with scale_objective")
+    "CostHelper — inverse cost factors independent of scale_objective")
 {
+  // scale_objective is now applied in LinearInterface, not CostHelper.
+  // Inverse factors = 1 / (prob × discount × duration).
   for (const auto scale : {1.0, 1'000.0, 10'000'000.0}) {
     PlanningOptions opt;
-    opt.scale_objective = scale;
+    opt.model_options.scale_objective = scale;
     const PlanningOptionsLP options {opt};
 
     Scenario scenario;
@@ -312,14 +434,14 @@ TEST_CASE(  // NOLINT
 
     const CostHelper helper(options, scenarios, stages);
 
-    auto stage_factors = helper.stage_icost_factors();
+    const auto& stage_factors = helper.stage_icost_factors();
     REQUIRE(!stage_factors.empty());
-    CHECK(stage_factors[0] == doctest::Approx(scale / (1.0 * 0.9 * 2.0)));
+    CHECK(stage_factors[0] == doctest::Approx(1.0 / (1.0 * 0.9 * 2.0)));
 
     auto ss_factors = helper.scenario_stage_icost_factors();
     REQUIRE(!ss_factors.empty());
     REQUIRE(!ss_factors[0].empty());
-    CHECK(ss_factors[0][0] == doctest::Approx(scale / (0.5 * 0.9 * 2.0)));
+    CHECK(ss_factors[0][0] == doctest::Approx(1.0 / (0.5 * 0.9 * 2.0)));
   }
 }
 
@@ -334,9 +456,10 @@ TEST_CASE(  // NOLINT
   {
     const PlanningOptionsLP lp_opts {};
 
-    // Bus.theta: scale_theta = 0.0001 (stored directly, no inversion)
+    // Bus.theta: default scale_theta = 1.0 (neutral; auto_scale_theta
+    // overrides when Kirchhoff is enabled and lines exist).
     const auto vs_theta = lp_opts.variable_scale_map().lookup("Bus", "theta");
-    CHECK(vs_theta == doctest::Approx(0.0001));
+    CHECK(vs_theta == doctest::Approx(1.0));
 
     // Sddp.alpha: not injected when scale_alpha is unset (auto-scale = 0)
     // lookup returns default 1.0
@@ -347,7 +470,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("explicit scale_theta populates Bus.theta directly")
   {
     PlanningOptions opts;
-    opts.scale_theta = 0.0002;  // = 1/5000
+    opts.model_options.scale_theta = 0.0002;  // = 1/5000
     const PlanningOptionsLP lp_opts {opts};
 
     const auto vs = lp_opts.variable_scale_map().lookup("Bus", "theta");
@@ -357,7 +480,7 @@ TEST_CASE(  // NOLINT
   SUBCASE("user-provided Bus.theta entry is NOT overwritten")
   {
     PlanningOptions opts;
-    opts.scale_theta = 0.0002;
+    opts.model_options.scale_theta = 0.0002;
     opts.variable_scales = {
         VariableScale {
             .class_name = "Bus",
@@ -392,12 +515,17 @@ TEST_CASE(  // NOLINT
   const PlanningOptions empty_opts {};
   const PlanningOptionsLP lp_opts {empty_opts};
 
-  // PLP ScaleObj = 1e7
-  CHECK(lp_opts.scale_objective() == doctest::Approx(10'000'000.0));
-  // PLP 1/ScaleAng = 1/1e4 = 1e-4
-  CHECK(lp_opts.scale_theta() == doctest::Approx(0.0001));
+  // Default scale_objective is 1000 for the monolithic method (which
+  // is the default when no method is set in PlanningOptions).  SDDP /
+  // cascade methods default to 1.0 — see `scale_objective()` accessor.
+  CHECK(lp_opts.scale_objective() == doctest::Approx(1'000.0));
+  // Default scale_theta = 1.0 (neutral; auto_scale_theta overrides).
+  CHECK(lp_opts.scale_theta() == doctest::Approx(1.0));
   // PLP ScalePhi: auto-scale when not explicitly set (returns 0.0)
   CHECK(lp_opts.sddp_scale_alpha() == doctest::Approx(0.0));
 }
 
 }  // namespace
+
+// NOLINTEND(misc-const-correctness,
+// readability-static-accessed-through-instance)

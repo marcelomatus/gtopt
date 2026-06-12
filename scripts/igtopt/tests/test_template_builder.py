@@ -331,6 +331,47 @@ class TestReservoirSeepageArraySheet:
         assert required.issubset(headers), f"Missing columns: {required - headers}"
 
 
+class TestStageArraySheet:
+    """Tests pinning the calendar-month / chronological columns added to Stage."""
+
+    def test_stage_array_has_month_column(self, generated_workbook):
+        """stage_array header row exposes the 'month' calendar tag."""
+        ws = generated_workbook["stage_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "month" in headers
+
+    def test_stage_array_has_chronological_column(self, generated_workbook):
+        """stage_array header row exposes the 'chronological' flag."""
+        ws = generated_workbook["stage_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "chronological" in headers
+
+
+class TestScenarioArraySheet:
+    """Tests pinning the hydrology metadata column added to Scenario."""
+
+    def test_scenario_array_has_hydrology_column(self, generated_workbook):
+        """scenario_array header row exposes the 'hydrology' PLP metadata field."""
+        ws = generated_workbook["scenario_array"]
+        headers = [cell.value for cell in next(ws.iter_rows(max_row=1))]
+        assert "hydrology" in headers
+
+
+class TestDecisionVariableArraySheet:
+    """Tests pinning the DecisionVariable element registered in the system."""
+
+    def test_decision_variable_array_sheet_exists(self, generated_workbook):
+        """Generated workbook contains a decision_variable_array sheet."""
+        assert "decision_variable_array" in generated_workbook.sheetnames
+
+    def test_decision_variable_array_core_columns(self, generated_workbook):
+        """decision_variable_array sheet header contains the LP-column fields."""
+        ws = generated_workbook["decision_variable_array"]
+        headers = {cell.value for cell in next(ws.iter_rows(max_row=1))}
+        required = {"uid", "name", "lower_bound", "upper_bound", "cost"}
+        assert required.issubset(headers), f"Missing columns: {required - headers}"
+
+
 # ---------------------------------------------------------------------------
 # simulation_mode in SDDP_OPTION_KEYS
 # ---------------------------------------------------------------------------
@@ -396,7 +437,27 @@ class TestCascadeOptionKeys:
 
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
-        expected = {"uid", "name", "model_options", "sddp_options", "transition"}
+        expected = {
+            "uid",
+            "name",
+            "active",
+            "model_options",
+            "sddp_options",
+            "transition",
+            # ``system_file`` was added to ``CascadeLevel`` to support
+            # the cascade-reduced multi-fidelity ladder: each
+            # intermediate level may reference its own pre-reduced
+            # system JSON (rather than re-deriving the reduced grid
+            # at run time).  Kept here so the C++ ↔ Python field
+            # sync test catches future additions.
+            "system_file",
+            # ``aperture_system_file`` selects the simplified system
+            # solved per aperture in the SDDP backward pass (distinct
+            # from the forward ``system_file``).  Part of the
+            # aperture-system feature; resolution chain is
+            # Phase → CascadeLevel → sddp_options → regular system.
+            "aperture_system_file",
+        }
         assert expected == cpp_fields, (
             f"CascadeLevel fields mismatch: expected {expected}, got {cpp_fields}"
         )
@@ -420,12 +481,18 @@ class TestCascadeOptionKeys:
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
         expected = {
             "inherit_optimality_cuts",
-            "inherit_feasibility_cuts",
             "inherit_targets",
             "target_rtol",
             "target_min_atol",
             "target_penalty",
-            "optimality_dual_threshold",
+            # ``optimality_dual_threshold`` removed 2026-05-15
+            # alongside the entire ``update_stored_cut_duals``
+            # machinery — the cut-activity signal it gated was
+            # structurally wrong (read from the main cell's LP
+            # post-add-without-resolve, never the apertures that
+            # exercise the cut), and the filter was the only
+            # consumer.  See the commit that removed it for the
+            # full rationale.
         }
         assert expected == cpp_fields, (
             f"CascadeTransition fields mismatch: expected {expected}, got {cpp_fields}"
@@ -448,7 +515,22 @@ class TestCascadeOptionKeys:
 
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
-        expected = {"max_iterations", "min_iterations", "apertures", "convergence_tol"}
+        expected = {
+            "max_iterations",
+            "min_iterations",
+            "apertures",
+            "num_apertures",
+            "aperture_selection_mode",
+            "convergence_tol",
+            # Stationary-convergence knobs (added at the C++ JSON
+            # binding pre-2026-05; this test was just stale).
+            "stationary_tol",
+            "stationary_gap_ceiling",
+            "stationary_window",
+            # Elastic-filter knobs (also long-standing).
+            "elastic_penalty",
+            "elastic_mode",
+        }
         assert expected == cpp_fields, (
             f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"
         )

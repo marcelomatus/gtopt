@@ -21,7 +21,7 @@ namespace gtopt
 
 DemandProfileLP::DemandProfileLP(const DemandProfile& pdemand_profile,
                                  InputContext& ic)
-    : ProfileObjectLP(pdemand_profile, ic, ClassName)
+    : ProfileObjectLP(pdemand_profile, ic, Element::class_name)
 {
 }
 
@@ -46,12 +46,11 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
     return false;
   }
 
-  return add_profile_to_lp(ClassName.short_name(),
-                           sc,
+  return add_profile_to_lp(Element::class_name.full_name(),
                            scenario,
                            stage,
                            lp,
-                           "usv",
+                           UnservedName,
                            load_cols,
                            capacity_col,
                            stage_capacity);
@@ -59,7 +58,8 @@ bool DemandProfileLP::add_to_lp(const SystemContext& sc,
 
 bool DemandProfileLP::add_to_output(OutputContext& out) const
 {
-  return add_profile_to_output(ClassName.full_name(), out, "unserved");
+  return add_profile_to_output(
+      Element::class_name.full_name(), out, UnservedName);
 }
 
 bool DemandProfileLP::update_aperture(

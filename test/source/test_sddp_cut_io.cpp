@@ -6,6 +6,8 @@
  *
  * Tests:
  *  1. build_phase_uid_map produces correct mapping from phase UIDs
+ *  1b. build_scene_uid_map produces correct mapping from scene UIDs
+ *  1c. effective_scale_alpha returns explicit or auto-computed value
  *  2. save_cuts_csv / load_cuts_csv round-trip preserves cuts
  *  3. load_cuts_csv handles empty files gracefully
  *  4. save_scene_cuts_csv creates per-scene files
@@ -23,16 +25,20 @@
  * 16. load_boundary_cuts_csv separated mode
  * 17. load_boundary_cuts_csv legacy format (no iteration column)
  * 18. load_boundary_cuts_csv iteration filtering
- * 19. load_named_cuts_csv error on nonexistent file
- * 20. load_named_cuts_csv invalid header (too few columns)
- * 21. load_named_cuts_csv wrong phase column name
- * 22. load_named_cuts_csv loads cuts for all phases
- * 23. load_named_cuts_csv skips unknown phase UIDs
+ *
+ * ``load_named_cuts_csv`` was retired in 2026-05; its tests (formerly
+ * items 19-23) were removed alongside the CSV writer.
  */
 
+#include <bit>
+#include <charconv>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/planning_lp.hpp>
@@ -42,6 +48,7 @@
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(misc-const-correctness)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
@@ -62,15 +69,6 @@ auto make_scene_phase_states(const PlanningLP& planning_lp)
   return result;
 }
 
-/// Unique temp dir for a test to avoid collisions.
-auto make_test_dir(const std::string& test_name) -> std::filesystem::path
-{
-  auto dir = std::filesystem::temp_directory_path()
-      / ("gtopt_test_cut_io_" + test_name);
-  std::filesystem::create_directories(dir);
-  return dir;
-}
-
 }  // namespace
 
 // ─── build_phase_uid_map tests ──────────────────────────────────────────────
@@ -84,14 +82,14 @@ TEST_CASE("build_phase_uid_map produces correct mapping")  // NOLINT
 
   // 3-phase planning has UIDs 1, 2, 3
   REQUIRE(phase_map.size() == 3);
-  CHECK(phase_map.contains(PhaseUid {1}));
-  CHECK(phase_map.contains(PhaseUid {2}));
-  CHECK(phase_map.contains(PhaseUid {3}));
+  CHECK(phase_map.contains(make_uid<Phase>(1)));
+  CHECK(phase_map.contains(make_uid<Phase>(2)));
+  CHECK(phase_map.contains(make_uid<Phase>(3)));
 
   // Verify the indices map correctly
-  CHECK(phase_map.at(PhaseUid {1}) == PhaseIndex {0});
-  CHECK(phase_map.at(PhaseUid {2}) == PhaseIndex {1});
-  CHECK(phase_map.at(PhaseUid {3}) == PhaseIndex {2});
+  CHECK(phase_map.at(make_uid<Phase>(1)) == first_phase_index());
+  CHECK(phase_map.at(make_uid<Phase>(2)) == PhaseIndex {1});
+  CHECK(phase_map.at(make_uid<Phase>(3)) == PhaseIndex {2});
 }
 
 TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
@@ -107,148 +105,205 @@ TEST_CASE("build_phase_uid_map with single-phase planning")  // NOLINT
 
   // Verify there is exactly one entry mapping to PhaseIndex{0}
   const auto it = phase_map.begin();
-  CHECK(it->second == PhaseIndex {0});
+  CHECK(it->second == first_phase_index());
+}
+
+// ─── build_scene_uid_map tests ──────────────────────────────────────────────
+
+TEST_CASE("build_scene_uid_map produces correct mapping")  // NOLINT
+{
+  auto planning = make_2scene_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  const auto scene_map = build_scene_uid_map(planning_lp);
+
+  // 2-scene planning has UIDs 1, 2
+  REQUIRE(scene_map.size() == 2);
+  CHECK(scene_map.contains(make_uid<Scene>(1)));
+  CHECK(scene_map.contains(make_uid<Scene>(2)));
+
+  // Verify the indices map correctly
+  CHECK(scene_map.at(make_uid<Scene>(1)) == SceneIndex {0});
+  CHECK(scene_map.at(make_uid<Scene>(2)) == SceneIndex {1});
+}
+
+TEST_CASE("build_scene_uid_map with single-scene planning")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  const auto scene_map = build_scene_uid_map(planning_lp);
+
+  // Default single-scene planning has 1 scene
+  REQUIRE(scene_map.size() == 1);
+
+  // Verify there is exactly one entry mapping to SceneIndex{0}
+  const auto it = scene_map.begin();
+  CHECK(it->second == SceneIndex {0});
+}
+
+// ─── effective_scale_alpha tests ────────────────────────────────────────────
+
+TEST_CASE(
+    "effective_scale_alpha returns explicit value when positive")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  // When option > 0, it is returned directly regardless of the cut
+  // coefficient (the explicit override always wins).
+  const auto alpha =
+      effective_scale_alpha(planning_lp, 42.0, /*cut_max_coeff=*/9999.0);
+  CHECK(alpha == doctest::Approx(42.0));
+}
+
+TEST_CASE(
+    "effective_scale_alpha rounds cut coeff up to a power of ten")  // NOLINT
+{
+  auto planning = make_3phase_hydro_planning();
+  const PlanningLP planning_lp(std::move(planning));
+
+  // option == 0 → auto-compute = max(scale_objective,
+  // 10^ceil(log10(cut_max_coeff))).  7983 → 10^4 = 10000, well above the
+  // (≤ 1e3) objective floor of the fixture.
+  const auto alpha = effective_scale_alpha(planning_lp, 0.0, 7983.43);
+  CHECK(alpha == doctest::Approx(10000.0));
+
+  // A non-positive coefficient (no usable cut) degenerates to the
+  // objective floor, never below 1.
+  const auto floor_alpha = effective_scale_alpha(planning_lp, 0.0, 0.0);
+  CHECK(floor_alpha >= 1.0);
+}
+
+// ─── boundary_cut_coeff_stats / select_cut_coeff ────────────────────────────
+
+TEST_CASE("boundary_cut_coeff_stats summarises each cut column")  // NOLINT
+{
+  const auto tmp = std::filesystem::temp_directory_path()
+      / "test_boundary_cut_coeff_stats.csv";
+  {
+    std::ofstream out(tmp);
+    // header: scene, rhs, then two state columns
+    out << "scene,rhs,RES_A,RES_B\n";
+    out << "0,1000.0,-10.0,5.0\n";
+    out << "0,2000.0,-30.0,5.0\n";  // RES_A: min -30, avg -20, max -10
+  }
+
+  const auto stats = boundary_cut_coeff_stats(tmp.string());
+  REQUIRE(stats.size() == 2);
+
+  const auto a = stats.find("RES_A");
+  REQUIRE(a != stats.end());
+  CHECK(a->second.min == doctest::Approx(-30.0));
+  CHECK(a->second.avg == doctest::Approx(-20.0));
+  CHECK(a->second.max == doctest::Approx(-10.0));
+
+  const auto b = stats.find("RES_B");
+  REQUIRE(b != stats.end());
+  CHECK(b->second.min == doctest::Approx(5.0));
+  CHECK(b->second.avg == doctest::Approx(5.0));
+  CHECK(b->second.max == doctest::Approx(5.0));
+
+  // cut_soft_cost returns the water value (-coeff), with min/max selecting
+  // the lower/upper bound of the COST.  RES_A coeff in [-30, -10] → cost in
+  // [10, 30]: min cost = -max(coeff) = 10, max cost = -min(coeff) = 30.
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::min)
+        == doctest::Approx(10.0));
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::avg)
+        == doctest::Approx(20.0));
+  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::max)
+        == doctest::Approx(30.0));
+
+  // max_neg_coeff / min_pos_coeff: RES_A coeffs are all negative (largest
+  // -10, no positive ⇒ min_pos 0); RES_B is all positive (+5 ⇒ min_pos 5,
+  // no negative ⇒ max_neg 0).
+  CHECK(a->second.max_neg_coeff == doctest::Approx(-10.0));
+  CHECK(a->second.min_pos_coeff == doctest::Approx(0.0));
+  CHECK(b->second.max_neg_coeff == doctest::Approx(0.0));
+  CHECK(b->second.min_pos_coeff == doctest::Approx(5.0));
+
+  // RES_B coeff +5 ⇒ water value -5 (terminal storage priced as a liability)
+  // and NO positive water value anywhere ⇒ the soft-efin cost falls back to
+  // 1.0 for every selector (never a negative drawdown reward).
+  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::min)
+        == doctest::Approx(1.0));
+  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::avg)
+        == doctest::Approx(1.0));
+  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::max)
+        == doctest::Approx(1.0));
+
+  // scale_alpha helper uses max |avg|: max(|-20|, |5|) = 20.
+  CHECK(boundary_cut_max_avg_coeff(tmp.string()) == doctest::Approx(20.0));
+
+  // Missing / unreadable file → empty, and max-avg 0.
+  CHECK(boundary_cut_coeff_stats("/no/such/file.csv").empty());
+  CHECK(boundary_cut_max_avg_coeff("/no/such/file.csv")
+        == doctest::Approx(0.0));
+
+  std::filesystem::remove(tmp);
+}
+
+TEST_CASE(
+    "cut_soft_cost floors at the reservoir's min positive water value")  // NOLINT
+{
+  // The soft-efin slack penalises ending BELOW the target, forcing the
+  // reservoir to refill — so the derived cost must be strictly positive.
+  // When the chosen bound is non-positive, cut_soft_cost floors at the
+  // column's own smallest positive water value (-max_neg_coeff), falling
+  // back to 1.0 only when there is no positive water value at all.
+
+  SUBCASE("normal positive water value is unchanged")
+  {
+    // coeff in [-30, -10] ⇒ water value in [10, 30] — all positive, kept.
+    const BoundaryCutCoeffStats s {
+        .min = -30.0, .avg = -20.0, .max = -10.0, .max_neg_coeff = -10.0};
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(10.0));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::avg) == doctest::Approx(20.0));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(30.0));
+  }
+
+  SUBCASE("small positive water value is kept (not lifted to 1)")
+  {
+    // coeff -0.5 ⇒ water value 0.5 > 0 — a legitimate small water value, so
+    // it is used as-is rather than bumped to an arbitrary 1.0.
+    const BoundaryCutCoeffStats s {
+        .min = -0.5, .avg = -0.5, .max = -0.5, .max_neg_coeff = -0.5};
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(0.5));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(0.5));
+  }
+
+  SUBCASE("non-positive bound floors at the column's min positive water value")
+  {
+    // coeff in [-8, +4] ⇒ water value in [-4, +8].  min selector → lower
+    // bound -max(coeff) = -4 ≤ 0, so it floors at -max_neg_coeff = 2 (the
+    // smallest positive water value), NOT 1.0.  max selector → 8.
+    const BoundaryCutCoeffStats s {
+        .min = -8.0, .avg = -2.0, .max = 4.0, .max_neg_coeff = -2.0};
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(2.0));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(8.0));
+  }
+
+  SUBCASE("no positive water value anywhere falls back to 1")
+  {
+    // coeff in [+2, +10] ⇒ water value all negative, and no negative coeff
+    // ⇒ max_neg_coeff = 0 (sentinel) ⇒ fall back to 1.0 for every selector.
+    const BoundaryCutCoeffStats s {
+        .min = 2.0, .avg = 5.0, .max = 10.0, .max_neg_coeff = 0.0};
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(1.0));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::avg) == doctest::Approx(1.0));
+    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(1.0));
+  }
 }
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────
 
-TEST_CASE("save_cuts_csv writes a valid CSV file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_save.csv").string();
-
-  // Run SDDP to generate real cuts
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 3;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  auto save_result = save_cuts_csv(stored, planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-  CHECK(std::filesystem::exists(cuts_file));
-
-  // Verify file is non-empty and has header
-  std::ifstream ifs(cuts_file);
-  std::string line;
-  std::getline(ifs, line);  // metadata comment
-  CHECK(line.starts_with("# scale_objective="));
-  std::getline(ifs, line);  // CSV header
-  CHECK(line == "type,phase,scene,name,rhs,dual,coefficients");
-
-  // Should have at least one data line
-  std::getline(ifs, line);
-  CHECK_FALSE(line.empty());
-
-  std::filesystem::remove(cuts_file);
-}
-
-TEST_CASE("save_cuts_csv with empty cuts vector writes header only")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  const PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file =
-      (tmp_dir / "gtopt_test_cut_io_empty_save.csv").string();
-
-  // Save an empty span of cuts
-  std::vector<StoredCut> empty_cuts;
-  auto save_result = save_cuts_csv(
-      std::span<const StoredCut>(empty_cuts), planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-  CHECK(std::filesystem::exists(cuts_file));
-
-  // File should contain metadata + header but no data lines
-  std::ifstream ifs(cuts_file);
-  std::string line;
-  std::getline(ifs, line);  // metadata
-  CHECK(line.starts_with("# scale_objective="));
-  std::getline(ifs, line);  // header
-  CHECK(line == "type,phase,scene,name,rhs,dual,coefficients");
-
-  // No more data lines
-  CHECK_FALSE(std::getline(ifs, line));
-
-  std::filesystem::remove(cuts_file);
-}
-
-TEST_CASE(
-    "save_cuts_csv with unknown phase UID uses unscaled "
-    "fallback")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  const PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file =
-      (tmp_dir / "gtopt_test_cut_io_unknown_phase.csv").string();
-
-  // Create a StoredCut with a phase UID that does not exist
-  std::vector<StoredCut> cuts = {
-      StoredCut {
-          .phase = PhaseUid {999},
-          .scene = SceneUid {1},
-          .name = "bad_phase_cut",
-          .rhs = 42.0,
-          .coefficients =
-              {
-                  {ColIndex {0}, 1.5},
-                  {ColIndex {1}, -2.5},
-              },
-      },
-  };
-
-  auto save_result =
-      save_cuts_csv(std::span<const StoredCut>(cuts), planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-
-  // Verify the file was written with the unscaled coefficients
-  std::ifstream ifs(cuts_file);
-  std::string line;
-  std::getline(ifs, line);  // metadata
-  std::getline(ifs, line);  // header
-  std::getline(ifs, line);  // data line
-
-  // The line should contain "o,999,1,bad_phase_cut" and coefficient data
-  CHECK(line.starts_with("o,999,1,bad_phase_cut,"));
-
-  std::filesystem::remove(cuts_file);
-}
-
-TEST_CASE("save_cuts_csv creates parent directories")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  const PlanningLP planning_lp(std::move(planning));
-
-  const auto nested_dir = std::filesystem::temp_directory_path()
-      / "gtopt_test_nested" / "sub1" / "sub2";
-  const auto cuts_file = (nested_dir / "cuts.csv").string();
-
-  std::vector<StoredCut> cuts;
-  auto save_result =
-      save_cuts_csv(std::span<const StoredCut>(cuts), planning_lp, cuts_file);
-  REQUIRE(save_result.has_value());
-  CHECK(std::filesystem::exists(cuts_file));
-
-  std::filesystem::remove_all(std::filesystem::temp_directory_path()
-                              / "gtopt_test_nested");
-}
-
-// ─── save_cuts_csv / load_cuts_csv round-trip via SDDPMethod ────────────────
+// ─── save_cuts / load_cuts round-trip via SDDPMethod (Parquet) ──────────────
 
 TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
 {
   const auto tmp_dir = std::filesystem::temp_directory_path();
-  const auto cuts_file = (tmp_dir / "gtopt_test_cut_io_roundtrip.csv").string();
+  const auto cuts_file =
+      (tmp_dir / "gtopt_test_cut_io_roundtrip.parquet").string();
 
   int num_saved = 0;
 
@@ -273,7 +328,12 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
   CHECK(std::filesystem::exists(cuts_file));
   CHECK(num_saved > 0);
 
-  // Phase 2: hot-start a fresh solver using saved cuts
+  // Phase 2: hot-start a fresh solver using saved cuts.  Since the
+  // legacy CSV-based "named hot-start cuts" path was retired in
+  // 2026-05, this Parquet round-trip is the single canonical path
+  // for re-loading SDDP cuts across runs (cascade level transitions,
+  // resumed runs, distributed solves).
+  int num_loaded = 0;
   {
     auto planning2 = make_3phase_hydro_planning();
     PlanningLP planning_lp2(std::move(planning2));
@@ -283,368 +343,31 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
     load_opts.convergence_tol = 1e-6;
     load_opts.cuts_input_file = cuts_file;
     load_opts.cut_recovery_mode = HotStartMode::replace;
+    load_opts.recovery_mode = RecoveryMode::cuts;
 
-    // Solve with hot-start — should converge faster or at least not crash
     SDDPMethod sddp2(planning_lp2, load_opts);
     auto results2 = sddp2.solve();
     REQUIRE(results2.has_value());
+
+    // After ``initialize_solver`` runs (inside ``solve``), the cuts
+    // loaded from disk must be present in the manager BEFORE the new
+    // iteration adds more cuts.  We compare ``stored_cuts.size()``
+    // against ``num_saved`` allowing the post-solve count to be
+    // strictly greater (this run added its own iter-1 cuts on top).
+    num_loaded = static_cast<int>(sddp2.stored_cuts().size());
+    CHECK(num_loaded >= num_saved);
   }
 
   std::filesystem::remove(cuts_file);
 }
 
+// ─── alpha resolution as a state variable ──────────────────────────────────
+
 // ─── load_cuts_csv edge cases ───────────────────────────────────────────────
-
-TEST_CASE("load_cuts_csv returns error for nonexistent file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(
-      planning_lp, "/tmp/gtopt_nonexistent_cuts.csv", 1.0, label_maker);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::FileIOError);
-}
-
-TEST_CASE("load_cuts_csv handles header-only file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_cut_io_empty.csv")
-          .string();
-
-  // Write a file with only the header
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_cuts_csv skips comment lines and blank lines in "
-    "body")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_cut_io_comments.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    ofs << "# This is a comment in the body\n";
-    ofs << "\n";
-    ofs << "# Another comment\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE("load_cuts_csv skips cuts with unknown phase UID")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_cut_io_unknown_phase_load.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    // Phase UID 999 does not exist
-    ofs << "999,1,unknown_phase_cut,100.0\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
-  // The cut should be skipped (unknown phase), so 0 loaded
-  CHECK(result->count == 0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_cuts_csv parses coefficients and loads valid "
-    "cuts")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_cut_io_valid_load.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    // Phase UID 1 exists in 3-phase planning, col 0 with coeff 1.5
-    ofs << "1,1,my_cut,50.0,0:1.5,1:-2.0\n";
-    ofs << "2,1,my_cut2,30.0,0:0.5\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_cuts_csv skips malformed lines and loads valid "
-    "ones")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_cut_io_malformed.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    // Valid line
-    ofs << "1,1,good_cut,50.0,0:1.5\n";
-    // Malformed: non-numeric phase
-    ofs << "abc,1,bad_phase,10.0\n";
-    // Malformed: missing rhs
-    ofs << "1,1,no_rhs\n";
-    // Malformed: non-numeric rhs
-    ofs << "1,1,bad_rhs,xyz\n";
-    // Another valid line
-    ofs << "2,1,good_cut2,30.0,0:0.5\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
-  // Only the 2 valid lines should be loaded
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
 
 // ─── save_scene_cuts_csv tests ──────────────────────────────────────────────
 
-TEST_CASE("save_scene_cuts_csv creates per-scene file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  // Run SDDP to generate cuts
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 2;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  const auto tmp_dir =
-      (std::filesystem::temp_directory_path() / "gtopt_test_scene_cuts")
-          .string();
-
-  auto save_result =
-      save_scene_cuts_csv(stored, SceneIndex {0}, 1, planning_lp, tmp_dir);
-  REQUIRE(save_result.has_value());
-
-  // Verify scene_1.csv was created
-  const auto scene_file = std::filesystem::path(tmp_dir) / "scene_1.csv";
-  CHECK(std::filesystem::exists(scene_file));
-
-  // Verify file has correct header
-  std::ifstream ifs(scene_file.string());
-  std::string line;
-  std::getline(ifs, line);
-  CHECK(line.starts_with("# scale_objective="));
-  std::getline(ifs, line);
-  CHECK(line == "type,phase,scene,name,rhs,dual,coefficients");
-
-  // Clean up
-  std::filesystem::remove_all(tmp_dir);
-}
-
-TEST_CASE(
-    "save_scene_cuts_csv with empty cuts creates empty "
-    "file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  const PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir =
-      (std::filesystem::temp_directory_path() / "gtopt_test_scene_cuts_empty")
-          .string();
-
-  std::vector<StoredCut> empty_cuts;
-  auto save_result = save_scene_cuts_csv(std::span<const StoredCut>(empty_cuts),
-                                         SceneIndex {0},
-                                         1,
-                                         planning_lp,
-                                         tmp_dir);
-  REQUIRE(save_result.has_value());
-
-  const auto scene_file = std::filesystem::path(tmp_dir) / "scene_1.csv";
-  CHECK(std::filesystem::exists(scene_file));
-
-  std::filesystem::remove_all(tmp_dir);
-}
-
 // ─── load_scene_cuts_from_directory tests ───────────────────────────────────
-
-TEST_CASE(
-    "load_scene_cuts_from_directory loads files and skips "
-    "errors")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  // Enable LP names at level 1 so SDDP cuts get named (required for CSV
-  // round-trip: the loader rejects rows with empty name columns).
-  planning.options.lp_matrix_options.names_level = LpNamesLevel::only_cols;
-  PlanningLP planning_lp(std::move(planning));
-
-  // Run SDDP to generate and save per-scene cuts
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 2;
-  sddp_opts.convergence_tol = 1e-6;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-
-  const auto& stored = sddp.stored_cuts();
-  REQUIRE_FALSE(stored.empty());
-
-  const auto tmp_dir =
-      (std::filesystem::temp_directory_path() / "gtopt_test_load_scene_cuts")
-          .string();
-
-  // Save scene cuts
-  auto save_result =
-      save_scene_cuts_csv(stored, SceneIndex {0}, 1, planning_lp, tmp_dir);
-  REQUIRE(save_result.has_value());
-
-  // Also create an error file that should be skipped
-  {
-    std::ofstream ofs(
-        (std::filesystem::path(tmp_dir) / "error_scene_99.csv").string());
-    ofs << "# error file\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    ofs << "1,99,bad_cut,999\n";
-  }
-
-  // Load back into the same PlanningLP (which already has alpha columns
-  // from the SDDP solve, so column indices from the saved cuts are valid)
-  const LabelMaker label_maker(planning_lp.options());
-  auto load_result =
-      load_scene_cuts_from_directory(planning_lp, tmp_dir, 1.0, label_maker);
-  REQUIRE(load_result.has_value());
-  CHECK(load_result->count > 0);
-
-  // Clean up
-  std::filesystem::remove_all(tmp_dir);
-}
-
-TEST_CASE(
-    "load_scene_cuts_from_directory returns 0 for nonexistent "
-    "dir")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_scene_cuts_from_directory(
-      planning_lp, "/tmp/gtopt_nonexistent_dir_xyz", 1.0, label_maker);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 0);
-}
-
-TEST_CASE(
-    "load_scene_cuts_from_directory skips non-scene "
-    "and non-csv files")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = make_test_dir("skip_non_scene");
-
-  // Create files that should be skipped
-  {
-    std::ofstream ofs1((tmp_dir / "random_file.csv").string());
-    ofs1 << "phase,scene,name,rhs,coefficients\n";
-    ofs1 << "1,1,cut1,10.0\n";
-  }
-  {
-    std::ofstream ofs2((tmp_dir / "scene_1.txt").string());
-    ofs2 << "not a csv\n";
-  }
-  {
-    // Create a subdirectory that should be skipped
-    std::filesystem::create_directories(tmp_dir / "scene_subdir");
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_scene_cuts_from_directory(
-      planning_lp, tmp_dir.string(), 1.0, label_maker);
-  REQUIRE(result.has_value());
-  // random_file.csv does not start with "scene_" and is not sddp_cuts.csv
-  // scene_1.txt does not end with .csv
-  CHECK(result->count == 0);
-
-  std::filesystem::remove_all(tmp_dir);
-}
-
-TEST_CASE(
-    "load_scene_cuts_from_directory loads sddp_cuts.csv "
-    "combined file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_dir = make_test_dir("combined_cuts");
-
-  // Create a combined sddp_cuts.csv file
-  {
-    std::ofstream ofs((tmp_dir / sddp_file::combined_cuts).string());
-    ofs << "# scale_objective=1\n";
-    ofs << "phase,scene,name,rhs,coefficients\n";
-    ofs << "1,1,combined_cut,25.0,0:1.0\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_scene_cuts_from_directory(
-      planning_lp, tmp_dir.string(), 1.0, label_maker);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 1);
-
-  std::filesystem::remove_all(tmp_dir);
-}
 
 // ─── load_boundary_cuts_csv tests ───────────────────────────────────────────
 
@@ -656,7 +379,7 @@ TEST_CASE("load_boundary_cuts_csv noload mode returns 0")  // NOLINT
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::noload;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result = load_boundary_cuts_csv(
@@ -675,7 +398,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result = load_boundary_cuts_csv(planning_lp,
@@ -708,7 +431,7 @@ TEST_CASE(
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -738,16 +461,16 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // Default scene UID is 0 (auto-generated when scene_array is empty)
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "bdr_cut1,1,0,100.0,5.0\n";
-    ofs << "bdr_cut2,2,0,200.0,10.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,0,100.0,5.0\n";
+    ofs << "2,0,200.0,10.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;  // no filtering
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -772,14 +495,14 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "shared" mode: scene UID is ignored, cut goes to all scenes
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "shared_cut,1,0,50.0,3.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,0,50.0,3.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -803,15 +526,18 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    // Legacy format: no iteration column; default scene UID = 0
-    ofs << "name,scene,rhs,j_up\n";
-    ofs << "legacy_cut,0,75.0,4.0\n";
+    // Legacy format: no iteration column; default scene UID = 0.
+    // No leading name column either (retired 2026-05): the only CSV
+    // cut format gtopt still reads is the PLP-compatible "iter+scene+
+    // rhs+state_vars" or the older "scene+rhs+state_vars" form.
+    ofs << "scene,rhs,j_up\n";
+    ofs << "0,75.0,4.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -833,12 +559,12 @@ TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // 3 distinct iterations: 1, 2, 3; default scene UID = 0
-    ofs << "cut_iter1,1,0,10.0,1.0\n";
-    ofs << "cut_iter2,2,0,20.0,2.0\n";
-    ofs << "cut_iter3a,3,0,30.0,3.0\n";
-    ofs << "cut_iter3b,3,0,35.0,3.5\n";
+    ofs << "1,0,10.0,1.0\n";
+    ofs << "2,0,20.0,2.0\n";
+    ofs << "3,0,30.0,3.0\n";
+    ofs << "3,0,35.0,3.5\n";
   }
 
   SDDPOptions opts;
@@ -846,7 +572,7 @@ TEST_CASE("load_boundary_cuts_csv filters by max_iterations")  // NOLINT
   // Keep only the last 2 iterations (iterations 2 and 3)
   opts.boundary_max_iterations = 2;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -871,17 +597,17 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // Scene UID 999 does not exist
-    ofs << "bad_scene_cut,1,999,10.0,1.0\n";
+    ofs << "1,999,10.0,1.0\n";
     // Scene UID 0 exists (default auto-generated scene)
-    ofs << "good_cut,1,0,20.0,2.0\n";
+    ofs << "1,0,20.0,2.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -907,14 +633,14 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "nonexistent_rsv" does not match any element
-    ofs << "name,iteration,scene,rhs,nonexistent_rsv\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,nonexistent_rsv\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -941,14 +667,14 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // Use "Junction:j_up" format for the header
-    ofs << "name,iteration,scene,rhs,Junction:j_up\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,Junction:j_up\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -973,14 +699,14 @@ TEST_CASE(
   {
     std::ofstream ofs(tmp_file);
     // "Battery:j_up" - j_up is a Junction, not a Battery
-    ofs << "name,iteration,scene,rhs,Battery:j_up\n";
-    ofs << "cut1,1,1,10.0,1.0\n";
+    ofs << "iteration,scene,rhs,Battery:j_up\n";
+    ofs << "1,1,10.0,1.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1005,15 +731,15 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // Zero coefficient should be skipped in the row
-    ofs << "cut1,1,1,10.0,0.0\n";
+    ofs << "1,1,10.0,0.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1025,8 +751,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "load_boundary_cuts_csv creates alpha column on "
-    "demand")  // NOLINT
+    "load_boundary_cuts_csv consumes pre-registered α on the last "
+    "phase")  // NOLINT
 {
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1037,32 +763,40 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
-    ofs << "alpha_cut,1,1,100.0,5.0\n";
+    ofs << "iteration,scene,rhs,j_up\n";
+    ofs << "1,1,100.0,5.0\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
-  opts.alpha_min = -1e9;
-  opts.alpha_max = 1e9;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
-  // Before loading, alpha_col should be unknown
+  // α is now registered by `register_alpha_variables` during
+  // SDDP init (unified across all phases); the cut loader no
+  // longer creates it.  Set up the same precondition here for
+  // the isolated-loader call.  After install, the loader calls
+  // `bound_alpha` per cut — the freed-bounds assertion lives in
+  // `test_sddp_alpha_relax.cpp`, which goes through the full
+  // SDDPMethod::ensure_initialized path (`get_col_low_raw` needs
+  // a fully-loaded backend to return non-NaN values).
+  const auto num_scenes =
+      static_cast<Index>(planning_lp.simulation().scenes().size());
+  for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+    register_alpha_variables(planning_lp, scene_index, opts.scale_alpha);
+  }
+
   const auto last_phase =
       PhaseIndex {planning_lp.simulation().phases().size() - 1};
-  CHECK(states[SceneIndex {0}][last_phase].alpha_col
-        == ColIndex {unknown_index});
+  REQUIRE(find_alpha_state_var(
+              planning_lp.simulation(), first_scene_index(), last_phase)
+          != nullptr);
 
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   CHECK(result->count == 1);
-
-  // After loading, alpha_col should be set
-  CHECK(states[SceneIndex {0}][last_phase].alpha_col
-        != ColIndex {unknown_index});
 
   std::filesystem::remove(tmp_file);
 }
@@ -1080,14 +814,14 @@ TEST_CASE(
 
   {
     std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,rhs,j_up\n";
+    ofs << "iteration,scene,rhs,j_up\n";
     // No data lines
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::combined;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1098,369 +832,10 @@ TEST_CASE(
   std::filesystem::remove(tmp_file);
 }
 
-// ─── load_named_cuts_csv tests ──────────────────────────────────────────────
-
-TEST_CASE(
-    "load_named_cuts_csv returns error for nonexistent "
-    "file")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result = load_named_cuts_csv(planning_lp,
-                                    "/tmp/gtopt_nonexistent_named.csv",
-                                    opts,
-                                    label_maker,
-                                    states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::FileIOError);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv rejects header with too few "
-    "columns")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_bad_header.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // Only 4 columns, need at least 6 (name,iteration,scene,phase,rhs + 1)
-    ofs << "name,iteration,scene,phase\n";
-    ofs << "cut1,1,1,1\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::InvalidInput);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv rejects header with wrong phase "
-    "column name")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_wrong_phase.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // Column 3 should be "phase" but is "stage"
-    ofs << "name,iteration,scene,stage,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  CHECK_FALSE(result.has_value());
-  CHECK(result.error().code == ErrorCode::InvalidInput);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv loads cuts for specific "
-    "phases")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_phases.csv")
-          .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Phase UIDs 1, 2, 3 exist in 3-phase planning
-    ofs << "cut_p1,1,1,1,10.0,1.0\n";
-    ofs << "cut_p2,1,1,2,20.0,2.0\n";
-    ofs << "cut_p3,1,1,3,30.0,3.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 3);
-
-  // Verify alpha columns were created for all phases
-  for (Index pi = 0; pi < 3; ++pi) {
-    CHECK(states[SceneIndex {0}][PhaseIndex {pi}].alpha_col
-          != ColIndex {unknown_index});
-  }
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv skips cuts with unknown phase "
-    "UID")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_unknown_phase.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Phase UID 999 does not exist
-    ofs << "bad_cut,1,1,999,10.0,1.0\n";
-    // Phase UID 1 exists
-    ofs << "good_cut,1,1,1,20.0,2.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Only the good_cut loaded; bad_cut skipped
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE("load_named_cuts_csv with empty body loads 0 cuts")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_empty_body.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // No data lines
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 0);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with ClassName:ElementName "
-    "header")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_class_name.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,Junction:j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with wrong class filter skips "
-    "coefficient")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_wrong_class.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // j_up is a Junction, not a Battery
-    ofs << "name,iteration,scene,phase,rhs,Battery:j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Default skip_coeff: cut loaded with coefficient dropped.
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with zero coefficient "
-    "skipped")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_zero_coeff.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,0.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv with multiple state variable "
-    "columns")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_multi_svar.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    // j_up is a real junction (uid 1), nonexistent is not
-    ofs << "name,iteration,scene,phase,rhs,j_up,nonexistent\n";
-    ofs << "cut1,1,1,2,50.0,3.0,7.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  // Default skip_coeff: cut loaded, "nonexistent" coefficient dropped.
-  CHECK(result->count == 1);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv skips blank lines in "
-    "body")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_blank_lines.csv")
-                            .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-    ofs << "\n";
-    ofs << "cut2,2,1,2,20.0,2.0\n";
-    ofs << "\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv caches per-phase column "
-    "maps")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_cache.csv")
-          .string();
-
-  {
-    std::ofstream ofs(tmp_file);
-    ofs << "name,iteration,scene,phase,rhs,j_up\n";
-    // Multiple cuts for the same phase to exercise caching
-    ofs << "cut1,1,1,1,10.0,1.0\n";
-    ofs << "cut2,2,1,1,20.0,2.0\n";
-    ofs << "cut3,3,1,1,30.0,3.0\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 3);
-
-  std::filesystem::remove(tmp_file);
-}
+// ``load_named_cuts_csv`` was retired in 2026-05.  All tests for the
+// CSV-based named hot-start cut path were removed alongside it; the
+// equivalent Parquet round-trip is covered by
+// ``test_sddp_cut_parquet.cpp``.
 
 // ─── Windows \r\n line ending tests ─────────────────────────────────────────
 
@@ -1479,81 +854,22 @@ TEST_CASE(
   // The last header token "j_up" would get a trailing \r without the fix.
   {
     std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,rhs,j_up\r\n";
-    ofs << "bdr_cut1,1,0,100.0,5.0\r\n";
-    ofs << "bdr_cut2,2,0,200.0,10.0\r\n";
+    ofs << "iteration,scene,rhs,j_up\r\n";
+    ofs << "1,0,100.0,5.0\r\n";
+    ofs << "2,0,200.0,10.0\r\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
       load_boundary_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
   REQUIRE(result.has_value());
   // The "j_up" header must be matched despite \r\n endings
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_named_cuts_csv handles Windows \\r\\n line "
-    "endings in header")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_named_crlf.csv")
-          .string();
-
-  // Write CSV with Windows \r\n line endings
-  {
-    std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,phase,rhs,j_up\r\n";
-    ofs << "cut1,1,1,1,10.0,1.0\r\n";
-    ofs << "cut2,2,1,1,20.0,2.0\r\n";
-  }
-
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
-
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
-
-  std::filesystem::remove(tmp_file);
-}
-
-TEST_CASE(
-    "load_cuts_csv handles Windows \\r\\n line endings in "
-    "data lines")  // NOLINT
-{
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  const auto tmp_file =
-      (std::filesystem::temp_directory_path() / "gtopt_test_cuts_crlf.csv")
-          .string();
-
-  // Write CSV with DOS \r\n line endings in both header and data
-  {
-    std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "# scale_objective=1\r\n";
-    ofs << "phase,scene,name,rhs,coefficients\r\n";
-    ofs << "1,1,cut_crlf1,50.0,0:1.5\r\n";
-    ofs << "2,1,cut_crlf2,30.0,0:0.5\r\n";
-  }
-
-  const LabelMaker label_maker(planning_lp.options());
-  auto result = load_cuts_csv(planning_lp, tmp_file, 1.0, label_maker);
-  REQUIRE(result.has_value());
   CHECK(result->count == 2);
 
   std::filesystem::remove(tmp_file);
@@ -1573,16 +889,16 @@ TEST_CASE(
   // Write CSV with DOS \r\n in header AND data lines
   {
     std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,rhs,j_up\r\n";
-    ofs << "bdr1,1,0,100.0,5.0\r\n";
-    ofs << "bdr2,2,0,200.0,10.0\r\n";
+    ofs << "iteration,scene,rhs,j_up\r\n";
+    ofs << "1,0,100.0,5.0\r\n";
+    ofs << "2,0,200.0,10.0\r\n";
   }
 
   SDDPOptions opts;
   opts.boundary_cuts_mode = BoundaryCutsMode::separated;
   opts.boundary_max_iterations = 0;
 
-  const LabelMaker label_maker(planning_lp.options());
+  const LabelMaker label_maker {LpNamesLevel::none};
   auto states = make_scene_phase_states(planning_lp);
 
   auto result =
@@ -1593,33 +909,85 @@ TEST_CASE(
   std::filesystem::remove(tmp_file);
 }
 
+// ``extract_iteration_from_name`` was removed in 2026-05.  Iteration
+// index is now stored directly on every cut struct
+// (``StoredCut::iteration_index``, ``RawBoundaryCut::iteration_index``)
+// so there is nothing left to parse from row labels.  The previous
+// TEST_CASEs that exercised the parser (label-format coverage +
+// malformed-input rejects) were deleted along with the function itself.
+//
+// The JSON cut I/O code paths (save_cuts_json / load_cuts_json) were
+// removed in 2026-05.  Parquet is the single supported on-disk format
+// for SDDP cut persistence; the format-dispatching ``save_cuts`` /
+// ``load_cuts`` free functions were removed alongside them.
+// Parquet-only round-trip coverage lives in
+// ``test_sddp_cut_parquet.cpp``.
+
+// ── is_final_state_col ───────────────────────────────────────────────────────
+//
+// Allow-list predicate driving cut-CSV column classification.
+// ``EfinColName`` (= ``StorageLP::EfinName``, the storage final-energy
+// column) is the only state-variable column actually emitted by the
+// current LP assembly — silently dropping it here would cause the cut
+// loader to skip every state coefficient on reload, corrupting the
+// future-cost approximation.  Constexpr so the test also doubles as a
+// compile-time invariant.
+
 TEST_CASE(
-    "load_named_cuts_csv handles Windows \\r\\n line "
-    "endings in data lines")  // NOLINT
+    "is_final_state_col matches the canonical state vocabulary")  // NOLINT
 {
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
+  // Drive the predicate from its own named constant — never an inline
+  // string literal — so any rename of the constant still leaves the
+  // test asserting against the real allow-list.
+  CHECK(is_final_state_col(EfinColName));
 
-  const auto tmp_file = (std::filesystem::temp_directory_path()
-                         / "gtopt_test_named_crlf_data.csv")
-                            .string();
+  // Promote the constexpr-ness: any future regression that turns the
+  // predicate into a non-constexpr function will fail to compile
+  // (static_assert), not just at runtime.
+  static_assert(is_final_state_col(EfinColName));
 
-  // Write CSV with DOS \r\n in header AND data lines
+  SUBCASE("constant carries the agreed-upon on-disk value")
   {
-    std::ofstream ofs(tmp_file, std::ios::binary);
-    ofs << "name,iteration,scene,phase,rhs,j_up\r\n";
-    ofs << "cut1,1,1,1,10.0,1.0\r\n";
-    ofs << "cut2,2,1,1,20.0,2.0\r\n";
+    // Lock the wire format: the CSV header token that downstream
+    // tooling and existing cut files already depend on.  Changing
+    // ``EfinColName`` is a format break — this assertion is the
+    // tripwire.  We compare to a string literal here because this
+    // is the one place we are explicitly testing the value, not the
+    // identifier.
+    static_assert(EfinColName == std::string_view {"efin"});
+    CHECK(true);
   }
 
-  const SDDPOptions opts;
-  const LabelMaker label_maker(planning_lp.options());
-  auto states = make_scene_phase_states(planning_lp);
+  SUBCASE("rejects metadata, near-miss, and unrelated column names")
+  {
+    // Metadata columns that share the cut CSV header but are NOT
+    // state coefficients.
+    CHECK_FALSE(is_final_state_col("rhs"));
+    CHECK_FALSE(is_final_state_col("scene"));
+    CHECK_FALSE(is_final_state_col("phase"));
+    CHECK_FALSE(is_final_state_col("iteration"));
+    CHECK_FALSE(is_final_state_col("name"));
 
-  auto result =
-      load_named_cuts_csv(planning_lp, tmp_file, opts, label_maker, states);
-  REQUIRE(result.has_value());
-  CHECK(result->count == 2);
+    // Near-miss / case-sensitive: predicate is exact match.
+    CHECK_FALSE(is_final_state_col("EFIN"));
+    CHECK_FALSE(is_final_state_col("Efin"));
+    CHECK_FALSE(is_final_state_col("efin "));
+    CHECK_FALSE(is_final_state_col(" efin"));
+    CHECK_FALSE(is_final_state_col("efin2"));
+    CHECK_FALSE(is_final_state_col(""));
 
-  std::filesystem::remove(tmp_file);
+    // Unrelated state-ish names that callers might accidentally pass
+    // (e.g. dispatch/flow vars must NOT be classified as final-state,
+    // and historical aspirational names like ``soc`` / ``vfin`` are
+    // NOT in the allow-list because no LP element actually emits them).
+    CHECK_FALSE(is_final_state_col("eini"));
+    CHECK_FALSE(is_final_state_col("vini"));
+    CHECK_FALSE(is_final_state_col("alpha"));
+    CHECK_FALSE(is_final_state_col("flow"));
+    CHECK_FALSE(is_final_state_col("dispatch"));
+    CHECK_FALSE(is_final_state_col("soc"));
+    CHECK_FALSE(is_final_state_col("vfin"));
+  }
 }
+
+// NOLINTEND(misc-const-correctness)

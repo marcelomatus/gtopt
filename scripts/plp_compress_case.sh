@@ -20,9 +20,9 @@
 # compressed_open module.
 #
 # Examples:
-#   scripts/plp_compress_case.sh support/plp_long_term
+#   scripts/plp_compress_case.sh support/plp/long_term
 #   scripts/plp_compress_case.sh scripts/cases/plp_case_2y --split-mb 8
-#   scripts/plp_compress_case.sh --decompress support/plp_long_term
+#   scripts/plp_compress_case.sh --decompress support/plp/long_term
 
 set -euo pipefail
 

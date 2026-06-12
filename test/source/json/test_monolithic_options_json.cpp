@@ -11,6 +11,7 @@
 #include <gtopt/json/json_monolithic_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("MonolithicOptions JSON - Full deserialization")
 {
@@ -20,12 +21,11 @@ TEST_CASE("MonolithicOptions JSON - Full deserialization")
     "boundary_cuts_mode": "combined",
     "boundary_max_iterations": 10,
     "solver_options": {
-      "algorithm": 1,
+      "algorithm": "primal",
       "threads": 4,
       "presolve": true,
       "log_level": 0,
-      "time_limit": 3600.0,
-      "reuse_basis": false
+      "time_limit": 3600.0
     }
   })";
 
@@ -94,3 +94,5 @@ TEST_CASE("MonolithicOptions JSON - Empty object")
   CHECK_FALSE(opts.solve_mode.has_value());
   CHECK_FALSE(opts.boundary_cuts_file.has_value());
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access)

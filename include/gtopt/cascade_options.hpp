@@ -10,6 +10,7 @@
 
 #include <gtopt/model_options.hpp>
 #include <gtopt/sddp_options.hpp>
+// NOLINTBEGIN(hicpp-move-const-arg, performance-move-const-arg)
 
 namespace gtopt
 {
@@ -27,9 +28,6 @@ struct CascadeTransition
   ///   - N > 0:       inherit but forget after N training iterations,
   ///                  then re-solve with only self-generated cuts
   OptInt inherit_optimality_cuts {};
-  /// Carry forward feasibility cuts from previous level.
-  /// Same semantics as inherit_optimality_cuts.
-  OptInt inherit_feasibility_cuts {};
   /// Add elastic state variable target constraints from previous
   /// solution.  Same semantics as inherit_optimality_cuts:
   ///   - absent or 0: do not inherit
@@ -43,20 +41,14 @@ struct CascadeTransition
   OptReal target_min_atol {};
   /// Elastic penalty cost per unit violation of target.  Default: 500.
   OptReal target_penalty {};
-  /// Minimum |dual| threshold for transferring cuts.  Cuts with
-  /// |dual| < threshold are considered inactive and skipped.
-  /// Default: 0.0 (transfer all cuts regardless of dual).
-  OptReal optimality_dual_threshold {};
 
   void merge(const CascadeTransition& opts)
   {
     merge_opt(inherit_optimality_cuts, opts.inherit_optimality_cuts);
-    merge_opt(inherit_feasibility_cuts, opts.inherit_feasibility_cuts);
     merge_opt(inherit_targets, opts.inherit_targets);
     merge_opt(target_rtol, opts.target_rtol);
     merge_opt(target_min_atol, opts.target_min_atol);
     merge_opt(target_penalty, opts.target_penalty);
-    merge_opt(optimality_dual_threshold, opts.optimality_dual_threshold);
   }
 };
 
@@ -71,15 +63,65 @@ struct CascadeLevelMethod
   OptInt min_iterations {};
   /// Aperture UIDs for this level (nullopt = inherit, empty = Benders).
   std::optional<Array<Uid>> apertures {};
+  /// First-N selector for this level (nullopt = inherit).
+  /// See `SddpOptions::num_apertures` for full semantics — paired with
+  /// the wettest-first sort applied to `Phase::apertures` by `plp2gtopt`,
+  /// `num_apertures = N` picks the N wettest per phase at this level.
+  OptInt num_apertures {};
+  /// Aperture selection rule for this level (nullopt = inherit).
+  /// One of `"head"` (default), `"stride"` / `"interleave"` / `"spread"`,
+  /// or `"tail"` / `"last"`.  See `SddpOptions::aperture_selection_mode`
+  /// for full semantics.
+  OptName aperture_selection_mode {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};
+  /// Stationary-gap tolerance for this level (nullopt = inherit base).
+  /// Per-level override of ``SDDPOptions::stationary_tol``: plp2gtopt
+  /// emits looser values for early cascade levels (e.g. 4 % at warmup,
+  /// 2 % at uninodal) so they can early-exit on a wide stationary
+  /// plateau without waiting for the strict ``1 %`` tail levels need.
+  OptReal stationary_tol {};
+  /// Maximum ``|gap|`` for stationary convergence at this level
+  /// (nullopt = inherit base ``SDDPOptions::stationary_gap_ceiling``).
+  /// Early cascade levels with reduced apertures have a structural UB
+  /// underestimate and the gap can sit at +40% on warmup / +25% on
+  /// uninodal even when Δgap has plateaued; without raising the ceiling
+  /// here the ``stationary_tol`` threshold alone cannot trip
+  /// convergence.  plp2gtopt emits a uniform 50% across all levels.
+  OptReal stationary_gap_ceiling {};
+  /// Number of consecutive iterations Δgap must stay below
+  /// ``stationary_tol`` before stationary convergence trips (nullopt =
+  /// inherit base ``SDDPOptions::stationary_window``).  Looser early
+  /// levels can use a shorter window (e.g. 2) to short-circuit on a
+  /// shallow plateau; the tail level may want a stricter window (e.g.
+  /// 8) to filter sampling noise.
+  OptInt stationary_window {};
+  /// Elastic-cut mode override for this level (nullopt = inherit base
+  /// ``SDDPOptions::elastic_mode``).  Warmup is typically fine with
+  /// ``single_cut`` while ``full_network`` benefits from ``multi_cut``
+  /// once aperture coverage is broad enough to justify the extra cut
+  /// rows.  String matches the JSON enum spelling.
+  OptName elastic_mode {};
+  /// Elastic-cut penalty override for this level in $/MWh of
+  /// elastic-state violation (nullopt = inherit base
+  /// ``SDDPOptions::elastic_penalty``).  Lower at warmup (looser
+  /// feasibility) and tighter at full_network (penalty must be
+  /// commensurate with the physical-cost scale).
+  OptReal elastic_penalty {};
 
   void merge(const CascadeLevelMethod& opts)
   {
     merge_opt(max_iterations, opts.max_iterations);
     merge_opt(min_iterations, opts.min_iterations);
     merge_opt(apertures, opts.apertures);
+    merge_opt(num_apertures, opts.num_apertures);
+    merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
     merge_opt(convergence_tol, opts.convergence_tol);
+    merge_opt(stationary_tol, opts.stationary_tol);
+    merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);
+    merge_opt(stationary_window, opts.stationary_window);
+    merge_opt(elastic_mode, opts.elastic_mode);
+    merge_opt(elastic_penalty, opts.elastic_penalty);
   }
 };
 
@@ -95,12 +137,81 @@ struct CascadeLevel
   OptUid uid {};
   /// Human-readable level name (for logging).
   OptName name {};
+  /// When `false`, the level is skipped entirely by the cascade solver:
+  /// no LP is built, no solver runs, and no state/cuts are produced for
+  /// downstream levels.  Intended for quickly disabling a level in
+  /// configuration without removing it (useful for boundary tests and
+  /// partial runs).  Default: `true` (active).
+  OptBool active {};
   /// Model overrides for this level (absent → reuse previous LP).
   std::optional<ModelOptions> model_options {};
+  /// Optional path to a Planning JSON whose ``system`` (bus_array,
+  /// line_array, component bus refs) replaces the parent planning's
+  /// system for this level only.  Used by the cascade-reduced mode: the
+  /// reducer emits per-level reduced JSONs and this field points each
+  /// cascade level at its dedicated one.  Resolution: tried as-is from
+  /// the current working directory first, then under
+  /// ``options.input_directory`` as a fallback.  Only ``.system`` is
+  /// taken from the loaded JSON; its ``.options`` and ``.simulation``
+  /// blocks are deliberately ignored — the cascade level's
+  /// ``model_options`` overlay remains authoritative.
+  OptName system_file {};
+  /// Optional path to a Planning JSON whose ``system`` (and its
+  /// ``options.model_options``) is used as the **aperture system** for
+  /// this level's SDDP backward pass — the simplified model solved per
+  /// aperture, distinct from this level's forward ``system_file`` /
+  /// ``model_options``.  Resolution chain (highest first):
+  /// ``Phase::aperture_system_file`` → this field →
+  /// ``sddp_options.aperture_system_file`` → regular forward system.
+  /// The parent ``simulation`` is reused; the reduced system must keep
+  /// the same reservoir/storage/α inter-phase state elements (by ``uid``).
+  OptName aperture_system_file {};
   /// SDDP solver options for this level.
   std::optional<CascadeLevelMethod> sddp_options {};
   /// Transition from the previous level.
   std::optional<CascadeTransition> transition {};
+
+  /// Merge another CascadeLevel on top of this one.  Used by
+  /// `CascadeOptions::merge` for element-wise level-array merges (e.g.
+  /// from --set array-index overlays like
+  /// `cascade_options.level_array.0.sddp_options.max_iterations=20`).
+  /// Only fields set in @p opts overwrite the corresponding fields here;
+  /// unset optionals in @p opts leave the existing values intact.  Nested
+  /// optional structs (`model_options`, `sddp_options`, `transition`) are
+  /// themselves recursively merged when both sides have a value.
+  void merge(CascadeLevel opts)
+  {
+    merge_opt(uid, opts.uid);
+    merge_opt(name, std::move(opts.name));
+    merge_opt(active, opts.active);
+
+    if (opts.model_options.has_value()) {
+      if (model_options.has_value()) {
+        model_options->merge(*opts.model_options);
+      } else {
+        model_options = std::move(opts.model_options);
+      }
+    }
+
+    merge_opt(system_file, std::move(opts.system_file));
+    merge_opt(aperture_system_file, std::move(opts.aperture_system_file));
+
+    if (opts.sddp_options.has_value()) {
+      if (sddp_options.has_value()) {
+        sddp_options->merge(*opts.sddp_options);
+      } else {
+        sddp_options = std::move(opts.sddp_options);
+      }
+    }
+
+    if (opts.transition.has_value()) {
+      if (transition.has_value()) {
+        transition->merge(*opts.transition);
+      } else {
+        transition = std::move(opts.transition);
+      }
+    }
+  }
 };
 
 /**
@@ -135,10 +246,31 @@ struct CascadeOptions
   {
     model_options.merge(opts.model_options);
     sddp_options.merge(std::move(opts.sddp_options));
-    if (!opts.level_array.empty()) {
+
+    // level_array merge rules:
+    //  - overlay empty                 → keep base (no change)
+    //  - base empty                    → adopt overlay (initial load)
+    //  - sizes match, non-empty        → element-wise merge (enables
+    //    `--set cascade_options.level_array.N.foo=bar` overlays, where
+    //    the overlay array is constructed with (N - 1) empty placeholder
+    //    objects and only index N filled — see
+    //    build_set_option_json in gtopt_json_io_set.cpp)
+    //  - sizes differ                  → replace wholesale (preserves
+    //    existing "two JSON files with different level_array sizes
+    //    → last-wins" semantics for full-file merges)
+    if (opts.level_array.empty()) {
+      return;
+    }
+    if (level_array.empty() || level_array.size() != opts.level_array.size()) {
       level_array = std::move(opts.level_array);
+      return;
+    }
+    for (std::size_t i = 0; i < level_array.size(); ++i) {
+      level_array[i].merge(std::move(opts.level_array[i]));
     }
   }
 };
 
 }  // namespace gtopt
+
+// NOLINTEND(hicpp-move-const-arg, performance-move-const-arg)

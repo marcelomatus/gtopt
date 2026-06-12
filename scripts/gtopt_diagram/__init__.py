@@ -7,3 +7,4 @@ from .gtopt_diagram import (  # noqa: F401
     main,
     model_to_visjs,
 )
+from ._renderers import model_to_reactflow  # noqa: F401

@@ -4,6 +4,8 @@
 
 #include "gtopt/linear_parser.hpp"
 
+#include "gtopt/utils.hpp"
+
 namespace gtopt
 {
 
@@ -66,7 +68,7 @@ int LinearParser::do_main()
       if (!vars.empty()) {
         auto coeff_vector = result.getCoefficientsVector(vars);
         std::print("Coefficient vector [");
-        for (const auto& [i, val] : std::views::enumerate(coeff_vector)) {
+        for (const auto& [i, val] : enumerate(coeff_vector)) {
           if (i > 0) {
             std::print(", ");
           }

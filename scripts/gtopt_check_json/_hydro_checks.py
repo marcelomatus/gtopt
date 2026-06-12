@@ -149,6 +149,63 @@ def check_capacity_adequacy(planning: dict[str, Any]) -> list[Finding]:
     return findings
 
 
+def check_seepage_at_vmin(planning: dict[str, Any]) -> list[Finding]:
+    """Check that piecewise reservoir seepage yields q ≈ 0 at vmin.
+
+    PLP's physical seepage curves are designed so that an *empty*
+    reservoir has zero filtration: ``q_filt(0) = 0``.  When the first
+    segment doesn't satisfy this — i.e. ``constant + slope * vmin ≠ 0``
+    — the LP can be forced to discharge non-zero seepage even when the
+    reservoir is depleted, which is physically infeasible (no water in
+    storage to seep) and tends to make the SDDP forward pass infeasible
+    near the lower volume bound.
+    """
+    findings: list[Finding] = []
+    sys = planning.get("system", {})
+
+    reservoir_emin: dict[str, float] = {}
+    for r in sys.get("reservoir_array", []):
+        emin_vals = _extract_scalar_values(r.get("emin"))
+        reservoir_emin[r["name"]] = emin_vals[0] if emin_vals else 0.0
+
+    for idx, seep in enumerate(sys.get("reservoir_seepage_array", [])):
+        segments = seep.get("segments")
+        if not segments:
+            continue
+
+        first = segments[0]
+        slope = float(first.get("slope", 0.0))
+        constant = float(first.get("constant", 0.0))
+
+        rsv_name = seep.get("reservoir")
+        vmin = reservoir_emin.get(rsv_name, 0.0)
+
+        q_at_vmin = constant + slope * vmin
+        if abs(q_at_vmin) > 1e-9:
+            name = seep.get("name", f"index {idx}")
+            findings.append(
+                Finding(
+                    check_id="seepage_at_vmin",
+                    severity=Severity.WARNING,
+                    message=(
+                        f"Reservoir seepage '{name}' (uid={seep.get('uid')}, "
+                        f"reservoir='{rsv_name}'): first segment yields "
+                        f"q={q_at_vmin:.4f} m³/s at vmin={vmin} (expected 0); "
+                        f"first segment slope={slope}, constant={constant}."
+                    ),
+                    action=(
+                        "Verify plpfilemb.dat: first segment must give "
+                        "q=0 at the empty-reservoir level — typically "
+                        "constant=0 with the segment starting at vol=0. "
+                        "Otherwise the LP forces seepage at vmin and may "
+                        "become infeasible during the SDDP forward pass."
+                    ),
+                )
+            )
+
+    return findings
+
+
 def check_cascade_levels(planning: dict[str, Any]) -> list[Finding]:
     """Check cascade level configuration for consistency.
 

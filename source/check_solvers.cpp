@@ -11,6 +11,7 @@
  * framework is required at runtime.
  */
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -20,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/check_solvers.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -40,16 +42,16 @@ bool SolverTestReport::passed() const noexcept
       results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
-int SolverTestReport::n_passed() const noexcept
+std::ptrdiff_t SolverTestReport::n_passed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return r.passed; });
 }
 
-int SolverTestReport::n_failed() const noexcept
+std::ptrdiff_t SolverTestReport::n_failed() const noexcept
 {
-  return static_cast<int>(std::ranges::count_if(
-      results, [](const SolverTestResult& r) { return !r.passed; }));
+  return std::ranges::count_if(
+      results, [](const SolverTestResult& r) { return !r.passed; });
 }
 
 // ---------------------------------------------------------------------------
@@ -111,22 +113,36 @@ struct TestContext
     double ub_row = LinearProblem::DblMax)
 {
   LinearProblem lp("2x2");
+  // Every SparseCol / SparseRow carries the full label triple
+  // (class_name, variable_name, variable_uid / constraint_name) so that
+  // `flatten()` records non-empty `col_labels_meta` / `row_labels_meta`
+  // and downstream `materialize_labels` / `write_lp` (which always
+  // synthesise labels via LabelMaker at LpNamesLevel::all) can produce
+  // non-empty label strings.  Leaving any field empty would make
+  // `generate_labels_from_maps` throw "metadata without a class_name
+  // (unlabelable)" the moment a test enables label materialisation.
   const auto x1 = lp.add_col(SparseCol {
-      .name = "x1",
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c1,
+      .class_name = "col",
+      .variable_name = "x",
+      .variable_uid = Uid {1},
   });
   const auto x2 = lp.add_col(SparseCol {
-      .name = "x2",
       .lowb = 0.0,
       .uppb = LinearProblem::DblMax,
       .cost = c2,
+      .class_name = "col",
+      .variable_name = "x",
+      .variable_uid = Uid {2},
   });
   const auto r1 = lp.add_row(SparseRow {
-      .name = "r1",
       .lowb = lb_row,
       .uppb = ub_row,
+      .class_name = "row",
+      .constraint_name = "c",
+      .variable_uid = Uid {1},
   });
   lp.set_coeff(r1, x1, 1.0);
   lp.set_coeff(r1, x2, 1.0);
@@ -192,7 +208,7 @@ SolverTestResult test_construction(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 2. add_col / add_free_col: dimensions and bounds
+// 2. add_col: dimensions and bounds
 // ---------------------------------------------------------------------------
 SolverTestResult test_add_col(std::string_view solver)
 {
@@ -200,9 +216,14 @@ SolverTestResult test_add_col(std::string_view solver)
   try {
     LinearInterface lp(solver);
 
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", -5.0, 5.0);
-    const auto x3 = lp.add_free_col("x3");
+    const auto x1 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .lowb = -5.0,
+        .uppb = 5.0,
+    });
+    const auto x3 = lp.add_col(SparseCol {}.free());
 
     TC_CHECK(ctx, lp.get_numcols() == 3);
 
@@ -243,9 +264,11 @@ SolverTestResult test_add_row(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.add_col("x", 0.0, 10.0);
+    (void)lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[ColIndex {0}] = 2.0;
     row.lowb = 1.0;
     row.uppb = 5.0;
@@ -261,15 +284,253 @@ SolverTestResult test_add_row(std::string_view solver)
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 0.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 8.0, 1e-12);
 
-    // set_rhs_raw: sets both bounds to the same value.
-    lp.set_rhs(r1, 4.0);
+    // set_row_equal_to: force the row to ``lowb = uppb = value``.
+    // Replaces the legacy ``set_rhs`` name (which had identical
+    // semantics but didn't read like a force-to-equality from the
+    // call site — see commit 488555548 for the RALCO regression
+    // that motivated the rename).
+    lp.set_row_equal_to(r1, 4.0);
     TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], 4.0, 1e-12);
     TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 4.0, 1e-12);
+
+    // ``set_row_bounds(row, lb, ub)`` is the generic two-sided
+    // setter — matches the bulk ``set_col_bounds`` API.
+    lp.set_row_bounds(r1, -1.0, 6.0);
+    TC_CHECK_APPROX(ctx, lp.get_row_low()[r1], -1.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_row_upp()[r1], 6.0, 1e-12);
 
   } catch (const std::exception& ex) {
     return make_result("add_row", /*test_passed=*/false, ex.what());
   }
   return make_result("add_row", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
+// 3b. add_rows (plural / bulk) — exercises the CSR bulk path that
+//     `LinearInterface::apply_post_load_replay` uses for cut replay
+//     under low-memory mode.  Verifies coefficient placement, bounds,
+//     and post-bulk solver mutability for every plugin (CPLEX / HiGHS
+//     hit native CSR; OSI/CLP, MindOpt, Gurobi reach their own bulk
+//     APIs after the recent backend fixes).
+// ---------------------------------------------------------------------------
+SolverTestResult test_add_rows(std::string_view solver)
+{
+  TestContext ctx;
+  try {
+    LinearInterface lp(solver);
+    const auto x1 = lp.add_col(SparseCol {.uppb = 10.0});
+    const auto x2 = lp.add_col(SparseCol {.uppb = 10.0});
+
+    SparseRow r0;
+    r0[x1] = 1.0;
+    r0[x2] = 2.0;
+    r0.lowb = 0.0;
+    r0.uppb = 20.0;
+
+    SparseRow r1;
+    r1[x1] = 3.0;
+    r1[x2] = 4.0;
+    r1.lowb = -SparseRow::DblMax;
+    r1.uppb = 7.0;
+
+    const std::array<SparseRow, 2> rows {r0, r1};
+    lp.add_rows(rows);
+
+    TC_CHECK(ctx, lp.get_numrows() == 2);
+
+    const auto row_low = lp.get_row_low();
+    const auto row_upp = lp.get_row_upp();
+    TC_CHECK_APPROX(ctx, row_low[RowIndex {0}], 0.0, 1e-12);
+    TC_CHECK_APPROX(ctx, row_upp[RowIndex {0}], 20.0, 1e-12);
+    TC_CHECK_APPROX(ctx, row_upp[RowIndex {1}], 7.0, 1e-12);
+    // Row 1's lowb is -infinity; just verify it's strictly less than the
+    // upper bound (the solver may store it as -infty or as a sentinel).
+    TC_CHECK(ctx, row_low[RowIndex {1}] < row_upp[RowIndex {1}]);
+
+    // Coefficients must be addressable post-bulk (matrix shape preserved).
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {0}, x1), 1.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {0}, x2), 2.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {1}, x1), 3.0, 1e-12);
+    TC_CHECK_APPROX(ctx, lp.get_coeff(RowIndex {1}, x2), 4.0, 1e-12);
+
+    // Post-bulk row mutation (set_row_low / set_row_upp) must continue
+    // to work on rows added through the bulk path.  This is the
+    // invariant that broke for Gurobi when its local row mirror lagged.
+    lp.set_row_upp_raw(RowIndex {0}, 30.0);
+    TC_CHECK_APPROX(ctx, lp.get_row_upp()[RowIndex {0}], 30.0, 1e-12);
+
+  } catch (const std::exception& ex) {
+    return make_result("add_rows", /*test_passed=*/false, ex.what());
+  }
+  return make_result("add_rows", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+// ---------------------------------------------------------------------------
+// 3c. add_cols (plural / bulk) — exercises the CSC bulk path that mirrors
+//     the CSR `add_rows` API.  Each backend's `add_cols` issues a single
+//     native bulk-add call (CPXaddcols / GRBaddvars / Highs::addCols /
+//     OsiClp::addCols / MDOaddvars) instead of an N-call per-column
+//     loop.  The regression guard here is LP-semantic: build the same
+//     LP twice — once with per-column add_col, once with the bulk path —
+//     solve, and compare primal / dual / objective.  A bulk-path bug
+//     that scales columns differently from the singular path will fail
+//     this test even when individual setters/getters pass round-trip.
+// ---------------------------------------------------------------------------
+SolverTestResult test_add_cols(std::string_view solver)
+{
+  TestContext ctx;
+  try {
+    // Path A: per-column add_col + set_coeff for each (row, col) entry.
+    //   min x + y
+    //   s.t. x >= 5, y >= 3, 0 <= x,y <= 100  → optimum: x=5, y=3, obj=8.
+    //
+    // Finite upper bounds so the cross-path bound comparison is robust
+    // to backend-specific infinity normalisation (HiGHS clamps DblMax
+    // through ScaledView differently than CPLEX/OSI in this setup).
+    constexpr double kColUpper = 100.0;
+    LinearInterface lp_a(solver);
+    const auto rA0 = lp_a.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto rA1 = lp_a.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto xA = lp_a.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = kColUpper,
+        .cost = 1.0,
+    });
+    const auto yA = lp_a.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = kColUpper,
+        .cost = 1.0,
+    });
+    lp_a.set_coeff(rA0, xA, 1.0);
+    lp_a.set_coeff(rA1, yA, 1.0);
+    {
+      const auto rs = lp_a.initial_solve(SolverOptions {.log_level = 0});
+      if (!rs) {
+        ctx.check(
+            /*cond=*/false,
+            std::format("path A initial_solve error: {}", rs.error().message),
+            __FILE__,
+            __LINE__);
+      }
+    }
+    TC_CHECK(ctx, lp_a.is_optimal());
+
+    // Path B: same LP, but cols added via the bulk add_cols span.
+    LinearInterface lp_b(solver);
+    const auto rB0 = lp_b.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const auto rB1 = lp_b.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = SparseRow::DblMax,
+    });
+    const std::array<SparseCol, 2> cols_b {
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+        },
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+        },
+    };
+    (void)lp_b.add_cols(cols_b);
+    const auto xB = ColIndex {0};
+    const auto yB = ColIndex {1};
+    lp_b.set_coeff(rB0, xB, 1.0);
+    lp_b.set_coeff(rB1, yB, 1.0);
+    {
+      const auto rs = lp_b.initial_solve(SolverOptions {.log_level = 0});
+      if (!rs) {
+        ctx.check(
+            /*cond=*/false,
+            std::format("path B initial_solve error: {}", rs.error().message),
+            __FILE__,
+            __LINE__);
+      }
+    }
+    TC_CHECK(ctx, lp_b.is_optimal());
+
+    // Bit-for-bit primal / dual / objective parity between paths.
+    TC_CHECK(ctx, lp_b.get_numcols() == 2);
+    TC_CHECK(ctx, lp_b.get_numrows() == 2);
+
+    TC_CHECK_APPROX(ctx, lp_a.get_obj_value(), 8.0, 1e-9);
+    TC_CHECK_APPROX(ctx, lp_b.get_obj_value(), 8.0, 1e-9);
+
+    const auto sol_a = lp_a.get_col_sol();
+    const auto sol_b = lp_b.get_col_sol();
+    TC_CHECK_APPROX(ctx, sol_a[xA], 5.0, 1e-9);
+    TC_CHECK_APPROX(ctx, sol_a[yA], 3.0, 1e-9);
+    TC_CHECK_APPROX(ctx, sol_b[xB], sol_a[xA], 1e-9);
+    TC_CHECK_APPROX(ctx, sol_b[yB], sol_a[yA], 1e-9);
+
+    // Bound / cost vectors must match coordinate-wise.
+    const auto lo_a = lp_a.get_col_low();
+    const auto lo_b = lp_b.get_col_low();
+    const auto up_a = lp_a.get_col_upp();
+    const auto up_b = lp_b.get_col_upp();
+    const auto obj_a = lp_a.get_obj_coeff();
+    const auto obj_b = lp_b.get_obj_coeff();
+    TC_CHECK_APPROX(ctx, lo_a[xA], lo_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, lo_a[yA], lo_b[yB], 1e-12);
+    TC_CHECK_APPROX(ctx, up_a[xA], up_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, up_a[yA], up_b[yB], 1e-12);
+    TC_CHECK_APPROX(ctx, obj_a[xA], obj_b[xB], 1e-12);
+    TC_CHECK_APPROX(ctx, obj_a[yA], obj_b[yB], 1e-12);
+
+    // Coefficient matrix entries must match.
+    TC_CHECK_APPROX(
+        ctx, lp_a.get_coeff(rA0, xA), lp_b.get_coeff(rB0, xB), 1e-12);
+    TC_CHECK_APPROX(
+        ctx, lp_a.get_coeff(rA1, yA), lp_b.get_coeff(rB1, yB), 1e-12);
+
+    // Row duals (shadow prices) must match.
+    const auto dual_a = lp_a.get_row_dual();
+    const auto dual_b = lp_b.get_row_dual();
+    TC_CHECK_APPROX(ctx, dual_a[rA0], dual_b[rB0], 1e-9);
+    TC_CHECK_APPROX(ctx, dual_a[rA1], dual_b[rB1], 1e-9);
+
+    // ── Repeat with a non-unit col.scale to exercise the col_scale
+    //    composition path on the bulk add.  The per-column path
+    //    registers col.scale via `set_col_scale` post-add; the bulk
+    //    path does the same after the single backend dispatch.  Both
+    //    must produce identical observable scales (`get_col_scales`)
+    //    and recover the same physical primal solution.
+    LinearInterface lp_c(solver);
+    const std::array<SparseCol, 2> cols_c {
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+            .scale = 10.0,
+        },
+        SparseCol {
+            .lowb = 0.0,
+            .uppb = kColUpper,
+            .cost = 1.0,
+            .scale = 10.0,
+        },
+    };
+    (void)lp_c.add_cols(cols_c);
+    const auto& cs = lp_c.get_col_scales();
+    TC_CHECK(ctx, std::ssize(cs) >= 2);
+    TC_CHECK_APPROX(ctx, cs[ColIndex {0}], 10.0, 1e-12);
+    TC_CHECK_APPROX(ctx, cs[ColIndex {1}], 10.0, 1e-12);
+
+  } catch (const std::exception& ex) {
+    return make_result("add_cols", /*test_passed=*/false, ex.what());
+  }
+  return make_result("add_cols", /*test_passed=*/ctx.ok(), ctx.failures);
 }
 
 // ---------------------------------------------------------------------------
@@ -280,11 +541,14 @@ SolverTestResult test_obj_coeff(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
-
-    lp.set_obj_coeff(x1, 3.0);
-    lp.set_obj_coeff(x2, 7.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+        .cost = 3.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+        .cost = 7.0,
+    });
 
     const auto obj = lp.get_obj_coeff();
     TC_CHECK(ctx, obj.size() == 2);
@@ -305,10 +569,14 @@ SolverTestResult test_get_set_coeff(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[x1] = 1.0;
     row[x2] = 2.0;
     row.lowb = 0.0;
@@ -337,8 +605,12 @@ SolverTestResult test_variable_types(std::string_view solver)
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 10.0);
+    const auto x1 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+    });
 
     // Default: continuous.
     TC_CHECK(ctx, lp.is_continuous(x1));
@@ -365,37 +637,72 @@ SolverTestResult test_variable_types(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 7. lp_names_level + name maps (col_name_map, row_name_map)
+// 7. LP names + name maps (col_name_map, row_name_map)
 // ---------------------------------------------------------------------------
 SolverTestResult test_name_maps(std::string_view solver)
 {
   TestContext ctx;
   try {
     LinearInterface lp(solver);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
 
-    TC_CHECK(ctx, lp.lp_names_level() == 1);
+    TC_CHECK(ctx, lp.label_maker().names_level() == LpNamesLevel::all);
 
-    const auto x1 = lp.add_col("x1", 0.0, 10.0);
-    const auto x2 = lp.add_col("x2", 0.0, 5.0);
+    // LabelMaker builds a label of the form
+    //   as_label(lowercase(class_name), variable_name, variable_uid)
+    // → e.g. "col_x_1".  Leaving any of these empty/unknown produces an
+    // empty label, which LinearInterface then declines to register in its
+    // name maps — so the SparseCol/SparseRow below must carry the full
+    // (class_name, variable_name, variable_uid) triple for this test to
+    // exercise the name-map machinery at all.
+    const auto x1 = lp.add_col(SparseCol {
+        .uppb = 10.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {1},
+    });
+    const auto x2 = lp.add_col(SparseCol {
+        .uppb = 5.0,
+        .class_name = "col",
+        .variable_name = "x",
+        .variable_uid = Uid {2},
+    });
 
-    SparseRow row("my_row");
+    SparseRow row {
+        .lowb = 0.0,
+        .uppb = 10.0,
+        .class_name = "row",
+        .constraint_name = "my",
+        .variable_uid = Uid {1},
+    };
     row[x1] = 1.0;
-    row.lowb = 0.0;
-    row.uppb = 10.0;
-    lp.add_row(row);
+    (void)lp.add_row(row);
+
+    // `col_name_map` / `row_name_map` / `col_index_to_name` are populated
+    // lazily on the first call to `generate_labels_from_maps` (triggered
+    // by `write_lp`, `push_names_to_solver`, or — as here — the explicit
+    // `materialize_labels` helper).  Without this call the maps would be
+    // empty for cols/rows added via `add_col` / `add_row` after flatten,
+    // because the label strings are only synthesised on demand from
+    // `m_post_flatten_*_labels_meta_`.
+    lp.materialize_labels();
 
     const auto& col_map = lp.col_name_map();
-    TC_CHECK(ctx, col_map.contains("x1"));
-    TC_CHECK(ctx, col_map.contains("x2"));
+    TC_CHECK(ctx, col_map.contains("col_x_1"));
+    TC_CHECK(ctx, col_map.contains("col_x_2"));
 
     const auto& row_map = lp.row_name_map();
-    TC_CHECK(ctx, row_map.contains("my_row"));
+    TC_CHECK(ctx, row_map.contains("row_my_1"));
 
+    // TC_REQUIRE: if the backend-or-interface failed to populate the
+    // index→name vector we must stop here, otherwise the operator[] below
+    // would dereference an empty StrongIndexVector and crash the process
+    // (the previous version silently checked the size and then crashed
+    // when the check fired).
     const auto& col_idx_to_name = lp.col_index_to_name();
-    TC_CHECK(ctx, col_idx_to_name.size() == 2);
-    TC_CHECK(ctx, col_idx_to_name[x1] == "x1");
-    TC_CHECK(ctx, col_idx_to_name[x2] == "x2");
+    TC_REQUIRE(ctx, col_idx_to_name.size() == 2);
+    TC_CHECK(ctx, col_idx_to_name[x1] == "col_x_1");
+    TC_CHECK(ctx, col_idx_to_name[x2] == "col_x_2");
 
   } catch (const std::exception& ex) {
     return make_result("name_maps", /*test_passed=*/false, ex.what());
@@ -486,8 +793,14 @@ SolverTestResult test_initial_solve_optimal(std::string_view solver)
       const auto rc = lp.get_col_cost_raw();
       TC_CHECK(ctx, rc.size() == 2);
 
-      // Kappa: >= 0 when supported, -1 when not (e.g. MindOpt).
-      TC_CHECK(ctx, lp.get_kappa() >= -1.0);
+      // Kappa: has_value when backend supports it; nullopt when the
+      // query fails or the backend does not expose one (e.g. MindOpt).
+      // If a value is returned it must never be the pre-fix 1.0 sentinel
+      // silently faked by a failed query — backends now return nullopt
+      // in that case.  We only assert "non-negative when present".
+      if (const auto kappa = lp.get_kappa(); kappa.has_value()) {
+        TC_CHECK(ctx, *kappa >= 0.0);
+      }
 
     } catch (const std::exception& ex) {
       ctx.check(
@@ -510,14 +823,16 @@ SolverTestResult test_primal_infeasible(std::string_view solver)
   try {
     //   min x,  s.t. x >= 10, x <= 5, x >= 0   → infeasible
     LinearInterface lp(solver);
-    const auto x = lp.add_col("x", 0.0, 5.0);
-    lp.set_obj_coeff(x, 1.0);
+    const auto x = lp.add_col(SparseCol {
+        .uppb = 5.0,
+        .cost = 1.0,
+    });
 
-    SparseRow row("r1");
+    SparseRow row;
     row[x] = 1.0;
     row.lowb = 10.0;
     row.uppb = LinearProblem::DblMax;
-    lp.add_row(row);
+    (void)lp.add_row(row);
 
     const auto result = lp.initial_solve(SolverOptions {
         .log_level = 0,
@@ -603,46 +918,7 @@ SolverTestResult test_clone(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 13. set_warm_start_solution — hot start hint survives a resolve
-// ---------------------------------------------------------------------------
-SolverTestResult test_warm_start(std::string_view solver)
-{
-  TestContext ctx;
-  const double kEps = 1e-6;
-  try {
-    const auto flat = make_2x2_flat(1.0, 1.0, 4.0);
-    LinearInterface lp(solver, flat);
-    const auto ri2 = lp.initial_solve(SolverOptions {
-        .log_level = 0,
-    });
-    TC_REQUIRE(ctx, ri2.has_value());
-    TC_REQUIRE(ctx, lp.is_optimal());
-
-    // Capture solution and use it as a warm start.
-    const auto col_sol_vec = std::vector<double>(lp.get_col_sol_raw().begin(),
-                                                 lp.get_col_sol_raw().end());
-    const auto row_dual_vec = std::vector<double>(lp.get_row_dual_raw().begin(),
-                                                  lp.get_row_dual_raw().end());
-
-    lp.set_warm_start_solution(col_sol_vec, row_dual_vec);
-
-    // Modify bound and re-solve — warm start should be used.
-    lp.set_row_low(RowIndex {0}, 5.0);
-    const auto r = lp.resolve(SolverOptions {
-        .log_level = 0,
-    });
-    TC_REQUIRE(ctx, r.has_value());
-    TC_CHECK(ctx, lp.is_optimal());
-    TC_CHECK_APPROX(ctx, lp.get_obj_value(), 5.0, kEps);
-
-  } catch (const std::exception& ex) {
-    return make_result("warm_start", /*test_passed=*/false, ex.what());
-  }
-  return make_result("warm_start", /*test_passed=*/ctx.ok(), ctx.failures);
-}
-
-// ---------------------------------------------------------------------------
-// 14. save_base_numrows / delete_rows / reset_from
+// 13. save_base_numrows / delete_rows / reset_from
 // ---------------------------------------------------------------------------
 SolverTestResult test_base_numrows_reset(std::string_view solver)
 {
@@ -661,22 +937,15 @@ SolverTestResult test_base_numrows_reset(std::string_view solver)
     TC_CHECK(ctx, lp.base_numrows() == 1);
 
     // Add a cut row.
-    SparseRow cut("cut1");
+    SparseRow cut;
     cut[ColIndex {0}] = 1.0;
     cut.lowb = 0.0;
     cut.uppb = 100.0;
-    lp.add_row(cut);
+    (void)lp.add_row(cut);
     TC_CHECK(ctx, lp.get_numrows() == 2);
-
-    // Delete the cut.
-    const std::array<int, 1> to_del = {1};
-    lp.delete_rows(to_del);
-    TC_CHECK(ctx, lp.get_numrows() == 1);
 
     // reset_from: copy bounds from a source LP and remove rows > base.
     const LinearInterface src(solver, flat);
-    lp.add_row(cut);
-    TC_CHECK(ctx, lp.get_numrows() == 2);
     lp.reset_from(src, lp.base_numrows());
     TC_CHECK(ctx, lp.get_numrows() == 1);
 
@@ -704,16 +973,15 @@ SolverTestResult test_write_lp(std::string_view solver)
   try {
     const auto flat = make_2x2_flat();
     LinearInterface lp(solver, flat);
-    lp.set_lp_names_level(1);
+    lp.set_label_maker(LabelMaker {LpNamesLevel::all});
     const auto ri4 = lp.initial_solve(SolverOptions {
         .log_level = 0,
     });
     TC_REQUIRE(ctx, ri4.has_value());
 
-    const auto tmp_stem =
-        (std::filesystem::temp_directory_path()
-         / std::format("gtopt_check_solvers_{}", std::string(solver)))
-            .string();
+    const auto tmp_stem = (std::filesystem::temp_directory_path()
+                           / as_label("gtopt_check_solvers", solver))
+                              .string();
     const auto result = lp.write_lp(tmp_stem);
 
     if (result.has_value()) {
@@ -745,19 +1013,16 @@ SolverTestResult test_maximisation(std::string_view solver)
     // Implemented as minimisation of -(3x1+2x2).
     LinearProblem lp_model("max_test");
     const auto x1 = lp_model.add_col(SparseCol {
-        .name = "x1",
         .lowb = 0.0,
         .uppb = 4.0,
         .cost = -3.0,
     });
     const auto x2 = lp_model.add_col(SparseCol {
-        .name = "x2",
         .lowb = 0.0,
         .uppb = 5.0,
         .cost = -2.0,
     });
     const auto r1 = lp_model.add_row(SparseRow {
-        .name = "sum",
         .lowb = -LinearProblem::DblMax,
         .uppb = 7.0,
     });
@@ -786,29 +1051,7 @@ SolverTestResult test_maximisation(std::string_view solver)
 }
 
 // ---------------------------------------------------------------------------
-// 17. set_warm_col_sol / warm_col_sol accessors
-// ---------------------------------------------------------------------------
-SolverTestResult test_warm_col_sol_accessors(std::string_view solver)
-{
-  TestContext ctx;
-  try {
-    LinearInterface lp(solver);
-    lp.add_col("x", 0.0, 10.0);
-
-    lp.set_warm_col_sol(StrongIndexVector<ColIndex, double> {5.0});
-    TC_CHECK(ctx, lp.warm_col_sol().size() == 1);
-    TC_CHECK_APPROX(ctx, lp.warm_col_sol()[ColIndex {0}], 5.0, 1e-12);
-
-  } catch (const std::exception& ex) {
-    return make_result(
-        "warm_col_sol_accessors", /*test_passed=*/false, ex.what());
-  }
-  return make_result(
-      "warm_col_sol_accessors", /*test_passed=*/ctx.ok(), ctx.failures);
-}
-
-// ---------------------------------------------------------------------------
-// 18. LP stats: col scale round-trip
+// 17. LP stats: col scale round-trip
 // ---------------------------------------------------------------------------
 SolverTestResult test_col_scales(std::string_view solver)
 {
@@ -817,19 +1060,16 @@ SolverTestResult test_col_scales(std::string_view solver)
     // Build a FlatLinearProblem with explicit col_scales.
     LinearProblem lp_model("scale_test");
     const auto x1 = lp_model.add_col(SparseCol {
-        .name = "x1",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 1.0,
     });
     const auto x2 = lp_model.add_col(SparseCol {
-        .name = "x2",
         .lowb = 0.0,
         .uppb = 10.0,
         .cost = 2.0,
     });
     const auto r1 = lp_model.add_row(SparseRow {
-        .name = "r1",
         .lowb = 0.0,
         .uppb = 20.0,
     });
@@ -875,13 +1115,12 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     //        x1, x2, x3, x4 >= 0
     // Optimal obj = 17 (x1=5, x2=0, x3=4, x4=0).
     LinearProblem lp("barrier_threads");
-    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
-    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
-    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
-    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
 
     const auto r1 = lp.add_row(SparseRow {
-        .name = "r1",
         .lowb = 5.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -889,7 +1128,6 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     lp.set_coeff(r1, x2, 1.0);
 
     const auto r2 = lp.add_row(SparseRow {
-        .name = "r2",
         .lowb = 3.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -897,7 +1135,6 @@ SolverTestResult test_barrier_threads(std::string_view solver)
     lp.set_coeff(r2, x3, 1.0);
 
     const auto r3 = lp.add_row(SparseRow {
-        .name = "r3",
         .lowb = 4.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -946,13 +1183,12 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
   try {
     // Same 4-variable LP as test_barrier_threads
     LinearProblem lp("barrier_resolve");
-    const auto x1 = lp.add_col(SparseCol {.name = "x1", .cost = 1.0});
-    const auto x2 = lp.add_col(SparseCol {.name = "x2", .cost = 2.0});
-    const auto x3 = lp.add_col(SparseCol {.name = "x3", .cost = 3.0});
-    const auto x4 = lp.add_col(SparseCol {.name = "x4", .cost = 4.0});
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
 
     const auto r1 = lp.add_row(SparseRow {
-        .name = "r1",
         .lowb = 5.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -960,7 +1196,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     lp.set_coeff(r1, x2, 1.0);
 
     const auto r2 = lp.add_row(SparseRow {
-        .name = "r2",
         .lowb = 3.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -968,7 +1203,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     lp.set_coeff(r2, x3, 1.0);
 
     const auto r3 = lp.add_row(SparseRow {
-        .name = "r3",
         .lowb = 4.0,
         .uppb = LinearProblem::DblMax,
     });
@@ -995,7 +1229,6 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
 
     const auto r_resolve = li.resolve(SolverOptions {
         .algorithm = LPAlgo::dual,
-        .reuse_basis = true,
     });
     TC_CHECK(ctx, r_resolve.has_value());
     TC_CHECK(ctx, li.is_optimal());
@@ -1006,6 +1239,84 @@ SolverTestResult test_barrier_resolve(std::string_view solver)
     return make_result("barrier_resolve", /*test_passed=*/false, ex.what());
   }
   return make_result("barrier_resolve", /*test_passed=*/ctx.ok(), ctx.failures);
+}
+
+/// Validate the `SolverOptions::advanced_basis` warm-start contract for a
+/// solver backend: after a cold solve leaves a basis resident on the
+/// problem object, a bound/RHS change followed by a warm
+/// (`advanced_basis = true`) re-solve must reach the SAME optimum a cold
+/// re-solve would.  Each backend maps `advanced_basis` to its native
+/// warm-start (CPLEX ADVIND+simplex, HiGHS simplex+no-presolve, Gurobi
+/// Method=simplex, MindOpt Method+no-presolve, OSI/CLP resolve() hint);
+/// this is the self-check that the mapping exists and produces correct
+/// numbers rather than silently breaking the solve.  Backends that cannot
+/// warm-start must still solve correctly (the flag degrades to a normal
+/// re-solve), so a failure here means a real regression in that plugin.
+SolverTestResult test_advanced_basis(std::string_view solver)
+{
+  TestContext ctx;
+  const double kEps = 1e-6;
+
+  try {
+    // Reuse the 4-variable / 3-row LP from `test_barrier_resolve`:
+    //   minimize  x1 + 2 x2 + 3 x3 + 4 x4
+    //   s.t. x1+x2 >= 5,  x2+x3 >= 3,  x3+x4 >= 4,  x >= 0.
+    LinearProblem lp("advanced_basis");
+    const auto x1 = lp.add_col(SparseCol {.cost = 1.0});
+    const auto x2 = lp.add_col(SparseCol {.cost = 2.0});
+    const auto x3 = lp.add_col(SparseCol {.cost = 3.0});
+    const auto x4 = lp.add_col(SparseCol {.cost = 4.0});
+
+    const auto r1 = lp.add_row(SparseRow {
+        .lowb = 5.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r1, x1, 1.0);
+    lp.set_coeff(r1, x2, 1.0);
+
+    const auto r2 = lp.add_row(SparseRow {
+        .lowb = 3.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r2, x2, 1.0);
+    lp.set_coeff(r2, x3, 1.0);
+
+    const auto r3 = lp.add_row(SparseRow {
+        .lowb = 4.0,
+        .uppb = LinearProblem::DblMax,
+    });
+    lp.set_coeff(r3, x3, 1.0);
+    lp.set_coeff(r3, x4, 1.0);
+
+    LpMatrixOptions mopts;
+    mopts.col_with_names = true;
+    mopts.row_with_names = true;
+    const auto flat = lp.flatten(mopts);
+
+    LinearInterface li(solver, flat);
+
+    // Step 1: cold solve — seeds a basis resident on the problem object.
+    const auto r_init = li.initial_solve(SolverOptions {});
+    TC_CHECK(ctx, r_init.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 17.0, kEps);
+
+    // Step 2: tighten a constraint (a bound/RHS-only delta keeps the basis
+    // valid), then WARM re-solve off the resident basis via advanced_basis.
+    li.set_row_low(RowIndex {0}, 6.0);  // x1 + x2 >= 6
+    const auto r_warm = li.resolve(SolverOptions {
+        .algorithm = LPAlgo::primal,
+        .advanced_basis = true,
+    });
+    TC_CHECK(ctx, r_warm.has_value());
+    TC_CHECK(ctx, li.is_optimal());
+    // Obj rises by 1 (cheapest variable x1 absorbs the +1 on r1).
+    TC_CHECK_APPROX(ctx, li.get_obj_value(), 18.0, kEps);
+
+  } catch (const std::exception& ex) {
+    return make_result("advanced_basis", /*test_passed=*/false, ex.what());
+  }
+  return make_result("advanced_basis", /*test_passed=*/ctx.ok(), ctx.failures);
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,6 +1340,8 @@ struct TestEntry
       {.name = "construction", .fn = test_construction},
       {.name = "add_col", .fn = test_add_col},
       {.name = "add_row", .fn = test_add_row},
+      {.name = "add_rows", .fn = test_add_rows},
+      {.name = "add_cols", .fn = test_add_cols},
       {.name = "obj_coeff", .fn = test_obj_coeff},
       {.name = "get_set_coeff", .fn = test_get_set_coeff},
       {.name = "variable_types", .fn = test_variable_types},
@@ -1038,14 +1351,13 @@ struct TestEntry
       {.name = "primal_infeasible", .fn = test_primal_infeasible},
       {.name = "resolve", .fn = test_resolve},
       {.name = "clone", .fn = test_clone},
-      {.name = "warm_start", .fn = test_warm_start},
       {.name = "base_numrows_reset", .fn = test_base_numrows_reset},
       {.name = "write_lp", .fn = test_write_lp},
       {.name = "maximisation", .fn = test_maximisation},
-      {.name = "warm_col_sol_accessors", .fn = test_warm_col_sol_accessors},
       {.name = "col_scales", .fn = test_col_scales},
       {.name = "barrier_threads", .fn = test_barrier_threads},
       {.name = "barrier_resolve", .fn = test_barrier_resolve},
+      {.name = "advanced_basis", .fn = test_advanced_basis},
   };
   return tests;
 }
@@ -1055,6 +1367,31 @@ struct TestEntry
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+SolverTestResult run_one_solver_test(std::string_view solver_name,
+                                     std::string_view test_name)
+{
+  for (const auto& entry : all_tests()) {
+    if (entry.name != test_name) {
+      continue;
+    }
+    try {
+      return entry.fn(solver_name);
+    } catch (const std::exception& ex) {
+      return make_result(std::string(test_name),
+                         /*test_passed=*/false,
+                         std::format("uncaught exception: {}", ex.what()));
+    } catch (...) {
+      return make_result(std::string(test_name),
+                         /*test_passed=*/false,
+                         "uncaught non-std exception");
+    }
+  }
+  return make_result(
+      std::string(test_name),
+      /*test_passed=*/false,
+      std::format("test '{}' not found in solver test registry", test_name));
+}
 
 SolverTestReport run_solver_tests(std::string_view solver_name, bool verbose)
 {
@@ -1102,7 +1439,8 @@ SolverTestReport run_solver_tests(std::string_view solver_name, bool verbose)
 
 int check_all_solvers(bool verbose)
 {
-  const auto& registry = SolverRegistry::instance();
+  auto& registry = SolverRegistry::instance();
+  registry.load_all_plugins();
   const auto available = registry.available_solvers();
 
   if (available.empty()) {

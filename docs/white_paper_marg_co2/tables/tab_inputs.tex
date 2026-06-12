@@ -1,0 +1,23 @@
+% Public-data feed inventory table (Section 4.2)
+\begin{tabularx}{\textwidth}{l l l l X}
+  \toprule
+  Feed & Service & Endpoint / file & Type & Notes \\
+  \midrule
+  cmg-real          & CEN SIP   & \texttt{/costo-marginal-real/v4/findByDate}     & settled    & 15-min nodal $\lambda$; 02:30 publication delay (10-quarter morning gap). \\
+  cmg-online        & CEN SIP   & \texttt{/costo-marginal-online/v4/findByDate}   & intra-day  & 15-min nodal $\lambda$; full 24-h coverage; pre-validation, three version codes. \\
+  generaci\'on-real & CEN SIP   & \texttt{/generacion-real/v3/findByDate}         & settled    & Hourly per-central dispatch in MW. \\
+  instrucciones-cmg & CEN SIP   & \texttt{/instrucciones-operacionales-cmg/v4/findByDate} & settled & Per-hour state \texttt{estado} and consigna \texttt{CI/MT/PMT/PP/PS/PC}; price-taker classifier. \\
+  unidades-generadoras & CEN SIP & \texttt{/unidades-generadoras/v4/findByDate}   & static     & Per-unit pmin, pmax, fuel, technology, alias names. \\
+  generaci\'on-programada-pcp & CEN SIP & \texttt{/generacion-programada-pcp/v4} & day-ahead  & PCP-LP-output dispatch per central per hour. \\
+  cmg-programado-pcp          & CEN SIP & \texttt{/cmg-programado-pcp/v4}         & day-ahead  & PCP-cleared $\lambda$ per bus per hour; implicit hydro water value. \\
+  embalse-real      & CEN SIP   & \texttt{/embalse-real/v3}                       & settled    & Reservoir levels (cota msnm) per embalse per day. \\
+  flujo-programado-pcp & CEN SIP & \texttt{/flujo-programado-pcp/v4}             & day-ahead  & Programmed line flows; useful for binding-line / island detection. \\
+  limitaciones      & CEN SIP   & \texttt{/limitaciones-transmision/v4/findByDate} & settled & Line outages and operational restrictions per day. \\
+  \midrule
+  cv\_rpt           & SCVIC     & \texttt{cv\_rpt\_YYYY\_MM.parquet}              & static (monthly) & Piecewise CV declaration per generator per fuel per tier. \\
+  \midrule
+  PCP bundle        & PCP archive & \texttt{PCP\_YYYYMMDD.zip}                    & day-ahead  & PLEXOS XML inputs for the day-ahead clear. \\
+  PCP solution      & PCP archive & \texttt{PCP\_RES\_YYYYMMDD/\dots\,Solution.accdb} & settled & PLEXOS solver-output per-bus $\lambda$, per-unit dispatch, per-bus MLF. \\
+  PID bundle        & PID archive & \texttt{PID\_YYYYMMDD\_HH/\dots\,Solution.accdb} & intra-day & PLEXOS intra-day re-clear, settlement-binding. \\
+  \bottomrule
+\end{tabularx}

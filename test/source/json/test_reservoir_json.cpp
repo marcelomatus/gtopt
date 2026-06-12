@@ -5,6 +5,7 @@
 #include <gtopt/json/json_reservoir.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
 
 TEST_CASE("Reservoir basic fields deserialization")
 {
@@ -102,9 +103,9 @@ TEST_CASE("Reservoir roundtrip serialization")
       .junction = SingleId {Uid {456}},
       .capacity = OptTRealFieldSched {1.0},
       .annual_loss = OptTRealFieldSched {0.05},
-      .emin = OptTRealFieldSched {100.0},
-      .emax = OptTRealFieldSched {1000.0},
-      .ecost = OptTRealFieldSched {5.0},
+      .emin = OptTBRealFieldSched {100.0},
+      .emax = OptTBRealFieldSched {1000.0},
+      .ecost = OptTBRealFieldSched {5.0},
       .eini = OptReal {500.0},
       .efin = OptReal {600.0},
   };
@@ -218,18 +219,22 @@ TEST_CASE("Reservoir soft_emin JSON round-trip")  // NOLINT
           == doctest::Approx(0.1));
   }
 
-  SUBCASE("array soft_emin (per-stage)")
+  SUBCASE("2-D soft_emin (per-(stage, block))")
   {
+    // soft_emin is TB since PR-D — 2-D shape [[block0, ...], ...].
+    // Each outer index = stage; inner = block within stage.
     std::string_view json_data = R"({
       "uid":1,"name":"r1","junction":1,
-      "soft_emin":[100,200,300],"soft_emin_cost":0.05
+      "soft_emin":[[100,200,300]],"soft_emin_cost":0.05
     })";
     const Reservoir res = daw::json::from_json<Reservoir>(json_data);
     REQUIRE(res.soft_emin.has_value());
-    const auto& vec = std::get<std::vector<double>>(*res.soft_emin);
-    CHECK(vec.size() == 3);
-    CHECK(vec[0] == doctest::Approx(100.0));
-    CHECK(vec[2] == doctest::Approx(300.0));
+    const auto& vec =
+        std::get<std::vector<std::vector<double>>>(*res.soft_emin);
+    REQUIRE(vec.size() == 1);
+    CHECK(vec[0].size() == 3);
+    CHECK(vec[0][0] == doctest::Approx(100.0));
+    CHECK(vec[0][2] == doctest::Approx(300.0));
   }
 
   SUBCASE("roundtrip")
@@ -238,8 +243,8 @@ TEST_CASE("Reservoir soft_emin JSON round-trip")  // NOLINT
         .uid = Uid {10},
         .name = "rsv_semin",
         .junction = SingleId {Uid {1}},
-        .soft_emin = OptTRealFieldSched {250.0},
-        .soft_emin_cost = OptTRealFieldSched {0.1},
+        .soft_emin = OptTBRealFieldSched {250.0},
+        .soft_emin_cost = OptTBRealFieldSched {0.1},
     };
     auto json = daw::json::to_json(original);
     Reservoir rt = daw::json::from_json<Reservoir>(json);
@@ -289,3 +294,5 @@ TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
     CHECK_FALSE(res.daily_cycle.has_value());
   }
 }
+
+// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)

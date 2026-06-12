@@ -37,6 +37,8 @@ struct json_data_contract<Battery>
       json_variant_null<"active", OptActive, jvtl_Active>,  ///< Activation
                                                             ///< status
       json_string_null<"type", OptName>,  ///< Optional battery type tag
+      json_string_null<"description", OptName>,  ///< Optional free-text
+                                                 ///< description
       json_variant_null<"bus",
                         OptSingleId,
                         jvtl_SingleId>,  ///< Bus (unified definition)
@@ -44,40 +46,64 @@ struct json_data_contract<Battery>
                         OptSingleId,
                         jvtl_SingleId>,  ///< Source generator for coupled mode
       json_variant_null<"input_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Input efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Input efficiency schedule
       json_variant_null<"output_efficiency",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Output efficiency schedule
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Output efficiency schedule
       json_variant_null<"annual_loss",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual energy loss factor
       json_variant_null<"emin",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Minimum energy level
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Minimum energy level
+                                                 ///< — scalar or 2-D
+                                                 ///< per-(stage, block)
       json_variant_null<"emax",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Maximum energy level
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Maximum energy level
+                                                 ///< — scalar or 2-D
+                                                 ///< per-(stage, block)
       json_variant_null<"ecost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Voltage cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Storage usage cost
       json_number_null<"eini", OptReal>,  ///< Initial energy (optional)
       json_number_null<"efin", OptReal>,  ///< Final energy (optional)
+      json_number_null<"efin_cost", OptReal>,  ///< Soft-efin slack cost
+                                               ///< [$/MWh]; if set, slack
+                                               ///< column priced at this
+                                               ///< value, otherwise hard
+                                               ///< efin row.
       json_variant_null<"soft_emin",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft minimum energy
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Soft minimum energy
       json_variant_null<"soft_emin_cost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Soft emin penalty cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Soft emin penalty cost
       json_variant_null<"pmax_charge",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Max charging power
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Max charging power
+                                                 ///< (TB schedule)
       json_variant_null<"pmax_discharge",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Max discharging power
-      json_variant_null<"gcost",
-                        OptTRealFieldSched,
-                        jvtl_TRealFieldSched>,  ///< Discharge cost
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Max discharging power
+                                                 ///< (TB schedule)
+      json_variant_null<"pmin_charge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Min charging power
+                                                 ///< — UC.jl Minimum
+                                                 ///< charge rate
+      json_variant_null<"pmin_discharge",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Min discharging power
+                                                 ///< — UC.jl Minimum
+                                                 ///< discharge rate
+      json_variant_null<"discharge_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Per-MWh discharge cost
+      json_variant_null<"charge_cost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,  ///< Charge cost
       json_variant_null<"capacity",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Capacity
@@ -96,9 +122,17 @@ struct json_data_contract<Battery>
       json_variant_null<"annual_derating",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,  ///< Annual derating factor
+      json_bool_null<"integer_expmod", OptBool>,  ///< Integer expansion modules
       json_bool_null<"use_state_variable", OptBool>,  ///< Stage/phase coupling
       json_bool_null<"daily_cycle", OptBool>,  ///< Daily cycle operation
-      json_number_null<"energy_scale", OptReal>  ///< Energy scaling factor
+      json_number_null<"max_cycles_day", OptReal>,  ///< Daily throughput
+                                                    ///< limit (PLEXOS Max
+                                                    ///< Cycles Day): hard
+                                                    ///< Σ discharge·Δt ≤
+                                                    ///< N·capacity per day
+      json_bool_null<"commitment", OptBool>  ///< Conditional rate floors
+                                             ///< via Converter integer
+                                             ///< binary
       >;
 
   /**
@@ -114,6 +148,7 @@ struct json_data_contract<Battery>
                                  battery.name,
                                  battery.active,
                                  battery.type,
+                                 battery.description,
                                  battery.bus,
                                  battery.source_generator,
                                  battery.input_efficiency,
@@ -124,20 +159,26 @@ struct json_data_contract<Battery>
                                  battery.ecost,
                                  battery.eini,
                                  battery.efin,
+                                 battery.efin_cost,
                                  battery.soft_emin,
                                  battery.soft_emin_cost,
                                  battery.pmax_charge,
                                  battery.pmax_discharge,
-                                 battery.gcost,
+                                 battery.pmin_charge,
+                                 battery.pmin_discharge,
+                                 battery.discharge_cost,
+                                 battery.charge_cost,
                                  battery.capacity,
                                  battery.expcap,
                                  battery.expmod,
                                  battery.capmax,
                                  battery.annual_capcost,
                                  battery.annual_derating,
+                                 battery.integer_expmod,
                                  battery.use_state_variable,
                                  battery.daily_cycle,
-                                 battery.energy_scale);
+                                 battery.max_cycles_day,
+                                 battery.commitment);
   }
 };
 }  // namespace daw::json

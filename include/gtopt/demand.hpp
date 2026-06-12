@@ -35,6 +35,7 @@
 #pragma once
 
 #include <gtopt/capacity.hpp>
+#include <gtopt/lp_class_name.hpp>
 
 namespace gtopt
 {
@@ -48,10 +49,29 @@ namespace gtopt
  */
 struct DemandAttrs
 {
+  OptName type {};  ///< Optional element type/category tag
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptTBRealFieldSched lmin {};  ///< Minimum served load [MW] per-(stage,
+                                ///< block).  When set, the LP column's
+                                ///< lower bound is ``max(lmin, forced?
+                                ///< lmax : 0)``, forcing dispatch ≥ lmin
+                                ///< every block.  Used by
+                                ///< ``System::expand_batteries()`` to
+                                ///< propagate ``Battery.pmin_charge`` onto
+                                ///< the synthetic charge demand.
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).
+  OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+                                 ///< per-(stage, block).  Accepts a scalar
+                                 ///< (broadcast), a 2-D nested array
+                                 ///< ``[[block0, block1, ...], ...]``, or a
+                                 ///< file-backed schedule.  Mirrors UC.jl's
+                                 ///< per-hour ``Revenue ($/MW)`` on
+                                 ///< price-sensitive loads.
+  OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
@@ -66,6 +86,7 @@ struct DemandAttrs
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 };
 
 /**
@@ -82,16 +103,32 @@ struct DemandAttrs
  */
 struct Demand
 {
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `DemandLP` exposes no separate `ClassName` member; callers reach
+  /// the constant via `Demand::class_name` directly (or
+  /// `DemandLP::Element::class_name` in generic contexts).
+  static constexpr LPClassName class_name {"Demand"};
+
   Uid uid {unknown_uid};  ///< Unique identifier
   Name name {};  ///< Descriptive name
   OptActive active {};  ///< Activation status (default: active)
   OptName
       type {};  ///< Optional demand type tag (e.g. "residential", "industrial")
+  OptName description {};  ///< Optional free-text description (e.g. conversion
+                           ///< provenance)
 
   SingleId bus {unknown_uid};  ///< Bus ID where the demand is connected
   OptTBRealFieldSched lmax {};  ///< Maximum served load [MW]
-  OptTRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
-  OptTRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+  OptTBRealFieldSched lmin {};  ///< Minimum served load [MW] per-(stage,
+                                ///< block); see ``DemandAttrs::lmin``.
+  OptTBRealFieldSched lossfactor {};  ///< Network loss factor [p.u.]
+                                      ///< per-(stage, block).
+  OptTBRealFieldSched fcost {};  ///< Demand curtailment cost [$/MWh]
+                                 ///< per-(stage, block); see
+                                 ///< ``DemandAttrs::fcost`` for accepted
+                                 ///< JSON shapes.
+  OptBool forced {};  ///< When true, load is fixed at lmax (PLP-style)
   OptTRealFieldSched
       emin {};  ///< Minimum energy that must be served per stage [MWh]
   OptTRealFieldSched ecost {};  ///< Energy-shortage cost [$/MWh]
@@ -106,6 +143,7 @@ struct Demand
       annual_capcost {};  ///< Annualized investment cost [$/MW-year]
   OptTRealFieldSched
       annual_derating {};  ///< Annual capacity derating factor [p.u./year]
+  OptBool integer_expmod {};  ///< Integer-constrain the expmod variable
 
   /**
    * @brief Sets the demand attributes from a DemandAttrs object
@@ -118,10 +156,14 @@ struct Demand
    */
   auto& set_attrs(this auto&& self, auto&& attrs)
   {
+    self.type = std::exchange(attrs.type, {});
+    self.description = std::exchange(attrs.description, {});
     self.bus = std::exchange(attrs.bus, {});
     self.lmax = std::exchange(attrs.lmax, {});
+    self.lmin = std::exchange(attrs.lmin, {});
     self.lossfactor = std::exchange(attrs.lossfactor, {});
     self.fcost = std::exchange(attrs.fcost, {});
+    self.forced = std::exchange(attrs.forced, {});
     self.emin = std::exchange(attrs.emin, {});
     self.ecost = std::exchange(attrs.ecost, {});
 
@@ -131,6 +173,7 @@ struct Demand
     self.capmax = std::exchange(attrs.capmax, {});
     self.annual_capcost = std::exchange(attrs.annual_capcost, {});
     self.annual_derating = std::exchange(attrs.annual_derating, {});
+    self.integer_expmod = std::exchange(attrs.integer_expmod, {});
 
     return self;
   }

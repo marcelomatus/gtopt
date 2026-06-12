@@ -355,7 +355,7 @@ def _make_mock_plt() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
     mock_ax.plot.return_value = (mock_line,)
 
     mock_plt.subplots.side_effect = [
-        (mock_fig1, (mock_ax, mock_ax)),
+        (mock_fig1, (mock_ax, mock_ax, mock_ax, mock_ax)),
         (mock_fig2, (mock_ax, mock_ax, mock_ax)),
     ]
     mock_plt.rcParams = {"axes.prop_cycle": MagicMock()}

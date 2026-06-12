@@ -1,0 +1,389 @@
+{
+  "version": 1,
+  "doc": "gtopt naming registry. Each entry maps an alternative input key (`alt`) to the canonical gtopt JSON key (`canonical`). All listed alternates are accepted as input keys and rewritten to the canonical name before the strict daw::json parser sees them. `class` and `dialect` are informational tags consumed by `--list-dialects` diagnostics; the runtime alias->canonical lookup ignores them. The PLEXOS / SDDP entries are best-effort from memory and from the CEN PCP daily bundle (DATOS20260422) seed plus the `scripts/plexos2gtopt/` converter — please correct as needed. The PyPSA / pandapower / PLP entries are higher-confidence (derived from those tools' code / documentation). Classes prefixed with `_` (e.g. `_capacity`, `_fuel_emission_factor`) are sub-records embedded inside a top-level element rather than first-class JSON arrays; the aliases still document the canonical→dialect mapping for converter authors.",
+
+  "aliases": [
+    {"class": "generator", "canonical": "pmin", "alt": "min_power",        "dialect": "gtopt"},
+    {"class": "generator", "canonical": "pmin", "alt": "p_min_pu",         "dialect": "pypsa"},
+    {"class": "generator", "canonical": "pmin", "alt": "min_p_mw",         "dialect": "pandapower"},
+    {"class": "generator", "canonical": "pmin", "alt": "GerMin",           "dialect": "sddp"},
+    {"class": "generator", "canonical": "pmin", "alt": "PotMin",           "dialect": "plp"},
+    {"class": "generator", "canonical": "pmin", "alt": "Fixed Load",       "dialect": "plexos", "_note": "PLEXOS 'Fixed Load' canonicalises to pmin (1:1 alias). The plexos2gtopt converter independently emits pmax = Fixed Load to enforce hard equality Generation[t] = Fixed Load[t] (must-take renewables / run-of-river); that converter-side duplication is intentional and does not belong in this runtime registry, which requires unique alias→canonical mappings."},
+
+    {"class": "generator", "canonical": "pmax", "alt": "max_power",   "dialect": "gtopt"},
+    {"class": "generator", "canonical": "pmax", "alt": "p_max_pu",    "dialect": "pypsa"},
+    {"class": "generator", "canonical": "pmax", "alt": "max_p_mw",    "dialect": "pandapower"},
+    {"class": "generator", "canonical": "pmax", "alt": "Max Capacity","dialect": "plexos"},
+    {"class": "generator", "canonical": "pmax", "alt": "GerMax",      "dialect": "sddp"},
+    {"class": "generator", "canonical": "pmax", "alt": "PotMax",      "dialect": "plp"},
+
+    {"class": "generator", "canonical": "gcost", "alt": "marginal_cost", "dialect": "gtopt"},
+    {"class": "generator", "canonical": "gcost", "alt": "CVU",           "dialect": "sddp"},
+    {"class": "generator", "canonical": "gcost", "alt": "CVar",          "dialect": "plp"},
+
+    {"class": "generator", "canonical": "heat_rate", "alt": "Heat Rate",            "dialect": "plexos"},
+    {"class": "generator", "canonical": "heat_rate", "alt": "incremental_heat_rate","dialect": "gtopt-legacy"},
+
+    {"class": "generator", "canonical": "fuel", "alt": "carrier", "dialect": "pypsa"},
+    {"class": "generator", "canonical": "fuel", "alt": "Fuels",   "dialect": "plexos"},
+    {"class": "generator", "canonical": "fuel", "alt": "Comb",    "dialect": "plp"},
+
+    {"class": "generator", "canonical": "emission_rate", "alt": "Emission Coefficient","dialect": "plexos"},
+
+    {"class": "demand", "canonical": "lmax", "alt": "max_demand", "dialect": "gtopt"},
+    {"class": "demand", "canonical": "lmax", "alt": "p_set",      "dialect": "pypsa"},
+    {"class": "demand", "canonical": "lmax", "alt": "p_mw",       "dialect": "pandapower"},
+    {"class": "demand", "canonical": "lmax", "alt": "Load",       "dialect": "plexos"},
+    {"class": "demand", "canonical": "lmax", "alt": "Demanda",    "dialect": "sddp"},
+
+    {"class": "demand", "canonical": "fcost", "alt": "curtailment_cost", "dialect": "gtopt"},
+    {"class": "demand", "canonical": "fcost", "alt": "CustoDeficit",     "dialect": "sddp"},
+
+    {"class": "demand", "canonical": "lmin", "alt": "min_demand", "dialect": "gtopt"},
+    {"class": "demand", "canonical": "lmin", "alt": "Firm Load",  "dialect": "plexos"},
+
+    {"class": "line", "canonical": "tmax_ab", "alt": "max_flow_ab", "dialect": "gtopt"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "tmax",        "dialect": "gtopt-legacy"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "s_nom",       "dialect": "pypsa"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "max_i_ka",    "dialect": "pandapower"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "Max Flow",    "dialect": "plexos"},
+    {"class": "line", "canonical": "tmax_ab", "alt": "Capac",       "dialect": "sddp"},
+
+    {"class": "line", "canonical": "tmax_ba", "alt": "max_flow_ba", "dialect": "gtopt"},
+    {"class": "line", "canonical": "tmax_ba", "alt": "CapacRev",    "dialect": "sddp"},
+
+    {"class": "line", "canonical": "tcost", "alt": "transfer_cost",  "dialect": "gtopt"},
+    {"class": "line", "canonical": "tcost", "alt": "Wheeling Charge","dialect": "plexos"},
+
+    {"class": "line", "canonical": "overload_penalty", "alt": "Overload Penalty", "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "emin", "alt": "soc_min",                  "dialect": "gtopt"},
+    {"class": "battery", "canonical": "emin", "alt": "state_of_charge_min",      "dialect": "pypsa"},
+    {"class": "battery", "canonical": "emin", "alt": "Min SOC",                  "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "emax", "alt": "soc_max",                  "dialect": "gtopt"},
+    {"class": "battery", "canonical": "emax", "alt": "state_of_charge_max",      "dialect": "pypsa"},
+    {"class": "battery", "canonical": "emax", "alt": "Max SOC",                  "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "eini", "alt": "initial_soc",              "dialect": "gtopt"},
+    {"class": "battery", "canonical": "eini", "alt": "state_of_charge_initial",  "dialect": "pypsa"},
+    {"class": "battery", "canonical": "eini", "alt": "Initial SOC",              "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "efin", "alt": "final_soc",                "dialect": "gtopt"},
+    {"class": "battery", "canonical": "efin", "alt": "Min End SOC",              "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "daily_cycle", "alt": "cyclic_state_of_charge", "dialect": "pypsa"},
+    {"class": "battery", "canonical": "daily_cycle", "alt": "cyclic_storage",         "dialect": "gtopt"},
+
+    {"class": "battery", "canonical": "charge_cost",    "alt": "marginal_cost_charge",    "dialect": "gtopt"},
+    {"class": "battery", "canonical": "discharge_cost", "alt": "marginal_cost_discharge", "dialect": "gtopt"},
+
+    {"class": "battery", "canonical": "input_efficiency",  "alt": "efficiency_charge",    "dialect": "pypsa"},
+    {"class": "battery", "canonical": "output_efficiency", "alt": "efficiency_discharge", "dialect": "pypsa"},
+
+    {"class": "_capacity", "canonical": "expcap",         "alt": "expansion_capacity",       "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "expcap",         "alt": "Unit Size",                "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "expansion_modules",        "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "p_nom_extendable",         "dialect": "pypsa"},
+    {"class": "_capacity", "canonical": "expmod",         "alt": "Max Units Built",          "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "capmax",         "alt": "max_capacity",             "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "capmax",         "alt": "p_nom_max",                "dialect": "pypsa"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "capital_cost",             "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "Build Cost",               "dialect": "plexos"},
+    {"class": "_capacity", "canonical": "annual_capcost", "alt": "CFix",                     "dialect": "sddp"},
+    {"class": "_capacity", "canonical": "annual_derating","alt": "derating_rate",            "dialect": "gtopt"},
+    {"class": "_capacity", "canonical": "integer_expmod", "alt": "integer_expansion_modules","dialect": "gtopt"},
+
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "value_of_lost_load", "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "voll_cost",          "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "lost_load_cost",     "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "VoLL",               "dialect": "plexos"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "CustoDeficitGlobal", "dialect": "sddp"},
+    {"class": "model_options", "canonical": "demand_fail_cost",  "alt": "load_shedding",      "dialect": "pypsa"},
+
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "reserve_fail_cost",  "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "reserve_shortage_cost", "alt": "CustoFaltaReserva",   "dialect": "sddp"},
+
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "hydro_fail_cost",      "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "hydro_spill_cost",  "alt": "Hydro Spill Penalty",  "dialect": "plexos"},
+
+    {"class": "model_options", "canonical": "state_violation_cost", "alt": "state_fail_cost",  "dialect": "gtopt-legacy"},
+    {"class": "model_options", "canonical": "demand_fail_rhs_shift", "alt": "demand_option_c", "dialect": "gtopt-legacy"},
+
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "copper_plate",   "dialect": "gtopt"},
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "Copper Plate",   "dialect": "plexos"},
+    {"class": "model_options", "canonical": "use_single_bus",    "alt": "Uninodal",       "dialect": "sddp"},
+
+    {"class": "options", "canonical": "use_uid_fname", "alt": "use_uid_filenames", "dialect": "gtopt"},
+
+    {"class": "fuel", "canonical": "price", "alt": "Price",              "dialect": "plexos"},
+    {"class": "fuel", "canonical": "price", "alt": "CustoCombustivel",   "dialect": "sddp"},
+    {"class": "fuel", "canonical": "price", "alt": "Precio",             "dialect": "plp"},
+
+    {"class": "fuel", "canonical": "heat_content", "alt": "Heat Content",     "dialect": "plexos"},
+    {"class": "fuel", "canonical": "heat_content", "alt": "Poder Calorifico", "dialect": "plp"},
+
+    {"class": "reservoir", "canonical": "emin", "alt": "vmin",       "dialect": "gtopt"},
+    {"class": "reservoir", "canonical": "emin", "alt": "VolMin",     "dialect": "plp"},
+    {"class": "reservoir", "canonical": "emin", "alt": "VarMin",     "dialect": "sddp"},
+    {"class": "reservoir", "canonical": "emin", "alt": "Min Volume", "dialect": "plexos"},
+
+    {"class": "reservoir", "canonical": "emax", "alt": "vmax",       "dialect": "gtopt"},
+    {"class": "reservoir", "canonical": "emax", "alt": "VolMax",     "dialect": "plp"},
+    {"class": "reservoir", "canonical": "emax", "alt": "VarMax",     "dialect": "sddp"},
+    {"class": "reservoir", "canonical": "emax", "alt": "Max Volume", "dialect": "plexos"},
+
+    {"class": "reservoir", "canonical": "eini", "alt": "vini",           "dialect": "gtopt"},
+    {"class": "reservoir", "canonical": "eini", "alt": "VolIni",         "dialect": "plp"},
+    {"class": "reservoir", "canonical": "eini", "alt": "VolIni",         "dialect": "sddp"},
+    {"class": "reservoir", "canonical": "eini", "alt": "Initial Volume", "dialect": "plexos"},
+
+    {"class": "reservoir", "canonical": "efin", "alt": "vfin",          "dialect": "gtopt"},
+    {"class": "reservoir", "canonical": "efin", "alt": "VolFin",        "dialect": "plp"},
+    {"class": "reservoir", "canonical": "efin", "alt": "Min End Volume","dialect": "plexos"},
+
+    {"class": "reservoir", "canonical": "spillway_cost", "alt": "Spill Penalty",  "dialect": "plexos"},
+    {"class": "reservoir", "canonical": "spillway_cost", "alt": "CustoVertimento","dialect": "sddp"},
+
+    {"class": "turbine", "canonical": "production_factor", "alt": "FactorH", "dialect": "plp"},
+    {"class": "turbine", "canonical": "production_factor", "alt": "FacEner", "dialect": "plp"},
+    {"class": "turbine", "canonical": "production_factor", "alt": "Rho",     "dialect": "sddp"},
+    {"class": "turbine", "canonical": "production_factor", "alt": "FProd",   "dialect": "sddp"},
+
+    {"class": "turbine", "canonical": "junction_a", "alt": "intake_junction",   "dialect": "gtopt"},
+    {"class": "turbine", "canonical": "junction_a", "alt": "Head Storage",      "dialect": "plexos"},
+    {"class": "turbine", "canonical": "junction_a", "alt": "EmbA",              "dialect": "plp"},
+
+    {"class": "turbine", "canonical": "junction_b", "alt": "tailrace_junction", "dialect": "gtopt"},
+    {"class": "turbine", "canonical": "junction_b", "alt": "Tail Storage",      "dialect": "plexos"},
+    {"class": "turbine", "canonical": "junction_b", "alt": "EmbB",              "dialect": "plp"},
+
+    {"class": "waterway", "canonical": "fmax", "alt": "QMax",     "dialect": "plp"},
+    {"class": "waterway", "canonical": "fmin", "alt": "QMin",     "dialect": "plp"},
+    {"class": "waterway", "canonical": "fmin", "alt": "Min Flow", "dialect": "plexos"},
+    {"class": "waterway", "canonical": "lossfactor", "alt": "Perdida", "dialect": "plp"},
+
+    {"class": "waterway", "canonical": "junction_a", "alt": "Storage From", "dialect": "plexos"},
+    {"class": "waterway", "canonical": "junction_a", "alt": "EmbA",         "dialect": "plp"},
+    {"class": "waterway", "canonical": "junction_b", "alt": "Storage To",   "dialect": "plexos"},
+    {"class": "waterway", "canonical": "junction_b", "alt": "EmbB",         "dialect": "plp"},
+
+    {"class": "reservoir_discharge_limit", "canonical": "turbine",  "alt": "tur",          "dialect": "gtopt-legacy"},
+    {"class": "reservoir_discharge_limit", "canonical": "waterway", "alt": "ww",           "dialect": "gtopt-legacy"},
+
+    {"class": "emission_zone", "canonical": "cap",      "alt": "Emission Cap",     "dialect": "plexos"},
+    {"class": "emission_zone", "canonical": "cap_cost", "alt": "Emission Penalty", "dialect": "plexos"},
+    {"class": "emission_zone", "canonical": "price",    "alt": "Carbon Price",     "dialect": "plexos"},
+    {"class": "emission_zone", "canonical": "weight",   "alt": "gwp",              "dialect": "gtopt"},
+    {"class": "emission_zone", "canonical": "weight",   "alt": "CO2 Equivalent",   "dialect": "plexos"},
+    {"class": "emission_zone", "canonical": "allowance_pool", "alt": "pool",        "dialect": "gtopt-legacy"},
+    {"class": "emission_zone", "canonical": "allowance_pool", "alt": "Market",      "dialect": "plexos"},
+
+    {"class": "emission_capture", "canonical": "rate", "alt": "capture_rate",        "dialect": "gtopt"},
+    {"class": "emission_capture", "canonical": "rate", "alt": "Carbon Capture Rate", "dialect": "plexos"},
+    {"class": "emission_capture", "canonical": "cost", "alt": "ccs_cost",            "dialect": "gtopt"},
+    {"class": "emission_capture", "canonical": "cost", "alt": "capture_cost",        "dialect": "gtopt"},
+
+    {"class": "generator", "canonical": "gcost",                "alt": "Fuel Transport Charge",   "dialect": "plexos"},
+    {"class": "generator", "canonical": "gcost",                "alt": "CTransporte",             "dialect": "plp"},
+    {"class": "generator", "canonical": "pmax_segments",        "alt": "Heat Rate Band Max",      "dialect": "plexos"},
+    {"class": "generator", "canonical": "pmax_segments",        "alt": "Load Point",              "dialect": "plexos"},
+    {"class": "generator", "canonical": "heat_rate_segments",   "alt": "Heat Rate Incr",          "dialect": "plexos"},
+    {"class": "generator", "canonical": "heat_rate_segments",   "alt": "Heat Rate Function",      "dialect": "plexos"},
+    {"class": "generator", "canonical": "heat_rate_segments",   "alt": "ConsumoEspecificoSeg",    "dialect": "sddp"},
+    {"class": "generator", "canonical": "emission_rate",        "alt": "FactorEmision",           "dialect": "plp"},
+
+    {"class": "fuel", "canonical": "emission_factors", "alt": "Emissions",               "dialect": "plexos"},
+    {"class": "fuel", "canonical": "emission_factors", "alt": "Emission Production Rate","dialect": "plexos"},
+    {"class": "fuel", "canonical": "emission_factors", "alt": "CO2 Production Rate",     "dialect": "plexos"},
+    {"class": "fuel", "canonical": "emission_factors", "alt": "Production Rate",         "dialect": "plexos"},
+    {"class": "fuel", "canonical": "emission_factors", "alt": "FatorEmissaoCombustivel", "dialect": "sddp"},
+    {"class": "fuel", "canonical": "emission_factors", "alt": "FactorEmisionCombustible","dialect": "plp"},
+
+    {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "Combustion Rate",         "dialect": "plexos"},
+    {"class": "fuel", "canonical": "combustion_emission_factor", "alt": "FatorEmissao",            "dialect": "sddp"},
+    {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "Upstream Emission Rate",  "dialect": "plexos"},
+    {"class": "fuel", "canonical": "upstream_emission_factor",   "alt": "Upstream Production Rate","dialect": "plexos"},
+
+    {"class": "commitment", "canonical": "pmin",             "alt": "Min Stable Factor",    "dialect": "plexos"},
+    {"class": "commitment", "canonical": "pmin",             "alt": "min_power",            "dialect": "gtopt"},
+    {"class": "commitment", "canonical": "pmin",             "alt": "PotMinTec",            "dialect": "plp"},
+    {"class": "commitment", "canonical": "min_up_time",      "alt": "Min Up Time",          "dialect": "plexos"},
+    {"class": "commitment", "canonical": "min_up_time",      "alt": "MinTUp",               "dialect": "plp"},
+    {"class": "commitment", "canonical": "min_up_time",      "alt": "min_up",               "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "min_down_time",    "alt": "Min Down Time",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "min_down_time",    "alt": "MinTDown",             "dialect": "plp"},
+    {"class": "commitment", "canonical": "min_down_time",    "alt": "min_down",             "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "ramp_up",          "alt": "Max Ramp Up",          "dialect": "plexos"},
+    {"class": "commitment", "canonical": "ramp_up",          "alt": "ramp_limit_up",        "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "ramp_up",          "alt": "RampaSubida",          "dialect": "plp"},
+    {"class": "commitment", "canonical": "ramp_down",        "alt": "Max Ramp Down",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "ramp_down",        "alt": "ramp_limit_down",      "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "ramp_down",        "alt": "RampaBajada",          "dialect": "plp"},
+    {"class": "commitment", "canonical": "startup_ramp",     "alt": "Startup Ramp",         "dialect": "plexos"},
+    {"class": "commitment", "canonical": "shutdown_ramp",    "alt": "Shutdown Ramp",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "startup_cost",     "alt": "Start Cost",           "dialect": "plexos"},
+    {"class": "commitment", "canonical": "startup_cost",     "alt": "start_up_cost",        "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "startup_cost",     "alt": "CostStartup",          "dialect": "plp"},
+    {"class": "commitment", "canonical": "startup_cost",     "alt": "CustoPartida",         "dialect": "sddp"},
+    {"class": "commitment", "canonical": "shutdown_cost",    "alt": "Shutdown Cost",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "shutdown_cost",    "alt": "shut_down_cost",       "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "noload_cost",      "alt": "No Load Cost",         "dialect": "plexos"},
+    {"class": "commitment", "canonical": "noload_cost",      "alt": "CostNoLoad",           "dialect": "plp"},
+    {"class": "commitment", "canonical": "must_run",         "alt": "Must Run",             "dialect": "plexos"},
+    {"class": "commitment", "canonical": "must_run",         "alt": "committable",          "dialect": "pypsa"},
+    {"class": "commitment", "canonical": "initial_status",   "alt": "Initial State",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "initial_status",   "alt": "EstadoInicial",        "dialect": "plp"},
+    {"class": "commitment", "canonical": "initial_hours",    "alt": "Initial Hours Up",     "dialect": "plexos"},
+    {"class": "commitment", "canonical": "initial_power",    "alt": "Initial Generation",   "dialect": "plexos"},
+    {"class": "commitment", "canonical": "initial_power",    "alt": "Initial Power",        "dialect": "gtopt-legacy"},
+    {"class": "commitment", "canonical": "initial_power",    "alt": "Initial power (MW)",   "dialect": "ucjl"},
+    {"class": "commitment", "canonical": "initial_power",    "alt": "GeracaoInicial",       "dialect": "sddp"},
+    {"class": "commitment", "canonical": "initial_power",    "alt": "PotIni",               "dialect": "plp"},
+    {"class": "commitment", "canonical": "hot_start_cost",   "alt": "Start Cost Hot",       "dialect": "plexos"},
+    {"class": "commitment", "canonical": "warm_start_cost",  "alt": "Start Cost Warm",      "dialect": "plexos"},
+    {"class": "commitment", "canonical": "cold_start_cost",  "alt": "Start Cost Cold",      "dialect": "plexos"},
+    {"class": "commitment", "canonical": "hot_start_time",   "alt": "Min Time Off Hot",     "dialect": "plexos"},
+    {"class": "commitment", "canonical": "cold_start_time",  "alt": "Min Time Off Cold",    "dialect": "plexos"},
+    {"class": "commitment", "canonical": "relax",            "alt": "LP Relaxation",        "dialect": "plexos"},
+    {"class": "commitment", "canonical": "fixed_status",     "alt": "Commitment",           "dialect": "plexos"},
+    {"class": "commitment", "canonical": "commitment_period","alt": "Commitment Period",    "dialect": "plexos"},
+
+    {"class": "simple_commitment", "canonical": "must_run",      "alt": "Must Run",         "dialect": "plexos"},
+
+    {"class": "battery", "canonical": "pmax_discharge", "alt": "Max Power Discharge",   "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmax_discharge", "alt": "Max Power",             "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmax_discharge", "alt": "p_nom_discharge",       "dialect": "pypsa"},
+    {"class": "battery", "canonical": "pmax_charge",    "alt": "Max Power Charge",      "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmax_charge",    "alt": "Max Load",              "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmax_charge",    "alt": "p_nom_charge",          "dialect": "pypsa"},
+    {"class": "battery", "canonical": "pmin_discharge", "alt": "Min Power Discharge",   "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmin_charge",    "alt": "Min Power Charge",      "dialect": "plexos"},
+    {"class": "battery", "canonical": "pmin_charge",    "alt": "Min Load",              "dialect": "plexos"},
+    {"class": "battery", "canonical": "commitment",     "alt": "Commitment Status",     "dialect": "plexos"},
+    {"class": "battery", "canonical": "commitment",     "alt": "Units Commit",          "dialect": "plexos"},
+
+    {"class": "line", "canonical": "tmax_normal_ab",  "alt": "Normal Rating",      "dialect": "plexos"},
+    {"class": "line", "canonical": "tmax_normal_ab",  "alt": "Continuous Rating",  "dialect": "plexos"},
+    {"class": "line", "canonical": "tmax_normal_ab",  "alt": "s_nom_normal",       "dialect": "pypsa"},
+    {"class": "line", "canonical": "tmax_normal_ba",  "alt": "Reverse Normal Rating","dialect": "plexos"},
+    {"class": "line", "canonical": "resistance",      "alt": "Resistance",         "dialect": "plexos"},
+    {"class": "line", "canonical": "resistance",      "alt": "r",                  "dialect": "pypsa"},
+    {"class": "line", "canonical": "reactance",       "alt": "Reactance",          "dialect": "plexos"},
+    {"class": "line", "canonical": "reactance",       "alt": "x",                  "dialect": "pypsa"},
+
+    {"class": "bus", "canonical": "voltage", "alt": "v_nom",           "dialect": "pypsa"},
+    {"class": "bus", "canonical": "voltage", "alt": "vn_kv",           "dialect": "pandapower"},
+    {"class": "bus", "canonical": "voltage", "alt": "Nominal Voltage", "dialect": "plexos"},
+    {"class": "bus", "canonical": "voltage", "alt": "Voltage",         "dialect": "plexos"},
+    {"class": "bus", "canonical": "name",    "alt": "Node",            "dialect": "plexos"},
+    {"class": "bus", "canonical": "name",    "alt": "Barra",           "dialect": "plp"},
+    {"class": "bus", "canonical": "name",    "alt": "Sistema",         "dialect": "sddp"},
+
+    {"class": "reserve_zone", "canonical": "urcost",     "alt": "Violation Cost",        "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "urcost",     "alt": "Shortage Penalty",      "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "urcost",     "alt": "CustoFaltaReservaUp",   "dialect": "sddp"},
+    {"class": "reserve_zone", "canonical": "urcost",     "alt": "CostoFaltaReservaSubir","dialect": "plp"},
+    {"class": "reserve_zone", "canonical": "drcost",     "alt": "Violation Cost Down",   "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "drcost",     "alt": "Shortage Penalty Down", "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "drcost",     "alt": "CustoFaltaReservaDown", "dialect": "sddp"},
+    {"class": "reserve_zone", "canonical": "drcost",     "alt": "CostoFaltaReservaBajar","dialect": "plp"},
+    {"class": "reserve_zone", "canonical": "urreq", "alt": "Requirement",       "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "urreq", "alt": "Min Provision",     "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "urreq", "alt": "ReservaSubir",      "dialect": "plp"},
+    {"class": "reserve_zone", "canonical": "drreq", "alt": "Requirement Down",  "dialect": "plexos"},
+    {"class": "reserve_zone", "canonical": "drreq", "alt": "ReservaBajar",      "dialect": "plp"},
+
+    {"class": "reserve_provision", "canonical": "urmax", "alt": "Max Provision",          "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "urmax", "alt": "Max Reserve",            "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "urmin", "alt": "Min Spinning Provision", "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "urmin", "alt": "Min Regulation Provision","dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "drmax", "alt": "Max Provision Down",     "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "drmin", "alt": "Min Provision Down",     "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "ur_capacity_factor", "alt": "Reserve Capacity Factor", "dialect": "plexos"},
+    {"class": "reserve_provision", "canonical": "dr_capacity_factor", "alt": "Reserve Capacity Factor Down", "dialect": "plexos"},
+
+    {"class": "inertia_provision", "canonical": "inertia_constant", "alt": "Inertia Constant", "dialect": "plexos"},
+    {"class": "inertia_provision", "canonical": "inertia_constant", "alt": "H",                "dialect": "pypsa"},
+    {"class": "inertia_provision", "canonical": "inertia_constant", "alt": "InerciaH",         "dialect": "plp"},
+    {"class": "inertia_zone",      "canonical": "requirement",      "alt": "Inertia Requirement","dialect": "plexos"},
+
+    {"class": "decision_variable", "canonical": "name",          "alt": "Decision Variable",     "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "lower_bound",   "alt": "Min Value",             "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "lower_bound",   "alt": "Lower Bound",           "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "upper_bound",   "alt": "Max Value",             "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "upper_bound",   "alt": "Upper Bound",           "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "cost",          "alt": "Objective Coefficient", "dialect": "plexos"},
+    {"class": "decision_variable", "canonical": "cost",          "alt": "Cost",                  "dialect": "plexos"},
+
+    {"class": "converter", "canonical": "commitment",       "alt": "Commitment Status",  "dialect": "plexos"},
+    {"class": "converter", "canonical": "conversion_rate",  "alt": "Conversion Efficiency","dialect": "plexos"},
+
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in ST Schedule", "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in MT Schedule", "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in LT Plan",     "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "active",     "alt": "Include in PASA",        "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "expression", "alt": "LHS",                    "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "penalty",    "alt": "Penalty Price",          "dialect": "plexos"},
+    {"class": "user_constraint", "canonical": "name",       "alt": "Constraint",             "dialect": "plexos"},
+
+    {"class": "carrier_converter","canonical": "efficiency",        "alt": "eta",                 "dialect": "gtopt-legacy"},
+    {"class": "carrier_converter","canonical": "ocost",             "alt": "operating_cost",      "dialect": "gtopt-legacy"},
+
+    {"class": "allowance_pool",   "canonical": "delivery",          "alt": "free_allocation",     "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "eini",              "alt": "initial_bank",        "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "efin",              "alt": "terminal_bank",       "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_price",     "alt": "market_price",        "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_cap",       "alt": "auction_volume",      "dialect": "gtopt-legacy"},
+    {"class": "allowance_pool",   "canonical": "auction_cap",       "alt": "Auction Volume",      "dialect": "plexos"},
+    {"class": "allowance_pool",   "canonical": "delivery",          "alt": "Free Allocation",     "dialect": "plexos"},
+
+    {"class": "line",             "canonical": "loss_pwl_layout",   "alt": "pwl_layout",          "dialect": "gtopt-legacy"},
+    {"class": "fuel",             "canonical": "max_offtake",       "alt": "weekly_offtake_cap",  "dialect": "gtopt-legacy"},
+    {"class": "fuel",             "canonical": "max_offtake",       "alt": "FueMaxOffWeek",       "dialect": "plexos"},
+    {"class": "fuel",             "canonical": "max_offtake_cost",  "alt": "offtake_violation_cost","dialect": "gtopt-legacy"}
+  ],
+
+  "_class_aliases_doc": "Class-scoped aliases.  Apply ONLY when the lookup is qualified with an element type.  Use for aliases whose name collides with a canonical attribute on a different element class — e.g. `discharge` is the canonical attribute of `flow` (Flow element), but a legacy alias of `target` *within flow_right*.  Promoting that to the global `aliases[]` would break Flow parsing; the class scope confines the rewrite to `flow_right` lookups only.  The JSON-input canonicalize step is class-blind and ignores this section; only the AMPL resolver consults it (via `canonical_for(class, alias)`).",
+  "class_aliases": [
+    {"class": "flow_right",       "canonical": "target",         "alt": "discharge",         "dialect": "gtopt-legacy"},
+    {"class": "flow_right",       "canonical": "uvalue",         "alt": "use_value",         "dialect": "gtopt-legacy"},
+    {"class": "emission_source",  "canonical": "rate",           "alt": "emission_rate",     "dialect": "gtopt"},
+
+    {"class": "generator",        "canonical": "pmin",           "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "commitment",       "canonical": "pmin",           "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "simple_commitment","canonical": "dispatch_pmin",  "alt": "Min Stable Level",  "dialect": "plexos"},
+    {"class": "battery",          "canonical": "pmin_discharge", "alt": "Min Stable Level",  "dialect": "plexos"},
+
+    {"class": "generator",        "canonical": "emission_rate",  "alt": "TaxaEmissao",       "dialect": "sddp"},
+    {"class": "emission_source",  "canonical": "rate",           "alt": "TaxaEmissao",       "dialect": "sddp"},
+
+    {"class": "generator",        "canonical": "emission_rate",  "alt": "Emission Production Rate", "dialect": "plexos"},
+
+    {"class": "emission_source",  "canonical": "rate",           "alt": "Production Rate",   "dialect": "plexos"},
+    {"class": "fuel",             "canonical": "emission_factors","alt": "Production Rate",  "dialect": "plexos"},
+
+    {"class": "emission_source",  "canonical": "upstream_rate",          "alt": "wtt_rate",        "dialect": "gtopt"},
+    {"class": "fuel",             "canonical": "upstream_emission_factor","alt": "wtt_rate",        "dialect": "gtopt"},
+    {"class": "emission_source",  "canonical": "upstream_rate",          "alt": "lifecycle_rate",  "dialect": "gtopt"},
+    {"class": "fuel",             "canonical": "upstream_emission_factor","alt": "lifecycle_rate",  "dialect": "gtopt"},
+
+    {"class": "model_options",    "canonical": "reserve_shortage_cost",  "alt": "VoRS",            "dialect": "plexos"},
+    {"class": "reserve_zone",     "canonical": "urcost",                 "alt": "VoRS",            "dialect": "plexos"},
+
+    {"class": "thermal_storage",  "canonical": "thermal_node",           "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "thermal_storage",  "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "thermal_storage",  "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "hydrogen_storage", "canonical": "hydrogen_node",          "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "hydrogen_storage", "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "hydrogen_storage", "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "ammonia_storage",  "canonical": "ammonia_node",           "alt": "node",            "dialect": "gtopt-legacy"},
+    {"class": "ammonia_storage",  "canonical": "input_efficiency",       "alt": "charge_efficiency","dialect": "gtopt-legacy"},
+    {"class": "ammonia_storage",  "canonical": "output_efficiency",      "alt": "discharge_efficiency","dialect": "gtopt-legacy"},
+
+    {"class": "carrier_converter","canonical": "from_node",              "alt": "input_node",      "dialect": "gtopt-legacy"},
+    {"class": "carrier_converter","canonical": "to_node",                "alt": "output_node",     "dialect": "gtopt-legacy"}
+  ]
+}

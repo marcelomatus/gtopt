@@ -1,0 +1,78 @@
+/**
+ * @file      inertia_provision.hpp
+ * @brief     Defines InertiaProvision – generator contribution to an inertia
+ *            zone
+ * @date      2026-04-13
+ * @author    marcelo
+ * @copyright BSD-3-Clause
+ *
+ * This module defines the InertiaProvision structure which specifies how a
+ * synchronous generator contributes inertia to one or more inertia zones.
+ *
+ * The provision creates a variable r_inertia in [0, provision_max] with
+ * a downward coupling constraint: p >= r_inertia (the generator must be
+ * producing at least the inertia provision).
+ *
+ * The effectiveness factor (provision_factor) converts the MW provision
+ * into MWs of inertia: FE = H * S / Pmin [MWs/MW].  The user may
+ * specify either:
+ * - `inertia_constant` (H [s]) + `rated_power` (S [MVA]) — the LP class
+ *   computes FE = H * S / Pmin automatically.
+ * - `provision_factor` directly [MWs/MW].
+ *
+ * When a SimpleCommitment exists for the same generator, the binary
+ * coupling (p >= Pmin*u) already ensures r_inertia → 0 when u = 0.
+ * When relaxed (u continuous), this gives PLP's Model B automatically.
+ *
+ * @see InertiaZone for zone-level requirements
+ * @see InertiaProvisionLP for the LP formulation
+ */
+
+#pragma once
+
+#include <gtopt/lp_class_name.hpp>
+#include <gtopt/object.hpp>
+#include <gtopt/single_id.hpp>
+
+namespace gtopt
+{
+
+/**
+ * @struct InertiaProvision
+ * @brief Generator contribution to inertia zone(s)
+ *
+ * Links a @ref Generator to one or more @ref InertiaZone entries and
+ * defines the provision parameters.
+ */
+struct InertiaProvision
+{
+  /// Canonical class-name constant used in LP row labels and config
+  /// fields like `VariableScale::class_name`.  Single source of truth —
+  /// `InertiaProvisionLP` exposes no separate `ClassName` member;
+  /// callers reach the constant via `InertiaProvision::class_name`
+  /// directly (or `InertiaProvisionLP::Element::class_name` in generic
+  /// contexts).
+  static constexpr LPClassName class_name {"InertiaProvision"};
+
+  Uid uid {unknown_uid};  ///< Unique identifier
+  Name name {};  ///< Human-readable name
+  OptActive active {};  ///< Activation status
+
+  SingleId generator {unknown_uid};  ///< FK to the providing generator
+  Array<SingleId> inertia_zones {};  ///< Typed array of InertiaZone IDs / names
+
+  OptReal inertia_constant {};  ///< Machine inertia constant H [seconds]
+  OptReal rated_power {};  ///< Rated apparent power S [MVA]
+
+  OptTBRealFieldSched provision_max {};  ///< Max inertia provision [MW]
+  OptTBRealFieldSched
+      provision_factor {};  ///< Effectiveness factor FE [MWs/MW] —
+                            ///< per-(stage, block); accepts a scalar
+                            ///< (broadcasts), a 2-D nested array, or
+                            ///< a file-backed schedule.
+  /// TODO(unit-audit): see /tmp/field_doc_audit.md §3
+  OptTBRealFieldSched cost {};  ///< Provision cost [$/MW] —
+                                ///< per-(stage, block).
+};
+
+}  // namespace gtopt

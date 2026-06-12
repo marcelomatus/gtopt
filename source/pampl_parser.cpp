@@ -6,12 +6,16 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 
+#include <gtopt/as_label.hpp>
 #include <gtopt/basic_types.hpp>
 #include <gtopt/pampl_parser.hpp>
 
@@ -191,8 +195,109 @@ private:
 
 // ── Param value parsing ──────────────────────────────────────────────────────
 
-/// Parse `param name = value;` or `param name[month] = [v1, ..., v12];`
-UserParam parse_param(Scanner& sc)
+// ── Scalar arithmetic evaluator for param values ────────────────────────────
+//
+// Lets a ``param`` value be a small arithmetic expression rather than a bare
+// literal, so derived constants document their own derivation, e.g.
+//   param fuel_cap_penalty = 1000 / 24 / 7;   # daily-budget per-hour rate
+// Grammar (standard precedence, left-associative):
+//   expr   := term (('+' | '-') term)*
+//   term   := factor (('*' | '/') factor)*
+//   factor := NUMBER | IDENT | '(' expr ')'
+// ``read_number`` already consumes a leading sign and scientific notation,
+// so ``1e-5`` is a single literal while ``a - b`` is a subtraction.  An
+// ``IDENT`` factor resolves to the scalar value of a param declared EARLIER
+// in the file (``param a = 1800; param b = a / 7;``).
+double resolve_scalar_param(const std::vector<UserParam>& params,
+                            std::string_view ref)
+{
+  const auto it = std::ranges::find_if(
+      params, [&ref](const UserParam& p) { return p.name == ref; });
+  if (it == params.end() || !it->value) {
+    throw std::invalid_argument(
+        std::format("PAMPL: value references unknown or non-scalar "
+                    "param '{}'",
+                    ref));
+  }
+  return *it->value;
+}
+
+double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params);
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_factor(Scanner& sc, const std::vector<UserParam>& params)
+{
+  sc.skip_ws_comments();
+  const char c = sc.peek_char();
+  // Unary sign on a factor (covers ``-(a/4)`` and ``-ident`` where
+  // ``read_number`` — which only eats ``-<digits>`` — cannot).
+  if (c == '-') {
+    sc.consume('-');
+    return -parse_value_factor(sc, params);
+  }
+  if (c == '+') {
+    sc.consume('+');
+    return parse_value_factor(sc, params);
+  }
+  if (c == '(') {
+    sc.consume('(');
+    const double inner = parse_value_expr(sc, params);
+    if (!sc.consume(')')) {
+      throw std::invalid_argument(
+          "PAMPL: expected ')' to close param value sub-expression");
+    }
+    return inner;
+  }
+  if (std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_') {
+    return resolve_scalar_param(params, sc.read_ident());
+  }
+  return sc.read_number();
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_term(Scanner& sc, const std::vector<UserParam>& params)
+{
+  double acc = parse_value_factor(sc, params);
+  while (true) {
+    sc.skip_ws_comments();
+    const char op = sc.peek_char();
+    if (op == '*') {
+      sc.consume('*');
+      acc *= parse_value_factor(sc, params);
+    } else if (op == '/') {
+      sc.consume('/');
+      acc /= parse_value_factor(sc, params);
+    } else {
+      break;
+    }
+  }
+  return acc;
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params)
+{
+  double acc = parse_value_term(sc, params);
+  while (true) {
+    sc.skip_ws_comments();
+    const char op = sc.peek_char();
+    if (op == '+') {
+      sc.consume('+');
+      acc += parse_value_term(sc, params);
+    } else if (op == '-') {
+      sc.consume('-');
+      acc -= parse_value_term(sc, params);
+    } else {
+      break;
+    }
+  }
+  return acc;
+}
+
+/// Parse `param name = value;` or `param name[month] = [v1, ..., v12];`.
+/// ``params`` holds the params declared earlier in the file so a value
+/// expression may reference them (``param b = a / 7;``).
+UserParam parse_param(Scanner& sc, const std::vector<UserParam>& params)
 {
   UserParam param;
 
@@ -242,7 +347,7 @@ UserParam parse_param(Scanner& sc)
         sc.consume(']');
         break;
       }
-      values.push_back(sc.read_number());
+      values.push_back(parse_value_expr(sc, params));
       sc.skip_ws_comments();
       sc.consume(',');  // optional trailing comma
     }
@@ -255,8 +360,9 @@ UserParam parse_param(Scanner& sc)
     }
     param.monthly = std::move(values);
   } else {
-    // Scalar value
-    param.value = sc.read_number();
+    // Scalar value — arithmetic expression over literals + earlier params
+    // (e.g. ``1000 / 24 / 7`` or ``a / 7``).
+    param.value = parse_value_expr(sc, params);
   }
 
   // Expect ';'
@@ -275,6 +381,12 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 {
   Scanner sc(source);
   PamplParseResult result;
+  // Hot-lookup mirror of ``result.declared_vars`` so the constraint
+  // emitter can find a matching ``slack_<NAME>`` declaration in O(1).
+  // Kept local: the public surface stays the ordered vector on
+  // PamplParseResult, which preserves declaration order for downstream
+  // audit / dump consumers.
+  std::unordered_set<std::string> declared_vars_set;
 
   Uid next_uid = start_uid;
 
@@ -286,9 +398,12 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     // ── Optional header: [inactive] constraint NAME ["desc"] : ──────────────
     //    Or: param NAME [= value | [month] = [...]] ;
+    //    Or: var NAME [, NAME]* ;
     bool active = true;
     std::string name;
     std::string description;
+    std::optional<double> penalty;
+    std::optional<std::vector<double>> rhs_sched;
     bool has_header = false;
 
     // Save position so we can rewind if "inactive"/"constraint" are not found
@@ -299,7 +414,52 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     if (first_word == "param") {
       // Parameter declaration
-      result.params.push_back(parse_param(sc));
+      result.params.push_back(parse_param(sc, result.params));
+      continue;
+    }
+
+    if (first_word == "var") {
+      // AMPL-style free-variable declaration:
+      //   var <ident> [, <ident>]* ;
+      // The declared names are captured in ``result.declared_vars`` so a
+      // downstream audit can enumerate them; by naming convention
+      // ``var slack_<NAME>;`` also seeds ``UserConstraint::slack_name``
+      // for the matching constraint at the end of this loop, giving the
+      // auto-created soft-slack column a user-controlled LP-internal
+      // label.  No LP variable is added by the declaration itself —
+      // only soft constraints (``penalty > 0``) produce slack columns,
+      // and they do so unconditionally via the
+      // ``UserConstraintLP::add_to_lp`` slack-folding path.
+      bool saw_ident = false;
+      while (true) {
+        sc.skip_ws_comments();
+        if (sc.at_end() || sc.peek_char() == ';') {
+          break;
+        }
+        const std::string ident = sc.read_ident();
+        if (ident.empty()) {
+          throw std::invalid_argument("PAMPL: expected identifier after 'var'");
+        }
+        saw_ident = true;
+        if (declared_vars_set.insert(ident).second) {
+          result.declared_vars.push_back(ident);
+        }
+        sc.skip_ws_comments();
+        if (sc.peek_char() == ',') {
+          sc.consume(',');
+          continue;
+        }
+        break;
+      }
+      if (!saw_ident) {
+        throw std::invalid_argument(
+            "PAMPL: 'var' declaration requires at least one identifier");
+      }
+      sc.skip_ws_comments();
+      if (!sc.consume(';')) {
+        throw std::invalid_argument(
+            "PAMPL: expected ';' to terminate 'var' declaration");
+      }
       continue;
     }
 
@@ -339,6 +499,74 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
         description = sc.read_string();
       }
 
+      // Optional header clauses between the name (or description) and the
+      // mandatory colon.  Two clauses are recognised, in any order:
+      //
+      //   penalty <value-expr>
+      //       Soft constraint with a per-unit slack cost (mirrors
+      //       UserConstraint.penalty).  Absent ⇒ hard constraint.  The value
+      //       is the same arithmetic-expression grammar used for param
+      //       values, so it may be a literal, a param reference, or
+      //       arithmetic over both (``penalty soft_floor_penalty``,
+      //       ``penalty 1000/24/7``).
+      //
+      //   rhs [v0, v1, ..., vK]
+      //       Per-block (scheduled) RHS override (mirrors UserConstraint.rhs
+      //       in its TB-matrix form ``[[v0, ..., vK]]``).  Each element is a
+      //       param-value expression so derived/named constants work.  When
+      //       present, the scalar RHS parsed from the inline ``<op> NUMBER``
+      //       tail of the expression is the per-block fallback for blocks the
+      //       schedule does not cover.  Example:
+      //         constraint ramp_cap rhs [40, 40, 60]: ... <= 0;
+      //
+      //   constraint NAME ["desc"] [penalty 500] [rhs [...]] :
+      while (true) {
+        sc.skip_ws_comments();
+        if (sc.at_end() || sc.peek_char() == ':') {
+          break;
+        }
+        const std::string kw = sc.read_ident();
+        if (kw == "penalty") {
+          if (penalty.has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: duplicate 'penalty' clause on constraint '{}'", name));
+          }
+          penalty = parse_value_expr(sc, result.params);
+        } else if (kw == "rhs") {
+          if (rhs_sched.has_value()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: duplicate 'rhs' clause on constraint '{}'", name));
+          }
+          sc.skip_ws_comments();
+          if (!sc.consume('[')) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: expected '[' after 'rhs' on constraint '{}'", name));
+          }
+          std::vector<double> values;
+          while (true) {
+            sc.skip_ws_comments();
+            if (sc.peek_char() == ']') {
+              sc.consume(']');
+              break;
+            }
+            values.push_back(parse_value_expr(sc, result.params));
+            sc.skip_ws_comments();
+            sc.consume(',');  // optional trailing comma
+          }
+          if (values.empty()) {
+            throw std::invalid_argument(std::format(
+                "PAMPL: 'rhs' clause on constraint '{}' has no values", name));
+          }
+          rhs_sched = std::move(values);
+        } else {
+          throw std::invalid_argument(std::format(
+              "PAMPL: expected 'penalty', 'rhs' or ':' after constraint "
+              "name '{}', got '{}'",
+              name,
+              kw));
+        }
+      }
+
       // Mandatory colon
       if (!sc.consume(':')) {
         throw std::invalid_argument(std::format(
@@ -360,7 +588,7 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
 
     // Auto-generate name if none was provided
     if (name.empty()) {
-      name = std::format("uc_{}", static_cast<int>(next_uid));
+      name = as_label("uc", next_uid);
     }
 
     UserConstraint uc;
@@ -370,8 +598,29 @@ PamplParseResult do_parse(std::string_view source, Uid start_uid)
     if (!active) {
       uc.active = false;
     }
+    uc.penalty = penalty;  // unset ⇒ hard; set ⇒ soft slack cost
     if (!description.empty()) {
       uc.description = std::move(description);
+    }
+    // A scheduled RHS maps onto UserConstraint.rhs as a single-row TB matrix
+    // ``[[v0, ..., vK]]`` — the exact shape the JSON path produces — so the
+    // same OptTBRealFieldSched / per-block override machinery in
+    // UserConstraintLP applies with no parallel code path.
+    if (rhs_sched.has_value()) {
+      uc.rhs = std::vector<std::vector<double>> {std::move(*rhs_sched)};
+    }
+
+    // Slack-name binding by naming convention: when a top-level
+    // ``var slack_<NAME>;`` declaration was seen, populate
+    // ``uc.slack_name`` so the LP-internal slack column inherits the
+    // user-chosen label (CPLEX debug / LP dump readability).  The
+    // output schema is unchanged — slack values still land in the
+    // aggregated ``UserConstraint/slack_sol.parquet`` keyed by uid.
+    if (!declared_vars_set.empty()) {
+      const std::string slack_candidate = std::string {"slack_"} + uc.name;
+      if (declared_vars_set.contains(slack_candidate)) {
+        uc.slack_name = slack_candidate;
+      }
     }
 
     result.constraints.push_back(std::move(uc));

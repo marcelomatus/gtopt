@@ -25,6 +25,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -72,10 +73,10 @@ struct SolverTestReport
   [[nodiscard]] bool passed() const noexcept;
 
   /// Number of passing tests.
-  [[nodiscard]] int n_passed() const noexcept;
+  [[nodiscard]] std::ptrdiff_t n_passed() const noexcept;
 
   /// Number of failing tests.
-  [[nodiscard]] int n_failed() const noexcept;
+  [[nodiscard]] std::ptrdiff_t n_failed() const noexcept;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,11 +89,11 @@ struct SolverTestReport
  * The test suite covers:
  *  - construction (default, by-name, from FlatLinearProblem)
  *  - problem-name get/set
- *  - add_col / add_free_col / add_row / delete_rows
+ *  - add_col / add_row / delete_rows
  *  - set/get objective coefficients, column bounds, row bounds
  *  - get_coeff / set_coeff (skipped when !supports_set_coeff())
  *  - set_continuous / set_integer / is_continuous / is_integer
- *  - lp_names_level and name maps (row_name_map, col_name_map)
+ *  - LP names and name maps (row_name_map, col_name_map)
  *  - load_flat from FlatLinearProblem
  *  - initial_solve with all LPAlgo variants (default, primal, dual, barrier)
  *  - get_obj_value / get_col_sol / get_row_dual / get_col_cost
@@ -113,6 +114,26 @@ struct SolverTestReport
  */
 [[nodiscard]] SolverTestReport run_solver_tests(std::string_view solver_name,
                                                 bool verbose = false);
+
+/**
+ * @brief Run ONE named test against ONE solver.
+ *
+ * Looks up `test_name` in the internal test-function table and invokes
+ * the matching `SolverTestResult test_<name>(std::string_view)` shim.
+ * Catches any exception and reports it as a failure.  Used by the
+ * per-(solver, test) doctest split in `test_check_solvers.cpp` to
+ * avoid the full suite re-run that `run_solver_tests` does — a
+ * single-test call should take ~50 ms vs ~5 s for the full per-solver
+ * suite.
+ *
+ * @param solver_name   Solver identifier (e.g. "clp", "mindopt").
+ * @param test_name     Test entry name (e.g. "add_rows", "add_cols").
+ * @return Result for the named test, or a failure result with
+ *         `name == test_name` and a `"test '<name>' not found"`
+ *         detail when the name is not registered.
+ */
+[[nodiscard]] SolverTestResult run_one_solver_test(std::string_view solver_name,
+                                                   std::string_view test_name);
 
 /**
  * @brief Run the test suite against every solver known to SolverRegistry.

@@ -64,12 +64,12 @@ TEST_CASE("as_label with rvalue string exercises owned path")  // NOLINT
 
   // Construct a temporary string that will be passed as rvalue
   auto result = as_label(std::string("Rvalue"), "const_ref");
-  CHECK(result == "rvalue_const_ref");
+  CHECK(result == "Rvalue_const_ref");
 
   // Also test as_label_into with rvalue
   std::string buf;
   as_label_into(buf, std::string("Moved"), 42);
-  CHECK(buf == "moved_42");
+  CHECK(buf == "Moved_42");
 }
 
 // ── Item 5: inactive bus early return in add_to_lp (line_lp.cpp:152) ──
@@ -117,18 +117,27 @@ TEST_CASE("LineLP inactive bus early return")  // NOLINT
   };
 
   const Simulation simulation = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   const System system = {
@@ -140,8 +149,8 @@ TEST_CASE("LineLP inactive bus early return")  // NOLINT
   };
 
   PlanningOptions opts;
-  opts.use_kirchhoff = false;
-  opts.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_single_bus = false;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -167,51 +176,75 @@ TEST_CASE("LineLP loop line exercises add_to_output early return")  // NOLINT
   Planning planning = {
       .options =
           {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                  },
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
               .name = "LoopLineOutputTest",
-              .bus_array = {{
-                  .uid = Uid {1},
-                  .name = "b1",
-              }},
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {1},
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 50.0,
-                  .capacity = 200.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "loop",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {1},
-                  .capacity = 100.0,
-              }},
+              .bus_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "b1",
+                      },
+                  },
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {1},
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 50.0,
+                          .capacity = 200.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "loop",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {1},
+                          .capacity = 100.0,
+                      },
+                  },
           },
   };
 
@@ -233,23 +266,36 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
@@ -265,34 +311,43 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
                           .name = "b2",
                       },
                   },
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {2},
-                  .lmax = 100.0,
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 10.0,
-                  .capacity = 500.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "l1",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {2},
-                  .voltage = 100.0,
-                  .resistance = 0.01,
-                  .line_losses_mode = OptName {"piecewise"},
-                  .loss_segments = 3,
-                  .loss_allocation_mode = Name {"sender"},
-                  .tmax_ba = 200.0,
-                  .tmax_ab = 200.0,
-                  .capacity = 200.0,
-              }},
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {2},
+                          .lmax = 100.0,
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 10.0,
+                          .capacity = 500.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "l1",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {2},
+                          .voltage = 100.0,
+                          .resistance = 0.01,
+                          .line_losses_mode = OptName {"piecewise"},
+                          .loss_segments = 3,
+                          .loss_allocation_mode = Name {"sender"},
+                          .tmax_ba = 200.0,
+                          .tmax_ab = 200.0,
+                          .capacity = 200.0,
+                      },
+                  },
           },
   };
 
@@ -302,8 +357,11 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
   CHECK(result.value() == 1);
 
   // Verify objective is positive (generator dispatches to meet demand)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0.0);
 }
 
@@ -316,23 +374,36 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   Planning planning = {
       .options =
           {
-              .use_kirchhoff = false,
-              .use_single_bus = false,
+              .model_options =
+                  {
+                      .use_single_bus = false,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation =
           {
-              .block_array = {{
-                  .uid = Uid {1},
-                  .duration = 1,
-              }},
-              .stage_array = {{
-                  .uid = Uid {1},
-                  .first_block = 0,
-                  .count_block = 1,
-              }},
-              .scenario_array = {{
-                  .uid = Uid {0},
-              }},
+              .block_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .duration = 1,
+                      },
+                  },
+              .stage_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .first_block = 0,
+                          .count_block = 1,
+                      },
+                  },
+              .scenario_array =
+                  {
+                      {
+                          .uid = Uid {0},
+                      },
+                  },
           },
       .system =
           {
@@ -348,34 +419,43 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
                           .name = "b2",
                       },
                   },
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {2},
-                  .lmax = 100.0,
-                  .capacity = 100.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  .gcost = 10.0,
-                  .capacity = 500.0,
-              }},
-              .line_array = {{
-                  .uid = Uid {1},
-                  .name = "l1",
-                  .bus_a = Uid {1},
-                  .bus_b = Uid {2},
-                  .voltage = 100.0,
-                  .resistance = 0.01,
-                  .line_losses_mode = OptName {"bidirectional"},
-                  .loss_segments = 3,
-                  .loss_allocation_mode = Name {"sender"},
-                  .tmax_ba = 200.0,
-                  .tmax_ab = 200.0,
-                  .capacity = 200.0,
-              }},
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {2},
+                          .lmax = 100.0,
+                          .capacity = 100.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          .gcost = 10.0,
+                          .capacity = 500.0,
+                      },
+                  },
+              .line_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "l1",
+                          .bus_a = Uid {1},
+                          .bus_b = Uid {2},
+                          .voltage = 100.0,
+                          .resistance = 0.01,
+                          .line_losses_mode = OptName {"bidirectional"},
+                          .loss_segments = 3,
+                          .loss_allocation_mode = Name {"sender"},
+                          .tmax_ba = 200.0,
+                          .tmax_ab = 200.0,
+                          .capacity = 200.0,
+                      },
+                  },
           },
   };
 
@@ -384,8 +464,11 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   CHECK(obj > 0.0);
 }
 
@@ -445,6 +528,7 @@ void write_bare_uid_parquet(const std::filesystem::path& input_dir,
 TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
 
   // Create a temporary directory for the test
   const auto tmp_root =
@@ -457,49 +541,71 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
   write_bare_uid_parquet(input_dir, "Generator", "gcost", 1, 42.0);
 
   const Simulation sim = {
-      .block_array = {{
-          .uid = Uid {1},
-          .duration = 1,
-      }},
-      .stage_array = {{
-          .uid = Uid {1},
-          .first_block = 0,
-          .count_block = 1,
-      }},
-      .scenario_array = {{
-          .uid = Uid {0},
-      }},
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
   };
 
   Planning planning = {
       .options =
           {
               .input_directory = input_dir.string(),
-              .use_kirchhoff = false,
-              .use_single_bus = true,
+              .model_options =
+                  {
+                      .use_single_bus = true,
+                      .use_kirchhoff = false,
+                      .demand_fail_cost = 1000.0,
+                  },
           },
       .simulation = sim,
       .system =
           {
               .name = "BareUidTest",
-              .bus_array = {{
-                  .uid = Uid {1},
-                  .name = "b1",
-              }},
-              .demand_array = {{
-                  .uid = Uid {1},
-                  .name = "d1",
-                  .bus = Uid {1},
-                  .capacity = 50.0,
-              }},
-              .generator_array = {{
-                  .uid = Uid {1},
-                  .name = "g1",
-                  .bus = Uid {1},
-                  // gcost comes from Parquet file with bare "1" column
-                  .gcost = std::string("gcost"),
-                  .capacity = 100.0,
-              }},
+              .bus_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "b1",
+                      },
+                  },
+              .demand_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "d1",
+                          .bus = Uid {1},
+                          .capacity = 50.0,
+                      },
+                  },
+              .generator_array =
+                  {
+                      {
+                          .uid = Uid {1},
+                          .name = "g1",
+                          .bus = Uid {1},
+                          // gcost comes from Parquet file with bare "1" column
+                          .gcost = std::string("gcost"),
+                          .capacity = 100.0,
+                      },
+                  },
           },
   };
 
@@ -509,10 +615,15 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
   CHECK(result.value() == 1);
 
   // Verify the generator cost came from the Parquet file (42.0 * 50 MW * 1h)
-  const auto obj =
-      planning_lp.systems().front().front().linear_interface().get_obj_value();
+  const auto obj = planning_lp.systems()
+                       .front()
+                       .front()
+                       .linear_interface()
+                       .get_obj_value_raw();
   // The objective should reflect gcost = 42.0 from Parquet
   CHECK(obj > 0.0);
 
   std::filesystem::remove_all(tmp_root);
 }
+
+// NOLINTEND(misc-const-correctness)

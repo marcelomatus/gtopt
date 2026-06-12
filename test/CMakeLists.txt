@@ -8,14 +8,37 @@ list(APPEND CMAKE_MODULE_PATH
      "${CMAKE_CURRENT_LIST_DIR}/../cmake"
 )
 
+# ---- Ninja job pools (limit parallelism to avoid OOM) ----
+include(ProcessorCount)
+ProcessorCount(NPROC)
+if(NPROC EQUAL 0)
+  set(NPROC 4)
+endif()
+math(EXPR LINK_JOBS "(${NPROC} + 1) / 2")
+
+set_property(GLOBAL PROPERTY JOB_POOLS
+  compile=${NPROC}
+  link=${LINK_JOBS}
+)
+set(CMAKE_JOB_POOL_COMPILE compile)
+set(CMAKE_JOB_POOL_LINK    link)
+
 # ---- Build defaults ----
 include(BuildTypeDefault)
 include(CxxStandard)
 include(Ccache)
+include(FastLinker)
 
 # ---- Options ----
 option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
 option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
+# Cascade/SDDP test files are integration-style tests masquerading as unit
+# tests: each TEST_CASE runs a full multi-stage planning solve and takes
+# 2-26 s, totalling ~2 min wall in the unit-test binary.  Default ON to
+# preserve the current behaviour; turn OFF for a sub-minute ctest sweep
+# (the heavier suites still get exercised by the integration tests).
+option(GTOPT_BUILD_HEAVY_UNIT_TESTS
+       "Include cascade/SDDP integration-style unit tests" ON)
 
 set(CPPCHECK_ARGS
     "--check-level=exhaustive" "--suppress=returnDanglingLifetime" "--suppress=internalAstError"
@@ -58,6 +81,27 @@ file(GLOB sources CONFIGURE_DEPENDS
      "${CMAKE_CURRENT_SOURCE_DIR}/source/[a-zA-Z]*.cpp"
      "${CMAKE_CURRENT_SOURCE_DIR}/source/json/[a-zA-Z]*.cpp"
 )
+list(FILTER sources EXCLUDE REGEX "test_benchmark_")
+
+if(NOT GTOPT_BUILD_HEAVY_UNIT_TESTS)
+  # Exclude the cascade/SDDP families entirely.  They are uniformly heavy
+  # (every TEST_CASE runs a full planning solve), so file-level gating is
+  # the right granularity.  Note: shared helper headers
+  # (cascade_helpers.hpp, sddp_helpers.hpp, aperture_data_cache.hpp) are
+  # header-only and not in the glob, so dropping the .cpp files is safe.
+  list(FILTER sources EXCLUDE REGEX "test_cascade_")
+  list(FILTER sources EXCLUDE REGEX "test_sddp_")
+  message(STATUS
+          "GTOPT_BUILD_HEAVY_UNIT_TESTS=OFF: dropping cascade/SDDP tests")
+endif()
+
+# Move main.cpp to the front of the source list so that Ninja schedules
+# its compilation before the unity batches.  It defines
+# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN (standalone TU) and benefits from
+# starting first to reduce critical-path build time.
+set(_priority_src "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp")
+list(REMOVE_ITEM sources "${_priority_src}")
+list(PREPEND sources "${_priority_src}")
 
 add_executable(${PROJECT_NAME} ${sources})
 
@@ -68,33 +112,22 @@ target_link_libraries(
 )
 
 # ---- Unity build ----
-# Exclude main.cpp from unity batching — it defines
-# DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN which emits doctest's implementation
-# and must be compiled as a standalone translation unit.
-set_source_files_properties(
-  "${CMAKE_CURRENT_SOURCE_DIR}/source/main.cpp"
-  PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON
-)
+# main.cpp is treated the same as every other test file: it participates
+# in unity batching.  Its DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN works because
+# the list(PREPEND) above makes it the first file in the source list and
+# therefore the first #include in its unity batch, so the macro is defined
+# before <doctest/doctest.h> is first processed.
+set(GTOPT_UNITY_BUILD ON)
 include(UnityBuild)
-target_enable_unity_build(${PROJECT_NAME})
+# BATCH_SIZE 11 targets ~19 unity batches = ~19 compile jobs, scaled for
+# a 20-core build host.  Distribution per UNITY_GROUP:
+#   source/      (~163 files) → ceil(163/11) = 15 batches
+#   source/json/ (~ 39 files) → ceil( 39/11) =  4 batches
+target_enable_unity_build(${PROJECT_NAME} BATCH_SIZE 11)
 
-# ---- Precompiled headers for tests ----
-target_precompile_headers(${PROJECT_NAME} PRIVATE
-  <algorithm>
-  <chrono>
-  <cstdint>
-  <expected>
-  <filesystem>
-  <format>
-  <optional>
-  <ranges>
-  <span>
-  <string>
-  <string_view>
-  <utility>
-  <vector>
-  <spdlog/spdlog.h>
-)
+# ---- Precompiled headers ----
+include(PrecompiledHeaders)
+target_gtopt_pch(${PROJECT_NAME})
 
 if(NOT TEST_INSTALLED_VERSION)
   include(CompilerWarnings)

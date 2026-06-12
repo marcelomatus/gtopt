@@ -39,7 +39,21 @@ struct SolverOptions
   /** @brief Number of parallel threads to use (0 = use backend optimal) */
   int threads {0};
 
-  /** @brief Whether to apply presolve optimizations (default: true) */
+  /** @brief Whether to apply presolve optimizations (default: true).
+   *
+   * Pass `--set solver_options.presolve=false` on the CLI to disable
+   * for SDDP cell-replay runs (the cuts being re-installed were
+   * already vetted on first insertion, so presolve has no real
+   * reductions to find — only fixed-cost setup overhead per call).
+   * Default kept at `true` because:
+   *   - HiGHS benchmark regresses 2.5x with presolve off
+   *     (`docs/analysis/highs-benchmark-results.md:18, 27`).
+   *   - Several SDDP unit tests depend on the presolve-induced LP
+   *     basis for their analytical-dual / KKT-prediction checks; these
+   *     would need fixture-level opt-in if the default flipped.
+   * For Juan/IPLP-style hot-start runs, set
+   * `--set solver_options.presolve=false` explicitly.
+   */
   bool presolve {true};
 
   /** @brief Optimality tolerance for solution (nullopt = use solver default)
@@ -53,6 +67,38 @@ struct SolverOptions
   /** @brief Convergence tolerance for barrier algorithm (nullopt = use solver
    * default) */
   std::optional<double> barrier_eps {};
+
+  /** @brief Target relative MIP optimality gap (nullopt = use solver default).
+   *
+   *  Backends translate this to their native "stop when
+   *  `|best_obj − bound| / |best_obj| ≤ gap`" parameter:
+   *  - CPLEX:   `CPX_PARAM_EPGAP`
+   *  - HiGHS:   `mip_rel_gap`
+   *  - Gurobi:  `MIPGap`
+   *  - MindOpt: `MIP/RelGap`
+   *  - CBC:     `ratioGap` (Cbc_setAllowableFractionGap)
+   *
+   *  Has no effect on continuous LPs; safely ignored when no integer or
+   *  binary variables are present.  Pair with `time_limit` to bound MIP
+   *  wall-clock when gap targets are loose. */
+  std::optional<double> mip_gap {};
+
+  /** @brief Target ABSOLUTE MIP optimality gap (nullopt = use solver default).
+   *
+   *  Backends translate this to their native "stop when
+   *  `|best_obj − bound| ≤ gap_abs`" parameter:
+   *  - CPLEX:   `CPX_PARAM_EPAGAP`
+   *  - HiGHS:   `mip_abs_gap`
+   *  - Gurobi:  `MIPGapAbs`
+   *
+   *  Unlike the relative `mip_gap`, the absolute gap is INVARIANT to a
+   *  constant objective offset — essential when the objective carries a
+   *  large baseline (e.g. an FCF cost-to-go) that would otherwise make the
+   *  relative gap meaningless (a tiny relative gap masks a large
+   *  decision-level absolute gap, or a near-zero objective inflates it).
+   *  Expressed in physical objective units.  Has no effect on continuous
+   *  LPs. */
+  std::optional<double> mip_gap_abs {};
 
   /** @brief Verbosity level for solver output (0 = none) */
   int log_level {0};
@@ -81,7 +127,10 @@ struct SolverOptions
    */
   std::optional<SolverScaling> scaling {};
 
-  /** @brief Controls barrier crossover (internal, not user-visible).
+  /** @brief Controls barrier crossover.
+   *
+   *  Exposed via JSON (`solver_options.crossover`) since dbeb01cb —
+   *  the previous "internal, not user-visible" caveat is obsolete.
    *
    *  Crossover converts the interior-point solution into a basic feasible
    *  solution, producing exact dual values (row prices / reduced costs).
@@ -106,6 +155,53 @@ struct SolverOptions
    */
   bool crossover {true};
 
+  /** @brief Warm-start this solve from the resident (advanced) basis.
+   *
+   *  Cross-solver primitive for re-optimizing a problem object IN PLACE
+   *  after a small modification (typically column-bound changes) without
+   *  rebuilding or re-solving from scratch.  Changing variable bounds
+   *  does NOT invalidate a simplex basis — it stays dual-feasible — so a
+   *  warm simplex re-solve off the previous optimal basis is usually a
+   *  handful of pivots.  No basis is saved/restored: the backend reuses
+   *  whatever basis is currently resident on its problem object.
+   *
+   *  Only the SIMPLEX methods can warm-start; barrier (interior point)
+   *  cannot.  So when this is true the backend forces a simplex method,
+   *  taking `algorithm` as the warm method (primal/dual); when
+   *  `algorithm` is `default_algo`/`barrier`, the backend picks primal.
+   *
+   *  Pre-condition for any speedup: the problem object must already hold
+   *  an optimal basis from a prior solve (e.g. a barrier solve WITH
+   *  crossover, or any simplex solve).  On a cold object it degrades to a
+   *  normal (cold) simplex solve.
+   *
+   *  Backend mapping:
+   *  - CPLEX: `CPX_PARAM_ADVIND = 1` + `CPX_PARAM_LPMETHOD = primal|dual`,
+   *    applied AFTER any `.prm` file so it wins over a pinned `LPMethod`.
+   *  - Others (HiGHS/CLP/CBC/OSI/MindOpt/Gurobi): not yet wired — the
+   *    field is ignored and the solve proceeds normally (still correct,
+   *    just not warm).  This is the documented extension point.
+   *
+   *  Default: false (no warm start; preserves legacy behaviour).
+   */
+  bool advanced_basis {false};
+
+  /** @brief Path to a backend-native parameter file applied before the
+   *  fields above (so the typed gtopt fields keep priority on conflict).
+   *
+   *  Backend mapping:
+   *  - CPLEX: ``CPXreadcopyparam(env, path)`` — reads the standard
+   *    CPLEX ``.prm`` format (one ``CPX_PARAM_<NAME> <value>`` pair
+   *    per line, ``#`` for comments).  Lets users pin the full ~150
+   *    CPLEX parameter surface without growing this struct further.
+   *  - HiGHS / MindOpt / CLP: ignored (each has its own native parser
+   *    that we may wire later via the same field).
+   *
+   *  Unset (``nullopt``, default) ⇒ no file is read, backend defaults
+   *  apply as before.
+   */
+  std::optional<std::string> param_file {};
+
   /** @brief Maximum algorithm fallback attempts on non-optimal solve.
    *
    *  When a solve returns non-optimal, the solver cycles through
@@ -115,19 +211,28 @@ struct SolverOptions
    */
   int max_fallbacks {2};
 
-  /** @brief Enable basis-reuse optimizations for resolve on cloned LPs.
+  /** @brief Request a solver-native memory-saving mode.
    *
-   *  When true, set_solver_opts() overrides the algorithm to dual simplex
-   *  and disables presolve — both critical for basis-reuse resolves.
-   *  This is especially important when the original LP was solved with
-   *  barrier: barrier solutions carry no simplex basis, so resolving
-   *  a clone with barrier would restart from scratch, whereas dual simplex
-   *  can pivot from the crossover basis in a few iterations.
+   *  Named after CPLEX's `CPX_PARAM_MEMORYEMPHASIS`.  Independent of gtopt's
+   *  own `sddp_options.low_memory_mode` (which controls backend release +
+   *  flat-LP snapshot between phases).
    *
-   *  On CLP, additional specialOptions bits are set to retain the
-   *  factorization and work arrays from the cloned LP.
+   *  - `nullopt` (default): do not touch the backend's memory parameter —
+   *    each solver keeps its built-in default.
+   *  - `true`: ask the backend to compact internal data structures at the
+   *    cost of solve time.
+   *  - `false`: explicitly disable the backend's memory-emphasis mode.
+   *
+   *  Unsupported backends silently ignore this hint regardless of value.
+   *
+   *  Backend mapping:
+   *  - CPLEX:   CPX_PARAM_MEMORYEMPHASIS = 1 / 0 (only set when specified).
+   *  - HiGHS:   no direct equivalent (ignored).
+   *  - MindOpt: no direct equivalent (ignored).
+   *  - OSI/CLP: no direct equivalent (ignored).
+   *  - Gurobi:  no direct equivalent (ignored).
    */
-  bool reuse_basis {false};
+  std::optional<bool> memory_emphasis {};
 
   /**
    * @brief Merge another SolverOptions into this one (first-value-wins for
@@ -142,9 +247,13 @@ struct SolverOptions
     merge_opt(optimal_eps, other.optimal_eps);
     merge_opt(feasible_eps, other.feasible_eps);
     merge_opt(barrier_eps, other.barrier_eps);
+    merge_opt(mip_gap, other.mip_gap);
+    merge_opt(mip_gap_abs, other.mip_gap_abs);
     merge_opt(time_limit, other.time_limit);
     merge_opt(log_mode, other.log_mode);
     merge_opt(scaling, other.scaling);
+    merge_opt(memory_emphasis, other.memory_emphasis);
+    merge_opt(param_file, other.param_file);
   }
 
   /**
@@ -155,7 +264,7 @@ struct SolverOptions
    * always win over backend defaults.
    *
    * Sentinels: algorithm=default_algo, threads=0, log_level=0,
-   * max_fallbacks=2, presolve=true, reuse_basis=false.
+   * max_fallbacks=2, presolve=true.
    * Optional fields: has_value() means user specified.
    */
   void overlay(const SolverOptions& user)
@@ -169,8 +278,19 @@ struct SolverOptions
     if (!user.presolve) {
       presolve = user.presolve;
     }
-    if (user.reuse_basis) {
-      reuse_basis = user.reuse_basis;
+    if (!user.crossover) {
+      // `crossover` defaults to true on both sides (struct default
+      // for `user` and backend-optimal default).  Mirror the
+      // presolve sentinel: only the explicit "user wants OFF" case
+      // overrides the base — which is precisely the SDDP forward
+      // pass (`sddp_iteration.cpp:270 fwd_opts.crossover = false`)
+      // and the elastic-filter clone solve.  Without this line the
+      // user's `crossover = false` was silently dropped during the
+      // overlay, leaving CPLEX `CPX_PARAM_BARCROSSALG` at primal
+      // crossover on every forward solve — observed on juan/IPLP
+      // 2026-05-15 as `CPXPARAM_Barrier_Crossover 1` in every one
+      // of 4 K cplex_*.log files including pure forward passes.
+      crossover = user.crossover;
     }
     if (user.log_level != 0) {
       log_level = user.log_level;
@@ -182,9 +302,13 @@ struct SolverOptions
     merge_opt(optimal_eps, user.optimal_eps);
     merge_opt(feasible_eps, user.feasible_eps);
     merge_opt(barrier_eps, user.barrier_eps);
+    merge_opt(mip_gap, user.mip_gap);
+    merge_opt(mip_gap_abs, user.mip_gap_abs);
     merge_opt(time_limit, user.time_limit);
     merge_opt(log_mode, user.log_mode);
     merge_opt(scaling, user.scaling);
+    merge_opt(memory_emphasis, user.memory_emphasis);
+    merge_opt(param_file, user.param_file);
   }
 };
 

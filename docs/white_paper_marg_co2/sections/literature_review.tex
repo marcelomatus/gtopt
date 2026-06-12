@@ -1,0 +1,83 @@
+% ===========================================================
+% literature_review.tex
+% ===========================================================
+\section{Background and Related Work}
+\label{sec:related}
+
+\subsection{Locational marginal pricing}
+The locational marginal price (LMP) construct on which this work
+depends derives from the spot-pricing framework of
+Schweppe~\textit{et al.}~\cite{Schweppe1988} and the contract-network
+formulation of Hogan~\cite{Hogan1992}, who decomposed
+\begin{equation}
+\lambda_b = \lambda_{\mathrm{ref}} +
+            \mathrm{LMC}_b + \mathrm{LCC}_b
+\label{eq:lmp-decomp}
+\end{equation}
+into reference energy, marginal-loss component (LMC), and
+marginal-congestion component (LCC).  The present pipeline absorbs
+$\mathrm{LMC}_b$ into a per-bus loss factor and $\mathrm{LCC}_b$ into
+the island partition itself.
+
+\subsection{Marginal versus average emission factors}
+Hawkes~\cite{Hawkes2010} demonstrated that marginal CO$_2$ factors
+can differ from system averages by an order of magnitude and that
+this gap materially affects energy-efficiency build/no-build
+decisions.  Siler-Evans~\textit{et al.}~\cite{SilerEvans2012}
+regressed historical EPA generator-level data to fit MEFs at the
+Reliability Council level and showed strong diurnal/seasonal cycles.
+Callaway~\textit{et al.}~\cite{Callaway2018} formalised the
+distinction between operational and decision-relevant emission
+factors; the present paper sits firmly in the operational/short-run
+camp, computing factors against the realised CEN dispatch.
+
+\subsection{ISO production tools}
+PJM~\cite{PJMLME2024,PJMPrimer} publishes five-minute per-node
+emission rates with the same energy/loss/congestion structure as the
+LMP itself.  CAISO~\cite{CAISOOutlook} surfaces a system-level
+emission curve at five-minute resolution but is not nodal.
+WattTime~\cite{WattTime2024} ships a balancing-area Marginal
+Operating Emission Rate with a 72-hour forecast but is neither nodal
+nor unit-attributed.  NREL's Cambium~\cite{NRELCambium} publishes
+\emph{long-run} factors for capacity-expansion studies, not
+operational dispatch.  Electricity
+Maps~\cite{ElectricityMaps2024,ElectricityMapsCritique} publishes
+hourly per-zone consumption-based factors and discontinued its
+marginal feed in 2024.
+
+\subsection{Counterfactual marginals}
+A research-grade refinement is the counterfactual evaluation of
+Valenzuela~\textit{et al.}~\cite{ValenzuelaASL2022}, who exploit
+implicit differentiation of the QP/LP optimality conditions to
+recover an exact dynamic locational marginal emission factor from a
+solved dispatch.  The present pipeline is empirical rather than
+counterfactual, but its open-source structure with the PLEXOS
+\texttt{.accdb} oracle is designed so that the same input set can
+be fed into the \texttt{gtopt} SDDP solver to produce a
+counterfactual companion in future work.
+
+\subsection{Prior CEN-specific work}
+For Chile, Bonvallet~\textit{et al.}~\cite{Bonvallet2016}
+co-optimised hydrothermal scheduling under non-convex irrigation
+constraints; Moreno~\textit{et al.}~\cite{Moreno2014} treated
+distributed-generation deployment under uncertainty.  The
+Coordinador's annual \textit{Reporte Art.~72}~\cite{CENArt722024}
+aggregates emissions at the system level, and the 4eChile
+guide~\cite{FourEChileGuide} documents a manual marginal-emission
+estimation tool for CDM projects.  None publishes a per-bus
+per-quarter signal.
+
+\subsection{Methodological choice points}
+Three choices dominate the design space.  The
+\emph{merit-stack picker}: should the marginal unit be the
+last-dispatched cleared at $\lambda_{\mathrm{ref}}$
+(``maximum CV~$\le \lambda$''~\cite{SilerEvans2012}), or the
+absolute-closest CV?  The pipeline picks the absolute-closest CV
+because the closest-above is sometimes nearer than the
+closest-below at low-CMG hours.  The \emph{forced-unit
+treatment}: units flagged with \texttt{consigna}$\in$\{CI, MT,
+PMT, PP, PS, PC\} are price-takers when at technical minimum but
+remain valid candidates when interior.  The \emph{loss-factor
+decomposition}: the pipeline uses CEN's published MLF (extracted
+from the PID \texttt{.accdb}) when available, falling back to the
+empirical $\lambda_b/\lambda_{\mathrm{ref}}$ ratio when it is not.

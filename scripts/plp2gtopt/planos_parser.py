@@ -40,9 +40,32 @@ intermediate stages.
 The gradient coefficients ``GradX`` correspond to the reservoir volumes
 (state variables) identified by the name mapping in file 1.
 
-The resulting ``varphi`` (φ) variable satisfies::
+The resulting ``varphi`` (φ) variable satisfies the PLP-canonical cut::
 
-    φ ≥ -LDPhiPrv + Σ_i GradX_i · Vol_i
+    φ ≥ +LDPhiPrv + Σ_i GradX_i · Vol_i
+
+where ``LDPhiPrv = E[Z(v_trial)]`` is the **positive** expected future
+operating cost from the next stage onwards.  Per PLP source
+``plp-espercnd.f:43-54``, ``LDPhiPrv = PromedioZ / NApert`` — averaged
+over **apertures** (intra-stage uncertainty branching), NOT over
+scenarios.  So it is the per-scenario expectation given apertures,
+which maps to gtopt's per-SCENE expected α-cost.
+``GradX_i = ∂E[Z]/∂v_i`` is the **negative** marginal water value (more
+water → less future cost).  The parsed CSV ``rhs`` column carries
+``+LDPhiPrv`` directly, with no sign flip — matching PLP's
+``plp-agrespd.f::AgrResPDi`` which builds the LP row as
+``rowlb = +LDPhiPrv/ScalePhi`` for the constraint
+``α + Σ(-GradX/ScalePhi)·v ≥ +LDPhiPrv/ScalePhi``.
+
+**Bridge to gtopt** (handled at WRITE time by ``planos_writer``):
+PLP's LP folds the probability factor into the α-col objective
+coefficient as ``1/NVarPhi``; gtopt's per-scene LP uses an α-col
+coefficient of ``1.0`` (see ``sddp_method_alpha.cpp:110``).  When 16
+per-scene LP objectives are summed for the aggregate LB, each scene
+contributes its full α floor → over-counts by N_scenarios.  The
+writer therefore divides ``rhs`` and every gradient coefficient by
+``N`` at export, so the verbatim "PLP-canonical cut" above is
+rescaled into "gtopt-canonical α-space" exactly once.
 """
 
 import logging
@@ -228,7 +251,11 @@ class PlanosParser(BaseParser):
             iter_num = int(fields[0])  # IPDNumIte
             stage = int(fields[1])  # IEtapa (1-based)
             scenario = int(fields[2])  # ISimul (1-based)
-            ld_phi_prv = float(fields[3])  # LDPhiPrv (intercept, negated)
+            # LDPhiPrv = E[Z(v_trial)] from PLP backward pass — positive
+            # expected future operating cost (set by `plp-espercnd.f:54`
+            # as `LDPhiPrv = PromedioZ`).  Written verbatim by
+            # `plp-gdbdple.f:42` and `plp-gdbdple2.f:93`.
+            ld_phi_prv = float(fields[3])
 
             coefficients: Dict[str, float] = {}
             for ri, rname in enumerate(self.reservoir_names):
@@ -241,7 +268,17 @@ class PlanosParser(BaseParser):
                 "iteration": iter_num,
                 "stage": stage,
                 "scene": scenario,  # PLP ISimul maps to scene UID
-                "rhs": -ld_phi_prv,  # PLP stores negative intercept
+                # rhs = +LDPhiPrv (no sign flip).  PLP's LP cut at row
+                # construction time (`plp-agrespd.f:194,203`) sets
+                # rowlb = +LDPhiPrv/ScalePhi for the row
+                # `α + Σ(-GradX/ScalePhi)·v ≥ rowlb`.  gtopt's loader at
+                # `source/sddp_boundary_cuts.cpp:418` consumes
+                # `rc.rhs` directly as `lowb`, so the CSV must carry
+                # the positive intercept.  An earlier version negated
+                # this on emit, producing α ≈ -LDPhiPrv at the last
+                # phase — verified against PLP source 2026-05-05 and
+                # corrected.
+                "rhs": ld_phi_prv,
                 "coefficients": coefficients,
             }
             self.all_cuts.append(cut)
@@ -260,6 +297,93 @@ class PlanosParser(BaseParser):
             self.boundary_stage,
             total_count,
         )
+
+    # ------------------------------------------------------------------
+    # Cap helpers — boundary-cut-derived marginal water values
+    # ------------------------------------------------------------------
+
+    def average_abs_gradient_by_reservoir(
+        self,
+        *,
+        num_scenarios: Optional[int] = None,
+        apply_fescala: bool = True,
+    ) -> Dict[str, float]:
+        """Per-reservoir average ``|GradX_i|`` across all parsed cuts.
+
+        Returns ``{reservoir_name: avg_abs_gradient}``.  Skips zero
+        coefficients so structural zeros do not pollute the average.
+        Reservoirs that never appear with a non-zero coefficient are
+        omitted from the result.
+
+        Unit derivation
+        ---------------
+        PLP's plpplem2.dat carries the **raw, NOT-yet-1/NVarPhi-scaled**
+        gradient ``GradX_i = ∂E[Z]/∂v_i`` in ``$/Hm³``.  See the module
+        docstring of :mod:`planos_writer`: PLP folds the probability
+        factor into the α-column objective coefficient, so the data on
+        disk is the *total* (sum-over-scenarios) marginal water value
+        in raw ``$/Hm³``.
+
+        gtopt's per-scene LP uses an α-column with coefficient ``1.0``;
+        :func:`planos_writer.write_boundary_cuts_csv` therefore divides
+        every gradient by ``num_scenarios`` at export time to convert
+        from PLP-shared-LP space to gtopt per-scene α-space, both also
+        ``$/hm³``.
+
+        ``Reservoir.efin_cost`` lives in the per-scene α-space (it is
+        the marginal cost the gtopt LP pays per unit of END-of-horizon
+        volume slack).  For the cap to be apples-to-apples we MUST
+        apply the same ``1/num_scenarios`` divisor here.
+
+        Args:
+            num_scenarios: PLP scenario count (``NVarPhi``).  When
+                ``>= 2`` the in-memory raw PLP gradients are divided by
+                ``num_scenarios`` to land in gtopt per-scene
+                ``$/hm³``.  ``None``, ``0``, or ``1`` disables the
+                divisor (single-scenario / back-compat).
+
+        Returns:
+            Mapping from reservoir name to ``avg(|GradX_i|)`` in
+            ``$/hm³`` (per-scene physical), suitable for ``min``-style
+            comparison against ``WaterValueResolver.efin_cost``.
+        """
+        if num_scenarios is not None and num_scenarios > 1:
+            scale = 1.0 / float(num_scenarios)
+        else:
+            scale = 1.0
+
+        # Per-reservoir FEscala scaling — matches `planos_writer._vol_scale`.
+        # PLP stores GradX in `$/(raw_volume_unit)` where the unit is
+        # `hm³ / 10^(FEscala - 6)`; multiply by `10^(FEscala - 6)` to land
+        # in `$/hm³` (gtopt's volume basis).  Off by default for
+        # back-compat; the boundary-cut writer enables it via the
+        # `apply_fescala=True` keyword.
+        def _vscale(rname: str) -> float:
+            if not apply_fescala:
+                return 1.0
+            f = self.reservoir_fescala.get(rname)
+            if f is None:
+                return 1.0
+            return 10.0 ** (f - 6)
+
+        sums: Dict[str, float] = {}
+        counts: Dict[str, int] = {}
+        for cut in self.all_cuts:
+            coeffs = cut.get("coefficients") or {}
+            for rname, raw in coeffs.items():
+                try:
+                    val = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if val == 0.0:
+                    continue
+                sums[rname] = sums.get(rname, 0.0) + abs(val) * scale * _vscale(rname)
+                counts[rname] = counts.get(rname, 0) + 1
+        return {
+            rname: total / counts[rname]
+            for rname, total in sums.items()
+            if counts.get(rname, 0) > 0
+        }
 
     # ------------------------------------------------------------------
     # Utility

@@ -1,0 +1,11 @@
+[
+  {
+    "bus": "sys1_bus",
+    "capacity": 300.0,
+    "gcost": 0.0,
+    "name": "H1",
+    "pmax": 300.0,
+    "pmin": 0.0,
+    "uid": 3
+  }
+]

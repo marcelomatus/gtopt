@@ -38,7 +38,7 @@ def _make_opts(input_dir: Path, tmp_path: Path, case_name: str = "test") -> dict
         "hydrologies": "1",
         "last_stage": -1,
         "last_time": -1,
-        "compression": "zstd",
+        "compression": "snappy",
         "probability_factors": None,
         "discount_rate": 0.0,
         "management_factor": 0.0,
@@ -62,11 +62,11 @@ def test_flatten_options_nested():
     """_flatten_options flattens nested dicts (like sddp_options)."""
     opts = {
         "input_directory": "input",
-        "sddp_options": {"solver_type": "sddp", "max_iterations": 10},
+        "sddp_options": {"method": "sddp", "max_iterations": 10},
     }
     pairs = dict(_flatten_options(opts))
     assert pairs["input_directory"] == "input"
-    assert pairs["solver_type"] == "sddp"
+    assert pairs["method"] == "sddp"
     assert pairs["max_iterations"] == 10
 
 
@@ -130,8 +130,7 @@ def _minimal_planning() -> dict:
                 "use_kirchhoff": False,
                 "use_single_bus": False,
                 "demand_fail_cost": 1000,
-                "scale_objective": 10_000_000,
-                "scale_theta": 0.0001,
+                "scale_objective": 1_000,
             },
         },
         "simulation": {

@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -93,6 +96,29 @@ def run_plp2gtopt(
     return result.returncode
 
 
+def run_plexos2gtopt(
+    plexos2gtopt_bin: str,
+    input_bundle: Path,
+    output_dir: Path,
+    extra_args: list[str] | None = None,
+) -> int:
+    """Run plexos2gtopt to convert a PLEXOS bundle to gtopt format.
+
+    Mirrors :func:`run_plp2gtopt`.  The converter auto-runs its
+    PLEXOS↔gtopt comparison + structural validation and returns the
+    CRITICAL finding count as its exit code (nonzero ⇒ abort).
+    """
+    cmd = [plexos2gtopt_bin, str(input_bundle), "-o", str(output_dir)]
+    if extra_args:
+        cmd.extend(extra_args)
+
+    log.info("running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        log.error("plexos2gtopt failed with exit code %d", result.returncode)
+    return result.returncode
+
+
 def _build_gtopt_cmd(
     gtopt_bin: str,
     case_dir: Path,
@@ -111,51 +137,325 @@ def _build_gtopt_cmd(
     return cmd
 
 
-def _setup_log_file(case_dir: Path) -> Path | None:
-    """Create the log directory and return the log file path."""
-    base = case_dir.parent if case_dir.is_file() else case_dir
-    log_dir = base / "output" / "logs"
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        return log_dir / "gtopt.log"
-    except OSError:
+def _find_case_json(case_dir: Path) -> Path | None:
+    """Return the planning JSON inside @p case_dir (or @p case_dir itself
+    if it already points at a JSON file).  Returns ``None`` when no JSON
+    file is found.
+
+    Used to discover the case's ``output_directory`` / ``log_directory``
+    so the tail thread polls the right place for new gtopt logs.
+    """
+    if case_dir.is_file():
+        return case_dir if case_dir.suffix == ".json" else None
+    if not case_dir.is_dir():
         return None
+    # Prefer a JSON file matching the dir name (the plp2gtopt convention).
+    canonical = case_dir / f"{case_dir.name}.json"
+    if canonical.is_file():
+        return canonical
+    candidates = sorted(case_dir.glob("*.json"))
+    return candidates[0] if candidates else None
+
+
+def _resolve_log_dir(case_dir: Path) -> Path | None:
+    """Return the primary directory where gtopt will write its log files.
+
+    Mirrors the resolution done by ``setup_file_logging`` on the C++
+    side: gtopt picks ``log_directory`` if set in the planning JSON,
+    otherwise falls back to ``<output_directory>/logs``.  Both paths
+    are resolved relative to the case directory (the JSON's location).
+    The directory is created so the tail thread can poll it for new
+    files.
+
+    Use :func:`_resolve_log_dir_candidates` instead when the caller
+    needs a *complete* set of paths to watch — the primary path can
+    desync from the actual gtopt output dir if the JSON's
+    ``output_directory`` is ambiguous about its base (CWD vs JSON
+    location), and that desync silently broke the TUI tail thread on
+    runs where the sanitized JSON's resolved output_directory and
+    gtopt's actual write target diverged (observed 2026-05-07: TUI
+    polled ``<case>/results/logs/`` while gtopt wrote to
+    ``<cwd>/output/logs/``).
+    """
+    candidates = _resolve_log_dir_candidates(case_dir)
+    return candidates[0] if candidates else None
+
+
+def _resolve_log_dir_candidates(case_dir: Path) -> list[Path]:
+    """Return every directory the tail thread should monitor for new
+    ``gtopt_*.log`` files.
+
+    The C++ side resolves ``output_directory`` / ``log_directory``
+    relative to gtopt's CWD, which is **not always** the JSON file's
+    parent directory: when ``run_gtopt`` is invoked from a sibling
+    shell (``cd support/juan && run_gtopt gtopt_iplp_plain``), the
+    JSON ends up parsed from ``gtopt_iplp_plain/`` while gtopt itself
+    runs with CWD=``support/juan/``, so a JSON-relative
+    ``output_directory: "results"`` resolves to ``support/juan/results``
+    on the C++ side but ``support/juan/gtopt_iplp_plain/results`` on
+    the Python side.  The two diverge silently and the TUI sits at
+    "Waiting for solver output…" forever.
+
+    To bridge this, the watcher walks every plausible candidate:
+
+      1. ``<json_parent>/<json.options.log_directory>`` if set
+         (explicit log_directory wins).
+      2. ``<json_parent>/<json.options.output_directory>/logs`` —
+         the primary path (matches gtopt under most CWDs).
+      3. ``<json_parent>/output/logs`` — fallback for the C++
+         compiled-in default output_directory.
+      4. ``<cwd>/output/logs`` — what gtopt writes to when launched
+         from a working dir different from the JSON's parent.
+      5. ``<cwd>/results/logs`` — same as #4 but for the common
+         plp2gtopt-emitted ``output_directory: "results"`` value.
+
+    Returns the primary path first (so callers that pick `[0]` retain
+    the prior behaviour), followed by the additional fallbacks in
+    discovery order.  Duplicates are removed; missing directories are
+    *created* so the tail-snapshot baseline can populate empty.
+    """
+    base = case_dir.parent if case_dir.is_file() else case_dir
+    output_dir: str | None = None
+    log_subdir: str | None = None
+    json_path = _find_case_json(case_dir)
+    if json_path is not None:
+        try:
+            with open(json_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            opts = data.get("options") or {}
+            if isinstance(opts.get("output_directory"), str):
+                output_dir = opts["output_directory"]
+            if isinstance(opts.get("log_directory"), str):
+                log_subdir = opts["log_directory"]
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    raw_candidates: list[Path] = []
+    if log_subdir is not None:
+        raw_candidates.append(base / log_subdir)
+    if output_dir is not None:
+        raw_candidates.append(base / output_dir / "logs")
+    raw_candidates.append(base / "output" / "logs")
+    cwd = Path.cwd()
+    raw_candidates.append(cwd / "output" / "logs")
+    raw_candidates.append(cwd / "results" / "logs")
+
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for raw in raw_candidates:
+        try:
+            resolved = raw.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            resolved.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        out.append(resolved)
+    return out
+
+
+def _snapshot_gtopt_logs(log_dir: Path) -> set[Path]:
+    """Return the set of existing ``gtopt_*.log`` files in @p log_dir.
+
+    Used as a baseline so the tail thread knows which file is the *new*
+    one created by the run we're about to launch.
+    """
+    try:
+        return set(log_dir.glob("gtopt_*.log"))
+    except OSError:
+        return set()
+
+
+def _wait_for_new_log(
+    log_dir: Path,
+    baseline: set[Path],
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> Path | None:
+    """Wait until a new ``gtopt_*.log`` appears in @p log_dir; return it.
+
+    Single-directory variant — see :func:`_wait_for_new_log_multi` for
+    the variant the TUI tail thread uses, which polls every plausible
+    log-dir candidate so the watcher does not silently desync from
+    the actual C++ write target on layouts where the JSON's
+    ``output_directory`` resolves differently on each side.
+    """
+    while not stop_event.is_set():
+        try:
+            current = set(log_dir.glob("gtopt_*.log"))
+        except OSError:
+            current = set()
+        new = current - baseline
+        if new:
+            # If multiple appeared (very unlikely — only one writer per
+            # gtopt run), pick the most recently modified.
+            return max(new, key=lambda p: p.stat().st_mtime)
+        time.sleep(poll_interval)
+    return None
+
+
+def _wait_for_new_log_multi(
+    candidate_dirs: list[Path],
+    baselines: dict[Path, set[Path]],
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> Path | None:
+    """Wait until a new ``gtopt_*.log`` appears in ANY @p candidate_dirs.
+
+    Polls each candidate concurrently in a single round-robin loop.
+    Returns the first novel file seen across all candidates.  When
+    multiple candidates resolve to the same directory the per-dir
+    baseline is shared, so we never double-count the same file.
+
+    @p baselines maps each candidate dir to the set of pre-existing
+    ``gtopt_*.log`` files at watch start.  Files outside that
+    baseline are considered new.
+
+    Returns ``None`` if @p stop_event fires before any new file
+    appears in any candidate.
+    """
+    while not stop_event.is_set():
+        for cand in candidate_dirs:
+            try:
+                current = set(cand.glob("gtopt_*.log"))
+            except OSError:
+                continue
+            baseline = baselines.get(cand, set())
+            new = current - baseline
+            if new:
+                return max(new, key=lambda p: p.stat().st_mtime)
+        time.sleep(poll_interval)
+    return None
+
+
+def _tail_log_to(
+    log_path: Path,
+    consume,
+    stop_event: threading.Event,
+    poll_interval: float = 0.1,
+) -> None:
+    """Tail @p log_path line-by-line, calling @p consume(line) for each.
+
+    Returns when @p stop_event is set AND the file has been fully
+    drained.  Silently no-ops if the file vanishes or can't be opened.
+    """
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as f:
+            while True:
+                line = f.readline()
+                if line:
+                    consume(line)
+                    continue
+                if stop_event.is_set():
+                    # Drain anything written between our last read and
+                    # now, then exit.
+                    for tail_line in f:
+                        consume(tail_line)
+                    return
+                time.sleep(poll_interval)
+    except OSError:
+        return
+
+
+def _watch_and_tail(
+    log_dir: Path,
+    baseline: set[Path],
+    consume,
+    stop_event: threading.Event,
+) -> None:
+    """Wait for a new gtopt_N.log to appear, then tail it.
+
+    Single-directory variant — see :func:`_watch_and_tail_multi` for
+    the multi-candidate version the TUI tail thread uses.
+    """
+    log_path = _wait_for_new_log(log_dir, baseline, stop_event)
+    if log_path is None:
+        return
+    _tail_log_to(log_path, consume, stop_event)
+
+
+def _watch_and_tail_multi(
+    candidate_dirs: list[Path],
+    baselines: dict[Path, set[Path]],
+    consume,
+    stop_event: threading.Event,
+) -> None:
+    """Wait for a new ``gtopt_*.log`` in any candidate dir, then tail it.
+
+    Combines :func:`_wait_for_new_log_multi` and :func:`_tail_log_to`
+    for use as the target of a background tail thread that doesn't
+    know in advance which of several plausible directories the C++
+    side will actually open its log in.
+    """
+    log_path = _wait_for_new_log_multi(candidate_dirs, baselines, stop_event)
+    if log_path is None:
+        return
+    _tail_log_to(log_path, consume, stop_event)
 
 
 def _run_batch(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
-    """Run gtopt as a plain subprocess (non-interactive / background).
+    """Run gtopt and stream its log file to stdout.
 
-    Solver output is captured to ``<case>/output/logs/gtopt.log`` and
-    also forwarded to stdout.
+    The C++ binary detects non-TTY stdout (this Popen pipes nothing) and
+    writes its spdlog output to ``<case>/output/logs/gtopt_N.log`` via
+    ``setup_file_logging`` (with the same ``N`` as the matching
+    ``trace_N.log``).  We snapshot the directory before launch, wait for
+    the new ``gtopt_N.log`` to appear, then tail it line-by-line and
+    forward every line to stdout so an operator running ``run_gtopt``
+    from a CI / shell pipe still sees progress in real time.
     """
     log.info("running: %s", " ".join(cmd))
-    log_path = _setup_log_file(case_dir)
-    if log_path:
-        with open(log_path, "w", encoding="utf-8") as log_f, subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        ) as proc:
-            assert proc.stdout is not None  # noqa: S101
-            for line in iter(proc.stdout.readline, ""):
-                sys.stdout.write(line)
-                log_f.write(line)
-            proc.wait()
-            return proc.returncode
-    result = subprocess.run(cmd, check=False, env=env)
-    return result.returncode
+    candidate_dirs = _resolve_log_dir_candidates(case_dir)
+
+    if not candidate_dirs:
+        # Couldn't even create any log directory — fall back to letting
+        # the subprocess inherit our stdout (gtopt's TTY check will then
+        # produce normal stdout output).
+        result = subprocess.run(cmd, check=False, env=env)
+        return result.returncode
+
+    baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
+    stop_event = threading.Event()
+
+    def _emit(line: str) -> None:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+    tail_thread = threading.Thread(
+        target=_watch_and_tail_multi,
+        args=(candidate_dirs, baselines, _emit, stop_event),
+        daemon=True,
+    )
+    tail_thread.start()
+
+    try:
+        # Let stderr pass through unchanged; nothing is captured on
+        # stdout because gtopt itself routes spdlog to the log file.
+        result = subprocess.run(  # noqa: S603
+            cmd, check=False, env=env, stdout=subprocess.DEVNULL
+        )
+        returncode = result.returncode
+    finally:
+        stop_event.set()
+        tail_thread.join(timeout=2.0)
+
+    return returncode
 
 
 def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int:
     """Run gtopt with a live Rich terminal dashboard.
 
     The dashboard runs in a background thread while the solver
-    subprocess runs in the foreground.  Solver stdout/stderr is
-    captured line-by-line, displayed in the dashboard log panel, and
-    written to ``<case>/output/logs/gtopt.log``.
+    subprocess runs in the foreground.  The solver writes its log
+    directly to ``<case>/output/logs/gtopt_N.log`` (via the C++
+    file-only sink that activates when stdout is not a TTY — Popen
+    pipes nothing here), and a tail thread discovers the new
+    ``gtopt_N.log`` and forwards every line into the dashboard's log
+    panel.
 
     Interactive commands (single-key):
       s  Graceful stop — create stop-request file (saves cuts)
@@ -163,13 +463,14 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
       h  Toggle help overlay
       q  Quit — terminate the solver process immediately
     """
+    import contextlib  # noqa: PLC0415
     import signal  # noqa: PLC0415
 
     from ._tui import SolverDisplay  # noqa: PLC0415
 
     case_path = Path(case_dir)
     case_name = case_path.stem if case_path.is_file() else case_path.name
-    log_path = _setup_log_file(case_path)
+    candidate_dirs = _resolve_log_dir_candidates(case_path)
 
     # Extract --solver from command line for display
     solver_hint = ""
@@ -186,37 +487,44 @@ def _run_interactive(cmd: list[str], env: dict[str, str], case_dir: Path) -> int
     display.start()
 
     log.info("running (interactive): %s", " ".join(cmd))
-    import contextlib  # noqa: PLC0415
+
+    stop_event = threading.Event()
+    tail_thread: threading.Thread | None = None
+    if candidate_dirs:
+        baselines = {d: _snapshot_gtopt_logs(d) for d in candidate_dirs}
+        tail_thread = threading.Thread(
+            target=_watch_and_tail_multi,
+            args=(candidate_dirs, baselines, display.add_log_line, stop_event),
+            daemon=True,
+        )
+        tail_thread.start()
 
     with contextlib.ExitStack() as stack:
-        log_f = (
-            stack.enter_context(open(log_path, "w", encoding="utf-8"))  # noqa: SIM115
-            if log_path
-            else None
-        )
         proc = stack.enter_context(
-            subprocess.Popen(
+            subprocess.Popen(  # noqa: S603
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
             )
         )
         try:
-            assert proc.stdout is not None  # noqa: S101
-            for line in iter(proc.stdout.readline, ""):
-                display.add_log_line(line)
-                if log_f:
-                    log_f.write(line)
-                # Check if the TUI requested a quit (user pressed 'q')
+            # Poll the TUI quit flag while the subprocess runs.  We
+            # don't read its stdout — the log is delivered via the tail
+            # thread reading the file gtopt writes.
+            while True:
+                if proc.poll() is not None:
+                    break
                 if display.quit_requested.is_set():
                     log.info("quit requested via TUI — terminating solver")
                     proc.send_signal(signal.SIGTERM)
                     break
-        finally:
+                time.sleep(0.1)
             proc.wait()
+        finally:
+            stop_event.set()
+            if tail_thread is not None:
+                tail_thread.join(timeout=2.0)
             display.stop()
             display.print_final(proc.returncode)
 
@@ -329,48 +637,44 @@ def run_check_lp(lp_files: list[Path]) -> None:
 
 
 def check_solution(results_dir: Path) -> dict:
-    """Parse solution.csv from the results directory.
+    """Parse solution.csv (or solution.parquet) from the results directory.
 
     Returns a dict with keys: ``status``, ``objective`` (or empty if
-    the file is not found).
+    the file is not found / unparseable).  Both the CSV and Parquet
+    paths now route through PyArrow so quoted CSV fields and
+    Arrow-written headers are handled uniformly — the previous
+    manual ``str.split(",")`` parser would mishandle quoted values.
     """
-    sol_path = results_dir / "solution.csv"
-    if not sol_path.is_file():
-        sol_parquet = results_dir / "solution.parquet"
-        if sol_parquet.is_file():
-            try:
-                import pyarrow.parquet as pq  # noqa: PLC0415
-
-                table = pq.read_table(sol_parquet)
-                df = table.to_pandas()
-                if "status" in df.columns:
-                    status = int(df["status"].iloc[0])
-                    obj = (
-                        float(df["objective"].iloc[0])
-                        if "objective" in df.columns
-                        else None
-                    )
-                    return {"status": status, "objective": obj}
-            except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
-                pass
+    sol_csv = results_dir / "solution.csv"
+    sol_parquet = results_dir / "solution.parquet"
+    if sol_csv.is_file():
+        src = sol_csv
+    elif sol_parquet.is_file():
+        src = sol_parquet
+    else:
         return {}
 
     try:
-        with open(sol_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        if len(lines) >= 2:
-            header = [h.strip() for h in lines[0].split(",")]
-            values = [v.strip() for v in lines[1].split(",")]
-            record = dict(zip(header, values))
-            result: dict = {}
-            if "status" in record:
-                result["status"] = int(record["status"])
-            if "objective" in record:
-                result["objective"] = float(record["objective"])
-            return result
-    except (OSError, ValueError) as exc:
-        log.warning("failed to parse %s: %s", sol_path, exc)
-    return {}
+        if src.suffix == ".csv":
+            import pyarrow.csv as pa_csv  # noqa: PLC0415
+
+            table = pa_csv.read_csv(src)
+        else:
+            import pyarrow.parquet as pq  # noqa: PLC0415
+
+            table = pq.read_table(src)
+
+        if table.num_rows == 0 or "status" not in table.column_names:
+            return {}
+
+        df = table.to_pandas()
+        result: dict = {"status": int(df["status"].iloc[0])}
+        if "objective" in df.columns:
+            result["objective"] = float(df["objective"].iloc[0])
+        return result
+    except Exception as exc:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+        log.warning("failed to parse %s: %s", src, exc)
+        return {}
 
 
 def _count_output_files(results_dir: Path) -> dict[str, int]:
@@ -407,6 +711,88 @@ def _format_size(nbytes: int) -> str:
     return f"{size:.1f} TB"
 
 
+def _format_mb(mb: float) -> str:
+    """Render a megabyte count as MB or GB depending on magnitude."""
+    if mb >= 1024.0:
+        return f"{mb / 1024.0:.1f} GB"
+    return f"{mb:.0f} MB"
+
+
+def _resource_summary_rows(results_dir: Path) -> list[tuple[str, str]]:
+    """Pull resource-usage rows from the solver's status JSON.
+
+    Reads ``solver_status.json`` next to *results_dir* and returns a
+    short list of (label, value) pairs to append to the post-run
+    summary.  Returns ``[]`` when no status file is available so that
+    older / dry-run / aborted runs don't add empty placeholders.
+
+    Surfaced fields:
+      * **gtopt RSS**          — final + peak process resident size
+      * **System free memory** — last poll of host available memory
+      * **CPU**                — last load + average over the run
+      * **LP pool**            — task count, avg per-task CPU and ΔRSS
+    """
+    status_path = results_dir / "solver_status.json"
+    if not status_path.is_file():
+        return []
+    try:
+        with open(status_path, encoding="utf-8") as f:
+            status = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    rows: list[tuple[str, str]] = []
+
+    rss_now = status.get("pool_process_rss_mb")
+    free_now = status.get("pool_available_memory_mb")
+    pct_now = status.get("pool_memory_percent")
+
+    rt = status.get("realtime") or {}
+    rss_series = rt.get("process_rss_mb") or []
+    cpu_series = rt.get("cpu_loads") or []
+
+    rss_peak = max(rss_series) if rss_series else None
+    if rss_now is None and rss_series:
+        rss_now = rss_series[-1]
+
+    if rss_now is not None:
+        if rss_peak is not None and abs(rss_peak - float(rss_now)) > 1.0:
+            rows.append(
+                (
+                    "gtopt memory (RSS)",
+                    f"{_format_mb(float(rss_now))}  (peak {_format_mb(float(rss_peak))})",
+                )
+            )
+        else:
+            rows.append(("gtopt memory (RSS)", _format_mb(float(rss_now))))
+
+    if free_now is not None:
+        free_str = _format_mb(float(free_now))
+        if pct_now is not None:
+            free_str = f"{free_str}  ({float(pct_now):.0f}% used)"
+        rows.append(("System free memory", free_str))
+
+    if cpu_series:
+        cpu_last = float(cpu_series[-1])
+        cpu_avg = sum(float(c) for c in cpu_series) / len(cpu_series)
+        rows.append(("CPU utilization", f"{cpu_last:.0f}%  (avg {cpu_avg:.0f}%)"))
+
+    lp_stats = status.get("lp_task_stats") or {}
+    dispatched = lp_stats.get("dispatched") or 0
+    if dispatched:
+        avg_cpu = float(lp_stats.get("avg_cpu_pct", 0.0))
+        avg_mem = float(lp_stats.get("avg_rss_delta_mb", 0.0))
+        rows.append(
+            (
+                "LP pool",
+                f"{dispatched} tasks  avg CPU {avg_cpu:.0f}%  "
+                f"avg ΔRSS {_format_mb(avg_mem)}",
+            )
+        )
+
+    return rows
+
+
 def _total_dir_size(path: Path) -> int:
     """Sum of all file sizes under *path*."""
     total = 0
@@ -418,15 +804,34 @@ def _total_dir_size(path: Path) -> int:
 
 
 def _read_result_table(results_dir: Path, stem: str):
-    """Try to read a result file as a pandas DataFrame."""
+    """Try to read a result file as a pandas DataFrame.
+
+    Handles three layouts transparently:
+
+    * Legacy single file: ``{stem}.{ext}``.
+    * Hive-partitioned parquet directory: ``{stem}.parquet/`` containing
+      ``scene=<N>/phase=<M>/part.parquet`` — read as one frame via
+      ``pd.read_parquet``.
+    * CSV shards: ``{stem}_s*_p*.{csv,csv.zst,csv.gz}`` concatenated in
+      sorted order.
+    """
     try:
         import pandas as pd  # noqa: PLC0415
 
-        for ext in (".parquet", ".csv", ".csv.zst", ".csv.gz"):
+        pq_path = results_dir / (stem + ".parquet")
+        if pq_path.is_dir() or pq_path.is_file():
+            return pd.read_parquet(pq_path)
+
+        parent = results_dir / Path(stem).parent
+        name = Path(stem).name
+        for ext in (".csv", ".csv.zst", ".csv.gz"):
+            shards = sorted(parent.glob(f"{name}_s*_p*{ext}"))
+            if shards:
+                frames = [pd.read_csv(f) for f in shards]
+                return pd.concat(frames, ignore_index=True) if frames else None
+
             fpath = results_dir / (stem + ext)
             if fpath.is_file():
-                if ext == ".parquet":
-                    return pd.read_parquet(fpath)
                 return pd.read_csv(fpath)
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         pass
@@ -444,7 +849,6 @@ def _compute_energy_indicators(
     """
     indicators: dict[str, float] = {}
     try:
-        import json as _json  # noqa: PLC0415
         import numpy as np  # noqa: PLC0415
 
         import math  # noqa: PLC0415
@@ -461,7 +865,7 @@ def _compute_energy_indicators(
         scale_obj = 1000.0
         if planning_json and planning_json.is_file():
             with open(planning_json, encoding="utf-8") as f:
-                data = _json.load(f)
+                data = json.load(f)
             blocks = data.get("simulation", {}).get("block_array", [])
             for b in blocks:
                 durations[b["uid"]] = b.get("duration", 1.0)
@@ -646,6 +1050,10 @@ def report_solution(
     classes = _count_output_classes(results_dir)
     if classes:
         rows.append(("Element classes", ", ".join(classes)))
+
+    # ── Resources (gtopt RSS / system free / CPU / LP-pool) ──
+    for label, value in _resource_summary_rows(results_dir):
+        rows.append((label, value))
 
     # ── Paths ──
     rows.append(("Results", str(results_dir)))

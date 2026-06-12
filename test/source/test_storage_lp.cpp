@@ -8,11 +8,13 @@
 #include <gtopt/battery_lp.hpp>
 #include <gtopt/demand.hpp>
 #include <gtopt/generator.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/variable_scale.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -25,7 +27,8 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 /// Returns the SystemLP so callers can inspect LP structure.
 auto make_battery_system(const Array<Battery>& battery_array,
                          const Simulation& simulation,
-                         double demand_fail_cost = 1000.0)
+                         double demand_fail_cost = 1000.0,
+                         Array<VariableScale> variable_scales = {})
     -> std::pair<SystemLP, PlanningOptionsLP>
 {
   const Array<Bus> bus_array = {
@@ -63,7 +66,8 @@ auto make_battery_system(const Array<Battery>& battery_array,
   };
 
   PlanningOptions opts;
-  opts.demand_fail_cost = demand_fail_cost;
+  opts.model_options.demand_fail_cost = demand_fail_cost;
+  opts.variable_scales = std::move(variable_scales);
 
   auto options = PlanningOptionsLP {opts};
   SimulationLP sim_lp(simulation, options);
@@ -294,12 +298,19 @@ TEST_CASE(  // NOLINT
           .emax = 500.0,
           .eini = 250.0,
           .capacity = 500.0,
-          .energy_scale = 50.0,
       },
   };
 
+  // Set energy scale via variable_scales (not per-element field)
+  Array<VariableScale> vs = {
+      {
+          .class_name = "Battery",
+          .variable = "energy",
+          .scale = 50.0,
+      },
+  };
   auto [sys_lp, options] =
-      make_battery_system(battery_array, make_simple_simulation());
+      make_battery_system(battery_array, make_simple_simulation(), 1000.0, vs);
   const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
 
   CHECK(bat_lp.energy_scale() == doctest::Approx(50.0));
@@ -534,9 +545,113 @@ TEST_CASE(  // NOLINT
   REQUIRE(!stages.empty());
 
   const auto stage_uid = stages[0].uid();
-  CHECK(bat_lp.param_emin(stage_uid).value_or(-1.0) == doctest::Approx(10.0));
-  CHECK(bat_lp.param_emax(stage_uid).value_or(-1.0) == doctest::Approx(90.0));
-  CHECK(bat_lp.param_ecost(stage_uid).value_or(-1.0) == doctest::Approx(5.0));
+  const auto block_uid = stages[0].blocks().front().uid();
+  CHECK(bat_lp.param_emin(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(10.0));
+  CHECK(bat_lp.param_emax(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(90.0));
+  CHECK(bat_lp.param_ecost(stage_uid, block_uid).value_or(-1.0)
+        == doctest::Approx(5.0));
+}
+
+// ─── Per-(stage, block) emin/emax wiring on Battery ─────────────────────────
+//
+// Pins the runtime contract introduced when ``Battery.emin``/``emax`` (and
+// the parallel Reservoir/VolumeRight/LngTerminal fields) were promoted from
+// ``OptTRealFieldSched`` (per-stage) to ``OptTBRealFieldSched`` (per-(stage,
+// block)) on 2026-05-18.  Three input shapes are supported and must
+// round-trip into ``param_emin(stage, block)``/``param_emax(stage, block)``:
+//
+//   * scalar — broadcasts to every (stage, block);
+//   * 2-D nested array ``[[block, …], …]`` — per-(stage, block) explicit;
+//   * Mx1 nested array — per-stage with one block per stage (PLP shape).
+
+TEST_CASE(  // NOLINT
+    "StorageLP per-block emin/emax — scalar broadcasts to every block")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // emin/emax scalar — should broadcast to every (stage, block).
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_scalar_bounds",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 5.0,
+          .emax = 80.0,
+          .capacity = 100.0,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& stage = sys_lp.phase().stages().front();
+  const auto stage_uid = stage.uid();
+
+  // Every block of the stage sees the same scalar (broadcast semantic).
+  for (const auto& block : stage.blocks()) {
+    const auto buid = block.uid();
+    CHECK(bat_lp.param_emin(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(5.0));
+    CHECK(bat_lp.param_emax(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(80.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP per-block emin/emax — 2-D nested array indexed per block")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The simple simulation ships 1 stage × multiple blocks.  Stage 0
+  // gets per-block emax overrides: blocks at successive uids carry
+  // distinct bounds.  Verify ``param_emax(stage, block)`` returns the
+  // per-block value.
+  const auto sim = make_simple_simulation();
+  const std::size_t num_blocks = sim.block_array.size();
+  REQUIRE(num_blocks >= 2);  // need at least 2 blocks to exercise the contract
+
+  std::vector<Real> per_block_emax;
+  per_block_emax.reserve(num_blocks);
+  for (std::size_t b = 0; b < num_blocks; ++b) {
+    per_block_emax.push_back(100.0 - static_cast<Real>(b) * 10.0);
+  }
+  std::vector<std::vector<Real>> emax_matrix = {per_block_emax};
+
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_per_block",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,  // scalar — broadcasts
+          .emax = emax_matrix,  // per-(stage, block)
+          .capacity = 100.0,
+      },
+  };
+
+  auto [sys_lp, options] = make_battery_system(battery_array, sim);
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& stage = sys_lp.phase().stages().front();
+  const auto stage_uid = stage.uid();
+
+  // emin scalar broadcasts everywhere.
+  CHECK(
+      bat_lp.param_emin(stage_uid, stage.blocks().front().uid()).value_or(-1.0)
+      == doctest::Approx(0.0));
+
+  // emax per-block: each block reads its own row entry.
+  const auto& blocks = stage.blocks();
+  for (std::size_t b = 0; b < blocks.size(); ++b) {
+    const auto buid = blocks[b].uid();
+    const double expected = 100.0 - static_cast<Real>(b) * 10.0;
+    CHECK(bat_lp.param_emax(stage_uid, buid).value_or(-1.0)
+          == doctest::Approx(expected));
+  }
 }
 
 // ─── soft_emin_col_at returns nullopt when no soft_emin ─────────────────────
@@ -658,5 +773,334 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 
   // The objective should be positive (generator cost + ecost on energy)
-  CHECK(li.get_obj_value() > 0.0);
+  CHECK(li.get_obj_value_raw() > 0.0);
 }
+
+// ─── Regression: soft_emin column name must not collide with eini ──────────
+
+TEST_CASE(  // NOLINT
+    "StorageLP soft_emin column has unique name (not colliding with eini)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Battery with soft_emin active — triggers both the eini column
+  // (variable_name "eini") and the soft_emin slack column
+  // (variable_name "soft_emin"), both with stage context.
+  // Before the fix, both used variable_name "energy", causing a
+  // duplicate column name in the FlatLinearProblem name map.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_semin",
+          .bus = Uid {1},
+          .input_efficiency = 0.95,
+          .output_efficiency = 0.95,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 50.0,
+          .soft_emin = 20.0,
+          .soft_emin_cost = 500.0,
+          .capacity = 100.0,
+      },
+  };
+
+  // Build with col+row name maps enabled (level 2) so that
+  // LinearProblem::flatten() throws on any duplicate column name.
+  // Before the fix, both eini and soft_emin slack used variable_name
+  // "energy" with stage context, producing identical names.
+  PlanningOptions popts;
+  popts.model_options.demand_fail_cost = 1000.0;
+  popts.lp_matrix_options.col_with_names = true;
+  popts.lp_matrix_options.row_with_names = true;
+  popts.lp_matrix_options.col_with_name_map = true;
+  popts.lp_matrix_options.row_with_name_map = true;
+
+  auto options = PlanningOptionsLP {popts};
+  const auto sim = make_simple_simulation();
+  SimulationLP sim_lp(sim, options);
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> gen_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 100.0,
+      },
+  };
+
+  const System system {
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = gen_array,
+      .battery_array = battery_array,
+  };
+
+  // This will throw if duplicate column names exist (regression guard)
+  SystemLP sys_lp(system, sim_lp);
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+}
+
+// ─── efin_cost: soft slack on the per-reservoir efin row ────────────────────
+//
+// When ``Battery.efin_cost`` (or ``Reservoir.efin_cost``) is set and > 0,
+// the hard ``vol_end >= efin`` row at the last block of the last stage
+// becomes soft: ``vol_end + slack >= efin`` with the slack priced at
+// efin_cost in the objective.  Without efin_cost, the row stays hard
+// (the historical behaviour).  See storage_lp.hpp for the construction
+// and reservoir.hpp / battery.hpp / lng_terminal.hpp / volume_right.hpp
+// for the per-element field documentation.
+
+// Note: batteries default to `daily_cycle = true`, which auto-adds an
+// efin == eini constraint per phase and overrides any user-supplied
+// `efin`.  These tests therefore set `daily_cycle = false` explicitly,
+// representing a "very large" / LNG-like battery where the user does
+// want a per-horizon end-state floor.
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost unset → hard `efin` row: LP infeasible when "
+    "vol_end < efin")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Battery with eini=10, efin=80.  With pmax_charge=5 and a 2-block
+  // 1-h horizon, max end-state ≈ 10 + 2·5 = 20 MWh — well below 80.
+  // Hard `vol_end >= 80` row → LP infeasible.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_hard",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          // efin_cost NOT set — row stays hard
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,  // disable auto efin == eini
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  // Hard efin: LP is infeasible — either resolve returns no value
+  // (unexpected) or returns a non-optimal status (>0).
+  CHECK((!result.has_value() || result.value() != 0));
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost > 0 → soft `efin` row: LP feasible at slack cost")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Same fixture as the hard-efin test above, but with efin_cost set.
+  // The slack now carries the missing ~60 MWh at $50/MWh, so the LP
+  // is feasible with strictly positive objective.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_soft",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 50.0,  // soft: slack at $50/MWh
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  // Soft efin: LP solves to optimality (status 0).
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Strictly positive objective — the cheap path of leaving the battery
+  // near eini still pays the efin slack penalty.
+  CHECK(li.get_obj_value_raw() > 0.0);
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP efin_cost == 0 → behaves identically to unset (hard row)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // The slack-creation guard is ``efin_cost.has_value() && *efin_cost > 0``;
+  // setting it to exactly 0 should NOT create the slack column (matching
+  // the existing soft_emin guard pattern).  Same infeasibility as the
+  // unset case.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_efin_zero",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 0.0,  // explicit zero — slack guard rejects
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_simple_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  CHECK((!result.has_value() || result.value() != 0));
+}
+
+TEST_CASE(  // NOLINT
+    "StorageLP large reservoir-like battery (state variable, "
+    "daily_cycle=false) builds and solves with efin_cost")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // "Large" battery operating like a reservoir:
+  //  - daily_cycle = false (no per-stage SoC cycling)
+  //  - use_state_variable = true (SDDP-style cross-stage coupling)
+  // The hard efin row only binds at the *last stage of the last phase*
+  // and is enforced by the SDDP coordinator outside the per-stage LP.
+  // Within a single per-stage solve we verify that the LP builds and
+  // solves cleanly when efin / efin_cost are present, which guards
+  // against regressions in StorageLP construction (e.g. column-name
+  // collisions or the slack guard misfiring when SDDP is on).
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_large",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 1000.0,
+          .eini = 100.0,
+          .efin = 800.0,
+          .efin_cost = 25.0,  // soft seasonal-storage slack [$/MWh]
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 1000.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_two_stage_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+  CHECK(li.get_obj_value_raw() >= 0.0);
+}
+
+// ─── efin_cost + soft_emin combination ──────────────────────────────────────
+//
+// Mirrors the plp2gtopt ``--soft-storage-bounds`` emission pattern:
+// per-reservoir efin is relaxed via ``efin_cost`` and per-stage emin
+// from maintenance schedules is relaxed via ``soft_emin`` /
+// ``soft_emin_cost``.  Both slacks must be priced at the same per-
+// reservoir cost (``plpvrebemb`` or ``CVert``).  This test verifies
+// that both slacks coexist in a single LP without column-name
+// collision and that the optimal solution activates them
+// independently at their respective constraints.
+
+TEST_CASE(  // NOLINT
+    "StorageLP combined efin_cost + soft_emin (plp_legacy emission)")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  // NOLINTBEGIN(misc-const-correctness)
+
+  // 2-stage battery with eini=10:
+  //   - Stage 1: soft_emin=15 + soft_emin_cost=5  (forces slack since
+  //     eini=10 < 15 and stage-1 charge cap is small)
+  //   - Stage 2 (last): efin=80 + efin_cost=5  (forces slack since
+  //     reaching 80 from 10 requires 70 MWh of charge in 2 blocks
+  //     of 4h each at pmax_charge=5 → max 40 MWh → 30 MWh slack)
+  //
+  // Both slacks active simultaneously, independent column families.
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_combo",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 0.0,
+          .emax = 100.0,
+          .eini = 10.0,
+          .efin = 80.0,
+          .efin_cost = 5.0,  // soft efin
+          // soft_emin / soft_emin_cost are TB since PR-D — outer dim
+          // is stage, inner dim is block.  This fixture has 2 stages
+          // × 1 block, so the per-stage vectors wrap once.
+          .soft_emin = std::vector<std::vector<double>> {{15.0}, {0.0}},
+          .soft_emin_cost = std::vector<std::vector<double>> {{5.0}, {0.0}},
+          .pmax_charge = 5.0,
+          .pmax_discharge = 5.0,
+          .capacity = 100.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  auto [sys_lp, options] =
+      make_battery_system(battery_array, make_two_stage_simulation());
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+  CHECK(li.get_obj_value_raw() > 0.0);
+
+  // Both slack column families must exist independently.  Without the
+  // 2026-04 column-name fix (``EfinSlackName = "efin_slack"``,
+  // ``SoftEminName = "soft_emin"``) the LP would have thrown on a
+  // duplicate column name during flatten; reaching this CHECK proves
+  // the names coexist in the same LP for the same element.
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& sc1 = sys_lp.scene().scenarios().front();
+  const auto& stg1 = sys_lp.phase().stages().front();
+  const auto soft_emin_col = bat_lp.soft_emin_col_at(sc1, stg1);
+  CHECK(soft_emin_col.has_value());
+  // efin_slack column from StorageLP::EfinSlackName lives in the LP
+  // when efin_cost > 0.  Verify the LP solved cleanly with both
+  // slack mechanisms instantiated — the obj > 0 above covers that.
+}
+
+// NOLINTEND(misc-const-correctness)

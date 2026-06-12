@@ -14,14 +14,97 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <format>
+#include <fstream>
+#include <mutex>
 #include <string>
 
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
+#include <gtopt/utils.hpp>
+#include <unistd.h>
 
 namespace gtopt
 {
+
+namespace
+{
+
+/// Lightweight discovery registry: write
+/// ``$XDG_CACHE_HOME/gtopt/runs/<pid>`` (or ``~/.cache/gtopt/runs/<pid>``)
+/// containing the absolute path of the output directory the solver is
+/// writing to.  This lets ``run_gtopt --list`` enumerate live runs and
+/// ``run_gtopt --attach <pid>`` resolve the case dir without scanning
+/// the filesystem.  Stale entries (process gone) are skipped by the
+/// reader via ``kill(pid, 0)``; we also delete our own entry on
+/// graceful exit via std::atexit.  No-op on any I/O error — monitoring
+/// must never affect solve correctness.
+[[nodiscard]] std::filesystem::path runs_registry_dir()
+{
+  // ``std::getenv`` is the only portable way to read process env;
+  // safe here because the env is never mutated after main() runs.
+  const char* xdg = std::getenv("XDG_CACHE_HOME");
+  std::filesystem::path base;
+  if (xdg != nullptr && *xdg != '\0') {
+    base = xdg;
+  } else if (const char* home = std::getenv("HOME"); home != nullptr) {
+    base = std::filesystem::path {home} / ".cache";
+  } else {
+    return {};  // Unsupported environment; skip registry.
+  }
+  return base / "gtopt" / "runs";
+}
+
+void register_run_once(const std::string& filepath)
+{
+  static std::once_flag once;
+  std::call_once(once,
+                 [&filepath]() noexcept
+                 {
+                   try {
+                     const auto dir = runs_registry_dir();
+                     if (dir.empty()) {
+                       return;
+                     }
+                     std::error_code ec;
+                     std::filesystem::create_directories(dir, ec);
+                     if (ec) {
+                       return;
+                     }
+                     const auto entry = dir / std::to_string(::getpid());
+                     std::ofstream out(entry, std::ios::trunc);
+                     if (!out) {
+                       return;
+                     }
+                     // Absolute path to the output directory (parent of the
+                     // status file) — readers attach to the case via this
+                     // directory.
+                     const auto out_dir = std::filesystem::absolute(
+                                              std::filesystem::path {filepath})
+                                              .parent_path();
+                     out << out_dir.string() << '\n';
+                     out.close();
+                     // Best-effort cleanup on normal exit.
+                     static std::filesystem::path entry_to_remove;
+                     entry_to_remove = entry;
+                     // atexit returning non-zero just means "could not
+                     // register" — registry cleanup is best-effort.
+                     static_cast<void>(std::atexit(
+                         []() noexcept
+                         {
+                           std::error_code ec;
+                           std::filesystem::remove(entry_to_remove, ec);
+                         }));
+                   } catch (...) {
+                     // Registry is monitoring-only; never propagate.
+                   }
+                 });
+}
+
+}  // namespace
 
 void write_solver_status(const std::string& filepath,
                          const std::vector<SDDPIterationResult>& results,
@@ -29,6 +112,10 @@ void write_solver_status(const std::string& filepath,
                          const SolverStatusSnapshot& snapshot,
                          const SolverMonitor& monitor)
 {
+  // Register this run in the discovery registry on the very first
+  // call.  Idempotent (std::call_once); cleaned up at process exit.
+  register_run_once(filepath);
+
   // Build JSON manually using std::format to avoid adding a new
   // dependency.  This is monitoring output only — correctness over
   // aesthetics.
@@ -44,7 +131,7 @@ void write_solver_status(const std::string& filepath,
   const char* status_str = nullptr;
   if (snapshot.converged) {
     status_str = "converged";
-  } else if (snapshot.iteration == 0) {
+  } else if (snapshot.iteration_index == IterationIndex {0}) {
     status_str = "initializing";
   } else {
     status_str = "running";
@@ -54,8 +141,13 @@ void write_solver_status(const std::string& filepath,
   json += std::format("  \"version\": 1,\n");
   json += std::format("  \"timestamp\": {:.3f},\n", now_ts);
   json += std::format("  \"elapsed_s\": {:.3f},\n", elapsed_seconds);
+  // PID lets external tools (run_gtopt --attach, --list) verify the
+  // owning process is still alive via `kill(pid, 0)` before trusting
+  // any of the bounds / iteration counters below.  Cheap; no I/O.
+  json +=
+      std::format("  \"pid\": {},\n", static_cast<std::int64_t>(::getpid()));
   json += std::format("  \"status\": \"{}\",\n", status_str);
-  json += std::format("  \"iteration\": {},\n", snapshot.iteration);
+  json += std::format("  \"iteration\": {},\n", snapshot.iteration_index);
   json += std::format("  \"lower_bound\": {:.6f},\n", snapshot.lower_bound);
   json += std::format("  \"upper_bound\": {:.6f},\n", snapshot.upper_bound);
   json += std::format("  \"gap\": {:.6f},\n", snapshot.gap);
@@ -89,32 +181,49 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene iterations
     json += "    \"scene_iterations\": [";
-    for (std::size_t si = 0; si < snapshot.scene_iterations.size(); ++si) {
+    for (const auto& [si, iters] : enumerate(snapshot.scene_iterations)) {
       if (si > 0) {
         json += ", ";
       }
-      json += std::format("{}", snapshot.scene_iterations[si]);
+      json += std::format("{}", iters);
     }
     json += "],\n";
 
     // Per-scene states
     json += "    \"scene_states\": [";
-    for (std::size_t si = 0; si < snapshot.scene_states.size(); ++si) {
+    for (const auto& [si, st] : enumerate(snapshot.scene_states)) {
       if (si > 0) {
         json += ", ";
       }
-      json += std::format("\"{}\"", snapshot.scene_states[si]);
+      json += std::format("\"{}\"", st);
     }
     json += "]\n";
     json += "  },\n";
   }
 
+  // ── Memory and LP task stats ──
+  json += std::format("  \"pool_memory_percent\": {:.1f},\n",
+                      snapshot.pool_memory_percent);
+  json += std::format("  \"pool_process_rss_mb\": {:.0f},\n",
+                      snapshot.pool_process_rss_mb);
+  json += std::format("  \"pool_available_memory_mb\": {:.0f},\n",
+                      snapshot.pool_available_memory_mb);
+  if (snapshot.lp_tasks_dispatched > 0) {
+    json += "  \"lp_task_stats\": {\n";
+    json +=
+        std::format("    \"dispatched\": {},\n", snapshot.lp_tasks_dispatched);
+    json += std::format("    \"avg_cpu_pct\": {:.1f},\n",
+                        snapshot.avg_lp_task_cpu_pct);
+    json += std::format("    \"avg_rss_delta_mb\": {:.1f}\n",
+                        snapshot.avg_lp_task_rss_delta_mb);
+    json += "  },\n";
+  }
+
   // ── Iteration history ──
   json += "  \"history\": [\n";
-  for (std::size_t i = 0; i < results.size(); ++i) {
-    const auto& r = results[i];
+  for (const auto& [i, r] : enumerate(results)) {
     json += "    {\n";
-    json += std::format("      \"iteration\": {},\n", r.iteration);
+    json += std::format("      \"iteration\": {},\n", r.iteration_index);
     json += std::format("      \"lower_bound\": {:.6f},\n", r.lower_bound);
     json += std::format("      \"upper_bound\": {:.6f},\n", r.upper_bound);
     json += std::format("      \"gap\": {:.6f},\n", r.gap);
@@ -131,38 +240,33 @@ void write_solver_status(const std::string& filepath,
 
     // Per-scene upper bounds
     json += "      \"scene_upper_bounds\": [";
-    for (std::size_t si = 0; si < r.scene_upper_bounds.size(); ++si) {
-      if (si > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.6f}", r.scene_upper_bounds[si]);
+    for (const auto& [si, ub] : enumerate(r.scene_upper_bounds)) {
+      json += (si > 0) ? ", " : "";
+      json += std::format("{:.6f}", ub);
     }
     json += "],\n";
 
     // Per-scene lower bounds
     json += "      \"scene_lower_bounds\": [";
-    for (std::size_t si = 0; si < r.scene_lower_bounds.size(); ++si) {
-      if (si > 0) {
-        json += ", ";
-      }
-      json += std::format("{:.6f}", r.scene_lower_bounds[si]);
+    for (const auto& [si, lb] : enumerate(r.scene_lower_bounds)) {
+      json += (si > 0) ? ", " : "";
+      json += std::format("{:.6f}", lb);
     }
-    json += "]";
+    json += ']';
 
     // Per-scene iteration snapshot (async mode only)
     if (!r.scene_iterations.empty()) {
       json += ",\n      \"scene_iterations\": [";
-      for (std::size_t si = 0; si < r.scene_iterations.size(); ++si) {
-        if (si > 0) {
-          json += ", ";
-        }
-        json += std::format("{}", r.scene_iterations[si]);
+      for (const auto& [si, it] : enumerate(r.scene_iterations)) {
+        json += (si > 0) ? ", " : "";
+        json += std::format("{}", it);
       }
-      json += "]";
+      json += ']';
     }
-    json += "\n";
+    json += '\n';
 
-    json += (i + 1 < results.size()) ? "    },\n" : "    }\n";
+    const bool is_last = i + 1 == results.size();
+    json += is_last ? "    }\n" : "    },\n";
   }
   json += "  ],\n";
 

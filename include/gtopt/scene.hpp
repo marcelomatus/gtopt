@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gtopt/basic_types.hpp>
+#include <gtopt/uid.hpp>
 
 namespace gtopt
 {
@@ -33,8 +34,28 @@ struct Scene
   }
 };
 
-using SceneUid = StrongUidType<Scene>;
-using SceneIndex = StrongIndexType<Scene>;
+using SceneUid = UidOf<Scene>;
+using SceneIndex = StrongPositionIndexType<Scene>;
 using OptSceneIndex = std::optional<SceneIndex>;
+
+/// @brief First scene index — the canonical root scene used when
+/// boundary cuts and column-name maps are built scene-independently.
+[[nodiscard]] constexpr auto first_scene_index() noexcept -> SceneIndex
+{
+  return SceneIndex {0};
+}
+
+/// @brief Next scene index (scene_index + 1), preserving strong type.
+[[nodiscard]] constexpr auto next(SceneIndex scene_index) noexcept -> SceneIndex
+{
+  return ++scene_index;
+}
+
+/// @brief Previous scene index (scene_index - 1), preserving strong type.
+[[nodiscard]] constexpr auto previous(SceneIndex scene_index) noexcept
+    -> SceneIndex
+{
+  return --scene_index;
+}
 
 }  // namespace gtopt
