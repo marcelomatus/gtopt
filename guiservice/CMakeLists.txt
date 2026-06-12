@@ -285,11 +285,34 @@ install(CODE "
     else()
       set(_uv_system_flag \"--system\")
     endif()
+    # If pyarrow is already importable, filter it out of the
+    # requirements to avoid replacing a source-built pyarrow with a
+    # pre-built PyPI wheel that bundles incompatible shared objects
+    # (libarrow_substrait, libarrow_flight).
+    execute_process(
+      COMMAND \"${PYTHON_EXECUTABLE}\" -c \"import pyarrow\"
+      RESULT_VARIABLE _has_pyarrow
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    set(_req_file \"${GUISERVICE_DIR}/requirements.txt\")
+    if(_has_pyarrow EQUAL 0)
+      file(STRINGS \"${GUISERVICE_DIR}/requirements.txt\" _req_lines)
+      set(_filtered \"\")
+      foreach(_line IN LISTS _req_lines)
+        if(NOT _line MATCHES \"^pyarrow\")
+          string(APPEND _filtered \"\${_line}\\n\")
+        endif()
+      endforeach()
+      set(_req_file \"\${CMAKE_CURRENT_BINARY_DIR}/guiservice_requirements_filtered.txt\")
+      file(WRITE \"\${_req_file}\" \"\${_filtered}\")
+      message(STATUS \"pyarrow already installed — skipping in guiservice pip install\")
+    endif()
+
     execute_process(
       COMMAND \${_UV_EXEC} pip install
         --python \"${PYTHON_EXECUTABLE}\"
         \${_uv_system_flag}
-        -r \"${GUISERVICE_DIR}/requirements.txt\"
+        -r \"\${_req_file}\"
       RESULT_VARIABLE _pip_rc
     )
   else()
@@ -308,10 +331,31 @@ install(CODE "
         set(_pip_user_flag \"--user\")
       endif()
     endif()
+
+    # Same pyarrow guard as the uv path above.
+    execute_process(
+      COMMAND \"${PYTHON_EXECUTABLE}\" -c \"import pyarrow\"
+      RESULT_VARIABLE _has_pyarrow
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    set(_req_file \"${GUISERVICE_DIR}/requirements.txt\")
+    if(_has_pyarrow EQUAL 0)
+      file(STRINGS \"${GUISERVICE_DIR}/requirements.txt\" _req_lines)
+      set(_filtered \"\")
+      foreach(_line IN LISTS _req_lines)
+        if(NOT _line MATCHES \"^pyarrow\")
+          string(APPEND _filtered \"\${_line}\\n\")
+        endif()
+      endforeach()
+      set(_req_file \"\${CMAKE_CURRENT_BINARY_DIR}/guiservice_requirements_filtered.txt\")
+      file(WRITE \"\${_req_file}\" \"\${_filtered}\")
+      message(STATUS \"pyarrow already installed — skipping in guiservice pip install\")
+    endif()
+
     execute_process(
       COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
         \${_pip_user_flag}
-        -r \"${GUISERVICE_DIR}/requirements.txt\"
+        -r \"\${_req_file}\"
       RESULT_VARIABLE _pip_rc
     )
   endif()

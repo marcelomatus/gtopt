@@ -1108,7 +1108,18 @@ def _log_comparison(
     p_affluent_names: list[str] = plp_counts.get("_affluent_names", [])
     g_flow_names: list[str] = gtopt_counts.get("_flow_names", [])
     g_flow_profile_count = g_flows + gtopt_counts.get("generator_profiles", 0)
-    _row("affluents / flows+profiles", p_affluents or None, g_flow_profile_count)
+    afl_note = ""
+    afl_explained = False
+    if p_affluents and g_flow_profile_count != p_affluents:
+        afl_note = "bus<=0 hydro centrals excluded"
+        afl_explained = True
+    _row(
+        "affluents / flows+profiles",
+        p_affluents or None,
+        g_flow_profile_count,
+        note=afl_note,
+        force_ok=afl_explained,
+    )
     if p_affluents > 0 and p_affluents != g_flows:
         missing = sorted(set(p_affluent_names) - set(g_flow_names))
         extra = sorted(set(g_flow_names) - set(p_affluent_names))
