@@ -44,19 +44,19 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   }
   const auto& turbine = *turbine_ptr;
 
-  const WaterwayLP* waterway_ptr = nullptr;
+  // Obtain flow columns: prefer the waterway (junction-based hydro),
+  // fall back to the turbine's own flow columns (embalse/serie without
+  // a separate waterway — the turbine owns the flow variable directly).
+  const auto* flow_cols_ptr = &turbine.flow_cols_at(scenario, stage);
   try {
-    waterway_ptr = &sc.element<WaterwayLP>(turbine.waterway_sid());
+    const auto& waterway = sc.element<WaterwayLP>(turbine.waterway_sid());
+    flow_cols_ptr = &waterway.flow_cols_at(scenario, stage);
   } catch (const std::exception&) {
-    SPDLOG_WARN(
-        "ReservoirProductionFactor uid={}: waterway not found in LP; skipping.",
-        uid());
-    return true;
+    // No waterway — turbine's built-in flow columns (set above).
   }
-  const auto& waterway = *waterway_ptr;
 
   const auto& conv_rows = turbine.conversion_rows_at(scenario, stage);
-  const auto& flow_cols = waterway.flow_cols_at(scenario, stage);
+  const auto& flow_cols = *flow_cols_ptr;
   const auto eff = turbine.stage_efficiency(stage.uid());
 
   const auto& blocks = stage.blocks();
