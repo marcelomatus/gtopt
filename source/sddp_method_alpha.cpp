@@ -105,9 +105,12 @@ void register_alpha_variables(PlanningLP& planning_lp,
             .uid = sddp_alpha_uid,
             .col_name = sddp_alpha_col_name,
             .class_name = sddp_alpha_lp_class,
-            .lp_key = {.scene_index = scene_index,
-                       .phase_index = pi,
-                       .kind = kind},
+            .lp_key =
+                {
+                    .scene_index = scene_index,
+                    .phase_index = pi,
+                    .kind = kind,
+                },
         },
         alpha_col,
         0.0,  // scost: no elastic penalty on alpha
@@ -459,9 +462,12 @@ RowIndex add_cut_row(PlanningLP& planning_lp,
           .uid = key.uid,
           .col_name = key.col_name,
           .class_name = key.class_name,
-          .lp_key = {.scene_index = scene_index,
-                     .phase_index = phase_index,
-                     .kind = SystemKind::aperture},
+          .lp_key =
+              {
+                  .scene_index = scene_index,
+                  .phase_index = phase_index,
+                  .kind = SystemKind::aperture,
+              },
       });
       if (ap) {
         fwd2ap.emplace_back(svar.col(), ap->get().col());

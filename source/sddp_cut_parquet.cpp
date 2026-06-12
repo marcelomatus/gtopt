@@ -710,11 +710,15 @@ struct CellCuts
           // Schema v3 (int8): direct cast from CutType's underlying
           // uint8_t.  Legacy schema (utf8): map "f" → Feasibility,
           // anything else → Optimality.
-          const CutType cut_type = type_int_arr
-              ? static_cast<CutType>(
-                    static_cast<std::uint8_t>(type_int_arr->Value(i)))
-              : ((type_str_arr->GetView(i) == "f") ? CutType::Feasibility
-                                                   : CutType::Optimality);
+          const CutType cut_type = [&]
+          {
+            if (type_int_arr) {
+              return static_cast<CutType>(
+                  static_cast<std::uint8_t>(type_int_arr->Value(i)));
+            }
+            return type_str_arr->GetView(i) == "f" ? CutType::Feasibility
+                                                   : CutType::Optimality;
+          }();
           const auto phase_uid = make_uid<Phase>(phase_arr->Value(i));
           const auto rhs = rhs_arr->Value(i);
 
@@ -748,11 +752,13 @@ struct CellCuts
           // would have unique non-zero ``extra`` values when written
           // by a current emitter.
           const auto cut_extra = extra_arr ? extra_arr->Value(i) : 0;
-          const auto row_key = CutKey {.type = cut_type,
-                                       .scene_uid = row_scene_uid,
-                                       .phase_uid = phase_uid,
-                                       .iteration_index = cut_iter_idx,
-                                       .extra = cut_extra};
+          const auto row_key = CutKey {
+              .type = cut_type,
+              .scene_uid = row_scene_uid,
+              .phase_uid = phase_uid,
+              .iteration_index = cut_iter_idx,
+              .extra = cut_extra,
+          };
           if (!loaded_keys.insert(row_key).second) {
             continue;  // already seen (combined + append duplicate)
           }

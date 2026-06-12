@@ -23,6 +23,10 @@ namespace gtopt::unit_registry_detail
 {
 
 /// One JSON entry as it appears in `unit_dialects.json::units[]`.
+//
+// external linkage is required so the daw::json::json_data_contract
+// specialization below can bind to it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 struct UnitEntry
 {
   std::string klass;
@@ -32,6 +36,9 @@ struct UnitEntry
 };
 
 /// Top-level document shape.
+// external linkage is required so the daw::json::json_data_contract
+// specialization below can bind to it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 struct UnitsFile
 {
   int version = 0;

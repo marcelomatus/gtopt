@@ -61,13 +61,14 @@ namespace
     return 0.0;
   }
   const auto& val = *field;
-  if (std::holds_alternative<Real>(val)) {
-    return std::get<Real>(val);
+  // Use get_if (non-throwing) so this noexcept helper can't trip
+  // bad_variant_access — the alternatives are already discriminated.
+  if (const auto* r = std::get_if<Real>(&val)) {
+    return *r;
   }
-  if (std::holds_alternative<std::vector<Real>>(val)) {
-    const auto& vec = std::get<std::vector<Real>>(val);
-    if (stage_index < vec.size()) {
-      return vec[stage_index];
+  if (const auto* vec = std::get_if<std::vector<Real>>(&val)) {
+    if (stage_index < vec->size()) {
+      return (*vec)[stage_index];
     }
   }
   // FileSched (string) path requires InputContext + Schedule and is

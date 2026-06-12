@@ -295,8 +295,8 @@ bool DemandLP::add_to_lp(SystemContext& sc,
       double lcol_cost = 0.0;
       if (fail_substituted) {
         const auto block_fcost = sc.demand_fail_cost(stage, block, fcost);
-        const auto block_ecost =
-            CostHelper::block_ecost(scenario, stage, block, *block_fcost);
+        const auto block_ecost = CostHelper::block_ecost(
+            scenario, stage, block, block_fcost.value_or(0.0));
         lcol_cost = -block_ecost;
         if (use_option_c) {
           // Option C: col represents neg_fail ∈ [-lmax, 0].

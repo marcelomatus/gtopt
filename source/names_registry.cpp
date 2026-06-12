@@ -32,6 +32,10 @@ namespace gtopt::names_registry_detail
 /// runtime.  They are declared in the contract so the StrictParsePolicy
 /// accepts the JSON; `_class_aliases_doc` at the file level follows the
 /// same pattern (see `NamesFile` below).
+//
+// external linkage is required so the daw::json::json_data_contract
+// specialization below can bind to it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 struct NameAliasEntry
 {
   std::string klass;  // "class" field (renamed to avoid C++ keyword)
@@ -46,6 +50,10 @@ struct NameAliasEntry
 /// fields are accepted (so strict parsing doesn't reject them) but
 /// otherwise ignored at runtime.  Field order must match the
 /// `json_data_contract` member-list order below.
+//
+// external linkage is required so the daw::json::json_data_contract
+// specialization below can bind to it.
+// NOLINTNEXTLINE(misc-use-internal-linkage)
 struct NamesFile
 {
   int version = 0;

@@ -1215,10 +1215,11 @@ void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
     auto& row = m_aperture_systems_[si];
     row = phase_ap_systems_t(num_phases);
     for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
-      if (!per_phase[pi].has_value()) {
+      const auto& per_phase_sys = per_phase[pi];
+      if (!per_phase_sys.has_value()) {
         continue;
       }
-      row[pi].emplace(get_system(*per_phase[pi]),
+      row[pi].emplace(get_system(*per_phase_sys),
                       m_simulation_,
                       phase,
                       scene,
@@ -1699,7 +1700,7 @@ void PlanningLP::write_lp(const std::string& filename) const
   // (which always appends ".lp") never produces "name.lp_scene_0_phase_0.lp"
   // when callers — and the gtopt CLI doc — naturally write the extension.
   auto stem = filename;
-  if (stem.size() >= 3 && stem.compare(stem.size() - 3, 3, ".lp") == 0) {
+  if (stem.ends_with(".lp")) {
     stem.erase(stem.size() - 3);
   }
 
