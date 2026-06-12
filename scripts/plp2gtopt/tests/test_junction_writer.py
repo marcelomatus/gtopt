@@ -276,22 +276,21 @@ def test_to_json_array_single_plant():
 
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
-    capacity rides a ``_ver`` waterway to a synthetic ``<central>_ocean``
-    drain junction (the genuine basin exit), while the gen path uses the
-    built-in Turbine waterway (``Turbine.junction_a``).
+    capacity is collapsed onto the SOURCE junction's own drain column
+    (``drain = True`` + ``drain_capacity = VertMax``), while the gen path
+    uses the built-in Turbine waterway (``Turbine.junction_a``).
 
-    Mass conservation: the central's OWN junction is a pure balance node
-    (``drain = False``, no ``drain_capacity`` / ``drain_cost``) — water
-    can only leave via the turbine (power) or the ``_ver`` arc (spill to
-    the ocean drain).  This is the LMAULE-class fix: a reservoir /
-    pass-through node never owns a free escape valve.
+    The synthetic ``<central>_ocean`` node and the ``_ver → ocean`` arc are
+    eliminated: the productive water leaves via the turbine, and the spill /
+    consumptive remainder is shed through the source junction's own drain
+    column (capacity ported onto ``drain_capacity``).
 
     Two LP outlets:
 
     * **Turbine.junction_a** (debit, capped at ``PotMax / Rendi``) — the
       power-producing path.
-    * **``PlantDrain_ver`` waterway → ``PlantDrain_ocean`` drain** (capped
-      at ``VertMax``, priced at ``CVert``) — the spillway path.
+    * **source-junction drain** (capped at ``VertMax`` via
+      ``drain_capacity``) — the spillway path.
     """
     central = {
         "name": "PlantDrain",
@@ -311,27 +310,19 @@ def test_drain_junction():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Central's own junction + a synthetic ocean drain.
+    # ZERO synthetic ocean junctions — only the central's own junction.
     junctions = {j["name"]: j for j in result["junction_array"]}
-    assert set(junctions) == {"PlantDrain", "PlantDrain_ocean"}
+    assert set(junctions) == {"PlantDrain"}
     plant_junction = junctions["PlantDrain"]
     assert plant_junction["uid"] == 5
-    # Mass-conserving balance node: never a drain, never drain_capacity.
-    assert plant_junction["drain"] is False
-    assert "drain_capacity" not in plant_junction
+    # The source junction is now the spill-exit drain, carrying VertMax on
+    # its ``drain_capacity`` column.
+    assert plant_junction["drain"] is True
+    assert plant_junction["drain_capacity"] == pytest.approx(50.0)
     assert "drain_cost" not in plant_junction
-    # Only the synthetic ocean node drains.
-    ocean = junctions["PlantDrain_ocean"]
-    assert ocean["drain"] is True
 
-    # The spillway is now a real ``_ver`` waterway PlantDrain → ocean,
-    # capped at VertMax.
-    assert len(result["waterway_array"]) == 1
-    ver = result["waterway_array"][0]
-    assert ver["name"].startswith("PlantDrain_ver")
-    assert ver["junction_a"] == "PlantDrain"
-    assert ver["junction_b"] == "PlantDrain_ocean"
-    assert ver["fmax"] == pytest.approx(50.0)
+    # No ``_ver → ocean`` spill waterway is emitted.
+    assert len(result["waterway_array"]) == 0
 
     # Terminal turbine uses the built-in waterway form.
     turbines = result["turbine_array"]
@@ -363,27 +354,23 @@ def test_no_turbine_creation():
     result = writer.to_json_array()[0]
 
     assert len(result["turbine_array"]) == 0
-    # Two waterways: `_gen` (to junction 7) and `_ver` (spill to the
-    # synthetic ``PlantNoBus_ocean`` drain).  Mass conservation: the
-    # source junction itself never drains — the spill leaves only via
-    # the ``_ver`` arc to the ocean node.
+    # One waterway: `_gen` (to junction 7).  The `_ver` spill (ser_ver=0,
+    # VertMax>0) is collapsed onto the source junction's own drain column
+    # instead of a ``_ver → ocean`` arc, so NO synthetic ocean node and no
+    # ``_ver`` waterway are emitted.
     waterway_names = sorted(w["name"] for w in result["waterway_array"])
-    assert len(waterway_names) == 2
-    assert any(n.startswith("PlantNoBus_ver") for n in waterway_names)
+    assert len(waterway_names) == 1
+    assert any(n.startswith("PlantNoBus_gen") for n in waterway_names)
+    assert not any(n.startswith("PlantNoBus_ver") for n in waterway_names)
     junctions = {j["name"]: j for j in result["junction_array"]}
+    # ZERO synthetic ocean junctions.
+    assert not any(name.endswith("_ocean") for name in junctions)
     src = junctions["PlantNoBus"]
-    assert src["drain"] is False
-    assert "drain_capacity" not in src
+    # The source junction is the spill-exit drain, carrying the VertMax cap
+    # that used to live on the ``_ver → ocean`` arc.
+    assert src["drain"] is True
+    assert src["drain_capacity"] == pytest.approx(50.0)
     assert "drain_cost" not in src
-    # Only the synthetic ocean node drains.
-    assert junctions["PlantNoBus_ocean"]["drain"] is True
-    # The _ver arc carries the VertMax cap that used to live on the
-    # (wrongly drained) source junction.
-    ver = next(
-        w for w in result["waterway_array"] if w["name"].startswith("PlantNoBus_ver")
-    )
-    assert ver["junction_b"] == "PlantNoBus_ocean"
-    assert ver["fmax"] == pytest.approx(50.0)
 
 
 def test_process_reservoirs(reservoir_parser):
@@ -490,32 +477,29 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     )
     result = writer.to_json_array()[0]
 
-    # PlantA + PlantB + PlantC junctions + 1 ocean junction (PlantC only).
+    # PlantA + PlantB + PlantC junctions — ZERO synthetic ocean junctions.
     # PlantB used to need a synthetic ``PlantB_ocean`` for its terminal
     # gen path; with the built-in ``Turbine.junction_a`` waterway the
     # turbine debits PlantB directly and no ocean junction is needed.
-    # PlantC stays as bus=0 transit-only (no turbine), so its gen path
-    # still routes to a synthetic ``PlantC_ocean`` because we cannot
-    # elide a Waterway with attached transit-only flow bounds.
-    assert len(result["junction_array"]) == 4
+    # PlantC (bus=0 transit-only, ser_hid=0 AND ser_ver=0) is a genuine
+    # spill-exit point with no downstream consumer of its gen Waterway, so
+    # both the gen and ver remainders collapse onto PlantC's own drain
+    # column — no ``PlantC_ocean`` node, no PlantC waterways.
+    assert len(result["junction_array"]) == 3
+    assert not any(j["name"].endswith("_ocean") for j in result["junction_array"])
 
     # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
     # PlantB: ver (in-network → PlantC) only — gen path moved to
     #   built-in Turbine waterway (no Waterway).
-    # PlantC (bus=0): gen(ocean) + ver(ocean) = 2 — the spill is now a
-    #   real ``PlantC_ver`` arc to the shared ``PlantC_ocean`` drain
-    #   (mass conservation), no longer a junction-level drain on PlantC.
-    # plus 1 extraction = 6 total.
-    assert len(result["waterway_array"]) == 6
-    # PlantC's own junction is a pure balance node — its spill leaves via
-    # the ``PlantC_ver`` arc to the ocean drain, not a self-drain.
+    # PlantC (bus=0): no waterways — gen + ver remainders ride its own
+    #   source-junction drain.
+    # plus 1 extraction = 4 total.
+    assert len(result["waterway_array"]) == 4
+    # PlantC's own junction is the spill-exit drain.  Its drain_capacity is
+    # the larger of the gen flow cap (pmax/eff = 70/0.95) and VertMax (50).
     plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
-    assert plantc["drain"] is False
-    assert "drain_capacity" not in plantc
-    plantc_ocean = next(
-        j for j in result["junction_array"] if j["name"] == "PlantC_ocean"
-    )
-    assert plantc_ocean["drain"] is True
+    assert plantc["drain"] is True
+    assert plantc["drain_capacity"] == pytest.approx(70.0 / 0.95)
 
     # PlantA (bus=101) + PlantB (bus=102) = 2 turbines (PlantC bus=0, no turbine)
     assert len(result["turbine_array"]) == 2
@@ -812,51 +796,63 @@ def _rapel_parser() -> MockCentralParser:
     return MockCentralParser([_RAPEL_CENTRAL])
 
 
-def test_embalse_ocean_junction_created():
-    """Embalse (bus>0, ser_hid/ser_ver=0): the spillway needs a drain.
+# ELTORO is the never-drain sentinel (``_DRAIN_KILLED_RESERVOIRS``): it gets
+# NO reservoir storage-drain column, so its surplus must leave through the
+# modelled topology.  With ``ser_ver = 0`` that exit is now collapsed onto
+# ELTORO's OWN source-junction drain column (``drain = True`` +
+# ``drain_capacity = VertMax``) instead of a ``_ver`` arc to a synthetic
+# ``ELTORO_ocean`` node.  Every OTHER embalse drains via the reservoir
+# storage column and likewise emits no ``_ver`` arc — see the
+# ``_spillway_fields`` tests above.  We reuse the RAPEL geometry under the
+# ELTORO name to exercise that spill-topology path.
+_ELTORO_CENTRAL = {**_RAPEL_CENTRAL, "name": "ELTORO", "number": 37}
 
-    The terminal turbine uses the built-in ``Turbine.junction_a``
-    waterway (no ``<name>_gen`` Waterway, no gen-side ocean junction),
-    but the spillway (``ser_ver = 0``, ``VertMax > 0``) must dispose of
-    surplus water at a genuine basin exit — a synthetic ``RAPEL_ocean``
-    drain junction reached by an explicit ``RAPEL_ver`` waterway.  Mass
-    is conserved: the spill is never teleported out of RAPEL's own node.
+
+def _eltoro_parser() -> MockCentralParser:
+    """Return a MockCentralParser containing only the ELTORO embalse central."""
+    return MockCentralParser([_ELTORO_CENTRAL])
+
+
+def test_embalse_ocean_junction_created():
+    """ELTORO (never-drain, bus>0, ser_hid/ser_ver=0): spill-exit self-drain.
+
+    ELTORO has NO reservoir storage-drain column (never-drain sentinel),
+    so the spillway (``ser_ver = 0``, ``VertMax > 0``) must dispose of
+    surplus water at a genuine basin exit.  Rather than synthesise an
+    ``ELTORO_ocean`` drain junction + an ``ELTORO_ver`` arc, the spill is
+    collapsed onto ELTORO's OWN junction drain column (``drain = True`` +
+    ``drain_capacity = VertMax``).  ZERO synthetic ocean junctions remain.
     """
-    writer = JunctionWriter(central_parser=_rapel_parser())
+    writer = JunctionWriter(central_parser=_eltoro_parser())
     result = writer.to_json_array()[0]
 
     ocean_junctions = [j for j in result["junction_array"] if "ocean" in j["name"]]
-    assert len(ocean_junctions) == 1
-    assert ocean_junctions[0]["name"] == "RAPEL_ocean"
-    assert ocean_junctions[0]["drain"] is True
+    assert ocean_junctions == []
+    eltoro_junction = next(j for j in result["junction_array"] if j["name"] == "ELTORO")
+    assert eltoro_junction["drain"] is True
 
 
 def test_embalse_ocean_junction_waterways_created():
-    """Gen path is on the Turbine; spill rides a ``_ver`` arc to the ocean.
+    """ELTORO gen path is on the Turbine; spill rides the source self-drain.
 
     * gen via ``Turbine.junction_a`` (built-in waterway, no gen ocean arc)
-    * spill via an explicit ``RAPEL_ver`` waterway → ``RAPEL_ocean`` drain
-      (per-flow cap = VertMax) — mass-conserving, never a self-drain.
+    * spill collapsed onto ELTORO's own junction drain column
+      (``drain_capacity = VertMax``) — no ``_ver → ocean`` arc, no ocean node.
     """
-    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
+    writer = JunctionWriter(central_parser=_eltoro_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # The spillway terminates at the synthetic ocean drain.
+    # No spillway waterway terminates at a synthetic ocean drain.
     to_ocean = [
         w for w in result["waterway_array"] if w["junction_b"].endswith("_ocean")
     ]
-    assert len(to_ocean) == 1
-    ver = to_ocean[0]
-    assert ver["name"].startswith("RAPEL_ver")
-    assert ver["junction_a"] == "RAPEL"
-    assert ver["junction_b"] == "RAPEL_ocean"
-    assert ver["fmax"] == pytest.approx(6000.0)
+    assert to_ocean == []
 
-    # The RAPEL source junction is a pure balance node — no self-drain.
-    rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is False
-    assert "drain_capacity" not in rapel_junction
-    assert "drain_cost" not in rapel_junction
+    # The ELTORO source junction IS the spill-exit drain, carrying VertMax.
+    eltoro_junction = next(j for j in result["junction_array"] if j["name"] == "ELTORO")
+    assert eltoro_junction["drain"] is True
+    assert eltoro_junction["drain_capacity"] == pytest.approx(6000.0)
+    assert "drain_cost" not in eltoro_junction
 
 
 def test_embalse_ocean_junction_turbine_created():
@@ -928,24 +924,32 @@ def test_embalse_ocean_junction_no_warning(caplog):
     assert rapel_warnings == [], f"Unexpected WARNING for RAPEL: {rapel_warnings}"
 
 
-def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
-    """Reservoir-only embalse (bus=0) gets ocean junction for hydro topology
-    but no turbine (no electrical output)."""
+def test_embalse_with_bus_zero_self_drains_but_no_turbine():
+    """Reservoir-only embalse (bus=0) sheds its surplus through its own
+    source-junction drain — no synthetic ocean node, no turbine.
+
+    Dam1 has bus=0, ser_hid=0, ser_ver=0.  Its spill rides the reservoir
+    storage-drain column (it is a DRAINED reservoir) and its terminal gen
+    path (no downstream consumer) collapses onto the Dam1 junction's own
+    drain.  Neither a ``Dam1_ocean`` junction nor a ``Dam1_gen`` waterway
+    is emitted.
+    """
     writer = JunctionWriter(central_parser=_make_hydro_parser())
     result = writer.to_json_array()[0]
 
-    # Dam1 has bus=0, ser_hid=0, ser_ver=0 → one synthetic ocean drain
-    # is created and shared between the `_gen` and `_ver` arcs (post-merge
-    # of the historical separate `_spill` + `_ocean` drains).
-    dam1_drains = [j for j in result["junction_array"] if j["name"] == "Dam1_ocean"]
-    assert len(dam1_drains) == 1
-    assert dam1_drains[0]["drain"] is True
+    # No synthetic ocean drain junction is created.
+    dam1_ocean = [j for j in result["junction_array"] if j["name"] == "Dam1_ocean"]
+    assert dam1_ocean == []
 
-    # Generation waterway to ocean should exist
+    # The Dam1 source junction itself drains (terminal, self-drain).
+    dam1 = next(j for j in result["junction_array"] if j["name"] == "Dam1")
+    assert dam1["drain"] is True
+
+    # No gen waterway to ocean is emitted — the gen path is self-drained.
     dam1_gen_ww = [
         w for w in result["waterway_array"] if w["name"].startswith("Dam1_gen")
     ]
-    assert len(dam1_gen_ww) == 1
+    assert dam1_gen_ww == []
 
     # No turbine for Dam1 (bus<=0)
     dam1_turbines = [t for t in result["turbine_array"] if t["name"] == "Dam1"]
@@ -953,39 +957,58 @@ def test_embalse_with_bus_zero_has_ocean_junction_but_no_turbine():
 
 
 def test_embalse_no_ver_waterway_junction_is_drain():
-    """Embalse with ser_ver==0 spills via a ``_ver`` arc to an ocean drain.
+    """ELTORO (never-drain, ser_ver==0) spills via its own source drain.
 
     Pre-86616b80 the spillway (ser_ver=0) was modelled by ``drain=True``
-    on the central's own junction with no bound or cost — that
-    free-drain shortcut caused LMAULE / RALCO cascade infeasibilities.
-    The mass-conserving fix routes the spill via an explicit ``_ver``
-    arc to a synthetic ``<central>_ocean`` drain Junction with
-    ``fmax = VertMax`` / ``fcost = CVert``.  The reservoir's own node
-    stays a pure balance node (no self-drain), so the LP cannot teleport
-    storage out of the reservoir.
+    on the central's own junction with no bound or cost — that free-drain
+    shortcut caused LMAULE / RALCO cascade infeasibilities.  The fix that
+    followed routed the spill via an explicit ``_ver`` arc to a synthetic
+    ``<central>_ocean`` drain.  That synthetic node is now collapsed back
+    onto the source junction: ELTORO is marked ``drain = True`` with the
+    spill cap ported onto ``drain_capacity = VertMax`` (mass-conserving —
+    only the surplus drains; productive water still leaves via the Turbine
+    built-in waterway).  No ``_ver`` arc and no ``ELTORO_ocean`` node are
+    emitted.  ELTORO is the never-drain SENTINEL only w.r.t. the reservoir
+    STORAGE-drain column (it has none); its junction-level spill drain is
+    the intended exit.
     """
+    writer = JunctionWriter(central_parser=_eltoro_parser(), options=_LEGACY_OPTS)
+    result = writer.to_json_array()[0]
+
+    # ELTORO sheds its spill through its own source-junction drain.
+    eltoro_junction = next(j for j in result["junction_array"] if j["name"] == "ELTORO")
+    assert eltoro_junction["drain"] is True
+    assert eltoro_junction["drain_capacity"] == pytest.approx(6000.0)
+    # drain_cost is omitted when the test parser has no plpmat (no CVert).
+    assert "drain_cost" not in eltoro_junction
+
+    # No ``_ver`` arc and no synthetic ocean junction are emitted.
+    ver_ww = [w for w in result["waterway_array"] if w["name"].startswith("ELTORO_ver")]
+    assert ver_ww == []
+    ocean = [j for j in result["junction_array"] if j["name"].endswith("_ocean")]
+    assert ocean == []
+
+
+def test_embalse_drained_reservoir_has_drain_column_and_no_ver_arc():
+    """A DRAINED reservoir (any embalse except ELTORO) carries its spill on
+    the reservoir storage-drain column and emits NO ``_ver`` arc / ocean
+    junction — the double-escape path is removed."""
     writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # RAPEL itself does not drain.
-    rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
-    assert rapel_junction["drain"] is False
-    assert "drain_capacity" not in rapel_junction
+    # The drain is on the reservoir element (spillway_cost == 0, capacity
+    # omitted → C++ +6000 default).
+    rapel = next(r for r in result["reservoir_array"] if r["name"] == "RAPEL")
+    assert rapel.get("spillway_cost") == 0.0
+    assert "spillway_capacity" not in rapel
 
-    # The spill leaves only via the ``_ver`` arc to the ocean drain,
-    # capped at VertMax.
-    ver = next(
-        w
-        for w in result["waterway_array"]
-        if w["junction_b"] == "RAPEL_ocean" and w["name"].startswith("RAPEL_ver")
-    )
-    assert ver["fmax"] == pytest.approx(6000.0)
-    # fcost is omitted when the test parser has no plpmat (no CVert).
-    assert "fcost" not in ver
-
-    # Exactly one `_ver` arc exists — the spill-to-ocean waterway.
-    ver_ww = [w for w in result["waterway_array"] if w["name"].startswith("RAPEL_ver")]
-    assert len(ver_ww) == 1
+    # No ``_ver`` arc and no synthetic ocean junction for RAPEL.
+    rapel_ver = [
+        w for w in result["waterway_array"] if w["name"].startswith("RAPEL_ver")
+    ]
+    assert rapel_ver == []
+    rapel_ocean = [j for j in result["junction_array"] if j["name"] == "RAPEL_ocean"]
+    assert rapel_ocean == []
 
 
 def test_embalse_with_ver_waterway_junction_not_drain():
@@ -1174,10 +1197,21 @@ def test_embalse_bus_zero_never_skipped():
 
 
 # Tests for _spillway_fields — spillway_cost / spillway_capacity logic.
-# Mirrors PLP's two-tier spill model: per-block qv_k bounded by VertMax in
-# plpcnfce.dat, and stage-level qrb costed at Costo de Rebalse from
-# plpvrebemb.dat (ELTORO is hard-killed because filtration absorbs all
-# overspill in practice).
+#
+# EVERY reservoir gets its storage-drain (spillway) column ENABLED EXCEPT
+# the never-drain sentinels in ``_DRAIN_KILLED_RESERVOIRS`` (currently
+# ``ELTORO``), mirroring plexos2gtopt's ``build_reservoir_array``.  For a
+# drained reservoir ``_spillway_fields`` emits ``spillway_cost = 0.0``
+# (free — a non-zero drain cost produces spurious negative marginal prices)
+# and *omits* ``spillway_capacity`` (so the C++ ReservoirLP applies its
+# finite +6000 m³/s default and the drain gate
+# ``drain_cost.has_value() && capacity > 0`` is satisfied).  The spill is
+# carried solely by this reservoir-spillway column — no draining ``_ver``
+# waterway is emitted.  ELTORO gets no spillway at all (``{}`` → both
+# fields omitted → C++ drain gate stays closed) so it keeps its ``_ver`` /
+# ocean spill path and acts as a double-escape correctness sentinel.
+# Membership in plpvrebemb.dat, the CVert plpmat default, the water-value
+# resolver and ``--vrebemb-as-sink`` no longer affect the drain.
 
 
 class _MockVrebembParser:
@@ -1210,161 +1244,107 @@ def _make_jw(
     )
 
 
-def test_spillway_in_vrebemb_disables_drain_teleport():
-    """LMAULE-style: in plpvrebemb.dat → ``reservoir_drain`` teleport disabled
-    (capacity=0); the rebalse penalty now lives on the ``_ver`` waterway as
-    ``fcost``.  ``spillway_cost`` is still emitted so the field round-trips
-    through JSON unchanged but has no LP effect on a 0-capacity drain.
+def test_spillway_activates_drain_at_zero_cost():
+    """Any reservoir except a never-drain sentinel → activate the drain.
+
+    Emit ``spillway_cost = 0.0`` (free) and omit ``spillway_capacity`` so
+    the C++ ReservoirLP applies its finite +6000 m³/s default and adds a
+    per-block drain column.  Cost is 0, NOT the vrebemb Costo de Rebalse.
     """
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
-    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields == {"spillway_cost": 5000.0, "spillway_capacity": 0.0}
+    fields = jw._spillway_fields("LMAULE")
+    assert fields == {"spillway_cost": 0.0}
+    assert "spillway_capacity" not in fields
 
 
-def test_spillway_in_vrebemb_eltoro_disables_drain_teleport():
-    """ELTORO is in plpvrebemb.dat → drain teleport disabled (cap=0).
+def test_spillway_drain_enabled_for_non_vrebemb_reservoir():
+    """A reservoir NOT in plpvrebemb.dat ALSO gets the drain (cost 0)."""
+    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
+    fields = jw._spillway_fields("RUNOFRIVER")
+    assert fields == {"spillway_cost": 0.0}
+    assert "spillway_capacity" not in fields
 
-    Previously this case relied on a hard-coded ``_DRAIN_KILLED_RESERVOIRS``
-    override; the physical-_ver model removes the need for that override
-    because the spill path is naturally costed at ``rebalse_cost`` via the
-    waterway ``fcost``.
+
+def test_spillway_eltoro_never_drains():
+    """ELTORO is the never-drain sentinel → no spillway/drain at all.
+
+    Both ``spillway_cost`` and ``spillway_capacity`` are omitted (``{}``)
+    even though it IS listed in plpvrebemb.dat in the CEN data — the
+    membership no longer matters; the sentinel set wins.  ELTORO keeps its
+    ``_ver`` / ocean spill path so its water still has somewhere to go.
     """
     jw = _make_jw(vrebemb=_MockVrebembParser({"ELTORO": 5000.0}))
-    fields = jw._spillway_fields("ELTORO", {"vert_max": 0.0})
-    assert fields["spillway_capacity"] == 0.0
-    assert fields["spillway_cost"] == 5000.0
+    fields = jw._spillway_fields("ELTORO")
+    assert not fields
+    # Case-insensitive sentinel match.
+    assert not jw._spillway_fields("eltoro")
 
 
-def test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax():
-    """Non-rebalse reservoir → ``spillway_capacity = 1e30`` regardless of
-    VertMax.
-
-    The earlier behaviour read ``VertMax`` as the per-block cap and pinned
-    ``spillway_capacity = VertMax`` (0 honoured, missing fell back to 6000).
-    PLP's actual semantics: ``qe*`` per-block spill is **always Free** —
-    only the gen path and the per-stage rebalse aggregator are capped.
-    Mirroring that, gtopt now sets ``spillway_capacity = +1e30``
-    (effective infinity sentinel, clamped to solver infinity at flatten
-    time) and lets ``spillway_cost = CVert`` keep the LP from spilling
-    gratuitously when generation is more economic.
-    """
-    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
-    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 0.0})
-    assert fields["spillway_capacity"] == 1.0e30
-    assert fields["spillway_cost"] == 0.01
-
-
-def test_spillway_not_in_vrebemb_missing_vertmax_falls_back_to_unbounded():
-    """If VertMax field is *absent* (None) — same effective-infinity capacity.
-
-    See ``test_spillway_not_in_vrebemb_honours_explicit_zero_vertmax`` for
-    the rationale: PLP's ``qe*`` is always Free, so capacity is now
-    uniformly unbounded for non-rebalse reservoirs regardless of how
-    ``VertMax`` is encoded in the source data.
-    """
-    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
-    fields = jw._spillway_fields("RUNOFRIVER", {})
-    assert fields["spillway_capacity"] == 1.0e30
-    assert fields["spillway_cost"] == 0.01
-
-
-def test_spillway_cost_falls_back_to_one_when_no_plpmat():
-    """No plpmat parser at all → legacy 1.0 cost fallback (last resort).
-
-    Capacity is set to gtopt's effective-infinity sentinel (1e30) per the
-    refactor that makes per-block spill always Free; only the cost path
-    differs based on plpmat availability.
-    """
+def test_spillway_no_plpmat_still_drains():
+    """No plpmat / no vrebemb membership → drain still on (cost 0)."""
     jw = _make_jw()
-    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
-    assert fields == {"spillway_cost": 1.0, "spillway_capacity": 1.0e30}
+    fields = jw._spillway_fields("RUNOFRIVER")
+    assert fields == {"spillway_cost": 0.0}
 
 
-def test_spillway_cost_falls_back_to_one_when_cvert_is_zero():
-    """plpmat present but CVert=0 → still fall back to 1.0 (zero is meaningless)."""
-    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.0))
-    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
-    assert fields["spillway_cost"] == 1.0
-
-
-def test_spillway_vrebemb_takes_precedence_over_plpmat():
-    """When both parsers report a cost, plpvrebemb wins (per-embalse > global)."""
+def test_spillway_cost_is_always_zero_not_rebalse():
+    """The drain cost is always 0; the vrebemb Costo de Rebalse is ignored."""
     jw = _make_jw(
         vrebemb=_MockVrebembParser({"LMAULE": 5000.0}),
         plpmat=_MockPlpmatParser(vert_cost=0.01),
     )
-    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields["spillway_cost"] == 5000.0
+    fields = jw._spillway_fields("LMAULE")
+    assert fields == {"spillway_cost": 0.0}
 
 
-# ── --auto-water-fail-cost gating on spillway_cost ───────────────────────────
-# When the unified water-shortfall resolver is active, the drain-teleport
-# spillway_cost becomes redundant overhead — pricing now lives on
-# Reservoir.efin_cost / soft_emin_cost.  The gating zeros it out.
+# ── Drain is sentinel-driven, independent of resolver / sink flags ──────────
+# The reservoir storage-drain is now the spill mechanism for every
+# reservoir except the never-drain sentinels, so neither
+# ``--auto-water-fail-cost`` nor ``--vrebemb-as-sink`` change it — both
+# flags acted on the now-removed ``_ver`` waterway path, not on the
+# reservoir spillway column.
 
 
 class _MockWaterValueResolver:
-    """Mock the small subset of WaterValueResolver consumed by spillway gating."""
+    """Mock the small subset of WaterValueResolver consumed by spillway code."""
 
     def __init__(self, *, is_active: bool):
         self.is_active = is_active
 
 
-def test_spillway_cost_gated_to_zero_for_vrebemb_when_resolver_active():
-    """vrebemb central + resolver active → spillway_cost = 0 (was rebalse_cost).
-
-    With both ``spillway_cost`` and ``spillway_capacity`` collapsed to 0
-    the drain teleport contributes nothing to the LP, so
-    ``_spillway_fields`` omits both keys entirely (gtopt's
-    ``storage_lp.cpp`` only creates the drain column when
-    ``spillway_cost`` is set; with the field absent no column is
-    allocated, saving one LP variable per (scene, stage, block) per
-    reservoir that the LP would have presolved away).
-    """
+def test_spillway_drain_unaffected_by_resolver_active():
+    """A reservoir keeps its zero-cost drain even when the resolver is on."""
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
-    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    fields = jw._spillway_fields("LMAULE")
+    assert fields == {"spillway_cost": 0.0}
+
+
+def test_spillway_eltoro_no_drain_with_resolver_active():
+    """ELTORO → still no drain regardless of resolver."""
+    jw = _make_jw(
+        vrebemb=_MockVrebembParser({"ELTORO": 5000.0}),
+        plpmat=_MockPlpmatParser(vert_cost=0.01),
+    )
+    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
+    fields = jw._spillway_fields("ELTORO")
     assert not fields
 
 
-def test_spillway_cost_gated_to_zero_for_non_vrebemb_when_resolver_active():
-    """non-vrebemb central + resolver active → spillway_cost = 0 (was CVert)."""
-    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
-    jw._water_value_resolver = _MockWaterValueResolver(is_active=True)
-    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
-    assert fields == {"spillway_cost": 0.0, "spillway_capacity": 1.0e30}
-
-
-def test_spillway_cost_unchanged_when_resolver_inactive():
-    """resolver present but inactive → legacy cost path preserved exactly."""
-    jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
-    jw._water_value_resolver = _MockWaterValueResolver(is_active=False)
-    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
-    assert fields["spillway_cost"] == 5000.0
-
-
-def test_spillway_cost_gated_to_zero_for_vrebemb_when_vrebemb_as_sink_only():
-    """--vrebemb-as-sink alone (without --auto-water-fail-cost) also zeros
-    the drain-teleport spillway_cost for vrebemb centrals.  Aligns with
-    the flag's design intent of dropping every vrebemb-derived cost.
-
-    The zero-cost / zero-capacity combination triggers the no-op
-    omission described on the ``--auto-water-fail-cost`` test above:
-    no LP column is created (gtopt drops the drain when
-    ``spillway_cost`` is absent).
-    """
+def test_spillway_drain_unaffected_by_vrebemb_as_sink():
+    """--vrebemb-as-sink no longer changes the reservoir spillway column."""
     jw = _make_jw(vrebemb=_MockVrebembParser({"LMAULE": 5000.0}))
     jw._vrebemb_as_sink = True
-    fields = jw._spillway_fields("LMAULE", {"vert_max": 0.0})
+    fields = jw._spillway_fields("LMAULE")
+    assert fields == {"spillway_cost": 0.0}
+
+
+def test_spillway_eltoro_no_drain_under_vrebemb_as_sink():
+    """--vrebemb-as-sink does not give ELTORO a spillway."""
+    jw = _make_jw(vrebemb=_MockVrebembParser({"ELTORO": 5000.0}))
+    jw._vrebemb_as_sink = True
+    fields = jw._spillway_fields("ELTORO")
     assert not fields
-
-
-def test_spillway_cost_unchanged_for_non_vrebemb_under_vrebemb_as_sink():
-    """--vrebemb-as-sink does not affect non-vrebemb centrals (CVert path)."""
-    jw = _make_jw(plpmat=_MockPlpmatParser(vert_cost=0.01))
-    jw._vrebemb_as_sink = True
-    fields = jw._spillway_fields("RUNOFRIVER", {"vert_max": 5.0})
-    assert fields["spillway_cost"] == 0.01  # CVert preserved
 
 
 # ── _process_cenpmax tests (plpcenpmax.dat → ReservoirProductionFactor) ──────

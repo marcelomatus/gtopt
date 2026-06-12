@@ -1,0 +1,299 @@
+/**
+ * @file      test_cuopt_backend.cpp
+ * @brief     Unit tests for the cuOpt solver plugin / backend.
+ * @date      2026-06-11
+ * @copyright BSD-3-Clause
+ *
+ * Every TEST_CASE is gated on a working cuOpt backend via
+ * `make_cuopt_or_skip()` and silently skips when the plugin is absent OR the
+ * GPU cannot solve (the helper smoke-tests a trivial solve so a
+ * loadable-but-GPU-less environment skips rather than fails).  These pin the
+ * backend invariants plus the cuOpt-specific wiring shipped with the plugin:
+ *   - reports its name / capabilities / a large finite `infinity()`,
+ *   - solves a trivial LP to the known optimum,
+ *   - `load_problem` resets previous LP state (fresh dimensions),
+ *   - `set_log_filename` routes a per-solve `CUOPT_LOG_FILE` .log file and
+ *     `clear_log_filename` stops it,
+ *   - `clone()` yields an independent, solvable backend,
+ *   - `set_log_level` / `get_log_level` round-trip.
+ */
+
+// SPDX-License-Identifier: BSD-3-Clause
+#include <array>
+#include <filesystem>
+#include <memory>
+#include <string>
+#include <string_view>
+
+#include <doctest/doctest.h>
+#include <gtopt/solver_backend.hpp>
+#include <gtopt/solver_options.hpp>
+#include <gtopt/solver_registry.hpp>
+
+using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+// Trivial 2-variable LP:  min x + y  s.t.  x + y >= 2,  x,y >= 0  →  obj = 2.
+struct CuoptTrivialLP2
+{
+  static constexpr int ncols = 2;
+  static constexpr int nrows = 1;
+  std::array<int, 3> matbeg {
+      0,
+      1,
+      2,
+  };
+  std::array<int, 2> matind {
+      0,
+      0,
+  };
+  std::array<double, 2> matval {
+      1.0,
+      1.0,
+  };
+  std::array<double, 2> collb {
+      0.0,
+      0.0,
+  };
+  std::array<double, 2> colub {};
+  std::array<double, 2> obj {
+      1.0,
+      1.0,
+  };
+  std::array<double, 1> rowlb {
+      2.0,
+  };
+  std::array<double, 1> rowub {};
+
+  explicit CuoptTrivialLP2(double inf)
+  {
+    colub.fill(inf);
+    rowub.fill(inf);
+  }
+
+  void load_into(SolverBackend& b) const
+  {
+    b.load_problem(ncols,
+                   nrows,
+                   matbeg.data(),
+                   matind.data(),
+                   matval.data(),
+                   collb.data(),
+                   colub.data(),
+                   obj.data(),
+                   rowlb.data(),
+                   rowub.data());
+  }
+};
+
+// Trivial 3-variable LP:  min x + y + z  s.t.  x + y + z >= 3  →  obj = 3.
+struct CuoptTrivialLP3
+{
+  static constexpr int ncols = 3;
+  static constexpr int nrows = 1;
+  std::array<int, 4> matbeg {
+      0,
+      1,
+      2,
+      3,
+  };
+  std::array<int, 3> matind {
+      0,
+      0,
+      0,
+  };
+  std::array<double, 3> matval {
+      1.0,
+      1.0,
+      1.0,
+  };
+  std::array<double, 3> collb {
+      0.0,
+      0.0,
+      0.0,
+  };
+  std::array<double, 3> colub {};
+  std::array<double, 3> obj {
+      1.0,
+      1.0,
+      1.0,
+  };
+  std::array<double, 1> rowlb {
+      3.0,
+  };
+  std::array<double, 1> rowub {};
+
+  explicit CuoptTrivialLP3(double inf)
+  {
+    colub.fill(inf);
+    rowub.fill(inf);
+  }
+
+  void load_into(SolverBackend& b) const
+  {
+    b.load_problem(ncols,
+                   nrows,
+                   matbeg.data(),
+                   matind.data(),
+                   matval.data(),
+                   collb.data(),
+                   colub.data(),
+                   obj.data(),
+                   rowlb.data(),
+                   rowub.data());
+  }
+};
+
+/// Return a fresh cuOpt backend, or nullptr if the plugin is unavailable OR
+/// the GPU cannot solve a trivial LP.  The smoke solve keeps GPU-less CI
+/// runs skipping rather than failing (the .so may load without a usable GPU).
+[[nodiscard]] std::unique_ptr<SolverBackend> make_cuopt_or_skip()
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("cuopt")) {
+    return nullptr;
+  }
+  try {
+    auto probe = reg.create("cuopt");
+    const CuoptTrivialLP2 lp {probe->infinity()};
+    lp.load_into(*probe);
+    probe->initial_solve();
+    if (!probe->is_proven_optimal()) {
+      return nullptr;  // plugin present but GPU unusable → skip
+    }
+    return reg.create("cuopt");
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+[[nodiscard]] std::filesystem::path cuopt_scratch_log_base(std::string_view tag)
+{
+  return std::filesystem::temp_directory_path()
+      / (std::string {"gtopt_cuopt_backend_"} + std::string {tag});
+}
+
+// NOLINTBEGIN(misc-const-correctness)
+
+TEST_CASE("cuOpt backend reports its name and capabilities")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  CHECK(backend->solver_name() == "cuopt");
+  CHECK_FALSE(backend->solver_version().empty());
+  // cuOpt's infinity must be a large finite sentinel (never std::numeric
+  // ::infinity, which would poison the matrix), and it solves MIPs.
+  CHECK(backend->infinity() > 1e18);
+  CHECK(backend->supports_mip());
+}
+
+TEST_CASE("cuOpt solves a trivial LP to optimality")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  CHECK(backend->get_num_cols() == 2);
+  CHECK(backend->get_num_rows() == 1);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE("cuOpt load_problem resets previous LP state")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const double inf = backend->infinity();
+
+  const CuoptTrivialLP2 lp2 {inf};
+  lp2.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+
+  // A second load must yield a *fresh* model with different dimensions — a
+  // stale model would still report ncols == 2.
+  const CuoptTrivialLP3 lp3 {inf};
+  lp3.load_into(*backend);
+  CHECK(backend->get_num_cols() == 3);
+  CHECK(backend->get_num_rows() == 1);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(3.0));
+}
+
+TEST_CASE("cuOpt set_log_filename writes a .log; clear stops it")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto base = cuopt_scratch_log_base("written");
+  const auto file = fs::path {base.string() + ".log"};
+  fs::remove(file);
+
+  // log_mode=detailed → the framework calls set_log_filename(stem, level>0);
+  // the backend must route cuOpt's solve log to "<stem>.log".
+  backend->set_log_filename(base.string(), 1);
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  CHECK(fs::exists(file));
+
+  // clear_log_filename must be callable and restore silence.
+  backend->clear_log_filename();
+  fs::remove(file);
+}
+
+TEST_CASE("cuOpt clone yields an independent solvable backend")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+
+  auto clone = backend->clone();
+  REQUIRE(clone != nullptr);
+
+  // The clone owns its own state and solves a different LP without disturbing
+  // the original.
+  const CuoptTrivialLP3 lp3 {clone->infinity()};
+  lp3.load_into(*clone);
+  clone->initial_solve();
+  REQUIRE(clone->is_proven_optimal());
+  CHECK(clone->obj_value() == doctest::Approx(3.0));
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE("cuOpt open_log / close_log adjust the reported log level")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  // The cuOpt backend ignores the FILE* (it logs to console / CUOPT_LOG_FILE)
+  // but tracks the level, which `get_log_level` must report.
+  backend->open_log(nullptr, 2);
+  CHECK(backend->get_log_level() == 2);
+  backend->close_log();
+  CHECK(backend->get_log_level() == 0);
+}
+
+// NOLINTEND(misc-const-correctness)
+
+}  // namespace

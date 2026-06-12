@@ -1593,6 +1593,14 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
       .lowb = flow_lowb,
       .uppb = flow_uppb,
       .cost = block_tcost,
+      // Pin the Ruiz column scale: the loss apparatus (the |f| abs rows +
+      // chord/tangent rows carrying ``R/V²`` / ``1/x`` coefficients) otherwise
+      // drives this signed-flow column's Ruiz scale down to ≈ reactance, so
+      // its SCALED bound balloons to ~tmax/reactance (e.g. 3480 → 89,450).
+      // That wide column bound is what cuOpt's Dual-Simplex basis chokes on.
+      // Pinning keeps the bound at its physical ±tmax; the row equilibration
+      // is unaffected, so the optimum and duals are unchanged.
+      .pin_scale = true,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::FlowsName,
       .variable_uid = uid,
@@ -1654,10 +1662,27 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
 
+  // Physical upper bound on ℓ instead of an unbounded (``DblMax``) column.
+  // The chord row above already drives ℓ to its tangent envelope, so this
+  // bound is NON-BINDING — ``ℓ ≤ (R/V²)·f²`` and ``|f| ≤ effective_fmax``
+  // give ``ℓ ≤ k_loss·m²`` with ``m = max(fmax_phys, effective_fmax)``,
+  // which dominates every secant/piecewise-secant chord value on
+  // ``[0, effective_fmax]`` for any ``nseg``.  Leaving it at +∞ instead
+  // hands first-order / dual-simplex solvers (cuOpt PDLP) an unboxed
+  // direction: the iterate escapes to ~1e22 and the solve diverges.  The
+  // optimum and all duals are unchanged (CPLEX value identical).  When
+  // ``k_loss == 0`` (lossless line) the bound is 0, pinning the vestigial
+  // column at ℓ = 0, which the zero-slope chord already implies.
+  const double loss_fmax = std::max(fmax_phys, effective_fmax);
+  const double loss_uppb = k_loss * loss_fmax * loss_fmax;
+
   const auto loss_col = lp.add_col({
       .lowb = 0.0,
-      .uppb = LinearProblem::DblMax,
+      .uppb = loss_uppb,
       .cost = loss_block_cost,
+      // Pin the Ruiz column scale (see ``flow_col`` above): the chord/tangent
+      // ``R/V²`` coefficients otherwise inflate this column's scaled bound.
+      .pin_scale = true,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::LosspName,
       .variable_uid = uid,
@@ -1929,6 +1954,10 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
           .lowb = 0.0,
           .uppb = seg_width,
           .cost = v_cost,
+          // Pin the Ruiz column scale (see ``flow_col``): the |f| abs column
+          // sits in the same chord/tangent loss rows that otherwise inflate
+          // its scaled bound far past the physical ``fmax``.
+          .pin_scale = true,
           .class_name = Line::class_name.full_name(),
           .variable_name = LineLP::FlowAbsName,
           .variable_uid = uid,

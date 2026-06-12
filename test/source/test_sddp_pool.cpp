@@ -20,17 +20,15 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  SUBCASE("SDDPTaskKey is a 3-tuple (iter, is_backward, kind)")
+  SUBCASE("SDDPTaskKey is a 4-tuple (iter, is_backward, phase_rank, kind)")
   {
-    // Per-phase ordering was removed 2026-05: every async forward /
-    // backward submission runs all phases internally as one pool
-    // task, so a signed_phase field never differentiated live tasks
-    // at the four top-level submission sites.  The sync phase-by-
-    // phase backward path also serialises phase steps, so only one
-    // phase's tasks are ever in flight there.  See sddp_pool.hpp's
-    // header comment for the full rationale.
-    static_assert(std::same_as<SDDPTaskKey,
-                               std::tuple<IterationIndex, int, SDDPTaskKind>>);
+    // `phase_rank` is a NON-NEGATIVE laggard-first tie-break used by the
+    // per-phase backward aperture-chunk tasks (the only tasks that funnel
+    // into this pool per phase); scene-driver submissions run all phases
+    // as one task and leave it at 0.  See sddp_pool.hpp's header comment.
+    static_assert(
+        std::same_as<SDDPTaskKey,
+                     std::tuple<IterationIndex, int, int, SDDPTaskKind>>);
     CHECK(true);
   }
 
@@ -45,19 +43,29 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
     CHECK(static_cast<int>(SDDPPassDirection::backward) == 1);
   }
 
-  SUBCASE("make_sddp_task_key encodes (iter, is_backward, kind)")
+  SUBCASE("make_sddp_task_key encodes (iter, is_backward, phase_rank, kind)")
   {
     const auto fwd = make_sddp_task_key(
         IterationIndex {1}, SDDPPassDirection::forward, SDDPTaskKind::lp);
     CHECK(std::get<0>(fwd) == IterationIndex {1});
     CHECK(std::get<1>(fwd) == 0);  // is_backward = 0 for forward
-    CHECK(std::get<2>(fwd) == SDDPTaskKind::lp);
+    CHECK(std::get<2>(fwd) == 0);  // phase_rank defaults to 0 (driver task)
+    CHECK(std::get<3>(fwd) == SDDPTaskKind::lp);
 
     const auto bwd = make_sddp_task_key(
         IterationIndex {1}, SDDPPassDirection::backward, SDDPTaskKind::lp);
     CHECK(std::get<0>(bwd) == IterationIndex {1});
     CHECK(std::get<1>(bwd) == 1);  // is_backward = 1 for backward
-    CHECK(std::get<2>(bwd) == SDDPTaskKind::lp);
+    CHECK(std::get<2>(bwd) == 0);  // phase_rank defaults to 0
+    CHECK(std::get<3>(bwd) == SDDPTaskKind::lp);
+
+    // Explicit phase_rank for a per-phase backward aperture chunk.
+    const auto chunk = make_sddp_task_key(IterationIndex {1},
+                                          SDDPPassDirection::backward,
+                                          SDDPTaskKind::lp,
+                                          /*phase_rank=*/7);
+    CHECK(std::get<2>(chunk) == 7);
+    CHECK(std::get<3>(chunk) == SDDPTaskKind::lp);
   }
 }
 
@@ -134,6 +142,79 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
         }};
     CHECK_FALSE(lp < nonlp);  // LP has higher priority
     CHECK(nonlp < lp);  // non-LP has lower priority
+  }
+
+  SUBCASE("TaskPriority tier never reorders the SDDPTaskKey tuple")
+  {
+    // Regression guard for the sim⇄wedge trap.  A simulation task carries
+    // `gate_bypass = true` (formerly `TaskPriority::High`) so it can bypass
+    // the CPU gate.  It must NOT thereby jump ahead of a still-training
+    // peer at an earlier iteration: ordering is by the key tuple alone, so
+    // a later-iteration sim task stays behind an earlier-iteration training
+    // task regardless of tier / bypass flag.
+    STask sim_later {
+        [] {},
+        SReq {
+            .priority = TaskPriority::High,  // even the old reordering tier…
+            .priority_key = make_sddp_task_key(IterationIndex {5},
+                                               SDDPPassDirection::forward,
+                                               SDDPTaskKind::lp),
+            .gate_bypass = true,
+            .name = {},
+        }};
+    STask train_earlier {
+        [] {},
+        SReq {
+            .priority = TaskPriority::Medium,
+            .priority_key = make_sddp_task_key(IterationIndex {3},
+                                               SDDPPassDirection::backward,
+                                               SDDPTaskKind::lp),
+            .name = {},
+        }};
+    // iter-3 training outranks iter-5 sim despite sim's High tier + bypass.
+    CHECK(sim_later < train_earlier);  // sim is lower priority (later iter)
+    CHECK_FALSE(train_earlier < sim_later);
+  }
+
+  SUBCASE("smaller phase_rank wins among tied backward aperture chunks")
+  {
+    // Two scenes in the same iteration's backward sweep at different phases.
+    // The laggard (more phases still to process → smaller phase index →
+    // smaller phase_rank set by make_aperture_submit_fn) must drain first.
+    STask laggard {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {2},
+                                               SDDPPassDirection::backward,
+                                               SDDPTaskKind::lp,
+                                               /*phase_rank=*/3),
+            .name = {},
+        }};
+    STask ahead {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {2},
+                                               SDDPPassDirection::backward,
+                                               SDDPTaskKind::lp,
+                                               /*phase_rank=*/40),
+            .name = {},
+        }};
+    CHECK_FALSE(laggard < ahead);  // laggard (rank 3) has higher priority
+    CHECK(ahead < laggard);  // ahead (rank 40) is lower priority
+
+    // phase_rank only breaks ties WITHIN the same (iter, is_backward): an
+    // earlier-iteration chunk with a large rank still outranks a later one.
+    STask earlier_iter {
+        [] {},
+        SReq {
+            .priority_key = make_sddp_task_key(IterationIndex {1},
+                                               SDDPPassDirection::backward,
+                                               SDDPTaskKind::lp,
+                                               /*phase_rank=*/40),
+            .name = {},
+        }};
+    CHECK(laggard < earlier_iter);  // iter-2 rank-3 < iter-1 rank-40
+    CHECK_FALSE(earlier_iter < laggard);
   }
 }
 

@@ -1,18 +1,12 @@
 [
   {
-    "cost": 1.0,
-    "lower_bound": 0.0,
-    "name": "alpha_fcf",
-    "uid": 1
-  },
-  {
     "name": "free_dv",
-    "uid": 2
+    "uid": 1
   },
   {
     "lower_bound": -50.0,
     "name": "bounded_dv",
-    "uid": 3,
+    "uid": 2,
     "upper_bound": 100.0
   }
 ]

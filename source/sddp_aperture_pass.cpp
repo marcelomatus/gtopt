@@ -407,8 +407,9 @@ auto SDDPMethod::install_aperture_backward_cut(
 
 // ── Helper: build the ApertureChunkSubmitFunc callback ─────────────────────
 
-auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
-                                         IterationIndex iteration_index)
+auto SDDPMethod::make_aperture_submit_fn(PhaseIndex phase_index,
+                                         IterationIndex iteration_index,
+                                         SDDPWorkPool* pool)
     -> ApertureChunkSubmitFunc
 {
   // Submit aperture chunk tasks to the SDDP work pool.  Each chunk
@@ -421,18 +422,33 @@ auto SDDPMethod::make_aperture_submit_fn(PhaseIndex /*phase_index*/,
   // The calling scene thread blocks on the returned futures while pool
   // threads process the chunks.
   //
-  // Fallback to synchronous execution when no pool is available (e.g.
-  // during unit tests).
-  auto* pool = m_pool_;
-  // TaskPriority::Medium is the scheduling tier (controls CPU threshold);
-  // the SDDPTaskKey tuple provides the secondary sort within that tier.
-  // `phase_index` is no longer encoded in the key — see the rationale
-  // in sddp_pool.hpp's tuple-shape docs.  The parameter is retained on
-  // the public signature for callers that may want to log it.
+  // When @p pool is null the returned submit fn runs each chunk
+  // synchronously on the caller thread (inline apertures) — used by the
+  // coordinator-driven training backward, where the calling scene driver
+  // is its own thread, so 16 drivers solving inline gives num_scenes-wide
+  // parallelism without funnelling chunks through the shared pool.  A
+  // non-null pool (async/cascade path) submits chunks to it as before.
+  // `TaskPriority::Medium` is the ordering tier (no longer used for queue
+  // ordering — `gate_bypass` handles CPU-gate relaxation separately); the
+  // `SDDPTaskKey` tuple is the sole sort key.  `phase_rank` makes the
+  // laggard scene's chunks drain first when two scenes are in the same
+  // iteration's backward sweep at different phases at once (async path):
+  // the backward sweep visits phases N-1…1, so a smaller `phase_index` has
+  // MORE phases left this iteration — set `phase_rank = (n_phases-1) -
+  // phase` so that larger-remaining scene gets the smaller (higher-priority)
+  // rank.  Kept non-negative so it can never reorder forward ahead of
+  // backward.  Moot in the default sync path (apertures run inline, pool ==
+  // nullptr).
+  const auto n_phases =
+      static_cast<int>(planning_lp().simulation().phases().size());
+  const int phase_rank =
+      std::max(0, n_phases - 1 - static_cast<int>(phase_index));
   const BasicTaskRequirements<SDDPTaskKey> req {
       .priority = TaskPriority::Medium,
-      .priority_key = make_sddp_task_key(
-          iteration_index, SDDPPassDirection::backward, SDDPTaskKind::lp),
+      .priority_key = make_sddp_task_key(iteration_index,
+                                         SDDPPassDirection::backward,
+                                         SDDPTaskKind::lp,
+                                         phase_rank),
       .name = {},
   };
 
@@ -593,7 +609,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.log_directory,
       uid_of(scene_index),
       uid_of(phase_index),
-      make_aperture_submit_fn(phase_index, iteration_index),
+      make_aperture_submit_fn(phase_index, iteration_index, nullptr),
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
       m_aperture_cache_,
@@ -602,9 +618,9 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_lp_debug,
       m_options_.aperture_use_manual_clone,
       m_options_.aperture_chunk_size,
-      m_pool_,
+      /*pool_for_slot_release=*/nullptr,
       aperture_cut_links,
-      m_options_.aperture_warm_start);
+      m_options_.aperture_solve_mode);
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -699,7 +715,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
 
 auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                                               const SolverOptions& opts,
-                                              IterationIndex iteration_index)
+                                              IterationIndex iteration_index,
+                                              SDDPWorkPool* exec_pool)
     -> std::expected<int, Error>
 {
   const auto& simulation = planning_lp().simulation();
@@ -850,7 +867,7 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.log_directory,
         uid_of(scene_index),
         uid_of(phase_index),
-        make_aperture_submit_fn(phase_index, iteration_index),
+        make_aperture_submit_fn(phase_index, iteration_index, exec_pool),
         0.0,
         m_options_.save_aperture_lp,
         m_aperture_cache_,
@@ -859,9 +876,9 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         aperture_lp_debug,
         m_options_.aperture_use_manual_clone,
         m_options_.aperture_chunk_size,
-        m_pool_,
+        exec_pool,
         aperture_cut_links,
-        m_options_.aperture_warm_start);
+        m_options_.aperture_solve_mode);
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));

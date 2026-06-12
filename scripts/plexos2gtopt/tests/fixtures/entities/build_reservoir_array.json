@@ -7,6 +7,7 @@
     "flow_conversion_rate": 0.041666666666666664,
     "junction": "COCHRANE",
     "name": "COCHRANE",
+    "spillway_cost": 0.0,
     "uid": 1
   },
   {

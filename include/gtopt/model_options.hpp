@@ -257,6 +257,35 @@ struct ModelOptions
   /// over-constrains the forward pass when state vars cluster at the floor.
   OptBool strict_storage_emin {};
 
+  /// Assembly-time elimination of provably-zero LP columns/rows at the
+  /// SOURCE element (e.g. the generator skips its generation column when
+  /// `pmax == pmin == 0`; the reservoir skips a zero extraction column;
+  /// reserve/inertia provisions skip a zero-ceiling column; the inertia
+  /// zone skips a zero-requirement row).  Default `false`.
+  ///
+  /// DEFAULT OFF — the un-reduced LP is the honest model and a modern
+  /// solver's presolve (CPLEX / Gurobi) reduces it to the same core, often
+  /// marginally faster (PLEXOS 20260517: CPLEX presolve takes both LPs to
+  /// ~555k×820k; the un-reduced solve is ~12 s faster).  Enable with
+  /// `--lp-reduction` (or `model_options.lp_reduction = true`) for the
+  /// weak-presolve backends (CLP / CBC / HiGHS) that benefit from the
+  /// smaller LP up front — they will not otherwise strip ~575k provably
+  /// zero columns, and a serial-barrier solver (HiGHS IPM) factorizes the
+  /// bigger matrix on one core.
+  ///
+  /// NOT strictly optimum-neutral: the reservoir / provision / requirement
+  /// skips are pure `[0,0]` columns or `Σ≥0` rows and never move the
+  /// optimum, but the GENERATOR skip cascades into dropping a commitment
+  /// `u/v/w` for the pmax==pmin==0 unit — a real `[0,1]` binary that lets
+  /// the unit be committed (must-run noload / synchronous-condenser
+  /// inertia).  Enabling reduction therefore encodes "no generation column
+  /// ⟹ no commitment ⟹ no ancillary participation" and can shift the
+  /// optimum slightly (+$20k / 0.004% on 20260517, ~94% of it a
+  /// demand-failure / reserve-shortage penalty slack).  Leaving it OFF
+  /// keeps the faithful model.  Consumers never need this flag — the
+  /// switch lives ONLY at the source.
+  OptBool lp_reduction {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -286,6 +315,7 @@ struct ModelOptions
     merge_opt(naming_dialect, opts.naming_dialect);
     merge_opt(objective_mode, opts.objective_mode);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
+    merge_opt(lp_reduction, opts.lp_reduction);
   }
 
   /// True if any field is set.
@@ -304,7 +334,7 @@ struct ModelOptions
         || hydro_use_value.has_value() || state_violation_cost.has_value()
         || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
         || naming_dialect.has_value() || objective_mode.has_value()
-        || strict_storage_emin.has_value();
+        || strict_storage_emin.has_value() || lp_reduction.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -341,7 +371,8 @@ struct ModelOptions
         && covers_opt(continuous_phases, other.continuous_phases)
         && covers_opt(naming_dialect, other.naming_dialect)
         && covers_opt(objective_mode, other.objective_mode)
-        && covers_opt(strict_storage_emin, other.strict_storage_emin);
+        && covers_opt(strict_storage_emin, other.strict_storage_emin)
+        && covers_opt(lp_reduction, other.lp_reduction);
   }
 };
 

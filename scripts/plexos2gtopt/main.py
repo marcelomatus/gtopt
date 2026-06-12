@@ -172,6 +172,17 @@ def make_parser() -> argparse.ArgumentParser:
             "validation (on by default, mirroring plp2gtopt)"
         ),
     )
+    parser.add_argument(
+        "--no-reservoir-flow-estimate",
+        dest="reservoir_flow_estimate",
+        action="store_false",
+        help=(
+            "disable the topology-driven reservoir extraction-flow estimate "
+            "(on by default): without it, reservoirs ship with no fmin/fmax "
+            "and gtopt falls back to the generic -9000/6000 m³/s extraction "
+            "defaults"
+        ),
+    )
     # Emissions flags live in gtopt_shared.cli_flags so plp2gtopt picks
     # up exactly the same surface (issue #507 Phase 2).
     from gtopt_shared.cli_flags import (  # noqa: PLC0415
@@ -1136,6 +1147,7 @@ def main(argv: list[str] | None = None) -> None:
         "plexos_solution_accdb": args.plexos_solution_accdb,
         "lp_relax": args.lp_relax,
         "run_check": args.run_check,
+        "reservoir_flow_estimate": args.reservoir_flow_estimate,
         "compare_json": args.compare_json,
         "lax_uc_refs": args.lax_uc_refs,
         "plexos_legacy": args.plexos_legacy,

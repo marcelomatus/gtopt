@@ -313,12 +313,21 @@ TEST_CASE("LineLP — overload_penalty scalar broadcasts to every block")
 }
 
 // =============================================================
-// Line.enforce_level (PLEXOS "Enforce Limits" mirror) — three modes:
-//   0 = never enforce (line capacity not binding; tmax_ab kept only
-//       for loss-segment discretization)
-//   1 = voltage-conditional (in our LP treated as hard cap, since
-//       we have no AC voltage-feasibility iteration)
-//   2 = always enforce (hard cap — the historical default)
+// Line.enforce_level — RETIRED 2026-06-10.
+//
+// ``Line.enforce_level`` (added 2026-05-22 as a short-lived attempt
+// to mirror PLEXOS "Enforce Limits") is now a NO-OP.  ``source/
+// line_lp.cpp`` passes ``enforce_capacity = true`` unconditionally,
+// restoring the original pre-2026-05-22 behaviour: every line flow
+// column is bound by ``block_tmax`` (= ``tmax`` if set, else the
+// capacity ceiling) and is NEVER left free.  The field still exists
+// in ``include/gtopt/line.hpp`` for back-compat but no longer changes
+// the LP — so ``enforce_level = 0`` now behaves identically to
+// ``enforce_level = 2``: the hard cap always binds at ``tmax``.
+//
+// The cases below pin that invariant: regardless of the (now-ignored)
+// ``enforce_level`` value, the cap binds at ``tmax`` and any demand
+// above it goes unserved at the demand-fail cost.
 // =============================================================
 
 TEST_CASE("LineLP enforce_level=2 (default) — hard cap binds")
@@ -354,20 +363,22 @@ TEST_CASE("LineLP enforce_level=2 (default) — hard cap binds")
   CHECK(lp.get_obj_value_raw() == doctest::Approx(20'001'000.0));
 }
 
-TEST_CASE("LineLP enforce_level=0 — cap not binding, full demand served")
+TEST_CASE("LineLP enforce_level is now a no-op — cap always binds at tmax")
 {
-  // Same scenario as above but with enforce_level=0.  The hard cap
-  // is relaxed; the LP must be able to push the full 120 MW across
-  // the line, serving all demand and avoiding the 20-MW
-  // demand-fail.  tmax_ab=100 is kept on the JSON for loss-segment
-  // discretization but doesn't bind on the flow column.
+  // Same scenario as the enforce_level=2 case above but with the
+  // (now-retired) enforce_level=0 flag set.  Because enforce_level is
+  // a no-op, the hard cap STILL binds at tmax=100: the LP carries
+  // 100 MW across the line and 20 MW goes unserved at the demand-fail
+  // cost.  This is the historical pre-2026-05-22 behaviour, identical
+  // to the enforce_level=2 case — proving the flag no longer frees
+  // the flow column.
   TwoBusFixture fix;
   fix.demand_array[0].capacity = 120.0;
   fix.generator_array[1].capacity = 0.0;
   fix.line_array[0].enforce_level = 0;
 
   const System system {
-      .name = "EnforceLevel0Unbounded",
+      .name = "EnforceLevel0NowNoOp",
       .bus_array = fix.bus_array,
       .demand_array = fix.demand_array,
       .generator_array = fix.generator_array,
@@ -383,8 +394,10 @@ TEST_CASE("LineLP enforce_level=0 — cap not binding, full demand served")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // 120 MW served via g1 (cost = 120 × 10 = 1200), zero unserved.
-  CHECK(lp.get_obj_value_raw() == doctest::Approx(1200.0));
+  // Cap binds at tmax=100: 100 MW served via g1 (gen cost = 100 × 10
+  // = 1000), 20 MW unserved at fail_cost 1e6 = 20_000_000.
+  // obj = 1000 + 20_000_000 = 20_001_000 — same as enforce_level=2.
+  CHECK(lp.get_obj_value_raw() == doctest::Approx(20'001'000.0));
 }
 
 TEST_CASE("LineLP enforce_level=1 — same hard-cap behaviour as level=2")
@@ -420,18 +433,14 @@ TEST_CASE("LineLP enforce_level=1 — same hard-cap behaviour as level=2")
 }
 
 TEST_CASE(
-    "LineLP enforce_level=0 with piecewise losses — segments also relaxed")
+    "LineLP enforce_level=0 with piecewise losses — cap still binds (no-op)")
 {
-  // Regression test for the Capricornio-style lift on lossy lines.
-  // In piecewise loss mode each segment column has ``.uppb =
-  // seg_width = block_tmax_ab / nseg`` and the linkrow says
-  // ``fp + fn − Σ seg_k = 0``.  Without lifting the segment caps
-  // too, the aggregator still binds to the total rating via the
-  // segment sum.  The wired ``enforce_capacity`` flag in
-  // ``line_losses::add_block`` propagates the relaxation to BOTH
-  // the directional flow columns AND the per-segment columns while
-  // keeping ``seg_width`` (and hence the loss-row coefficients)
-  // finite to avoid blowing up solver numerics.
+  // enforce_level=0 is a no-op: the piecewise per-segment caps still
+  // bind the aggregated flow at the rating (the segment sum can carry
+  // at most ``Σ seg_width = block_tmax_ab = 100 MW``).  The LP cannot
+  // push the full 120 MW, so ~20 MW goes unserved at the demand-fail
+  // cost — the demand-fail dominates the objective just as in the
+  // enforce_level=2 piecewise case.
   TwoBusFixture fix;
   fix.demand_array[0].capacity = 120.0;
   fix.generator_array[1].capacity = 0.0;
@@ -459,20 +468,21 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // With losses, g1 must send (120 + loss) MW to serve 120 MW at
-  // bus_b.  With R=0.01 / V=100 the loss is negligible (≤ 0.01 MW)
-  // so total gen ≈ 120 × 10 = 1200, plus a tiny loss premium.
-  // Critically: NO demand-fail cost (otherwise obj would be in the
-  // millions).
-  CHECK(lp.get_obj_value_raw() < 5000.0);
+  // Cap binds at 100 MW: the line carries ≤ 100 MW (minus a tiny
+  // loss), so demand served at bus_b ≈ 100 − loss and ≈ 20 + loss MW
+  // is unserved at 1e6/MWh.  The demand-fail term dominates: obj sits
+  // just above 2e7 (20 MW × 1e6 + ~100 × 10 gen + a small loss
+  // premium).  Identical regime to the enforce_level=2 piecewise case.
+  CHECK(lp.get_obj_value_raw() > 1.9e7);
+  CHECK(lp.get_obj_value_raw() < 2.1e7);
 }
 
-TEST_CASE("LineLP enforce_level=0 with linear losses")
+TEST_CASE("LineLP enforce_level=0 with linear losses — cap still binds (no-op)")
 {
-  // Same setup but linear loss model (lossfactor explicitly set
-  // without resistance + voltage triggering piecewise downgrade).
-  // The directional flow columns must be released so the LP can
-  // dispatch the full 120 MW + linear loss.
+  // Same setup, linear loss model.  enforce_level=0 is a no-op so the
+  // directional flow column is STILL bounded by tmax=100; the LP can
+  // dispatch at most 100 MW across the line, leaving ~20 MW unserved
+  // at the demand-fail cost.
   TwoBusFixture fix;
   fix.demand_array[0].capacity = 120.0;
   fix.generator_array[1].capacity = 0.0;
@@ -497,8 +507,10 @@ TEST_CASE("LineLP enforce_level=0 with linear losses")
   REQUIRE(result.has_value());
   CHECK(result.value() == 0);
 
-  // gen cost ≈ 120 × (1 + lossfactor) × 10 ≈ 1201; no fail cost.
-  CHECK(lp.get_obj_value_raw() < 5000.0);
+  // Cap binds at 100 MW: ~20 MW unserved at 1e6/MWh dominates the
+  // objective (gen ≈ 100 × 10 plus a tiny linear-loss premium).
+  CHECK(lp.get_obj_value_raw() > 1.9e7);
+  CHECK(lp.get_obj_value_raw() < 2.1e7);
 }
 
 TEST_CASE("LineLP enforce_level=2 with piecewise losses — hard cap still binds")

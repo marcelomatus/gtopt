@@ -1,25 +1,28 @@
-"""Tests for the ``--vrebemb-as-sink`` mode.
+"""Tests for vrebemb reservoir spill handling (and the now-inert
+``--vrebemb-as-sink`` flag).
 
-This flag is **opt-in** (default: False).  When enabled, JunctionWriter
-redirects the ``_ver`` waterway of any central listed in
-``plpvrebemb.dat`` to a synthetic ``<name>_ocean`` drain and drops both
-``fmax`` and ``fcost`` on the arc.  Non-vrebemb centrals are untouched.
+Every reservoir except the never-drain sentinels
+(``_DRAIN_KILLED_RESERVOIRS``, e.g. ELTORO) has its spill carried *solely*
+by the reservoir's own storage-drain column (``Reservoir.spillway_cost = 0``
+— free — with finite C++-default capacity), regardless of plpvrebemb.dat
+membership.  These reservoirs emit **no** draining ``_ver`` waterway —
+neither to a downstream ``ser_ver`` central nor to a synthetic
+``<name>_ocean`` drain.  This mirrors plexos2gtopt, which collapses
+``Vert_*`` spill waterways onto the reservoir/junction rather than keeping
+draining arcs.
 
-The flag restores PLP's ``qrb`` (sink-bound, costed) rebalse semantics:
-PLP subtracts ``qrb`` from end-of-stage storage WITHOUT adding it back
-at any downstream junction, so the parallel-pipe ``_ver → ser_ver``
-model gtopt used previously could route uncapped water through the
-spillway arc to feed downstream demand at ``rebalse_cost`` per m³ —
-generating "fictitious water".
-
-When both ``--drop-spillway-waterway`` and ``--vrebemb-as-sink`` are
-set, the spillway-suppress mode wins (no ``_ver`` arc is emitted).
+Because drained reservoirs no longer emit any ``_ver`` arc, the historic
+``--vrebemb-as-sink`` flag (which redirected that arc to an ocean drain)
+is now a no-op for its target population.  Its CLI plumbing is retained
+for backward compatibility; the behavioural tests below assert the new
+reservoir-spillway behaviour holds regardless of the flag.
 """
 
 from __future__ import annotations
 
-import math
 from typing import Any, Dict, List, Optional
+
+import pytest
 
 from ..junction_writer import JunctionWriter
 from ..vrebemb_parser import VrebembParser
@@ -128,82 +131,91 @@ def _run(
     return result[0]
 
 
-def _ver_waterway(system: Dict[str, Any], name_prefix: str) -> Dict[str, Any]:
-    """Return the unique ``<name_prefix>_ver_*`` waterway."""
+def _reservoir(system: Dict[str, Any], name: str) -> Dict[str, Any]:
+    """Return the unique reservoir element named ``name``."""
+    matches = [r for r in system["reservoir_array"] if r["name"] == name]
+    assert len(matches) == 1, f"expected one reservoir {name!r}, got {matches}"
+    return matches[0]
+
+
+def _no_ver_arcs(system: Dict[str, Any], name_prefix: str) -> None:
+    """Assert no ``<name_prefix>_ver_*`` waterway exists in the system."""
     matches = [
         w
         for w in system["waterway_array"]
         if w["name"].startswith(name_prefix + "_ver_")
     ]
-    assert len(matches) == 1, (
-        f"expected exactly one _ver waterway for {name_prefix!r}, got {matches}"
-    )
-    return matches[0]
+    assert matches == [], f"vrebemb reservoir leaked _ver arc(s): {matches}"
 
 
 # ---------------------------------------------------------------------------
-# Core behaviour: vrebemb central with ser_ver > 0 redirected to ocean
+# Core behaviour: vrebemb reservoir carries spill on the reservoir spillway,
+# never on a _ver waterway — regardless of ser_ver or the flag.
 # ---------------------------------------------------------------------------
 
 
-def test_vrebemb_as_sink_redirects_ver_to_ocean():
-    """vrebemb embalse with ser_ver > 0 routes _ver to synthetic ocean drain.
+def test_vrebemb_reservoir_ser_ver_has_no_ver_arc_and_spillway_cost():
+    """vrebemb embalse with ser_ver > 0: no ``_ver`` arc; spillway on reservoir.
 
-    Flag ON: ``_ver`` is redirected to ``<name>_ocean`` and both
-    ``fmax`` and ``fcost`` are dropped from the waterway.  The
-    ocean junction is added to the system as a drain.
+    The spill is represented by ``Reservoir.spillway_cost = 0`` (free) with
+    the C++-default finite capacity; ``spillway_capacity`` is omitted from
+    the JSON.  Every reservoir except the never-drain sentinels gets the
+    drain, so the vrebemb cost is irrelevant; the flag value is too.
     """
-    cent = _embalse_in_network("Dam", 1, ser_hid=2, ser_ver=2)
-    sink = _serie("Sink", 2)
+    for flag in (True, False):
+        cent = _embalse_in_network("Dam", 1, ser_hid=2, ser_ver=2)
+        sink = _serie("Sink", 2)
+        system = _run(
+            [cent, sink],
+            vrebemb_costs={"Dam": 5000.0},
+            options={"vrebemb_as_sink": flag},
+        )
+
+        _no_ver_arcs(system, "Dam")
+        # No synthetic ocean drain was synthesised for the spill side.
+        assert not [j for j in system["junction_array"] if j["name"] == "Dam_ocean"]
+        res = _reservoir(system, "Dam")
+        assert res.get("spillway_cost") == 0.0
+        assert "spillway_capacity" not in res
+
+
+def test_vrebemb_reservoir_terminal_has_no_ver_arc():
+    """vrebemb embalse with ser_ver = 0 (terminal): no ``_ver`` arc.
+
+    The spill rides the reservoir storage-drain column (drained embalse),
+    so no ``_ver`` waterway is emitted.  Because this central is also
+    terminal on the GEN side (``ser_hid = 0`` with no downstream consumer
+    of its gen Waterway), the terminal gen path collapses onto the source
+    junction's own drain column — a genuine basin exit, not the spurious
+    in-cascade self-drain the old reservoir-drain model forbade.
+    """
+    cent = _embalse_in_network("Term", 1, ser_hid=0, ser_ver=0)
     system = _run(
-        [cent, sink],
-        vrebemb_costs={"Dam": 5000.0},
+        [cent],
+        vrebemb_costs={"Term": 5000.0},
         options={"vrebemb_as_sink": True},
     )
 
-    ver = _ver_waterway(system, "Dam")
-    assert ver["junction_b"].endswith("_ocean")
-    assert "fcost" not in ver, f"unexpected fcost: {ver.get('fcost')!r}"
-    # fmax is emitted explicitly as ``1e30`` (gtopt's effective-infinity
-    # sentinel — clamped to solver infinity at flatten time, JSON-safe
-    # unlike Infinity).  Matches the convention at lines ~1050, ~1073,
-    # ~1446 of junction_writer.py for other unbounded waterway-flow paths.
-    assert ver.get("fmax") == math.inf, f"expected math.inf fmax: {ver.get('fmax')!r}"
-
-    junctions = {j["name"]: j for j in system["junction_array"]}
-    drain_name = ver["junction_b"]
-    assert drain_name in junctions
-    assert junctions[drain_name].get("drain") is True
+    _no_ver_arcs(system, "Term")
+    res = _reservoir(system, "Term")
+    assert res.get("spillway_cost") == 0.0
+    assert "spillway_capacity" not in res
+    # No synthetic ocean junction is created for the terminal gen path.
+    assert not [j for j in system["junction_array"] if j["name"].endswith("_ocean")]
+    # The source junction sheds its terminal gen surplus via its own
+    # drain column (drain_capacity = PotMax / Rendi = 100 / 0.85).
+    src = next(j for j in system["junction_array"] if j["name"] == "Term")
+    assert src.get("drain") is True
+    assert src["drain_capacity"] == pytest.approx(100.0 / 0.85)
 
 
 # ---------------------------------------------------------------------------
-# Off (default) — current behaviour preserved for vrebemb centrals
+# Non-vrebemb centrals are untouched: they keep their _ver routing.
 # ---------------------------------------------------------------------------
 
 
-def test_vrebemb_as_sink_off_preserves_today():
-    """Flag OFF: vrebemb _ver still goes to ser_ver with rebalse fcost."""
-    cent = _embalse_in_network("Dam", 1, ser_hid=2, ser_ver=2)
-    sink = _serie("Sink", 2)
-    system = _run(
-        [cent, sink],
-        vrebemb_costs={"Dam": 5000.0},
-        options={"vrebemb_as_sink": False},
-    )
-
-    ver = _ver_waterway(system, "Dam")
-    assert ver["junction_b"] == "Sink"
-    assert not ver["junction_b"].endswith("_ocean")
-    assert ver.get("fcost") == 5000.0
-
-
-# ---------------------------------------------------------------------------
-# Non-vrebemb centrals are untouched even when the flag is on
-# ---------------------------------------------------------------------------
-
-
-def test_vrebemb_as_sink_non_vrebemb_unchanged():
-    """Non-vrebemb serie central with flag ON: _ver still targets ser_ver."""
+def test_non_vrebemb_serie_keeps_ver_arc():
+    """Non-vrebemb serie central: ``_ver`` still targets ser_ver."""
     cent = _serie("CentA", 1, ser_hid=2, ser_ver=2, vert_max=50.0)
     sink = _serie("Sink", 2)
     # Empty vrebemb mapping ⇒ get_cost("CentA") returns None.
@@ -213,65 +225,24 @@ def test_vrebemb_as_sink_non_vrebemb_unchanged():
         options={"vrebemb_as_sink": True},
     )
 
-    ver = _ver_waterway(system, "CentA")
-    assert ver["junction_b"] == "Sink"
-    assert not ver["junction_b"].endswith("_ocean")
-
-
-# ---------------------------------------------------------------------------
-# Existing-ocean path: vrebemb central with ser_ver = 0 already routes to
-# a synthetic drain.  Flag ON must drop fcost (and fmax) on that arc.
-# ---------------------------------------------------------------------------
-
-
-def test_vrebemb_as_sink_existing_ocean_drops_fcost():
-    """Vrebemb embalse with ser_ver = 0: spill rides a ``_ver`` arc to ocean.
-
-    LMAULE / RAPEL / CANUTILLAR / COLBUN have ser_ver = 0; the
-    mass-conserving fix routes the spill via an explicit
-    ``Term_ver → Term_ocean`` arc (the ocean node owns ``drain = True``).
-    Under ``--vrebemb-as-sink`` the rebalse cost is dropped (qrb-to-sink
-    semantics: uncapped, costless), so the ``_ver`` arc has no ``fcost``
-    and an unbounded ``fmax``.  The source junction stays a balance node.
-    """
-    cent = _embalse_in_network("Term", 1, ser_hid=0, ser_ver=0)
-    system = _run(
-        [cent],
-        vrebemb_costs={"Term": 5000.0},
-        options={"vrebemb_as_sink": True},
-    )
-
-    # The ``_ver`` arc routes the spill to the synthetic ocean drain.
-    ver = [w for w in system["waterway_array"] if "Term_ver" in w.get("name", "")]
+    ver = [w for w in system["waterway_array"] if w["name"].startswith("CentA_ver_")]
     assert len(ver) == 1
-    assert ver[0]["junction_b"] == "Term_ocean"
-    # qrb-to-sink: no per-flow cost on the spill arc.
-    assert "fcost" not in ver[0], ver[0].get("fcost")
-    src = next(j for j in system["junction_array"] if j["name"] == "Term")
-    assert src["drain"] is False
-    assert "drain_capacity" not in src, src.get("drain_capacity")
-    assert "drain_cost" not in src, src.get("drain_cost")
-    ocean = next(j for j in system["junction_array"] if j["name"] == "Term_ocean")
-    assert ocean["drain"] is True
+    assert ver[0]["junction_b"] == "Sink"
+    assert not ver[0]["junction_b"].endswith("_ocean")
 
 
 # ---------------------------------------------------------------------------
-# Precedence: --drop-spillway-waterway wins over --vrebemb-as-sink
+# Asymmetric vrebemb reservoir: still no _ver arc (spill on the reservoir).
 # ---------------------------------------------------------------------------
 
 
-def test_vrebemb_as_sink_redirects_asymmetric_central_uniformly():
-    """Asymmetric and symmetric vrebemb centrals get the same treatment.
+def test_vrebemb_asymmetric_reservoir_has_no_ver_arc():
+    """Asymmetric vrebemb reservoir (ser_hid != ser_ver): no ``_ver`` arc.
 
-    Both ELTORO (asymmetric — ser_ver = ABANICO) and the symmetric
-    cases get their ``_ver`` redirected to ``<name>_ocean`` and their
-    ``fcost`` dropped.  Downstream pmin obligations are now per-block
-    soft FlowRights (with the trajectory carried over from
-    plpmance.dat) and downstream Reservoir efin/soft_emin are soft
-    slacks priced by the auto water-shortfall resolver, so the
-    asymmetric topology no longer needs a tier-2 skip.
+    The spill is on the reservoir spillway column; the asymmetric
+    ``ser_ver`` routing is reproduced by the reservoir's ``spill_junction``
+    wiring in the C++ ReservoirLP, not by a parallel arc.
     """
-    # Asymmetric: ser_hid=2 (CentA), ser_ver=3 (CentB).
     cent = _embalse_in_network("Asym", 1, ser_hid=2, ser_ver=3)
     cent_a = _serie("CentA", 2)
     cent_b = _serie("CentB", 3)
@@ -281,23 +252,16 @@ def test_vrebemb_as_sink_redirects_asymmetric_central_uniformly():
         options={"vrebemb_as_sink": True},
     )
 
-    ver = _ver_waterway(system, "Asym")
-    # Topology redirected to ocean — same as for symmetric vrebemb centrals.
-    assert ver["junction_b"].endswith("_ocean")
-    assert ver["junction_b"] != "CentB"
-    # fcost dropped (the redundant vrebemb deterrent has no anti-arbitrage
-    # value once water leaves the system).
-    assert "fcost" not in ver, f"unexpected fcost: {ver.get('fcost')!r}"
-    assert ver.get("fmax") == math.inf
+    _no_ver_arcs(system, "Asym")
+    res = _reservoir(system, "Asym")
+    assert res.get("spillway_cost") == 0.0
 
 
-def test_vrebemb_as_sink_with_drop_spillway_takes_precedence():
-    """Both flags ON: no _ver waterway emitted, source junction is a drain.
+def test_vrebemb_with_drop_spillway_still_no_ver_arc():
+    """``--drop-spillway-waterway`` on a vrebemb reservoir: still no ``_ver`` arc.
 
-    ``--drop-spillway-waterway`` suppresses every ``_ver`` arc, so
-    ``--vrebemb-as-sink`` is a no-op when both are set.  The central's
-    own junction takes over as drain (matches today's
-    drop-spillway behaviour).
+    Both code paths converge on "no draining ``_ver`` arc"; the
+    drop-spillway flag additionally marks the source junction as a drain.
     """
     cent = _embalse_in_network("Dam", 1, ser_hid=2, ser_ver=2)
     sink = _serie("Sink", 2)
@@ -310,14 +274,8 @@ def test_vrebemb_as_sink_with_drop_spillway_takes_precedence():
         },
     )
 
-    # No _ver arc at all.
     ver_arcs = [w for w in system["waterway_array"] if "_ver_" in w["name"]]
     assert ver_arcs == [], f"unexpected _ver arcs: {ver_arcs}"
-
-    # Source junction is now a drain (the standard --drop-spillway-waterway
-    # behaviour absorbs surplus water there).
-    junctions = {j["name"]: j for j in system["junction_array"]}
-    assert junctions["Dam"].get("drain") is True
 
 
 # ---------------------------------------------------------------------------

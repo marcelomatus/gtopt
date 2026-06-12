@@ -1,0 +1,363 @@
+{
+  "$id": "https://gtopt.dev/schemas/ampl_registry.data.json",
+  "title": "gtopt AMPL registry vocabulary",
+  "description": "Vocabulary for PAMPL term references (class(\"uid\").attribute). Companion to pampl.grammar.schema.json.",
+  "shapes": [
+    {
+      "name": "Scalar",
+      "dims": [],
+      "desc": "single value (e.g. annual_discount_rate)"
+    },
+    {
+      "name": "T",
+      "dims": [
+        "stage"
+      ],
+      "desc": "stage-only (e.g. gcost, reactance)"
+    },
+    {
+      "name": "TB",
+      "dims": [
+        "stage",
+        "block"
+      ],
+      "desc": "stage \u00d7 block (e.g. pmax, tmax_ab)"
+    },
+    {
+      "name": "ST",
+      "dims": [
+        "scenario",
+        "stage"
+      ],
+      "desc": "scenario \u00d7 stage (e.g. capainst, eini)"
+    },
+    {
+      "name": "STB",
+      "dims": [
+        "scenario",
+        "stage",
+        "block"
+      ],
+      "desc": "scenario \u00d7 stage \u00d7 block (e.g. generation, flowp)"
+    }
+  ],
+  "element_classes": [
+    "allowance_pool",
+    "ammonia_node",
+    "ammonia_storage",
+    "battery",
+    "bus",
+    "carrier_converter",
+    "commitment",
+    "converter",
+    "decision_variable",
+    "demand",
+    "emission_source",
+    "emission_zone",
+    "flow",
+    "flow_right",
+    "fuel",
+    "generator",
+    "hydrogen_node",
+    "hydrogen_storage",
+    "inertia_provision",
+    "inertia_zone",
+    "junction",
+    "line",
+    "lng_terminal",
+    "reserve_provision",
+    "reserve_zone",
+    "reservoir",
+    "reservoir_discharge_limit",
+    "seepage",
+    "simple_commitment",
+    "thermal_node",
+    "thermal_storage",
+    "turbine",
+    "user_constraint",
+    "volume_right",
+    "waterway"
+  ],
+  "lp_variables": [
+    "capacity",
+    "capainst",
+    "charge",
+    "discharge",
+    "energy",
+    "fail",
+    "flow",
+    "flowp",
+    "generation",
+    "lmax",
+    "load",
+    "pmax",
+    "spill",
+    "theta",
+    "volume"
+  ],
+  "params_by_class": {
+    "allowance_pool": [
+      "delivery",
+      "ecost",
+      "emax",
+      "emin"
+    ],
+    "ammonia_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "battery": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "carrier_converter": [
+      "efficiency",
+      "ocost"
+    ],
+    "demand": [
+      "fcost",
+      "lmax",
+      "lossfactor"
+    ],
+    "emission_source": [
+      "rate",
+      "upstream_rate"
+    ],
+    "emission_zone": [
+      "cap",
+      "cap_cost",
+      "price"
+    ],
+    "flow_right": [
+      "fcost",
+      "fmax",
+      "fmin",
+      "target",
+      "uvalue"
+    ],
+    "fuel": [
+      "combustion_emission_factor",
+      "heat_content",
+      "max_offtake",
+      "max_offtake_cost",
+      "min_offtake",
+      "min_offtake_cost",
+      "price",
+      "upstream_emission_factor"
+    ],
+    "generator": [
+      "emission_rate",
+      "gcost",
+      "heat_rate",
+      "lossfactor",
+      "pmax",
+      "pmin"
+    ],
+    "hydrogen_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "line": [
+      "lossfactor",
+      "phase_shift_deg",
+      "reactance",
+      "resistance",
+      "tap_ratio",
+      "tcost",
+      "tmax_ab",
+      "tmax_ba",
+      "voltage"
+    ],
+    "lng_terminal": [
+      "delivery"
+    ],
+    "reservoir": [
+      "capacity",
+      "ecost",
+      "emax",
+      "emin"
+    ],
+    "thermal_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "turbine": [
+      "capacity",
+      "efficiency",
+      "production_factor"
+    ],
+    "user_constraint": [
+      "rhs"
+    ],
+    "volume_right": [
+      "demand",
+      "emax",
+      "emin",
+      "fail_cost",
+      "fmax",
+      "saving_rate"
+    ],
+    "waterway": [
+      "capacity",
+      "fcost",
+      "fmax",
+      "fmin",
+      "lossfactor"
+    ]
+  },
+  "attributes_by_class": {
+    "allowance_pool": [
+      "delivery",
+      "ecost",
+      "emax",
+      "emin"
+    ],
+    "ammonia_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "battery": [
+      "charge",
+      "discharge",
+      "ecost",
+      "emax",
+      "emin",
+      "energy",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "carrier_converter": [
+      "efficiency",
+      "ocost"
+    ],
+    "commitment": [
+      "shutdown",
+      "startup",
+      "status"
+    ],
+    "decision_variable": [
+      "value"
+    ],
+    "demand": [
+      "fcost",
+      "lmax",
+      "lossfactor"
+    ],
+    "emission_source": [
+      "rate",
+      "upstream_rate"
+    ],
+    "emission_zone": [
+      "cap",
+      "cap_cost",
+      "price"
+    ],
+    "flow_right": [
+      "fcost",
+      "fmax",
+      "fmin",
+      "target",
+      "uvalue"
+    ],
+    "fuel": [
+      "combustion_emission_factor",
+      "heat_content",
+      "max_offtake",
+      "max_offtake_cost",
+      "min_offtake",
+      "min_offtake_cost",
+      "price",
+      "upstream_emission_factor"
+    ],
+    "generator": [
+      "emission_rate",
+      "gcost",
+      "generation",
+      "generation_prev",
+      "heat_rate",
+      "lossfactor",
+      "pmax",
+      "pmin"
+    ],
+    "hydrogen_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "line": [
+      "flow",
+      "lossfactor",
+      "phase_shift_deg",
+      "reactance",
+      "resistance",
+      "tap_ratio",
+      "tcost",
+      "tmax_ab",
+      "tmax_ba",
+      "voltage"
+    ],
+    "lng_terminal": [
+      "delivery"
+    ],
+    "reserve_provision": [
+      "dn",
+      "up"
+    ],
+    "reservoir": [
+      "capacity",
+      "ecost",
+      "efin",
+      "emax",
+      "emin"
+    ],
+    "thermal_storage": [
+      "ecost",
+      "emax",
+      "emin",
+      "input_efficiency",
+      "output_efficiency"
+    ],
+    "turbine": [
+      "capacity",
+      "efficiency",
+      "production_factor"
+    ],
+    "user_constraint": [
+      "rhs"
+    ],
+    "volume_right": [
+      "demand",
+      "emax",
+      "emin",
+      "fail_cost",
+      "fmax",
+      "saving_rate"
+    ],
+    "waterway": [
+      "capacity",
+      "fcost",
+      "flow",
+      "fmax",
+      "fmin",
+      "lossfactor"
+    ]
+  },
+  "_provenance": "static: ampl_dispatch_registry.cpp params \u222a observed support/**/*.pampl (INCOMPLETE \u2014 per-class LP variables only where a .pampl already uses them; regenerate with --registry-dump from gtopt --dump-ampl-registry)"
+}

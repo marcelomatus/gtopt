@@ -463,19 +463,21 @@ def test_writer_reservoir_emits_efin_and_scost() -> None:
     assert "spillway_capacity" not in out[0]
 
 
-def test_writer_reservoir_no_spillway_when_no_penalty() -> None:
-    """Reservoirs without a PLEXOS spill penalty must NOT get a default
-    internal spillway_cost — spillage is routed via the explicit
-    ``Vert_*`` Waterway → ``<source>_ocean`` drain junction
-    instead.
+def test_writer_reservoir_default_internal_drain() -> None:
+    """Reservoirs without a PLEXOS spill penalty get the PLEXOS-faithful
+    default internal drain at ``spillway_cost = 0.0`` (free out-of-basin
+    "spill-to-sea" valve).
 
-    The previous default ($1000/MWh internal drain on every
-    reservoir) gave the LP two equivalent escape paths and let it
-    arbitrage between them under degeneracy.  When PLEXOS does
-    ship a per-storage ``Spill Penalty``, the extractor populates
-    ``spill_penalty_per_mwh`` and the writer honours it; otherwise
-    the field is omitted and ``storage_lp.cpp`` skips the drain
-    column entirely.
+    Cost is 0 because the drain spills OUT of the basin (water is gone, so
+    a free drain cannot waste usable water) and a positive cost would push
+    the reservoir's marginal water value artificially negative on spill.
+    This replicates PLEXOS's per-storage spill column and matches
+    plp2gtopt.  The companion ``Vert_*`` → ``<source>_ocean`` spill-out
+    waterways are dropped in ``extract_waterways`` when the drain is on,
+    so each reservoir has exactly ONE basin exit (no double escape path).
+    ``spillway_capacity`` is left UNSET — ``storage_lp.hpp`` defaults the
+    per-block drain upper bound to DblMax, so setting just the cost
+    activates the drain.
     """
     reservoirs = (
         ReservoirSpec(
@@ -486,8 +488,26 @@ def test_writer_reservoir_no_spillway_when_no_penalty() -> None:
         ),
     )
     out = build_reservoir_array(reservoirs)
-    assert "spillway_cost" not in out[0]
+    assert out[0]["spillway_cost"] == 0.0
     assert "spillway_capacity" not in out[0]
+
+
+def test_writer_reservoir_never_drain_disables_internal_drain() -> None:
+    """``never_drain`` (ELTORO) keeps the drain OFF: ``spillway_cost``
+    UNSET and ``spillway_capacity = 0`` — water leaves only via turbines.
+    """
+    reservoirs = (
+        ReservoirSpec(
+            object_id=3,
+            name="ELTORO",
+            emax=12000.0,
+            eini=12000.0,
+            never_drain=True,
+        ),
+    )
+    out = build_reservoir_array(reservoirs)
+    assert "spillway_cost" not in out[0]
+    assert out[0]["spillway_capacity"] == 0.0
 
 
 def test_writer_waterway_skips_unresolved_endpoints() -> None:

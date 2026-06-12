@@ -194,10 +194,21 @@ struct BasicTaskRequirements
   int estimated_threads = 1;
   std::chrono::milliseconds estimated_duration {1000};
   TaskPriority priority = TaskPriority::Medium;
-  /// Secondary sort key.  With the default `std::less<Key>` comparator on
-  /// the pool, the task with the **smaller** key is dequeued first within
-  /// the same `TaskPriority` tier.
+  /// Sort key.  With the default `std::less<Key>` comparator on the pool,
+  /// the task with the **smaller** key is dequeued first.  This key is the
+  /// SOLE ordering criterion (see `Task::operator<`): `TaskPriority` no
+  /// longer participates in queue ordering — it only controls the dispatch
+  /// gate (Critical relaxes the memory/CPU gates).
   Key priority_key = Key {};
+  /// Admission flag, fully decoupled from ordering.  When true, the task may
+  /// be dispatched even when physical CPU load is at/above the pool's
+  /// saturation threshold (it gets the same `max_cpu_threshold_ + 5 %`
+  /// relaxation `TaskPriority::High` used to grant).  This splits the
+  /// "bypass the CPU gate" intent off `TaskPriority` so a task can order LOW
+  /// (by its `priority_key`) yet still bypass the gate — dissolving the
+  /// SDDP sim⇄wedge trap where `High` was used only for gate-bypass but also
+  /// reordered ahead of every same-iteration training task.
+  bool gate_bypass = false;
   std::optional<std::string> name;
 };
 
@@ -264,19 +275,23 @@ public:
   /// in a max-heap: the task at the top — the "greatest" — is dequeued
   /// first).
   ///
+  /// Ordering is driven by the `priority_key` ALONE — `TaskPriority` does
+  /// NOT participate.  Overloading the enum onto both queue ordering and the
+  /// CPU-gate-bypass class created a trap: raising a task to `High` to let it
+  /// bypass the CPU gate also reordered it ahead of every lower-tier task
+  /// regardless of key (and demoting it back reintroduced the gate wedge).
+  /// Gate-bypass now lives on the independent `gate_bypass` flag, leaving
+  /// `priority_key` as the single source of truth for execution order.
+  ///
   /// Ordering:
-  ///  1. `TaskPriority` tier: higher enum value = higher priority.
-  ///  2. `Key` comparison via `KeyCompare`:
+  ///  1. `Key` comparison via `KeyCompare`:
   ///     `KeyCompare(key1, key2) == true` ⟹ key1 has **higher** priority.
   ///     In a max-heap this means `operator<` returns true when `other`
   ///     has higher priority, i.e. `KeyCompare(other.key, this.key)`.
   ///     With the default `std::less<Key>`: smaller key → higher priority.
-  ///  3. Tie-break: older submission → higher priority.
+  ///  2. Tie-break: older submission → higher priority.
   bool operator<(const Task& other) const noexcept
   {
-    if (requirements_.priority != other.requirements_.priority) {
-      return requirements_.priority < other.requirements_.priority;
-    }
     const KeyCompare cmp {};
     if (requirements_.priority_key != other.requirements_.priority_key) {
       // cmp(other.key, this.key): if true, other has higher priority,
@@ -1431,16 +1446,17 @@ private:
             >= static_cast<int>(max_threads * 0.8))
     {
       const auto cpu_load = cpu_monitor_.get_physical_load();
+      // CPU-gate relaxation is an ADMISSION concern, independent of queue
+      // ordering.  `Critical` keeps its fixed 95 % ceiling; any task with
+      // `gate_bypass` set (regardless of `TaskPriority`) gets the same
+      // `+5 %` headroom `High` used to grant — this is what lets the SDDP
+      // sim task bypass the saturation wedge without reordering ahead of
+      // still-training peers.
       auto cpu_threshold = max_cpu_threshold_;
-      switch (next_task.requirements().priority) {
-        case TaskPriority::Critical:
-          cpu_threshold = 95.0;
-          break;
-        case TaskPriority::High:
-          cpu_threshold = max_cpu_threshold_ + 5.0;
-          break;
-        default:
-          break;
+      if (is_critical) {
+        cpu_threshold = 95.0;
+      } else if (next_task.requirements().gate_bypass) {
+        cpu_threshold = max_cpu_threshold_ + 5.0;
       }
       if (cpu_load >= cpu_threshold) {
         throttled_cpu_.fetch_add(1, std::memory_order_relaxed);

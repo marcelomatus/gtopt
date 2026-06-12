@@ -255,6 +255,11 @@ TEST_CASE("check_solvers - add_rows [solver=osi]")
   using namespace gtopt;
   run_named_test_on_solver("osi", "add_rows");
 }
+TEST_CASE("check_solvers - add_rows [solver=cuopt]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("cuopt", "add_rows");
+}
 TEST_CASE("check_solvers - add_cols [solver=clp]")
 {
   using namespace gtopt;
@@ -289,6 +294,11 @@ TEST_CASE("check_solvers - add_cols [solver=osi]")
 {
   using namespace gtopt;
   run_named_test_on_solver("osi", "add_cols");
+}
+TEST_CASE("check_solvers - add_cols [solver=cuopt]")
+{
+  using namespace gtopt;
+  run_named_test_on_solver("cuopt", "add_cols");
 }
 // NOLINTEND(google-build-using-namespace)
 TEST_CASE("check_solvers - obj_coeff")  // NOLINT

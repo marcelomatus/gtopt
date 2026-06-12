@@ -74,6 +74,23 @@ else()
   message(STATUS "Solver plugin: Gurobi skipped (Gurobi not found; set GUROBI_HOME or GUROBI_ROOT_DIR)")
 endif()
 
+# ---- cuOpt plugin (NVIDIA GPU solver; stable C API only) ----
+# Gated like the other optional solvers.  FindCuOpt auto-detects the pip
+# `libcuopt-cu12` wheel via `python -c "import libcuopt"`, or honours
+# CUOPT_HOME / CUOPT_ROOT_DIR.  Disable with -DGTOPT_DISABLE_CUOPT=ON.
+
+find_package(CuOpt QUIET)
+if(CUOPT_FOUND)
+  if(CUOPT_VERSION)
+    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_VERSION} at ${CUOPT_INCLUDE_DIR})")
+  else()
+    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_INCLUDE_DIR})")
+  endif()
+  add_subdirectory(cuopt)
+else()
+  message(STATUS "Solver plugin: cuOpt skipped (cuOpt not found; pip install libcuopt-cu12 or set CUOPT_HOME)")
+endif()
+
 if(highs_FOUND OR HIGHS_FOUND)
   # Config-mode sets the highs::highs imported target.
   # Legacy Find-module mode sets HIGHS_INCLUDE_DIRS / HIGHS_LIBRARIES.

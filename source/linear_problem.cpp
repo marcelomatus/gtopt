@@ -1125,6 +1125,115 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     }
   }
 
+  // ── LP_QUALITY: column / row BOUND envelope (Phase 3b) ────────────────
+  // Distinct from the coefficient (matrix-value) checks above — this scans
+  // the post-flatten BOUND vectors (collb / colub / rowlb / rowub), not the
+  // matrix coefficients.  GPU first-order / heuristic solvers (cuOpt
+  // feasibility-jump, PDLP) choke on two bound pathologies the coefficient
+  // verdict cannot see:
+  //   (a) a *free* column — both bounds at the ±infinity sentinel — which
+  //       has no box to project onto; and
+  //   (b) a very large *finite* bound (|b| >= 1e7) on a column or a row,
+  //       which wrecks the proximal-step / primal-dual scaling.
+  // Reports a count plus the first offending element name at warn level;
+  // gated by the same validation toggle as the coefficient verdict.
+  if (opts.validation.effective_enable()) {
+    const double inf = m_infinity_;
+    constexpr double kLargeBound = 1.0e7;
+    const auto is_inf = [inf](double b) { return std::abs(b) >= inf; };
+    const auto is_big = [&](double b)
+    { return !is_inf(b) && std::abs(b) >= kLargeBound; };
+
+    constexpr auto npos = std::numeric_limits<std::size_t>::max();
+    std::size_t free_cols = 0;
+    std::size_t first_free_col = npos;
+    std::size_t big_cols = 0;
+    std::size_t first_big_col = npos;
+    std::size_t big_rows = 0;
+    std::size_t first_big_row = npos;
+
+    for (std::size_t c = 0; c < collb.size(); ++c) {
+      if (collb[c] <= -inf && colub[c] >= inf) {
+        if (free_cols++ == 0) {
+          first_free_col = c;
+        }
+      }
+      if (is_big(collb[c]) || is_big(colub[c])) {
+        if (big_cols++ == 0) {
+          first_big_col = c;
+        }
+      }
+    }
+    for (std::size_t r = 0; r < rowlb.size(); ++r) {
+      if (is_big(rowlb[r]) || is_big(rowub[r])) {
+        if (big_rows++ == 0) {
+          first_big_row = r;
+        }
+      }
+    }
+
+    if (free_cols > 0 || big_cols > 0 || big_rows > 0) {
+      const std::string ctx_prefix = (opts.flatten_scene_uid.has_value()
+                                      && opts.flatten_phase_uid.has_value())
+          ? std::format("[s{} p{}] ",
+                        opts.flatten_scene_uid->value(),
+                        opts.flatten_phase_uid->value())
+          : std::string {};
+      const auto col_name = [&](std::size_t c) -> std::string
+      {
+        if (c < col_labels_meta.size()
+            && !col_labels_meta[c].class_name.empty())
+        {
+          const auto& l = col_labels_meta[c];
+          return std::format(
+              "{}[{}].{}", l.class_name, l.variable_uid, l.variable_name);
+        }
+        return std::format("col#{}", c);
+      };
+      const auto row_name = [&](std::size_t r) -> std::string
+      {
+        if (r < row_labels_meta.size()
+            && !row_labels_meta[r].class_name.empty())
+        {
+          const auto& l = row_labels_meta[r];
+          return std::format(
+              "{}[{}].{}", l.class_name, l.variable_uid, l.constraint_name);
+        }
+        return std::format("row#{}", r);
+      };
+
+      if (free_cols > 0) {
+        spdlog::warn(
+            "{}LP_QUALITY: {} FREE column(s) [both bounds infinite] "
+            "— first {} (col {})",
+            ctx_prefix,
+            free_cols,
+            col_name(first_free_col),
+            first_free_col);
+      }
+      if (big_cols > 0) {
+        spdlog::warn(
+            "{}LP_QUALITY: {} column(s) with |bound| >= {:.0e} "
+            "— first {} (col {})",
+            ctx_prefix,
+            big_cols,
+            kLargeBound,
+            col_name(first_big_col),
+            first_big_col);
+      }
+      if (big_rows > 0) {
+        spdlog::warn(
+            "{}LP_QUALITY: {} row(s) with |bound| >= {:.0e} "
+            "— first {} (row {})",
+            ctx_prefix,
+            big_rows,
+            kLargeBound,
+            row_name(first_big_row),
+            first_big_row);
+      }
+    }
+  }
+
   return {
       .ncols = static_cast<fp_index_t>(ncols),
       .nrows = static_cast<fp_index_t>(nrows),

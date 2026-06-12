@@ -26,8 +26,10 @@
  * The optional ``cost`` adds the column to the LP objective.  How it
  * folds in depends on ``cost_type``; the default is ``"raw"`` (face value,
  * NO probability/discount/duration weighting), matching the PLEXOS penalty
- * DecisionVariables.  Bounds default to the free LP range
- * (``[-LP_INFINITY, LP_INFINITY]``) when unset.
+ * DecisionVariables.  When unset, the lower bound defaults to ``0``
+ * (non-negative — never a free unbounded-below column, which breaks GPU
+ * first-order solvers) and the upper bound to ``+LP_INFINITY``; an
+ * α-rebased column (``obj_constant`` set) instead defaults free below.
  */
 
 #pragma once
@@ -56,9 +58,13 @@ struct DecisionVariable
   OptName description {};  ///< Optional free-text description (e.g. conversion
                            ///< provenance)
 
-  /// Lower bound on the LP column.  When unset the LP treats the
-  /// column as ``≥ -LP_INFINITY`` (free below); set to ``0`` to enforce
-  /// a non-negative variable.
+  /// Lower bound on the LP column.  When unset the LP defaults the column
+  /// to ``≥ 0`` (non-negative) so it never emits a *free* unbounded-below
+  /// column (which breaks GPU first-order / heuristic solvers); set
+  /// explicitly to a negative value (or ``-LP_INFINITY``) to make the
+  /// column free below.  EXCEPTION: when ``obj_constant`` is set (an
+  /// α-rebased column whose value can be negative), an unset
+  /// ``lower_bound`` defaults to ``-LP_INFINITY`` (free below) instead.
   OptReal lower_bound {};
 
   /// Upper bound on the LP column.  When unset the LP treats the

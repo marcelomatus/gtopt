@@ -1307,6 +1307,111 @@ def test_extract_generators_units_out_multi_unit_partial(tmp_path: Path) -> None
     assert by_name["thermal_a"].pmax_profile[2] == 0.0
 
 
+def _build_nameplate_xml(max_capacity: float) -> str:
+    """Synthetic PLEXOS XML with a System→Generators collection carrying
+    a ``Max Capacity`` value on an offline hydro unit (object_id=10).
+
+    The generator is attached to a node (so it is not dropped as a
+    phantom) but ships no ``Gen_Rating`` row by itself; the test supplies
+    an explicit-zero rating CSV so the dispatch ``pmax`` collapses to 0
+    (PLEXOS holds the unit offline for the week) while ``Max Capacity``
+    preserves the physical nameplate.
+    """
+    return f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>22</class_id><name>Node</name></t_class>
+  <t_object>
+    <object_id>1</object_id><class_id>1</class_id><name>SEN</name>
+  </t_object>
+  <t_object>
+    <object_id>5</object_id><class_id>22</class_id><name>bus_north</name>
+  </t_object>
+  <t_object>
+    <object_id>10</object_id><class_id>2</class_id><name>COLBUN_U2</name>
+  </t_object>
+  <t_collection>
+    <collection_id>12</collection_id>
+    <parent_class_id>2</parent_class_id>
+    <child_class_id>22</child_class_id>
+    <name>Nodes</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>2</collection_id>
+    <parent_class_id>1</parent_class_id>
+    <child_class_id>2</child_class_id>
+    <name>Generators</name>
+  </t_collection>
+  <t_property>
+    <property_id>11</property_id><collection_id>2</collection_id>
+    <name>Max Capacity</name>
+  </t_property>
+  <t_membership>
+    <membership_id>900</membership_id>
+    <collection_id>12</collection_id>
+    <parent_object_id>10</parent_object_id>
+    <child_object_id>5</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>200</membership_id>
+    <collection_id>2</collection_id>
+    <parent_object_id>1</parent_object_id>
+    <child_object_id>10</child_object_id>
+  </t_membership>
+  <t_data>
+    <data_id>3001</data_id><membership_id>200</membership_id>
+    <property_id>11</property_id><value>{max_capacity}</value>
+  </t_data>
+</MasterDataSet>
+"""
+
+
+def test_extract_generators_nameplate_capture_offline_unit(tmp_path: Path) -> None:
+    """``Max Capacity`` is captured into ``nameplates_out`` UNCONDITIONALLY
+    for an offline unit whose dispatch ``pmax`` collapses to 0.
+
+    Mirrors the CEN-PCP case where PLEXOS zeroes ``Gen_Rating`` for units
+    it holds offline (COLBUN_U2, PEHUENCHE_U1, …): the dispatch ``pmax``
+    must stay 0 (PLEXOS-faithful) while the physical nameplate flows to
+    the reservoir extraction-flow estimator.
+    """
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_build_nameplate_xml(240.0))
+    # Explicit-zero Gen_Rating → the unit is offline all horizon, so
+    # pmax = max(profile) = 0.0 (the explicit_zero_profile guard).
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nCOLBUN_U2,2026,1,1,1,1,0\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    nameplates: dict[str, float] = {}
+    gens = extract_generators(db, bundle, nameplates_out=nameplates)
+    by_name = {g.name: g for g in gens}
+    # Dispatch pmax stays 0 — the offline unit is PLEXOS-faithful.
+    assert by_name["COLBUN_U2"].pmax == 0.0
+    # The physical nameplate is captured for the estimator regardless.
+    assert nameplates["COLBUN_U2"] == 240.0
+
+
+def test_extract_generators_nameplate_opt_in(tmp_path: Path) -> None:
+    """Without ``nameplates_out`` the extractor does not read Max Capacity
+    (back-compat: the map is purely opt-in and never pollutes the spec)."""
+    bundle, xml_path = _build_bundle(tmp_path)
+    _write_csv(
+        tmp_path,
+        "Gen_Rating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nthermal_a,2026,1,1,1,1,100\n",
+    )
+    db = load_xml(xml_path)
+    gens = extract_generators(db, bundle)
+    # GeneratorSpec carries no nameplate field — the map is external.
+    assert not hasattr(gens[0], "nameplate")
+    assert not hasattr(gens[0], "max_capacity")
+
+
 def test_extract_lines(tmp_path: Path) -> None:
     """Line endpoints picked up from Node From / Node To."""
     bundle, xml_path = _build_bundle(tmp_path)

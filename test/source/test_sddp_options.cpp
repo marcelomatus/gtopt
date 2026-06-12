@@ -385,4 +385,78 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
   }
 }
 
+TEST_CASE("SddpOptions - aperture_solve_mode default and construction")
+{
+  SUBCASE("default is unset (resolves to reduced_cost at the accessor)")
+  {
+    const SddpOptions opts {};
+    CHECK_FALSE(opts.aperture_solve_mode.has_value());
+    // The accessor PlanningOptionsLP::sddp_aperture_solve_mode() resolves an
+    // absent field to reduced_cost (the default aperture mode).
+    CHECK(opts.aperture_solve_mode.value_or(ApertureSolveMode::reduced_cost)
+          == ApertureSolveMode::reduced_cost);
+  }
+
+  SUBCASE("explicit reduced_cost")
+  {
+    const SddpOptions opts {
+        .aperture_solve_mode = ApertureSolveMode::reduced_cost,
+    };
+    REQUIRE(opts.aperture_solve_mode.has_value());
+    CHECK(*opts.aperture_solve_mode == ApertureSolveMode::reduced_cost);
+  }
+}
+
+TEST_CASE("ApertureSolveMode - enum name parsing and aliases")
+{
+  SUBCASE("canonical names")
+  {
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "cold")
+          == ApertureSolveMode::cold);
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "warm")
+          == ApertureSolveMode::warm);
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "reduced_cost")
+          == ApertureSolveMode::reduced_cost);
+  }
+
+  SUBCASE("back-compat aliases")
+  {
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "warm_start")
+          == ApertureSolveMode::warm);
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "barrier")
+          == ApertureSolveMode::reduced_cost);
+  }
+
+  SUBCASE("invalid value throws")
+  {
+    CHECK_FALSE(enum_from_name<ApertureSolveMode>("nope").has_value());
+    CHECK_THROWS_AS(
+        (void)require_enum<ApertureSolveMode>("aperture_solve_mode", "nope"),
+        std::invalid_argument);
+  }
+}
+
+TEST_CASE("SddpOptions - aperture_solve_mode merge")
+{
+  SUBCASE("overlay wins when set")
+  {
+    SddpOptions base {.aperture_solve_mode = ApertureSolveMode::cold};
+    SddpOptions overlay {
+        .aperture_solve_mode = ApertureSolveMode::reduced_cost,
+    };
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_solve_mode.has_value());
+    CHECK(*base.aperture_solve_mode == ApertureSolveMode::reduced_cost);
+  }
+
+  SUBCASE("base kept when overlay absent")
+  {
+    SddpOptions base {.aperture_solve_mode = ApertureSolveMode::warm};
+    SddpOptions overlay {};
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_solve_mode.has_value());
+    CHECK(*base.aperture_solve_mode == ApertureSolveMode::warm);
+  }
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)

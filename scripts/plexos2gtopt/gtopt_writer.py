@@ -181,18 +181,17 @@ def build_options(
             write_out if write_out is not None else _DEFAULT_WRITE_OUT_FALLBACK
         ),
         # NOTE: ``lp_matrix_options.equilibration_method`` intentionally
-        # left UNSET — the default Ruiz scaling rescales binary
-        # commitment column upper bounds (e.g. ``commitment_status_X``
-        # from [0, 1] to [0, 38.58] on CEN PCP weekly).  This is a
-        # known correctness bug (task #50), but switching to
-        # ``row_max``/``none`` here regresses production: the correctly-
-        # bounded LP exposes latent structural infeasibilities in
-        # PLEXOS RegRange UCs that the Ruiz-rescaled LP solves "around"
-        # (the LP "solves" on a semantically-wrong problem with
-        # fractional commitments up to 38.58, but it solves).  Tracked
-        # follow-up: make PLEXOS-side RegRange UCs soft like the CSF
-        # MinProvision fix (task #51) so the correctly-scaled LP can
-        # absorb the structural infeasibility at a high $/MWh penalty.
+        # left UNSET — gtopt then auto-selects Ruiz geometric-mean
+        # scaling for multi-bus Kirchhoff models (see
+        # ``effective_equilibration_method`` in gtopt_lp_runner.cpp),
+        # which conditions the DC-OPF constraint matrix far better than
+        # the ``row_max`` fallback.  The former task-#50 correctness bug
+        # — Ruiz rescaling binary ``commitment_status`` upper bounds
+        # from [0, 1] to [0, 38.58] — is now FIXED: ``apply_ruiz_scaling``
+        # pins integer-declared columns AND ``pin_scale``-tagged
+        # semantically-binary continuous columns (LP-relaxed commitment /
+        # startup / shutdown), so commitment bounds stay [0, 1] and
+        # backend integer enforcement is intact under Ruiz.
         "model_options": {
             "use_single_bus": use_single_bus,
             "use_kirchhoff": not use_single_bus,
@@ -2031,45 +2030,50 @@ def build_reservoir_array(
             # C++ means plexos2gtopt and plp2gtopt share one derivation path
             # (both just emit ``boundary_cuts.csv`` + ``efin``).
             _ = (water_values, soft_efin_reservoirs)  # now C++-derived
-        # Reservoir-internal drain is DISABLED by default, matching PLP's
-        # convention: spillage leaves the basin via an explicit ``Vert_*``
-        # Waterway routed to a ``<source>_ocean`` drain junction (added by
-        # :func:`extract_waterways` + :func:`_is_sink_junction`), not via
-        # an internal ``spillway_cost`` column on the storage balance row.
-        # The previous default ($1000/MWh internal drain on every
-        # reservoir) gave the LP two equivalent escape paths and let it
-        # arbitrage between them under degeneracy.
-        #
-        # When PLEXOS does ship a per-storage ``Spill Penalty`` (currently
-        # unset across CEN PCP), the extractor populates
-        # ``spill_penalty_per_mwh`` and we honour it here.  Otherwise the
-        # field is omitted and ``storage_lp.cpp`` skips the drain column.
+        # Reservoir-internal drain is ENABLED by default on every reservoir
+        # — this replicates PLEXOS's per-storage spill column (an unbounded
+        # "spill-to-sea" valve at a high penalty) and matches plp2gtopt,
+        # which uses the same per-storage ``spillway_cost`` drain.  The
+        # companion ``Vert_*`` → ``<source>_ocean`` spill-out waterways are
+        # NOW DROPPED in :func:`extract_waterways` when the drain is on, so
+        # each reservoir has exactly ONE way out of the basin (the internal
+        # drain) — no double escape path to arbitrage under degeneracy.
+        # ``storage_lp.hpp`` gates the drain column on
+        # ``spillway_cost.has_value() && spillway_capacity.value_or(1.0) >
+        # 0``; we set the cost and leave ``spillway_capacity`` UNSET so the
+        # C++ default (DblMax upper bound) applies — no ``1e30`` sentinel
+        # (it was removed as a free-column source).
         if res.never_drain:
-            # never_drain (ELTORO): disable the drain (spill) variable so
-            # water leaves ONLY through turbines.  Leave ``spillway_cost``
-            # UNSET so ``storage_lp`` adds no drain column, and pin
-            # ``spillway_capacity = 0`` as a guard so any drain that a spill
-            # mode would otherwise activate is bounded to zero.
+            # never_drain (ELTORO, the Laja cascade head): disable the drain
+            # (spill) variable so water leaves ONLY through turbines.  Leave
+            # ``spillway_cost`` UNSET so ``storage_lp`` adds no drain column,
+            # and pin ``spillway_capacity = 0`` as a guard so any drain that
+            # a spill mode would otherwise activate is bounded to zero.
             entry["spillway_capacity"] = 0.0
         elif res.spill_penalty_per_mwh > 0.0:
-            # gtopt ``spillway_cost`` is per-(m³/s)/h, PLEXOS reports
-            # per-MWh — multiply by the global default productibility
-            # (DESIGN.md §6).
+            # PLEXOS ships an explicit per-storage ``Spill Penalty`` — honour
+            # it (overrides the flat 1000 default).  gtopt ``spillway_cost``
+            # is per-(m³/s)/h, PLEXOS reports per-MWh — multiply by the
+            # global default productibility (DESIGN.md §6).
             entry["spillway_cost"] = res.spill_penalty_per_mwh * DEFAULT_FP_MED
         else:
-            # When ``GTOPT_RESERVOIR_SPILL=basic`` or ``strict`` (the
-            # ``--reservoir-spillway`` CLI flag), activate the
-            # reservoir-internal spillway with COST = 0.  Mirrors
-            # PLEXOS's implicit Storage-state spillage: when inflow
-            # exceeds the LP's downstream room (capped turbine +
-            # capped cascade exit), water "disappears" via this
-            # internal drain at no cost.  Mode semantics differ in
-            # extract_case where the duplicate-mechanism cleanup runs.
-            import os as _os
-
-            mode = _os.environ.get("GTOPT_RESERVOIR_SPILL", "").lower()
-            if mode in ("1", "true", "yes", "basic", "strict"):
-                entry["spillway_cost"] = 0.0
+            # PLEXOS-faithful default: a "spill-to-sea" internal drain on
+            # every reservoir (replicates PLEXOS's per-storage spill column;
+            # reverts 6dcf83e5d's Vert_*-to-ocean detour).
+            #
+            # COST = 0.  The drain spills OUT of the basin (to the ocean), so
+            # that water is genuinely gone — there is no in-basin use it could
+            # have served, so a 0 cost cannot make the LP "waste" usable water.
+            # A positive cost would only push the reservoir's marginal water
+            # value artificially NEGATIVE whenever it spills, polluting the
+            # water values / LMPs.  The old high $1000 penalty existed solely
+            # to stop the LP arbitraging between TWO escape paths (internal
+            # drain vs Vert_*-to-ocean); now that the redundant
+            # Vert_*-to-ocean arcs are dropped (single basin exit), there is
+            # nothing to arbitrate, so cost 0 is strictly better.  (The
+            # ``--reservoir-spillway`` / ``GTOPT_RESERVOIR_SPILL`` opt-in also
+            # set 0, so the default now matches it.)
+            entry["spillway_cost"] = 0.0
         # Default annual evaporation / seepage loss for hydroelectric
         # reservoirs — gtopt's ``Reservoir.annual_loss`` (p.u./year
         # linear) drives the energy-balance row coefficient
@@ -2440,7 +2444,18 @@ def build_decision_variable_array(
     general PLEXOS DecisionVariables (penalties, reserve VoRS, BESS knobs —
     discrete face-value costs).  Δt-weighting them (the old "power" default)
     over-charged them by the block length.
+
+    The FCF cost-to-go ``alpha_fcf`` column is NEVER emitted: the
+    end-of-horizon future-cost valuation is provided SOLELY by gtopt's
+    native C++ boundary-cut loader (``boundary_cuts.csv`` +
+    ``monolithic_options.boundary_cuts_file``).  Emitting an ``alpha_fcf``
+    DecisionVariable double-counts the cost-to-go (two α columns, two cuts,
+    a 2× terminal-storage gradient) and leaves a free LP column, so any such
+    spec (e.g. carried by a stale case object) is filtered out here.
     """
+    decision_variables = tuple(
+        dv for dv in decision_variables if not str(dv.name).startswith("alpha_fcf")
+    )
     out: list[dict[str, Any]] = []
     for i, dv in enumerate(decision_variables):
         entry: dict[str, Any] = {"uid": i + 1, "name": dv.name}
@@ -2539,6 +2554,15 @@ def build_user_constraint_array(
         padded.extend([0.0] * (target_len - len(padded)))
         return padded
 
+    # The FCF boundary cut is emitted natively (``boundary_cuts.csv`` +
+    # ``monolithic_options.boundary_cuts_file``), never as a UserConstraint.
+    # Drop any ``FCF_future_cost`` cut spec (e.g. carried by a stale case
+    # object) so it is not re-emitted — directly to JSON here or via
+    # ``.pampl`` downstream — since a UserConstraint encoding would
+    # double-count the cost-to-go against the native α column.
+    constraints = tuple(
+        uc for uc in constraints if not str(uc.name).startswith("FCF_future_cost")
+    )
     out: list[dict[str, Any]] = []
     for i, c in enumerate(constraints):
         entry: dict[str, Any] = {
@@ -3952,6 +3976,15 @@ def write_user_constraint_pampl(
     """
     if mode == "off":
         return [], []
+    # Defensive: never write the FCF boundary cut to a ``.pampl`` — the
+    # native ``boundary_cuts.csv`` carries the future cost.  (The
+    # ``FCF_future_cost`` row is normally already filtered upstream in
+    # ``build_user_constraint_array``; this guards alternate call paths.)
+    uc_array = [
+        uc
+        for uc in uc_array
+        if not str(uc.get("name", "")).startswith("FCF_future_cost")
+    ]
     kept = filter_user_constraints(
         uc_array, mode=mode, force_penalty=force_penalty, only=only, off=off
     )

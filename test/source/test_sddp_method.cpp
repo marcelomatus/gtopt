@@ -742,7 +742,8 @@ TEST_CASE(  // NOLINT
     sddp_opts.enable_api = false;
     sddp_opts.apertures = std::nullopt;  // use per-phase apertures
     sddp_opts.aperture_chunk_size = chunk_size;
-    sddp_opts.aperture_warm_start = warm_start;
+    sddp_opts.aperture_solve_mode =
+        warm_start ? ApertureSolveMode::warm : ApertureSolveMode::cold;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());

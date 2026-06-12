@@ -268,12 +268,13 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.api_stop_request_file == expected_api_stop);
 
     // ── Pool / async ──
-    // Default flipped 2026-05 from 2 → 1: tighter lockstep keeps the
-    // backward pass close to the forward pass on heterogeneous-scene
-    // runs, reducing race-condition drain cuts after convergence.
-    // Async dispatch is still enabled (>0); only the spread budget is
-    // tighter.
-    CHECK(so.max_async_spread == 1);
+    // Default flipped 2026-06 from 1 → 0 (synchronous coordinator path).
+    // Benchmarking on juan/IPLP found the lockstep coordinator path
+    // faster at every level (warmup −19 %, uninodal −35 %, transport
+    // −38 %, identical bounds): the async path pays an after-convergence
+    // overshoot and a shared-pool dispatch funnel, while scene-level
+    // priority is moot under lockstep.  Async dispatch is opt-in (> 0).
+    CHECK(so.max_async_spread == 0);
     CHECK(so.pool_cpu_factor == doctest::Approx(4.0));
     CHECK(so.pool_memory_limit_mb == doctest::Approx(0.0));
 

@@ -123,9 +123,11 @@ double solve(Direction dir,
           },
       .tmax_ba = kFmax,
       .tmax_ab = kFmax,
-      // PLEXOS-style ``Enforce Limits``: 0 = never, 1 = voltage-
-      // conditional (treated as 2 in our LP), 2 = always.  Mirrors
-      // the per-line override exposed in the schema.
+      // ``enforce_level`` is RETIRED (2026-06-10) — a no-op kept for
+      // schema back-compat.  Sweeping it over {0, 2} here only proves
+      // the loss model is invariant to the (ignored) flag; the cap
+      // always binds at ``tmax`` regardless.  Flow points stay ≤ 0.95·
+      // fmax so the cap never binds ahead of the loss model anyway.
       .enforce_level = OptInt {enforce_level},
       .capacity = kFmax,
   };
@@ -246,9 +248,10 @@ TEST_CASE(
       {.mode = "piecewise_direct", .pwl_layout = "uniform"},
   };
 
-  // PLEXOS Enforce Limits: 0 = never (caps released), 2 = always
-  // (default).  EL=1 (voltage-conditional) is treated identically to
-  // EL=2 in our LP (see line_lp.cpp:297-298), so skipping it is safe.
+  // ``enforce_level`` is RETIRED — a no-op.  Sweeping {0, 2} only
+  // confirms the loss model is independent of the (ignored) flag; the
+  // cap binds at ``tmax`` in both cases.  Flow points stay ≤ 0.95·fmax
+  // so the cap never binds ahead of the loss model.
   const std::vector<int> el_values = {0, 2};
 
   for (const auto& spec : models) {

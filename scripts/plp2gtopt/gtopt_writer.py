@@ -1426,6 +1426,25 @@ class GTOptWriter(
                         )
                         stamp_boundary_cuts_file_ref(self.planning, "boundary_cuts.csv")
 
+        # Topology-driven reservoir extraction-flow estimate (shared with
+        # plexos2gtopt).  Runs LAST so the reservoir_array is fully
+        # assembled AND the discharge parquet (written by
+        # ``process_afluents``) exists on disk — natural inflows are
+        # parquet references here, resolved from ``<output_dir>/Flow``.
+        # Replaces the generic C++ ReservoirLP -9000/6000 m³/s extraction
+        # defaults with tight per-reservoir bounds.  On by default;
+        # ``--no-reservoir-flow-estimate`` sets the option False.
+        if options is None or options.get("reservoir_flow_estimate", True):
+            from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
+                apply_reservoir_flow_estimates,
+            )
+
+            out_dir = options.get("output_dir") if options else None
+            apply_reservoir_flow_estimates(
+                self.planning,
+                input_dir=Path(out_dir) if out_dir is not None else None,
+            )
+
         return self.planning
 
     def write(self, options=None):

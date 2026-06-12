@@ -425,4 +425,117 @@ TEST_CASE(
   CHECK(logs.contains("LP_VALIDATION"));
 }
 
+// ── Flatten-time LP_QUALITY bound-envelope checks (Phase 3b) ───────────
+// Distinct from the add-time `LP_VALIDATION huge bound` hook above: these
+// scan the POST-flatten (scaled) bound vectors that are actually handed to
+// the solver, flag FREE columns (which the add-time hook deliberately does
+// NOT), and use the 1e7 GPU-solver threshold.
+
+TEST_CASE("LP_QUALITY: free column triggers FREE-column WARN")  // NOLINT
+{
+  test::LogCapture logs;
+
+  LinearProblem lp("free_col_test");
+  // A free column (both bounds infinite) plus a benign bounded column so
+  // the matrix is non-empty.  GPU first-order solvers cannot project the
+  // free column, so flatten() must warn.
+  const auto f = lp.add_col(SparseCol {}.free());
+  const auto x = lp.add_col(SparseCol {
+      .uppb = 100.0,
+      .cost = 1.0,
+  });
+  SparseRow row;
+  row[f] = 1.0;
+  row[x] = 1.0;
+  row.greater_equal(1.0);
+  (void)lp.add_row(std::move(row));  // NOLINT
+
+  LpMatrixOptions opts;
+  opts.compute_stats = true;
+  (void)lp.flatten(opts);
+
+  CHECK(logs.contains("LP_QUALITY"));
+  CHECK(logs.contains("FREE column"));
+}
+
+TEST_CASE(
+    "LP_QUALITY: large finite column bound triggers bound WARN")  // NOLINT
+{
+  test::LogCapture logs;
+
+  LinearProblem lp("big_col_bound");
+  // 1e8 finite upper bound — above the 1e7 GPU threshold.  No
+  // equilibration so the bound reaches flatten() un-rescaled.
+  const auto x = lp.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1e8,
+      .cost = 1.0,
+  });
+  SparseRow row;
+  row[x] = 1.0;
+  row.greater_equal(1.0);
+  (void)lp.add_row(std::move(row));  // NOLINT
+
+  LpMatrixOptions opts;
+  opts.compute_stats = true;
+  opts.equilibration_method = LpEquilibrationMethod::none;
+  (void)lp.flatten(opts);
+
+  CHECK(logs.contains("LP_QUALITY"));
+  CHECK(logs.contains("column(s) with |bound|"));
+}
+
+TEST_CASE(
+    "LP_QUALITY: large finite row bound triggers row-bound WARN")  // NOLINT
+{
+  test::LogCapture logs;
+
+  LinearProblem lp("big_row_bound");
+  const auto x = lp.add_col(SparseCol {
+      .uppb = 100.0,
+      .cost = 1.0,
+  });
+  SparseRow row;
+  row[x] = 1.0;
+  row.lowb = 0.0;
+  row.uppb = 1e9;  // huge finite row upper bound — above 1e7
+  (void)lp.add_row(std::move(row));  // NOLINT
+
+  LpMatrixOptions opts;
+  opts.compute_stats = true;
+  opts.equilibration_method = LpEquilibrationMethod::none;
+  (void)lp.flatten(opts);
+
+  CHECK(logs.contains("LP_QUALITY"));
+  CHECK(logs.contains("row(s) with |bound|"));
+}
+
+TEST_CASE("LP_QUALITY: clean LP emits no FREE/bound lines")  // NOLINT
+{
+  test::LogCapture logs;
+
+  LinearProblem lp("clean_bounds");
+  const auto g1 = lp.add_col(SparseCol {
+      .uppb = 200.0,
+      .cost = 30.0,
+  });
+  const auto g2 = lp.add_col(SparseCol {
+      .uppb = 150.0,
+      .cost = 50.0,
+  });
+  SparseRow balance;
+  balance[g1] = 1.0;
+  balance[g2] = 1.0;
+  balance.lowb = 100.0;
+  balance.uppb = 100.0;
+  (void)lp.add_row(std::move(balance));  // NOLINT
+
+  LpMatrixOptions opts;
+  opts.compute_stats = true;
+  (void)lp.flatten(opts);
+
+  CHECK(!logs.contains("FREE column"));
+  CHECK(!logs.contains("with |bound|"));
+}
+
 // NOLINTEND(misc-const-correctness)

@@ -36,6 +36,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/coordinator_pool.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -343,19 +344,8 @@ auto SDDPMethod::resolve_via_pool(
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
-  if (m_pool_ == nullptr) {
-    // No pool available — fall back to direct solve
-    return li.resolve(opts);
-  }
-
-  auto fut =
-      m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
-  return li.resolve(opts);
+  // Seam: all pool-backed LP solves go through the Tier-2 executor.
+  return m_solver_tier_.resolve_via_pool(li, opts, task_req);
 }
 
 // ── Helper: resolve a clone via the work pool ───────────────────────────────
@@ -366,21 +356,7 @@ auto SDDPMethod::resolve_clone_via_pool(
     const BasicTaskRequirements<SDDPTaskKey>& task_req)
     -> std::expected<int, Error>
 {
-  if (m_pool_ == nullptr) {
-    return clone.resolve(opts);
-  }
-
-  // Submit resolve to the pool.  The clone reference is safe because we
-  // call future.get() synchronously before this scope exits.
-  auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
-                             task_req);
-  if (fut.has_value()) {
-    return fut->get();
-  }
-  // Pool submission failed — fall back to direct solve
-  SPDLOG_WARN(
-      "resolve_clone_via_pool: pool submit failed, falling back to direct");
-  return clone.resolve(opts);
+  return m_solver_tier_.resolve_clone_via_pool(clone, opts, task_req);
 }
 
 // ── feasibility_backpropagate() removed — forward pass installs fcuts ──────
@@ -849,10 +825,10 @@ auto SDDPMethod::backward_pass(SceneIndex scene_index,
 
 // ── Cut sharing (delegated to sddp_cut_sharing.hpp free function) ───────────
 
-auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
-                                             const SolverOptions& opts,
-                                             IterationIndex iteration_index)
-    -> std::expected<ForwardPassOutcome, Error>
+auto SDDPMethod::run_forward_pass_all_scenes(
+    [[maybe_unused]] SDDPWorkPool& pool,
+    const SolverOptions& opts,
+    IterationIndex iteration_index) -> std::expected<ForwardPassOutcome, Error>
 {
   const auto num_scenes = planning_lp().simulation().scene_count();
 
@@ -1038,24 +1014,25 @@ auto SDDPMethod::run_forward_pass_all_scenes(SDDPWorkPool& pool,
   std::vector<std::future<std::expected<double, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Forward-pass scene tasks: lower iteration = higher priority via
-  // `SDDPTaskKey`; all sit at TaskPriority::Medium.
-  const auto fwd_req = make_forward_lp_task_req(iteration_index);
+  // Forward-pass scene drivers run on the coordinator tier: one dedicated
+  // thread per scene, each solving its 51 phases inline (sequential).  This
+  // restores true num_scenes-wide parallelism without the shared solver
+  // pool's burst-submit dispatch race.  See
+  // docs/analysis/sddp-two-tier-workpool-migration.md.
+  CoordinatorPool coord {static_cast<std::size_t>(num_scenes)};
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (skip_scene[scene_index]) {
-      // Terminal-skip: no task submitted; the result-collection loop
+      // Terminal-skip: no driver spawned; the result-collection loop
       // below distinguishes this case via ``skip_scene[i]`` and
       // synthesises an infeasible outcome without calling ``.get()``
       // on the (default-constructed, invalid) future.
       futures.emplace_back();
       continue;
     }
-    auto fut = pool.submit(
+    futures.push_back(coord.run_driver(
         [this, scene_index, iteration_index, &opts]
-        { return forward_pass(scene_index, opts, iteration_index); },
-        fwd_req);
-    futures.push_back(std::move(fut.value()));
+        { return forward_pass(scene_index, opts, iteration_index); }));
   }
 
   ForwardPassOutcome out;
@@ -1272,30 +1249,31 @@ auto SDDPMethod::run_backward_pass_all_scenes(
   std::vector<std::future<std::expected<int, Error>>> futures;
   futures.reserve(num_scenes);
 
-  // Backward-pass scene tasks at TaskPriority::Medium; lower iteration
-  // = higher priority via `SDDPTaskKey`.  All scenes in this submission
-  // burst share the same key (one (iter, is_backward, kind) tuple) so
-  // dequeue order across scenes is FIFO.
-  const auto bwd_req = make_backward_lp_task_req(iteration_index);
+  // Backward-pass scene drivers run on the coordinator tier: one thread
+  // per scene, each solving its apertures inline (exec_pool=nullptr) so
+  // num_scenes scenes run wide without funnelling aperture chunks through
+  // the shared pool's dispatch.  See
+  // docs/analysis/sddp-two-tier-workpool-migration.md.
+  CoordinatorPool coord {static_cast<std::size_t>(num_scenes)};
 
   for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
     if (scene_feasible[scene_index] == 0U) {
       continue;
     }
     const bool use_ap = !m_options_.apertures || !m_options_.apertures->empty();
-    auto fut = use_ap
-        ? pool.submit(
-              [this, scene_index, &bwd_opts, iteration_index]
-              {
-                return backward_pass_with_apertures(
-                    scene_index, bwd_opts, iteration_index);
-              },
-              bwd_req)
-        : pool.submit(
-              [this, scene_index, &bwd_opts, iteration_index]
-              { return backward_pass(scene_index, bwd_opts, iteration_index); },
-              bwd_req);
-    futures.push_back(std::move(fut.value()));
+    futures.push_back(use_ap
+                          ? coord.run_driver(
+                                [this, scene_index, &bwd_opts, iteration_index]
+                                {
+                                  return backward_pass_with_apertures(
+                                      scene_index, bwd_opts, iteration_index);
+                                })
+                          : coord.run_driver(
+                                [this, scene_index, &bwd_opts, iteration_index]
+                                {
+                                  return backward_pass(
+                                      scene_index, bwd_opts, iteration_index);
+                                }));
   }
 
   BackwardPassOutcome out;

@@ -56,18 +56,16 @@ std::expected<void, Error> add_requirement(const std::string_view cname,
     }
     const double block_rreq_eff = effective;
 
-    // LP-size: a zero effective requirement makes the requirement row
-    // ``Σ pf · prov ≥ 0`` — trivially satisfied because every provision
-    // factor ``pf > 0`` and every provision column has lowb ≥ 0, so it
-    // can never bind.  The priced branch would also create a fixed-zero
-    // slack column (uppb = block_rreq_eff = 0).  Skip both.
-    //
-    // Write-out rule: a zero-requirement block needs zero reserve
-    // shortage, so the (absent) requirement column reads 0 and the
-    // (absent) row dual is 0 — the natural zero rendered as no-row.
-    if (block_rreq_eff == 0.0) {
-      continue;
-    }
+    // NOTE: do NOT skip the requirement row when ``block_rreq_eff == 0``.
+    // Although ``Σ pf·prov ≥ 0`` can never bind, the row's *existence* is
+    // load-bearing downstream: ``ReserveProvisionLP::add_provision`` builds
+    // ``req_row_maps`` from these rows and, when that set is empty for a
+    // (scenario, stage), returns early WITHOUT creating the provision
+    // column at all.  A reserve provision referenced by a UserConstraint
+    // (e.g. ``csf_rs_min_bat_del_desierto`` on PLEXOS 20260517) would then
+    // lose its column, the resolver silent-zeros the term, and the LP goes
+    // infeasible.  Eliminating this "always-slack" row is therefore NOT a
+    // no-op; the LP-size saving is not worth the correctness hazard.
 
     // `rr.cost` is now per-(stage, block): resolve per block via the
     // overload that consults `model_options.reserve_shortage_cost` as

@@ -482,12 +482,13 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     /// regular single-system path).  Referenced storage must outlive the
     /// call (the caller's vector) — the chunk tasks read it while solving.
     std::span<const StateVarLink> cut_links = {},
-    /// Opt-in warm-start of in-chunk aperture re-solves.  When true and a
-    /// chunk holds more than one aperture, the first aperture is solved
-    /// normally (establishing a basis on the shared clone) and every
-    /// subsequent aperture warm-starts off that resident basis with a
-    /// simplex re-solve (`SolverOptions::advanced_basis`).  Default false
-    /// (cold barrier each aperture, legacy behaviour).
-    bool aperture_warm_start = false) -> std::optional<SparseRow>;
+    /// Aperture solve / cut-recovery mode.  `cold` (default): cold barrier
+    /// + crossover per aperture.  `warm`: first aperture in a chunk seeds a
+    /// basis and subsequent apertures warm-start off it with a simplex
+    /// re-solve (`SolverOptions::advanced_basis`; chunk_size > 1 only).
+    /// `reduced_cost`: cold barrier without crossover, cut from
+    /// interior-point reduced costs.  See `ApertureSolveMode`.
+    ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost)
+    -> std::optional<SparseRow>;
 
 }  // namespace gtopt

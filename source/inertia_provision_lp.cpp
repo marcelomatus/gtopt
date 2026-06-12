@@ -146,7 +146,7 @@ bool InertiaProvisionLP::add_to_lp(const SystemContext& sc,
       // is identically 0.  Skip the fixed-zero column, the coupling row,
       // and the zone-coefficient stamps.  Write-out rule: an absent
       // provision column reads 0 (no inertia provided this block).
-      if (block_pmax <= 0.0) {
+      if (sc.options().lp_reduction() && block_pmax <= 0.0) {
         continue;
       }
 

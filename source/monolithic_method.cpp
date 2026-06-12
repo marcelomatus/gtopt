@@ -160,6 +160,33 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
               .add_obj_constant(c);
         }
       }
+
+      // ── α finite box (GPU-clean) ──
+      // The boundary-cut install released the last-phase α from its
+      // bootstrap pin and floored it (`bound_alpha_for_cut`), but left the
+      // UPPER bound at +∞ — α is the one remaining FREE column in the
+      // assembled monolithic LP, which GPU first-order / heuristic backends
+      // reject (cuOpt PDLP / feasibility-jump cannot project a free column;
+      // it trips the "Free variable found" presolve warning).  α is SIGNED
+      // (cost-to-go relative to the mean-shifted expected final state), so
+      // it needs a finite BOX `[floor, ceil]`, not a one-sided floor.  Now
+      // that the FULL boundary-cut set is installed, re-bound each scene's
+      // last-phase α with `bound_above=true`: the floor and ceiling are both
+      // derived from the cut's SIGNED subgradients × each referenced STATE
+      // VARIABLE's signed [min,max] range — any state column (reservoir
+      // efin, battery energy, …), not reservoirs only — via signed interval
+      // arithmetic, in the rebased-physical frame (`cut.lowb` carries the
+      // mean-shift `c`) and divided by `scale_alpha` by the physical bound
+      // setters.  Only safe here — NOT in the SDDP per-cut path, where a
+      // later cut can legitimately raise α above an early-cut-derived
+      // ceiling.
+      for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+        apply_alpha_floor(planning_lp,
+                          scene_index,
+                          last_phase,
+                          SystemKind::forward,
+                          /*bound_above=*/true);
+      }
     } else {
       SPDLOG_WARN("MonolithicMethod: failed to load boundary cuts: {}",
                   bc_result.error().message);
