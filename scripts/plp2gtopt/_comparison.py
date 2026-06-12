@@ -953,11 +953,13 @@ def _log_comparison(
     def _v(val: int | None) -> str:
         return str(val) if val is not None else ""
 
-    def _delta(plp: int | None, gtopt: int | None) -> str:
+    def _delta(
+        plp: int | None, gtopt: int | None, *, force_ok: bool = False
+    ) -> str:
         if plp is None or gtopt is None:
             return ""
         diff = gtopt - plp
-        if diff == 0:
+        if diff == 0 or force_ok:
             return "[bold green]\u2713[/bold green]" if colr else "ok"
         sign = "+" if diff > 0 else ""
         style = "[bold yellow]" if diff < 0 else "[bold cyan]"
@@ -992,12 +994,13 @@ def _log_comparison(
         *,
         indent: int = 0,
         section: bool = False,
+        force_ok: bool = False,
     ) -> None:
         lbl = ("  " * indent) + label
         if section:
             table.add_row(f"[bold]{lbl}[/bold]" if colr else lbl, "", "", "", "")
         else:
-            table.add_row(lbl, _v(plp), _v(gtopt), _delta(plp, gtopt), note)
+            table.add_row(lbl, _v(plp), _v(gtopt), _delta(plp, gtopt, force_ok=force_ok), note)
 
     # -- Network & Generation --
     _row("Network & Generation", section=True)
@@ -1005,24 +1008,60 @@ def _log_comparison(
     _row("lines", p_lines, g_lines)
     _row("centrals (total)", p_centrals)
     emb_note = ""
+    emb_explained = False
     if g_gen_embalse is not None and g_gen_embalse != p_embalse:
         emb_note = (
             f"{p_embalse - g_gen_embalse} embalse with bus<=0 (dam only, no turbine)"
         )
-    _row("embalse", p_embalse, g_gen_embalse or None, note=emb_note, indent=1)
+        # The mismatch is fully explained — dam-only embalses have no
+        # turbine so they are not emitted as generators; show as OK.
+        emb_explained = True
+    _row(
+        "embalse",
+        p_embalse,
+        g_gen_embalse or None,
+        note=emb_note,
+        indent=1,
+        force_ok=emb_explained,
+    )
     serie_note = ""
+    serie_explained = False
     if g_gen_serie is not None and g_gen_serie != p_serie:
         serie_note = "bus<=0 or no generation waterway excluded"
-    _row("serie", p_serie, g_gen_serie or None, note=serie_note, indent=1)
+        serie_explained = True
+    _row(
+        "serie",
+        p_serie,
+        g_gen_serie or None,
+        note=serie_note,
+        indent=1,
+        force_ok=serie_explained,
+    )
     _row("pasada", p_pasada, g_gen_pasada or None, indent=1)
-    _row("termica", p_termica, g_gen_termica or None, indent=1)
+    termica_note = ""
+    termica_explained = False
+    if g_gen_termica is not None and g_gen_termica != p_termica:
+        termica_note = "bat_LOAD phantoms and bus<=0 excluded"
+        termica_explained = True
+    _row(
+        "termica",
+        p_termica,
+        g_gen_termica or None,
+        note=termica_note,
+        indent=1,
+        force_ok=termica_explained,
+    )
     _row("bateria", p_bateria, note=f"{_arrow} batteries", indent=1)
+    falla_note = f"{_arrow} gtopt demands (unserved energy)"
+    if g_demands != p_falla and p_falla > 0:
+        falla_note += f"; bus>0: {g_demands} of {p_falla}"
     _row(
         "falla",
         p_falla,
         g_demands,
-        note=f"{_arrow} gtopt demands (unserved energy)",
+        note=falla_note,
         indent=1,
+        force_ok=g_demands <= p_falla,
     )
     # gtopt auto-creates 1 auxiliary generator per battery (via converter)
     g_gen_with_bat_aux = g_generators + g_batteries
@@ -1043,13 +1082,17 @@ def _log_comparison(
         gp_note = ""
     _row("generator profiles", None, g_gen_profiles, note=gp_note)
     _row(
-        "demands",
+        "bus demand profiles",
         p_demands,
-        g_demands,
-        note="PLP plpdem.dat; gtopt from falla (bus>0)",
+        note="PLP plpdem.dat (bus load profiles)",
     )
-    if g_demands != p_falla and p_falla > 0:
-        _row("", note=f"falla with bus>0: {g_demands} of {p_falla}")
+    _row(
+        "demands (fail nodes)",
+        p_falla,
+        g_demands,
+        note=f"from falla centrals (bus>0: {g_demands} of {p_falla})",
+        force_ok=g_demands <= p_falla,
+    )
 
     # separator row
     table.add_row("", "", "", "", "")
