@@ -448,13 +448,19 @@ template<typename T, typename Vector>
 [[nodiscard]] const Fuel* find_fuel(const gtopt::Array<Fuel>& fuel_array,
                                     const SingleId& ref) noexcept
 {
-  const auto it = std::ranges::find_if(fuel_array,
-                                       [&](const Fuel& f)
-                                       {
-                                         return std::holds_alternative<Uid>(ref)
-                                             ? f.uid == std::get<Uid>(ref)
-                                             : f.name == std::get<Name>(ref);
-                                       });
+  const auto it =
+      std::ranges::find_if(fuel_array,
+                           [&](const Fuel& f)
+                           {
+                             // get_if (non-throwing) keeps this noexcept lookup
+                             // free of bad_variant_access; the alternatives are
+                             // discriminated here.
+                             if (const auto* uid = std::get_if<Uid>(&ref)) {
+                               return f.uid == *uid;
+                             }
+                             const auto* name = std::get_if<Name>(&ref);
+                             return name != nullptr && f.name == *name;
+                           });
   return it == fuel_array.end() ? nullptr : &*it;
 }
 

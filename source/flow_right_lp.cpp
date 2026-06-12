@@ -670,10 +670,11 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   // typically used for steady environmental releases that don't need
   // a pass-through alternative.
   const auto& bypass_ref = flow_right().bypass_junction;
+  const auto& junction_ref = flow_right().junction;
   if (bypass_ref.has_value() && mode != FlowMode::stage_uniform
-      && flow_right().junction.has_value())
+      && junction_ref.has_value())
   {
-    const JunctionLPSId src_sid(*flow_right().junction);
+    const JunctionLPSId src_sid(*junction_ref);
     const JunctionLPSId dst_sid(*bypass_ref);
     const auto& src_lp = sc.element(src_sid);
     const auto& dst_lp = sc.element(dst_sid);

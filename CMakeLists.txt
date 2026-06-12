@@ -100,17 +100,27 @@ CPMAddPackage(
 # `json_details::serialization::set_bits` inside `namespace json_details`
 # resolves as `json_details::json_details::serialization::set_bits` on
 # GCC 14/15 and Clang ≥ 21.  Replace with absolute `::daw::json::…`.
+#
+# This patches the *shared* CPM cache in place and re-runs on every
+# configure, so it MUST be idempotent.  The replacement string itself
+# contains the search substring, so guard on the already-patched marker
+# first — otherwise a second configure would prepend `::daw::json::`
+# again and produce the broken `::daw::json::::daw::json::…`.
 set(_daw_to_json "${daw_SOURCE_DIR}/include/daw/json/daw_to_json.h")
 if(EXISTS "${_daw_to_json}")
   file(READ "${_daw_to_json}" _daw_src)
-  string(FIND "${_daw_src}" "json_details::serialization::set_bits" _daw_pos)
-  if(NOT _daw_pos EQUAL -1)
-    string(REPLACE
-      "json_details::serialization::set_bits"
-      "::daw::json::json_details::serialization::set_bits"
-      _daw_src "${_daw_src}")
-    file(WRITE "${_daw_to_json}" "${_daw_src}")
-    message(STATUS "Patched daw_to_json.h: absolute ::daw::json::json_details::serialization::set_bits")
+  string(FIND "${_daw_src}"
+    "::daw::json::json_details::serialization::set_bits" _daw_done)
+  if(_daw_done EQUAL -1)
+    string(FIND "${_daw_src}" "json_details::serialization::set_bits" _daw_pos)
+    if(NOT _daw_pos EQUAL -1)
+      string(REPLACE
+        "json_details::serialization::set_bits"
+        "::daw::json::json_details::serialization::set_bits"
+        _daw_src "${_daw_src}")
+      file(WRITE "${_daw_to_json}" "${_daw_src}")
+      message(STATUS "Patched daw_to_json.h: absolute ::daw::json::json_details::serialization::set_bits")
+    endif()
   endif()
 endif()
 

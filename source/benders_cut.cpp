@@ -1497,7 +1497,7 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     auto sibling_context = context;
     if (has_iter_ctx) {
       auto& it_ctx = std::get<IterationContext>(sibling_context);
-      std::get<3>(it_ctx) = base_extra * kExtraStride + link_idx;
+      std::get<3>(it_ctx) = (base_extra * kExtraStride) + link_idx;
     }
 
     auto cut = SparseRow {

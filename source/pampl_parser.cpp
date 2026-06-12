@@ -213,13 +213,15 @@ double resolve_scalar_param(const std::vector<UserParam>& params,
 {
   const auto it = std::ranges::find_if(
       params, [&ref](const UserParam& p) { return p.name == ref; });
-  if (it == params.end() || !it->value) {
-    throw std::invalid_argument(
-        std::format("PAMPL: value references unknown or non-scalar "
-                    "param '{}'",
-                    ref));
+  if (it != params.end()) {
+    if (const auto& value = it->value) {
+      return *value;
+    }
   }
-  return *it->value;
+  throw std::invalid_argument(
+      std::format("PAMPL: value references unknown or non-scalar "
+                  "param '{}'",
+                  ref));
 }
 
 double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params);

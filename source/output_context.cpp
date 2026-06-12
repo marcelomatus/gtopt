@@ -320,8 +320,8 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
   std::vector<Type> long_value;
   std::vector<float> long_value_f32;
   // Optional null mask — only populated if any field carried valids.
-  std::vector<bool> long_valid;
-  bool any_invalid = false;
+  const std::vector<bool> long_valid;
+  const bool any_invalid = false;
 
   // Cache the prelude row vectors as plain ints so the per-row indexing
   // below avoids re-walking the Arrow arrays.  Falls back to empty
@@ -882,6 +882,11 @@ void OutputContext::write() const
           shard_throttle.acquire();
           struct ReleaseGuard
           {
+            ReleaseGuard() = default;
+            ReleaseGuard(const ReleaseGuard&) = delete;
+            ReleaseGuard(ReleaseGuard&&) = delete;
+            ReleaseGuard& operator=(const ReleaseGuard&) = delete;
+            ReleaseGuard& operator=(ReleaseGuard&&) = delete;
             ~ReleaseGuard() { shard_throttle.release(); }
           } const guard {};
           SPDLOG_DEBUG("Writing table to '{}'", path.string());

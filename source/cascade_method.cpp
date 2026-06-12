@@ -1062,8 +1062,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // the per-level log + CascadeLevelStats so operators see the real
     // work done.
     const bool sim_entry_in_result = !level_opts.skip_simulation_pass
-        && !(level_opts.cut_sharing == CutSharingMode::none
-             && level_opts.max_async_spread > 0);
+        && (level_opts.cut_sharing != CutSharingMode::none
+            || level_opts.max_async_spread <= 0);
     const auto level_iterations = sim_entry_in_result
         ? static_cast<int>(result->size()) - 1  // exclude final fwd
         : static_cast<int>(result->size());
@@ -1285,7 +1285,9 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         if (want_opt_cuts && !stored_cuts.empty()) {
           std::vector<StoredCut> filtered;
           filtered.reserve(stored_cuts.size());
-          int n_opt = 0, n_feas = 0, n_other = 0;
+          int n_opt = 0;
+          int n_feas = 0;
+          int n_other = 0;
           for (const auto& cut : stored_cuts) {
             if (cut.type == CutType::Optimality) {
               ++n_opt;

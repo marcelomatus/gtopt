@@ -552,7 +552,7 @@ private:
 [[nodiscard]] auto read_file(const std::filesystem::path& path)
     -> std::expected<std::string, Error>
 {
-  std::ifstream in(path, std::ios::binary);
+  const std::ifstream in(path, std::ios::binary);
   if (!in) {
     return std::unexpected(Error {
         .code = ErrorCode::FileIOError,
@@ -588,13 +588,13 @@ namespace
     const auto& l = p.levels[i];
     out += "    {";
     out += std::format("\"index\": {}, ", l.index);
-    out += std::format("\"name\": \"{}\", ", json_escape(l.name));
-    out += std::format("\"status\": \"{}\", ", status_to_string(l.status));
+    out += std::format(R"("name": "{}", )", json_escape(l.name));
+    out += std::format(R"("status": "{}", )", status_to_string(l.status));
     out += std::format("\"converged\": {}, ", l.converged ? "true" : "false");
     out += std::format("\"iters\": {}, ", l.iters);
     out += std::format("\"global_iter_after\": {}, ", l.global_iter_after);
-    out += std::format("\"cuts_file\": \"{}\", ", json_escape(l.cuts_file));
-    out += std::format("\"state_targets_file\": \"{}\"",
+    out += std::format(R"("cuts_file": "{}", )", json_escape(l.cuts_file));
+    out += std::format(R"("state_targets_file": "{}")",
                        json_escape(l.state_targets_file));
     out += '}';
     if (i + 1 < p.levels.size()) {
@@ -736,8 +736,8 @@ auto save_state_targets(std::span<const StateTarget> targets,
     const auto& t = targets[i];
     const auto ctx = context_to_array(t.context);
     out += "    {";
-    out += std::format("\"class_name\": \"{}\", ", json_escape(t.class_name));
-    out += std::format("\"col_name\": \"{}\", ", json_escape(t.col_name));
+    out += std::format(R"("class_name": "{}", )", json_escape(t.class_name));
+    out += std::format(R"("col_name": "{}", )", json_escape(t.col_name));
     out += std::format("\"uid\": {}, ", static_cast<std::int64_t>(t.uid));
     out += std::format("\"scene_index\": {}, ",
                        static_cast<std::int64_t>(t.scene_index));

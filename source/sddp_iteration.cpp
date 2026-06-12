@@ -14,6 +14,7 @@
 #include <chrono>
 #include <limits>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <gtopt/enum_option.hpp>
@@ -1728,9 +1729,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             // gate), the slot is read into `ir.cuts_added` and reset.
             const auto rel = iteration_relative(sp.current_iteration_index,
                                                 m_iteration_offset_);
-            if (rel >= 0
-                && rel < static_cast<Index>(async_cuts_per_iter.size()))
-            {
+            if (rel >= 0 && std::cmp_less(rel, async_cuts_per_iter.size())) {
               async_cuts_per_iter[static_cast<std::size_t>(rel)] += *bwd;
             }
           }
@@ -1904,7 +1903,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       {
         const auto rel = iteration_relative(next_converge_iteration_index,
                                             m_iteration_offset_);
-        if (rel >= 0 && rel < static_cast<Index>(async_cuts_per_iter.size())) {
+        if (rel >= 0 && std::cmp_less(rel, async_cuts_per_iter.size())) {
           ir.cuts_added = async_cuts_per_iter[static_cast<std::size_t>(rel)];
         }
       }
