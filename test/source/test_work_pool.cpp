@@ -576,7 +576,7 @@ TEST_CASE("CPUMonitor default interval")
   CHECK(monitor.get_interval() == std::chrono::milliseconds {100});
 }
 
-TEST_CASE("CPUMonitor set_interval")
+TEST_CASE("CPUMonitor set_interval round-trips multiple values")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 

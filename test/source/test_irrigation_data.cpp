@@ -12,7 +12,7 @@
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
-TEST_CASE("FlowRight construction and default values")
+TEST_CASE("Irrigation data: FlowRight construction and default values")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
@@ -28,7 +28,7 @@ TEST_CASE("FlowRight construction and default values")
   CHECK_FALSE(fr.priority.has_value());
 }
 
-TEST_CASE("FlowRight attribute assignment")
+TEST_CASE("Irrigation data: FlowRight attribute assignment")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 

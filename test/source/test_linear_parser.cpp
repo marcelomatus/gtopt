@@ -137,7 +137,7 @@ TEST_SUITE("LinearParser")
     CHECK(coeffs[3] == doctest::Approx(0.0));  // missing variable
   }
 
-  TEST_CASE("Error: empty expression")
+  TEST_CASE("LinearParser error: empty expression")
   {
     CHECK_THROWS_AS(static_cast<void>(LinearParser::parse("")),
                     std::invalid_argument);

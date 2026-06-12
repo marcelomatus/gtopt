@@ -518,7 +518,7 @@ TEST_SUITE("ConstraintParser")
 
   // ── Error paths ────────────────────────────────────────────────────────
 
-  TEST_CASE("Error: empty expression")
+  TEST_CASE("ConstraintParser error: empty expression")
   {
     using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
