@@ -3094,6 +3094,44 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     return len(converted)
 
 
+def _drop_large_reservoir_spillways(
+    system: dict[str, Any],
+    capacities: dict[str, float],
+    threshold_hm3: float,
+) -> int:
+    """Thin wrapper over the shared ``gtopt_shared.reservoir_flow`` primitive.
+
+    plp2gtopt and plexos2gtopt share the SAME small-reservoir-spillway
+    mechanism (``drop_large_reservoir_spillways``) on top of the SAME
+    extraction estimator.  This wrapper only computes the converter-specific
+    ``protected_waterways`` set — ``Vert_*`` arcs referenced by a
+    UserConstraint, tested conservatively against the serialized
+    ``user_constraint_array`` — then delegates.  Returns the count dropped.
+    """
+    from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
+        drop_large_reservoir_spillways,
+    )
+
+    uc_blob = json.dumps(system.get("user_constraint_array", []))
+    protected = frozenset(
+        name
+        for ww in (system.get("waterway_array", []) or [])
+        if (name := str(ww.get("name", ""))) and name in uc_blob
+    )
+    dropped = drop_large_reservoir_spillways(
+        system, capacities, threshold_hm3, protected_waterways=protected
+    )
+    if dropped:
+        logger.info(
+            "build_planning: dropped %d large-reservoir Vert_* spillway(s) "
+            "(>= %.0f Hm3, spill via internal drain): %s",
+            len(dropped),
+            threshold_hm3,
+            ", ".join(sorted(dropped)),
+        )
+    return len(dropped)
+
+
 def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
     """Convert waterway / turbine `junction_b` refs that target an orphan
     drain-only sink junction to **outflow mode** (drop ``junction_b``) and
@@ -3190,7 +3228,7 @@ def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
     return len(collapsed)
 
 
-def build_planning(
+def build_planning(  # pylint: disable=too-many-arguments
     case: PlexosCase,
     *,
     name: str,
@@ -3206,6 +3244,7 @@ def build_planning(
     write_out: str | None = None,
     cogen_must_run: frozenset[str] = frozenset(),
     cogen_must_run_all: bool = False,
+    small_reservoir_hm3: float = 300.0,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -3394,6 +3433,17 @@ def build_planning(
     # bypass to ``COLBUN_ocean``, blocking the orphan collapse below).  Runs
     # FIRST so the dropped ocean junction is gone before the orphan pass.
     _internalise_real_reservoir_ocean_spill(system)
+
+    # Drop the parallel ``Vert_*`` spillway arc of LARGE reservoirs
+    # (capacity >= ``small_reservoir_hm3``): they buffer + spill via their
+    # internal storage drain, so the explicit arc is a redundant escape path
+    # (e.g. RALCO ~1173 Hm³).  Small reservoirs keep the arc as a "small
+    # battery" overflow.  Mirrors plp2gtopt's ``--small-reservoir-hm3``.
+    _drop_large_reservoir_spillways(
+        system,
+        {r.name: r.emax for r in case.reservoirs},
+        small_reservoir_hm3,
+    )
 
     # Collapse orphan ``*_sink`` / ``*_ocean`` drain junctions whose only
     # purpose is to receive one waterway's outflow.  With the new Waterway /

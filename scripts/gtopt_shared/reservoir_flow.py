@@ -1376,3 +1376,59 @@ def widen_extraction_bounds_symmetric(
         r["fmax"] = factor * e
         out[name] = (r["fmin"], r["fmax"])
     return out
+
+
+def drop_large_reservoir_spillways(
+    system: dict[str, Any],
+    reservoir_capacities: dict[str, float],
+    threshold_hm3: float,
+    *,
+    protected_waterways: frozenset[str] = frozenset(),
+) -> list[str]:
+    """Drop the physical ``_ver`` / ``Vert_*`` spillway arc of LARGE reservoirs.
+
+    Shared by plp2gtopt and plexos2gtopt so both converters apply the SAME
+    small-reservoir-spillway selection on top of the SAME extraction estimator
+    (run this BEFORE :func:`apply_reservoir_flow_estimates` so the estimate
+    reflects the corrected topology).
+
+    A reservoir whose storage capacity is ``>= threshold_hm3`` (Hm³) can buffer
+    a wet inflow, so it spills solely via its internal ``spillway_cost`` storage
+    drain — its parallel downstream spillway waterway is a redundant escape path
+    and is dropped.  Small reservoirs (``< threshold_hm3``, e.g. PANGUE ~72 Hm³,
+    which is effectively run-of-river) KEEP the spillway arc so they can both
+    cycle water (drain) and shed extra inflow downstream (the "small battery").
+
+    ``threshold_hm3 <= 0`` disables the drop (every reservoir keeps its arc).
+    A spillway waterway named in ``protected_waterways`` (e.g. referenced by a
+    UserConstraint) is never dropped.  A spillway arc is identified as a
+    waterway whose ``junction_a`` is a large reservoir and whose name carries
+    the ``Vert_`` / ``_ver`` vertimiento tag.  Returns the names dropped.
+    """
+    if threshold_hm3 <= 0.0:
+        return []
+    large = {
+        name
+        for name, cap in reservoir_capacities.items()
+        if isinstance(cap, (int, float))
+        and not isinstance(cap, bool)
+        and cap >= threshold_hm3
+    }
+    if not large:
+        return []
+    kept: list[dict[str, Any]] = []
+    dropped: list[str] = []
+    for ww in system.get("waterway_array", []) or []:
+        name = str(ww.get("name", ""))
+        is_vert = name.startswith("Vert_") or "_ver" in name
+        if (
+            is_vert
+            and ww.get("junction_a") in large
+            and name not in protected_waterways
+        ):
+            dropped.append(name)
+            continue
+        kept.append(ww)
+    if dropped:
+        system["waterway_array"] = kept
+    return dropped
