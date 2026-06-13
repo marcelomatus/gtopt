@@ -32,18 +32,6 @@
 #include <string_view>
 #include <vector>
 
-// Instantiating `daw::json::to_json_schema` exercises the
-// `apply_policy_flags` helper in daw_to_json.h, whose `if constexpr`
-// branch refers to `json_details::serialization::set_bits` — an
-// expression GCC 15's eager template-body checking (`-Wtemplate-body`)
-// rejects as ill-formed even on the never-taken branch (an upstream
-// daw_json_link issue).  Silence `-Wtemplate-body` for this whole
-// translation unit; no other gtopt code instantiates the schema
-// generator, so the suppression is fully local to this file.
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 15
-#  pragma GCC diagnostic ignored "-Wtemplate-body"
-#endif
-
 #include <daw/json/daw_json_schema.h>
 #include <gtopt/json/json_options.hpp>
 #include <gtopt/json_schema.hpp>
