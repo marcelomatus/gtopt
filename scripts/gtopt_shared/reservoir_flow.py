@@ -1387,10 +1387,10 @@ def drop_large_reservoir_spillways(
 ) -> list[str]:
     """Drop the physical ``_ver`` / ``Vert_*`` spillway arc of LARGE reservoirs.
 
-    Shared by plp2gtopt and plexos2gtopt so both converters apply the SAME
-    small-reservoir-spillway selection on top of the SAME extraction estimator
-    (run this BEFORE :func:`apply_reservoir_flow_estimates` so the estimate
-    reflects the corrected topology).
+    Shared so both converters can apply the SAME small-reservoir-spillway
+    selection on top of the SAME extraction estimator.  Call this BEFORE
+    :func:`apply_reservoir_flow_estimates` so the estimate reflects the
+    corrected topology (the plexos2gtopt caller already does this).
 
     A reservoir whose storage capacity is ``>= threshold_hm3`` (Hm³) can buffer
     a wet inflow, so it spills solely via its internal ``spillway_cost`` storage

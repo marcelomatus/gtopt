@@ -25,11 +25,15 @@ import pyarrow.parquet as pq
 from ..pmin_flowright_writer import (
     PminFlowRightWriter,
     _DEFAULT_FAIL_COST,
-    _FLOW_RIGHT_SUFFIX,
     _WATERWAY_FLOW_RIGHT_SUFFIX,
     _WATERWAY_FLOW_RIGHT_UID_START,
     resolve_whitelist,
 )
+
+#: Suffix the legacy gen-pmin → FlowRight path used (now replaced by
+#: soft pmin_fcost).  Kept here purely so the tests below can assert that
+#: no such FlowRight is emitted any more.
+_FLOW_RIGHT_SUFFIX = "_pmin_as_flow_right"
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +269,7 @@ def test_soft_pmin_sets_fcost_and_keeps_pmin(tmp_path: Path) -> None:
 
     # No FlowRight emitted (the soft-pmin step emits none; there is no
     # waterway-fmin floor in this fixture either).
-    assert result == []
+    assert not result
     assert not any(
         str(fr.get("name", "")).endswith(_FLOW_RIGHT_SUFFIX)
         for fr in planning.get("flow_right_array", []) or []
@@ -293,7 +297,7 @@ def test_soft_pmin_noop_without_water_value_anchor(tmp_path: Path) -> None:
     gen = planning["generator_array"][0]
     assert "pmin_fcost" not in gen
     assert gen["pmin"] == 12.0
-    assert result == []
+    assert not result
 
 
 # ---------------------------------------------------------------------------

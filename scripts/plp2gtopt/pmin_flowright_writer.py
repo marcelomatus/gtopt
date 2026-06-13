@@ -42,18 +42,11 @@ from ._water_value import WaterValueResolver
 
 _logger = logging.getLogger(__name__)
 
-#: Suffix appended to the central name for the FlowRight name and
-#: parquet stem.  Must agree with
-#: :data:`gtopt_expand.pmin_flowright_expand._FLOW_RIGHT_SUFFIX`.
-_FLOW_RIGHT_SUFFIX: str = "_pmin_as_flow_right"
-
 #: Suffix appended to the waterway name for the FlowRight name and
 #: parquet stem produced by the waterway-fmin → FlowRight transform.
 _WATERWAY_FLOW_RIGHT_SUFFIX: str = "_fmin_as_flow_right"
 
 #: First UID assigned to FlowRights emitted by the waterway-fmin path.
-#: Sits above :data:`_FLOW_RIGHT_UID_START` so the two paths do not
-#: collide when both run in the same plp2gtopt invocation.
 _WATERWAY_FLOW_RIGHT_UID_START: int = 5500
 
 #: ``purpose`` field used on the emitted FlowRight (metadata only).
@@ -61,11 +54,6 @@ _FLOW_RIGHT_PURPOSE: str = "environmental"
 
 #: ``direction`` for a consumptive (downstream) flow obligation.
 _FLOW_RIGHT_DIRECTION: int = -1
-
-#: First UID assigned to FlowRights emitted by this writer.  Matches
-#: :data:`gtopt_expand.pmin_flowright_expand.DEFAULT_UID_START` so the
-#: two paths agree when used standalone.
-_FLOW_RIGHT_UID_START: int = 5000
 
 #: Fallback ``fail_cost`` [$/m³/s·h] used when no rebalse cost is
 #: available from ``plpvrebemb.dat`` and ``plpmat.dat`` ``CVert`` is
@@ -260,14 +248,11 @@ class PminFlowRightWriter(BaseWriter):
                     soft_count,
                 )
 
-        # Second transform: waterway fmin → FlowRight.  Auto-detected
-        # from ``Waterway/fmin.parquet`` (no whitelist; every non-zero
-        # column is converted).  This catches transit centrals
-        # (``bus = 0``, e.g. LMAULE, B_LaMina) whose minimum-flow
-        # obligation lives on the gen waterway directly because they
-        # have no Generator entity to carry it.  Without this transform
-        # the hard ``waterway_flow >= fmin`` row can drive an SDDP
-        # phase infeasible when the upstream reservoir is empty.
+        # Second transform: waterway fmin → FlowRight (see module docstring).
+        # Auto-detected from ``Waterway/fmin.parquet`` — catches transit
+        # centrals (``bus = 0``, e.g. LMAULE, B_LaMina) whose minimum-flow
+        # obligation lives on the gen waterway because they have no
+        # Generator entity to carry it.
         waterway_rights = self._process_waterway_fmin(
             planning_system, fail_cost=fail_cost
         )

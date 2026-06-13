@@ -504,6 +504,42 @@ TEST_CASE(  // NOLINT
   CHECK(fr.name == "fr_fc");
 }
 
+// ── 2.20b JSON: `consumptive` flag parses ────────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "FlowRight JSON Tier 2.20b - consumptive flag parses; default unset")
+{
+  const auto fr_soft = daw::json::from_json<FlowRight>(
+      R"({"uid": 1, "name": "fr_nc", "junction": 1, "bypass_junction": 2,
+          "consumptive": false})");
+  REQUIRE(fr_soft.consumptive.has_value());
+  CHECK(*fr_soft.consumptive == false);
+
+  // Absent → unset (defaults to consumptive at the LP layer).
+  const auto fr_def =
+      daw::json::from_json<FlowRight>(R"({"uid": 2, "name": "fr_def"})");
+  CHECK_FALSE(fr_def.consumptive.has_value());
+}
+
+// ── 2.20c JSON: junction_a / junction_b aliases ──────────────────────────
+
+TEST_CASE(  // NOLINT
+    "FlowRight JSON Tier 2.20c - junction_a/junction_b alias junction/bypass")
+{
+  const auto fr = daw::json::from_json<FlowRight>(
+      R"({"uid": 1, "name": "fr_ab", "junction_a": 7, "junction_b": 9})");
+  REQUIRE(fr.junction.has_value());
+  REQUIRE(fr.bypass_junction.has_value());
+  CHECK(std::get<Uid>(*fr.junction) == Uid {7});
+  CHECK(std::get<Uid>(*fr.bypass_junction) == Uid {9});
+
+  // Canonical junction_a wins over the legacy junction when both are set.
+  const auto fr_both = daw::json::from_json<FlowRight>(
+      R"({"uid": 2, "name": "fr_both", "junction": 1, "junction_a": 7})");
+  REQUIRE(fr_both.junction.has_value());
+  CHECK(std::get<Uid>(*fr_both.junction) == Uid {7});
+}
+
 // ── 2.20a JSON: 2-D `target` (per-stage-block) round-trips through TB binding
 
 TEST_CASE(  // NOLINT

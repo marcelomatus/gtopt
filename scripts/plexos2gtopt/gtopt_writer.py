@@ -3094,6 +3094,12 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     return len(converted)
 
 
+#: Reservoirs at or above this storage (Hm3) drop their parallel ``Vert_*``
+#: spillway arc and spill via the internal storage drain instead (e.g.
+#: RALCO ~1173 Hm3).  Smaller reservoirs keep the arc as an overflow path.
+_LARGE_RESERVOIR_HM3: float = 300.0
+
+
 def _drop_large_reservoir_spillways(
     system: dict[str, Any],
     capacities: dict[str, float],
@@ -3228,7 +3234,7 @@ def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
     return len(collapsed)
 
 
-def build_planning(  # pylint: disable=too-many-arguments
+def build_planning(
     case: PlexosCase,
     *,
     name: str,
@@ -3244,7 +3250,6 @@ def build_planning(  # pylint: disable=too-many-arguments
     write_out: str | None = None,
     cogen_must_run: frozenset[str] = frozenset(),
     cogen_must_run_all: bool = False,
-    small_reservoir_hm3: float = 300.0,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -3434,15 +3439,13 @@ def build_planning(  # pylint: disable=too-many-arguments
     # FIRST so the dropped ocean junction is gone before the orphan pass.
     _internalise_real_reservoir_ocean_spill(system)
 
-    # Drop the parallel ``Vert_*`` spillway arc of LARGE reservoirs
-    # (capacity >= ``small_reservoir_hm3``): they buffer + spill via their
-    # internal storage drain, so the explicit arc is a redundant escape path
-    # (e.g. RALCO ~1173 Hm³).  Small reservoirs keep the arc as a "small
-    # battery" overflow.  Mirrors plp2gtopt's ``--small-reservoir-hm3``.
+    # Drop the parallel ``Vert_*`` spillway arc of large reservoirs
+    # (capacity >= ``_LARGE_RESERVOIR_HM3``): they buffer + spill via their
+    # internal storage drain, so the explicit arc is a redundant escape path.
     _drop_large_reservoir_spillways(
         system,
         {r.name: r.emax for r in case.reservoirs},
-        small_reservoir_hm3,
+        _LARGE_RESERVOIR_HM3,
     )
 
     # Collapse orphan ``*_sink`` / ``*_ocean`` drain junctions whose only

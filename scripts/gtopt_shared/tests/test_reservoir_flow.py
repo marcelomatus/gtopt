@@ -928,3 +928,46 @@ def test_widen_extraction_bounds_symmetric() -> None:
     assert res["B"]["fmax"] == pytest.approx(774.0)
     assert "fmin" not in res["C"] and "fmax" not in res["C"]
     assert out["A"] == (pytest.approx(-220.0), pytest.approx(220.0))
+
+
+def _spillway_system() -> dict[str, Any]:
+    """A LARGE reservoir + a SMALL one, each with a ``Vert_*`` spill arc.
+
+    ``BIG_gen`` is a non-spill arc that must always survive.
+    """
+    return {
+        "waterway_array": [
+            {"name": "Vert_BIG", "junction_a": "BIG", "junction_b": "ocean"},
+            {"name": "Vert_SMALL", "junction_a": "SMALL", "junction_b": "ocean"},
+            {"name": "BIG_gen", "junction_a": "BIG", "junction_b": "down"},
+        ]
+    }
+
+
+def test_drop_large_reservoir_spillways() -> None:
+    """Only large-reservoir ``Vert_*`` arcs are dropped; others survive."""
+    from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
+        drop_large_reservoir_spillways,
+    )
+
+    caps = {"BIG": 500.0, "SMALL": 50.0}
+
+    # threshold disabled (<= 0) → nothing dropped.
+    sys_off = _spillway_system()
+    assert not drop_large_reservoir_spillways(sys_off, caps, 0.0)
+    assert len(sys_off["waterway_array"]) == 3
+
+    # threshold 300 → only the large reservoir's Vert_ arc is dropped;
+    # the small reservoir's arc and the non-spill BIG_gen arc are kept.
+    sys_on = _spillway_system()
+    dropped = drop_large_reservoir_spillways(sys_on, caps, 300.0)
+    assert dropped == ["Vert_BIG"]
+    kept = {w["name"] for w in sys_on["waterway_array"]}
+    assert kept == {"Vert_SMALL", "BIG_gen"}
+
+    # a protected waterway (e.g. referenced by a UserConstraint) is spared.
+    sys_prot = _spillway_system()
+    assert not drop_large_reservoir_spillways(
+        sys_prot, caps, 300.0, protected_waterways=frozenset({"Vert_BIG"})
+    )
+    assert len(sys_prot["waterway_array"]) == 3

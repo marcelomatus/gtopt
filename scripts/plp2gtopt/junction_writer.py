@@ -988,9 +988,8 @@ class JunctionWriter(BaseWriter):
         #     the FlowRight attaches to the discharge ``junction_b``, which
         #     a terminal built-in turbine does not carry — so they keep the
         #     gen→ocean Waterway whose junction_b the FlowRight needs.
-        #     Non-terminal pmin-flowright centrals migrate freely:
-        #     ``_build_gen_junction_map`` reads ``junction_b`` straight off
-        #     the built-in Turbine.
+        #     Non-terminal pmin-flowright centrals migrate freely: their
+        #     discharge ``junction_b`` is carried directly on the Turbine.
         is_terminal = int(central.get("ser_hid", 0) or 0) == 0
         use_builtin_turbine_waterway = (
             central_type in ("embalse", "serie", "pasada")
@@ -1502,12 +1501,9 @@ class JunctionWriter(BaseWriter):
                 "junction_a": central_name,
                 "production_factor": central["efficiency"],
             }
-            # Downstream junction (``ser_hid``): when the central
-            # discharges into a modelled junction the turbine credits it
-            # via ``junction_b`` — exactly like the legacy ``_gen``
-            # Waterway did (junction_a → ser_hid).  ``ser_hid = 0`` leaves
-            # ``junction_b`` unset: a terminal (run-to-sea) plant whose
-            # turbined flow drains out of the system.
+            # ser_hid > 0 → wire the downstream junction onto junction_b
+            # (mirrors the legacy ``_gen`` Waterway).  ser_hid = 0 leaves
+            # junction_b unset: a terminal run-to-sea plant.
             ser_hid = int(central.get("ser_hid", 0) or 0)
             if ser_hid > 0:
                 turbine_builtin["junction_b"] = self._junction_names.get(
