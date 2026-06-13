@@ -953,9 +953,7 @@ def _log_comparison(
     def _v(val: int | None) -> str:
         return str(val) if val is not None else ""
 
-    def _delta(
-        plp: int | None, gtopt: int | None, *, force_ok: bool = False
-    ) -> str:
+    def _delta(plp: int | None, gtopt: int | None, *, force_ok: bool = False) -> str:
         if plp is None or gtopt is None:
             return ""
         diff = gtopt - plp
@@ -1000,7 +998,9 @@ def _log_comparison(
         if section:
             table.add_row(f"[bold]{lbl}[/bold]" if colr else lbl, "", "", "", "")
         else:
-            table.add_row(lbl, _v(plp), _v(gtopt), _delta(plp, gtopt, force_ok=force_ok), note)
+            table.add_row(
+                lbl, _v(plp), _v(gtopt), _delta(plp, gtopt, force_ok=force_ok), note
+            )
 
     # -- Network & Generation --
     _row("Network & Generation", section=True)
