@@ -1437,6 +1437,7 @@ class GTOptWriter(
         if options is None or options.get("reservoir_flow_estimate", True):
             from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
                 apply_reservoir_flow_estimates,
+                widen_extraction_bounds_symmetric,
             )
 
             out_dir = options.get("output_dir") if options else None
@@ -1444,6 +1445,15 @@ class GTOptWriter(
                 self.planning,
                 input_dir=Path(out_dir) if out_dir is not None else None,
             )
+            # Replace the tight directional estimate with the SAME symmetric
+            # box plexos2gtopt uses: ``[-2·e, +2·e]`` with
+            # ``e = max(|fmin_est|, |fmax_est|)``.  The directional accept
+            # cap (``fmin = -max_inflow``) was binding on spill at
+            # PEHUENCHE s14/p7 and driving the SDDP forward pass infeasible;
+            # the loose-but-finite symmetric box keeps the LP conditioned
+            # (no free ±inf extraction columns) without cutting feasible
+            # operation.
+            widen_extraction_bounds_symmetric(self.planning, factor=2.0)
 
         return self.planning
 

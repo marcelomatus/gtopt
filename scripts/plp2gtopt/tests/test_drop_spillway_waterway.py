@@ -145,10 +145,11 @@ def test_serie_with_ser_ver_target_no_ver_arc():
 
     # No _ver arc anywhere.
     assert not [w for w in system["waterway_array"] if "_ver_" in w["name"]]
-    # The gen arc still goes to Sink.
+    # The gen arc still goes to Sink — now carried by the built-in Turbine
+    # (junction_a → junction_b) instead of a ``_gen`` Waterway.
     assert any(
-        w["junction_a"] == "CentA" and w["junction_b"] == "Sink"
-        for w in system["waterway_array"]
+        t.get("junction_a") == "CentA" and t.get("junction_b") == "Sink"
+        for t in system["turbine_array"]
     )
     # Source junction is now a drain.
     junctions = {j["name"]: j for j in system["junction_array"]}
@@ -358,9 +359,15 @@ def test_integration_drop_on_drops_ver_arcs(tmp_path):
     assert junctions["Reservoir1"]["drain"] is True
     assert junctions["TurbineGen"]["drain"] is True
 
-    # Turbine and gen waterway are still emitted.
+    # Turbines are still emitted; Reservoir1's generation flow is now on
+    # the built-in Turbine (junction_a=Reservoir1, no ``Reservoir1_gen``
+    # Waterway).
     assert any(t["name"] == "TurbineGen" for t in sys_data["turbine_array"])
-    assert [w for w in waterways if w["name"].startswith("Reservoir1_gen_")]
+    assert not [w for w in waterways if w["name"].startswith("Reservoir1_gen_")]
+    assert any(
+        t["name"] == "Reservoir1" and t.get("junction_a") == "Reservoir1"
+        for t in sys_data["turbine_array"]
+    )
 
 
 @pytest.mark.integration

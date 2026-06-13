@@ -255,16 +255,21 @@ def test_to_json_array_single_plant():
     assert junction["name"] == "PlantA"
     assert not junction["drain"]
 
-    assert len(result["waterway_array"]) == 2
-    ww1, ww2 = result["waterway_array"]
-    assert ww1["junction_a"] == "PlantA" and ww1["junction_b"] == "2"
-    assert ww2["junction_a"] == "PlantA" and ww2["junction_b"] == "2"
+    # PlantA's generation flow is carried by the built-in Turbine
+    # (``junction_a`` → ``junction_b``); only the ``_ver`` spillway
+    # Waterway remains.
+    assert len(result["waterway_array"]) == 1
+    ver = result["waterway_array"][0]
+    assert "_ver_" in ver["name"]
+    assert ver["junction_a"] == "PlantA" and ver["junction_b"] == "2"
 
     assert len(result["turbine_array"]) == 1
     turbine = result["turbine_array"][0]
     assert turbine["uid"] == 1
     assert turbine["generator"] == "PlantA"
-    assert turbine["waterway"] == ww1["name"]
+    assert "waterway" not in turbine
+    assert turbine["junction_a"] == "PlantA"
+    assert turbine["junction_b"] == "2"
     assert turbine["production_factor"] == 0.9
 
     assert len(result["flow_array"]) == 1
@@ -488,13 +493,13 @@ def test_multiple_plants_and_interactions(sample_central_parser, sample_extrac_p
     assert len(result["junction_array"]) == 3
     assert not any(j["name"].endswith("_ocean") for j in result["junction_array"])
 
-    # PlantA: gen (in-network → PlantB) + ver (in-network → PlantC) = 2.
-    # PlantB: ver (in-network → PlantC) only — gen path moved to
-    #   built-in Turbine waterway (no Waterway).
+    # PlantA: ver (in-network → PlantC) only — gen path now on the
+    #   built-in Turbine waterway (junction_a/junction_b, no Waterway).
+    # PlantB: ver (in-network → PlantC) only — gen path likewise built-in.
     # PlantC (bus=0): no waterways — gen + ver remainders ride its own
     #   source-junction drain.
-    # plus 1 extraction = 4 total.
-    assert len(result["waterway_array"]) == 4
+    # plus 1 extraction = 3 total.
+    assert len(result["waterway_array"]) == 3
     # PlantC's own junction is the spill-exit drain.  Its drain_capacity is
     # the larger of the gen flow cap (pmax/eff = 70/0.95) and VertMax (50).
     plantc = next(j for j in result["junction_array"] if j["name"] == "PlantC")
@@ -1446,10 +1451,11 @@ def test_cenpmax_emits_production_factor():
     assert pf["segments"][1]["slope"] == pytest.approx(0.3734 / flow_ref)
     assert pf["segments"][1]["constant"] == pytest.approx(382.17 / flow_ref)
 
-    # Turbine's gen-waterway fmax was pinned to the physical flow cap
+    # Built-in Turbine waterway: the physical flow cap is pinned onto the
+    # Turbine's ``capacity`` (no separate gen Waterway exists).
     turbine = next(t for t in result["turbine_array"] if t["name"] == "RALCO")
-    ww = next(w for w in result["waterway_array"] if w["name"] == turbine["waterway"])
-    assert ww["fmax"] == pytest.approx(flow_ref)
+    assert "waterway" not in turbine
+    assert turbine["capacity"] == pytest.approx(flow_ref)
 
 
 def test_cenpmax_missing_central_skips(caplog):
@@ -1676,15 +1682,13 @@ def test_pot_max_sentinel_dropped_on_gen_waterway():
     writer = JunctionWriter(central_parser=central_parser)
     result = writer.to_json_array()[0]
 
-    # Find the _gen waterway for our plant
-    gen_ww = next(
-        ww
-        for ww in result["waterway_array"]
-        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantSentinel"
-    )
-    # fmax field must be omitted (None or absent) — not 9999
-    assert gen_ww.get("fmax") is None, (
-        f"expected fmax dropped, got {gen_ww.get('fmax')!r}"
+    # The generation flow is carried by the built-in Turbine; a sentinel
+    # PotMax must leave the Turbine's ``capacity`` unset (not 9999) so no
+    # literal cap is baked into the LP.
+    turbine = next(t for t in result["turbine_array"] if t["name"] == "PlantSentinel")
+    assert "waterway" not in turbine
+    assert "capacity" not in turbine, (
+        f"expected capacity dropped, got {turbine.get('capacity')!r}"
     )
 
     # Counter must reflect the normalisation
@@ -1729,18 +1733,16 @@ def test_real_bound_under_threshold_preserved():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    gen_ww = next(
-        ww
-        for ww in result["waterway_array"]
-        if "_gen_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
-    )
+    # Generation cap is on the built-in Turbine's ``capacity``; the spill
+    # cap stays on the ``_ver`` Waterway's ``fmax``.
+    turbine = next(t for t in result["turbine_array"] if t["name"] == "PlantRealCap")
     ver_ww = next(
         ww
         for ww in result["waterway_array"]
         if "_ver_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
     )
     # gen_fmax = pmax / efficiency = 8999 / 1.0 = 8999
-    assert gen_ww.get("fmax") == pytest.approx(8999.0)
+    assert turbine.get("capacity") == pytest.approx(8999.0)
     assert ver_ww.get("fmax") == pytest.approx(8999.0)
     assert writer._plp_no_limit_count == 0
 

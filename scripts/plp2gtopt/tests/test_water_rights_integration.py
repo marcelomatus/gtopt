@@ -256,15 +256,25 @@ class TestWaterRightsIntegration:
             assert uc_files or uc_file, "No user_constraint_array or file(s)"
 
     def test_total_flow_rights(self, converted_case):
-        """Total flow rights from agreements + default ``pmin_as_flowright``.
+        """Total flow rights from the Laja + Maule water-rights agreements.
 
-        Layout: 35 from the Laja + Maule water-rights agreements plus 6
-        from the bundled ``--pmin-as-flowright`` whitelist (MACHICURA,
-        PANGUE, PILMAIQUEN, ABANICO, ANTUCO, PALMUCHO) which is now ON
-        by default.  Pass ``--no-pmin-as-flowright`` to opt out.
+        Layout: 35 from the Laja + Maule water-rights agreements only.
+        Hydro generator ``pmin`` is no longer converted into a
+        ``*_pmin_as_flow_right`` FlowRight — every turbine-linked
+        generator with ``pmin > 0`` now keeps ``pmin`` as a soft floor
+        priced via ``pmin_fcost`` (the water-value anchor), so the
+        former 6 gen-pmin FlowRights are gone.  The only FlowRights the
+        converter still synthesises are the transit waterway
+        ``*_fmin_as_flow_right`` ones, of which this case has none.
         """
         frs = converted_case["system"].get("flow_right_array", [])
-        assert len(frs) == 41, f"Expected 41 total flow rights, got {len(frs)}"
+        leftover_pmin = [
+            fr["name"] for fr in frs if "_pmin_as_flow_right" in fr.get("name", "")
+        ]
+        assert not leftover_pmin, (
+            f"Unexpected gen-pmin FlowRights survived: {leftover_pmin}"
+        )
+        assert len(frs) == 35, f"Expected 35 total flow rights, got {len(frs)}"
 
     def test_total_volume_rights(self, converted_case):
         """Total volume rights = Laja (7) + Maule (7)."""

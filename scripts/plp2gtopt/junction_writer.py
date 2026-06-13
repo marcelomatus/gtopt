@@ -266,6 +266,7 @@ class Turbine(TypedDict, total=False):
     generator: str
     waterway: str
     junction_a: str
+    junction_b: str
     production_factor: float
     capacity: float
 
@@ -507,6 +508,20 @@ class JunctionWriter(BaseWriter):
         self._pmin_flowright_centrals: frozenset[str] = (
             self._resolve_pmin_flowright_centrals()
         )
+        # Centrals that are the SOURCE of a plpcenfi seepage reference
+        # their own ``_gen`` Waterway by name (see ``_process_seepages``),
+        # and ``ReservoirSeepage`` has no built-in-turbine variant (only a
+        # ``waterway`` field — see ``reservoir_seepage.hpp``).  Such
+        # centrals must keep their legacy ``_gen`` Waterway, so they are
+        # excluded from the built-in Turbine migration.  Only relevant
+        # when plpcenfi is the ACTIVE seepage source (plpfilemb, when
+        # present, takes precedence and synthesises independent ``filt_``
+        # waterways that never touch the gen arc).
+        self._cenfi_seepage_source_centrals: frozenset[str] = frozenset()
+        if self.filemb_parser is None and self.cenfi_parser is not None:
+            self._cenfi_seepage_source_centrals = frozenset(
+                str(entry["name"]) for entry in self.cenfi_parser.seepages
+            )
         # Number of vrebemb centrals whose ``_ver`` waterway was redirected
         # to a synthetic ``<name>_ocean`` drain by ``--vrebemb-as-sink``.
         # Reported via ``_logger.info`` at the end of ``to_json_array``.
@@ -951,12 +966,47 @@ class JunctionWriter(BaseWriter):
                 self._plp_no_limit_count += 1
             else:
                 gen_fmax = gen_pot_max / gen_rendi
-        gen_waterway = self._create_waterway(
-            central_name + "_gen",
-            central_id,
-            central["ser_hid"],
-            fmax=gen_fmax,
+        # **Built-in Turbine waterway eligibility** — computed BEFORE the
+        # gen Waterway so the synthetic ``<central>_gen`` arc is never
+        # created for eligible centrals.  A reservoir/serie/pasada central
+        # connected to a bus carries its generation flow on the Turbine
+        # itself: ``junction_a`` = its own junction, ``junction_b`` = the
+        # downstream ``ser_hid`` junction when one exists (terminal plants
+        # leave ``junction_b`` unset).  This mirrors the plexos2gtopt
+        # built-in turbines exactly — one flow column per unit, no penstock
+        # Waterway clone, no ``<central>_ocean`` Junction.
+        #
+        # The excluded cases keep the legacy ``_gen`` Waterway because a
+        # downstream consumer greps it by name:
+        #   * ``--ror-as-reservoirs`` promotion (reservoir anchored on the
+        #     gen Waterway's junction_a);
+        #   * ``bus == 0`` transit-only centrals (no Turbine entry; their
+        #     per-stage plpmance bounds bind onto the Waterway uid);
+        #   * plpcenfi seepage source centrals (``ReservoirSeepage`` has a
+        #     ``waterway`` ref only — no built-in-turbine variant);
+        #   * TERMINAL ``--pmin-as-flowright`` centrals (``ser_hid = 0``):
+        #     the FlowRight attaches to the discharge ``junction_b``, which
+        #     a terminal built-in turbine does not carry — so they keep the
+        #     gen→ocean Waterway whose junction_b the FlowRight needs.
+        #     Non-terminal pmin-flowright centrals migrate freely:
+        #     ``_build_gen_junction_map`` reads ``junction_b`` straight off
+        #     the built-in Turbine.
+        is_terminal = int(central.get("ser_hid", 0) or 0) == 0
+        use_builtin_turbine_waterway = (
+            central_type in ("embalse", "serie", "pasada")
+            and central.get("bus", 0) > 0
+            and central_name not in self._ror_reservoir_spec
+            and central_name not in self._cenfi_seepage_source_centrals
+            and not (is_terminal and central_name in self._pmin_flowright_centrals)
         )
+        gen_waterway: Optional[Waterway] = None
+        if not use_builtin_turbine_waterway:
+            gen_waterway = self._create_waterway(
+                central_name + "_gen",
+                central_id,
+                central["ser_hid"],
+                fmax=gen_fmax,
+            )
         # Spill arc (`_ver`) configuration.
         #
         # Three regimes:
@@ -1302,13 +1352,9 @@ class JunctionWriter(BaseWriter):
         # ``junction_a`` anchor for ``--ror-as-reservoirs`` promotion.
         # Both rely on a concrete Waterway object to bind parquet refs
         # to, so we keep the ocean+gen_waterway pair for these cases.
-        use_builtin_turbine_waterway = (
-            central_type in ("embalse", "serie", "pasada")
-            and gen_waterway is None
-            and central.get("bus", 0) > 0
-            and central_name not in self._ror_reservoir_spec
-            and central_name not in self._pmin_flowright_centrals
-        )
+        # ``use_builtin_turbine_waterway`` was resolved above (before the
+        # gen Waterway creation) so eligible centrals never get a ``_gen``
+        # arc in the first place.
         # A bus == 0 transit central with plpmance.dat per-stage flow
         # envelopes needs a concrete gen Waterway to bind
         # ``Waterway/fmin.parquet`` + ``Waterway/fmax.parquet`` refs
@@ -1456,6 +1502,17 @@ class JunctionWriter(BaseWriter):
                 "junction_a": central_name,
                 "production_factor": central["efficiency"],
             }
+            # Downstream junction (``ser_hid``): when the central
+            # discharges into a modelled junction the turbine credits it
+            # via ``junction_b`` — exactly like the legacy ``_gen``
+            # Waterway did (junction_a → ser_hid).  ``ser_hid = 0`` leaves
+            # ``junction_b`` unset: a terminal (run-to-sea) plant whose
+            # turbined flow drains out of the system.
+            ser_hid = int(central.get("ser_hid", 0) or 0)
+            if ser_hid > 0:
+                turbine_builtin["junction_b"] = self._junction_names.get(
+                    ser_hid, str(ser_hid)
+                )
             if gen_fmax is not None:
                 turbine_builtin["capacity"] = gen_fmax
             system["turbine_array"].append(turbine_builtin)
@@ -2020,15 +2077,19 @@ class JunctionWriter(BaseWriter):
             and central_number is not None
         ):
             lost_pf = self._water_value_resolver.cascade_lost_pf(central_number)
-            # Cap the auto-derived efin_cost by the boundary-cut
-            # average |GradX| for this reservoir (when available).
-            # Reservoirs missing from the cap dict degrade gracefully
-            # to the uncapped value.
             cost = self._water_value_resolver.efin_cost_for(central_name, lost_pf)
         else:
             cost = self._resolve_storage_bound_cost(central_name)
 
         # ─── efin → soft via efin_cost ──────────────────────────────────
+        # Pre-compute the terminal soft cost from the reservoir's energy
+        # production factor (``anchor × cascade_lost_pf``, capped).  This is
+        # only a FALLBACK: when ``boundary_cuts.csv`` is present, gtopt's
+        # ``apply_boundary_cut_soft_costs`` (gtopt_lp_runner.cpp) FULLY
+        # REPLACES it with the lower-bound (min) of each reservoir's cut
+        # coefficients (``boundary_cut_soft_cost = min``) before the LP is
+        # built.  Baking the EPF value keeps no-cut cases sensible while
+        # cut-cases use the SDDP-revealed marginal water value.
         efin = reservoir.get("efin")
         if efin is not None and efin > 0:
             reservoir["efin_cost"] = cost
@@ -2421,14 +2482,20 @@ class JunctionWriter(BaseWriter):
                 name.strip() for name in str(disabled_raw).split(",") if name.strip()
             }
 
-        # Build reservoir name → turbine waterway name map.
-        # Built-in Turbine waterway turbines (``Turbine.junction_a``) have
-        # no ``waterway`` field — they're skipped here because the
-        # discharge-limit code currently keys off the gen-waterway name.
+        # Build reservoir name → flow-source maps.  A classic coupling
+        # turbine carries its flow on a ``_gen`` Waterway (``waterway``
+        # ref); a built-in Turbine waterway carries it on the Turbine
+        # itself (``turbine`` ref).  ``ReservoirDischargeLimit`` accepts
+        # EITHER — exactly one of ``waterway`` / ``turbine`` (see
+        # ``reservoir_discharge_limit.hpp``), so built-in turbines are no
+        # longer skipped here.
         turbine_waterway: Dict[str, str] = {}
+        builtin_turbines: set[str] = set()
         for turbine in system["turbine_array"]:
             if "waterway" in turbine:
                 turbine_waterway[turbine["name"]] = turbine["waterway"]
+            else:
+                builtin_turbines.add(turbine["name"])
 
         for entry in self.ralco_parser.reservoir_discharge_limits:
             rsv_name = entry["reservoir"]
@@ -2449,23 +2516,30 @@ class JunctionWriter(BaseWriter):
                 )
                 continue
 
-            # Resolve waterway from the turbine associated with this reservoir
+            # Resolve the flow source: legacy ``_gen`` Waterway (coupling
+            # turbine) or the built-in Turbine itself.
             ww_name = turbine_waterway.get(rsv_name)
-            if not ww_name:
-                _logger.warning(
-                    "Ralco reservoir '%s' has no turbine waterway; skipping.",
-                    rsv_name,
-                )
-                continue
-
             ddl_array = system["reservoir_discharge_limit_array"]
             ddl_idx = len(ddl_array) + len(rsv.get("discharge_limit", [])) + 1
             ddl: Dict[str, Any] = {
                 "uid": rsv["uid"],
                 "name": f"{rsv['name']}_dlim_{ddl_idx}",
-                "waterway": ww_name,
                 "reservoir": rsv["name"],
             }
+            # The discharge limit caps the same flow column regardless of
+            # whether it is reached via a ``_gen`` Waterway (coupling
+            # turbine) or the built-in Turbine — ``ReservoirDischargeLimit``
+            # treats the two refs identically.
+            if ww_name:
+                ddl["waterway"] = ww_name
+            elif rsv_name in builtin_turbines:
+                ddl["turbine"] = rsv_name
+            else:
+                _logger.warning(
+                    "Ralco reservoir '%s' has no turbine flow source; skipping.",
+                    rsv_name,
+                )
+                continue
 
             if segments:
                 ddl["segments"] = [
@@ -2581,9 +2655,11 @@ class JunctionWriter(BaseWriter):
         if not self.cenpmax_parser:
             return
 
-        # Turbine name → gen-waterway name (to lookup and mutate fmax)
-        turbine_waterway: Dict[str, str] = {
-            t["name"]: t["waterway"] for t in system["turbine_array"] if "waterway" in t
+        # Turbine name → turbine dict (covers BOTH legacy coupling turbines
+        # — which carry a ``waterway`` ref — and built-in turbines, which
+        # carry the flow cap on ``capacity``).
+        turbine_by_name: Dict[str, Turbine] = {
+            t["name"]: t for t in system["turbine_array"]
         }
 
         # Waterway name → waterway dict (to set fmax in place)
@@ -2618,8 +2694,8 @@ class JunctionWriter(BaseWriter):
 
             flow_ref = pot_max / efficiency
 
-            ww_name = turbine_waterway.get(central_name)
-            if ww_name is None:
+            turbine = turbine_by_name.get(central_name)
+            if turbine is None:
                 if central_data.get("bus", 0) <= 0:
                     _logger.debug(
                         "Cenpmax central '%s': reservoir-only central"
@@ -2633,18 +2709,22 @@ class JunctionWriter(BaseWriter):
                     )
                 continue
 
-            waterway = waterway_by_name.get(ww_name)
-            if waterway is None:
-                _logger.warning(
-                    "Cenpmax central '%s': generation waterway '%s' not"
-                    " found; skipping.",
-                    central_name,
-                    ww_name,
-                )
-                continue
-
-            # Pin the generation waterway flow cap to the physical limit.
-            waterway["fmax"] = flow_ref
+            if "waterway" in turbine:
+                # Legacy coupling turbine: pin the gen Waterway's flow cap.
+                waterway = waterway_by_name.get(turbine["waterway"])
+                if waterway is None:
+                    _logger.warning(
+                        "Cenpmax central '%s': generation waterway '%s' not"
+                        " found; skipping.",
+                        central_name,
+                        turbine["waterway"],
+                    )
+                    continue
+                waterway["fmax"] = flow_ref
+            else:
+                # Built-in Turbine waterway: the flow cap lives on the
+                # Turbine itself (``capacity``), not a separate gen Waterway.
+                turbine["capacity"] = flow_ref
 
             rsv = self._find_reservoir(system, reservoir_name)
             if rsv is None:

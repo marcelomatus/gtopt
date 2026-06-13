@@ -78,15 +78,6 @@ _REFERENCE_RESERVOIRS_LOST_PF = {
     "RAPEL": 0.640,
 }
 
-_REFERENCE_FLOW_RIGHTS_LOST_PF = {
-    "ANTUCO": 1.6,
-    "ABANICO": 1.2,
-    "PALMUCHO": 1.143,
-    "PANGUE": 0.8,
-    "MACHICURA": 0.33,
-    "PILMAIQUEN": 0.27,
-}
-
 # Relative tolerance — set to 1e-3 to absorb the 2-d.p. round
 # applied by `fail_cost` / `efin_cost`.  Tight enough to catch
 # material logic regressions in the cascade / cenre-lift logic
@@ -265,32 +256,24 @@ class TestAutoWaterFailCostMagnitude:
     def _resolved_anchor(planning_auto) -> float:
         """Recover the anchor (in ``$/MWh``) from the emitted JSON.
 
-        Back-solves ``fail_cost = anchor × lost_pf`` from one of the
-        FlowRights (which are NOT subject to the boundary-cut
-        ``efin_cost`` cap, so they remain pinned to the formula).
-        Falls back to a reservoir-derived anchor when no FR is
-        present in the JSON.
+        Hydro generator ``pmin`` is no longer converted into a
+        ``FlowRight``; instead every turbine-linked generator with
+        ``pmin > 0`` keeps its ``pmin`` (soft floor) and carries
+        ``pmin_fcost == anchor`` exactly (the water-value anchor in
+        ``$/MWh``).  We therefore read the anchor directly off the
+        first generator that exposes a positive ``pmin_fcost``.
 
-        The earlier reservoir-derived form was broken by the
-        boundary-cut cap on ``efin_cost``: any reservoir whose
-        formula value lies above the SDDP-revealed marginal water
-        value is capped down, so reservoir-based back-solving
-        under-reports the anchor.
+        This is exact (no back-solving) and immune to the
+        boundary-cut ``efin_cost`` cap that distorts the
+        reservoir-derived calibration used as a last-resort fallback.
         """
-        frs = planning_auto.get("system", {}).get("flow_right_array", [])
-        for central, lost_pf in _REFERENCE_FLOW_RIGHTS_LOST_PF.items():
-            match = next(
-                (
-                    fr
-                    for fr in frs
-                    if fr.get("name", "").startswith(f"{central}_pmin_as_flow_right")
-                ),
-                None,
-            )
-            if match is not None and match.get("fcost"):
-                return float(match["fcost"]) / float(lost_pf)
-        # Fallback (legacy path / no FRs in case): assume LMAULE is
-        # not capped — best-effort calibration.
+        gens = planning_auto.get("system", {}).get("generator_array", [])
+        for gen in gens:
+            pmin_fcost = gen.get("pmin_fcost")
+            if isinstance(pmin_fcost, (int, float)) and pmin_fcost > 0:
+                return float(pmin_fcost)
+        # Fallback (legacy path / no priced generators in case): assume
+        # LMAULE is not capped — best-effort calibration.
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
         lmaule = next((r for r in reservoirs if r.get("name") == "LMAULE"), None)
         assert lmaule is not None and lmaule.get("efin_cost") is not None
@@ -360,41 +343,37 @@ class TestAutoWaterFailCostMagnitude:
             f"cap={cap}) (anchor={anchor:.2f}, lost_pf={lost_pf})"
         )
 
-    @pytest.mark.parametrize(
-        "central,lost_pf",
-        list(_REFERENCE_FLOW_RIGHTS_LOST_PF.items()),
-    )
-    def test_flow_right_fail_cost_matches_reference(
-        self, planning_auto, central, lost_pf
-    ):
-        """Per-FR ``fail_cost = anchor × own_max_rendi`` (anchor-agnostic)."""
-        anchor = self._resolved_anchor(planning_auto)
-        expected_fail_cost = anchor * lost_pf
-        frs = planning_auto.get("system", {}).get("flow_right_array", [])
-        # FR names follow the pattern ``<CENTRAL>_pmin_as_flow_right`` in
-        # the bundled --pmin-as-flowright whitelist.
-        match = next(
-            (
-                fr
-                for fr in frs
-                if fr.get("name", "").startswith(f"{central}_pmin_as_flow_right")
-            ),
-            None,
-        )
-        assert match is not None, f"FlowRight for {central} not found"
-        actual = match.get("fcost")
-        assert actual is not None, f"FR {central} has no fail_cost"
-        assert actual == pytest.approx(expected_fail_cost, rel=_TOL_REL), (
-            f"{central}: fail_cost={actual} vs anchor*own_pf="
-            f"{expected_fail_cost} (anchor={anchor:.2f}, lost_pf={lost_pf})"
-        )
+    def test_hydro_pmin_kept_as_soft_floor(self, planning_auto):
+        """Hydro ``pmin`` is a soft floor priced at the water-value anchor.
 
-    def test_flow_right_fail_costs_are_heterogeneous(self, planning_auto):
-        """All FR fail_costs differ — single uniform value would be a regression."""
+        The legacy path converted generator ``pmin`` into a
+        ``*_pmin_as_flow_right`` FlowRight; the current pipeline keeps
+        ``pmin`` on the generator and adds ``pmin_fcost == anchor``
+        ($/MWh) so the floor is soft (unserved-energy slack priced at
+        the water value).  Assert:
+
+        * at least one generator carries ``pmin_fcost == anchor``
+          while keeping a positive ``pmin``, and
+        * no ``*_pmin_as_flow_right`` FlowRight survives anywhere.
+        """
+        anchor = self._resolved_anchor(planning_auto)
+        gens = planning_auto.get("system", {}).get("generator_array", [])
+        priced = [
+            g
+            for g in gens
+            if isinstance(g.get("pmin_fcost"), (int, float)) and g.get("pmin_fcost") > 0
+        ]
+        assert priced, "No generator carries a positive pmin_fcost"
+        for gen in priced:
+            assert gen["pmin_fcost"] == pytest.approx(anchor, rel=_TOL_REL), (
+                f"{gen.get('name')}: pmin_fcost={gen['pmin_fcost']} != anchor={anchor}"
+            )
+
         frs = planning_auto.get("system", {}).get("flow_right_array", [])
-        costs = sorted({fr.get("fcost") for fr in frs if fr.get("fcost")})
-        # We expect at least 4 distinct values across the bundled whitelist.
-        assert len(costs) >= 4, f"FR fail_costs collapsed to {costs}"
+        leftover = [
+            fr["name"] for fr in frs if "_pmin_as_flow_right" in fr.get("name", "")
+        ]
+        assert not leftover, f"Unexpected gen-pmin FlowRights survived: {leftover}"
 
     # ------------------------------------------------------------------
     # Legacy path — magnitude justification

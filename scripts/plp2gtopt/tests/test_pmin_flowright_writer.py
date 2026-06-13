@@ -16,7 +16,6 @@ Covers the writer added by ``--pmin-as-flowright`` in plp2gtopt:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,7 +26,6 @@ from ..pmin_flowright_writer import (
     PminFlowRightWriter,
     _DEFAULT_FAIL_COST,
     _FLOW_RIGHT_SUFFIX,
-    _FLOW_RIGHT_UID_START,
     _WATERWAY_FLOW_RIGHT_SUFFIX,
     _WATERWAY_FLOW_RIGHT_UID_START,
     resolve_whitelist,
@@ -143,7 +141,14 @@ def _planning_with_machicura() -> Dict[str, Any]:
             },
         ],
         "turbine_array": [
-            {"name": "MACHICURA", "waterway": "MACHICURA_1_2", "generator": 1},
+            # ``generator`` carries the generator NAME (as JunctionWriter
+            # emits it), so the soft-pmin step can match this turbine to
+            # the MACHICURA generator entry.
+            {
+                "name": "MACHICURA",
+                "waterway": "MACHICURA_1_2",
+                "generator": "MACHICURA",
+            },
         ],
     }
 
@@ -225,208 +230,70 @@ def test_resolve_whitelist_default_csv_skips_disabled(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. Happy path: writer emits FlowRight JSON + parquet column
+# 2. Soft hydro pmin: pmin_fcost set, pmin kept, no FlowRight emitted
 # ---------------------------------------------------------------------------
 
 
-def test_writer_emits_flow_right_and_parquet(tmp_path: Path) -> None:
-    """End-to-end: whitelist matched → FlowRight + parquet both produced."""
-    central = _machicura_central(pmin=10.0, efficiency=0.5)
-    mance = {
-        "name": "MACHICURA",
-        "block": np.array([1, 2], dtype=np.int64),
-        "pmin": np.array([10.0, 20.0], dtype=np.float64),
-        "pmax": np.array([100.0, 100.0], dtype=np.float64),
-    }
+def test_soft_pmin_sets_fcost_and_keeps_pmin(tmp_path: Path) -> None:
+    """A hydro generator with ``pmin > 0`` keeps ``pmin`` and gains
+    ``pmin_fcost`` equal to the water-value anchor; no FlowRight is
+    emitted for the generator pmin.
+
+    The anchor is pinned by passing ``water_fail_cost=100.0`` so the
+    resolver returns exactly ``100.0`` (the explicit override bypasses
+    the auto formula), making the assertion deterministic.
+    """
+    central = _machicura_central(pmin=12.0, efficiency=0.5)
     writer = _make_writer(
         whitelist=["MACHICURA"],
         centrals=[central],
-        mances=[mance],
-        # No plpmat_parser → fall back to _DEFAULT_FAIL_COST.
+        # water_fail_cost activates the resolver AND fixes anchor=100.0.
+        options={
+            "output_dir": tmp_path,
+            "output_format": "parquet",
+            "water_fail_cost": 100.0,
+        },
+    )
+
+    planning = _planning_with_machicura()
+    result = writer.process(planning)
+
+    gen = planning["generator_array"][0]
+    # pmin_fcost == anchor (= explicit water_fail_cost), pmin kept.
+    assert gen["pmin_fcost"] == 100.0
+    assert gen["pmin"] == 12.0
+
+    # No FlowRight emitted (the soft-pmin step emits none; there is no
+    # waterway-fmin floor in this fixture either).
+    assert result == []
+    assert not any(
+        str(fr.get("name", "")).endswith(_FLOW_RIGHT_SUFFIX)
+        for fr in planning.get("flow_right_array", []) or []
+    )
+    # No per-FlowRight parquet was written for the generator pmin.
+    assert not (
+        tmp_path / "FlowRight" / f"MACHICURA{_FLOW_RIGHT_SUFFIX}.parquet"
+    ).exists()
+
+
+def test_soft_pmin_noop_without_water_value_anchor(tmp_path: Path) -> None:
+    """With no water-value anchor (no ``water_fail_cost`` /
+    ``auto_water_fail_cost``), the resolver is inactive and the generator
+    is left completely untouched — no ``pmin_fcost``, ``pmin`` kept."""
+    central = _machicura_central(pmin=12.0, efficiency=0.5)
+    writer = _make_writer(
+        whitelist=["MACHICURA"],
+        centrals=[central],
         options={"output_dir": tmp_path, "output_format": "parquet"},
     )
 
     planning = _planning_with_machicura()
     result = writer.process(planning)
 
-    # FlowRight JSON
-    assert len(result) == 1
-    fr = result[0]
-    assert fr["uid"] == _FLOW_RIGHT_UID_START
-    assert fr["name"] == f"MACHICURA{_FLOW_RIGHT_SUFFIX}"
-    assert fr["junction"] == "j_down"
-    assert fr["direction"] == -1
-    assert fr["discharge"] == fr["name"]
-    assert fr["fcost"] == _DEFAULT_FAIL_COST
-
-    # Generator pmin zeroed
-    assert planning["generator_array"][0]["pmin"] == 0.0
-
-    # Parquet file written under <output_dir>/FlowRight/
-    parquet_file = tmp_path / "FlowRight" / f"{fr['name']}.parquet"
-    assert parquet_file.is_file()
-
-    table = pq.read_table(parquet_file)
-    cols = table.column_names
-    uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    # FlowRight.{fmin,fmax,target,discharge} are now OptTBRealFieldSched
-    # (Stage × Block, scenario-independent), so the parquet carries only
-    # `block` / `stage` UID columns.  Emitting a `scenario` column would
-    # produce duplicate (stage, block) keys on the 2D reader — gtopt
-    # treats that as a hard error.
-    assert cols == ["block", uid_col, "stage"]
-    # flow_min = pmin / Rendi = [10/0.5, 20/0.5] = [20, 40]
-    flows = table.column(uid_col).to_pylist()
-    assert flows == [20.0, 40.0]
-
-    blocks_out = table.column("block").to_pylist()
-    stages_out = table.column("stage").to_pylist()
-    assert blocks_out == [1, 2]
-    assert stages_out == [1, 1]
-
-    # planning_system was mutated in place
-    assert planning.get("flow_right_array") == [fr]
-
-
-def test_writer_converts_per_block_pmin_trajectory_with_static_fallback(
-    tmp_path: Path,
-) -> None:
-    """The plpmance per-block pmin trajectory is preserved bit-exact in the
-    emitted FlowRight parquet (= pmin / Rendi per block); blocks NOT in
-    the mance map fall back to the central's static pmin.
-
-    Mirrors the conversion verified end-to-end on juan/IPLP after the
-    Generator/pmin column drop: every block of the case is covered, and
-    each block's flow_min equals the source pmin / Rendi (no rounding,
-    no clipping, no per-stage averaging).  Blocks present in mance with
-    pmin = 0 STAY at zero (mance overrides static for those blocks);
-    blocks ABSENT from mance use static_pmin / Rendi as the default.
-    """
-    central = _machicura_central(pmin=12.0, efficiency=0.5)
-    # 6-block case spanning 3 stages — wider than the default 2-block
-    # fixture so we can see the per-block resolution clearly.
-    blocks = [
-        {"number": 1, "stage": 1, "duration": 1.0},
-        {"number": 2, "stage": 1, "duration": 1.0},
-        {"number": 3, "stage": 2, "duration": 1.0},
-        {"number": 4, "stage": 2, "duration": 1.0},
-        {"number": 5, "stage": 3, "duration": 1.0},
-        {"number": 6, "stage": 3, "duration": 1.0},
-    ]
-    # mance defines a NON-uniform trajectory for blocks 1, 3, 5; blocks 2,
-    # 4, 6 are absent from the mance map and should use static_pmin=12.
-    # Note block 3's pmin is 0 — that overrides the static (mance wins).
-    mance = {
-        "name": "MACHICURA",
-        "block": np.array([1, 3, 5], dtype=np.int64),
-        "pmin": np.array([10.0, 0.0, 25.0], dtype=np.float64),
-        "pmax": np.array([100.0, 100.0, 100.0], dtype=np.float64),
-    }
-    writer = _make_writer(
-        whitelist=["MACHICURA"],
-        centrals=[central],
-        mances=[mance],
-        blocks=blocks,
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-    planning = _planning_with_machicura()
-    writer.process(planning)
-
-    parquet_file = tmp_path / "FlowRight" / f"MACHICURA{_FLOW_RIGHT_SUFFIX}.parquet"
-    assert parquet_file.is_file()
-
-    table = pq.read_table(parquet_file)
-    uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    blocks_out = table.column("block").to_pylist()
-    flows_out = table.column(uid_col).to_pylist()
-
-    # Expected per-block flow_min:
-    #   block 1: mance pmin = 10.0  → 10/0.5 = 20.0 m³/s
-    #   block 2: not in mance       → static 12/0.5 = 24.0 m³/s
-    #   block 3: mance pmin = 0.0   → 0/0.5  =  0.0 m³/s  (mance wins)
-    #   block 4: not in mance       → static 12/0.5 = 24.0 m³/s
-    #   block 5: mance pmin = 25.0  → 25/0.5 = 50.0 m³/s
-    #   block 6: not in mance       → static 12/0.5 = 24.0 m³/s
-    expected = [(1, 20.0), (2, 24.0), (3, 0.0), (4, 24.0), (5, 50.0), (6, 24.0)]
-    assert list(zip(blocks_out, flows_out)) == expected
-
-
-def test_writer_no_mance_uses_static_pmin_uniformly(tmp_path: Path) -> None:
-    """When ``mance_parser`` has no entry for the central, every block's
-    flow_min is the constant ``static_pmin / Rendi``.
-
-    Covers the fallback branch in ``_build_flow_values`` for centrals
-    that have a non-zero static pmin but no plpmance trajectory.
-    """
-    central = _machicura_central(pmin=8.0, efficiency=0.5)
-    writer = _make_writer(
-        whitelist=["MACHICURA"],
-        centrals=[central],
-        mances=[],  # empty — get_mance_by_name returns None
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-    planning = _planning_with_machicura()
-    writer.process(planning)
-
-    parquet_file = tmp_path / "FlowRight" / f"MACHICURA{_FLOW_RIGHT_SUFFIX}.parquet"
-    table = pq.read_table(parquet_file)
-    uid_col = f"uid:{_FLOW_RIGHT_UID_START}"
-    flows = table.column(uid_col).to_pylist()
-    # Every block uses static 8 / 0.5 = 16.0
-    assert flows == [16.0, 16.0]
-
-
-def test_writer_drops_generator_pmin_parquet_column(tmp_path: Path) -> None:
-    """After conversion, the converted central's column is removed from
-    ``Generator/pmin.parquet`` so the per-stage trajectory cannot
-    silently re-enforce a hard pmin alongside the new soft FlowRight.
-
-    Without this, gtopt's parser COULD (depending on its precedence
-    rules) read the parquet column and apply the trajectory as a hard
-    schedule even though ``Generator.pmin = 0.0`` in the JSON, double-
-    counting the obligation.
-    """
-    import pandas as pd  # noqa: PLC0415
-
-    central = _machicura_central(pmin=10.0, efficiency=0.5)
-    mance = {
-        "name": "MACHICURA",
-        "block": np.array([1, 2], dtype=np.int64),
-        "pmin": np.array([10.0, 20.0], dtype=np.float64),
-        "pmax": np.array([100.0, 100.0], dtype=np.float64),
-    }
-    # Pre-create Generator/pmin.parquet with a column for MACHICURA's
-    # generator UID and one for an unrelated thermal generator.  After
-    # conversion, only MACHICURA's column should be dropped.
-    gen_dir = tmp_path / "Generator"
-    gen_dir.mkdir(parents=True, exist_ok=True)
-    initial = pd.DataFrame(
-        {
-            "block": [1, 2],
-            "uid:1": [10.0, 20.0],  # MACHICURA (generator uid=1)
-            "uid:99": [50.0, 60.0],  # unrelated thermal — must be preserved
-        }
-    )
-    initial.to_parquet(gen_dir / "pmin.parquet", index=False)
-
-    writer = _make_writer(
-        whitelist=["MACHICURA"],
-        centrals=[central],
-        mances=[mance],
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-    planning = _planning_with_machicura()
-    writer.process(planning)
-
-    after = pd.read_parquet(gen_dir / "pmin.parquet")
-    assert "uid:1" not in after.columns, (
-        f"MACHICURA's pmin column should have been dropped: {list(after.columns)}"
-    )
-    assert "uid:99" in after.columns, (
-        f"unrelated generator's pmin column should be preserved: {list(after.columns)}"
-    )
-    # The remaining column's data is untouched.
-    assert after["uid:99"].tolist() == [50.0, 60.0]
+    gen = planning["generator_array"][0]
+    assert "pmin_fcost" not in gen
+    assert gen["pmin"] == 12.0
+    assert result == []
 
 
 # ---------------------------------------------------------------------------
@@ -498,49 +365,8 @@ def test_fail_cost_default_fallback_when_nothing_available() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. Whitelist filtering: non-whitelisted centrals are not touched
+# 4. Whitelist CSV filtering (resolve_whitelist enabled flag)
 # ---------------------------------------------------------------------------
-
-
-def test_central_not_in_whitelist_is_skipped(tmp_path: Path) -> None:
-    """A central present in central_parser but absent from the whitelist
-    is left untouched — no FlowRight, no parquet, no pmin zero-out."""
-    machicura = _machicura_central(pmin=10.0, efficiency=0.5)
-    pangue = {
-        "name": "PANGUE",
-        "number": 2,
-        "bus": 102,
-        "pmin": 20.0,
-        "pmax": 50.0,
-        "efficiency": 0.8,
-        "ser_hid": 0,
-        "ser_ver": 0,
-        "afluent": 0.0,
-        "type": "serie",
-    }
-    writer = _make_writer(
-        whitelist=["MACHICURA"],  # only MACHICURA — PANGUE excluded
-        centrals=[machicura, pangue],
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-
-    planning = _planning_with_machicura()
-    # Append PANGUE generator to verify it is not zeroed.
-    planning["generator_array"].append(
-        {"name": "PANGUE", "uid": 2, "bus": 102, "pmin": 20.0}
-    )
-
-    result = writer.process(planning)
-
-    # Only one FlowRight (MACHICURA).
-    assert [r["name"] for r in result] == [f"MACHICURA{_FLOW_RIGHT_SUFFIX}"]
-
-    # PANGUE generator unchanged.
-    pangue_gen = next(g for g in planning["generator_array"] if g["name"] == "PANGUE")
-    assert pangue_gen["pmin"] == 20.0
-
-    # No parquet for PANGUE.
-    assert not (tmp_path / "FlowRight" / f"PANGUE{_FLOW_RIGHT_SUFFIX}.parquet").exists()
 
 
 def test_csv_enabled_false_excludes_central(tmp_path: Path) -> None:
@@ -552,36 +378,6 @@ def test_csv_enabled_false_excludes_central(tmp_path: Path) -> None:
     names = resolve_whitelist(str(csv_file), default_csv=tmp_path / "ignored.csv")
     assert names == ["MACHICURA"]
     assert "PANGUE" not in names
-
-
-# ---------------------------------------------------------------------------
-# 5. Unknown central path: warns + skips, doesn't crash
-# ---------------------------------------------------------------------------
-
-
-def test_unknown_central_warns_and_skips(tmp_path: Path, caplog: Any) -> None:
-    """Whitelist entry not found in central_parser → warn + skip + no crash."""
-    writer = _make_writer(
-        whitelist=["GHOST_CENTRAL"],  # not in central_parser
-        centrals=[_machicura_central()],  # only MACHICURA known
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-    planning = _planning_with_machicura()
-
-    with caplog.at_level(logging.WARNING):
-        result = writer.process(planning)
-
-    assert not result
-    # The central was missing from central_parser, AND missing from the
-    # gen-junction map (because there is no GHOST_CENTRAL turbine) —
-    # either warning is acceptable; what matters is at least one fired.
-    assert any("GHOST_CENTRAL" in r.message for r in caplog.records)
-    # No parquet emitted.
-    assert not (tmp_path / "FlowRight").exists() or not list(
-        (tmp_path / "FlowRight").iterdir()
-    )
-    # Generator pmin untouched.
-    assert planning["generator_array"][0]["pmin"] == 12.0
 
 
 # ---------------------------------------------------------------------------
@@ -781,38 +577,3 @@ def test_waterway_fmin_skipped_when_disabled() -> None:
     }
     result = writer.process(planning)
     assert not result
-
-
-def test_parquet_emits_one_row_per_stage_block_pair(tmp_path: Path) -> None:
-    """Regression for the 2026-05-16 fix: the writer must NOT replicate
-    rows per scenario.
-
-    `FlowRight.{fmin,fmax,target,discharge}` are `OptTBRealFieldSched`
-    (2D Stage×Block, scenario-independent); emitting a `scenario`
-    column would produce duplicate (stage, block) keys for the 2D
-    Arrow reader and the C++ side now throws on duplicate UID keys.
-    """
-    central = _machicura_central(pmin=10.0, efficiency=0.5)
-    mance = {
-        "name": "MACHICURA",
-        "block": np.array([1, 2], dtype=np.int64),
-        "pmin": np.array([10.0, 20.0], dtype=np.float64),
-        "pmax": np.array([100.0, 100.0], dtype=np.float64),
-    }
-    writer = _make_writer(
-        whitelist=["MACHICURA"],
-        centrals=[central],
-        mances=[mance],
-        options={"output_dir": tmp_path, "output_format": "parquet"},
-    )
-    result = writer.process(_planning_with_machicura())
-    assert len(result) == 1
-
-    fr = result[0]
-    parquet_file = tmp_path / "FlowRight" / f"{fr['name']}.parquet"
-    table = pq.read_table(parquet_file)
-    assert table.column_names == ["block", f"uid:{_FLOW_RIGHT_UID_START}", "stage"]
-    # Exactly one row per (stage, block) pair — never replicated per scenario.
-    assert table.num_rows == 2  # 2 blocks × 1 stage = 2 rows
-    assert table.column("stage").to_pylist() == [1, 1]
-    assert table.column("block").to_pylist() == [1, 2]

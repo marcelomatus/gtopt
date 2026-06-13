@@ -357,11 +357,11 @@ def test_hydro_4b_sddp_conversion(tmp_path):
     assert "TurbineA" in j_names
     assert "TurbineA_ocean" not in j_names
 
-    # Waterways: reservoir→turbine (ser_hid) only.  The legacy
-    # turbine→ocean arc (ser_hid=0 terminal) is now subsumed by the
-    # built-in Turbine waterway on TurbineA (no separate Waterway).
+    # No Waterways: LakeA→TurbineA is now the built-in Turbine waterway on
+    # LakeA (junction_a=LakeA, junction_b=TurbineA), and TurbineA's terminal
+    # arc is the built-in Turbine on TurbineA — neither emits a Waterway.
     waterways = sys_data.get("waterway_array", [])
-    assert len(waterways) == 1
+    assert len(waterways) == 0
     # TurbineA is the terminal turbine with the built-in waterway form.
     terminal_turbines = [
         t for t in sys_data.get("turbine_array", []) if t.get("name") == "TurbineA"

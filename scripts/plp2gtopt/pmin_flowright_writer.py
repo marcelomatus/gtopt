@@ -1,50 +1,41 @@
 # -*- coding: utf-8 -*-
 
-"""Convert specific hydro generators' must-run ``pmin`` into FlowRights.
+"""Soft hydro ``pmin`` + waterway-``fmin`` → FlowRight transforms.
 
-Companion to :mod:`gtopt_expand.pmin_flowright_expand`.  Where the
-gtopt_expand subcommand performs the JSON-level transform but cannot
-write parquet (it has no access to PLP source data), this module owns
-the parquet emission so PLP-derived cases produced by ``plp2gtopt``
-are self-consistent: the JSON references a parquet column, and that
-column is actually written under ``<output_dir>/FlowRight/``.
+This module owns two related transforms applied late in the
+``plp2gtopt`` pipeline, both aimed at preventing a hard minimum-flow /
+must-run floor from driving an SDDP phase infeasible when the upstream
+reservoir is empty:
 
-Pipeline
---------
-1. Load the whitelist (CSV path / comma-separated names / bundled
-   default — see :func:`resolve_whitelist`).
-2. For each whitelisted central that exists in the case:
+1. **Soft hydro pmin** (see :meth:`PminFlowRightWriter.process`).  Every
+   hydro generator (turbine-linked) carrying ``pmin > 0`` KEEPS its
+   ``pmin`` but gains a ``pmin_fcost`` equal to the water-value anchor
+   [$/MWh].  The floor becomes a *soft* obligation: a water-short river
+   pays the anchor for the shortfall instead of being hard-forced.  No
+   FlowRight is emitted for generator pmin — this replaces the legacy
+   pmin → FlowRight conversion.
 
-   * Look up the gen waterway and its downstream junction
-     (``junction_b``) via ``waterway_array``/``turbine_array``.
-   * Read the central's ``Rendi`` (= ``efficiency``) from the central
-     parser.
-   * Build per-stage-per-block ``flow_min = pmin / Rendi`` from
-     ``mance_parser`` if available, otherwise fall back to the
-     central's static ``pmin``.
-   * Write a one-column parquet file
-     ``<output_dir>/FlowRight/<central>_pmin_as_flow_right.parquet``
-     with columns ``[block, uid:<flow_right_uid>, stage]``.
-   * Append a FlowRight JSON entry (``uid``, ``name``, ``purpose``,
-     ``junction``, ``direction``, ``discharge``, ``fail_cost``).
-3. Zero out the generator's ``pmin`` so the LP no longer enforces
-   ``g >= pmin`` on every block (the FlowRight now expresses the
-   obligation, with a soft slack).
+2. **Waterway fmin → FlowRight** (see
+   :meth:`PminFlowRightWriter._process_waterway_fmin`).  Transit
+   centrals (``bus = 0``) carry their minimum-flow obligation directly
+   on the gen waterway's ``fmin``.  Each non-zero ``fmin`` is converted
+   into a soft FlowRight (slack-backed) and the hard floor is zeroed.
+   The per-FlowRight discharge parquet is written under
+   ``<output_dir>/FlowRight/`` so PLP-derived cases stay self-consistent.
 
-UIDs start at :data:`_FLOW_RIGHT_UID_START` (5000) to match the
-``gtopt_expand pmin_as_flowright`` ``--uid-start`` default.
+FlowRight is therefore reserved for irrigation / transit water rights.
+Waterway-fmin FlowRight UIDs start at
+:data:`_WATERWAY_FLOW_RIGHT_UID_START` (5500).
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-
-from gtopt_shared.csv_io import write_csv
 
 from .base_writer import BaseWriter
 from ._water_value import WaterValueResolver
@@ -194,13 +185,6 @@ class PminFlowRightWriter(BaseWriter):
                 options=self.options,
             )
         )
-        # Generator UIDs whose pmin was zeroed in the JSON by this
-        # transform.  Used by :meth:`_drop_generator_pmin_columns` to
-        # also strip the corresponding columns from
-        # ``Generator/pmin.parquet`` so the per-stage trajectory does
-        # not silently re-enforce a hard pmin alongside the new soft
-        # FlowRight.
-        self._converted_generator_uids: set[int] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -213,89 +197,68 @@ class PminFlowRightWriter(BaseWriter):
 
         Steps:
 
-        1. Build a ``{central: junction_b}`` map by scanning the
-           ``turbine_array`` + ``waterway_array`` already present in
-           ``planning_system``.
-        2. For each whitelisted central:
+        1. **Soft hydro pmin**: for every hydro generator (turbine-linked)
+           carrying ``pmin > 0``, set ``pmin_fcost`` to the water-value
+           anchor [$/MWh] and KEEP ``pmin`` as a soft floor.  No FlowRight
+           is emitted for generator pmin.
+        2. **Waterway fmin → FlowRight**: convert each non-zero waterway
+           ``fmin`` floor into a soft FlowRight and zero the hard floor
+           (see :meth:`_process_waterway_fmin`).
 
-           * Skip if not in ``central_parser`` (unknown / out of run).
-           * Skip if the central has no gen waterway in the system
-             (e.g. transit-only or skipped during junction processing).
-           * Compute the per-stage-per-block flow schedule.
-           * Write the parquet column.
-           * Zero the matching generator's ``pmin``.
-           * Append the FlowRight JSON.
+        Returns the waterway-fmin FlowRight entries (the soft-pmin step
+        emits no FlowRights).
         """
         # Uniform fallback fail_cost — used when the auto-water-fail-cost
         # resolver is inactive, AND as the floor for the waterway-fmin
-        # transform which has no per-central anchor.  When the resolver
-        # is active each gen-pmin FR receives its own per-central cost
-        # via :meth:`_resolve_fail_cost_for`.
+        # transform which has no per-central anchor.
         fail_cost = self._resolve_fail_cost()
 
-        gen_junctions: Dict[str, str] = {}
-        if self.whitelist:
-            gen_junctions = self._build_gen_junction_map(planning_system)
-            if not gen_junctions:
-                _logger.warning(
-                    "pmin_as_flowright: no gen waterways found in planning;"
-                    " whitelist transform will be skipped."
-                )
         generators: List[Dict[str, Any]] = list(
             planning_system.get("generator_array", []) or []
         )
-        flow_rights: List[Dict[str, Any]] = []
-        rows_by_uid: Dict[int, np.ndarray] = {}
-        block_index, stage_index = self._block_stage_indices()
 
-        next_uid = _FLOW_RIGHT_UID_START
-        for name in self.whitelist:
-            fc = self._resolve_fail_cost_for(name, default=fail_cost)
-            entry, flow_values = self._build_flow_right(
-                central_name=name,
-                uid=next_uid,
-                gen_junctions=gen_junctions,
-                generators=generators,
-                fail_cost=fc,
-                block_index=block_index,
-            )
-            if entry is None:
-                continue
-            flow_rights.append(entry)
-            rows_by_uid[next_uid] = flow_values
-            next_uid += 1
-
-        if flow_rights:
-            # Persist generator pmin overrides.
-            planning_system["generator_array"] = generators
-
-            # Append FlowRights to planning system.
-            fr_array = planning_system.setdefault("flow_right_array", [])
-            if not isinstance(fr_array, list):
-                raise ValueError("planning system 'flow_right_array' must be a list")
-            fr_array.extend(flow_rights)
-
-            # Write the parquet file(s) — one per FlowRight to match the
-            # JSON ``discharge`` string ref format expected by gtopt.
-            self._write_parquets(flow_rights, rows_by_uid, block_index, stage_index)
-
-            # Drop the converted generators' columns from
-            # Generator/pmin.parquet so the original per-stage pmin
-            # trajectory does not silently re-enforce a hard pmin
-            # alongside the new soft FlowRight.
-            self._drop_generator_pmin_columns()
-
-            # ``fail_cost`` is the gtopt-internal $/(m³/s·h) coefficient;
-            # the user-facing PLP-native equivalent is /3.6 ($/Hm³).
-            plp_to_gtopt_units: float = 3.6
-            fail_cost_plp = fail_cost / plp_to_gtopt_units
-            _logger.info(
-                "pmin_as_flowright: emitted %d FlowRight(s)"
-                " (fail_cost = %g $/Hm³ ≡ %g $/(m³/s·h) internal)",
-                len(flow_rights),
-                fail_cost_plp,
-                fail_cost,
-            )
+        # ---- Soft hydro pmin -------------------------------------------------
+        # Every hydro generator (turbine-linked) that carries a pmin keeps it
+        # as a SOFT floor: when the river is water-short the shortfall is
+        # penalised at the hydro water value rather than hard-forced (which
+        # would drive the SDDP phase infeasible).  This REPLACES the legacy
+        # pmin->FlowRight conversion for generator units — FlowRight is now
+        # reserved for irrigation / water rights.  The penalty is the
+        # water-value anchor [$/MWh]: the flow-based FlowRight ``fcost`` was
+        # ``anchor x PF``; expressed per-MWh on the generator the PF cancels,
+        # leaving the anchor.  ``pmin`` itself is kept untouched (soft floor).
+        hydro_gen_names = {
+            str(t.get("generator") or t.get("name"))
+            for t in (planning_system.get("turbine_array", []) or [])
+            if isinstance(t, dict)
+        }
+        anchor = (
+            float(self._water_value_resolver.anchor)
+            if self._water_value_resolver is not None
+            else 0.0
+        )
+        soft_count = 0
+        if anchor > 0.0:
+            for gen in generators:
+                if not isinstance(gen, dict) or gen.get("name") not in hydro_gen_names:
+                    continue
+                pmin = gen.get("pmin")
+                has_pmin = (
+                    isinstance(pmin, (int, float)) and pmin > 0.0
+                ) or isinstance(pmin, str)
+                if not has_pmin:
+                    continue
+                gen["pmin_fcost"] = anchor
+                soft_count += 1
+            if soft_count:
+                planning_system["generator_array"] = generators
+                _logger.info(
+                    "soft hydro pmin: pmin_fcost=%g $/MWh on %d hydro"
+                    " generator(s) (water-value anchor; pmin kept as soft"
+                    " floor, no FlowRight)",
+                    anchor,
+                    soft_count,
+                )
 
         # Second transform: waterway fmin → FlowRight.  Auto-detected
         # from ``Waterway/fmin.parquet`` (no whitelist; every non-zero
@@ -309,43 +272,11 @@ class PminFlowRightWriter(BaseWriter):
             planning_system, fail_cost=fail_cost
         )
 
-        return flow_rights + waterway_rights
+        return waterway_rights
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _build_gen_junction_map(
-        self, planning_system: Mapping[str, Any]
-    ) -> Dict[str, str]:
-        """Return ``{central_name: junction_b}`` for each gen waterway.
-
-        The convention is that JunctionWriter names the gen waterway
-        ``"<central_name>_<central_id>_<target_id>"`` and binds a
-        Turbine entry whose ``name == central_name`` to that waterway
-        via the turbine's ``waterway`` field.  We resolve ``junction_b``
-        by joining ``turbine_array`` → ``waterway_array``.
-        """
-        waterways = {
-            ww.get("name"): ww
-            for ww in planning_system.get("waterway_array", []) or []
-            if isinstance(ww, dict) and ww.get("name")
-        }
-        result: Dict[str, str] = {}
-        for tur in planning_system.get("turbine_array", []) or []:
-            if not isinstance(tur, dict):
-                continue
-            cname = tur.get("name")
-            wname = tur.get("waterway")
-            if not isinstance(cname, str) or not isinstance(wname, str):
-                continue
-            ww = waterways.get(wname)
-            if not ww:
-                continue
-            jb = ww.get("junction_b")
-            if isinstance(jb, str) and jb:
-                result[cname] = jb
-        return result
-
     def _resolve_fail_cost(self) -> float:
         """Return the internal ``fail_cost`` (in gtopt's $/(m³/s·h)).
 
@@ -414,45 +345,6 @@ class PminFlowRightWriter(BaseWriter):
 
         return _DEFAULT_FAIL_COST
 
-    def _resolve_fail_cost_for(self, central_name: str, *, default: float) -> float:
-        """Per-central FlowRight ``fail_cost`` (gtopt-internal $/(m³/s·h)).
-
-        When the auto helper is inactive (no resolver, or resolver's
-        ``is_active`` is False) we return *default* — the uniform
-        legacy value resolved by :meth:`_resolve_fail_cost`.
-
-        When the helper is active:
-
-        * Resolve the central's number from ``central_parser``.
-        * If unknown → fall back to *default* (defensive; preserves
-          historical behaviour for centrals not in the parser).
-        * Else use ``junction_lost_pf(number)``: the central's own
-          ``max_rendi`` if it has a generator (``bus > 0``), else 0.
-        * If ``lost_pf == 0`` (transit-only / bus=0 central) the FR
-          has no energy-equivalent cost — return ``0.0``.
-        * Otherwise scale by the anchor: ``anchor × lost_pf``.
-        """
-        resolver = self._water_value_resolver
-        if resolver is None or not resolver.is_active:
-            return default
-        central_number: Optional[int] = None
-        if self.central_parser is not None:
-            central_number = next(
-                (
-                    c.get("number")
-                    for c in getattr(self.central_parser, "centrals", []) or []
-                    if c.get("name") == central_name
-                ),
-                None,
-            )
-        if central_number is None:
-            return default
-        lost_pf = resolver.junction_lost_pf(int(central_number))
-        if lost_pf <= 0.0:
-            # Transit-only central (bus=0) — FR has no energy-equivalent cost.
-            return 0.0
-        return resolver.fail_cost(lost_pf)
-
     def _block_stage_indices(self) -> tuple[np.ndarray, np.ndarray]:
         """Return parallel ``(block, stage)`` int32 arrays for the parquet.
 
@@ -470,213 +362,6 @@ class PminFlowRightWriter(BaseWriter):
             dtype=np.int32,
         )
         return block_index, stage_index
-
-    def _build_flow_right(
-        self,
-        *,
-        central_name: str,
-        uid: int,
-        gen_junctions: Mapping[str, str],
-        generators: List[Dict[str, Any]],
-        fail_cost: float,
-        block_index: np.ndarray,
-    ) -> tuple[Optional[Dict[str, Any]], np.ndarray]:
-        """Build one FlowRight entry + its per-block flow vector.
-
-        Returns ``(None, empty_array)`` when the central is not eligible
-        (missing in central_parser, no gen waterway, non-positive
-        Rendi, etc.) — caller should ``continue``.
-        """
-        empty = np.empty(0, dtype=np.float64)
-
-        junction_b = gen_junctions.get(central_name)
-        if junction_b is None:
-            _logger.warning(
-                "pmin_as_flowright: central '%s' has no gen waterway in"
-                " planning; skipping.",
-                central_name,
-            )
-            return None, empty
-
-        central = (
-            self.central_parser.get_central_by_name(central_name)
-            if self.central_parser is not None
-            else None
-        )
-        if central is None:
-            _logger.warning(
-                "pmin_as_flowright: central '%s' not found in"
-                " central_parser; skipping.",
-                central_name,
-            )
-            return None, empty
-
-        rendi = float(central.get("efficiency", 0.0) or 0.0)
-        if rendi <= 0.0:
-            _logger.warning(
-                "pmin_as_flowright: central '%s' has non-positive"
-                " efficiency (%g); skipping.",
-                central_name,
-                rendi,
-            )
-            return None, empty
-
-        flow_values = self._build_flow_values(
-            central_name=central_name,
-            central=central,
-            rendi=rendi,
-            block_index=block_index,
-        )
-        if flow_values.size == 0 or float(flow_values.max()) == 0.0:
-            _logger.info(
-                "pmin_as_flowright: central '%s' has no positive pmin;"
-                " skipping (nothing to convert).",
-                central_name,
-            )
-            return None, empty
-
-        # Zero the matching generator's pmin so the LP doesn't double-
-        # count the obligation.  Generators in plp2gtopt are keyed by
-        # name (matching central_name).  Also record the generator's
-        # uid so we can later drop its column from Generator/pmin.parquet
-        # (otherwise the per-stage trajectory persists as dead data
-        # alongside the new FlowRight obligation).
-        for gen in generators:
-            if isinstance(gen, dict) and gen.get("name") == central_name:
-                gen["pmin"] = 0.0
-                gen_uid = gen.get("uid")
-                if gen_uid is not None:
-                    self._converted_generator_uids.add(int(gen_uid))
-                break
-
-        column_name = f"{central_name}{_FLOW_RIGHT_SUFFIX}"
-        # The gtopt C++ JSON binding uses `target` (with `discharge`
-        # accepted as legacy alias) and `fcost` (no legacy alias —
-        # `fail_cost` is the pre-2026-05 name and no longer parses).
-        # Keep `discharge` here for compatibility with older gtopt
-        # builds that haven't picked up the unified-mode refactor;
-        # the alias resolves to `target` at parse time.
-        entry: Dict[str, Any] = {
-            "uid": uid,
-            "name": column_name,
-            "purpose": _FLOW_RIGHT_PURPOSE,
-            "junction": junction_b,
-            "direction": _FLOW_RIGHT_DIRECTION,
-            "discharge": column_name,
-            "fcost": fail_cost,
-        }
-        return entry, flow_values
-
-    def _build_flow_values(
-        self,
-        *,
-        central_name: str,
-        central: Mapping[str, Any],
-        rendi: float,
-        block_index: np.ndarray,
-    ) -> np.ndarray:
-        """Compute ``pmin / rendi`` per block.
-
-        Prefers per-stage-per-block plpmance values when available;
-        otherwise broadcasts the central's static ``pmin``.
-        """
-        static_pmin = float(central.get("pmin", 0.0) or 0.0)
-
-        mance_entry = (
-            self.mance_parser.get_mance_by_name(central_name)
-            if self.mance_parser is not None
-            else None
-        )
-        if mance_entry is None:
-            if static_pmin == 0.0 or block_index.size == 0:
-                return np.zeros(block_index.size, dtype=np.float64)
-            return np.full(block_index.size, static_pmin / rendi, dtype=np.float64)
-
-        # mance: ``block`` (np.array of ints) and ``pmin`` (np.array of floats).
-        mance_block = np.asarray(mance_entry.get("block"), dtype=np.int64)
-        mance_pmin = np.asarray(mance_entry.get("pmin"), dtype=np.float64)
-        if mance_block.size == 0 or mance_pmin.size == 0:
-            if static_pmin == 0.0 or block_index.size == 0:
-                return np.zeros(block_index.size, dtype=np.float64)
-            return np.full(block_index.size, static_pmin / rendi, dtype=np.float64)
-
-        # Build a {block: pmin} map (last-wins for duplicates) so we can
-        # broadcast onto the canonical block_index of the case.
-        pmin_by_block: Dict[int, float] = {}
-        for blk, val in zip(mance_block.tolist(), mance_pmin.tolist()):
-            pmin_by_block[int(blk)] = float(val)
-
-        out = np.empty(block_index.size, dtype=np.float64)
-        for i, blk in enumerate(block_index.tolist()):
-            out[i] = pmin_by_block.get(int(blk), static_pmin) / rendi
-        return out
-
-    def _drop_generator_pmin_columns(self) -> None:
-        """Strip converted generators' columns from ``Generator/pmin.parquet``.
-
-        The pmin-as-flowright transform sets ``Generator.pmin = 0.0`` in
-        the JSON for each converted central, but ``Generator/pmin.parquet``
-        is written by ``mance_writer`` BEFORE this transform runs.  If the
-        gtopt parser ever consults the parquet for a generator whose JSON
-        scalar pmin is 0, the original mance trajectory would silently
-        re-enforce the hard must-run alongside the new soft FlowRight —
-        defeating the entire transform.
-
-        This cleanup pass removes the ``uid:N`` column for each converted
-        generator from the parquet so the conversion is unambiguous: the
-        only pmin obligation surviving is the soft FlowRight.
-        """
-        if not self._converted_generator_uids:
-            return
-        if "output_dir" not in self.options:
-            return
-        gen_dir = Path(self.options["output_dir"]) / "Generator"
-        # File extension follows the case's output_format (default parquet
-        # → ``pmin.parquet``; CSV mode → ``pmin.csv``).
-        candidates = [gen_dir / "pmin.parquet", gen_dir / "pmin.csv"]
-        path = next((p for p in candidates if p.exists()), None)
-        if path is None:
-            return
-
-        is_parquet = path.suffix == ".parquet"
-        try:
-            df = pd.read_parquet(path) if is_parquet else pd.read_csv(path)
-        except (OSError, ValueError) as exc:
-            _logger.warning(
-                "pmin_as_flowright: could not open %s for cleanup (%s); "
-                "the converted generators' pmin trajectories may persist "
-                "as dead data alongside the new FlowRights.",
-                path,
-                exc,
-            )
-            return
-
-        drop_cols = [f"uid:{uid}" for uid in self._converted_generator_uids]
-        present = [c for c in drop_cols if c in df.columns]
-        if not present:
-            return  # nothing to drop — not all converted gens had a mance schedule
-
-        df = df.drop(columns=present)
-        try:
-            if is_parquet:
-                df.to_parquet(path, index=False)
-            else:
-                write_csv(df, path)
-        except (OSError, ValueError) as exc:
-            _logger.warning(
-                "pmin_as_flowright: could not rewrite %s after column "
-                "drop (%s); the original trajectories remain on disk.",
-                path,
-                exc,
-            )
-            return
-        _logger.info(
-            "pmin_as_flowright: dropped %d converted-generator pmin column(s) "
-            "from %s (%s)",
-            len(present),
-            path.name,
-            ", ".join(present),
-        )
 
     # ------------------------------------------------------------------
     # Waterway fmin → FlowRight transform
