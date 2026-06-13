@@ -16,6 +16,7 @@
 #include <gtopt/reservoir_production_factor_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/turbine_lp.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -235,7 +236,8 @@ TEST_CASE("SystemLP with reservoir production factor element")
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
@@ -434,7 +436,8 @@ TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
@@ -599,7 +602,8 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
@@ -727,7 +731,8 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
@@ -897,7 +902,8 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
@@ -991,8 +997,10 @@ TEST_CASE(
   const auto gen_col_it = gcols.find(block_uid);
   REQUIRE(gen_col_it != gcols.end());
 
-  const auto& ww_lp = system_lp.elements<WaterwayLP>().front();
-  const auto& fcols = ww_lp.flow_cols_at(scenario_lp, stage_lp);
+  // Built-in waterway turbine: the carried flow lives on the Turbine's own
+  // flow column (the production factor links generation to it directly).
+  const auto& tur_lp = system_lp.elements<TurbineLP>().front();
+  const auto& fcols = tur_lp.flow_cols_at(scenario_lp, stage_lp);
   const auto flow_col_it = fcols.find(block_uid);
   REQUIRE(flow_col_it != fcols.end());
 
@@ -1081,7 +1089,8 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           // Mean PF = 2.0 (from cenre).  This is what the LP must use until
           // a real solve produces a volume that update_lp can re-evaluate.

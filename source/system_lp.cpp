@@ -1736,7 +1736,19 @@ int SystemLP::update_lp()
                      {
                        using T = std::decay_t<decltype(element)>;
                        if constexpr (HasUpdateLP<T>) {
-                         total += element.update_lp(*this, scenario, stage);
+                         try {
+                           total += element.update_lp(*this, scenario, stage);
+                         } catch (const std::exception& ex) {
+                           SPDLOG_ERROR(
+                               std::format("Error updating {} uid={} in LP "
+                                           "(scenario={}, stage={}): {}",
+                                           T::Element::class_name,
+                                           element.uid(),
+                                           scenario.uid(),
+                                           stage.uid(),
+                                           ex.what()));
+                           throw;
+                         }
                        }
                        return true;
                      });

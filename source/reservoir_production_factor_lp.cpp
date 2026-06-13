@@ -44,19 +44,13 @@ bool ReservoirProductionFactorLP::add_to_lp(const SystemContext& sc,
   }
   const auto& turbine = *turbine_ptr;
 
-  // Obtain flow columns: prefer the waterway (junction-based hydro),
-  // fall back to the turbine's own flow columns (embalse/serie without
-  // a separate waterway — the turbine owns the flow variable directly).
-  const auto* flow_cols_ptr = &turbine.flow_cols_at(scenario, stage);
-  try {
-    const auto& waterway = sc.element<WaterwayLP>(turbine.waterway_sid());
-    flow_cols_ptr = &waterway.flow_cols_at(scenario, stage);
-  } catch (const std::exception&) {
-    // No waterway — turbine's built-in flow columns (set above).
-  }
-
+  // The turbine owns its flow column directly (built-in waterway mode —
+  // junction_a/junction_b).  ReservoirProductionFactor only updates the
+  // turbine's own conversion row, so read the turbine's flow columns with
+  // no Waterway fallback.  (A coupling turbine that owns no flow column
+  // yields an empty map; the per-block ``contains`` guard below skips it.)
   const auto& conv_rows = turbine.conversion_rows_at(scenario, stage);
-  const auto& flow_cols = *flow_cols_ptr;
+  const auto& flow_cols = turbine.flow_cols_at(scenario, stage);
   const auto eff = turbine.stage_efficiency(stage.uid());
 
   const auto& blocks = stage.blocks();

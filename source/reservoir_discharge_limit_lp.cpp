@@ -102,7 +102,16 @@ bool ReservoirDischargeLimitLP::add_to_lp(const SystemContext& sc,
   //     pass.
   for (auto&& block : blocks) {
     const auto buid = block.uid();
-    const auto fcol = flow_cols.at(buid);
+    // A built-in waterway Turbine omits its per-block flow column for
+    // blocks whose generator pmax is zero (the LP-elimination shortcut in
+    // TurbineLP).  No flow column ⇒ no discharge to limit for that block,
+    // so skip the row.  Classic Waterway flow columns are never elided, so
+    // this only fires on the ``turbine`` path.
+    const auto fcol_it = flow_cols.find(buid);
+    if (fcol_it == flow_cols.end()) {
+      continue;
+    }
+    const auto fcol = fcol_it->second;
 
     auto vol_row =
         SparseRow {
@@ -153,7 +162,16 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   auto& li = sys.linear_interface();
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
-  auto& state = m_states_.at(st_key);
+  // SDDP apertures reuse the base scene's discharge rows but carry their
+  // own scenario uids; ``update_lp`` is invoked for those uids even though
+  // ``add_to_lp`` only keyed the base scene.  There is nothing to
+  // re-adjust for an aperture (it inherits the base row), so no-op rather
+  // than throw — mirrors ``ReservoirProductionFactorLP::update_lp``.
+  const auto state_it = m_states_.find(st_key);
+  if (state_it == m_states_.end()) {
+    return 0;
+  }
+  auto& state = state_it->second;
 
   // Volume derived from `state.reservoir_cache` — no `sys.element<ReservoirLP>`
   // on the current sys.  Cross-phase efin lookup goes through the
@@ -182,7 +200,11 @@ int ReservoirDischargeLimitLP::update_lp(SystemLP& sys,
   // re-issued; `eini_col`'s coefficient is permanently 0 in this
   // row.  Max-of-blocks formulation: re-issue on every block's row.
   int total = 0;
-  const auto& brows = vol_rows.at(st_key);
+  const auto brows_it = vol_rows.find(st_key);
+  if (brows_it == vol_rows.end()) {
+    return total;
+  }
+  const auto& brows = brows_it->second;
 
   for (const auto& [buid, row] : brows) {
     li.set_coeff(row, state.efin_col, -new_slope);

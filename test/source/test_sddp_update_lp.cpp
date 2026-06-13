@@ -680,7 +680,8 @@ TEST_CASE(
       {
           .uid = Uid {1},
           .name = "tur1",
-          .waterway = Uid {1},
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
           .generator = Uid {1},
           .production_factor = 1.0,
           .main_reservoir = Uid {1},
