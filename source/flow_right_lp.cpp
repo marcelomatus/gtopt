@@ -635,6 +635,15 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     const auto& j_lp = sc.element(j_sid);
     const auto& j_brows = j_lp.balance_rows_at(scenario, stage);
 
+    // Non-consumptive mode: the served flow is NOT lost at `junction` — it
+    // is also credited (+1) to `bypass_junction`, so the right keeps the
+    // water in the river (debit `junction`, credit `bypass_junction`, like
+    // a Waterway/Turbine arc) while still enforcing its [fmin,fmax]/target
+    // band.  Default (`consumptive` unset/true) keeps the legacy
+    // pure-consumer behaviour.  Requires `bypass_junction`.
+    const bool return_flow = !flow_right().consumptive.value_or(true)
+        && flow_right().bypass_junction.has_value();
+
     if (mode == FlowMode::stage_uniform) {
       // Same qeh column subtracted from every block's balance row —
       // physically: the right takes a constant rate `qeh` across the
@@ -647,6 +656,17 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
             lp.row_at(brow_it->second)[qeh_it->second] = -1.0;
           }
         }
+        if (return_flow) {
+          const JunctionLPSId ret_sid(*flow_right().bypass_junction);
+          const auto& ret_brows =
+              sc.element(ret_sid).balance_rows_at(scenario, stage);
+          for (auto&& block : blocks) {
+            const auto rit = ret_brows.find(block.uid());
+            if (rit != ret_brows.end()) {
+              lp.row_at(rit->second)[qeh_it->second] = +1.0;
+            }
+          }
+        }
       }
     } else {
       const auto& my_fcols = flow_cols[st_key];
@@ -656,6 +676,19 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         auto fcol_it = my_fcols.find(buid);
         if (brow_it != j_brows.end() && fcol_it != my_fcols.end()) {
           lp.row_at(brow_it->second)[fcol_it->second] = -1.0;
+        }
+      }
+      if (return_flow) {
+        const JunctionLPSId ret_sid(*flow_right().bypass_junction);
+        const auto& ret_brows =
+            sc.element(ret_sid).balance_rows_at(scenario, stage);
+        for (auto&& block : blocks) {
+          const auto buid = block.uid();
+          auto rit = ret_brows.find(buid);
+          auto fcol_it = my_fcols.find(buid);
+          if (rit != ret_brows.end() && fcol_it != my_fcols.end()) {
+            lp.row_at(rit->second)[fcol_it->second] = +1.0;
+          }
         }
       }
     }

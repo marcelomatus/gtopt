@@ -61,7 +61,10 @@ struct FlowRightConstructor
                                      OptReal priority,
                                      std::optional<RightBoundRule> bound_rule,
                                      OptSingleId bypass_junction,
-                                     OptReal bypass_cost) const
+                                     OptReal bypass_cost,
+                                     OptSingleId junction_a,
+                                     OptSingleId junction_b,
+                                     OptBool consumptive) const
   {
     // Back-compat alias: `discharge` is the legacy name of `target`.
     // Setting both is a JSON error — pick one.
@@ -72,6 +75,17 @@ struct FlowRightConstructor
     }
     if (!target.has_value() && discharge.has_value()) {
       target = std::move(discharge);
+    }
+
+    // Canonical junction names are `junction_a` / `junction_b` (consistent
+    // with Waterway/Turbine).  `junction` / `bypass_junction` are accepted
+    // as legacy input aliases; the canonical name wins when both are set.
+    // NOTE: a follow-up clean-rename drops the legacy keys (see task).
+    if (junction_a.has_value()) {
+      junction = std::move(junction_a);
+    }
+    if (junction_b.has_value()) {
+      bypass_junction = std::move(junction_b);
     }
 
     return FlowRight {
@@ -92,6 +106,7 @@ struct FlowRightConstructor
         .bound_rule = std::move(bound_rule),
         .bypass_junction = std::move(bypass_junction),
         .bypass_cost = bypass_cost,
+        .consumptive = consumptive,
     };
   }
 };
@@ -121,7 +136,12 @@ struct json_data_contract<FlowRight>
       json_number_null<"priority", OptReal>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>,
       json_variant_null<"bypass_junction", OptSingleId, jvtl_SingleId>,
-      json_number_null<"bypass_cost", OptReal>>;
+      json_number_null<"bypass_cost", OptReal>,
+      // Canonical junction aliases (consistent with Waterway/Turbine);
+      // map onto `junction` / `bypass_junction` in the constructor.
+      json_variant_null<"junction_a", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"junction_b", OptSingleId, jvtl_SingleId>,
+      json_bool_null<"consumptive", OptBool>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
   {
@@ -129,6 +149,10 @@ struct json_data_contract<FlowRight>
     // alias so round-tripped JSON uses the canonical name.  The
     // discharge slot's static type widened with the other bound fields.
     static const OptTBRealFieldSched empty_discharge {};
+    // `junction_a` / `junction_b` are input-only aliases for now; emit the
+    // legacy `junction` / `bypass_junction` keys so existing readers and
+    // round-trip fixtures stay unchanged until the clean rename (see task).
+    static const OptSingleId empty_alias {};
     return std::forward_as_tuple(fr.uid,
                                  fr.name,
                                  fr.active,
@@ -146,7 +170,10 @@ struct json_data_contract<FlowRight>
                                  fr.priority,
                                  fr.bound_rule,
                                  fr.bypass_junction,
-                                 fr.bypass_cost);
+                                 fr.bypass_cost,
+                                 empty_alias,
+                                 empty_alias,
+                                 fr.consumptive);
   }
 };
 }  // namespace daw::json

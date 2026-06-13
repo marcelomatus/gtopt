@@ -210,6 +210,22 @@ struct FlowRight
   /// large value to make the bypass a last-resort pressure release.
   /// Only meaningful when ``bypass_junction`` is set.
   OptReal bypass_cost {};
+
+  /// Consumptive flag for the SERVED flow (``flow_b`` / ``qeh``).
+  ///
+  /// Unset / ``true`` (default, backward-compatible): the served flow is
+  /// consumed — subtracted (−1) from ``junction``'s balance and returned
+  /// nowhere (irrigation / filtration offtake).
+  ///
+  /// ``false``: NON-consumptive — the served flow is ALSO credited (+1) to
+  /// ``bypass_junction``'s balance, so the right keeps the water in the
+  /// river: it debits ``junction`` and credits ``bypass_junction`` exactly
+  /// like a Waterway/Turbine arc, while still enforcing the ``[fmin,fmax]``
+  /// / ``target`` / ``fcost`` band on the carried flow.  Models a minimum
+  /// river / turbined flow (cf. SDDP "minimum turbined/total outflow").
+  /// Requires ``bypass_junction``; the optional ``bypass_cost`` bypass
+  /// column still carries any pass-through above the served band.
+  OptBool consumptive {};
 };
 
 }  // namespace gtopt
