@@ -2,5 +2,8 @@ flask>=3.1.1
 numpy>=1.26.0
 openpyxl>=3.1.0
 pandas>=2.2.3
-pyarrow>=19.0.1
+# pyarrow is provided by gtopt-scripts; installing it here clobbers
+# source-built pyarrow with a pre-built PyPI wheel that bundles
+# incompatible libarrow_substrait/libarrow_flight shared objects.
+# pyarrow>=19.0.1
 requests>=2.32.3

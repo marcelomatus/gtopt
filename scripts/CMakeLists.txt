@@ -667,6 +667,7 @@ install(CODE "
       COMMAND \${_UV_EXEC} pip install
         --python \"${PYTHON_EXECUTABLE}\"
         --system
+        --no-deps
         --prefix \"\${CMAKE_INSTALL_PREFIX}\"
         \"\${_stage}\"
       RESULT_VARIABLE _pip_rc
@@ -676,6 +677,7 @@ install(CODE "
       COMMAND \"${PYTHON_EXECUTABLE}\" -m pip install
         --prefix \"\${CMAKE_INSTALL_PREFIX}\"
         --ignore-installed
+        --no-deps
         \"\${_stage}\"
       RESULT_VARIABLE _pip_rc
     )
