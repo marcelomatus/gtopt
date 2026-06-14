@@ -226,7 +226,7 @@ struct LajaFixture
       {
           .uid = Uid {10},
           .name = "fr_canal_x",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 8.0,
           .fcost = 4000.0,
@@ -234,7 +234,7 @@ struct LajaFixture
       {
           .uid = Uid {11},
           .name = "fr_canal_y",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 6.0,
           .fcost = 3000.0,
@@ -242,7 +242,7 @@ struct LajaFixture
       {
           .uid = Uid {12},
           .name = "fr_eco_laja",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 4.0,
           .fcost = 8000.0,
@@ -250,7 +250,7 @@ struct LajaFixture
       {
           .uid = Uid {13},
           .name = "fr_muni",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 2.0,
           .fcost = 6000.0,

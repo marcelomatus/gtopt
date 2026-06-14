@@ -3,14 +3,13 @@
 // Tests for the non-consumptive FlowRight mode (`consumptive = false`).
 //
 // A consumptive FlowRight subtracts its served flow (`flow_b`) from the
-// `junction` balance only — the water leaves the system (irrigation /
+// `junction_a` balance only — the water leaves the system (irrigation /
 // filtration offtake).  A NON-consumptive FlowRight additionally credits
-// the same `flow_b` (+1) to `bypass_junction`, so the right keeps the
-// water in the river (debit `junction`, credit `bypass_junction`, like a
+// the same `flow_b` (+1) to `junction_b`, so the right keeps the
+// water in the river (debit `junction_a`, credit `junction_b`, like a
 // Waterway/Turbine arc) while still enforcing its [fmin, fmax] band.  This
 // models a minimum river / turbined flow (cf. SDDP "minimum turbined
-// outflow").  The `junction_a` / `junction_b` JSON aliases map onto
-// `junction` / `bypass_junction`.
+// outflow").
 
 #include <doctest/doctest.h>
 #include <gtopt/flow_right.hpp>
@@ -103,17 +102,17 @@ TEST_CASE(
   const auto sim = make_single_block_simulation();
   const PlanningOptionsLP options(make_unscaled_options());
 
-  SUBCASE("non-consumptive credits the served flow to bypass_junction")
+  SUBCASE("non-consumptive credits the served flow to junction_b")
   {
     const Array<FlowRight> frs = {
         {
             .uid = Uid {1},
             .name = "fr_nc",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = 5.0,
             .fmax = 10.0,
-            .bypass_junction = Uid {2},
+            .junction_b = Uid {2},
             .consumptive = OptBool {false},
         },
     };
@@ -144,20 +143,20 @@ TEST_CASE(
     CHECK(lp.get_coeff(ret_row, fcol) == doctest::Approx(+1.0));
   }
 
-  SUBCASE("default (consumptive) does not credit bypass_junction")
+  SUBCASE("default (consumptive) does not credit junction_b")
   {
-    // bypass_junction still set (its separate bypass column exists), but
+    // junction_b still set (its separate bypass column exists), but
     // the SERVED flow_b is consumptive — no +1 on the served column at the
     // return junction.
     const Array<FlowRight> frs = {
         {
             .uid = Uid {1},
             .name = "fr_c",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = 5.0,
             .fmax = 10.0,
-            .bypass_junction = Uid {2},
+            .junction_b = Uid {2},
         },
     };
     const auto sys = make_system(frs);

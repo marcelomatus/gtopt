@@ -375,9 +375,9 @@ def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
         # written by older versions of plp2gtopt.
         if "fcost" not in fr and "fail_cost" not in fr:
             continue
-        if fr.get("bypass_junction"):
+        if fr.get("junction_b"):
             continue  # user / writer already set an explicit target
-        j = fr.get("junction")
+        j = fr.get("junction_a")
         if not isinstance(j, str) or not j:
             continue
         ocean_name = _ensure_bypass_target_junction(
@@ -391,7 +391,7 @@ def ensure_bypass_for_flowrights(system: dict[str, Any]) -> int:
             # = target_b`` with ``fail_b`` × ``fcost`` absorbing
             # non-delivery).
             continue
-        fr["bypass_junction"] = ocean_name
+        fr["junction_b"] = ocean_name
         # Free pass-through: the LP only routes flow through the bypass
         # when the FlowRight's consumptive cap would otherwise be
         # exceeded.  Set a non-zero ``bypass_cost`` to prefer
@@ -572,10 +572,10 @@ def expand_pmin_flowright(
             "uid": uid,
             "name": f"{central_name}{_FLOW_RIGHT_SUFFIX}",
             "purpose": _FLOW_RIGHT_PURPOSE,
-            "junction": junction_b,
+            "junction_a": junction_b,
             "direction": _FLOW_RIGHT_DIRECTION,
             "discharge": discharge,
-            "bypass_junction": bypass_junction,
+            "junction_b": bypass_junction,
             "bypass_cost": 0.0,
         }
         flow_rights.append(flow_right)

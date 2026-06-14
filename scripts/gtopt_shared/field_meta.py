@@ -2442,11 +2442,20 @@ FIELD_META: dict[str, list[tuple[str, str, bool, str, Any]]] = {
             None,
         ),
         (
-            "junction",
+            "junction_a",
             _J_ID,
             False,
             "Reference junction uid or name where the right is exercised. "
             "When set, the flow is subtracted from the junction's balance.",
+            None,
+        ),
+        (
+            "junction_b",
+            _J_ID,
+            False,
+            "Optional bypass / pressure-release junction uid or name. When "
+            "set, excess flow above the consumptive cap is routed here "
+            "instead of through a synthetic parallel waterway.",
             None,
         ),
         (

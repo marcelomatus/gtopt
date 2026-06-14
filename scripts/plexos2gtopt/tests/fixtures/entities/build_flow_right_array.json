@@ -30,7 +30,7 @@
     ],
     "fmax": 50.0,
     "fmin": 15.0,
-    "junction": "LAJA",
+    "junction_a": "LAJA",
     "name": "Riego_LAJA_I",
     "purpose": "irrigation",
     "target": 30.0,
@@ -38,8 +38,8 @@
   },
   {
     "bypass_cost": 5.0,
-    "bypass_junction": "DOWNSTREAM",
-    "junction": "UPSTREAM",
+    "junction_a": "UPSTREAM",
+    "junction_b": "DOWNSTREAM",
     "name": "bypass_demo",
     "purpose": "env_flow",
     "uid": 3

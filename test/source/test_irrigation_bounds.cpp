@@ -1210,7 +1210,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "irr_with_costs",
-            .junction = Uid {2},
+            .junction_a = Uid {2},
             .fmax = 20.0,
             .target = 10.0,
             .fcost = fail_val,
@@ -1313,7 +1313,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "heavy_demand",
-            .junction = Uid {2},
+            .junction_a = Uid {2},
             .target = discharge,
             .fcost = fail_val,
         },
@@ -1670,7 +1670,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "tight_irrig",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 20.0,
           .bound_rule =

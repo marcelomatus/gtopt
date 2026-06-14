@@ -211,7 +211,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr1",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 30.0,
           .fcost = 5000.0,
@@ -345,7 +345,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_fail",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 1.0,
           .fcost = 5000.0,
@@ -576,7 +576,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_mix",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 5.0,
           .fcost = 1000.0,
@@ -614,7 +614,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "iqgt",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 100.0,
           .fcost = 1000.0,
@@ -622,7 +622,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {2},
           .name = "iqdr",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 25.0,
           .fcost = 1000.0,
@@ -630,7 +630,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {3},
           .name = "iqde",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 25.0,
           .fcost = 1000.0,
@@ -638,7 +638,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {4},
           .name = "iqdm",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 25.0,
           .fcost = 1000.0,
@@ -646,7 +646,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {5},
           .name = "iqga",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 25.0,
           .fcost = 1000.0,

@@ -304,7 +304,7 @@
     {
       "name": "maule_gasto_normal_riego",
       "purpose": "irrigation",
-      "junction": {{ junction_retiro }},
+      "junction_a": {{ junction_retiro }},
       "direction": -1,
       "discharge": 0,
       "fmax": {{ irr_fmax_schedule }},
@@ -371,7 +371,7 @@
     {
       "name": "maule_gasto_ordinario_riego",
       "purpose": "irrigation",
-      "junction": {{ junction_retiro }},
+      "junction_a": {{ junction_retiro }},
       "direction": -1,
       "discharge": 0,
       "fmax": {{ irr_fmax_schedule }},
@@ -432,7 +432,7 @@
     {
       "name": "maule_resolucion_105",
       "purpose": "environmental",
-      "junction": {{ junction_retiro }},
+      "junction_a": {{ junction_retiro }},
       "direction": -1,
       "discharge": {{ res105_discharge }},
       "fcost": {{ costo_riego_ns_res105 }}

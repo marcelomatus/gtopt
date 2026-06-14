@@ -564,7 +564,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             )
             # Edge to reference junction
             junc_id = self._find_node_id(
-                "junction_array", fr.get("junction"), self._jid
+                "junction_array", fr.get("junction_a"), self._jid
             )
             if junc_id:
                 self.model.add_edge(
@@ -1834,7 +1834,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if jn:
                 interesting.add(jn)
         for fr in flow_rights:
-            jn = jname(fr.get("junction"))
+            jn = jname(fr.get("junction_a"))
             if jn:
                 interesting.add(jn)
 
@@ -1970,7 +1970,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         # Tag FlowRight nodes.
         for fr in flow_rights:
-            jref = fr.get("junction")
+            jref = fr.get("junction_a")
             jn = jname(jref) if jref else None
             lab = junc_to_basin.get(jn) if jn else None
             if lab:

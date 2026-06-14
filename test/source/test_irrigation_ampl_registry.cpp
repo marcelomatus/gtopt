@@ -173,7 +173,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {7},
           .name = "fr_with_fail",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
           .fcost = 5000.0,
@@ -181,7 +181,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {8},
           .name = "fr_no_fail",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
       },
@@ -255,7 +255,7 @@ TEST_CASE(  // NOLINT
           .uid = Uid {100},
           .name = "fr_inactive",
           .active = OptActive {IntBool {0}},
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
           .fcost = 5000.0,

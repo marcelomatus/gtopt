@@ -117,7 +117,7 @@ def _collapse_orphan_drain_outflows(system: Dict[str, Any]) -> int:
             if nm in cand_names:
                 refs[nm].append(BLOCK)
     for fr in system.get("flow_right_array", []):
-        for k in ("junction", "bypass_junction"):
+        for k in ("junction_a", "junction_b"):
             nm = _ref_name(fr.get(k))
             if nm in cand_names:
                 refs[nm].append(BLOCK)

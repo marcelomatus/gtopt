@@ -469,7 +469,7 @@ class PminFlowRightWriter(BaseWriter):
                 "uid": next_uid,
                 "name": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
                 "purpose": _FLOW_RIGHT_PURPOSE,
-                "junction": junction_b,
+                "junction_a": junction_b,
                 "direction": _FLOW_RIGHT_DIRECTION,
                 "discharge": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
                 "fcost": fail_cost,

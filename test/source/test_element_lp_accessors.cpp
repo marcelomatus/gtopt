@@ -391,7 +391,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fright1",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 40.0,
           .target = 20.0,

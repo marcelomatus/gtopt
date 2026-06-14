@@ -496,7 +496,7 @@ class LajaAgreement(_RightsAgreementBase):
                     "fcost": fail_cost,
                 }
                 if injection:
-                    fr_district["junction"] = injection
+                    fr_district["junction_a"] = injection
                 result.append(fr_district)
 
         return result

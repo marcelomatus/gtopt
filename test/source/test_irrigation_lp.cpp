@@ -575,7 +575,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "irrig_downstream",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .target = 10.0,
           .fcost = 5000.0,
       },

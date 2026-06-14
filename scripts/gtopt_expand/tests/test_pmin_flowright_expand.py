@@ -151,7 +151,7 @@ class TestExpandPminFlowRight:
         fr = flow_rights[0]
         assert fr["name"] == "PANGUE_pmin_as_flow_right"
         assert fr["uid"] == DEFAULT_UID_START
-        assert fr["junction"] == "PANGUE_downstream"
+        assert fr["junction_a"] == "PANGUE_downstream"
         assert fr["direction"] == -1
         assert fr["purpose"] == "environmental"
         assert fr["discharge"] == pytest.approx(50.0 / 0.8)  # 62.5
@@ -434,7 +434,7 @@ class TestEnsureBypassForFlowrights:
                 {
                     "uid": 10,
                     "name": "PANGUE_pmin_as_flow_right",
-                    "junction": "PANGUE_DS",
+                    "junction_a": "PANGUE_DS",
                     "fcost": 1000.0,
                 }
             ],
@@ -442,7 +442,7 @@ class TestEnsureBypassForFlowrights:
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 1
         fr = system["flow_right_array"][0]
-        assert fr["bypass_junction"] == "PANGUE_DS_ocean"
+        assert fr["junction_b"] == "PANGUE_DS_ocean"
         assert fr["bypass_cost"] == 0.0
 
     def test_soft_flow_right_skips_bypass_when_no_drain_available(self) -> None:
@@ -462,7 +462,7 @@ class TestEnsureBypassForFlowrights:
                 {
                     "uid": 10,
                     "name": "fr1",
-                    "junction": "RALCO",
+                    "junction_a": "RALCO",
                     "fcost": 100.0,
                 }
             ],
@@ -470,7 +470,7 @@ class TestEnsureBypassForFlowrights:
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 0
         fr = system["flow_right_array"][0]
-        assert "bypass_junction" not in fr
+        assert "junction_b" not in fr
         # No synthetic ``_spill`` drain was added.
         spill_junctions = [
             j for j in system["junction_array"] if j["name"] == "RALCO_spill"
@@ -487,7 +487,7 @@ class TestEnsureBypassForFlowrights:
                 {
                     "uid": 10,
                     "name": "fr1",
-                    "junction": "RALCO",
+                    "junction_a": "RALCO",
                     "fcost": 100.0,
                 }
             ],
@@ -507,9 +507,9 @@ class TestEnsureBypassForFlowrights:
                 {
                     "uid": 10,
                     "name": "fr1",
-                    "junction": "RALCO",
+                    "junction_a": "RALCO",
                     "fcost": 100.0,
-                    "bypass_junction": "CUSTOM_SINK",
+                    "junction_b": "CUSTOM_SINK",
                     "bypass_cost": 3.0,
                 }
             ],
@@ -518,7 +518,7 @@ class TestEnsureBypassForFlowrights:
         assert wired == 0
         fr = system["flow_right_array"][0]
         # Existing values preserved verbatim.
-        assert fr["bypass_junction"] == "CUSTOM_SINK"
+        assert fr["junction_b"] == "CUSTOM_SINK"
         assert fr["bypass_cost"] == 3.0
         # No synthetic ``_spill`` junction was added.
         assert all(j["name"] != "RALCO_spill" for j in system["junction_array"])
@@ -528,13 +528,13 @@ class TestEnsureBypassForFlowrights:
         system = {
             "junction_array": [{"uid": 1, "name": "RALCO"}],
             "flow_right_array": [
-                {"uid": 10, "name": "fr_hard", "junction": "RALCO", "fmax": 5.0}
+                {"uid": 10, "name": "fr_hard", "junction_a": "RALCO", "fmax": 5.0}
             ],
         }
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 0
         fr = system["flow_right_array"][0]
-        assert "bypass_junction" not in fr
+        assert "junction_b" not in fr
 
     def test_shares_ocean_drain_across_multiple_flowrights(self) -> None:
         """Two FlowRights on the same junction share a single sibling
@@ -546,14 +546,14 @@ class TestEnsureBypassForFlowrights:
                 {"uid": 2, "name": "RALCO_ocean", "drain": True},
             ],
             "flow_right_array": [
-                {"uid": 10, "name": "fr1", "junction": "RALCO", "fcost": 100.0},
-                {"uid": 11, "name": "fr2", "junction": "RALCO", "fcost": 200.0},
+                {"uid": 10, "name": "fr1", "junction_a": "RALCO", "fcost": 100.0},
+                {"uid": 11, "name": "fr2", "junction_a": "RALCO", "fcost": 200.0},
             ],
         }
         wired = ensure_bypass_for_flowrights(system)
         assert wired == 2
         # Both FlowRights point at the same ocean drain.
-        targets = {fr["bypass_junction"] for fr in system["flow_right_array"]}
+        targets = {fr["junction_b"] for fr in system["flow_right_array"]}
         assert targets == {"RALCO_ocean"}
         # No synthetic ``_spill`` drain was added.
         assert all(j["name"] != "RALCO_spill" for j in system["junction_array"])
@@ -567,7 +567,7 @@ class TestEnsureBypassForFlowrights:
                 {"uid": 2, "name": "J_ocean", "drain": True},
             ],
             "flow_right_array": [
-                {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
+                {"uid": 1, "name": "fr", "junction_a": "J", "fcost": 1.0}
             ],
         }
         system_b = {
@@ -576,11 +576,11 @@ class TestEnsureBypassForFlowrights:
                 {"uid": 2, "name": "J_ocean", "drain": True},
             ],
             "flow_right_array": [
-                {"uid": 1, "name": "fr", "junction": "J", "fcost": 1.0}
+                {"uid": 1, "name": "fr", "junction_a": "J", "fcost": 1.0}
             ],
         }
         a = ensure_bypass_for_flowrights(system_a)
         b = ensure_drain_for_flowrights(system_b)
         assert a == b == 1
         assert system_a == system_b
-        assert system_a["flow_right_array"][0]["bypass_junction"] == "J_ocean"
+        assert system_a["flow_right_array"][0]["junction_b"] == "J_ocean"

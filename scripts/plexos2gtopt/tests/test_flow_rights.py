@@ -101,12 +101,12 @@ def test_build_flow_right_array_drops_unresolved() -> None:
     )
     out = build_flow_right_array(fr)
     assert len(out) == 1
-    assert out[0]["junction"] == "ELTORO"
+    assert out[0]["junction_a"] == "ELTORO"
     assert out[0]["purpose"] == "irrigation"
     assert out[0]["fmax"] == 37.0
     assert "fmin" not in out[0]
-    # No bypass_junction in topology → no bypass_junction emitted.
-    assert "bypass_junction" not in out[0]
+    # No bypass_junction in topology → no junction_b emitted.
+    assert "junction_b" not in out[0]
 
 
 def test_build_flow_right_array_emits_both_bounds() -> None:
@@ -145,7 +145,7 @@ def test_build_flow_right_array_emits_explicit_bypass_junction() -> None:
     )
     out = build_flow_right_array(fr)
     assert len(out) == 1
-    assert out[0]["bypass_junction"] == "DOWNSTREAM"
+    assert out[0]["junction_b"] == "DOWNSTREAM"
     assert out[0]["bypass_cost"] == 2.5
 
 
@@ -163,7 +163,7 @@ def test_build_flow_right_array_auto_resolves_bypass_from_vert_waterway() -> Non
     )
     out = build_flow_right_array(fr, waterways=waterways)
     assert len(out) == 1
-    assert out[0]["bypass_junction"] == "ELTORO_DS"
+    assert out[0]["junction_b"] == "ELTORO_DS"
     # Default bypass_cost is 0.0 → not emitted (LP defaults to free
     # pass-through, used freely when no irrigation pressure).
     assert "bypass_cost" not in out[0]
@@ -178,7 +178,7 @@ def test_build_flow_right_array_no_bypass_when_no_topology() -> None:
     fr = (FlowRightSpec(name="standalone", junction_name="ISLAND", fmax=10.0),)
     out = build_flow_right_array(fr, waterways=())
     assert len(out) == 1
-    assert "bypass_junction" not in out[0]
+    assert "junction_b" not in out[0]
     assert "bypass_cost" not in out[0]
 
 

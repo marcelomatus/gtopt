@@ -314,11 +314,11 @@ def check_unreferenced_elements(
     # A Junction may be referenced by any of the LP-side elements that
     # carry a junction handle: waterway endpoints (junction_a /
     # junction_b), flow / reservoir / turbine / battery junctions, and
-    # the FlowRight pair (junction + bypass_junction).  Missing any of
+    # the FlowRight pair (junction_a + junction_b).  Missing any of
     # these produces false-positive WARNINGs — e.g. the synthetic
     # ``<central>_spill`` drain junctions emitted by plp2gtopt's
     # ``--pmin-as-flowright`` path live in ``flow_right_array[*].
-    # bypass_junction`` and are not waterway / flow / reservoir refs.
+    # junction_b`` and are not waterway / flow / reservoir refs.
     junc_referenced: set[Any] = set()
     for ww in sys.get("waterway_array", []):
         for key in ("junction_a", "junction_b"):
@@ -341,7 +341,7 @@ def check_unreferenced_elements(
         if ref is not None:
             junc_referenced.add(ref)
     for fr in sys.get("flow_right_array", []):
-        for key in ("junction", "bypass_junction"):
+        for key in ("junction_a", "junction_b"):
             ref = fr.get(key)
             if ref is not None:
                 junc_referenced.add(ref)

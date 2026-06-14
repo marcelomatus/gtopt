@@ -249,7 +249,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_default",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
         },
@@ -272,7 +272,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_per_block",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "per_block",
@@ -295,7 +295,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "stage_average",
@@ -319,7 +319,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "stage_uniform",
@@ -345,7 +345,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_legacy",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .use_average = true,
@@ -374,7 +374,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_priority",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "per_block",
@@ -401,7 +401,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_bogus",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "bogus",
@@ -424,7 +424,7 @@ TEST_CASE("FlowRight flow_mode JSON resolution")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_bogus2",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "bogus",
@@ -459,7 +459,7 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_band",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = 10.0,
             .fmax = 50.0,
@@ -497,7 +497,7 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_exact",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = 20.0,
             .fmax = 20.0,
@@ -534,7 +534,7 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_irrig",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = 30.0,
             .fcost = 100.0,
@@ -584,7 +584,7 @@ TEST_CASE("FlowRight per_block LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_bonus",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 50.0,
             .target = 30.0,
@@ -643,7 +643,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa_band",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = std::vector<std::vector<Real>> {{10.0, 20.0}},
             .fmax = std::vector<std::vector<Real>> {{100.0, 100.0}},
@@ -695,7 +695,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa_qeh",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = std::vector<std::vector<Real>> {{10.0, 20.0}},
             .fmax = std::vector<std::vector<Real>> {{40.0, 40.0}},
@@ -736,7 +736,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa_inf",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = std::vector<std::vector<Real>> {{0.0, 0.0}},
             .fmax =
@@ -774,7 +774,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa_kink",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = 30.0,
             .flow_mode = "stage_average",
@@ -814,7 +814,7 @@ TEST_CASE("FlowRight stage_average LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_sa_no_cost",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = 30.0,
             .flow_mode = "stage_average",
@@ -855,7 +855,7 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su_only",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 40.0,
             .flow_mode = "stage_uniform",
@@ -885,7 +885,7 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su_qeh",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmin = std::vector<std::vector<Real>> {{10.0, 20.0}},
             .fmax = std::vector<std::vector<Real>> {{40.0, 40.0}},
@@ -920,7 +920,7 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su_balance",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 30.0,
             .flow_mode = "stage_uniform",
@@ -962,7 +962,7 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su_no_qavg",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 25.0,
             .flow_mode = "stage_uniform",
@@ -987,7 +987,7 @@ TEST_CASE("FlowRight stage_uniform LP shape")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_su_kink",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = 20.0,
             .flow_mode = "stage_uniform",
@@ -1028,7 +1028,7 @@ TEST_CASE("FlowRight attach_flow edge cases")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_no_target",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .fmax = 10.0,
             .flow_mode = "per_block",
@@ -1058,7 +1058,7 @@ TEST_CASE("FlowRight attach_flow edge cases")  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_zero_costs",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = 25.0,
             .flow_mode = "per_block",

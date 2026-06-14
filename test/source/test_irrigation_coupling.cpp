@@ -204,7 +204,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "farmer_withdrawal",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .target = 10.0,
           .fcost = 5000.0,
       },
@@ -1042,7 +1042,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_zone",
-            .junction = Uid {2},
+            .junction_a = Uid {2},
             .direction = -1,
             .target = 60.0,
             .fcost = 10.0,
@@ -1560,7 +1560,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "upstream_withdrawal",
-            .junction = Uid {1},
+            .junction_a = Uid {1},
             .direction = -1,
             .target = withdrawal_discharge,
             .fcost = 200000.0,
@@ -1716,7 +1716,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_a",
-            .junction = Uid {2},
+            .junction_a = Uid {2},
             .direction = -1,
             .target = 100.0,
             .fcost = 5000.0,
@@ -1726,7 +1726,7 @@ TEST_CASE(  // NOLINT
       flow_right_array.push_back(FlowRight {
           .uid = Uid {2},
           .name = "fr_b",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 100.0,
           .fcost = 5000.0,
@@ -1869,7 +1869,7 @@ TEST_CASE(  // NOLINT
         {
             .uid = Uid {1},
             .name = "fr_infeasible",
-            .junction = Uid {2},
+            .junction_a = Uid {2},
             .direction = -1,
             .target = 100.0,
             .fcost = fail_cost,

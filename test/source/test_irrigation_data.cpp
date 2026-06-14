@@ -22,7 +22,7 @@ TEST_CASE("Irrigation data: FlowRight construction and default values")
   CHECK(fr.name == Name {});
   CHECK_FALSE(fr.active.has_value());
   CHECK_FALSE(fr.purpose.has_value());
-  CHECK_FALSE(fr.junction.has_value());
+  CHECK_FALSE(fr.junction_a.has_value());
   CHECK_FALSE(fr.direction.has_value());
   CHECK_FALSE(fr.fcost.has_value());
   CHECK_FALSE(fr.priority.has_value());
@@ -38,7 +38,7 @@ TEST_CASE("Irrigation data: FlowRight attribute assignment")
   fr.name = "laja_nuevo_riego";
   fr.active = true;
   fr.purpose = "irrigation";
-  fr.junction = Name {"laja_downstream"};
+  fr.junction_a = Name {"laja_downstream"};
   fr.target = 65.0;
   fr.fcost = 5000.0;
   fr.priority = 1.0;
@@ -48,8 +48,8 @@ TEST_CASE("Irrigation data: FlowRight attribute assignment")
   CHECK(std::get<IntBool>(fr.active.value()) == 1);
   REQUIRE(fr.purpose.has_value());
   CHECK(*fr.purpose == "irrigation");
-  REQUIRE(fr.junction.has_value());
-  CHECK(std::get<Name>(*fr.junction) == "laja_downstream");
+  REQUIRE(fr.junction_a.has_value());
+  CHECK(std::get<Name>(*fr.junction_a) == "laja_downstream");
   REQUIRE(fr.fcost.has_value());
   CHECK(std::get<Real>(*fr.fcost) == doctest::Approx(5000.0));
   CHECK_FALSE(fr.uvalue.has_value());

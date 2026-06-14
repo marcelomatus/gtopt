@@ -29,7 +29,7 @@
  *
  * The flow right is consumptive: the per-block `flow_b` is subtracted
  * (coefficient -1) from the upstream Junction balance row when
- * `flow_right().junction` is set.
+ * `flow_right().junction_a` is set.
  */
 
 #include <gtopt/cost_helper.hpp>
@@ -630,19 +630,19 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
   // the per-block `flow_b` is subtracted; in `stage_uniform` the same
   // `qeh` column is subtracted from every block's balance row (the
   // right's flow is uniform across the stage).
-  if (const auto& j_ref = flow_right().junction; j_ref.has_value()) {
+  if (const auto& j_ref = flow_right().junction_a; j_ref.has_value()) {
     const JunctionLPSId j_sid(*j_ref);
     const auto& j_lp = sc.element(j_sid);
     const auto& j_brows = j_lp.balance_rows_at(scenario, stage);
 
-    // Non-consumptive mode: the served flow is NOT lost at `junction` — it
-    // is also credited (+1) to `bypass_junction`, so the right keeps the
-    // water in the river (debit `junction`, credit `bypass_junction`, like
+    // Non-consumptive mode: the served flow is NOT lost at `junction_a` —
+    // it is also credited (+1) to `junction_b`, so the right keeps the
+    // water in the river (debit `junction_a`, credit `junction_b`, like
     // a Waterway/Turbine arc) while still enforcing its [fmin,fmax]/target
     // band.  Default (`consumptive` unset/true) keeps the legacy
-    // pure-consumer behaviour.  Requires `bypass_junction`.
+    // pure-consumer behaviour.  Requires `junction_b`.
     const bool return_flow = !flow_right().consumptive.value_or(true)
-        && flow_right().bypass_junction.has_value();
+        && flow_right().junction_b.has_value();
 
     if (mode == FlowMode::stage_uniform) {
       // Same qeh column subtracted from every block's balance row —
@@ -657,7 +657,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
           }
         }
         if (return_flow) {
-          const JunctionLPSId ret_sid(*flow_right().bypass_junction);
+          const JunctionLPSId ret_sid(*flow_right().junction_b);
           const auto& ret_brows =
               sc.element(ret_sid).balance_rows_at(scenario, stage);
           for (auto&& block : blocks) {
@@ -679,7 +679,7 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
         }
       }
       if (return_flow) {
-        const JunctionLPSId ret_sid(*flow_right().bypass_junction);
+        const JunctionLPSId ret_sid(*flow_right().junction_b);
         const auto& ret_brows =
             sc.element(ret_sid).balance_rows_at(scenario, stage);
         for (auto&& block : blocks) {
@@ -694,16 +694,16 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     }
   }
 
-  // Optional pass-through bypass.  When ``bypass_junction`` is set,
+  // Optional pass-through bypass.  When ``junction_b`` is set,
   // emit one ``bypass_X`` column per block, contribute it negatively
-  // to ``junction``'s balance (water leaves the source junction
+  // to ``junction_a``'s balance (water leaves the source junction
   // alongside the consumption flow) and positively to
-  // ``bypass_junction``'s balance (water arrives downstream).  Only
+  // ``junction_b``'s balance (water arrives downstream).  Only
   // active for per-block / stage_average modes; stage_uniform is
   // typically used for steady environmental releases that don't need
   // a pass-through alternative.
-  const auto& bypass_ref = flow_right().bypass_junction;
-  const auto& junction_ref = flow_right().junction;
+  const auto& bypass_ref = flow_right().junction_b;
+  const auto& junction_ref = flow_right().junction_a;
   if (bypass_ref.has_value() && mode != FlowMode::stage_uniform
       && junction_ref.has_value())
   {

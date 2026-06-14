@@ -81,9 +81,9 @@ public:
   static constexpr std::string_view DemandName {"demand"};
 
   /// Per-block pass-through bypass column (`bypass_b ≥ 0`).  Emitted
-  /// only when ``FlowRight::bypass_junction`` is set: contributes
-  /// negatively to ``junction``'s balance row (water leaves the
-  /// source junction) and positively to ``bypass_junction``'s
+  /// only when ``FlowRight::junction_b`` is set: contributes
+  /// negatively to ``junction_a``'s balance row (water leaves the
+  /// source junction) and positively to ``junction_b``'s
   /// balance row (water arrives downstream).  Priced at
   /// ``bypass_cost · cf`` so the LP only uses it when pressure
   /// relief is required.

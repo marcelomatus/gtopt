@@ -472,7 +472,7 @@ TEST_CASE(  // NOLINT
           {
               .uid = Uid {1},
               .name = "fr1",
-              .junction = Uid {1},
+              .junction_a = Uid {1},
               .direction = OptInt {-1},  // consumptive withdrawal
               .target = 5.0,
               .fcost = fail_cost,

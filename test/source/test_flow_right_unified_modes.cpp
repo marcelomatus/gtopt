@@ -185,7 +185,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_cost_pin",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
           .fcost = fcost_val,
@@ -244,7 +244,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_p0_partial",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = fmax_val,
           .target = target_val,
@@ -308,7 +308,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_full_delivery",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 5.0,
           .fcost = 500.0,
@@ -354,7 +354,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_var_excess",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 10.0,
       },
@@ -398,7 +398,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_excess_bonus",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 15.0,
           .target = 5.0,
@@ -510,7 +510,7 @@ TEST_CASE(  // NOLINT
     "FlowRight JSON Tier 2.20b - consumptive flag parses; default unset")
 {
   const auto fr_soft = daw::json::from_json<FlowRight>(
-      R"({"uid": 1, "name": "fr_nc", "junction": 1, "bypass_junction": 2,
+      R"({"uid": 1, "name": "fr_nc", "junction_a": 1, "junction_b": 2,
           "consumptive": false})");
   REQUIRE(fr_soft.consumptive.has_value());
   CHECK(*fr_soft.consumptive == false);
@@ -521,23 +521,23 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(fr_def.consumptive.has_value());
 }
 
-// ── 2.20c JSON: junction_a / junction_b aliases ──────────────────────────
+// ── 2.20c JSON: junction_a / junction_b canonical keys ───────────────────
 
 TEST_CASE(  // NOLINT
-    "FlowRight JSON Tier 2.20c - junction_a/junction_b alias junction/bypass")
+    "FlowRight JSON Tier 2.20c - junction_a/junction_b parse onto the fields")
 {
   const auto fr = daw::json::from_json<FlowRight>(
       R"({"uid": 1, "name": "fr_ab", "junction_a": 7, "junction_b": 9})");
-  REQUIRE(fr.junction.has_value());
-  REQUIRE(fr.bypass_junction.has_value());
-  CHECK(std::get<Uid>(*fr.junction) == Uid {7});
-  CHECK(std::get<Uid>(*fr.bypass_junction) == Uid {9});
+  REQUIRE(fr.junction_a.has_value());
+  REQUIRE(fr.junction_b.has_value());
+  CHECK(std::get<Uid>(*fr.junction_a) == Uid {7});
+  CHECK(std::get<Uid>(*fr.junction_b) == Uid {9});
 
-  // Canonical junction_a wins over the legacy junction when both are set.
-  const auto fr_both = daw::json::from_json<FlowRight>(
-      R"({"uid": 2, "name": "fr_both", "junction": 1, "junction_a": 7})");
-  REQUIRE(fr_both.junction.has_value());
-  CHECK(std::get<Uid>(*fr_both.junction) == Uid {7});
+  // The dropped legacy `junction` key is now an unknown member and is
+  // silently ignored — junction_a stays unset when only `junction` is given.
+  const auto fr_legacy = daw::json::from_json<FlowRight>(
+      R"({"uid": 2, "name": "fr_legacy", "junction": 1})");
+  CHECK_FALSE(fr_legacy.junction_a.has_value());
 }
 
 // ── 2.20a JSON: 2-D `target` (per-stage-block) round-trips through TB binding
@@ -690,7 +690,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_exact",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmin = 7.0,
           .fmax = 7.0,
@@ -761,7 +761,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_neg_fcost",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 10.0,
           .target = 5.0,
@@ -816,7 +816,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_multi_sc",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
           .fcost = fcost_val,

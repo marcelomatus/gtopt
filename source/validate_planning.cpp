@@ -855,16 +855,16 @@ void check_positivity(ValidationResult& result, const System& sys)
                              "FlowRight",
                              fr.name,
                              "fmax");
-    // Non-consumptive rights return the served flow to `bypass_junction`;
+    // Non-consumptive rights return the served flow to `junction_b`;
     // without it there is nowhere to credit the flow, so the right would
     // silently behave as consumptive.  Require the pairing explicitly.
     if (fr.consumptive.has_value() && !*fr.consumptive
-        && !fr.bypass_junction.has_value())
+        && !fr.junction_b.has_value())
     {
-      result.errors.push_back(std::format(
-          "FlowRight '{}': consumptive=false requires 'bypass_junction' "
-          "(junction_b) to return the served flow to the river",
-          fr.name));
+      result.errors.push_back(
+          std::format("FlowRight '{}': consumptive=false requires 'junction_b' "
+                      "to return the served flow to the river",
+                      fr.name));
     }
   }
 

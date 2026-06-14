@@ -2686,7 +2686,7 @@ def build_flow_right_array(
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": fr.name,
-            "junction": fr.junction_name,
+            "junction_a": fr.junction_name,
             "purpose": fr.purpose,
         }
         if fr.fmin > 0.0:
@@ -2721,7 +2721,7 @@ def build_flow_right_array(
         # binds), preserving prior behaviour.
         bypass_to = fr.bypass_junction or spill_downstream.get(fr.junction_name)
         if bypass_to is not None:
-            entry["bypass_junction"] = bypass_to
+            entry["junction_b"] = bypass_to
             if fr.bypass_cost > 0.0:
                 entry["bypass_cost"] = fr.bypass_cost
             bypassed += 1
@@ -3039,7 +3039,7 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     # ANGOSTURA / … on their existing ``Vert_* → outflow`` topology.
     fr_bypass_names: set[str] = set()
     for fr in flow_rights:
-        nm = _ref_name(fr.get("bypass_junction"))
+        nm = _ref_name(fr.get("junction_b"))
         if nm is not None:
             fr_bypass_names.add(nm)
     ocean_juncs: dict[str, dict[str, Any]] = {
@@ -3078,8 +3078,8 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     # junction (consumptive — water leaves the basin via the FlowRight's
     # own debit, so the bypass column was never load-bearing).
     for fr in flow_rights:
-        if _ref_name(fr.get("bypass_junction")) in dropped_ocean:
-            fr.pop("bypass_junction", None)
+        if _ref_name(fr.get("junction_b")) in dropped_ocean:
+            fr.pop("junction_b", None)
             fr.pop("bypass_cost", None)
 
     system["waterway_array"] = [w for w in waterways if w["uid"] not in dropped_ww]
@@ -3209,7 +3209,7 @@ def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
             if nm in cand_names:
                 refs[nm].append(BLOCK)
     for fr in system.get("flow_right_array", []):
-        for k in ("junction", "bypass_junction"):
+        for k in ("junction_a", "junction_b"):
             nm = _ref_name(fr.get(k))
             if nm in cand_names:
                 refs[nm].append(BLOCK)

@@ -22,7 +22,7 @@ TEST_CASE("FlowRight construction and default values")
   CHECK(fr.name == Name {});
   CHECK_FALSE(fr.active.has_value());
   CHECK_FALSE(fr.purpose.has_value());
-  CHECK_FALSE(fr.junction.has_value());
+  CHECK_FALSE(fr.junction_a.has_value());
   CHECK_FALSE(fr.direction.has_value());
   CHECK_FALSE(fr.fmin.has_value());
   CHECK_FALSE(fr.fmax.has_value());
@@ -44,7 +44,7 @@ TEST_CASE("FlowRight attribute assignment")
   fr.name = "irrigation_right";
   fr.active = true;
   fr.purpose = "irrigation";
-  fr.junction = Uid {7001};
+  fr.junction_a = Uid {7001};
   fr.direction = -1;
   fr.target = 50.0;
   fr.fmax = 100.0;
@@ -58,7 +58,7 @@ TEST_CASE("FlowRight attribute assignment")
   CHECK(std::get<IntBool>(fr.active.value()) == 1);
   REQUIRE(fr.purpose.has_value());
   CHECK(fr.purpose.value() == "irrigation");
-  CHECK(std::get<Uid>(fr.junction.value()) == Uid {7001});
+  CHECK(std::get<Uid>(fr.junction_a.value()) == Uid {7001});
   CHECK(fr.direction.value_or(0) == -1);
   CHECK(fr.use_average.value_or(false) == true);
   CHECK(fr.priority.value_or(0.0) == doctest::Approx(1.0));
@@ -73,7 +73,7 @@ TEST_CASE("FlowRight designated initializer construction")
       .name = "env_flow",
       .active = {},
       .purpose = "environmental",
-      .junction = SingleId {Uid {10}},
+      .junction_a = SingleId {Uid {10}},
       .direction = -1,
       .fmax = {},
       .target = 25.0,
@@ -85,7 +85,7 @@ TEST_CASE("FlowRight designated initializer construction")
   CHECK(fr.name == "env_flow");
   REQUIRE(fr.purpose.has_value());
   CHECK(fr.purpose.value() == "environmental");
-  CHECK(std::get<Uid>(fr.junction.value()) == Uid {10});
+  CHECK(std::get<Uid>(fr.junction_a.value()) == Uid {10});
   CHECK(fr.direction.value_or(0) == -1);
 }
 
@@ -389,7 +389,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_var",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 75.0,
       },
@@ -432,7 +432,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_fixed",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 30.0,
       },
@@ -487,7 +487,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_zero",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
       },
   };
@@ -540,7 +540,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_cap_clamp",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 30.0,
           .bound_rule =
@@ -602,7 +602,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_qeh",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 25.0,
           .use_average = true,
@@ -649,7 +649,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_with_deficit",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 40.0,
           .fcost = 5000.0,
@@ -714,7 +714,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_no_deficit",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 40.0,
       },
@@ -783,7 +783,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_bonus",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 20.0,
           .target = 10.0,
@@ -843,7 +843,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_bonus_layout",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 20.0,
           .target = 10.0,
@@ -901,7 +901,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_bonus_neg",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 20.0,
           .target = 10.0,
@@ -951,7 +951,7 @@ TEST_CASE(  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_bonus_floor",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmin = 2.0,
           .fmax = 20.0,

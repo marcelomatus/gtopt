@@ -42,7 +42,7 @@
  *   "uid": 1,
  *   "name": "laja_nuevo_riego",
  *   "purpose": "irrigation",
- *   "junction": "laja_downstream",
+ *   "junction_a": "laja_downstream",
  *   "target": [0, 0, 0, 0, 19.5, 42.25, 55.25, 65, 65, 52, 32.5, 13],
  *   "fcost": 5000
  * }
@@ -93,10 +93,11 @@ struct FlowRight
   /// "environmental", etc.  Metadata only — does not affect LP.
   OptName purpose {};
 
-  /// Reference junction where the right is exercised.
-  /// When set, the FlowRight's flow is subtracted from the
-  /// junction's balance row (consumptive extraction).
-  OptSingleId junction {};
+  /// Source junction where the right is exercised (the extraction point).
+  /// When set, the FlowRight's flow is subtracted from this junction's
+  /// balance row (consumptive extraction).  Named `junction_a` for parity
+  /// with Waterway/Turbine's upstream endpoint.
+  OptSingleId junction_a {};
 
   /// Direction sign for LP coupling:
   ///  +1 = supply (inflow to balance point)
@@ -178,11 +179,12 @@ struct FlowRight
   /// This implements PLP cushion zone logic (Laja/Maule).
   std::optional<RightBoundRule> bound_rule {};
 
-  /// Optional pass-through downstream junction.  When set, the
-  /// FlowRight is no longer a pure 1-junction consumer: any water
-  /// at ``junction`` that the (potentially capped) ``flow`` column
-  /// cannot or does not consume can flow through an auxiliary
-  /// ``bypass`` column to ``bypass_junction`` instead.  This models
+  /// Optional downstream junction (the return / pass-through point).
+  /// Named `junction_b` for parity with Waterway/Turbine's downstream
+  /// endpoint.  When set, the FlowRight is no longer a pure 1-junction
+  /// consumer: any water at ``junction_a`` that the (potentially capped)
+  /// ``flow`` column cannot or does not consume can flow through an
+  /// auxiliary ``bypass`` column to ``junction_b`` instead.  This models
   /// PLEXOS-style irrigation rights / hydro discharge envelopes
   /// where the river continues downstream after the irrigation
   /// point, regardless of how much (or little) is consumed by the
@@ -195,35 +197,35 @@ struct FlowRight
   ///     junction's balance is negative (water leaves the basin),
   ///   * a new ``bypass_col`` column is added (free, non-negative,
   ///     priced at ``bypass_cost·cf`` so it's only used when needed)
-  ///     contributing negatively to ``junction``'s balance and
-  ///     positively to ``bypass_junction``'s balance — preserving
+  ///     contributing negatively to ``junction_a``'s balance and
+  ///     positively to ``junction_b``'s balance — preserving
   ///     mass conservation.
   ///
   /// Without this field the FlowRight remains a pure consumer
   /// (backward-compatible).
-  OptSingleId bypass_junction {};
+  OptSingleId junction_b {};
 
   /// Per-unit cost on the bypass column ($/m³/s·h).  Defaults to 0
   /// (free pass-through, used freely by the LP whenever water
   /// otherwise has nowhere to go).  Set a small positive value to
   /// prefer consumption (``flow_col``) over pass-through, or a
   /// large value to make the bypass a last-resort pressure release.
-  /// Only meaningful when ``bypass_junction`` is set.
+  /// Only meaningful when ``junction_b`` is set.
   OptReal bypass_cost {};
 
   /// Consumptive flag for the SERVED flow (``flow_b`` / ``qeh``).
   ///
   /// Unset / ``true`` (default, backward-compatible): the served flow is
-  /// consumed — subtracted (−1) from ``junction``'s balance and returned
+  /// consumed — subtracted (−1) from ``junction_a``'s balance and returned
   /// nowhere (irrigation / filtration offtake).
   ///
   /// ``false``: NON-consumptive — the served flow is ALSO credited (+1) to
-  /// ``bypass_junction``'s balance, so the right keeps the water in the
-  /// river: it debits ``junction`` and credits ``bypass_junction`` exactly
+  /// ``junction_b``'s balance, so the right keeps the water in the
+  /// river: it debits ``junction_a`` and credits ``junction_b`` exactly
   /// like a Waterway/Turbine arc, while still enforcing the ``[fmin,fmax]``
   /// / ``target`` / ``fcost`` band on the carried flow.  Models a minimum
   /// river / turbined flow (cf. SDDP "minimum turbined/total outflow").
-  /// Requires ``bypass_junction``; the optional ``bypass_cost`` bypass
+  /// Requires ``junction_b``; the optional ``bypass_cost`` bypass
   /// column still carries any pass-through above the served band.
   OptBool consumptive {};
 };

@@ -230,7 +230,7 @@ struct CrosstalkFixture
       {
           .uid = Uid {20},
           .name = "fr_m_irr",
-          .junction = Uid {11},
+          .junction_a = Uid {11},
           .direction = -1,
           .target = 8.0,
           .fcost = 4000.0,
@@ -238,7 +238,7 @@ struct CrosstalkFixture
       {
           .uid = Uid {21},
           .name = "fr_m_eco",
-          .junction = Uid {11},
+          .junction_a = Uid {11},
           .direction = -1,
           .target = 4.0,
           .fcost = 8000.0,
@@ -280,7 +280,7 @@ struct CrosstalkFixture
       {
           .uid = Uid {70},
           .name = "fr_l_canal",
-          .junction = Uid {51},
+          .junction_a = Uid {51},
           .direction = -1,
           .target = 8.0,
           .fcost = 4000.0,
@@ -288,7 +288,7 @@ struct CrosstalkFixture
       {
           .uid = Uid {71},
           .name = "fr_l_eco",
-          .junction = Uid {51},
+          .junction_a = Uid {51},
           .direction = -1,
           .target = 4.0,
           .fcost = 8000.0,

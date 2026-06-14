@@ -568,7 +568,7 @@ class TestCliMachicuraAutoDetection:
         flows = entities.get("flow_right_array", [])
         retiro_names = {fr.get("name") for fr in flows}
         assert "retiro_maule_riego_reserva" in retiro_names or any(
-            "MACHICURA" in str(fr.get("junction", "")) for fr in flows
+            "MACHICURA" in str(fr.get("junction_a", "")) for fr in flows
         ), f"expected embalse variant markers, got {sorted(retiro_names)}"
         # Weaker check: the embalse pampl ships extra machicura content
         # — the pasada variant does not reference the string "machicura"

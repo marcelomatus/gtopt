@@ -230,7 +230,7 @@ struct MauleFixture
       {
           .uid = Uid {10},
           .name = "fr_irr_a",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 8.0,
           .fcost = 4000.0,
@@ -238,7 +238,7 @@ struct MauleFixture
       {
           .uid = Uid {11},
           .name = "fr_irr_b",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 6.0,
           .fcost = 3000.0,
@@ -246,7 +246,7 @@ struct MauleFixture
       {
           .uid = Uid {12},
           .name = "fr_eco",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 4.0,
           .fcost = 8000.0,  // ecological flow priority
@@ -254,7 +254,7 @@ struct MauleFixture
       {
           .uid = Uid {13},
           .name = "fr_dom",
-          .junction = Uid {2},
+          .junction_a = Uid {2},
           .direction = -1,
           .target = 2.0,
           .fcost = 6000.0,

@@ -420,7 +420,7 @@ def test_waterway_fmin_scalar_emits_flow_right(tmp_path: Path) -> None:
     fr = result[0]
     assert fr["uid"] == _WATERWAY_FLOW_RIGHT_UID_START
     assert fr["name"] == f"LMAULE_gen_1_2{_WATERWAY_FLOW_RIGHT_SUFFIX}"
-    assert fr["junction"] == "LOS_CONDORES"
+    assert fr["junction_a"] == "LOS_CONDORES"
     assert fr["direction"] == -1
     assert fr["discharge"] == fr["name"]
     assert fr["fcost"] == _DEFAULT_FAIL_COST

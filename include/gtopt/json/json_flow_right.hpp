@@ -48,7 +48,7 @@ struct FlowRightConstructor
                                      Name name,
                                      OptActive active,
                                      OptName purpose,
-                                     OptSingleId junction,
+                                     OptSingleId junction_a,
                                      OptInt direction,
                                      OptTBRealFieldSched fmin,
                                      OptTBRealFieldSched fmax,
@@ -60,10 +60,8 @@ struct FlowRightConstructor
                                      OptTBRealFieldSched uvalue,
                                      OptReal priority,
                                      std::optional<RightBoundRule> bound_rule,
-                                     OptSingleId bypass_junction,
-                                     OptReal bypass_cost,
-                                     OptSingleId junction_a,
                                      OptSingleId junction_b,
+                                     OptReal bypass_cost,
                                      OptBool consumptive) const
   {
     // Back-compat alias: `discharge` is the legacy name of `target`.
@@ -77,23 +75,12 @@ struct FlowRightConstructor
       target = std::move(discharge);
     }
 
-    // Canonical junction names are `junction_a` / `junction_b` (consistent
-    // with Waterway/Turbine).  `junction` / `bypass_junction` are accepted
-    // as legacy input aliases; the canonical name wins when both are set.
-    // NOTE: a follow-up clean-rename drops the legacy keys (see task).
-    if (junction_a.has_value()) {
-      junction = std::move(junction_a);
-    }
-    if (junction_b.has_value()) {
-      bypass_junction = std::move(junction_b);
-    }
-
     return FlowRight {
         .uid = uid,
         .name = std::move(name),
         .active = std::move(active),
         .purpose = std::move(purpose),
-        .junction = std::move(junction),
+        .junction_a = std::move(junction_a),
         .direction = direction,
         .fmin = std::move(fmin),
         .fmax = std::move(fmax),
@@ -104,7 +91,7 @@ struct FlowRightConstructor
         .uvalue = std::move(uvalue),
         .priority = priority,
         .bound_rule = std::move(bound_rule),
-        .bypass_junction = std::move(bypass_junction),
+        .junction_b = std::move(junction_b),
         .bypass_cost = bypass_cost,
         .consumptive = consumptive,
     };
@@ -121,7 +108,7 @@ struct json_data_contract<FlowRight>
       json_string<"name", Name>,
       json_variant_null<"active", OptActive, jvtl_Active>,
       json_string_null<"purpose", OptName>,
-      json_variant_null<"junction", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"junction_a", OptSingleId, jvtl_SingleId>,
       json_number_null<"direction", OptInt>,
       json_variant_null<"fmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
@@ -135,12 +122,8 @@ struct json_data_contract<FlowRight>
       json_variant_null<"uvalue", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_number_null<"priority", OptReal>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>,
-      json_variant_null<"bypass_junction", OptSingleId, jvtl_SingleId>,
-      json_number_null<"bypass_cost", OptReal>,
-      // Canonical junction aliases (consistent with Waterway/Turbine);
-      // map onto `junction` / `bypass_junction` in the constructor.
-      json_variant_null<"junction_a", OptSingleId, jvtl_SingleId>,
       json_variant_null<"junction_b", OptSingleId, jvtl_SingleId>,
+      json_number_null<"bypass_cost", OptReal>,
       json_bool_null<"consumptive", OptBool>>;
 
   constexpr static auto to_json_data(FlowRight const& fr)
@@ -149,15 +132,11 @@ struct json_data_contract<FlowRight>
     // alias so round-tripped JSON uses the canonical name.  The
     // discharge slot's static type widened with the other bound fields.
     static const OptTBRealFieldSched empty_discharge {};
-    // `junction_a` / `junction_b` are input-only aliases for now; emit the
-    // legacy `junction` / `bypass_junction` keys so existing readers and
-    // round-trip fixtures stay unchanged until the clean rename (see task).
-    static const OptSingleId empty_alias {};
     return std::forward_as_tuple(fr.uid,
                                  fr.name,
                                  fr.active,
                                  fr.purpose,
-                                 fr.junction,
+                                 fr.junction_a,
                                  fr.direction,
                                  fr.fmin,
                                  fr.fmax,
@@ -169,10 +148,8 @@ struct json_data_contract<FlowRight>
                                  fr.uvalue,
                                  fr.priority,
                                  fr.bound_rule,
-                                 fr.bypass_junction,
+                                 fr.junction_b,
                                  fr.bypass_cost,
-                                 empty_alias,
-                                 empty_alias,
                                  fr.consumptive);
   }
 };

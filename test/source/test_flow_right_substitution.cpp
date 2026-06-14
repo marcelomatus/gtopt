@@ -104,7 +104,7 @@ TEST_CASE("FlowRight fcost-only — flow col absorbs the fail slack")
       {
           .uid = Uid {1},
           .name = "fr_fcost_only",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .target = 10.0,
           .fcost = 100.0,
@@ -152,7 +152,7 @@ TEST_CASE("FlowRight uvalue-only — flow col absorbs the excess slack")
       {
           .uid = Uid {1},
           .name = "fr_uvalue_only",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 100.0,
           .target = 10.0,
@@ -194,7 +194,7 @@ TEST_CASE("FlowRight full kink (fcost + uvalue) — explicit slacks kept")
       {
           .uid = Uid {1},
           .name = "fr_full_kink",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .direction = -1,
           .fmax = 100.0,
           .target = 30.0,
@@ -255,7 +255,7 @@ TEST_CASE("FlowRight fail_sol_at — reconstructs deficit from flow primal")
       {
           .uid = Uid {1},
           .name = "fr_full_deficit",
-          .junction = Uid {1},  // j_src, no upstream supply
+          .junction_a = Uid {1},  // j_src, no upstream supply
           .direction = -1,
           .fmax = 10.0,
           .target = 10.0,

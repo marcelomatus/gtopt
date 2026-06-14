@@ -755,7 +755,7 @@ TEST_CASE("validate_planning - negative FlowRight fmax is an error")  // NOLINT
       {
           .uid = Uid {1},
           .name = "fr_bad",
-          .junction = Uid {1},
+          .junction_a = Uid {1},
           .fmax = Real {-5.0},
       },
   };
