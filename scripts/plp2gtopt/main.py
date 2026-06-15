@@ -518,9 +518,11 @@ def build_options(args: argparse.Namespace) -> dict:
         "scale_objective": args.scale_objective,
         "use_single_bus": args.use_single_bus,
         "use_kirchhoff": args.use_kirchhoff,
-        # Default to the cycle-basis KVL formulation: smaller LP (no θ
-        # column per bus, one KVL row per fundamental cycle instead of
-        # one per line) and no theta-scale tuning.
+        # Default to the node-angle (B–θ) KVL formulation: it mirrors PLP's
+        # voltage-angle model and, although the LP is slightly larger (one θ
+        # per bus + one KVL row per line vs one per fundamental cycle), its
+        # sparse per-line rows solve faster under CPLEX than the dense
+        # per-cycle loop rows of cycle_basis (see --kirchhoff-mode help).
         "kirchhoff_mode": args.kirchhoff_mode,
     }
     if args.scale_theta is not None:

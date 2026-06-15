@@ -978,14 +978,18 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         "--kirchhoff-mode",
         dest="kirchhoff_mode",
         metavar="MODE",
-        default="cycle_basis",
+        default="node_angle",
         choices=["node_angle", "cycle_basis"],
         help=(
             "Kirchhoff Voltage Law (KVL) formulation: "
             "'node_angle' = classical B–θ form (one θ per bus + one KVL "
             "per line, gauge-pinned reference bus per island); "
             "'cycle_basis' = loop-flow form (one KVL per fundamental cycle, "
-            "no θ, no theta-scale tuning).  Default: %(default)s."
+            "no θ, no theta-scale tuning).  Default: %(default)s — the B–θ "
+            "form mirrors PLP's voltage-angle model and, despite a slightly "
+            "larger LP, solves faster under CPLEX (sparse per-line KVL rows "
+            "vs dense per-cycle loop rows; ~3x faster dual simplex on the "
+            "CEN65 full-network case)."
         ),
     )
     parser.add_argument(

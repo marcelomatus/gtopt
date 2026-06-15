@@ -831,7 +831,12 @@ class TestKirchhoffMode:
     """
 
     def test_default_kirchhoff_mode_emitted_top_level(self):
-        """CLI default (cycle_basis) lands in top-level model_options."""
+        """An explicit kirchhoff_mode lands in top-level model_options.
+
+        (The plp2gtopt CLI default is now ``node_angle``; main.py always
+        injects ``args.kirchhoff_mode``.  Here we pin ``cycle_basis`` to
+        prove an arbitrary value propagates.)
+        """
         writer = GTOptWriter(MagicMock())
         # Simulate what main.py does: always injects kirchhoff_mode from args.
         writer.process_options(
