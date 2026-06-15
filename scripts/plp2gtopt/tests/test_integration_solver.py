@@ -590,7 +590,15 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
 
 @pytest.mark.integration
 def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
-    """plp_hydro_4b: marginal costs should be non-negative and bounded."""
+    """plp_hydro_4b: marginal costs should be non-negative and bounded.
+
+    The raw case is free-hydro: 250 MW of zero-cost hydro covers the
+    ~150 MW peak demand, so the LP solves at obj=0 with all LMPs zero —
+    nothing meaningful to validate.  Cap the three hydro generators below
+    peak demand so the gcost=50 ``Thermal1`` unit becomes marginal; the LP
+    then carries a strictly positive marginal price at every bus, which is
+    what this test checks (non-negative, bounded by the failure cost).
+    """
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_cmg")
     opts["method"] = "mono"
     convert_plp_case(opts)
@@ -598,22 +606,34 @@ def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
     json_file = Path(opts["output_file"])
     case_dir = json_file.parent
 
+    # Force Thermal1 (gcost=50) to set the price: cap the free hydro
+    # generators (total 250 MW) well below the ~150 MW peak demand.
+    data = json.loads(json_file.read_text(encoding="utf-8"))
+    hydro_caps = {"LakeA": 30.0, "TurbineA": 30.0, "HydroRoR": 20.0}
+    capped = 0
+    for gen in data["system"]["generator_array"]:
+        if gen["name"] in hydro_caps:
+            gen["pmax"] = hydro_caps[gen["name"]]
+            gen["capacity"] = hydro_caps[gen["name"]]
+            capped += 1
+    assert capped == len(hydro_caps), (
+        f"expected to cap {len(hydro_caps)} hydro generators, capped {capped}"
+    )
+    json_file.write_text(json.dumps(data), encoding="utf-8")
+
     rc, stderr = _run_gtopt(gtopt_bin, case_dir, json_file.stem)
     assert rc == 0, f"gtopt failed with rc={rc}: {stderr}"
 
     results_dir = case_dir / "results"
-    # Trivial-zero LP (free hydro covers all demand → obj=0) legitimately
-    # produces zero LMPs which the parquet writer drops as all-zero rows.
-    # Skip the marginal-cost check in that degenerate case — there's no
-    # meaningful marginal price to inspect.
+    # With capped hydro the gcost=50 thermal must dispatch, so the LP has a
+    # strictly positive objective (no longer the degenerate free-hydro case).
     sol = _read_solution_csv(results_dir)
-    if (sol.get("obj_value") or 0.0) <= 0.0:
-        pytest.skip("LP solved at zero cost (free hydro) — LMPs all zero")
+    assert (sol.get("obj_value") or 0.0) > 0.0, (
+        f"expected a positive objective with capped hydro, got {sol.get('obj_value')}"
+    )
 
     dual_df = _read_output(results_dir, "Bus", "balance_dual")
-
-    if dual_df is None:
-        pytest.skip("No balance_dual output found")
+    assert dual_df is not None, "No balance_dual output found despite positive cost"
 
     uid_cols = [c for c in dual_df.columns if c.startswith("uid:")]
     assert len(uid_cols) > 0, "No bus dual columns in output"
