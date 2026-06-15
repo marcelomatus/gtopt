@@ -527,6 +527,14 @@ def build_options(args: argparse.Namespace) -> dict:
     }
     if args.scale_theta is not None:
         model_opts["scale_theta"] = args.scale_theta
+    elif args.use_kirchhoff and args.kirchhoff_mode == "node_angle":
+        # node_angle default: pin scale_theta=1.0 (no θ auto-scaling).  On the
+        # CEN65 full-network LP the auto θ-scale (median X/V² ≈ 2.7e-4) shrinks
+        # the angle columns ~3700×, which skews the matrix and forces ruiz
+        # equilibration to compensate — net slower.  The raw per-line KVL
+        # matrix is already well-conditioned (X/V² ~ 1e-4…1e-2), so leaving θ
+        # unscaled lets CPLEX barrier solve it fastest (0.27s vs 0.44s scaled).
+        model_opts["scale_theta"] = 1.0
     if args.reserve_fail_cost is not None:
         # §11.10 rename: gtopt canonical is `reserve_shortage_cost`;
         # legacy `reserve_fail_cost` JSON key still accepted via the
