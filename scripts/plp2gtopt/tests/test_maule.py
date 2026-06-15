@@ -256,7 +256,7 @@ class TestMauleWriter:
         res105 = next(
             fr for fr in writer.flow_rights if fr["name"] == "maule_resolucion_105"
         )
-        assert "discharge" in res105
+        assert "target" in res105
         assert res105["purpose"] == "environmental"
 
     def test_district_flow_rights(self, maule_config):
@@ -352,10 +352,10 @@ class TestMauleWriter:
         assert comp["fmax"] == pytest.approx(maule_config["gasto_elec_dia_max"])
         assert "bound_rule" not in comp  # no volume-dependent bound
 
-    def test_all_flow_rights_have_discharge(self, maule_config):
+    def test_all_flow_rights_have_target(self, maule_config):
         writer = MauleWriter(maule_config)
         for fr in writer.flow_rights:
-            assert "discharge" in fr, f"{fr['name']} missing discharge"
+            assert "target" in fr, f"{fr['name']} missing target"
 
     def test_district_constraint_operator(self, maule_config):
         """Districts with has_slack=True use <=, others use =."""

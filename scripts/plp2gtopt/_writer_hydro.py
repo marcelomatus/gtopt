@@ -328,13 +328,12 @@ class HydroMixin:
 
         for j in json_junctions:
             for key, val in j.items():
-                # ``flow_right_array`` may already carry entries from an
-                # earlier hydro step (or be appended to by a later one such
-                # as ``process_pmin_flowright`` / ``process_water_rights``);
-                # EXTEND it so the irrigation-diversion FlowRights emitted by
-                # JunctionWriter coexist with those.  All other entity arrays
-                # are produced solely by JunctionWriter here, so a plain
-                # assignment is correct (and preserves the existing behavior).
+                # EXTEND ``flow_right_array`` so the irrigation-diversion
+                # FlowRights from JunctionWriter coexist with those appended
+                # by later steps (``process_pmin_flowright`` /
+                # ``process_water_rights``).  Every other entity array is
+                # produced solely by JunctionWriter, so a plain assignment is
+                # correct there and preserves the existing behavior.
                 if key == "flow_right_array" and isinstance(val, list):
                     self.planning["system"].setdefault(key, []).extend(val)
                 else:

@@ -471,7 +471,7 @@ cannot deliver the full electric entitlement.
   "name": "maule_gasto_normal_elec",
   "purpose": "generation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ elec_day_max }},
   "use_average": true,
   "fail_cost": {{ penalizador_1 }},
@@ -509,7 +509,7 @@ emitted when > 0.
   "name": "maule_gasto_normal_riego",
   "purpose": "irrigation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ irr_fmax_schedule }},
   "use_average": true,
   "fail_cost": {{ costo_riego_ns_maule }},
@@ -551,7 +551,7 @@ The `fmax` is modulated by `mod_elec_reserva` monthly schedule:
   "name": "maule_gasto_ordinario_elec",
   "purpose": "generation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ elec_ord_fmax }},
   "use_average": true,
   "bound_rule": {
@@ -576,7 +576,7 @@ bound_rule.  Uses the same seasonal `fmax` schedule as normal irrigation.
   "name": "maule_gasto_ordinario_riego",
   "purpose": "irrigation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ irr_fmax_schedule }},
   "use_average": true,
   "bound_rule": {
@@ -607,7 +607,7 @@ PLP: `IQMCEH` hourly aggregate, volume tracked by `VolCompEND`.
   "name": "maule_compensacion_elec",
   "purpose": "generation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ elec_day_max }},
   "use_average": true
 }
@@ -645,7 +645,7 @@ param caudal_res105[month] = [{{ caudal_res105 | join(', ') }}];
   "name": "maule_resolucion_105",
   "purpose": "environmental",
   "direction": -1,
-  "discharge": {{ res105_discharge }},
+  "target": {{ res105_discharge }},
   "fail_cost": {{ costo_riego_ns_res105 }}
   {% if valor_riego_res105 > 0 %}
   ,"use_value": {{ valor_riego_res105 }}
@@ -682,7 +682,7 @@ gtopt: NOT YET MODELED — both are free variables.
   "name": "invernada_deficit",
   "purpose": "irrigation",
   "direction": 1,
-  "discharge": 0,
+  "target": 0,
   "use_average": true
 }
 ```
@@ -692,7 +692,7 @@ gtopt: NOT YET MODELED — both are free variables.
   "name": "invernada_sin_deficit",
   "purpose": "irrigation",
   "direction": 1,
-  "discharge": 0,
+  "target": 0,
   "use_average": true
 }
 ```
@@ -702,7 +702,7 @@ gtopt: NOT YET MODELED — both are free variables.
   "name": "invernada_caudal_natural",
   "purpose": "irrigation",
   "direction": 1,
-  "discharge": 0,
+  "target": 0,
   "use_average": true
 }
 ```
@@ -723,7 +723,7 @@ Objective terms (PLP):
   "name": "invernada_embalsar",
   "purpose": "economy",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "use_average": true
   {% if costo_embalsar > 0 %}
   ,"use_value": {{ costo_embalsar }}
@@ -736,7 +736,7 @@ Objective terms (PLP):
   "name": "invernada_no_embalsar",
   "purpose": "economy",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "use_average": true
   {% if costo_no_embalsar > 0 %}
   ,"use_value": {{ costo_no_embalsar }}
@@ -819,7 +819,7 @@ param costo_canelon = {{ costo_canelon }};
   "name": "maule_bocatoma_canelon",
   "purpose": "irrigation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "use_value": {{ costo_canelon }}
 }
 {% endif %}

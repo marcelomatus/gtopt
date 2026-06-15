@@ -703,10 +703,10 @@ def _is_2d_or_scalar(value):
 
 
 class TestFlowRightFieldShapes:
-    """`FlowRight.fmax` / `discharge` must be scalar or 2D (never 1D)."""
+    """`FlowRight.fmax` / `target` must be scalar or 2D (never 1D)."""
 
     def test_laja_district_discharge_is_2d_or_scalar(self):
-        # Laja agreement emits per-district FlowRights with `discharge`
+        # Laja agreement emits per-district FlowRights with `target`
         # = `_to_tb_sched(...)`.  Configure varying seasonal factors so
         # the writer cannot collapse to scalar — it MUST emit 2D.
         cfg = _minimal_laja_config()
@@ -714,7 +714,7 @@ class TestFlowRightFieldShapes:
         cfg["demand_1o_reg"] = 100  # non-zero so the FR is emitted
         agreement = LajaAgreement(cfg)
         for fr in agreement.flow_rights:
-            for field in ("fmax", "discharge", "target"):
+            for field in ("fmax", "target"):
                 if field not in fr:
                     continue
                 value = fr[field]
@@ -726,14 +726,14 @@ class TestFlowRightFieldShapes:
 
     def test_maule_fmax_target_is_2d_or_scalar(self):
         # Maule agreement emits FlowRights with `fmax` /
-        # `discharge` = `_to_tb_sched(...)`.  `pct_riego_mensual`
+        # `target` = `_to_tb_sched(...)`.  `pct_riego_mensual`
         # varies by month so `irr_fmax_schedule` cannot collapse to
         # scalar — it MUST be 2D.
         cfg = _minimal_maule_config()
         cfg["pct_riego_mensual"] = [10 * (i + 1) for i in range(12)]  # vary
         agreement = MauleAgreement(cfg)
         for fr in agreement.flow_rights:
-            for field in ("fmax", "discharge", "target"):
+            for field in ("fmax", "target"):
                 if field not in fr:
                     continue
                 value = fr[field]

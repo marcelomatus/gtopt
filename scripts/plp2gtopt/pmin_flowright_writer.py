@@ -63,6 +63,63 @@ _DEFAULT_FAIL_COST: float = 10000.0
 #: Truthy values for the ``enabled`` column of the whitelist CSV.
 _TRUTHY: frozenset[str] = frozenset({"1", "true", "t", "yes", "y", "on"})
 
+#: PLP-to-gtopt fail-cost unit conversion factor.  PLP's ``CCaudFalla`` is
+#: scaled internally by ``FactTiempoH = 3.6`` (CEN65/src ``leemat.f:118``)
+#: before the objective coefficient is built in ``genpdago.f:101`` as
+#: ``CCaudFalla_scaled × BloDur / FPhi``.  gtopt's ``FlowRight.fail_cost`` is
+#: $/(m³/s·h), so the equivalent gtopt value for any PLP-native $/Hm³
+#: quantity is ``value × 3.6``.
+_PLP_TO_GTOPT_FAIL_COST: float = 3.6
+
+
+def resolve_flow_right_fail_cost(
+    options: Optional[Dict[str, Any]],
+    plpmat_parser: Optional[Any],
+    vrebemb_parser: Optional[Any],
+) -> float:
+    """Resolve the FlowRight ``fail_cost`` in gtopt's $/(m³/s·h).
+
+    Shared by the waterway-fmin transform
+    (:meth:`PminFlowRightWriter._resolve_fail_cost`) and the
+    irrigation-diversion FlowRights emitted by ``JunctionWriter`` so both
+    pick the SAME number — no new value is invented.  Resolution order
+    (every PLP-native $/Hm³ value is multiplied by
+    :data:`_PLP_TO_GTOPT_FAIL_COST` before being returned):
+
+    0. CLI override ``--flow-right-fail-cost`` ($/Hm³).
+    1. ``plpmat.dat`` ``CCauFal`` flow-failure cost ($/Hm³).
+    2. ``2 × max(rebalse_cost)`` over plpvrebemb.dat entries ($/Hm³).
+    3. ``2 × CVert`` plpmat default vert cost ($/Hm³).
+    4. :data:`_DEFAULT_FAIL_COST` (already in gtopt units — no conversion).
+    """
+    opts = options or {}
+
+    override = opts.get("flow_right_fail_cost")
+    if override is not None:
+        return float(override) * _PLP_TO_GTOPT_FAIL_COST
+
+    ccaufal = 0.0
+    if plpmat_parser is not None:
+        ccaufal = float(getattr(plpmat_parser, "flow_fail_cost", 0.0) or 0.0)
+    if ccaufal > 0.0:
+        return ccaufal * _PLP_TO_GTOPT_FAIL_COST
+
+    max_rebalse = 0.0
+    if vrebemb_parser is not None:
+        for entry in vrebemb_parser.get_all() or []:
+            cost = float(entry.get("cost", 0.0) or 0.0)
+            max_rebalse = max(max_rebalse, cost)
+    if max_rebalse > 0.0:
+        return 2.0 * max_rebalse * _PLP_TO_GTOPT_FAIL_COST
+
+    cvert = 0.0
+    if plpmat_parser is not None:
+        cvert = float(getattr(plpmat_parser, "vert_cost", 0.0) or 0.0)
+    if cvert > 0.0:
+        return 2.0 * cvert * _PLP_TO_GTOPT_FAIL_COST
+
+    return _DEFAULT_FAIL_COST
+
 
 # ---------------------------------------------------------------------------
 # Whitelist resolution
@@ -294,41 +351,14 @@ class PminFlowRightWriter(BaseWriter):
            conversion.
         4. :data:`_DEFAULT_FAIL_COST` final fallback (already in gtopt
            ``$/(m³/s·h)`` units — no further conversion).
+
+        Delegates to :func:`resolve_flow_right_fail_cost` so the
+        irrigation-diversion FlowRights emitted by ``JunctionWriter`` pick
+        the identical number.
         """
-        # PLP-to-gtopt unit conversion factor.  PLP's CCaudFalla is
-        # multiplied internally by ``FactTiempoH = 3.6`` (CEN65/src/pxp.fpp,
-        # leemat.f:118) before the obj coefficient is built in
-        # genpdago.f:101 as ``CCaudFalla_scaled × BloDur / FPhi``.  gtopt's
-        # ``fail_cost`` is $/(m³/s·h), so the equivalent gtopt value for
-        # any PLP-native $/Hm³ quantity is **value × 3.6**.
-        plp_to_gtopt_units: float = 3.6
-
-        # 0. CLI override — PLP-native $/Hm³, converted to gtopt units.
-        override = self.options.get("flow_right_fail_cost") if self.options else None
-        if override is not None:
-            return float(override) * plp_to_gtopt_units
-
-        ccaufal = 0.0
-        if self.plpmat_parser is not None:
-            ccaufal = float(getattr(self.plpmat_parser, "flow_fail_cost", 0.0) or 0.0)
-        if ccaufal > 0.0:
-            return ccaufal * plp_to_gtopt_units
-
-        max_rebalse = 0.0
-        if self.vrebemb_parser is not None:
-            for entry in self.vrebemb_parser.get_all() or []:
-                cost = float(entry.get("cost", 0.0) or 0.0)
-                max_rebalse = max(max_rebalse, cost)
-        if max_rebalse > 0.0:
-            return 2.0 * max_rebalse * plp_to_gtopt_units
-
-        cvert = 0.0
-        if self.plpmat_parser is not None:
-            cvert = float(getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0)
-        if cvert > 0.0:
-            return 2.0 * cvert * plp_to_gtopt_units
-
-        return _DEFAULT_FAIL_COST
+        return resolve_flow_right_fail_cost(
+            self.options, self.plpmat_parser, self.vrebemb_parser
+        )
 
     def _block_stage_indices(self) -> tuple[np.ndarray, np.ndarray]:
         """Return parallel ``(block, stage)`` int32 arrays for the parquet.
@@ -471,7 +501,9 @@ class PminFlowRightWriter(BaseWriter):
                 "purpose": _FLOW_RIGHT_PURPOSE,
                 "junction_a": junction_b,
                 "direction": _FLOW_RIGHT_DIRECTION,
-                "discharge": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
+                # Canonical `target` key (parquet column reference); the
+                # binding still accepts the legacy `discharge` alias.
+                "target": f"{ww_name}{_WATERWAY_FLOW_RIGHT_SUFFIX}",
                 "fcost": fail_cost,
             }
             flow_rights.append(entry)
@@ -547,11 +579,11 @@ class PminFlowRightWriter(BaseWriter):
 
         for entry in flow_rights:
             uid = int(entry["uid"])
-            stem = str(entry["discharge"])
+            stem = str(entry["target"])
             values = rows_by_uid.get(uid)
             if values is None or values.size == 0:
                 continue
-            # FlowRight.{fmin,fmax,target,discharge} are now
+            # FlowRight.{fmin,fmax,target} are now
             # OptTBRealFieldSched (Stage × Block — scenario-independent).
             # Emit one row per (stage, block); do NOT replicate per
             # scenario.  Replicating would create duplicate (stage,

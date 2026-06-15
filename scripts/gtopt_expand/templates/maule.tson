@@ -213,7 +213,7 @@
       "name": "maule_gasto_normal_elec",
       "purpose": "generation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ elec_day_max }},
       "use_average": true,
       "fcost": {{ penalizador_1 }},
@@ -252,7 +252,7 @@
       "name": "maule_gasto_normal_riego",
       "purpose": "irrigation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ irr_fmax_schedule }},
       "use_average": true,
       "fcost": {{ costo_riego_ns_maule }},
@@ -291,7 +291,7 @@
       "name": "maule_gasto_ordinario_elec",
       "purpose": "generation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ elec_ord_fmax }},
       "use_average": true,
       "bound_rule": {
@@ -318,7 +318,7 @@
       "name": "maule_gasto_ordinario_riego",
       "purpose": "irrigation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ irr_fmax_schedule }},
       "use_average": true,
       "bound_rule": {
@@ -349,7 +349,7 @@
       "name": "maule_compensacion_elec",
       "purpose": "generation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ elec_day_max }},
       "use_average": true
     },
@@ -378,7 +378,7 @@
       "name": "maule_resolucion_105",
       "purpose": "environmental",
       "direction": -1,
-      "discharge": {{ res105_discharge }},
+      "target": {{ res105_discharge }},
       "fcost": {{ costo_riego_ns_res105 }}
       {% if valor_riego_res105 > 0 %}
       ,"uvalue": {{ valor_riego_res105 }}
@@ -423,7 +423,7 @@
       "name": "invernada_deficit",
       "purpose": "irrigation",
       "direction": 1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ qmax_invernada }},
       "use_average": true
     },
@@ -432,7 +432,7 @@
       "name": "invernada_sin_deficit",
       "purpose": "irrigation",
       "direction": 1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ qmax_invernada }},
       "use_average": true
     },
@@ -441,7 +441,7 @@
       "name": "invernada_caudal_natural",
       "purpose": "irrigation",
       "direction": 1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ qmax_invernada }},
       "use_average": true
     },
@@ -452,7 +452,7 @@
       "name": "invernada_embalsar",
       "purpose": "economy",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
@@ -466,7 +466,7 @@
       "name": "invernada_no_embalsar",
       "purpose": "economy",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
@@ -488,7 +488,7 @@
       "name": "maule_bocatoma_canelon",
       "purpose": "irrigation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "uvalue": {{ costo_canelon }}
     }
     {% endif %}

@@ -581,10 +581,10 @@ class TestLajaWriter:
             fr = next(f for f in writer.flow_rights if f["name"] == name)
             assert fr["direction"] == -1, f"{name} should have direction=-1"
 
-    def test_all_flow_rights_have_discharge(self, laja_config):
+    def test_all_flow_rights_have_target(self, laja_config):
         writer = LajaWriter(laja_config)
         for fr in writer.flow_rights:
-            assert "discharge" in fr, f"{fr['name']} missing discharge"
+            assert "target" in fr, f"{fr['name']} missing target"
 
     def test_district_fail_cost_computation(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -851,12 +851,12 @@ class TestLajaWriterMinimalConfig:
         assert len(writer.volume_rights) == 7  # 4 rights + 3 economy
         assert len(writer.user_constraints) == 1
 
-    def test_minimal_district_discharge(self):
+    def test_minimal_district_target(self):
         cfg = _minimal_laja_config()
         writer = LajaWriter(cfg)
         d1 = next(fr for fr in writer.flow_rights if fr["name"] == "D1_1o_reg")
-        # discharge = demand_1o_reg * pct_1o_reg * seasonal = 50 * 1.0 * 1.0 = 50
-        assert d1["discharge"] == pytest.approx(50.0)
+        # target = demand_1o_reg * pct_1o_reg * seasonal = 50 * 1.0 * 1.0 = 50
+        assert d1["target"] == pytest.approx(50.0)
 
     def test_minimal_two_segments(self):
         cfg = _minimal_laja_config()

@@ -27,6 +27,7 @@ from ..pmin_flowright_writer import (
     _DEFAULT_FAIL_COST,
     _WATERWAY_FLOW_RIGHT_SUFFIX,
     _WATERWAY_FLOW_RIGHT_UID_START,
+    resolve_flow_right_fail_cost,
     resolve_whitelist,
 )
 
@@ -368,6 +369,56 @@ def test_fail_cost_default_fallback_when_nothing_available() -> None:
     assert writer._resolve_fail_cost() == _DEFAULT_FAIL_COST
 
 
+def test_resolve_flow_right_fail_cost_free_function_branches() -> None:
+    """The shared free function (used by both PminFlowRightWriter and the
+    JunctionWriter irrigation-diversion path) returns the same value across
+    every branch of the resolution cascade — exercised directly, including
+    the ``None``-parser fallbacks the method-based tests cannot reach.
+    """
+    plpmat = FakePlpmatParser(flow_fail_cost=7000.0, vert_cost=999.0)
+    rebalse = FakeVrebembParser([{"name": "X", "volume": 0.0, "cost": 250.0}])
+
+    # 0. CLI override wins, converted $/Hm³ → $/(m³/s·h) via × 3.6.
+    assert (
+        resolve_flow_right_fail_cost({"flow_right_fail_cost": 42.0}, plpmat, rebalse)
+        == 42.0 * 3.6
+    )
+    # 1. CCauFal × 3.6.
+    assert resolve_flow_right_fail_cost(None, plpmat, rebalse) == 7000.0 * 3.6
+    # 2. CCauFal == 0 → 2 × max(rebalse) × 3.6.
+    assert (
+        resolve_flow_right_fail_cost(
+            None, FakePlpmatParser(flow_fail_cost=0.0, vert_cost=50.0), rebalse
+        )
+        == 2.0 * 250.0 * 3.6
+    )
+    # 3. CCauFal and rebalse absent → 2 × CVert × 3.6.
+    assert (
+        resolve_flow_right_fail_cost(
+            None,
+            FakePlpmatParser(flow_fail_cost=0.0, vert_cost=50.0),
+            FakeVrebembParser([]),
+        )
+        == 2.0 * 50.0 * 3.6
+    )
+    # 4. Nothing available (both parsers None) → default constant.
+    assert resolve_flow_right_fail_cost(None, None, None) == _DEFAULT_FAIL_COST
+
+
+def test_resolve_flow_right_fail_cost_matches_method() -> None:
+    """``PminFlowRightWriter._resolve_fail_cost`` is a thin delegate — its
+    result must equal the shared free function on identical inputs, so the
+    irrigation-diversion FlowRights and the soft-flow-right transform pick
+    the IDENTICAL number.
+    """
+    plpmat = FakePlpmatParser(flow_fail_cost=7000.0, vert_cost=999.0)
+    rebalse = FakeVrebembParser([{"name": "X", "volume": 0.0, "cost": 100.0}])
+    writer = _make_writer(whitelist=["MACHICURA"], plpmat=plpmat, vrebemb=rebalse)
+    assert writer._resolve_fail_cost() == resolve_flow_right_fail_cost(
+        writer.options, writer.plpmat_parser, writer.vrebemb_parser
+    )
+
+
 # ---------------------------------------------------------------------------
 # 4. Whitelist CSV filtering (resolve_whitelist enabled flag)
 # ---------------------------------------------------------------------------
@@ -422,7 +473,7 @@ def test_waterway_fmin_scalar_emits_flow_right(tmp_path: Path) -> None:
     assert fr["name"] == f"LMAULE_gen_1_2{_WATERWAY_FLOW_RIGHT_SUFFIX}"
     assert fr["junction_a"] == "LOS_CONDORES"
     assert fr["direction"] == -1
-    assert fr["discharge"] == fr["name"]
+    assert fr["target"] == fr["name"]
     assert fr["fcost"] == _DEFAULT_FAIL_COST
 
     # Waterway hard floor zeroed

@@ -574,7 +574,9 @@ def expand_pmin_flowright(
             "purpose": _FLOW_RIGHT_PURPOSE,
             "junction_a": junction_b,
             "direction": _FLOW_RIGHT_DIRECTION,
-            "discharge": discharge,
+            # `target` is the canonical FlowRight kink key (= pmin/rendi
+            # here); the binding still accepts the legacy `discharge` alias.
+            "target": discharge,
             "junction_b": bypass_junction,
             "bypass_cost": 0.0,
         }

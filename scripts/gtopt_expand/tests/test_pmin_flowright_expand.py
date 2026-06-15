@@ -154,7 +154,7 @@ class TestExpandPminFlowRight:
         assert fr["junction_a"] == "PANGUE_downstream"
         assert fr["direction"] == -1
         assert fr["purpose"] == "environmental"
-        assert fr["discharge"] == pytest.approx(50.0 / 0.8)  # 62.5
+        assert fr["target"] == pytest.approx(50.0 / 0.8)  # 62.5
         assert "fmax" not in fr  # fixed-mode
         assert "fcost" not in fr  # falls back to global hydro_fail_cost
 
@@ -168,7 +168,7 @@ class TestExpandPminFlowRight:
         fr = planning["system"]["flow_right_array"][0]
         # STBRealFieldSched is 3D: [scenario][stage][block].  We wrap the
         # 2D pmin in a single scenario layer.
-        assert fr["discharge"] == [[[5.0, 10.0], [15.0, 20.0]]]
+        assert fr["target"] == [[[5.0, 10.0], [15.0, 20.0]]]
 
     def test_string_pmin_yields_parquet_reference_and_warns(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -183,7 +183,7 @@ class TestExpandPminFlowRight:
 
         assert n == 1
         fr = planning["system"]["flow_right_array"][0]
-        assert fr["discharge"] == "PANGUE_pmin_as_flow_right"
+        assert fr["target"] == "PANGUE_pmin_as_flow_right"
         # The TODO warning is emitted so the parquet-side glue is visible.
         assert any(
             "TODO" in rec.message and "PANGUE_pmin_as_flow_right" in rec.message
@@ -327,9 +327,7 @@ class TestExpandPminFlowRightFromFile:
 
         result = json.loads(out_path.read_text(encoding="utf-8"))
         assert result["system"]["generator_array"][0]["pmin"] == 0.0
-        assert result["system"]["flow_right_array"][0]["discharge"] == pytest.approx(
-            62.5
-        )
+        assert result["system"]["flow_right_array"][0]["target"] == pytest.approx(62.5)
 
     def test_inplace_edit(self, tmp_path: Path) -> None:
         csv_path = _write_csv(tmp_path)
@@ -369,7 +367,7 @@ class TestPminFlowRightCli:
         result = json.loads(out_path.read_text(encoding="utf-8"))
         flow_rights = result["system"]["flow_right_array"]
         assert len(flow_rights) == 1
-        assert flow_rights[0]["discharge"] == pytest.approx(62.5)
+        assert flow_rights[0]["target"] == pytest.approx(62.5)
 
     def test_cli_uid_start(self, tmp_path: Path) -> None:
         csv_path = _write_csv(tmp_path)

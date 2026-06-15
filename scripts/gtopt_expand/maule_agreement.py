@@ -482,7 +482,10 @@ class MauleAgreement(_RightsAgreementBase):
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
-                    "discharge": 0,
+                    # `target` 0 with no fcost collapses to a plain
+                    # [0, fmax] hard band (canonical key; the binding
+                    # still accepts the legacy `discharge` alias).
+                    "target": 0,
                     "fmax": irr_fmax_schedule,
                 }
             )

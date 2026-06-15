@@ -144,15 +144,13 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       }
       const auto gcol = *gcol_opt;
 
-      // adding the turbine-owned flow variable.  The turbine has NO
-      // expansion model (plain ObjectLP, no CapacityBase): `capacity` is a
-      // fixed per-stage max-flow limit, so impose it directly as the
-      // column's upper bound instead of a separate single-variable,
-      // constant-RHS CapacityName row.  This keeps turbine_flow in only the
-      // conversion + junction-balance equalities so presolve can substitute
-      // it out (the extra inequality row used to pin the column cardinality
-      // and block that elimination).  The capacity shadow price is then the
-      // column reduced cost rather than a row dual.
+      // Turbine-owned flow variable.  Turbines have no expansion model
+      // (plain ObjectLP, no CapacityBase), so the fixed per-stage capacity
+      // is imposed directly as the column upper bound rather than a separate
+      // single-variable CapacityName row.  This keeps turbine_flow in only
+      // the conversion + junction-balance equalities so presolve can
+      // substitute it out; the capacity shadow price becomes the column
+      // reduced cost instead of a row dual.
       const auto fc = lp.add_col({
           .lowb = 0.0,
           .uppb = stage_capacity ? *stage_capacity : LinearProblem::DblMax,
@@ -183,10 +181,6 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       rrow[gcol] = 1.0;
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
-
-      // R1: capacity enforced as the flow column's upper bound above — no
-      // separate CapacityName row for junction (built-in-waterway) turbines,
-      // which own their flow column.
     }
 
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};

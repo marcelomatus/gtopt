@@ -390,7 +390,7 @@ individual rights categories on the withdrawal side).
   "name": "laja_q_turbinado",
   "purpose": "generation",
   "direction": 1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ vol_max }},
   "use_average": true
 }
@@ -458,7 +458,7 @@ is omitted entirely from the generated JSON.
   "name": "laja_der_riego",
   "purpose": "irrigation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ fmax_irr }},
   "use_average": true,
   "fail_cost": {{ fail_cost_irr }}
@@ -513,7 +513,7 @@ param elec_usage[month] = [{{ monthly_usage_elec | join(', ') }}];
   "name": "laja_der_electrico",
   "purpose": "generation",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ fmax_elec }},
   "use_average": true,
   "fail_cost": {{ fail_cost_elec }}
@@ -562,7 +562,7 @@ param mixed_usage[month] = [{{ monthly_usage_mixed | join(', ') }}];
   "name": "laja_der_mixto",
   "purpose": "mixed",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ fmax_mixed }},
   "use_average": true
   {% if use_value_mixed is not none %}
@@ -600,7 +600,7 @@ param antic_usage[month] = [{{ monthly_usage_anticipated | join(', ') }}];
   "name": "laja_gasto_anticipado",
   "purpose": "anticipated",
   "direction": -1,
-  "discharge": 0,
+  "target": 0,
   "fmax": {{ fmax_antic }},
   "use_average": true,
   "fail_cost": {{ fail_cost_antic }}

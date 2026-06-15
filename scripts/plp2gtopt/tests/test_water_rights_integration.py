@@ -256,16 +256,22 @@ class TestWaterRightsIntegration:
             assert uc_files or uc_file, "No user_constraint_array or file(s)"
 
     def test_total_flow_rights(self, converted_case):
-        """Total flow rights from the Laja + Maule water-rights agreements.
+        """Total flow rights = 35 water-rights + 3 irrigation diversions.
 
-        Layout: 35 from the Laja + Maule water-rights agreements only.
-        Hydro generator ``pmin`` is no longer converted into a
-        ``*_pmin_as_flow_right`` FlowRight — every turbine-linked
-        generator with ``pmin > 0`` now keeps ``pmin`` as a soft floor
-        priced via ``pmin_fcost`` (the water-value anchor), so the
-        former 6 gen-pmin FlowRights are gone.  The only FlowRights the
-        converter still synthesises are the transit waterway
-        ``*_fmin_as_flow_right`` ones, of which this case has none.
+        Layout:
+        * 35 from the Laja + Maule water-rights agreements.  Hydro
+          generator ``pmin`` is no longer converted into a
+          ``*_pmin_as_flow_right`` FlowRight — every turbine-linked
+          generator with ``pmin > 0`` now keeps ``pmin`` as a soft floor
+          priced via ``pmin_fcost`` (the water-value anchor), so the
+          former 6 gen-pmin FlowRights are gone, and the only synthesised
+          transit FlowRights (``*_fmin_as_flow_right``) are absent here.
+        * 3 consumptive irrigation-diversion FlowRights (RieSur123SCDZ /
+          RIEGZACO / RieSaltos) — serie transit centrals with bus=0,
+          ser_hid=0, ser_ver>0 whose offtake is modelled as a signed
+          consumptive right rather than a free drain (see
+          ``test_irrigation_diversion_becomes_flowright`` in
+          ``test_junction_writer.py``).
         """
         frs = converted_case["system"].get("flow_right_array", [])
         leftover_pmin = [
@@ -274,7 +280,22 @@ class TestWaterRightsIntegration:
         assert not leftover_pmin, (
             f"Unexpected gen-pmin FlowRights survived: {leftover_pmin}"
         )
-        assert len(frs) == 35, f"Expected 35 total flow rights, got {len(frs)}"
+        # The diversion rights are the JunctionWriter-synthesised
+        # ``*_irrigation_right`` ones (purpose="irrigation" is also stamped
+        # on many Laja/Maule agreement rights, so filter by the name suffix).
+        diversions = [
+            fr for fr in frs if fr.get("name", "").endswith("_irrigation_right")
+        ]
+        assert sorted(fr["name"] for fr in diversions) == [
+            "RIEGZACO_irrigation_right",
+            "RieSaltos_irrigation_right",
+            "RieSur123SCDZ_irrigation_right",
+        ], f"Unexpected irrigation diversions: {[fr['name'] for fr in diversions]}"
+        # Each irrigation diversion is a signed consumptive right.
+        for fr in diversions:
+            assert fr.get("consumptive") is True
+            assert fr.get("direction") == -1
+        assert len(frs) == 38, f"Expected 38 total flow rights, got {len(frs)}"
 
     def test_total_volume_rights(self, converted_case):
         """Total volume rights = Laja (7) + Maule (7)."""

@@ -468,11 +468,10 @@ class LajaAgreement(_RightsAgreementBase):
                     continue
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
-                discharge_values = [demand_base * pct * s for s in seasonal]
-                # `discharge` aliases `target` (OptTBRealFieldSched / 2D)
-                # in the post-2026-05 FlowRight binding — emit scalar or
-                # 2D (matches the C++ jvtl_TBRealFieldSched variant).
-                discharge_sched = self._to_tb_sched(discharge_values)
+                target_values = [demand_base * pct * s for s in seasonal]
+                # `target` is the soft kink of the FlowRight; emit scalar
+                # or 2D (matches the C++ jvtl_TBRealFieldSched variant).
+                target_sched = self._to_tb_sched(target_values)
 
                 fr_name = f"{district['name']}_{category}"
                 injection = district.get("injection")
@@ -483,16 +482,15 @@ class LajaAgreement(_RightsAgreementBase):
                     resolver_active=resolver_active,
                     fr_name=fr_name,
                 )
-                # NB: `discharge` is the legacy JSON-key alias of
-                # `target` in the gtopt FlowRight binding; both are
-                # accepted at parse time.  `fail_cost` (pre-2026-05
-                # name) has NO legacy alias — emit `fcost` directly so
-                # the gtopt C++ JSON binding parses it.
+                # Emit the canonical `target` / `fcost` keys (the gtopt
+                # FlowRight binding still accepts the legacy `discharge` /
+                # `fail_cost` aliases, but only re-emits the canonical
+                # names on round-trip).
                 fr_district: dict[str, Any] = {
                     "name": fr_name,
                     "purpose": "irrigation",
                     "direction": -1,
-                    "discharge": discharge_sched,
+                    "target": target_sched,
                     "fcost": fail_cost,
                 }
                 if injection:

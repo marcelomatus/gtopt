@@ -171,7 +171,7 @@
       "name": "laja_q_turbinado",
       "purpose": "generation",
       "direction": 1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ vol_max }},
       "use_average": true
     },
@@ -199,7 +199,7 @@
       "name": "laja_der_riego",
       "purpose": "irrigation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ fmax_irr }},
       "use_average": true,
       "fcost": {{ fail_cost_irr }}
@@ -224,7 +224,7 @@
       "name": "laja_der_electrico",
       "purpose": "generation",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ fmax_elec }},
       "use_average": true,
       "fcost": {{ fail_cost_elec }}
@@ -248,7 +248,7 @@
       "name": "laja_der_mixto",
       "purpose": "mixed",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ fmax_mixed }},
       "use_average": true
       {% if use_value_mixed is not none %}
@@ -271,7 +271,7 @@
       "name": "laja_gasto_anticipado",
       "purpose": "anticipated",
       "direction": -1,
-      "discharge": 0,
+      "target": 0,
       "fmax": {{ fmax_antic }},
       "use_average": true,
       "fcost": {{ fail_cost_antic }}

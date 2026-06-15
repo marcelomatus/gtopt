@@ -334,6 +334,82 @@ def test_irrigation_diversion_becomes_flowright():
     assert vers[0]["junction_b"] == "2"
 
 
+def _irrigation_central(**overrides: Any) -> Dict[str, Any]:
+    """Build a serie irrigation-diversion central (bus=0, ser_hid=0,
+    ser_ver>0), letting individual fields be overridden to probe the
+    ``is_irrigation_diversion`` predicate and the FlowRight ``fmax`` port.
+    """
+    central: Dict[str, Any] = {
+        "name": "RieTest",
+        "number": 1,
+        "bus": 0,
+        "pmin": 0,
+        "pmax": 50.0,
+        "vert_min": 0,
+        "vert_max": 9999.0,  # PLP no-limit sentinel
+        "efficiency": 1.0,
+        "ser_hid": 0,
+        "ser_ver": 2,
+        "afluent": 5.0,
+        "type": "serie",
+    }
+    central.update(overrides)
+    return central
+
+
+def test_irrigation_diversion_fmax_bounded():
+    """When the former gen-path drain capacity (``PotMax / Rendi``) is finite
+    (below the PLP no-limit sentinel) it is ported to the FlowRight ``fmax``.
+    """
+    central = _irrigation_central(pmax=70.0, efficiency=2.0)  # gen_fmax = 35
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]), options=_LEGACY_OPTS
+    )
+    result = writer.to_json_array()[0]
+    fr = next(f for f in result["flow_right_array"] if f.get("junction_a") == "RieTest")
+    assert fr["fmax"] == pytest.approx(35.0)
+
+
+def test_irrigation_diversion_fmax_unbounded():
+    """A ``PotMax`` at/above the PLP no-limit sentinel (9000+) means there is
+    no genuine diversion cap, so ``fmax`` is omitted (unbounded FlowRight).
+    """
+    central = _irrigation_central(pmax=9999.0)
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]), options=_LEGACY_OPTS
+    )
+    result = writer.to_json_array()[0]
+    fr = next(f for f in result["flow_right_array"] if f.get("junction_a") == "RieTest")
+    assert "fmax" not in fr
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"ser_ver": 0},  # terminal: no _ver return arc
+        {"bus": 5},  # has an electrical outlet
+        {"ser_hid": 3},  # the gen arc has a real downstream junction
+    ],
+    ids=["terminal_ser_ver_0", "has_bus", "has_ser_hid"],
+)
+def test_serie_not_irrigation_diversion(overrides: Dict[str, Any]):
+    """Each term of the ``is_irrigation_diversion`` signature is necessary:
+    flipping any one of ser_ver>0 / bus==0 / ser_hid==0 must suppress the
+    consumptive irrigation FlowRight.
+    """
+    central = _irrigation_central(**overrides)
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]), options=_LEGACY_OPTS
+    )
+    result = writer.to_json_array()[0]
+    irr = [
+        f
+        for f in result.get("flow_right_array", [])
+        if f.get("purpose") == "irrigation"
+    ]
+    assert irr == []
+
+
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
     capacity is collapsed onto the SOURCE junction's own drain column
