@@ -868,10 +868,20 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     // "Building LP done in ..." line from planning_lp already covers
     // the build wall time, so a redundant "Build lp time ..." line is
     // intentionally not emitted here.
+    //
+    // Capture the resolved low-memory mode from the first cell's
+    // LinearInterface so the memory-summary line below describes the
+    // snapshots accurately: under `compress` they are lz4-compressed,
+    // under `off` (reference oracle) the flat-LP arrays are retained
+    // uncompressed — saying "lz4-compressed" there is wrong and
+    // misleads exactly the compress-vs-nocompress comparison this case
+    // is used for.
+    LowMemoryMode build_low_memory = LowMemoryMode::off;
     if (!planning_lp.systems().empty()
         && !planning_lp.systems().front().empty())
     {
       const auto& li = planning_lp.systems().front().front().linear_interface();
+      build_low_memory = li.low_memory_mode();
       spdlog::info("  Build lp time {:.3f}s — solver={}",
                    build_sw.elapsed().count(),
                    li.solver_id());
@@ -881,13 +891,17 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
     const auto rss_post_build = MemoryMonitor::get_system_memory_snapshot();
     const auto build_delta_mib =
         rss_post_build.process_rss_mb - rss_pre_build.process_rss_mb;
+    const char* snapshot_desc = build_low_memory == LowMemoryMode::compress
+        ? "flat-LP arrays + lz4-compressed snapshots"
+        : "flat-LP arrays + uncompressed snapshots (low_memory=off)";
     spdlog::info(
         "  Memory after LP build:  rss={:.2f} GiB ({:+.0f} MiB build delta — "
-        "flat-LP arrays + lz4-compressed snapshots; original parquet input "
+        "{}; original parquet input "
         "is dropped after each cell's flatten so System retains only "
         "scalars + file references)",
         rss_post_build.process_rss_mb / 1024.0,
-        build_delta_mib);
+        build_delta_mib,
+        snapshot_desc);
 
     const bool want_lp_only =
         opts.lp_only.value_or(false) || planning_lp.options().lp_only();
