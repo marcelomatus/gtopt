@@ -230,6 +230,52 @@ TEST_CASE("FlowRight full kink (fcost + uvalue) — explicit slacks kept")
   CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
 }
 
+TEST_CASE("FlowRight full kink with uvalue > fcost stays bounded")  // NOLINT
+{
+  // Regression: a two-sided kink whose excess REWARD (uvalue) exceeds the
+  // shortfall PENALTY (fcost) used to be UNBOUNDED — because the kink
+  // `flow − excess + fail = target` lets the solver inflate excess_col and
+  // fail_col together (flow fixed ⇒ Δexcess = Δfail) for a net per-unit
+  // cost of `fcost − uvalue < 0`.  The slacks are now capped at their
+  // physical maxima (excess ≤ fmax − target, fail ≤ target − fmin), so the
+  // LP is bounded and solves to optimality.  Mirrors the real Maule
+  // water-right `maule_gasto_normal_riego` (uvalue=1100 > fcost=1000) that
+  // made the full-network stage-1 LP unbounded.
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_reward_gt_penalty",
+          .junction_a = Uid {1},
+          .direction = -1,
+          .fmax = 100.0,
+          .target = 30.0,
+          .fcost = 100.0,
+          .uvalue = 200.0,  // reward > penalty ⇒ previously unbounded
+      },
+  };
+  const auto simulation = make_single_block_simulation();
+  const auto system = make_minimal_system_with_junction(frs);
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& block = t.blocks().front();
+
+  // Full kink: both explicit slacks present (no one-sided substitution).
+  REQUIRE(fr_lp.excess_col_at(s, t, block).has_value());
+  REQUIRE(fr_lp.fail_col_at(s, t, block).has_value());
+
+  // The slacks are now capped at their physical maxima, so the LP is
+  // bounded and solves to optimality (was unbounded before the fix).
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(lp.is_optimal());
+}
+
 // ── Invariant 4 — fail_sol_at / excess_sol_at reconstruction ─────────
 //
 // The reconstruction algebra (`max(0, target − flow)` / `max(0, flow

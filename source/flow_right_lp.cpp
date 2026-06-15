@@ -267,9 +267,27 @@ template<typename Context>
   // slack pair + equality row.  Skipped when the one-sided
   // substitution above folded the kink into the primary column.
   if (target.has_value() && sp_cost_cf != 0.0 && sn_cost_cf != 0.0) {
+    // Cap each kink slack at its physically reachable maximum.  The kink
+    // `flow − excess + fail = target` only models excess = max(0, flow −
+    // target) and fail = max(0, target − flow) when at most one slack is
+    // nonzero.  With BOTH slacks unbounded above, the solver can inflate
+    // excess and fail together (flow fixed: Δexcess = Δfail) for a net
+    // per-unit cost of `sp_cost_cf + sn_cost_cf = (fcost − uvalue)·cf`,
+    // which is negative — an UNBOUNDED ray — whenever the excess reward
+    // `uvalue` exceeds the shortfall penalty `fcost` (a real PLP datum:
+    // e.g. maule_gasto_normal_riego ships uvalue=1100 > fcost=1000).
+    // Since flow ∈ [fmin, fmax], excess ≤ fmax − target and fail ≤ target
+    // − fmin; bounding the slacks at those caps removes the spurious ray
+    // while leaving the true kink optimum untouched.  When fmax is +∞ the
+    // flow itself is unbounded (a separate modelling choice), so the
+    // excess cap stays +∞ too.
+    const Real excess_uppb = is_infinity(fmax, lp.infinity())
+        ? LinearProblem::DblMax
+        : std::max(0.0, fmax - *target);
+    const Real fail_uppb = std::max(0.0, *target - fmin);
     auto excess_col = lp.add_col(SparseCol {
         .lowb = 0.0,
-        .uppb = LinearProblem::DblMax,
+        .uppb = excess_uppb,
         .cost = sp_cost_cf,
         .class_name = names.class_name,
         .variable_name = names.sp_name,
@@ -278,7 +296,7 @@ template<typename Context>
     });
     auto fail_col = lp.add_col(SparseCol {
         .lowb = 0.0,
-        .uppb = LinearProblem::DblMax,
+        .uppb = fail_uppb,
         .cost = sn_cost_cf,
         .class_name = names.class_name,
         .variable_name = names.sn_name,
