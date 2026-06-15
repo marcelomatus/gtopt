@@ -17,25 +17,6 @@ import pytest
 from plp2gtopt.plp_parser import PLPParser
 from plp2gtopt.plp2gtopt import convert_plp_case
 
-# Stale gtopt binary: tests that invoke the binary fail when the cached
-# build pre-dates a JSON-schema change in the working tree.  Currently the
-# `junction_b` field on `Waterway` is OPTIONAL in the source (since the
-# hydro built-in-waterway commit 1b5d4b8d0) but the cached binary still
-# REQUIRES it, so any test that runs the binary on output JSON with
-# `junction_b`-less waterways fails with
-# ``Could not find required class member 'junction_b'``.  This marker
-# pins the failure as expected until the binary is rebuilt; remove once
-# the build cache is refreshed.  See `project_uc_plexos_parity` memory.
-_xfail_stale_gtopt_binary = pytest.mark.xfail(
-    reason=(
-        "gtopt binary on PATH is stale relative to JSON schema "
-        "(junction_b became optional; binary still requires it); "
-        "rebuild gtopt to clear"
-    ),
-    raises=AssertionError,
-    strict=False,
-)
-
 # Path to the sample PLP cases shipped with the repository
 _CASES_DIR = Path(__file__).parent.parent.parent / "cases"
 _PLPMin1Bus = _CASES_DIR / "plp_min_1bus"
@@ -508,7 +489,6 @@ def test_hydro_4b_reservoir_volume_bounds(tmp_path):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
     """plp_hydro_4b: convert to monolithic gtopt and solve if binary is found."""
     # Convert PLP → gtopt (monolithic for deterministic solve)
@@ -567,7 +547,6 @@ def test_hydro_4b_gtopt_mono_solve(tmp_path, gtopt_bin):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
     """plp_hydro_4b: verify reservoir vini/vfin trajectory across stages."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_traj")
@@ -610,7 +589,6 @@ def test_hydro_4b_gtopt_reservoir_trajectory(tmp_path, gtopt_bin):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
     """plp_hydro_4b: marginal costs should be non-negative and bounded."""
     opts = _make_opts_hydro_4b(tmp_path, "gtopt_hydro_4b_cmg")
@@ -653,7 +631,6 @@ def test_hydro_4b_gtopt_marginal_costs(tmp_path, gtopt_bin):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_plp_vs_gtopt(tmp_path, gtopt_bin):
     """plp_hydro_4b: compare PLP and gtopt solutions if both binaries exist."""
     plp_bin = _find_plp_binary()
@@ -944,7 +921,6 @@ def test_hydro_4b_cascade_conversion(tmp_path):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_cascade_gtopt_solve(tmp_path, gtopt_bin):
     """plp_hydro_4b: convert to cascade, run gtopt, verify it runs."""
     opts = _make_opts_hydro_4b_cascade(tmp_path, "gtopt_hydro_4b_cascade_solve")
@@ -976,7 +952,6 @@ def test_hydro_4b_cascade_gtopt_solve(tmp_path, gtopt_bin):
 
 
 @pytest.mark.integration
-@_xfail_stale_gtopt_binary
 def test_hydro_4b_sddp_log_format(tmp_path, gtopt_bin):
     """SDDP emits ONE forward + ONE backward-visibility line per (iter, scene, phase).
 

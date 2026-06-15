@@ -415,17 +415,13 @@ class TestGtoptLpBuild:
             "json_file": json_files[0],
         }
 
-    @pytest.mark.xfail(
-        reason="Same aperture-writer bug as test_plp_case_2y_aperture_cache_loading: "
-        "the discharge parquet only carries a subset of central uids so "
-        "gtopt aborts with `Can't find element '<central>:<uid>'`.  The Laja "
-        "agreement Stage-2 JSON itself is now schema-valid (FlowRight fcost "
-        "emitted as 2D TBRealFieldSched) — only the aperture writer needs "
-        "a separate fix.",
-        strict=False,
-    )
     def test_gtopt_lp_build_succeeds(self, lp_build_result):
-        """gtopt --lp-only exits with code 0."""
+        """gtopt --lp-only exits with code 0.
+
+        This path only builds the LP (it does not run the SDDP aperture
+        pass), so it is not affected by the aperture-writer bug tracked in
+        ``test_integration_case2y.test_plp_case_2y_aperture_cache_loading``.
+        """
         assert lp_build_result["returncode"] == 0, (
             f"gtopt --lp-only failed (rc={lp_build_result['returncode']}):\n"
             f"stdout: {lp_build_result['stdout']}\n"
