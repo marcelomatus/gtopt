@@ -410,6 +410,46 @@ def test_serie_not_irrigation_diversion(overrides: Dict[str, Any]):
     assert irr == []
 
 
+def test_irrigation_diversion_with_drop_spillway_waterway():
+    """``--drop-spillway-waterway`` must NOT force a drain on an irrigation
+    diversion: the option suppresses ``_ver`` spillways and drains the
+    surplus on the source for ordinary serie/embalse/pasada centrals, but an
+    irrigation diversion's ``_ver`` arc carries the river REMAINDER
+    downstream (not a spill-to-sea).  So the ``_ver`` arc must be preserved,
+    ``drain`` must stay False, and the consumptive FlowRight is still
+    emitted (regression guard for the assertion that fired on RieSur123SCDZ).
+    """
+    central = _irrigation_central(name="RieDrop", ser_ver=7)
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]),
+        options={"drop_spillway_waterway": True},
+    )
+    # Must not raise the irrigation-diversion drain=True assertion.
+    result = writer.to_json_array()[0]
+
+    junction = next(j for j in result["junction_array"] if j["name"] == "RieDrop")
+    assert not junction.get("drain")
+
+    # The _ver return arc to the downstream ser_ver junction is preserved.
+    vers = [
+        w
+        for w in result["waterway_array"]
+        if "_ver_" in w["name"] and w["junction_a"] == "RieDrop"
+    ]
+    assert len(vers) == 1
+    assert vers[0]["junction_b"] == "7"
+
+    # The consumptive FlowRight is still emitted.
+    frs = [
+        f
+        for f in result.get("flow_right_array", [])
+        if f.get("junction_a") == "RieDrop"
+    ]
+    assert len(frs) == 1
+    assert frs[0]["consumptive"] is True
+    assert frs[0]["direction"] == -1
+
+
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
     capacity is collapsed onto the SOURCE junction's own drain column

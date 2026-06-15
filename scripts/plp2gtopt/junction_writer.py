@@ -1233,7 +1233,11 @@ class JunctionWriter(BaseWriter):
         # also consults this flag so it does not synthesise a substitute
         # ``<central>_ocean`` ``_ver`` arc.
         reservoir_spillway_covers_spill = drain_enabled
-        if self._drop_spillway_waterway:
+        if self._drop_spillway_waterway and not is_irrigation_diversion:
+            # Irrigation diversions are excluded: their ``_ver`` arc carries
+            # the river REMAINDER downstream (not a spill-to-sea), so it must
+            # be preserved even under ``--drop-spillway-waterway``.  The
+            # consumptive offtake is modelled by the FlowRight emitted below.
             ver_waterway: Optional[Waterway] = None
         elif reservoir_spillway_covers_spill:
             # Reservoir spillway/drain carries the spill — no ``_ver``
@@ -1617,11 +1621,21 @@ class JunctionWriter(BaseWriter):
         # any surplus water itself.  Force ``drain = True`` for the
         # embalse / serie / pasada types that previously got a
         # ``_ver`` arc.
-        if self._drop_spillway_waterway and central_type in (
-            "embalse",
-            "serie",
-            "pasada",
+        if (
+            self._drop_spillway_waterway
+            and central_type
+            in (
+                "embalse",
+                "serie",
+                "pasada",
+            )
+            and not is_irrigation_diversion
         ):
+            # Irrigation diversions keep ``drain = False``: their surplus
+            # returns downstream via the preserved ``_ver`` arc (above) and
+            # the consumptive offtake is the FlowRight (below).  Forcing a
+            # drain here would double-count the diversion and trip the
+            # assertion in the irrigation-diversion block.
             drain = True
         elif force_source_drain:
             # The spill / consumptive remainder that used to flow out a
