@@ -474,7 +474,7 @@ cannot deliver the full electric entitlement.
   "target": 0,
   "fmax": {{ elec_day_max }},
   "use_average": true,
-  "fail_cost": {{ penalizador_1 }},
+  "fcost": {{ penalizador_1 }},
   "bound_rule": {
     "reservoir": {{ res_colbun }},
     "segments": [
@@ -512,7 +512,7 @@ emitted when > 0.
   "target": 0,
   "fmax": {{ irr_fmax_schedule }},
   "use_average": true,
-  "fail_cost": {{ costo_riego_ns_maule }},
+  "fcost": {{ costo_riego_ns_maule }},
   "bound_rule": {
     "reservoir": {{ res_colbun }},
     "segments": [
@@ -521,7 +521,7 @@ emitted when > 0.
     ]
   }
   {% if valor_riego > 0 %}
-  ,"use_value": {{ valor_riego }}
+  ,"uvalue": {{ valor_riego }}
   {% endif %}
 }
 ```
@@ -588,7 +588,7 @@ bound_rule.  Uses the same seasonal `fmax` schedule as normal irrigation.
     ]
   }
   {% if valor_riego > 0 %}
-  ,"use_value": {{ valor_riego }}
+  ,"uvalue": {{ valor_riego }}
   {% endif %}
 }
 ```
@@ -646,9 +646,9 @@ param caudal_res105[month] = [{{ caudal_res105 | join(', ') }}];
   "purpose": "environmental",
   "direction": -1,
   "target": {{ res105_discharge }},
-  "fail_cost": {{ costo_riego_ns_res105 }}
+  "fcost": {{ costo_riego_ns_res105 }}
   {% if valor_riego_res105 > 0 %}
-  ,"use_value": {{ valor_riego_res105 }}
+  ,"uvalue": {{ valor_riego_res105 }}
   {% endif %}
 }
 ```
@@ -726,7 +726,7 @@ Objective terms (PLP):
   "target": 0,
   "use_average": true
   {% if costo_embalsar > 0 %}
-  ,"use_value": {{ costo_embalsar }}
+  ,"uvalue": {{ costo_embalsar }}
   {% endif %}
 }
 ```
@@ -739,7 +739,7 @@ Objective terms (PLP):
   "target": 0,
   "use_average": true
   {% if costo_no_embalsar > 0 %}
-  ,"use_value": {{ costo_no_embalsar }}
+  ,"uvalue": {{ costo_no_embalsar }}
   {% endif %}
 }
 ```
@@ -820,7 +820,7 @@ param costo_canelon = {{ costo_canelon }};
   "purpose": "irrigation",
   "direction": -1,
   "target": 0,
-  "use_value": {{ costo_canelon }}
+  "uvalue": {{ costo_canelon }}
 }
 {% endif %}
 ```

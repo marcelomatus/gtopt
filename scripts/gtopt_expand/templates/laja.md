@@ -461,9 +461,9 @@ is omitted entirely from the generated JSON.
   "target": 0,
   "fmax": {{ fmax_irr }},
   "use_average": true,
-  "fail_cost": {{ fail_cost_irr }}
+  "fcost": {{ fail_cost_irr }}
   {% if use_value_irr is not none %}
-  ,"use_value": {{ use_value_irr }}
+  ,"uvalue": {{ use_value_irr }}
   {% endif %}
 }
 ```
@@ -516,9 +516,9 @@ param elec_usage[month] = [{{ monthly_usage_elec | join(', ') }}];
   "target": 0,
   "fmax": {{ fmax_elec }},
   "use_average": true,
-  "fail_cost": {{ fail_cost_elec }}
+  "fcost": {{ fail_cost_elec }}
   {% if use_value_elec is not none %}
-  ,"use_value": {{ use_value_elec }}
+  ,"uvalue": {{ use_value_elec }}
   {% endif %}
 }
 ```
@@ -566,7 +566,7 @@ param mixed_usage[month] = [{{ monthly_usage_mixed | join(', ') }}];
   "fmax": {{ fmax_mixed }},
   "use_average": true
   {% if use_value_mixed is not none %}
-  ,"use_value": {{ use_value_mixed }}
+  ,"uvalue": {{ use_value_mixed }}
   {% endif %}
 }
 ```
@@ -603,7 +603,7 @@ param antic_usage[month] = [{{ monthly_usage_anticipated | join(', ') }}];
   "target": 0,
   "fmax": {{ fmax_antic }},
   "use_average": true,
-  "fail_cost": {{ fail_cost_antic }}
+  "fcost": {{ fail_cost_antic }}
 }
 ```
 
