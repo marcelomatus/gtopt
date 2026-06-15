@@ -1165,11 +1165,14 @@ def test_embalse_no_ver_waterway_junction_is_drain():
     assert ocean == []
 
 
-def test_embalse_drained_reservoir_has_drain_column_and_no_ver_arc():
-    """A DRAINED reservoir (any embalse except ELTORO) carries its spill on
-    the reservoir storage-drain column and emits NO ``_ver`` arc / ocean
-    junction — the double-escape path is removed."""
-    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
+def test_embalse_vertmax_zero_is_drained_with_no_ver_arc():
+    """A reservoir with ``VertMax == 0`` (no physical spillway) carries its
+    spill on the reservoir storage-drain column and emits NO ``_ver`` arc /
+    ocean junction — the double-escape path is removed."""
+    rapel_no_vert = {**_RAPEL_CENTRAL, "vert_max": 0.0, "vert_min": 0.0}
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([rapel_no_vert]), options=_LEGACY_OPTS
+    )
     result = writer.to_json_array()[0]
 
     # The drain is on the reservoir element (spillway_cost == 0, capacity
@@ -1185,6 +1188,62 @@ def test_embalse_drained_reservoir_has_drain_column_and_no_ver_arc():
     assert rapel_ver == []
     rapel_ocean = [j for j in result["junction_array"] if j["name"] == "RAPEL_ocean"]
     assert rapel_ocean == []
+
+
+def test_embalse_vertmax_positive_disables_reservoir_drain():
+    """A reservoir with ``VertMax > 0`` spills through a PHYSICAL path and its
+    redundant reservoir storage-drain is DISABLED (no ``spillway_cost``).
+
+    ``_RAPEL_CENTRAL`` (VertMax = 6000, terminal ser_ver = 0) sheds its spill
+    via the junction self-drain capped at VertMax — never via the reservoir
+    storage-drain column.  Keeping both would be a double escape path.
+    """
+    writer = JunctionWriter(central_parser=_rapel_parser(), options=_LEGACY_OPTS)
+    result = writer.to_json_array()[0]
+
+    # Reservoir storage-drain is DISABLED: no spillway_cost / spillway_capacity.
+    rapel = next(r for r in result["reservoir_array"] if r["name"] == "RAPEL")
+    assert "spillway_cost" not in rapel
+    assert "spillway_capacity" not in rapel
+    assert "spill_junction" not in rapel
+
+    # The spill exits via the RAPEL junction self-drain, capped at VertMax.
+    rapel_junction = next(j for j in result["junction_array"] if j["name"] == "RAPEL")
+    assert rapel_junction["drain"] is True
+    assert rapel_junction.get("drain_capacity") == 6000.0
+
+
+def test_embalse_vertmax_positive_emits_ver_waterway_with_cvert():
+    """A ``VertMax > 0`` reservoir with a downstream ``ser_ver`` emits a real
+    ``_ver`` spillway waterway costed at CVert (plpmat.dat), drain disabled."""
+
+    class _Plpmat:  # minimal stub exposing CVert
+        vert_cost = 0.01
+
+    central = {
+        **_RAPEL_CENTRAL,
+        "name": "CIPRESES",
+        "number": 50,
+        "ser_hid": 51,
+        "ser_ver": 52,
+        "vert_max": 1000.0,
+    }
+    writer = JunctionWriter(
+        central_parser=MockCentralParser([central]),
+        plpmat_parser=_Plpmat(),
+        options={"drop_spillway_waterway": False, "auto_water_fail_cost": False},
+    )
+    result = writer.to_json_array()[0]
+
+    # Reservoir storage-drain disabled.
+    cipreses = next(r for r in result["reservoir_array"] if r["name"] == "CIPRESES")
+    assert "spillway_cost" not in cipreses
+
+    # A physical ``_ver`` waterway carries the spill, costed at CVert = 0.01.
+    ver = [w for w in result["waterway_array"] if w["name"].startswith("CIPRESES_ver")]
+    assert len(ver) == 1
+    assert ver[0].get("fmax") == 1000.0
+    assert ver[0].get("fcost") == 0.01
 
 
 def test_embalse_with_ver_waterway_junction_not_drain():

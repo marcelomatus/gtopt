@@ -1104,32 +1104,41 @@ class JunctionWriter(BaseWriter):
         # keep a draining ``_ver`` arc — that would be a double escape path
         # (free arbitrage) — so this flag re-keys the spill-arc suppression
         # below off the drain, not off vrebemb membership.
+        # ``spills_via_waterway``: a reservoir with PLP ``VertMax > 0`` routes
+        # its spill (vertimiento) through a PHYSICAL ``_ver`` waterway costed
+        # at CVert — the same as PLP's ``qv`` arc — and its redundant storage-
+        # drain is DISABLED (see ``_spillway_fields``) so water has exactly one
+        # escape path (no double-escape arbitrage).  ``VertMax == 0`` (or
+        # missing) keeps the legacy storage-drain model.  ELTORO is already
+        # drain-less (``_DRAIN_KILLED_RESERVOIRS``) and keeps its own ``_ver`` /
+        # ocean path, so it never enters this branch.
+        spills_via_waterway = self._reservoir_spills_via_waterway(central)
         drain_enabled = (
             central_type == "embalse"
             and central_name.upper() not in self._DRAIN_KILLED_RESERVOIRS
+            and not spills_via_waterway
         )
-        # Global default vert cost from plpmat.dat (``CVert`` in PLP) — used
-        # as the per-flow penalty on `_ver` arcs of reservoirs that are NOT
-        # in plpvrebemb.dat.  Without this the LP would have a free spillway
-        # on every non-rebalse reservoir; PLP charges every spill with at
-        # least CVert (typically a small but non-zero number, ~0.01).
+        # Global vert cost from plpmat.dat (``CVert`` in PLP) — the per-flow
+        # spill penalty.  Two uses:
         #
-        # Under ``--auto-water-fail-cost`` (default on since 2026-05-11) the
-        # legitimate water-shortfall pricing is set by
-        # ``WaterValueResolver`` on Reservoir.efin_cost / soft_emin_cost /
-        # FlowRight.fail_cost (anchored on the case's own falla.gcost), and
-        # the CVert symmetry-breaker becomes pure LP-kappa noise — a $0.010
-        # coefficient sitting next to $500–$10 000 anchors widens the matrix
-        # range and produces spurious binding-bound duals on degenerate
-        # spillways.  Drop it in that mode so the spill arc is free of
-        # cost; the soft-storage anchors dominate any LP arbitrage.
+        #  * ``cvert_default``: legacy symmetry-breaker on `_ver` arcs of
+        #    non-drained reservoirs.  Under ``--auto-water-fail-cost`` (default
+        #    on since 2026-05-11) the legitimate water-shortfall pricing lives
+        #    on Reservoir.efin_cost / soft_emin_cost / FlowRight.fail_cost
+        #    (anchored on the case's own falla.gcost); the $0.01 CVert
+        #    coefficient sitting next to $500–$10 000 anchors is pure LP-kappa
+        #    noise, so it is dropped in that mode.
+        #  * ``cvert_spill``: when ``spills_via_waterway`` the spill rides a
+        #    physical ``_ver`` waterway and PLP charges CVert per m³/s.  This
+        #    cost is attached unconditionally (it is the only price on that
+        #    arc, the drain being disabled), so it is NOT subject to the
+        #    auto-water-fail-cost kappa-reduction above.
+        cvert_global = 0.0
+        if self.plpmat_parser is not None:
+            cvert_global = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
         cvert_default: Optional[float] = None
-        if self.plpmat_parser is not None and not bool(
-            self.options.get("auto_water_fail_cost")
-        ):
-            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
-            if cvert > 0.0:
-                cvert_default = cvert
+        if cvert_global > 0.0 and not bool(self.options.get("auto_water_fail_cost")):
+            cvert_default = cvert_global
 
         vert_max_raw = central.get("vert_max")
         vert_fmax: Optional[float]
@@ -1160,6 +1169,10 @@ class JunctionWriter(BaseWriter):
                 else:
                     vert_fmax = v
             vert_fcost = cvert_default
+            if spills_via_waterway and cvert_global > 0.0:
+                # VertMax>0 reservoir: the spill rides this physical ``_ver``
+                # waterway (drain disabled) and PLP prices it at CVert.
+                vert_fcost = cvert_global
 
         # PLP "no limit" sentinel applies to vert_min too — sentinel-encoded
         # minimum-spillage caps are nonsense and would over-constrain the
@@ -1886,6 +1899,14 @@ class JunctionWriter(BaseWriter):
             ser_ver = central.get("ser_ver", 0)
             spill_junction_name = self._junction_names.get(ser_ver) if ser_ver else None
 
+            # VertMax>0 reservoirs route spill on a physical ``_ver`` waterway
+            # (emitted in ``_process_central``, costed at CVert) and have their
+            # storage-drain DISABLED here — keeping both would be a double
+            # escape path.  The ``_ver`` arc already wires the spill to the
+            # ser_ver downstream junction / ocean, so ``spill_junction`` (which
+            # only routes the now-absent drain column) is left unset.
+            spills_via_waterway = self._reservoir_spills_via_waterway(central)
+
             reservoir: Reservoir = {
                 "uid": central["number"],
                 "name": central["name"],
@@ -1920,10 +1941,12 @@ class JunctionWriter(BaseWriter):
                 #   spillway/drain at all (both fields omitted, C++ drain
                 #   gate closed); its spill leaves via the modelled
                 #   ``_ver`` / ocean topology instead.
-                **self._spillway_fields(central_name),
+                **self._spillway_fields(
+                    central_name, drain_disabled=spills_via_waterway
+                ),
                 "flow_conversion_rate": 3.6 / 1000.0,
             }
-            if spill_junction_name is not None:
+            if spill_junction_name is not None and not spills_via_waterway:
                 reservoir["spill_junction"] = spill_junction_name
 
             # Energy scaling mode: energy scale for LP variables is now handled
@@ -1983,12 +2006,36 @@ class JunctionWriter(BaseWriter):
 
             system["reservoir_array"].append(reservoir)
 
-    def _spillway_fields(self, central_name: str) -> "_SpillwayFields":
+    def _reservoir_spills_via_waterway(self, central: Dict[str, Any]) -> bool:
+        """True when a reservoir routes spill through a physical ``_ver`` arc.
+
+        Per the PLP-faithful convention (user-confirmed): an ``embalse``
+        reservoir with PLP ``VertMax > 0`` (spill allowed) gets a real
+        spillway ``_ver`` waterway costed at CVert and has its redundant
+        storage-drain DISABLED — so water has exactly one escape path
+        (no double-escape arbitrage).  ``VertMax == 0`` / missing keeps the
+        legacy storage-drain model.  ELTORO (``_DRAIN_KILLED_RESERVOIRS``) is
+        already drain-less and keeps its own ``_ver`` / ocean path, so it is
+        excluded here (its spill handling is unchanged).
+        """
+        if str(central.get("type", "")) != "embalse":
+            return False
+        if str(central.get("name", "")).upper() in self._DRAIN_KILLED_RESERVOIRS:
+            return False
+        vert_max = central.get("vert_max")
+        return vert_max is not None and float(vert_max) > 0.0
+
+    def _spillway_fields(
+        self, central_name: str, *, drain_disabled: bool = False
+    ) -> "_SpillwayFields":
         """Compute ``spillway_cost`` / ``spillway_capacity`` for one reservoir.
 
         EVERY reservoir gets its storage-drain (spillway) column ENABLED
         EXCEPT the never-drain sentinels in :pyattr:`_DRAIN_KILLED_RESERVOIRS`
-        (currently ``ELTORO``).  This mirrors plexos2gtopt's
+        (currently ``ELTORO``) and reservoirs whose spill is carried by a
+        physical ``_ver`` waterway (``drain_disabled=True``, set by
+        ``_process_reservoirs`` for PLP ``VertMax > 0`` reservoirs — see
+        :meth:`_reservoir_spills_via_waterway`).  This mirrors plexos2gtopt's
         ``build_reservoir_array`` spill block.  The translation is:
 
         - **Reservoir is NOT a never-drain sentinel** → *activate the
@@ -2024,9 +2071,10 @@ class JunctionWriter(BaseWriter):
           intact by ``_process_central``.  This makes ELTORO a
           double-escape / mass-leak correctness sentinel.
         """
-        if central_name.upper() in self._DRAIN_KILLED_RESERVOIRS:
-            # Never-drain sentinel (ELTORO) → no spillway / drain at all.
-            # Its ``_ver`` / ocean spill path is preserved in
+        if central_name.upper() in self._DRAIN_KILLED_RESERVOIRS or drain_disabled:
+            # Never-drain sentinel (ELTORO), or a VertMax>0 reservoir whose
+            # spill rides a physical ``_ver`` waterway → no spillway / drain
+            # column at all.  The spill path is preserved in
             # ``_process_central`` so the water still has somewhere to go.
             return {}
 

@@ -468,19 +468,18 @@ def _convert(input_dir: Path, out_dir: Path, name: str, *, drop: bool) -> dict:
 
 @pytest.mark.integration
 def test_integration_compare_modes_on_spillway_case(tmp_path):
-    """Drained embalse carries its spill on the storage-drain column.
+    """A ``VertMax > 0`` embalse spills PHYSICALLY; the two modes differ.
 
-    ``Reservoir1`` is an ``embalse`` and NOT a never-drain sentinel, so it
-    now carries its spill on the reservoir storage-drain column
-    (``spillway_cost = 0``, ``spillway_capacity`` omitted → C++ +6000 m³/s
-    default) in BOTH modes.  No ``_ver`` arc is emitted in either mode —
-    keeping a draining ``_ver`` arc next to the drain column would be a
-    double escape path.  ``--drop-spillway-waterway`` therefore no longer
-    changes the spill topology for a drained reservoir; the patched
-    ``VertMax = 50`` / ``Vertim = 2`` fixture no longer yields a legacy
-    ``_ver`` arc.  (A NEVER-drain reservoir like ELTORO is the only case
-    that still rides a ``_ver`` arc — covered by the unit-level
-    ``test_embalse_no_ver_waterway_junction_is_drain``.)
+    With the patched ``VertMax = 50`` / ``Vertim = 2`` fixture, ``Reservoir1``
+    has a positive spillway cap, so its redundant reservoir storage-drain is
+    DISABLED in BOTH modes (no ``spillway_cost`` — see
+    ``_reservoir_spills_via_waterway``).  The spill then takes a *physical*
+    path that DOES depend on the mode:
+
+      * legacy (``--drop-spillway-waterway`` off): a real ``Reservoir1_ver``
+        waterway routes the spill to the ``Vertim`` (ser_ver) junction.
+      * suppress (``--drop-spillway-waterway`` on): no ``_ver`` arc; the
+        reservoir's own junction is marked ``drain = True`` instead.
     """
     case_dir = _make_spillway_fixture(tmp_path)
 
@@ -490,27 +489,26 @@ def test_integration_compare_modes_on_spillway_case(tmp_path):
     legacy_ver = [w for w in legacy["waterway_array"] if "_ver_" in w["name"]]
     default_ver = [w for w in suppress["waterway_array"] if "_ver_" in w["name"]]
 
-    # The drain column carries the spill in both modes → no ``_ver`` arc.
-    assert legacy_ver == [], f"drained reservoir leaked a legacy _ver arc: {legacy_ver}"
-    assert default_ver == [], f"default mode leaked _ver arc(s): {default_ver}"
+    # legacy emits the physical spill arc; suppress drops it.
+    assert len(legacy_ver) == 1, f"legacy must keep the _ver spill arc: {legacy_ver}"
+    assert legacy_ver[0].get("fmax") == 50.0
+    assert default_ver == [], f"suppress mode leaked _ver arc(s): {default_ver}"
 
-    # The spill lives on the reservoir storage-drain column (cost 0, finite
-    # C++ default capacity) in both modes.
+    # VertMax>0 → reservoir storage-drain DISABLED in both modes.
     for system in (legacy, suppress):
         res = next(r for r in system["reservoir_array"] if r["name"] == "Reservoir1")
-        assert res.get("spillway_cost") == 0.0
+        assert "spillway_cost" not in res
         assert "spillway_capacity" not in res
 
-    # No fcost on any waterway in either mode — fcost only ever decorated
-    # the now-removed ``_ver`` spill path.
-    assert all("fcost" not in w for w in legacy["waterway_array"])
-    assert all("fcost" not in w for w in suppress["waterway_array"])
+    # In suppress mode the spill leaves via the junction self-drain instead.
+    sup_junction = next(
+        j for j in suppress["junction_array"] if j["name"] == "Reservoir1"
+    )
+    assert sup_junction["drain"] is True
+    leg_junction = next(
+        j for j in legacy["junction_array"] if j["name"] == "Reservoir1"
+    )
+    assert leg_junction["drain"] is False
 
-    # The two modes are now topologically identical for a drained reservoir:
-    # same gen waterways, turbines, reservoirs and total waterway count.
-    legacy_gen = [w for w in legacy["waterway_array"] if "_gen_" in w["name"]]
-    default_gen = [w for w in suppress["waterway_array"] if "_gen_" in w["name"]]
-    assert len(legacy_gen) == len(default_gen)
-    assert len(legacy["turbine_array"]) == len(suppress["turbine_array"])
-    assert len(legacy["reservoir_array"]) == len(suppress["reservoir_array"])
-    assert len(legacy["waterway_array"]) == len(suppress["waterway_array"])
+    # Topologies differ by exactly the one spill arc.
+    assert len(legacy["waterway_array"]) == len(suppress["waterway_array"]) + 1
