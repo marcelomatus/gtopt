@@ -52,7 +52,8 @@ struct SolverOptionsConstructor
                            OptBool crossover,
                            OptInt max_fallbacks,
                            OptBool memory_emphasis,
-                           const OptName& param_file) const
+                           const OptName& param_file,
+                           OptBool advanced_basis) const
   {
     LPAlgo algorithm = LPAlgo::barrier;
     if (algorithm_str.has_value()) {
@@ -74,6 +75,7 @@ struct SolverOptionsConstructor
             ? scaling
             : OptSolverScaling {SolverScaling::automatic},
         .crossover = crossover.value_or(true),
+        .advanced_basis = advanced_basis.value_or(false),
         .param_file = param_file,
         .max_fallbacks = max_fallbacks.value_or(2),
         .memory_emphasis = memory_emphasis,
@@ -101,7 +103,8 @@ struct json_data_contract<SolverOptions>
                                 json_bool_null<"crossover", OptBool>,
                                 json_number_null<"max_fallbacks", OptInt>,
                                 json_bool_null<"memory_emphasis", OptBool>,
-                                json_string_null<"param_file", OptName>>;
+                                json_string_null<"param_file", OptName>,
+                                json_bool_null<"advanced_basis", OptBool>>;
 
   static constexpr auto to_json_data(SolverOptions const& opt)
   {
@@ -121,7 +124,8 @@ struct json_data_contract<SolverOptions>
         OptBool {opt.crossover},
         OptInt {opt.max_fallbacks},
         opt.memory_emphasis,
-        opt.param_file);
+        opt.param_file,
+        OptBool {opt.advanced_basis});
   }
 };
 

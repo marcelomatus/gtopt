@@ -465,7 +465,11 @@ auto solve_apertures_for_phase(
           // into one chunk would break this and must NOT reuse the clone.
           SolverOptions warm_opts = aperture_opts;
           warm_opts.advanced_basis = true;
-          warm_opts.algorithm = LPAlgo::primal;
+          // Apertures differ only in flow-col BOUNDS (update_aperture), so the
+          // resident basis stays dual-feasible — dual simplex resumes from it
+          // efficiently, whereas primal would restart from a primal-infeasible
+          // point.  Use dual for the warm re-solve.
+          warm_opts.algorithm = LPAlgo::dual;
           bool clone_has_basis = false;
 
           // Instrumentation: split solve wall-time into the cold seed and

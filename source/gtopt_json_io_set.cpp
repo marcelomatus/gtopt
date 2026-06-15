@@ -261,6 +261,10 @@ namespace
     so.presolve = (value == "true" || value == "1");
     return true;
   }
+  if (field == "advanced_basis") {
+    so.advanced_basis = (value == "true" || value == "1");
+    return true;
+  }
   if (field == "log_level") {
     so.log_level = std::stoi(value);
     return true;
