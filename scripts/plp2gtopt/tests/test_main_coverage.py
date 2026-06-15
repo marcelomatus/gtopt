@@ -185,7 +185,7 @@ class TestBuildOptions:
             "kirchhoff_mode": "cycle_basis",
             "reserve_fail_cost": None,
             "use_line_losses": None,
-            "line_losses_mode": None,
+            "line_losses_mode": "piecewise_direct",
             "plp_legacy": False,
             "cut_sharing_mode": None,
             "boundary_cuts_mode": None,
@@ -315,16 +315,17 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["pasada_mode"] == "flow-turbine"
 
-    def test_line_losses_mode_explicit(self):
-        args = self._make_args(line_losses_mode="piecewise_direct")
+    def test_line_losses_mode_explicit_override(self):
+        # Default is now piecewise_direct; an explicit mode must still win.
+        args = self._make_args(line_losses_mode="bidirectional")
         opts = build_options(args)
-        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
+        assert opts["model_options"]["line_losses_mode"] == "bidirectional"
 
-    def test_line_losses_mode_absent_when_not_set(self):
+    def test_line_losses_mode_defaults_to_piecewise_direct(self):
+        # plp2gtopt defaults to the PLP-faithful piecewise_direct model.
         args = self._make_args()
         opts = build_options(args)
-        # Not emitted when user did not set it — gtopt picks adaptive
-        assert "line_losses_mode" not in opts["model_options"]
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
 
     def test_plp_legacy_bundles_method_and_losses(self):
         # Empty argv → neither --method nor --line-losses-mode is explicit,
@@ -389,7 +390,8 @@ class TestBuildOptions:
             args = self._make_args(plp_legacy=False)
             opts = build_options(args)
         assert opts["method"] == "cascade"
-        assert "line_losses_mode" not in opts["model_options"]
+        # piecewise_direct is the plp2gtopt default (not part of the legacy bundle)
+        assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
 
 
 # ---------------------------------------------------------------------------

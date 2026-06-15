@@ -1003,7 +1003,13 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "explicitly disable (omit to inherit the gtopt default: true)"
         ),
     )
-    add_line_losses_mode_argument(parser)
+    # plp2gtopt defaults to ``piecewise_direct`` — the PLP-faithful loss model
+    # (PLP ``genpdlin.f``): per-segment bus stamps, no loss-tracking rows, the
+    # most compact LP and a row count matching PLP.  PLP cases operate in PLP's
+    # historical regime (no negative receiver LMPs), where piecewise_direct's
+    # phantom-flow caveat does not bite.  Override with --line-losses-mode for
+    # the safer bidirectional/adaptive model on cases that can see negative LMPs.
+    add_line_losses_mode_argument(parser, default="piecewise_direct")
     # ``loss_cost_eps`` defaults to 0.1 $/MWh for plp2gtopt — well below
     # any thermal SRMC so dispatch is unchanged, but large enough (vs the
     # historical 1e-6 LP-tolerance-level value) that the bidirectional-
