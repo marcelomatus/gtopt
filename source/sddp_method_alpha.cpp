@@ -347,6 +347,64 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   const auto col_low_raw = li.get_col_low_raw();
   const auto col_upp_raw = li.get_col_upp_raw();
 
+  // One cut's α floor / ceil contribution from the OTHER columns'
+  // physical bounds (α itself is the column being bounded, so it is
+  // skipped).  Returns {floor, ceil}; each is nullopt when that side is
+  // unbounded (a free column makes the corresponding bound non-binding).
+  // ``ceil`` is computed only when ``bound_above``.  Extracted from the
+  // per-(alpha, cut) loop below so the floor/ceil accumulation reads as
+  // a min/max over a named per-cut quantity.
+  const auto cut_alpha_bound = [&](const SparseRow& cut, ColIndex skip_col)
+      -> std::pair<std::optional<double>, std::optional<double>>
+  {
+    double sup_sum_phys = 0.0;  // Σ max(coef·v) → floor = rhs − sup_sum
+    double inf_sum_phys = 0.0;  // Σ min(coef·v) → ceil  = rhs − inf_sum
+    bool sup_unbounded = false;
+    bool inf_unbounded = false;
+    for (const auto& [col, coef_phys] : cut.cmap) {
+      if (col == skip_col || coef_phys == 0.0) {
+        continue;
+      }
+      const double v_min_phys = col_low_phys[col];
+      const double v_max_phys = col_upp_phys[col];
+      const auto c = static_cast<size_t>(col);
+      if (coef_phys > 0.0) {
+        // max(coef·v) = coef·v_max ; min(coef·v) = coef·v_min
+        if (li.is_pos_inf(col_upp_raw[c])) {
+          sup_unbounded = true;
+        } else {
+          sup_sum_phys += coef_phys * v_max_phys;
+        }
+        if (li.is_neg_inf(col_low_raw[c])) {
+          inf_unbounded = true;
+        } else {
+          inf_sum_phys += coef_phys * v_min_phys;
+        }
+      } else {
+        // max(coef·v) = coef·v_min ; min(coef·v) = coef·v_max
+        if (li.is_neg_inf(col_low_raw[c])) {
+          sup_unbounded = true;
+        } else {
+          sup_sum_phys += coef_phys * v_min_phys;
+        }
+        if (li.is_pos_inf(col_upp_raw[c])) {
+          inf_unbounded = true;
+        } else {
+          inf_sum_phys += coef_phys * v_max_phys;
+        }
+      }
+    }
+    std::optional<double> floor;
+    std::optional<double> ceil;
+    if (!sup_unbounded) {
+      floor = cut.lowb - sup_sum_phys;
+    }
+    if (bound_above && !inf_unbounded) {
+      ceil = cut.lowb - inf_sum_phys;
+    }
+    return {floor, ceil};
+  };
+
   for (const auto& [alpha_col, alpha_uid] : alpha_cols) {
     double tightest_floor_phys = 0.0;
     bool any_cut_floor = false;
@@ -361,64 +419,25 @@ void apply_alpha_floor(PlanningLP& planning_lp,
     bool any_cut_ceil = false;
     [[maybe_unused]] std::size_t cuts_with_alpha = 0;
     for (const auto& cut : li.active_cuts()) {
-      const auto alpha_it = cut.cmap.find(alpha_col);
-      if (alpha_it == cut.cmap.end()) {
+      if (!cut.cmap.contains(alpha_col)) {
         continue;
       }
       ++cuts_with_alpha;
 
-      double sup_sum_phys = 0.0;  // Σ max(coef·v) → floor = rhs − sup_sum
-      double inf_sum_phys = 0.0;  // Σ min(coef·v) → ceil  = rhs − inf_sum
-      bool sup_unbounded = false;
-      bool inf_unbounded = false;
-      for (const auto& [col, coef_phys] : cut.cmap) {
-        if (col == alpha_col) {
-          continue;
-        }
-        if (coef_phys == 0.0) {
-          continue;
-        }
-        const double v_min_phys = col_low_phys[col];
-        const double v_max_phys = col_upp_phys[col];
-        const auto c = static_cast<size_t>(col);
-        if (coef_phys > 0.0) {
-          // max(coef·v) = coef·v_max ; min(coef·v) = coef·v_min
-          if (li.is_pos_inf(col_upp_raw[c])) {
-            sup_unbounded = true;
-          } else {
-            sup_sum_phys += coef_phys * v_max_phys;
-          }
-          if (li.is_neg_inf(col_low_raw[c])) {
-            inf_unbounded = true;
-          } else {
-            inf_sum_phys += coef_phys * v_min_phys;
-          }
-        } else {
-          // max(coef·v) = coef·v_min ; min(coef·v) = coef·v_max
-          if (li.is_neg_inf(col_low_raw[c])) {
-            sup_unbounded = true;
-          } else {
-            sup_sum_phys += coef_phys * v_min_phys;
-          }
-          if (li.is_pos_inf(col_upp_raw[c])) {
-            inf_unbounded = true;
-          } else {
-            inf_sum_phys += coef_phys * v_max_phys;
-          }
-        }
-      }
-      if (!sup_unbounded) {
-        const double cut_floor_phys = cut.lowb - sup_sum_phys;
+      const auto [cut_floor_phys, cut_ceil_phys] =
+          cut_alpha_bound(cut, alpha_col);
+      if (cut_floor_phys) {
         tightest_floor_phys = any_cut_floor
-            ? std::min(tightest_floor_phys, cut_floor_phys)
-            : cut_floor_phys;
+            ? std::min(tightest_floor_phys, *cut_floor_phys)
+            : *cut_floor_phys;
         any_cut_floor = true;
       }
-      if (bound_above && !inf_unbounded) {
-        const double cut_ceil_phys = cut.lowb - inf_sum_phys;
+      // ``cut_ceil_phys`` is populated only when ``bound_above`` (the
+      // lambda guards on it), so no extra check is needed here.
+      if (cut_ceil_phys) {
         loosest_ceil_phys = any_cut_ceil
-            ? std::max(loosest_ceil_phys, cut_ceil_phys)
-            : cut_ceil_phys;
+            ? std::max(loosest_ceil_phys, *cut_ceil_phys)
+            : *cut_ceil_phys;
         any_cut_ceil = true;
       }
     }
