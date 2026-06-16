@@ -55,16 +55,20 @@ class TestProcessOptions:
         assert sddp.get("cut_sharing_mode") == "shared"
 
     def test_process_options_backward_solver_threads_default(self, tmp_path):
-        """No backward_solver_options block by default — defer to C++ default."""
+        """Default (sddp method) gets the iterative fast-path dual backward solver.
+
+        The threads field is left to the C++ default (no `threads` key); the
+        iterative fast-path adds `algorithm: dual` (see process_options).
+        """
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
         writer.process_options(_make_opts(tmp_path))
         sddp = writer.planning["options"]["sddp_options"]
-        assert "backward_solver_options" not in sddp
+        assert sddp["backward_solver_options"] == {"algorithm": "dual"}
 
     def test_process_options_backward_solver_threads_override(self, tmp_path):
-        """`backward_solver_threads` option overrides the default."""
+        """`backward_solver_threads` sets threads; fast-path still adds dual."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})
         parser.parse_all()
         writer = GTOptWriter(parser)
@@ -72,7 +76,7 @@ class TestProcessOptions:
         opts["backward_solver_threads"] = 4
         writer.process_options(opts)
         sddp = writer.planning["options"]["sddp_options"]
-        assert sddp["backward_solver_options"] == {"threads": 4}
+        assert sddp["backward_solver_options"] == {"threads": 4, "algorithm": "dual"}
 
 
 # ---------------------------------------------------------------------------
