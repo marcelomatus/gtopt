@@ -179,6 +179,7 @@ INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
     {
         "boundary_cuts_file",
         "boundary_cuts_mode",
+        "boundary_cut_sharing_mode",
         "boundary_max_iterations",
     }
 )
