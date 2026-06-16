@@ -183,7 +183,7 @@ void verify_flp_equal(const FlatLinearProblem& a, const FlatLinearProblem& b)
 }
 
 /// Make a deep copy of numeric vectors without copying the whole struct
-/// (metadata-only fields like col_meta_index that may not be serialised).
+/// (metadata-only fields like col_labels_meta that may not be serialised).
 [[nodiscard]] auto clone_numeric_vectors(const FlatLinearProblem& src)
     -> FlatLinearProblem
 {

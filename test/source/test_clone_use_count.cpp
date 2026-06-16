@@ -72,8 +72,6 @@ TEST_CASE("source LP starts with use_count == 1 on every wrapped member")
   CHECK(src.col_labels_meta_use_count() == 1);
   CHECK(src.col_scales_use_count() == 1);
   CHECK(src.row_scales_use_count() == 1);
-  CHECK(src.col_meta_index_use_count() == 1);
-  CHECK(src.row_meta_index_use_count() == 1);
 }
 
 TEST_CASE("clone(shallow) bumps use_count to 2 on every wrapped member")
@@ -84,15 +82,11 @@ TEST_CASE("clone(shallow) bumps use_count to 2 on every wrapped member")
   CHECK(src.col_labels_meta_use_count() == 2);
   CHECK(src.col_scales_use_count() == 2);
   CHECK(src.row_scales_use_count() == 2);
-  CHECK(src.col_meta_index_use_count() == 2);
-  CHECK(src.row_meta_index_use_count() == 2);
 
   // The clone observes the same use_count.
   CHECK(cloned.col_labels_meta_use_count() == 2);
   CHECK(cloned.col_scales_use_count() == 2);
   CHECK(cloned.row_scales_use_count() == 2);
-  CHECK(cloned.col_meta_index_use_count() == 2);
-  CHECK(cloned.row_meta_index_use_count() == 2);
 }
 
 TEST_CASE("clone(deep) keeps use_count at 1 on every wrapped member")
@@ -103,14 +97,10 @@ TEST_CASE("clone(deep) keeps use_count at 1 on every wrapped member")
   CHECK(src.col_labels_meta_use_count() == 1);
   CHECK(src.col_scales_use_count() == 1);
   CHECK(src.row_scales_use_count() == 1);
-  CHECK(src.col_meta_index_use_count() == 1);
-  CHECK(src.row_meta_index_use_count() == 1);
 
   CHECK(cloned.col_labels_meta_use_count() == 1);
   CHECK(cloned.col_scales_use_count() == 1);
   CHECK(cloned.row_scales_use_count() == 1);
-  CHECK(cloned.col_meta_index_use_count() == 1);
-  CHECK(cloned.row_meta_index_use_count() == 1);
 }
 
 TEST_CASE("clone destruction restores source's use_count to 1")
@@ -132,7 +122,6 @@ TEST_CASE("multiple shallow clones bump use_count linearly")
   const auto c = src.clone(LinearInterface::CloneKind::shallow);
   // Source + 3 shallow clones = 4 owners.
   CHECK(src.col_labels_meta_use_count() == 4);
-  CHECK(src.col_meta_index_use_count() == 4);
   CHECK(src.col_scales_use_count() == 4);
 }
 
@@ -157,8 +146,6 @@ TEST_CASE("set_row_scale on shallow clone detaches m_row_scales_ only")
   // Other members stayed shared.
   CHECK(src.col_scales_use_count() == 2);
   CHECK(src.col_labels_meta_use_count() == 2);
-  CHECK(src.col_meta_index_use_count() == 2);
-  CHECK(src.row_meta_index_use_count() == 2);
 
   // And the source's row scale is unchanged.
   CHECK(src.get_row_scale(RowIndex {0}) == doctest::Approx(1.0));
@@ -172,7 +159,6 @@ TEST_CASE("add_col_disposable on shallow clone leaves shared meta untouched")
   auto src = make_use_count_lp();
   auto cloned = src.clone(LinearInterface::CloneKind::shallow);
   REQUIRE(src.col_labels_meta_use_count() == 2);
-  REQUIRE(src.col_meta_index_use_count() == 2);
 
   std::ignore = cloned.add_col_disposable(SparseCol {
       .uppb = 5.0,
@@ -183,22 +169,20 @@ TEST_CASE("add_col_disposable on shallow clone leaves shared meta untouched")
 
   // No member should have detached.
   CHECK(src.col_labels_meta_use_count() == 2);
-  CHECK(src.col_meta_index_use_count() == 2);
   CHECK(src.col_scales_use_count() == 2);
   CHECK(src.row_scales_use_count() == 2);
-  CHECK(src.row_meta_index_use_count() == 2);
 }
 
 TEST_CASE(
     "add_col with non-empty meta on shallow clone leaves the frozen "
-    "m_col_labels_meta_ / m_col_meta_index_ shared (post-flatten path)")
+    "m_col_labels_meta_ shared (post-flatten path)")
 {
   // After the metadata-split refactor (b9eaa, follow-up), production
   // `add_col(SparseCol)` writes into the per-instance
   // `m_post_flatten_col_labels_meta_` / `m_post_flatten_col_meta_index_`
-  // — NOT the shared frozen `m_col_labels_meta_` / `m_col_meta_index_`.
+  // — NOT the shared frozen `m_col_labels_meta_`.
   // A shallow clone's first post-clone add therefore does NOT detach
-  // the frozen vectors: source and clone keep sharing the flatten-side
+  // the frozen vector: source and clone keep sharing the flatten-side
   // metadata via shared_ptr forever.  The clone's new entry lands in
   // its own per-instance post-flatten vector, invisible to the source.
   //
@@ -210,7 +194,6 @@ TEST_CASE(
   auto src = make_use_count_lp();
   auto cloned = src.clone(LinearInterface::CloneKind::shallow);
   REQUIRE(src.col_labels_meta_use_count() == 2);
-  REQUIRE(src.col_meta_index_use_count() == 2);
 
   std::ignore = cloned.add_col(SparseCol {
       .uppb = 3.0,
@@ -219,15 +202,12 @@ TEST_CASE(
       .variable_uid = 99,
   });
 
-  // Frozen meta + dedup index stay shared across source and clone.
+  // Frozen meta stays shared across source and clone.
   CHECK(src.col_labels_meta_use_count() == 2);
-  CHECK(src.col_meta_index_use_count() == 2);
   CHECK(cloned.col_labels_meta_use_count() == 2);
-  CHECK(cloned.col_meta_index_use_count() == 2);
   // Untouched members still shared.
   CHECK(src.col_scales_use_count() == 2);
   CHECK(src.row_scales_use_count() == 2);
-  CHECK(src.row_meta_index_use_count() == 2);
 
   // Source still has 1 col, clone has 2.
   CHECK(src.get_numcols() == 1);

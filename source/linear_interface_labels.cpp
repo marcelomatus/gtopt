@@ -210,14 +210,13 @@ void LinearInterface::compress_labels_meta_if_needed()
   if (m_low_memory_mode_ == LowMemoryMode::off) {
     return;
   }
-  // Drop the frozen flatten-side label metadata vectors and dedup
-  // maps to free memory between release_backend and the next
-  // load_flat.  Both are repopulated unconditionally by load_flat
-  // from the snapshot's `flat_lp.col_labels_meta` / `col_meta_index`
-  // (linear_interface.cpp:1163, 1186), so there is no need to
-  // serialise the labels into a separate compressed buffer here:
-  // the snapshot already owns the canonical copy and write_lp can
-  // only fire when the backend is loaded — which means load_flat
+  // Drop the frozen flatten-side label metadata vectors to free
+  // memory between release_backend and the next load_flat.  They are
+  // repopulated unconditionally by load_flat from the snapshot's
+  // `flat_lp.col_labels_meta` / `row_labels_meta`, so there is no
+  // need to serialise the labels into a separate compressed buffer
+  // here: the snapshot already owns the canonical copy and write_lp
+  // can only fire when the backend is loaded — which means load_flat
   // just ran and the live vectors are populated.
   //
   // Post-flatten vectors (cuts, alpha, cascade elastic) stay
@@ -234,15 +233,6 @@ void LinearInterface::compress_labels_meta_if_needed()
     rm.clear();
     rm.shrink_to_fit();
   }
-
-  // The frozen-side dedup maps hold string_views into the vectors we
-  // just emptied; they'd dangle if left populated.  load_flat
-  // rebuilds them from the snapshot in the same step that repopulates
-  // the live vectors (linear_interface.cpp:1186).  The post-flatten
-  // dedup maps stay populated — they index per-instance vectors that
-  // were never compressed.
-  detach_for_write(m_col_meta_index_).clear();
-  detach_for_write(m_row_meta_index_).clear();
 }
 
 void LinearInterface::ensure_labels_meta_decompressed() const
@@ -256,28 +246,6 @@ void LinearInterface::ensure_labels_meta_decompressed() const
   // a deliberate no-op to preserve the call site in
   // generate_labels_from_maps in case a future change reintroduces
   // a compressed-buffer fallback for some reason.
-}
-
-void LinearInterface::rebuild_meta_indexes() const
-{
-  auto& cmi = detach_for_write(m_col_meta_index_);
-  cmi.clear();
-  const auto& cm = *m_col_labels_meta_;
-  cmi.reserve(cm.size());
-  for (const auto [i, label] : enumerate<ColIndex>(cm)) {
-    if (!is_empty_col_label(label)) {
-      cmi.emplace(label, i);
-    }
-  }
-  auto& rmi = detach_for_write(m_row_meta_index_);
-  rmi.clear();
-  const auto& rm = *m_row_labels_meta_;
-  rmi.reserve(rm.size());
-  for (const auto [i, label] : enumerate<RowIndex>(rm)) {
-    if (!is_empty_row_label(label)) {
-      rmi.emplace(label, i);
-    }
-  }
 }
 
 void LinearInterface::push_names_to_solver() const

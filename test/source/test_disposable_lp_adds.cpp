@@ -7,12 +7,12 @@
  *
  * Disposable adds capture label metadata in per-clone-local extras
  * (`m_post_clone_*_metas_` + dedup map) instead of the shared
- * `m_col_labels_meta_` / `m_col_meta_index_`.  These tests verify:
+ * `m_col_labels_meta_`.  These tests verify:
  *
  *  - The backend grows (col/row count increments).
  *  - Duplicate disposable insertions are rejected with both indices
  *    in the message (mirrors production add_col(SparseCol)).
- *  - A disposable with the same metadata as a production col/row is
+ *  - A disposable with the same metadata as a post-flatten col/row is
  *    also rejected (cross-population dedup).
  *  - Labels for disposable cols/rows are recoverable via `write_lp`
  *    in the gtopt-formatted shape produced by `LabelMaker`.

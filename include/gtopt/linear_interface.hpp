@@ -456,14 +456,6 @@ public:
   {
     return m_row_scales_.use_count();
   }
-  [[nodiscard]] auto col_meta_index_use_count() const noexcept
-  {
-    return m_col_meta_index_.use_count();
-  }
-  [[nodiscard]] auto row_meta_index_use_count() const noexcept
-  {
-    return m_row_meta_index_.use_count();
-  }
 
   /**
    * @brief Release the solver backend, freeing its memory.
@@ -1072,7 +1064,7 @@ public:
    * `emit_col_to_backend`.  Captures only the label-meta fields of
    * `col` (class_name, variable_name, variable_uid, context) into a
    * per-clone-local extras vector + dedup map.  Never touches the
-   * shared `m_col_labels_meta_`, `m_col_meta_index_`, or
+   * shared `m_col_labels_meta_` or
    * `m_col_scales_` — designed for use on a `clone(CloneKind::shallow)`
    * where those structures are shared read-only with the source.
    *
@@ -1114,7 +1106,7 @@ public:
    * Companion to `add_col_disposable`.  Goes DIRECTLY to
    * `m_backend_->add_row`; captures only the label-meta fields of
    * `row` into a per-clone-local extras vector + dedup map.  Never
-   * touches the shared `m_row_labels_meta_`, `m_row_meta_index_`,
+   * touches the shared `m_row_labels_meta_`
    * or `m_row_scales_`.
    *
    * Asserts `row.scale == 1.0` (the elastic-filter fixing-row
@@ -1794,7 +1786,7 @@ private:
   /// Called by `add_col(SparseCol)` and `add_col_raw` after the col
   /// index is known.  Resizes `m_col_labels_meta_` so `m[col_idx]`
   /// carries the 4-tuple LabelMaker needs, and inserts into
-  /// `m_col_meta_index_` for eager duplicate detection.
+  /// `m_post_flatten_col_meta_index_` for eager duplicate detection.
   ///
   /// NOTE: the dedup throw at the bottom of this function has three
   /// near-identical siblings (`track_row_label_meta`,
@@ -1821,13 +1813,6 @@ private:
   /// live vector (and the string pool).  No-op otherwise.  Safe to
   /// call repeatedly and from const contexts (members are mutable).
   void ensure_labels_meta_decompressed() const;
-
-  /// Rebuild `m_col_meta_index_` / `m_row_meta_index_` from the live
-  /// metadata vectors.  Called after `load_flat` and after
-  /// `ensure_labels_meta_decompressed` so the eager duplicate check
-  /// in `add_col` / `track_row_label_meta` can run against the full
-  /// history, not just post-reload additions.
-  void rebuild_meta_indexes() const;
 
 public:
   /**
@@ -3134,12 +3119,11 @@ private:
   std::vector<SparseColLabel> m_post_flatten_col_labels_meta_ {};
   std::vector<SparseRowLabel> m_post_flatten_row_labels_meta_ {};
 
-  /// Eager dedup index for post-flatten metadata.  Mirrors the role of
-  /// `m_col_meta_index_` (which now spans only the frozen flatten
-  /// portion), but for the per-instance post-flatten additions.  Each
-  /// post-flatten `add_col` / `add_row` consults BOTH maps to detect
-  /// duplicates against either the frozen flatten metadata or any
-  /// previously inserted post-flatten entry on this instance.
+  /// Eager dedup index for post-flatten metadata (the per-instance
+  /// post-flatten additions: α column, Benders cut rows, cascade
+  /// elastic constraints).  Each post-flatten `add_col` / `add_row`
+  /// consults this map to detect duplicates against any previously
+  /// inserted post-flatten entry on this instance.
   std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>
       m_post_flatten_col_meta_index_ {};
   std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
@@ -3165,35 +3149,6 @@ private:
   /// decompression so `push_back` doesn't invalidate the views.
   mutable std::vector<std::string> m_label_string_pool_ {};
 
-  /// Eager duplicate-detection maps, keyed on the (class_name,
-  /// variable_name/constraint_name, variable_uid, context) metadata.
-  /// Populated from `m_col_labels_meta_` / `m_row_labels_meta_` at
-  /// `load_flat` time and on every `add_col` / `track_row_label_meta`
-  /// call.  Cleared on `compress_labels_meta_if_needed` alongside the
-  /// vectors and rebuilt on `ensure_labels_meta_decompressed`.
-  ///
-  /// These maps are the single source of truth for col/row uniqueness
-  /// after the switch to metadata-driven label formatting — the
-  /// name-based check in `LinearProblem::flatten` only runs when
-  /// `col_with_name_map` / `row_with_name_map` is enabled (i.e.
-  /// `--lp-debug`), which is off in production runs.  Keeping the
-  /// check at `LinearInterface` level also catches dynamic
-  /// post-flatten insertions (α column, Benders cut rows) that
-  /// `LinearProblem` never sees.
-  ///
-  /// `shared_ptr<T>` so shallow clones share via atomic incref;
-  /// mutating sites use `detach_for_write`.  `mutable` because
-  /// `rebuild_meta_indexes` fires from the const
-  /// `ensure_labels_meta_decompressed` path.
-  mutable std::shared_ptr<
-      std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>>
-      m_col_meta_index_ {std::make_shared<
-          std::unordered_map<SparseColLabel, ColIndex, SparseColLabelHash>>()};
-  mutable std::shared_ptr<
-      std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>>
-      m_row_meta_index_ {std::make_shared<
-          std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>>()};
-
   /// Per-clone-local label metadata for cols/rows added via
   /// `add_col_disposable` / `add_row_disposable` after a shallow
   /// clone.  Empty on the source LP and on freshly-constructed clones;
@@ -3204,9 +3159,8 @@ private:
   /// indexed-by-insertion order (SparseColLabel / SparseRowLabel,
   /// same shape as `m_col_labels_meta_` / `m_row_labels_meta_`),
   /// while `m_post_clone_*_meta_index_` is the dedup hash map (same
-  /// role as `m_col_meta_index_` / `m_row_meta_index_`) — duplicate
-  /// insertions throw with both indices, just like the production
-  /// path.
+  /// role as `m_post_flatten_*_meta_index_`) — duplicate insertions
+  /// throw with both indices, just like the production path.
   ///
   /// `generate_labels_from_maps` consults these vectors when a col
   /// or row index is past the end of the shared metadata, so
