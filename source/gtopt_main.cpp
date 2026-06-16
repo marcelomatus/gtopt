@@ -401,30 +401,62 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     // Match the trace sink: drop source-location, keep date + level.
     file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
 
-    // Ensure the default logger is async — gtopt_main does this at
-    // entry, but setup_file_logging is a public API and may be called
-    // standalone (e.g. from the webservice path).  Idempotent.
-    ensure_default_logger_async();
+    // Assemble the new sink set, then atomically install a FRESH async
+    // logger — never mutate the live default logger's `sinks()` vector
+    // in place.  Under async logging the backend thread iterates that
+    // same vector inside `spdlog::async_logger::backend_sink_it_` while
+    // it drains the queue; an in-place `clear()`/`push_back()` from this
+    // (producer) thread is an unsynchronised write racing that read and
+    // can free a sink mid-`log()`, crashing the backend thread (observed
+    // as an intermittent SIGSEGV when many tests share one process,
+    // backtrace `thread_pool::process_next_msg_` → `backend_sink_it_` →
+    // `base_sink::log` → null vtable).  Swapping in a new logger is the
+    // race-free pattern already used by `ensure_default_logger_async` /
+    // `switch_to_sync_default_logger`: the outgoing logger and its sinks
+    // stay alive via the queued async messages' `shared_ptr` until the
+    // backend drains them, while the new logger owns a freshly-built
+    // sink vector that no other thread touches yet.  Forces async, as
+    // the previous `ensure_default_logger_async()` call did (this is a
+    // public API that may run standalone, e.g. from the webservice).
+    ensure_async_thread_pool();
+    auto current = spdlog::default_logger();
+    const auto level = current ? current->level() : spdlog::level::info;
 
-    auto logger = spdlog::default_logger();
-    auto& sinks = logger->sinks();
+    std::vector<spdlog::sink_ptr> sinks;
     if (suppress_stdout) {
-      sinks.clear();
-      // Belt-and-suspenders: even when the user pipes / redirects
-      // stdout (non-tty → suppress_stdout=true), fatal-level messages
-      // should still surface on stderr so an early failure
-      // (apply_set_options rejecting an unknown --set key, missing
-      // input file, etc.) produces a visible diagnostic without the
-      // user having to find the gtopt_N.log.  The stderr sink is
-      // gated at err-level so routine info/warn lines stay quiet
-      // and only the failure reason hits the user's terminal.
+      // Drop the stdout console sink, but keep an err-gated stderr sink
+      // so an early failure (apply_set_options rejecting an unknown
+      // --set key, missing input file, etc.) still surfaces on the
+      // terminal without the user having to find the gtopt_N.log.
       auto stderr_sink =
           std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
       stderr_sink->set_level(spdlog::level::err);
       stderr_sink->set_pattern("gtopt: [%l] %v");
       sinks.push_back(std::move(stderr_sink));
+    } else if (current) {
+      // Preserve the existing sinks (stdout console, any trace sink, …).
+      const auto& current_sinks = current->sinks();
+      sinks.assign(current_sinks.begin(), current_sinks.end());
     }
     sinks.push_back(std::move(file_sink));
+
+    // Drain the outgoing logger so its queued tail lands before it is
+    // replaced (its sinks live on, via the queued messages, until done).
+    if (current) {
+      try {
+        current->flush();
+      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      }
+    }
+
+    auto async = std::make_shared<spdlog::async_logger>(
+        std::string {kAsyncLoggerName},
+        sinks.begin(),
+        sinks.end(),
+        spdlog::thread_pool(),
+        spdlog::async_overflow_policy::overrun_oldest);
+    async->set_level(level);
+    spdlog::set_default_logger(std::move(async));
   } catch (const spdlog::spdlog_ex& ex) {
     spdlog::warn("could not open log file '{}': {}", log_path, ex.what());
   }
