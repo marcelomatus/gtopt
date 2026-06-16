@@ -551,6 +551,20 @@ def build_options(args: argparse.Namespace) -> dict:
     if getattr(args, "aperture_chunk_size", None) is not None:
         sddp_opts = opts.setdefault("sddp_options", {})
         sddp_opts["aperture_chunk_size"] = args.aperture_chunk_size
+
+    # SDDP fast-path defaults (benchmarked plp2gtopt -> gtopt pipeline, ~PLP
+    # parity on the CEN65 2-year case): provably-zero LP-column elision
+    # (``lp_reduction``, ~-19% wall) + dual aperture warm-start
+    # (``aperture_solve_mode = warm`` over all-apertures-per-phase chunks via
+    # ``aperture_chunk_size = -1``).  The ``piecewise_direct`` loss model is the
+    # default already (see ``line_losses_mode`` above).  All three are
+    # overridable.  Scoped to the plain ``sddp`` method — ``cascade`` builds
+    # its own per-level ``sddp_options`` (see GTOptWriter).
+    if args.method == "sddp":
+        model_opts.setdefault("lp_reduction", True)
+        sddp_opts = opts.setdefault("sddp_options", {})
+        sddp_opts.setdefault("aperture_solve_mode", "warm")
+        sddp_opts.setdefault("aperture_chunk_size", -1)
     if getattr(args, "lift_line_caps", None):
         opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 

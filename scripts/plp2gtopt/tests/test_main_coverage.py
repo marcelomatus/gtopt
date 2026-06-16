@@ -327,6 +327,30 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
 
+    def test_sddp_method_fast_path_defaults(self):
+        # method=sddp gets the benchmarked fast-path defaults: lp_reduction +
+        # dual aperture warm-start over all-apertures-per-phase chunks (-1).
+        args = self._make_args(method="sddp")
+        opts = build_options(args)
+        assert opts["model_options"]["lp_reduction"] is True
+        assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
+        assert opts["sddp_options"]["aperture_chunk_size"] == -1
+
+    def test_non_sddp_method_no_fast_path_defaults(self):
+        # cascade/monolithic do not get the sddp fast-path defaults here
+        # (cascade assembles its own per-level sddp_options).
+        args = self._make_args(method="cascade")
+        opts = build_options(args)
+        assert "lp_reduction" not in opts["model_options"]
+        assert "sddp_options" not in opts
+
+    def test_sddp_fast_path_defaults_overridable(self):
+        # An explicit --aperture-chunk-size wins over the warm default of -1.
+        args = self._make_args(method="sddp", aperture_chunk_size=4)
+        opts = build_options(args)
+        assert opts["sddp_options"]["aperture_chunk_size"] == 4
+        assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
+
     def test_plp_legacy_bundles_method_and_losses(self):
         # Empty argv → neither --method nor --line-losses-mode is explicit,
         # so --plp-legacy fills method + line_losses_mode + use_line_losses.
