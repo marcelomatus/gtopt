@@ -577,6 +577,14 @@ def build_options(args: argparse.Namespace) -> dict:
         fwd_solver.setdefault("advanced_basis", True)
         bwd_solver = sddp_opts.setdefault("backward_solver_options", {})
         bwd_solver.setdefault("algorithm", "dual")
+        # PLP-faithful cut sharing: each scene-LP carries N dedicated
+        # future-cost columns (varphi_0..N-1) and scenario-s's backward
+        # cut lands on varphi_s in every scene-LP, priced 1/N — matching
+        # PLP's source-scenario indexing (plp-agrespd.f:94) + 1/N
+        # averaging (defprbpd.f:810).  Replaces the prior `none` default
+        # (no sharing).  An explicit --cut-sharing-mode wins (applied
+        # below, where args.cut_sharing_mode is not None).
+        opts.setdefault("cut_sharing_mode", "multicut")
     if getattr(args, "lift_line_caps", None):
         opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 

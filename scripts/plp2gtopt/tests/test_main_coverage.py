@@ -362,6 +362,26 @@ class TestBuildOptions:
         opts = build_options(args)
         assert "lp_reduction" not in opts["model_options"]
         assert "sddp_options" not in opts
+        # monolithic must NOT get the multicut cut-sharing default.
+        assert "cut_sharing_mode" not in opts
+
+    def test_sddp_method_defaults_cut_sharing_multicut(self):
+        # PLP-faithful sharing: sddp defaults cut_sharing_mode to multicut.
+        args = self._make_args(method="sddp")
+        opts = build_options(args)
+        assert opts["cut_sharing_mode"] == "multicut"
+
+    def test_cascade_method_defaults_cut_sharing_multicut(self):
+        # cascade inherits the same multicut default on the top-level opts.
+        args = self._make_args(method="cascade")
+        opts = build_options(args)
+        assert opts["cut_sharing_mode"] == "multicut"
+
+    def test_cut_sharing_default_overridable(self):
+        # An explicit --cut-sharing-mode wins over the multicut default.
+        args = self._make_args(method="sddp", cut_sharing_mode="none")
+        opts = build_options(args)
+        assert opts["cut_sharing_mode"] == "none"
 
     def test_sddp_fast_path_defaults_overridable(self):
         # An explicit --aperture-chunk-size wins over the warm default of -1.

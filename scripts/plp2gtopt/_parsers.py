@@ -475,23 +475,33 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         "--cut-sharing-mode",
         dest="cut_sharing_mode",
         metavar="MODE",
-        default="none",
-        choices=["none", "expected", "accumulate", "max"],
+        default=None,
+        choices=[
+            "none",
+            "multicut",
+            "broadcast_mean",
+            "expected",
+            "accumulate",
+            "max",
+        ],
         help=(
-            "SDDP cut sharing mode: "
-            "'none' keeps cuts in their originating scene "
-            "(default — the only mathematically safe mode for "
-            "heterogeneous-realisation runs; see "
-            "docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md); "
-            "'expected' computes a probability-weighted average cut; "
-            "'accumulate' sums all cuts directly (correct when LP "
-            "objectives include probability factors); "
-            "'max' shares all cuts from all scenes to all scenes "
-            "(PLP-legacy behaviour — every per-scenario cut is "
-            "broadcast verbatim, matching `plp-agrespd.f::AgrResPD` "
-            "DO II=IBeg,IEnd; valid only when scenes share IDENTICAL "
-            "sample-path realisations at every phase and block). "
-            "(default: none)"
+            "SDDP cut sharing mode (default for sddp/cascade: 'multicut'; "
+            "unset for monolithic): "
+            "'multicut' is the PLP-faithful mechanism — each scene-LP "
+            "carries N dedicated future-cost columns (varphi_0..N-1), and "
+            "scenario-s's backward cut is broadcast onto varphi_s in every "
+            "scene-LP, priced 1/N (matches `plp-agrespd.f:94` source "
+            "indexing + `defprbpd.f:810` 1/N averaging); "
+            "'none' keeps cuts in their originating scene (no sharing); "
+            "'broadcast_mean' (alias 'expected') computes a "
+            "probability-weighted average cut; "
+            "'accumulate' sums all cuts directly; "
+            "'max' shares all cuts from all scenes to all scenes. "
+            "broadcast_mean/accumulate/max broadcast onto the destination's "
+            "OWN shared alpha and are valid only when scenes share IDENTICAL "
+            "sample-path realisations; see "
+            "docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md. "
+            "(default: multicut for sddp/cascade)"
         ),
     )
     parser.add_argument(
