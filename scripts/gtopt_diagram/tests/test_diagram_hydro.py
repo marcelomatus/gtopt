@@ -873,7 +873,7 @@ _RIGHTS_PLANNING = {
                 "uid": 1,
                 "name": "FR1",
                 "purpose": "environmental",
-                "junction": 2,
+                "junction_a": 2,
                 "discharge": 15.0,
             },
         ],
