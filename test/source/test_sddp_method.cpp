@@ -428,7 +428,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 5;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::expected;
+    sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -453,7 +453,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 5;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::expected;
+    sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1833,7 +1833,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 5;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -4490,7 +4490,7 @@ TEST_CASE(  // NOLINT
   constexpr double kAboveRel = 0.01;  // matches the L2975 above-vs-hard tol
 
   const std::array<ShareCfg, 3> cfgs = {{
-      {.mode = CutSharingMode::expected, .label = "expected"},
+      {.mode = CutSharingMode::broadcast_mean, .label = "broadcast_mean"},
       {.mode = CutSharingMode::accumulate, .label = "accumulate"},
       {.mode = CutSharingMode::max, .label = "max"},
   }};
@@ -4675,7 +4675,7 @@ TEST_CASE(  // NOLINT
   // shift this by O(prob_max - prob_min) = 0.2 — well above the 5%
   // tolerance.
   const std::array<CutSharingMode, 3> modes = {
-      CutSharingMode::expected,
+      CutSharingMode::broadcast_mean,
       CutSharingMode::accumulate,
       CutSharingMode::max,
   };
@@ -5525,7 +5525,7 @@ TEST_CASE("compute_convergence_gap — denominator clamping")  // NOLINT
 TEST_CASE("parse_cut_sharing_mode — known + unknown strings")  // NOLINT
 {
   CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
-  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::expected);
+  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::broadcast_mean);
   CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
   CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
   // Fallback contract — unknown spelling resolves to ``none``.
@@ -5895,7 +5895,7 @@ TEST_CASE(  // NOLINT
   PlanningLP plp(std::move(planning));
 
   auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
 
   SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
@@ -6022,7 +6022,7 @@ TEST_CASE(  // NOLINT
 
   std::array<ModeResult, 4> mode_results = {{
       {CutSharingMode::none, "none", 0.0},
-      {CutSharingMode::expected, "expected", 0.0},
+      {CutSharingMode::broadcast_mean, "expected", 0.0},
       {CutSharingMode::accumulate, "accumulate", 0.0},
       {CutSharingMode::max, "max", 0.0},
   }};
@@ -6441,7 +6441,7 @@ TEST_CASE(  // NOLINT
       run_efin500_config("resolve=true + cut_sharing=expected (2 scenes)",
                          true,
                          LpEquilibrationMethod::row_max,
-                         CutSharingMode::expected,
+                         CutSharingMode::broadcast_mean,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + scale_alpha=1.0",

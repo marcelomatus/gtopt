@@ -66,7 +66,7 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == CutSharingMode::expected);
+  CHECK(*opts.cut_sharing_mode == CutSharingMode::broadcast_mean);
   REQUIRE(opts.cut_directory.has_value());
   CHECK(*opts.cut_directory == "my_cuts");
   REQUIRE(opts.api_enabled.has_value());

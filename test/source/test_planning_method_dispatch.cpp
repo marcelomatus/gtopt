@@ -335,7 +335,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.scale_alpha = 1234.0;
 
     // Cut sharing and files
-    popts.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+    popts.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
     popts.sddp_options.cut_directory = std::string("snapshot_cuts");
     popts.sddp_options.cut_recovery_mode = HotStartMode::append;
     popts.sddp_options.recovery_mode = RecoveryMode::cuts;
@@ -398,7 +398,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.scale_alpha == doctest::Approx(1234.0));
 
     // ── Cut sharing and files ──
-    CHECK(so.cut_sharing == CutSharingMode::expected);
+    CHECK(so.cut_sharing == CutSharingMode::broadcast_mean);
     const auto expected_cuts_out =
         (std::filesystem::path("snapshot_out") / "snapshot_cuts"
          / sddp_file::combined_cuts)

@@ -216,7 +216,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   // expected: one accumulated cut (sum of scene averages) added to each scene
   const auto rows_s0 = plp.system(first_scene_index(), first_phase_index())
@@ -355,7 +355,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   // No cuts to average → no rows added
   const auto rows_after = plp.system(first_scene_index(), first_phase_index())
@@ -583,7 +583,7 @@ TEST_CASE(  // NOLINT
                                   .get_numrows();
 
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   auto& li_s0 =
       plp.system(first_scene_index(), first_phase_index()).linear_interface();
@@ -830,7 +830,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   auto& li_s0 =
       plp.system(first_scene_index(), first_phase_index()).linear_interface();
@@ -937,7 +937,7 @@ TEST_CASE(  // NOLINT
                                .get_numrows();
 
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   auto& li_s0 =
       plp.system(first_scene_index(), first_phase_index()).linear_interface();
@@ -1019,7 +1019,7 @@ TEST_CASE(  // NOLINT
     auto planning2 = make_2scene_3phase_hydro_planning(0.5, 0.5);
     PlanningLP plp2(std::move(planning2));
     share_cuts_for_phase(
-        first_phase_index(), scene_cuts, CutSharingMode::expected, plp2);
+        first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp2);
     auto& li = plp2.system(first_scene_index(), first_phase_index())
                    .linear_interface();
     const auto new_row = RowIndex {static_cast<Index>(rows_before)};
@@ -1102,7 +1102,7 @@ TEST_CASE(  // NOLINT
                                .linear_interface()
                                .get_numrows();
   share_cuts_for_phase(
-      first_phase_index(), scene_cuts, CutSharingMode::expected, plp);
+      first_phase_index(), scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   auto& li =
       plp.system(first_scene_index(), first_phase_index()).linear_interface();
@@ -1372,7 +1372,8 @@ TEST_CASE(  // NOLINT
         make_alpha_referring_cut(plp, si, target_phase, 1.0, 50.0));
   }
 
-  share_cuts_for_phase(target_phase, scene_cuts, CutSharingMode::expected, plp);
+  share_cuts_for_phase(
+      target_phase, scene_cuts, CutSharingMode::broadcast_mean, plp);
 
   for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
     CAPTURE(si);

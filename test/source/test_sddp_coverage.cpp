@@ -545,7 +545,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();

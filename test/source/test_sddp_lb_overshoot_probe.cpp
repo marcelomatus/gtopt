@@ -421,7 +421,7 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ multi-scene")  // NOLINT
   // implementation is corrected for heterogeneous-scene weights.
   for (const auto mode :
        {
-           CutSharingMode::expected,
+           CutSharingMode::broadcast_mean,
            CutSharingMode::accumulate,
            CutSharingMode::max,
        })

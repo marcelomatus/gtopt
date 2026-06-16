@@ -275,7 +275,7 @@ TEST_CASE("SDDPMethod async - cut_sharing != none uses sync path")  // NOLINT
   SDDPOptions opts;
   opts.max_iterations = 15;
   opts.convergence_tol = 1e-4;
-  opts.cut_sharing = CutSharingMode::expected;
+  opts.cut_sharing = CutSharingMode::broadcast_mean;
   opts.max_async_spread = 3;  // Should be ignored
 
   SDDPMethod sddp(planning_lp, opts);

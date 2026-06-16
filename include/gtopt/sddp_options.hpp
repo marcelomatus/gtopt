@@ -376,6 +376,19 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<BoundaryCutsMode> boundary_cuts_mode {};
 
+  /** @brief How terminal/boundary cuts are shared across scenes on the
+   * terminal α — the terminal-phase analogue of `cut_sharing_mode`.
+   * - per_scene (default): each scene's terminal α bounded only by its own
+   *   scenario's boundary cuts (valid; pairs with cut_sharing none/multicut).
+   * - shared: broadcast each boundary cut onto every scene's single terminal α
+   *   (valid only when the post-horizon value is scenario-identical).
+   * - multicut: N terminal α columns, cut s → varphi_s, averaged 1/N (pairs
+   *   with cut_sharing_mode=multicut).
+   * When unset, derived from the legacy `boundary_cuts_mode` scope:
+   * separated→per_scene, combined→shared; else per_scene.
+   */
+  std::optional<BoundaryCutSharingMode> boundary_cut_sharing_mode {};
+
   /** @brief Maximum number of SDDP iterations to load from the boundary
    * cuts file.  Only cuts from the last N iterations (by `iteration`
    * column, i.e. PLP's IPDNumIte) are loaded.  0 = load all (default).
@@ -739,6 +752,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
+    merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     merge_opt(boundary_cuts_mean_shift, opts.boundary_cuts_mean_shift);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);

@@ -516,8 +516,10 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         type=int,
         default=None,
         help=(
-            "Keep only boundary cuts from the last N SDDP iterations. "
-            "0 means keep all iterations. "
+            "Keep only boundary cuts from the last N SDDP iterations "
+            "(the most-converged ones); 0 means keep all.  Bounding this "
+            "limits a large tail of stale / foreign-system boundary cuts "
+            "(which over-tighten the terminal alpha and drive LB > UB). "
             "(default: not set; gtopt uses 0 = all)"
         ),
     )

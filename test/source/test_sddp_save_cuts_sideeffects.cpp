@@ -74,7 +74,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.convergence_tol = 1e-12;  // unreachable, force max_iterations
   sddp_opts.cuts_output_file = cuts_file;
   sddp_opts.save_per_iteration = true;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(plp, sddp_opts);
@@ -186,7 +186,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.convergence_tol = 1e-6;
   sddp_opts.cuts_output_file = cuts_file;
   sddp_opts.save_per_iteration = true;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(plp, sddp_opts);

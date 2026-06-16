@@ -49,6 +49,92 @@ inline constexpr auto boundary_cuts_mode_entries =
   return std::span {boundary_cuts_mode_entries};
 }
 
+// ─── BoundaryCutSharingMode ─────────────────────────────────────────────────
+
+/**
+ * @brief How terminal/boundary (future-cost) cuts are shared across scenes.
+ *
+ * The terminal-phase analogue of `CutSharingMode` (which governs the
+ * intermediate phases).  `boundary_cuts_mode` controls *whether* / from where
+ * boundary cuts are loaded; this controls *how the loaded cuts are scoped to
+ * scenes* on the terminal α.
+ *
+ * - `per_scene` (default): each scene's terminal α is bounded ONLY by its own
+ *   scenario's boundary cuts (scene-UID matched).  Valid; the terminal-phase
+ *   analogue of `cut_sharing_mode = none`.  Pairs with `none` / `multicut`.
+ * - `shared`: broadcast every boundary cut onto every scene's single terminal
+ *   α.  Valid only when the post-horizon value function is scenario-identical;
+ *   otherwise over-tightens the terminal α (same LB > UB failure mode as the
+ *   intermediate broadcast modes).
+ * - `multicut`: N terminal α columns (one per source scene), scenario-s cut →
+ *   terminal `varphi_s`, averaged 1/N.  Full PLP fidelity; pairs with
+ *   `cut_sharing_mode = multicut`.
+ *
+ * Back-compat: the legacy `boundary_cuts_mode` scope values map here —
+ * `separated` → `per_scene`, `combined` → `shared`.
+ */
+enum class BoundaryCutSharingMode : uint8_t
+{
+  per_scene = 0,  ///< Each scene's terminal α bounded only by its own cuts
+  shared = 1,  ///< Broadcast each boundary cut onto every scene's terminal α
+  multicut = 2,  ///< N terminal α columns, cut s → varphi_s, averaged 1/N
+};
+
+inline constexpr auto boundary_cut_sharing_mode_entries =
+    std::to_array<EnumEntry<BoundaryCutSharingMode>>({
+        {.name = "per_scene", .value = BoundaryCutSharingMode::per_scene},
+        {.name = "shared", .value = BoundaryCutSharingMode::shared},
+        {.name = "multicut", .value = BoundaryCutSharingMode::multicut},
+        // Back-compat aliases for the legacy boundary_cuts_mode scope
+        // spellings.
+        {.name = "separated",
+         .value = BoundaryCutSharingMode::per_scene,
+         .is_alias = true},
+        {.name = "combined",
+         .value = BoundaryCutSharingMode::shared,
+         .is_alias = true},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(
+    BoundaryCutSharingMode /*tag*/) noexcept
+{
+  return std::span {boundary_cut_sharing_mode_entries};
+}
+
+// ─── BoundaryCutSoftCost ────────────────────────────────────────────────────
+
+/**
+ * @brief Which statistic of a boundary cut's coefficients to use as a
+ *        terminal soft cost for the state variables it names.
+ *
+ * The option is itself optional: an absent
+ * `std::optional<BoundaryCutSoftCost>` means "do not derive soft costs"
+ * (the cut then feeds only the future-cost α row and `scale_alpha`).  When
+ * present, the loader summarises each cut column (one per reservoir /
+ * battery) across all cut rows and sets the matching element's `efin_cost`
+ * to the negated statistic — the marginal water value (the cut ships
+ * `-wv`).  This replaces hard-pinning `vol_end >= efin`: the LP may end
+ * below the floor, priced at the water value.
+ */
+enum class BoundaryCutSoftCost : uint8_t
+{
+  min = 0,  ///< Soft cost = -min(coeff) over the cut rows
+  avg = 1,  ///< Soft cost = -avg(coeff) over the cut rows
+  max = 2,  ///< Soft cost = -max(coeff) over the cut rows
+};
+
+inline constexpr auto boundary_cut_soft_cost_entries =
+    std::to_array<EnumEntry<BoundaryCutSoftCost>>({
+        {.name = "min", .value = BoundaryCutSoftCost::min},
+        {.name = "avg", .value = BoundaryCutSoftCost::avg},
+        {.name = "max", .value = BoundaryCutSoftCost::max},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(BoundaryCutSoftCost /*tag*/) noexcept
+{
+  return std::span {boundary_cut_soft_cost_entries};
+}
+
 // ─── CutSharingMode ────────────────────────────────────────────────────────
 
 /**
@@ -58,37 +144,58 @@ inline constexpr auto boundary_cuts_mode_entries =
  * synchronized per-phase: all scenes complete a phase before cuts are shared
  * and the next phase is processed.
  *
- * @warning Only `none` is mathematically valid for production multi-scenario
- * runs.  gtopt implements multi-cut SDDP (one α^k_s column per scene).  The
- * `expected` / `accumulate` / `max` modes broadcast a cut from scene S to
- * every other scene's α LP, which is valid only when scenes share the
- * IDENTICAL sample-path realization (same inflows, demands, capacities at
- * every (phase, block)).  Distinct-sample-path runs (the typical case for
- * Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 historical hydrology
- * samples) violate that condition and produce LB > UB that compounds
- * across iterations.  A runtime WARN is emitted at SDDP setup when
- * `cut_sharing != none && num_scenes > 1`.  See
+ * @warning `none` and `multicut` are mathematically valid; `broadcast_mean`
+ * (formerly `expected`), `accumulate`, and `max` are NOT for distinct sample
+ * paths.  gtopt's per-scene LP holds, by default, ONE α^k_d column bounded by
+ * scene d's own cuts (`none`).  The `broadcast_mean` / `accumulate` / `max`
+ * modes broadcast a cut from scene S onto **scene D's own α** — valid only
+ * when scenes share the IDENTICAL sample-path realization; distinct-sample-path
+ * runs (Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 hydrology samples)
+ * violate that and produce LB > UB that compounds across iterations.
+ *
+ * `multicut` is the PLP-faithful fix: each scene-LP carries N α columns
+ * (`varphi_0..N-1`, one per source scene), each bounded ONLY by its own
+ * scenario's cuts, priced uniformly 1/N in the objective.  A broadcast cut
+ * from scene S targets `varphi_S` in every destination LP — never `varphi_D` —
+ * so `Σ_s (1/N)·varphi_s ≥ (1/N)·Σ_s Q_s = E[Q]` stays a valid lower bound.
+ * Mirrors PLP `plp-agrespd.f::AgrResPD` (`IColx = NCol-NSimul+ISimul`).
+ *
+ * A runtime WARN is emitted at SDDP setup for the INVALID modes only:
+ * `cut_sharing ∉ {none, multicut} && num_scenes > 1`.  See
  * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
  * and the regression test `test/source/test_sddp_bounds_sanity.cpp`.
  */
 enum class CutSharingMode : uint8_t
 {
-  none = 0,  ///< No sharing; scenes solved independently (default; only
-             ///< mathematically valid choice for production multi-scenario)
-  expected = 1,  ///< Average cuts within each scene, then sum across scenes
-                 ///< (KNOWN INVALID for distinct sample paths — see warning)
+  none = 0,  ///< No sharing; each scene's single α is bounded only by its own
+             ///< cuts (per-scene anticipative — each scene optimises against
+             ///< its OWN future cost Q_d, not the expectation; valid LB)
+  broadcast_mean = 1,  ///< Average per-scene cuts into one mean cut, broadcast
+                       ///< onto every scene's single α (KNOWN INVALID for
+                       ///< distinct sample paths — see warning; was "expected")
   accumulate = 2,  ///< Sum all cuts directly (KNOWN INVALID for distinct
                    ///< sample paths — see warning)
   max = 3,  ///< All cuts from all scenes added to all scenes (KNOWN INVALID
             ///< for distinct sample paths — see warning)
+  multicut =
+      4,  ///< PLP-faithful: N α columns per scene-LP (one per source
+          ///< scene), each bounded ONLY by its own scenario's cuts,
+          ///< averaged 1/N in the objective → every scene's LP sees the
+          ///< true expected cost-to-go Σ_s (1/N)·Q_s.  VALID lower bound.
 };
 
 inline constexpr auto cut_sharing_mode_entries =
     std::to_array<EnumEntry<CutSharingMode>>({
         {.name = "none", .value = CutSharingMode::none},
-        {.name = "expected", .value = CutSharingMode::expected},
+        {.name = "broadcast_mean", .value = CutSharingMode::broadcast_mean},
+        // Back-compat: the mode formerly named "expected" is the same
+        // (invalid) mean-broadcast; keep parsing old configs/CLI strings.
+        {.name = "expected",
+         .value = CutSharingMode::broadcast_mean,
+         .is_alias = true},
         {.name = "accumulate", .value = CutSharingMode::accumulate},
         {.name = "max", .value = CutSharingMode::max},
+        {.name = "multicut", .value = CutSharingMode::multicut},
     });
 
 [[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept

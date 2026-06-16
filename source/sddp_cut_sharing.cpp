@@ -168,7 +168,7 @@ void share_cuts_for_phase(
         phase_index,
         all_cuts.size());
 
-  } else if (mode == CutSharingMode::expected) {
+  } else if (mode == CutSharingMode::broadcast_mean) {
     // Expected mode: average cuts within each scene, then sum across
     // scenes; broadcast the sum to every scene's α^k LP.
     //

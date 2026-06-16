@@ -169,12 +169,12 @@ TEST_CASE("CutSharingMode from_name")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  CHECK(
-      enum_from_name<CutSharingMode>("none").value_or(CutSharingMode::expected)
-      == CutSharingMode::none);
+  CHECK(enum_from_name<CutSharingMode>("none").value_or(
+            CutSharingMode::broadcast_mean)
+        == CutSharingMode::none);
   CHECK(
       enum_from_name<CutSharingMode>("expected").value_or(CutSharingMode::none)
-      == CutSharingMode::expected);
+      == CutSharingMode::broadcast_mean);
   CHECK(enum_from_name<CutSharingMode>("accumulate")
             .value_or(CutSharingMode::none)
         == CutSharingMode::accumulate);
@@ -302,7 +302,7 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
   raw.input_format = DataFormat::csv;
   raw.output_format = DataFormat::parquet;
   raw.output_compression = CompressionCodec::gzip;
-  raw.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
   raw.sddp_options.elastic_mode = ElasticFilterMode::multi_cut;
   raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
   raw.sddp_options.cut_recovery_mode = HotStartMode::replace;
@@ -340,7 +340,7 @@ TEST_CASE(
   PlanningOptions raw;
   raw.method = MethodType::sddp;
   raw.input_format = DataFormat::csv;
-  raw.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
   const PlanningOptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
   CHECK(warnings.empty());

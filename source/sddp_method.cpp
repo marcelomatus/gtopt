@@ -285,14 +285,16 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // LB > UB that compounds across iterations.  See
   // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
   // and the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
-  if (m_options_.cut_sharing != CutSharingMode::none && num_scenes > 1) {
+  if (m_options_.cut_sharing != CutSharingMode::none
+      && m_options_.cut_sharing != CutSharingMode::multicut && num_scenes > 1)
+  {
     SPDLOG_WARN(
-        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting "
-        "is mathematically valid only when scenes share IDENTICAL "
-        "sample-path realizations (same inflows / demands / capacities "
-        "at every phase and block).  Heterogeneous-realization runs "
-        "may produce LB > UB.  Use cut_sharing=none for production "
-        "multi-scenario runs.  See "
+        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting onto "
+        "the destination scene's own α is mathematically valid only when "
+        "scenes share IDENTICAL sample-path realizations (same inflows / "
+        "demands / capacities at every phase and block).  Heterogeneous-"
+        "realization runs may produce LB > UB.  Use cut_sharing=none (or the "
+        "PLP-faithful multicut) for production multi-scenario runs.  See "
         "docs/analysis/investigations/sddp/"
         "sddp_cut_sharing_fix_plan_2026-04-30.md.",
         enum_name(m_options_.cut_sharing),

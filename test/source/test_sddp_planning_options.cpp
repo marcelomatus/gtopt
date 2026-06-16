@@ -29,7 +29,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 {
   CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
-  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::expected);
+  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::broadcast_mean);
   CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
   CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
   // Unknown defaults to none (matching SDDPOptions default)
@@ -115,11 +115,11 @@ TEST_CASE("PlanningOptions method and sddp_cut_sharing_mode")  // NOLINT
 {
   PlanningOptions opts;
   opts.method = MethodType::sddp;
-  opts.sddp_options.cut_sharing_mode = CutSharingMode::expected;
+  opts.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
 
   const PlanningOptionsLP options_lp(std::move(opts));
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
-  CHECK(options_lp.sddp_cut_sharing_mode() == "expected");
+  CHECK(options_lp.sddp_cut_sharing_mode() == "broadcast_mean");
 }
 
 TEST_CASE("PlanningOptions method defaults")  // NOLINT

@@ -206,7 +206,7 @@ TEST_CASE(
 {
   const std::array<CutSharingMode, 3> modes = {
       CutSharingMode::accumulate,
-      CutSharingMode::expected,
+      CutSharingMode::broadcast_mean,
       CutSharingMode::max,
   };
 
@@ -246,7 +246,7 @@ TEST_CASE(
   const std::array<CutSharingMode, 4> modes = {
       CutSharingMode::none,
       CutSharingMode::accumulate,
-      CutSharingMode::expected,
+      CutSharingMode::broadcast_mean,
       CutSharingMode::max,
   };
 
@@ -422,7 +422,7 @@ TEST_CASE("SDDP cut_sharing WARN — fires for multi-scene non-none modes")
 {
   const std::array<CutSharingMode, 3> at_risk = {
       CutSharingMode::accumulate,
-      CutSharingMode::expected,
+      CutSharingMode::broadcast_mean,
       CutSharingMode::max,
   };
 

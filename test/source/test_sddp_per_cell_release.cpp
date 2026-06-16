@@ -141,7 +141,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
   sddp_opts.convergence_tol = 1e-6;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
   sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.memory_codec = CompressionCodec::uncompressed;
   sddp_opts.enable_api = false;
@@ -205,7 +205,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-9;  // force both iterations
   sddp_opts.min_iterations = 2;
-  sddp_opts.cut_sharing = CutSharingMode::expected;
+  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
   sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.memory_codec = CompressionCodec::uncompressed;
   sddp_opts.enable_api = false;
