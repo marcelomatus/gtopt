@@ -534,7 +534,45 @@ def run_post_check(
 _BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
 
 
-def install_solver_param_files(output_dir: Path) -> list[Path]:
+def _retune_cplex_prm_for_iterative(prm_path: Path) -> None:
+    """Rewrite a copied ``cplex.prm`` for SDDP / cascade iterative solves.
+
+    The bundled ``cplex.prm`` is tuned for plexos2gtopt-derived *monolithic*
+    MIPs, where ``LPMethod 4`` (barrier) wins and CPLEX presolve helps.  Under
+    the iterative methods the per-iteration LPs are warm-started and the
+    structural redundancy is already stripped by ``model_options.lp_reduction``,
+    so the right choices invert:
+
+      * ``CPXPARAM_LPMethod 2`` — dual simplex, fastest on warm bases (the
+        bundled prm's own header recommends dropping barrier under SDDP).
+      * ``CPXPARAM_Preprocessing_Presolve 0`` — disable CPLEX presolve; the
+        reduced LP is reused across every iteration, so paying for presolve
+        each resolve is wasted work.
+
+    The prm is read *last* by the backend (it overrides the JSON
+    ``solver_options``), so the algorithm choice must live here, not only in
+    the JSON.  ``MIP_Cuts_Gomory 2`` and any other tuned lines are preserved.
+    """
+    try:
+        lines = prm_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    # Drop any existing LPMethod / Presolve directives (keep comments + others).
+    kept = [
+        ln
+        for ln in lines
+        if not ln.strip().startswith("CPXPARAM_LPMethod")
+        and not ln.strip().startswith("CPXPARAM_Preprocessing_Presolve")
+    ]
+    kept.append("# --- plp2gtopt iterative (sddp/cascade) overrides ---")
+    kept.append("CPXPARAM_LPMethod                               2")
+    kept.append("CPXPARAM_Preprocessing_Presolve                 0")
+    prm_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+
+def install_solver_param_files(
+    output_dir: Path, *, iterative: bool = False
+) -> list[Path]:
     """Copy every bundled solver param file into ``<output_dir>/solvers/``.
 
     gtopt's ``prepare_matrix_options`` auto-loads
@@ -544,6 +582,10 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     plp2gtopt output is solver-tuned out of the box.  Covers ``.prm``
     (CPLEX / Gurobi / MindOpt) and ``.opts`` (HiGHS) — including the
     ``<solver>_warmstart`` siblings loaded for the advanced-basis pass.
+
+    When ``iterative`` is set (SDDP / cascade methods) the copied
+    ``cplex.prm`` is retuned to dual simplex + no presolve via
+    ``_retune_cplex_prm_for_iterative`` — see that helper for the rationale.
 
     Returns the list of installed file paths (empty when no bundled files).
     """
@@ -558,6 +600,8 @@ def install_solver_param_files(output_dir: Path) -> list[Path]:
     ):
         dst = target_dir / src.name
         shutil.copyfile(src, dst)
+        if iterative and src.name == "cplex.prm":
+            _retune_cplex_prm_for_iterative(dst)
         installed.append(dst)
         logger.info("installed solver param file: %s", dst)
     return installed
@@ -773,7 +817,13 @@ def convert_plp_case(options: dict[str, Any]) -> int:
         # so gtopt's prepare_matrix_options auto-loads them when this case
         # is later solved (source/gtopt_lp_runner.cpp).  See the
         # ``solvers/`` package directory for the curated parameter files.
-        install_solver_param_files(output_dir)
+        # For the iterative methods (sddp/cascade) the cplex.prm is retuned
+        # to dual simplex + no presolve (matches the iterative fast-path
+        # defaults set in main.process_options).
+        install_solver_param_files(
+            output_dir,
+            iterative=options.get("method") in ("sddp", "cascade"),
+        )
 
         # --- Outside the progress context: print tables ---
         _log_stats(writer.planning, elapsed, options)

@@ -328,18 +328,37 @@ class TestBuildOptions:
         assert opts["model_options"]["line_losses_mode"] == "piecewise_direct"
 
     def test_sddp_method_fast_path_defaults(self):
-        # method=sddp gets the benchmarked fast-path defaults: lp_reduction +
-        # dual aperture warm-start over all-apertures-per-phase chunks (-1).
+        # method=sddp gets the benchmarked iterative fast-path defaults:
+        # lp_reduction + dual aperture warm-start over all-apertures-per-phase
+        # chunks (-1) + dual simplex w/ advanced basis on fwd/bwd passes.
         args = self._make_args(method="sddp")
         opts = build_options(args)
         assert opts["model_options"]["lp_reduction"] is True
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
         assert opts["sddp_options"]["aperture_chunk_size"] == -1
+        assert opts["sddp_options"]["forward_solver_options"] == {
+            "algorithm": "dual",
+            "advanced_basis": True,
+        }
+        assert opts["sddp_options"]["backward_solver_options"] == {
+            "algorithm": "dual",
+        }
 
-    def test_non_sddp_method_no_fast_path_defaults(self):
-        # cascade/monolithic do not get the sddp fast-path defaults here
-        # (cascade assembles its own per-level sddp_options).
+    def test_cascade_method_fast_path_defaults(self):
+        # method=cascade now also gets the iterative fast-path defaults: they
+        # land on the TOP-LEVEL sddp_options / model_options, which become the
+        # cascade base options inherited by every level (m_base_opts_).
         args = self._make_args(method="cascade")
+        opts = build_options(args)
+        assert opts["model_options"]["lp_reduction"] is True
+        assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
+        assert opts["sddp_options"]["aperture_chunk_size"] == -1
+        assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
+        assert opts["sddp_options"]["backward_solver_options"]["algorithm"] == "dual"
+
+    def test_monolithic_method_no_fast_path_defaults(self):
+        # monolithic (non-iterative) gets none of the iterative fast-path knobs.
+        args = self._make_args(method="monolithic")
         opts = build_options(args)
         assert "lp_reduction" not in opts["model_options"]
         assert "sddp_options" not in opts

@@ -552,19 +552,31 @@ def build_options(args: argparse.Namespace) -> dict:
         sddp_opts = opts.setdefault("sddp_options", {})
         sddp_opts["aperture_chunk_size"] = args.aperture_chunk_size
 
-    # SDDP fast-path defaults (benchmarked plp2gtopt -> gtopt pipeline, ~PLP
-    # parity on the CEN65 2-year case): provably-zero LP-column elision
+    # Iterative fast-path defaults (benchmarked plp2gtopt -> gtopt pipeline,
+    # ~PLP parity on the CEN65 2-year case): provably-zero LP-column elision
     # (``lp_reduction``, ~-19% wall) + dual aperture warm-start
     # (``aperture_solve_mode = warm`` over all-apertures-per-phase chunks via
-    # ``aperture_chunk_size = -1``).  The ``piecewise_direct`` loss model is the
-    # default already (see ``line_losses_mode`` above).  All three are
-    # overridable.  Scoped to the plain ``sddp`` method — ``cascade`` builds
-    # its own per-level ``sddp_options`` (see GTOptWriter).
-    if args.method == "sddp":
+    # ``aperture_chunk_size = -1``) + dual simplex on the forward/backward
+    # passes with an advanced (warm) basis.  The ``piecewise_direct`` loss
+    # model is the default already (see ``line_losses_mode`` above).  All are
+    # overridable.  Applied to BOTH ``sddp`` and ``cascade``: these top-level
+    # ``sddp_options`` become the cascade base options (``m_base_opts_`` in
+    # cascade_method.cpp), which every cascade level copies wholesale via
+    # ``build_level_sddp_opts`` (it never overrides aperture/solver fields), so
+    # the same warm/dual/reduction config flows through L0..L3.  The bundled
+    # ``cplex.prm`` is rewritten to dual / no-presolve for these methods (see
+    # ``install_solver_param_files``); without that the prm's ``LPMethod 4``
+    # (barrier) would override the JSON algorithm since it is read last.
+    if args.method in ("sddp", "cascade"):
         model_opts.setdefault("lp_reduction", True)
         sddp_opts = opts.setdefault("sddp_options", {})
         sddp_opts.setdefault("aperture_solve_mode", "warm")
         sddp_opts.setdefault("aperture_chunk_size", -1)
+        fwd_solver = sddp_opts.setdefault("forward_solver_options", {})
+        fwd_solver.setdefault("algorithm", "dual")
+        fwd_solver.setdefault("advanced_basis", True)
+        bwd_solver = sddp_opts.setdefault("backward_solver_options", {})
+        bwd_solver.setdefault("algorithm", "dual")
     if getattr(args, "lift_line_caps", None):
         opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
 

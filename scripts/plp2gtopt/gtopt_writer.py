@@ -1209,6 +1209,45 @@ class GTOptWriter(
         if "kirchhoff_mode" in src_model:
             model_opts["kirchhoff_mode"] = src_model["kirchhoff_mode"]
 
+        # ── Iterative fast-path defaults (sddp + cascade) ──────────────────
+        # Benchmarked plp2gtopt -> gtopt pipeline (~PLP parity on CEN65 2-year):
+        #   * lp_reduction          — elide provably-zero LP columns (~-19% wall)
+        #   * aperture_solve_mode   = warm   (dual aperture warm-start)
+        #   * aperture_chunk_size   = -1     (all apertures/phase per chunk,
+        #                                     one LP clone, warm-start reuse)
+        #   * forward/backward_solver_options.algorithm = dual + advanced_basis
+        # These are applied here (not only in main.process_options, whose nested
+        # opts the writer otherwise rebuilds from an allowlist) so they actually
+        # reach the emitted JSON.  They are written onto the TOP-LEVEL
+        # model_options / sddp_options, which for cascade become the base options
+        # (`m_base_opts_` in cascade_method.cpp) that every level copies via
+        # `build_level_sddp_opts` — so the same config flows through L0..L3.
+        # The bundled cplex.prm is retuned to dual / no-presolve to match (see
+        # plp2gtopt.install_solver_param_files).  Every field is overridable from
+        # the source conf's model_options / sddp_options.
+        if method in ("sddp", "cascade", "cascade-reduced"):
+            src_sddp = options.get("sddp_options") or {}
+            if src_model.get("lp_reduction") is not None:
+                model_opts["lp_reduction"] = src_model["lp_reduction"]
+            else:
+                model_opts.setdefault("lp_reduction", True)
+            sddp_opts.setdefault(
+                "aperture_solve_mode",
+                src_sddp.get("aperture_solve_mode") or "warm",
+            )
+            if "aperture_chunk_size" not in sddp_opts:
+                _acs = src_sddp.get("aperture_chunk_size")
+                sddp_opts["aperture_chunk_size"] = -1 if _acs is None else _acs
+            _fwd = dict(src_sddp.get("forward_solver_options") or {})
+            _fwd.setdefault("algorithm", "dual")
+            _fwd.setdefault("advanced_basis", True)
+            sddp_opts.setdefault("forward_solver_options", _fwd)
+            _bwd = sddp_opts.get("backward_solver_options")
+            if _bwd is None:
+                _bwd = dict(src_sddp.get("backward_solver_options") or {})
+            _bwd.setdefault("algorithm", "dual")
+            sddp_opts["backward_solver_options"] = _bwd
+
         planning_opts: dict[str, Any] = {
             "method": method,
             "input_directory": input_dir_val,

@@ -1278,3 +1278,59 @@ def test_install_solver_param_files_no_bundle(tmp_path):
 
     assert installed == []
     assert not (target / "solvers").exists()
+
+
+def test_install_solver_param_files_iterative_retunes_cplex(tmp_path):
+    """iterative=True rewrites cplex.prm to dual simplex + no presolve.
+
+    The bundled prm forces barrier (LPMethod 4) for monolithic MIPs; under
+    sddp/cascade we want dual + presolve-off on the warm per-iteration LPs.
+    Other tuned lines (Gomory) and the .opts/non-cplex prm are untouched.
+    """
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "cplex.prm").write_text(
+        "CPLEX Parameter File Version 22.1.1.0\n"
+        "CPXPARAM_MIP_Cuts_Gomory   2\n"
+        "CPXPARAM_LPMethod          4\n"
+    )
+    (bundle / "highs.opts").write_text("solver = simplex\n")
+
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = bundle
+    try:
+        install_solver_param_files(target, iterative=True)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    cplex_txt = (target / "solvers" / "cplex.prm").read_text()
+    # barrier directive dropped; dual + no-presolve appended exactly once.
+    assert "CPXPARAM_LPMethod                               2" in cplex_txt
+    assert "CPXPARAM_Preprocessing_Presolve                 0" in cplex_txt
+    assert cplex_txt.count("CPXPARAM_LPMethod") == 1
+    assert "LPMethod          4" not in cplex_txt
+    # tuned non-LPMethod lines preserved; .opts left alone.
+    assert "CPXPARAM_MIP_Cuts_Gomory" in cplex_txt
+    assert (target / "solvers" / "highs.opts").read_text() == "solver = simplex\n"
+
+
+def test_install_solver_param_files_non_iterative_keeps_barrier(tmp_path):
+    """Default (monolithic) install leaves the barrier prm untouched."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "cplex.prm").write_text(
+        "CPLEX Parameter File Version 22.1.1.0\nCPXPARAM_LPMethod          4\n"
+    )
+
+    target = tmp_path / "case"
+    original = _plp2gtopt_mod._BUNDLED_SOLVERS_DIR
+    _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = bundle
+    try:
+        install_solver_param_files(target, iterative=False)
+    finally:
+        _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
+
+    cplex_txt = (target / "solvers" / "cplex.prm").read_text()
+    assert "CPXPARAM_LPMethod          4" in cplex_txt
+    assert "CPXPARAM_Preprocessing_Presolve" not in cplex_txt

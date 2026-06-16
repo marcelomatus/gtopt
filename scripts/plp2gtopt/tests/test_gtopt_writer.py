@@ -248,6 +248,57 @@ class TestGTOptWriterProcessMethods:
         assert "aperture_selection_mode" not in levels[3]["sddp_options"]
         assert levels[3]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
 
+    def test_process_options_iterative_fast_path_emitted(self):
+        """sddp + cascade emit the iterative fast-path onto top-level options.
+
+        These top-level model_options / sddp_options become the cascade base
+        (m_base_opts_) inherited by every level, so emitting them here is what
+        makes the warm/dual/reduction config actually reach the solved LP.
+        """
+        for method in ("sddp", "cascade"):
+            writer = GTOptWriter(MagicMock())
+            writer.process_options({"output_dir": "out", "method": method})
+            opts = writer.planning["options"]
+            assert opts["model_options"]["lp_reduction"] is True, method
+            so = opts["sddp_options"]
+            assert so["aperture_solve_mode"] == "warm", method
+            assert so["aperture_chunk_size"] == -1, method
+            assert so["forward_solver_options"] == {
+                "algorithm": "dual",
+                "advanced_basis": True,
+            }, method
+            assert so["backward_solver_options"]["algorithm"] == "dual", method
+        # cascade base options carry lp_reduction for every level to inherit.
+        assert opts["cascade_options"]["model_options"]["lp_reduction"] is True
+
+    def test_process_options_monolithic_skips_iterative_fast_path(self):
+        """Monolithic must NOT get the iterative knobs (barrier prm wins there)."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "monolithic"})
+        opts = writer.planning["options"]
+        assert "lp_reduction" not in opts["model_options"]
+        assert "aperture_solve_mode" not in opts["sddp_options"]
+        assert "forward_solver_options" not in opts["sddp_options"]
+
+    def test_process_options_iterative_fast_path_overridable(self):
+        """Source-conf model_options / sddp_options override the fast-path."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options(
+            {
+                "output_dir": "out",
+                "method": "sddp",
+                "model_options": {"lp_reduction": False},
+                "sddp_options": {
+                    "aperture_solve_mode": "cold",
+                    "aperture_chunk_size": 8,
+                },
+            }
+        )
+        opts = writer.planning["options"]
+        assert opts["model_options"]["lp_reduction"] is False
+        assert opts["sddp_options"]["aperture_solve_mode"] == "cold"
+        assert opts["sddp_options"]["aperture_chunk_size"] == 8
+
     def test_process_options_cascade_iteration_split(self):
         """Level budgets: L0 = 2·PDMaxIte, L1 = L2 = L3 = PDMaxIte.
 
