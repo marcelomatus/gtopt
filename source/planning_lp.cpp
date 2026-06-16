@@ -1736,9 +1736,53 @@ void PlanningLP::release_cells()
   // The inner StrongIndexVectors are destroyed first, then the outer
   // vector itself is cleared and shrunk so the capacity is returned
   // to the allocator.
-  for (auto& phase_systems : m_systems_) {
-    phase_systems.clear();
-    phase_systems.shrink_to_fit();
+  //
+  // Per-cell destruction is independent and — under `compress` — does
+  // real work: freeing the multi-MB flat-LP snapshot, the accumulated
+  // cut rows, the col/row metadata and the LP-solver backend for each
+  // of the (scene × phase) cells.  For 900+ cells a serial loop costs
+  // several seconds at every cascade level boundary (measured ~4.4s on
+  // plp/2_years).  Fan the destruction out across the solver work pool,
+  // one task per scene, mirroring the scene-parallel build and the
+  // post-init "backend-release pool" (`SDDPMethod::initialize_solver`).
+  // Each task owns a distinct scene vector, so there is no sharing; the
+  // solver was already reset by the caller before this point, so no
+  // other thread touches `m_systems_`.
+  const auto num_scenes = m_systems_.size();
+  if (num_scenes > 1) {
+    auto pool = make_solver_work_pool(
+        /*cpu_factor=*/1.0,
+        /*cpu_threshold_override=*/0.0,
+        /*scheduler_interval=*/std::chrono::milliseconds(50),
+        /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb(),
+        /*pool_label=*/"PlanningLP release-cells pool");
+    std::vector<std::future<void>> futures;
+    futures.reserve(num_scenes);
+    for (auto& phase_systems : m_systems_) {
+      auto* const ps_ptr = &phase_systems;
+      auto result = pool->submit(
+          [ps_ptr]
+          {
+            ps_ptr->clear();
+            ps_ptr->shrink_to_fit();
+          });
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      } else {
+        // Pool refused the task (shutdown / saturation) — fall back to
+        // an in-thread release so no cell is leaked.
+        ps_ptr->clear();
+        ps_ptr->shrink_to_fit();
+      }
+    }
+    for (auto& fut : futures) {
+      fut.get();
+    }
+  } else {
+    for (auto& phase_systems : m_systems_) {
+      phase_systems.clear();
+      phase_systems.shrink_to_fit();
+    }
   }
   m_systems_.clear();
   m_systems_.shrink_to_fit();

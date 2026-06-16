@@ -1351,6 +1351,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // through the sinks, so any line emitted up to this point in
       // the L_N solve is guaranteed to land in the log file before
       // L_{N+1} begins producing.
+      // Time the whole teardown so the per-level boundary cost stays
+      // visible in the iter log.  Historically the dominant component
+      // was the serial destruction of the (scene × phase) LP grid
+      // (~4-5s/level on plp/2_years); ``release_cells()`` now fans that
+      // per-cell teardown across the solver work pool.
+      const auto t_teardown_start = std::chrono::steady_clock::now();
       try {
         if (auto logger = spdlog::default_logger()) {
           logger->flush();
@@ -1398,18 +1404,36 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       }
       current_solver.reset();
       current_lp = nullptr;
+      // Release each owned LP's (scene × phase) cells via the parallel
+      // ``release_cells()`` path BEFORE destroying the owning
+      // unique_ptrs.  The default ``~PlanningLP`` destroys the grid
+      // serially, which costs ~4.6s/level on plp/2_years; calling
+      // ``release_cells()`` first fans the per-cell teardown across the
+      // solver work pool, leaving only empty shells for ``clear()`` to
+      // drop.
+      for (auto& owned_lp : m_owned_lps_) {
+        if (owned_lp) {
+          owned_lp->release_cells();
+        }
+      }
       m_owned_lps_.clear();
       m_owned_lps_.shrink_to_fit();
       if (released_caller) {
         planning_lp.release_cells();
       }
+      const auto teardown_ms =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::steady_clock::now() - t_teardown_start)
+              .count();
       SPDLOG_INFO(
-          "Cascade [{}]: released solver, {} owned LP(s){} before level [{}]",
+          "Cascade [{}]: released solver, {} owned LP(s){} before level "
+          "[{}] (teardown {}ms)",
           level_name,
           owned_before,
           released_caller ? " and caller LP cells" : "",
           m_cascade_opts_.level_array[level_idx + 1].name.value_or(
-              as_label("level", level_idx + 1)));
+              as_label("level", level_idx + 1)),
+          teardown_ms);
 
       // Second flush: ensure the "released solver" line + any other
       // post-teardown diagnostics make it to disk before the next
