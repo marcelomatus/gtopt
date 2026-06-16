@@ -250,7 +250,7 @@ def _maybe_build_water_value_resolver(
     if not case_path.is_dir():
         raise FileNotFoundError(f"--plp-case-dir not a directory: {case_dir}")
     # Lazy-import to keep the gtopt_expand CLI light when the flag is off.
-    from plp2gtopt._water_value import WaterValueResolver  # noqa: PLC0415
+    from gtopt_shared.water_values import WaterValueResolver  # noqa: PLC0415
     from plp2gtopt.central_parser import CentralParser  # noqa: PLC0415
     from plp2gtopt.cenre_parser import CenreParser  # noqa: PLC0415
     from plp2gtopt.compressed_open import find_compressed_path  # noqa: PLC0415

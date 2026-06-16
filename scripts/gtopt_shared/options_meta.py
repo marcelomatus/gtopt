@@ -57,7 +57,6 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_mode",
         "boundary_cuts_mean_shift",
         "boundary_max_iterations",
-        "boundary_cut_soft_cost",
         "cut_drain_mode",
         "missing_cut_var_mode",
         "max_cuts_per_phase",
@@ -108,7 +107,6 @@ MONOLITHIC_OPTION_KEYS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
-        "boundary_cut_soft_cost",
         "solver_options",
     }
 )
@@ -180,7 +178,6 @@ INTENTIONAL_OPTION_KEY_OVERLAPS: frozenset[str] = frozenset(
         "boundary_cuts_file",
         "boundary_cuts_mode",
         "boundary_max_iterations",
-        "boundary_cut_soft_cost",
     }
 )
 

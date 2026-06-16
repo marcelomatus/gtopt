@@ -1347,6 +1347,10 @@ class GTOptWriter(
         self.process_lng(options)
         _step("pumped_storage")
         self.process_pumped_storage(options)
+        # All reservoir-bearing phases have run (junctions, water rights,
+        # pumped storage); stamp the global default water-fail value onto
+        # any reservoir left with an `efin` floor but no `efin_cost`.
+        self.apply_default_water_fail()
         _step("batteries")
         self.process_battery(options)
         _step("boundary")

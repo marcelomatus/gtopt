@@ -126,13 +126,6 @@ namespace gtopt
     double sum = 0.0;
     double vmin = std::numeric_limits<double>::infinity();
     double vmax = -std::numeric_limits<double>::infinity();
-    // Largest negative coefficient (closest to 0 from below) and smallest
-    // positive coefficient (closest to 0 from above); each stays at its
-    // sentinel inf when the column has no value of that sign (mapped to 0.0
-    // below).  max_neg drives the ``efin >= target`` floor, min_pos the
-    // mirror ``efin <= target`` floor.
-    double vmax_neg = -std::numeric_limits<double>::infinity();
-    double vmin_pos = std::numeric_limits<double>::infinity();
     int64_t count = 0;
     for (int ci = 0; ci < col->num_chunks(); ++ci) {
       const auto arr =
@@ -148,11 +141,6 @@ namespace gtopt
         sum += v;
         vmin = std::min(vmin, v);
         vmax = std::max(vmax, v);
-        if (v < 0.0) {
-          vmax_neg = std::max(vmax_neg, v);
-        } else if (v > 0.0) {
-          vmin_pos = std::min(vmin_pos, v);
-        }
         ++count;
       }
     }
@@ -164,8 +152,6 @@ namespace gtopt
                       .min = vmin,
                       .avg = sum / static_cast<double>(count),
                       .max = vmax,
-                      .max_neg_coeff = std::isfinite(vmax_neg) ? vmax_neg : 0.0,
-                      .min_pos_coeff = std::isfinite(vmin_pos) ? vmin_pos : 0.0,
                   });
   }
   return stats;

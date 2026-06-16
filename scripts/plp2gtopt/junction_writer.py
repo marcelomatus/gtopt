@@ -37,7 +37,7 @@ from .stage_parser import StageParser
 from .mance_parser import ManceParser
 from .block_parser import BlockParser
 from .mance_writer import ManceWriter
-from ._water_value import WaterValueResolver
+from gtopt_shared.water_values import WaterValueResolver
 from .pmin_flowright_writer import (
     _FLOW_RIGHT_DIRECTION,
     resolve_flow_right_fail_cost,
@@ -2228,14 +2228,15 @@ class JunctionWriter(BaseWriter):
             cost = self._resolve_storage_bound_cost(central_name)
 
         # ─── efin → soft via efin_cost ──────────────────────────────────
-        # Pre-compute the terminal soft cost from the reservoir's energy
-        # production factor (``anchor × cascade_lost_pf``, capped).  This is
-        # only a FALLBACK: when ``boundary_cuts.csv`` is present, gtopt's
-        # ``apply_boundary_cut_soft_costs`` (gtopt_lp_runner.cpp) FULLY
-        # REPLACES it with the lower-bound (min) of each reservoir's cut
-        # coefficients (``boundary_cut_soft_cost = min``) before the LP is
-        # built.  Baking the EPF value keeps no-cut cases sensible while
-        # cut-cases use the SDDP-revealed marginal water value.
+        # The terminal soft cost is the reservoir's energy-production-factor
+        # estimate (``anchor × cascade_lost_pf``) UNLESS boundary cuts are
+        # available for this reservoir, in which case
+        # ``WaterValueResolver.efin_cost_for`` OVERWRITES it with the cut
+        # lower-bound water value (see ``_build_cut_water_values``).  The
+        # overwrite is now done here in Python (the legacy C++
+        # ``apply_boundary_cut_soft_costs`` pass is retired): no-cut
+        # reservoirs keep the EPF estimate, cut reservoirs use the
+        # SDDP-revealed marginal water value.
         efin = reservoir.get("efin")
         if efin is not None and efin > 0:
             reservoir["efin_cost"] = cost

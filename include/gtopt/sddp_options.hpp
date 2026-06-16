@@ -382,19 +382,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptInt boundary_max_iterations {};
 
-  /** @brief Derive a terminal soft cost for the state variables named in the
-   * boundary cut, from that cut's own coefficients.
-   *
-   * - `none` (default): leave soft costs untouched; the cut only feeds the
-   *   future-cost (α) row and `scale_alpha`.
-   * - `min` / `avg` / `max`: for every reservoir / battery named in the cut,
-   *   set its `efin_cost` to the negated min / avg / max of its cut
-   *   coefficient (the marginal water value), softening `vol_end >= efin`.
-   *   Replaces converter-side `efin_cost` so the boundary-cut file is the
-   *   single source of truth.
-   */
-  std::optional<BoundaryCutSoftCost> boundary_cut_soft_cost {};
-
   /** @brief How to handle cuts referencing state variables not in the model.
    *
    * - `skip_coeff` (default): drop the missing coefficient, load the cut.
@@ -753,7 +740,6 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
-    merge_opt(boundary_cut_soft_cost, opts.boundary_cut_soft_cost);
     merge_opt(boundary_cuts_mean_shift, opts.boundary_cuts_mean_shift);
     merge_opt(missing_cut_var_mode, opts.missing_cut_var_mode);
     merge_opt(max_cuts_per_phase, opts.max_cuts_per_phase);

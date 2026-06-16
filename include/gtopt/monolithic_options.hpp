@@ -41,15 +41,6 @@ struct MonolithicOptions
   std::optional<BoundaryCutsMode> boundary_cuts_mode {};
   /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
   OptInt boundary_max_iterations {};
-  /** @brief Derive a terminal soft cost for the state variables named in the
-   * boundary cut from that cut's coefficients (none | min | avg | max).
-   *
-   * Mirrors `SddpOptions::boundary_cut_soft_cost`.  When `min`/`avg`/`max`,
-   * each reservoir / battery named in the cut gets `efin_cost` set to the
-   * negated statistic of its cut coefficient (the marginal water value),
-   * softening `vol_end >= efin`.  `none` (default) leaves soft costs alone.
-   */
-  std::optional<BoundaryCutSoftCost> boundary_cut_soft_cost {};
 
   // ── LP solver options (per-method override) ────────────────────────────────
   /** @brief Optional LP solver configuration for monolithic.
@@ -66,7 +57,6 @@ struct MonolithicOptions
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
-    merge_opt(boundary_cut_soft_cost, opts.boundary_cut_soft_cost);
     if (opts.solver_options.has_value()) {
       if (solver_options.has_value()) {
         solver_options->merge(*opts.solver_options);

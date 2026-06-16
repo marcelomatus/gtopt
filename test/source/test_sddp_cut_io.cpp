@@ -175,7 +175,7 @@ TEST_CASE(
   CHECK(floor_alpha >= 1.0);
 }
 
-// ─── boundary_cut_coeff_stats / select_cut_coeff ────────────────────────────
+// ─── boundary_cut_coeff_stats ───────────────────────────────────────────────
 
 TEST_CASE("boundary_cut_coeff_stats summarises each cut column")  // NOLINT
 {
@@ -204,34 +204,6 @@ TEST_CASE("boundary_cut_coeff_stats summarises each cut column")  // NOLINT
   CHECK(b->second.avg == doctest::Approx(5.0));
   CHECK(b->second.max == doctest::Approx(5.0));
 
-  // cut_soft_cost returns the water value (-coeff), with min/max selecting
-  // the lower/upper bound of the COST.  RES_A coeff in [-30, -10] → cost in
-  // [10, 30]: min cost = -max(coeff) = 10, max cost = -min(coeff) = 30.
-  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::min)
-        == doctest::Approx(10.0));
-  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::avg)
-        == doctest::Approx(20.0));
-  CHECK(cut_soft_cost(a->second, BoundaryCutSoftCost::max)
-        == doctest::Approx(30.0));
-
-  // max_neg_coeff / min_pos_coeff: RES_A coeffs are all negative (largest
-  // -10, no positive ⇒ min_pos 0); RES_B is all positive (+5 ⇒ min_pos 5,
-  // no negative ⇒ max_neg 0).
-  CHECK(a->second.max_neg_coeff == doctest::Approx(-10.0));
-  CHECK(a->second.min_pos_coeff == doctest::Approx(0.0));
-  CHECK(b->second.max_neg_coeff == doctest::Approx(0.0));
-  CHECK(b->second.min_pos_coeff == doctest::Approx(5.0));
-
-  // RES_B coeff +5 ⇒ water value -5 (terminal storage priced as a liability)
-  // and NO positive water value anywhere ⇒ the soft-efin cost falls back to
-  // 1.0 for every selector (never a negative drawdown reward).
-  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::min)
-        == doctest::Approx(1.0));
-  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::avg)
-        == doctest::Approx(1.0));
-  CHECK(cut_soft_cost(b->second, BoundaryCutSoftCost::max)
-        == doctest::Approx(1.0));
-
   // scale_alpha helper uses max |avg|: max(|-20|, |5|) = 20.
   CHECK(boundary_cut_max_avg_coeff(tmp.string()) == doctest::Approx(20.0));
 
@@ -241,58 +213,6 @@ TEST_CASE("boundary_cut_coeff_stats summarises each cut column")  // NOLINT
         == doctest::Approx(0.0));
 
   std::filesystem::remove(tmp);
-}
-
-TEST_CASE(
-    "cut_soft_cost floors at the reservoir's min positive water value")  // NOLINT
-{
-  // The soft-efin slack penalises ending BELOW the target, forcing the
-  // reservoir to refill — so the derived cost must be strictly positive.
-  // When the chosen bound is non-positive, cut_soft_cost floors at the
-  // column's own smallest positive water value (-max_neg_coeff), falling
-  // back to 1.0 only when there is no positive water value at all.
-
-  SUBCASE("normal positive water value is unchanged")
-  {
-    // coeff in [-30, -10] ⇒ water value in [10, 30] — all positive, kept.
-    const BoundaryCutCoeffStats s {
-        .min = -30.0, .avg = -20.0, .max = -10.0, .max_neg_coeff = -10.0};
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(10.0));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::avg) == doctest::Approx(20.0));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(30.0));
-  }
-
-  SUBCASE("small positive water value is kept (not lifted to 1)")
-  {
-    // coeff -0.5 ⇒ water value 0.5 > 0 — a legitimate small water value, so
-    // it is used as-is rather than bumped to an arbitrary 1.0.
-    const BoundaryCutCoeffStats s {
-        .min = -0.5, .avg = -0.5, .max = -0.5, .max_neg_coeff = -0.5};
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(0.5));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(0.5));
-  }
-
-  SUBCASE("non-positive bound floors at the column's min positive water value")
-  {
-    // coeff in [-8, +4] ⇒ water value in [-4, +8].  min selector → lower
-    // bound -max(coeff) = -4 ≤ 0, so it floors at -max_neg_coeff = 2 (the
-    // smallest positive water value), NOT 1.0.  max selector → 8.
-    const BoundaryCutCoeffStats s {
-        .min = -8.0, .avg = -2.0, .max = 4.0, .max_neg_coeff = -2.0};
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(2.0));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(8.0));
-  }
-
-  SUBCASE("no positive water value anywhere falls back to 1")
-  {
-    // coeff in [+2, +10] ⇒ water value all negative, and no negative coeff
-    // ⇒ max_neg_coeff = 0 (sentinel) ⇒ fall back to 1.0 for every selector.
-    const BoundaryCutCoeffStats s {
-        .min = 2.0, .avg = 5.0, .max = 10.0, .max_neg_coeff = 0.0};
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::min) == doctest::Approx(1.0));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::avg) == doctest::Approx(1.0));
-    CHECK(cut_soft_cost(s, BoundaryCutSoftCost::max) == doctest::Approx(1.0));
-  }
 }
 
 // ─── save_cuts_csv tests ────────────────────────────────────────────────────

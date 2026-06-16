@@ -29,6 +29,11 @@ from gtopt_shared.pampl_ident import (
     penalty_param_name as _penalty_param_name,
 )
 from gtopt_shared.pampl_rhs import pampl_rhs_vector as _pampl_rhs_vector
+from gtopt_shared.water_values import (
+    WaterValueResolver,
+    cut_lower_bound,
+    default_water_fail_value,
+)
 
 from .entities import (
     BatterySpec,
@@ -1906,12 +1911,200 @@ def build_emission_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
     return []
 
 
+# ── Python-side reservoir water-value pricing ──────────────────────────────
+#
+# ``efin_cost`` (the SOFT terminal-volume slack price) is computed HERE, in
+# Python, via the shared :class:`gtopt_shared.water_values.WaterValueResolver`
+# — the SAME library plp2gtopt uses — so both converters derive water values
+# the same way and the gtopt C++ side (``apply_boundary_cut_soft_costs``) no
+# longer has to reconstruct them from the boundary-cut file at load time.
+#
+# Two surfaces feed the resolver:
+#
+#   * ANCHOR (auto estimate) = 0.75·avg_thermal_gcost + 0.25·min_falla_gcost,
+#     from the bundle's own effective generator costs ($/MWh) + the cheapest
+#     demand VoLL ($/MWh).  Used for reservoirs WITHOUT a boundary cut.
+#   * cut OVERWRITE = the boundary-cut lower-bound water value, in the
+#     reservoir's native volume unit ($/CMD).  Used (overriding the auto
+#     estimate) for any reservoir present in the boundary cut.  This is the
+#     value the C++ side used to derive itself from ``boundary_cuts.csv``.
+#
+# Volume-unit note: plexos2gtopt reservoirs store volume in **CMD** (cumec·day
+# = m³/s × 86 400 s), so ``efin_cost`` is in **$/CMD**.  The boundary-cut
+# slope is already in $/CMD (PLEXOS ``Water Value`` unit_id 46), so the
+# overwrite path is unit-correct as-is.  The auto path's ``efficiency`` field
+# is pre-scaled (see :func:`_reservoir_central_shape`) so the shared lib's
+# ``ANCHOR × lost_pf × 1e6 / 3600`` formula yields $/CMD too: 1 CMD released
+# at the turbine produces ``production_factor × 24`` MWh, so the per-CMD water
+# value is ``ANCHOR × production_factor × 24`` — matched by scaling the
+# stand-in ``efficiency`` by ``24 × 3600 / 1e6 = 0.0864``.
+
+
+#: CMD energy-equivalent scale: ``production_factor`` [MW per m³/s] →
+#: stand-in ``efficiency`` so ``efficiency × 1e6 / 3600`` (the shared lib's
+#: $/hm³ multiplier) equals ``production_factor × 24`` (the $/CMD multiplier).
+_PF_TO_CMD_EFFICIENCY = 24.0 * 3600.0 / 1.0e6  # = 0.0864
+
+
+class _CentralShapeAdapter:
+    """Minimal ``central_parser`` stand-in for :class:`WaterValueResolver`.
+
+    The resolver is duck-typed on a single attribute, ``.centrals`` — an
+    iterable of dicts with the fields ``number``, ``name``, ``type``
+    (∈ {``termica``, ``falla``, ``embalse``, ``serie``}), ``gcost``,
+    ``efficiency``, ``bus``, ``ser_hid`` and ``emax`` (see the
+    ``gtopt_shared.water_values`` module docstring).  PLEXOS has no native
+    "central" table, so this adapter projects the converter's entity tables
+    onto that shape:
+
+    * one ``termica`` row per generator carrying a positive effective
+      ``gcost`` ($/MWh) — feeds the anchor's thermal average;
+    * one ``falla`` row per distinct demand VoLL ($/MWh) — feeds the anchor's
+      curtailment rung (``min`` over fallas);
+    * one ``embalse`` row per reservoir with a turbine, carrying the
+      CMD-scaled ``efficiency`` and the downstream ``ser_hid`` link so the
+      resolver can walk the hydro cascade.
+
+    Pure data; built once per :func:`build_planning`.
+    """
+
+    def __init__(self, centrals: list[dict[str, Any]]) -> None:
+        self.centrals = centrals
+
+
+def _reservoir_central_shape(
+    reservoirs: tuple[ReservoirSpec, ...],
+    turbines: tuple[TurbineSpec, ...],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Project reservoirs + turbines onto ``embalse`` central-shape rows.
+
+    Returns ``(rows, name_to_number)``.  Each reservoir gets a synthetic
+    ``number`` (1-based, stable by reservoir order); ``ser_hid`` is resolved
+    from the turbine cascade: a turbine at reservoir *R* discharging into
+    ``tail_reservoir_name`` *T* links ``R.ser_hid = number(T)``.
+
+    Cascade vs junction fallback: the shared resolver's
+    :meth:`WaterValueResolver.cascade_lost_pf` walk STOPS at the next
+    downstream ``embalse``.  In PLEXOS *every* storage is an ``embalse`` (PLP's
+    intermediate run-of-river ``serie`` units do not exist here), so the walk
+    terminates immediately at the next reservoir and each reservoir is
+    effectively priced on its OWN ``production_factor`` — the documented
+    per-reservoir ``junction_lost_pf`` fallback.  The ``ser_hid`` links are
+    still emitted (harmless, API-faithful) so the same shared code path runs.
+
+    ``efficiency`` is the reservoir's turbine ``production_factor`` (MW per
+    m³/s) scaled by :data:`_PF_TO_CMD_EFFICIENCY` so the shared lib's auto
+    formula produces a $/CMD water value (see the module-level note above).
+    A reservoir with several turbines takes the MAX production_factor (the
+    most generous energy-per-water lift, matching the resolver's max-rendi
+    convention).
+    """
+    name_to_number: dict[str, int] = {
+        res.name: i + 1 for i, res in enumerate(reservoirs)
+    }
+    # Best (max) production_factor + downstream tail per reservoir, from the
+    # turbines attached at that reservoir.
+    best_pf: dict[str, float] = {}
+    tail_of: dict[str, str] = {}
+    for t in turbines:
+        rname = t.reservoir_name
+        if rname not in name_to_number:
+            continue
+        pf = float(t.production_factor or 0.0)
+        if pf > best_pf.get(rname, 0.0):
+            best_pf[rname] = pf
+        tail = t.tail_reservoir_name
+        if tail and tail in name_to_number and rname not in tail_of:
+            tail_of[rname] = tail
+
+    rows: list[dict[str, Any]] = []
+    for res in reservoirs:
+        num = name_to_number[res.name]
+        pf = best_pf.get(res.name, 0.0)
+        ser_hid = name_to_number.get(tail_of.get(res.name, ""), 0)
+        rows.append(
+            {
+                "number": num,
+                "name": res.name,
+                "type": "embalse",
+                "gcost": 0.0,
+                "efficiency": pf * _PF_TO_CMD_EFFICIENCY,
+                # bus > 0 ⇒ the reservoir has a turbine (contributes its
+                # production_factor to the cascade lost-pf walk).  0 ⇒ no
+                # turbine, so the cascade walk skips it.
+                "bus": 1 if pf > 0.0 else 0,
+                "ser_hid": ser_hid,
+                "emax": float(res.emax or 0.0),
+            }
+        )
+    return rows, name_to_number
+
+
+def build_water_value_resolver(
+    *,
+    reservoirs: tuple[ReservoirSpec, ...],
+    turbines: tuple[TurbineSpec, ...],
+    generator_entries: list[dict[str, Any]],
+    demand_entries: list[dict[str, Any]],
+    boundary_cut: BoundaryCutSpec | None,
+    water_value_factor: dict[str, float] | None = None,
+) -> tuple[WaterValueResolver, dict[str, int]]:
+    """Construct the shared :class:`WaterValueResolver` for a PLEXOS bundle.
+
+    Sources the anchor inputs from the ALREADY-BUILT ``generator_array`` /
+    ``demand_array`` (so the effective ``gcost`` / ``fcost`` the LP sees is
+    exactly what prices water) and the hydro cascade from the reservoir +
+    turbine specs.  When a ``boundary_cut`` is present, its per-reservoir
+    slope becomes the ``cut_water_values`` OVERWRITE (lower-bound water value
+    via :func:`cut_lower_bound`, in $/CMD).
+
+    ``options.auto_water_fail_cost`` is forced ON: the converter always wants
+    the auto/cut water-value pipeline active for hydro bundles (the resolver's
+    ``is_active`` gate then reports True).  Returns ``(resolver,
+    name_to_number)`` so the caller can resolve each reservoir's cascade number.
+    """
+    rows, name_to_number = _reservoir_central_shape(reservoirs, turbines)
+    # Thermal anchor rows: one per generator with a positive effective gcost.
+    for g in generator_entries:
+        for gc in _flatten_positive([g.get("gcost")]):
+            rows.append({"number": -1, "name": "", "type": "termica", "gcost": gc})
+    # Curtailment anchor rows: one per distinct positive demand VoLL.
+    for d in demand_entries:
+        for fc in _flatten_positive([d.get("fcost")]):
+            rows.append({"number": -1, "name": "", "type": "falla", "gcost": fc})
+
+    # Boundary-cut OVERWRITE: per-reservoir lower-bound water value ($/CMD).
+    # The cut ships ``slopes[name]`` = water value (positive), so the cut
+    # coefficient is ``-slopes[name]``; ``cut_lower_bound`` reproduces the
+    # C++ ``cut_soft_cost(min)`` selection (= -max(coeff) = the water value)
+    # from that single coefficient, applying the optional --water-value-factor.
+    cut_water_values: dict[str, float] = {}
+    if boundary_cut is not None:
+        factors = water_value_factor or {}
+        for rname, slope in boundary_cut.slopes.items():
+            if rname not in name_to_number:
+                continue
+            coeff = -float(slope) * float(factors.get(rname, 1.0))
+            lb = cut_lower_bound([coeff])
+            if lb is not None:
+                cut_water_values[rname] = lb
+
+    resolver = WaterValueResolver(
+        central_parser=_CentralShapeAdapter(rows),
+        options={"auto_water_fail_cost": True},
+        cut_water_values=cut_water_values,
+    )
+    return resolver, name_to_number
+
+
 def build_reservoir_array(
     reservoirs: tuple[ReservoirSpec, ...],
     *,
     soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
     water_values: dict[str, float] | None = None,
     apply_default_loss: bool = False,
+    water_value_resolver: WaterValueResolver | None = None,
+    reservoir_numbers: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """One ``Reservoir`` per :class:`ReservoirSpec``.
 
@@ -2006,11 +2199,13 @@ def build_reservoir_array(
         # paths from here:
         #
         # The end-of-horizon target is ALWAYS soft: ``vol_end + slack >=
-        # efin`` with the slack cost derived in the gtopt C++ side
-        # (``apply_boundary_cut_soft_costs`` → ``boundary_cut_soft_cost`` =
-        # lower-bound water value, capped at ``max(1, …)``) from the
-        # per-reservoir slopes in ``boundary_cuts.csv`` — NOT written here,
-        # so plexos2gtopt and plp2gtopt share one derivation path.
+        # efin`` with the slack cost (``efin_cost``, in $/CMD) now derived
+        # HERE, in Python, via the shared :class:`WaterValueResolver` — the
+        # boundary-cut lower-bound water value when the reservoir is in the
+        # cut, else the auto ``ANCHOR × cascade_lost_pf`` estimate.  This
+        # replaces the legacy reliance on the gtopt C++
+        # ``apply_boundary_cut_soft_costs`` pass; plexos2gtopt and plp2gtopt
+        # share the same Python derivation path.
         #
         # ``never_drain`` is a SEPARATE concern: it disables the
         # reservoir's drain (spill) variable (``drain_max = 0``) so water
@@ -2019,17 +2214,32 @@ def build_reservoir_array(
         if res.efin > 0.0:
             entry["efin"] = res.efin
             # SOFT end-of-horizon floor: ``vol_end + slack >= efin``.  The
-            # slack cost — the penalty for ending BELOW the target, which
-            # forces the reservoir to refill toward ``efin`` (a HARD
-            # ``vol_end >= efin`` is infeasible when the floor exceeds what
-            # inflow + initial volume can reach, e.g. 10-05 ELTORO) — is
-            # derived in the gtopt C++ side, NOT written here:
-            # ``apply_boundary_cut_soft_costs`` reads the per-reservoir
-            # slopes from ``boundary_cuts.csv`` and sets
-            # ``efin_cost = max(1, lower-bound water value)``.  Keeping it in
-            # C++ means plexos2gtopt and plp2gtopt share one derivation path
-            # (both just emit ``boundary_cuts.csv`` + ``efin``).
-            _ = (water_values, soft_efin_reservoirs)  # now C++-derived
+            # slack cost penalises ending BELOW the target, forcing the
+            # reservoir to refill toward ``efin`` (a HARD ``vol_end >= efin``
+            # is infeasible when the floor exceeds what inflow + initial
+            # volume can reach, e.g. 10-05 ELTORO).  Priced by the resolver:
+            # the cut OVERWRITE (boundary-cut lower-bound water value) when
+            # present, else the auto ``ANCHOR × cascade_lost_pf`` estimate.
+            # ``never_drain`` reservoirs keep their hard ``efin`` floor with
+            # NO soft price (the sentinel forbids buying out of it).
+            if (
+                water_value_resolver is not None
+                and water_value_resolver.anchor > 0.0
+                and not res.never_drain
+            ):
+                num = (reservoir_numbers or {}).get(res.name)
+                lost_pf = (
+                    water_value_resolver.cascade_lost_pf(num)
+                    if num is not None
+                    else 0.0
+                )
+                cost = water_value_resolver.efin_cost_for(res.name, lost_pf)
+                if cost > 0.0:
+                    entry["efin_cost"] = cost
+            # ``water_values`` (raw boundary-cut slopes) and
+            # ``soft_efin_reservoirs`` are retained for API compatibility but
+            # superseded by the resolver's cut OVERWRITE path.
+            _ = (water_values, soft_efin_reservoirs)
         # Reservoir-internal drain is ENABLED by default on every reservoir
         # — this replicates PLEXOS's per-storage spill column (an unbounded
         # "spill-to-sea" valve at a high penalty) and matches plp2gtopt,
@@ -2113,6 +2323,56 @@ def build_reservoir_array(
             entry["annual_loss"] = 0.03  # 3 %/year — in Andean 1–3% ∩ Pyrenean 2.8–5.6%
         out.append(entry)
     return out
+
+
+def apply_default_water_fail(reservoir_entries: list[dict[str, Any]]) -> int:
+    """Stamp a default water-fail ``efin_cost`` on un-priced reservoirs.
+
+    Mirrors plp2gtopt's ``HydroMixin.apply_default_water_fail``: the global
+    default is the **maximum** of every per-reservoir ``efin_cost`` already
+    assigned (see :func:`gtopt_shared.water_values.default_water_fail_value`),
+    applied as a fallback to reservoirs that carry a non-trivial terminal
+    volume (``efin``) but were left WITHOUT an ``efin_cost`` — so no
+    reservoir's terminal-volume slack is ever priced at zero (free fictitious
+    water).
+
+    Placement rationale (same as plp2gtopt): ``efin_cost`` is in $/CMD, and no
+    ``model_options`` field carries a global hydro water-fail default in that
+    unit, so the default is pushed onto the un-priced reservoirs directly,
+    where the unit matches exactly.  Returns the number of reservoirs patched
+    (0 when none qualified — e.g. a non-hydro bundle).
+    """
+    if not reservoir_entries:
+        return 0
+
+    assigned = [
+        float(r["efin_cost"])
+        for r in reservoir_entries
+        if isinstance(r.get("efin_cost"), (int, float)) and r["efin_cost"] > 0
+    ]
+    if not assigned:
+        return 0
+
+    default_wf = default_water_fail_value(assigned)
+    if default_wf <= 0.0:
+        return 0
+
+    patched = 0
+    for r in reservoir_entries:
+        efin = r.get("efin")
+        has_cost = isinstance(r.get("efin_cost"), (int, float)) and r["efin_cost"] > 0
+        if isinstance(efin, (int, float)) and efin > 0 and not has_cost:
+            r["efin_cost"] = default_wf
+            patched += 1
+
+    if patched:
+        logger.info(
+            "water-value: default water-fail %.2f $/CMD applied to %d "
+            "un-priced reservoir(s)",
+            default_wf,
+            patched,
+        )
+    return patched
 
 
 def build_junction_array(
@@ -3250,6 +3510,7 @@ def build_planning(
     write_out: str | None = None,
     cogen_must_run: frozenset[str] = frozenset(),
     cogen_must_run_all: bool = False,
+    water_value_factor: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON from a :class:`PlexosCase`.
 
@@ -3297,6 +3558,19 @@ def build_planning(
     # (~$285 → ~$71/MWh), so the LP pushes ~4 jumps into an EL0 line's
     # soft band before shedding load.  Computed from the bundle's own
     # cost data, not a magic constant.
+    # Water-value resolver — prices reservoir terminal-volume slack
+    # (``efin_cost``, $/CMD) in Python via the shared library, from the
+    # already-built generator/demand costs (anchor) + the hydro cascade
+    # (turbines) + the boundary cut (per-reservoir OVERWRITE).  Replaces the
+    # legacy C++ ``apply_boundary_cut_soft_costs`` derivation.
+    water_value_resolver, reservoir_numbers = build_water_value_resolver(
+        reservoirs=case.reservoirs,
+        turbines=case.turbines,
+        generator_entries=generator_array,
+        demand_entries=demand_array,
+        boundary_cut=case.boundary_cut,
+        water_value_factor=water_value_factor,
+    )
     line_overload_penalty = (
         _compute_default_slack_cost(
             demand_array, generator_array, override=soft_penalty_override
@@ -3327,11 +3601,15 @@ def build_planning(
             soft_efin_reservoirs=soft_efin_reservoirs,
             # Per-reservoir water values (boundary-cut slopes) price the SOFT
             # ``vol_end >= efin`` slack — terminal storage valued at its
-            # marginal water value, not hard-pinned.
+            # marginal water value, not hard-pinned.  The actual ``efin_cost``
+            # is now derived by ``water_value_resolver`` (Python), with these
+            # raw slopes kept for API compatibility.
             water_values=(
                 dict(case.boundary_cut.slopes) if case.boundary_cut else None
             ),
             apply_default_loss=default_storage_loss,
+            water_value_resolver=water_value_resolver,
+            reservoir_numbers=reservoir_numbers,
         ),
         # PLEXOS waterways model only physical spillage / scheduled
         # bypass now.  ``build_turbine_array`` emits each turbine as its
@@ -3384,6 +3662,11 @@ def build_planning(
             block_layout=case.bundle.block_layout,
         ),
     }
+    # Stamp a global default water-fail price ($/CMD = max over the per-
+    # reservoir ``efin_cost`` already assigned) onto reservoirs that carry an
+    # ``efin`` target but were left un-priced — mirrors plp2gtopt's
+    # ``apply_default_water_fail`` so no terminal-volume slack is ever free.
+    apply_default_water_fail(system["reservoir_array"])
     # End-of-horizon future-cost valuation is provided SOLELY by the C++
     # boundary-cut loader: ``MonolithicMethod`` registers the α future-cost
     # state variable and binds ``boundary_cuts.csv`` as
@@ -4205,6 +4488,7 @@ __all__ = [
     "DEFAULT_BLOCK_DURATION_H",
     "DEFAULT_FP_MED",
     "UC_FAMILY_NAMES",
+    "apply_default_water_fail",
     "build_battery_array",
     "build_bus_array",
     "build_commitment_array",
@@ -4226,6 +4510,7 @@ __all__ = [
     "build_simulation",
     "build_turbine_array",
     "build_user_constraint_array",
+    "build_water_value_resolver",
     "build_waterway_array",
     "install_solver_param_files",
     "uc_family",

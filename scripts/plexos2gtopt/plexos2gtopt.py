@@ -11,6 +11,7 @@ The functions here are the public façade used by
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -434,6 +435,13 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             write_out=options.get("write_out"),
             cogen_must_run=_cogen_names,
             cogen_must_run_all=_cogen_all,
+            # Same --water-value-factor applied to the boundary cut CSV, so
+            # the Python-derived ``efin_cost`` overwrite matches the cut the
+            # LP loads (CLI option > GTOPT_WATER_VALUE_FACTOR env fallback).
+            water_value_factor=parse_water_value_factor(
+                options.get("water_value_factor")
+                or os.environ.get("GTOPT_WATER_VALUE_FACTOR")
+            ),
         )
         # CLI override goes into model_options (gtopt's nested layout).
         if options.get("use_single_bus"):
@@ -451,14 +459,13 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             reservoir_names = frozenset(
                 r["name"] for r in planning["system"].get("reservoir_array", [])
             )
-            import os as _os
-
             cut_file = write_boundary_cut_csv(
                 case.boundary_cut,
                 reservoir_names,
                 output_dir,
                 water_value_factor=parse_water_value_factor(
-                    _os.environ.get("GTOPT_WATER_VALUE_FACTOR")
+                    options.get("water_value_factor")
+                    or os.environ.get("GTOPT_WATER_VALUE_FACTOR")
                 ),
             )
             if cut_file is not None:

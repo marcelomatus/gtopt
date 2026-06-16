@@ -49,40 +49,6 @@ inline constexpr auto boundary_cuts_mode_entries =
   return std::span {boundary_cuts_mode_entries};
 }
 
-// ─── BoundaryCutSoftCost ────────────────────────────────────────────────────
-
-/**
- * @brief Which statistic of a boundary cut's coefficients to use as a
- *        terminal soft cost for the state variables it names.
- *
- * The option is itself optional: an absent
- * `std::optional<BoundaryCutSoftCost>` means "do not derive soft costs"
- * (the cut then feeds only the future-cost α row and `scale_alpha`).  When
- * present, the loader summarises each cut column (one per reservoir /
- * battery) across all cut rows and sets the matching element's `efin_cost`
- * to the negated statistic — the marginal water value (the cut ships
- * `-wv`).  This replaces hard-pinning `vol_end >= efin`: the LP may end
- * below the floor, priced at the water value.
- */
-enum class BoundaryCutSoftCost : uint8_t
-{
-  min = 0,  ///< Soft cost = -min(coeff) over the cut rows
-  avg = 1,  ///< Soft cost = -avg(coeff) over the cut rows
-  max = 2,  ///< Soft cost = -max(coeff) over the cut rows
-};
-
-inline constexpr auto boundary_cut_soft_cost_entries =
-    std::to_array<EnumEntry<BoundaryCutSoftCost>>({
-        {.name = "min", .value = BoundaryCutSoftCost::min},
-        {.name = "avg", .value = BoundaryCutSoftCost::avg},
-        {.name = "max", .value = BoundaryCutSoftCost::max},
-    });
-
-[[nodiscard]] constexpr auto enum_entries(BoundaryCutSoftCost /*tag*/) noexcept
-{
-  return std::span {boundary_cut_soft_cost_entries};
-}
-
 // ─── CutSharingMode ────────────────────────────────────────────────────────
 
 /**

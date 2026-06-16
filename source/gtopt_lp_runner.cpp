@@ -37,7 +37,6 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/reservoir.hpp>
 #include <gtopt/sddp_common.hpp>  // format_si()
-#include <gtopt/sddp_cut_io.hpp>  // boundary_cut_coeff_stats, select_cut_coeff
 #include <gtopt/solve_outcome.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/system_lp.hpp>
@@ -51,88 +50,6 @@ namespace gtopt
 
 namespace
 {
-
-// ── Boundary-cut → terminal soft-cost derivation ────────────────────────────
-//
-// When the active method's boundary-cut options request a soft cost
-// (`boundary_cut_soft_cost = min|avg|max`), derive each cut variable's
-// terminal `efin_cost` from that cut's own coefficients — the marginal water
-// value (cut ships `-wv`, so `efin_cost = -select(stat)`).  This is the
-// user-side decision (gated by the option) that replaces the converter
-// baking `efin_cost`, and runs BEFORE the LP is built so the soft-`efin`
-// slack column is created with the right price.  Reuses the single shared
-// `boundary_cut_coeff_stats` parse (same Arrow path as the cut loader).
-void apply_boundary_cut_soft_costs(Planning& planning)
-{
-  const auto method = planning.options.method.value_or(MethodType::monolithic);
-  const bool is_mono = method == MethodType::monolithic;
-  const auto& mono = planning.options.monolithic_options;
-  const auto& sddp = planning.options.sddp_options;
-
-  // Default to the lower-bound (min) water value when unspecified: a single
-  // shared derivation for plexos2gtopt and plp2gtopt (both just emit
-  // boundary_cuts.csv + efin).  The cut-file presence below is the real gate,
-  // so absent option + present cut file ⇒ derive efin_cost with the min
-  // (capped at max(1, …) inside cut_soft_cost).
-  const auto soft_opt =
-      is_mono ? mono.boundary_cut_soft_cost : sddp.boundary_cut_soft_cost;
-  const auto soft = soft_opt.value_or(BoundaryCutSoftCost::min);
-  const std::string file =
-      (is_mono ? mono.boundary_cuts_file : sddp.boundary_cuts_file)
-          .value_or(Name {});
-  if (file.empty()) {
-    return;
-  }
-
-  // Resolve relative to input_directory (mirrors the cut-loader resolution).
-  std::filesystem::path path {file};
-  if (!path.is_absolute()) {
-    path = std::filesystem::path {planning.options.input_directory.value_or(
-               Name {})}
-        / path;
-  }
-  if (!std::filesystem::exists(path)) {
-    spdlog::warn(
-        "boundary_cut_soft_cost set but cut file '{}' not found — "
-        "leaving efin_cost untouched",
-        path.string());
-    return;
-  }
-
-  const auto stats = boundary_cut_coeff_stats(path.string());
-  if (stats.empty()) {
-    return;
-  }
-
-  std::size_t applied = 0;
-  const auto apply_to = [&](auto& elements)
-  {
-    for (auto& el : elements) {
-      // Only soften an existing terminal floor; efin_cost is inert without
-      // an `efin` target.
-      if (!el.efin.has_value()) {
-        continue;
-      }
-      const auto it = stats.find(el.name);
-      if (it == stats.end()) {
-        continue;
-      }
-      // `cut_soft_cost` already maps the chosen bound to the water value
-      // (negation + min/max swap), so `min`/`max` are the lower/upper bound
-      // of the COST; sign is preserved.
-      el.efin_cost = cut_soft_cost(it->second, soft);
-      ++applied;
-    }
-  };
-  apply_to(planning.system.reservoir_array);
-  apply_to(planning.system.battery_array);
-
-  spdlog::info(
-      "boundary_cut_soft_cost={}: derived efin_cost on {} element(s) from '{}'",
-      enum_name(soft),
-      applied,
-      path.string());
-}
 
 // ── FieldSched footprint diagnostics ────────────────────────────────────────
 //
@@ -854,11 +771,6 @@ std::expected<int, std::string> build_solve_and_output(Planning&& planning,
         planning.system.reservoir_array.size(),
         planning.system.waterway_array.size(),
         planning.system.battery_array.size());
-
-    // User-side opt-in (gated by `boundary_cut_soft_cost`): derive terminal
-    // soft costs from the boundary-cut coefficients BEFORE the LP is built so
-    // the soft-`efin` slack columns are priced correctly.
-    apply_boundary_cut_soft_costs(planning);
 
     spdlog::info("=== Building LP model ===");
     const spdlog::stopwatch build_sw;

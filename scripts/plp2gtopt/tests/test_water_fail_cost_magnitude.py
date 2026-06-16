@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from plp2gtopt._water_value import WaterValueResolver
+from gtopt_shared.water_values import WaterValueResolver
 
 # Reference ``lost_pf`` values — these are intrinsic to the juan/IPLP
 # topology (cascade walks, cenre lifts) and remain stable across
@@ -156,27 +156,30 @@ def _convert_juan(case_dir: Path, output_dir: Path, *, extra_flags: list[str]) -
     return planning
 
 
-def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
-    """Compute per-reservoir average ``|GradX|`` from boundary_cuts.csv.
+def _read_boundary_cut_values(output_dir: Path) -> dict[str, float]:
+    """Compute per-reservoir cut **lower-bound** water value from the CSV.
 
-    Mirrors :meth:`PlanosParser.average_abs_gradient_by_reservoir`
+    Mirrors :meth:`PlanosParser.lower_bound_water_value_by_reservoir`
     (with ``num_scenarios=None``) at test time so the test does not
-    depend on the parser's internal cap dict.
+    depend on the parser's internal dict.  The lower bound is
+    ``-max(signed coeff)`` positive-floored (see
+    :func:`gtopt_shared.water_values.cut_lower_bound`).
 
     The CSV gradients on disk are scaled by ``1/NVarPhi`` (see
     :func:`planos_writer.write_boundary_cuts_csv`); the writer's
-    ``_build_efin_cost_cap`` consumes the **raw** (un-scaled)
-    average instead.  To recover that raw value we multiply the
-    CSV average by ``NVarPhi`` — inferred as ``max(scene)`` across
-    rows so the test stays self-contained.
+    ``_build_cut_water_values`` consumes the **raw** (un-scaled)
+    value instead.  To recover that raw value we multiply by
+    ``NVarPhi`` — inferred as ``max(scene)`` across rows so the test
+    stays self-contained.
     """
     import csv as _csv
+
+    from gtopt_shared.water_values import cut_lower_bound  # noqa: PLC0415
 
     csv_path = output_dir / "boundary_cuts.csv"
     if not csv_path.exists():
         return {}
-    sums: dict[str, float] = {}
-    counts: dict[str, int] = {}
+    signed: dict[str, list[float]] = {}
     max_scene = 1
     with open(csv_path, encoding="utf-8") as f:
         reader = _csv.DictReader(f)
@@ -202,14 +205,14 @@ def _read_boundary_cap(output_dir: Path) -> dict[str, float]:
                     continue
                 if v == 0.0:
                     continue
-                sums[c] = sums.get(c, 0.0) + abs(v)
-                counts[c] = counts.get(c, 0) + 1
+                signed.setdefault(c, []).append(v)
     nvarphi = float(max_scene if max_scene > 0 else 1)
-    return {
-        c: (total / counts[c]) * nvarphi
-        for c, total in sums.items()
-        if counts.get(c, 0) > 0
-    }
+    out: dict[str, float] = {}
+    for c, vals in signed.items():
+        lb = cut_lower_bound([v * nvarphi for v in vals])
+        if lb is not None:
+            out[c] = lb
+    return out
 
 
 @pytest.mark.integration
@@ -304,34 +307,34 @@ class TestAutoWaterFailCostMagnitude:
         list(_REFERENCE_RESERVOIRS_LOST_PF.items()),
     )
     def test_reservoir_efin_cost_matches_reference(self, planning_auto, name, lost_pf):
-        """``efin_cost = min(anchor × lost_pf × 1e6/3600, boundary_cut_avg)``.
+        """``efin_cost`` = cut lower bound when cuts exist, else the formula.
 
-        Validates the cascade / cenre-lift chain that produces
-        ``lost_pf`` together with the per-reservoir cap on
-        ``efin_cost`` derived from the average ``|GradX_i|`` in the
-        boundary cuts.  Reservoirs whose formula value lies above the
-        SDDP-revealed marginal water value must be capped down to the
-        latter; reservoirs whose formula value is already below the
-        cap match the formula exactly.
+        Semantics changed (2026-06-16): the boundary-cut value now
+        **OVERWRITES** the anchor-derived formula rather than capping it
+        via ``min(...)``.  Reservoirs with a boundary cut take the cut
+        lower-bound water value (``-max(signed coeff)`` positive-floored,
+        un-discounted by the last stage's ``discount_factor``); reservoirs
+        without a cut keep the ``anchor × lost_pf`` formula.  This test
+        still exercises the cascade / cenre-lift chain that produces
+        ``lost_pf`` (used for the no-cut fallback).
         """
         anchor = self._resolved_anchor(planning_auto)
         formula_efin = anchor * lost_pf * 1e6 / 3600.0
-        # Read the boundary-cut CSV emitted by this same conversion
-        # and compute the per-reservoir cap (= average |GradX|).  The
-        # writer additionally un-discounts each cap by the last
-        # stage's ``discount_factor`` (= 1/FactTasa from plpeta.dat)
-        # before comparing against the anchor-derived formula — we
-        # must mirror that here.
+        # Read the boundary-cut CSV emitted by this same conversion and
+        # compute the per-reservoir cut lower-bound water value.  The
+        # writer additionally un-discounts each value by the last stage's
+        # ``discount_factor`` (= 1/FactTasa from plpeta.dat) — mirror that.
         out_dir = Path(planning_auto["_output_dir"])
-        caps = _read_boundary_cap(out_dir)
+        cut_values = _read_boundary_cut_values(out_dir)
         stages = planning_auto.get("simulation", {}).get("stage_array", [])
         last_df = 1.0
         if stages:
             last_df = float(stages[-1].get("discount_factor", 1.0)) or 1.0
-        cap = caps.get(name)
-        if cap is not None and last_df > 0.0 and last_df != 1.0:
-            cap = cap / last_df
-        expected_efin = min(formula_efin, cap) if cap is not None else formula_efin
+        cut = cut_values.get(name)
+        if cut is not None and last_df > 0.0 and last_df != 1.0:
+            cut = cut / last_df
+        # OVERWRITE: a present cut value replaces the formula entirely.
+        expected_efin = cut if cut is not None else formula_efin
 
         reservoirs = planning_auto.get("system", {}).get("reservoir_array", [])
         match = next((r for r in reservoirs if r.get("name") == name), None)
@@ -339,8 +342,9 @@ class TestAutoWaterFailCostMagnitude:
         actual = match.get("efin_cost")
         assert actual is not None, f"Reservoir {name} has no efin_cost"
         assert actual == pytest.approx(expected_efin, rel=_TOL_REL), (
-            f"{name}: efin_cost={actual} vs min(formula={formula_efin}, "
-            f"cap={cap}) (anchor={anchor:.2f}, lost_pf={lost_pf})"
+            f"{name}: efin_cost={actual} vs expected={expected_efin} "
+            f"(cut={cut}, formula={formula_efin}, anchor={anchor:.2f}, "
+            f"lost_pf={lost_pf})"
         )
 
     def test_hydro_pmin_kept_as_soft_floor(self, planning_auto):

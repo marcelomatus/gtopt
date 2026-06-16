@@ -1,6 +1,7 @@
 """Unit tests for the water-shortfall pricing helper.
 
-Covers the public API of :class:`plp2gtopt._water_value.WaterValueResolver`:
+Covers the public API of
+:class:`gtopt_shared.water_values.WaterValueResolver`:
 
 * anchor (``water_fail_cost``) — auto-derive vs. explicit override
 * ``max_rendi`` — static rendi vs. cenre lift @ vmax
@@ -20,7 +21,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from plp2gtopt._water_value import WaterValueResolver
+from gtopt_shared.water_values import WaterValueResolver
 
 
 # ---------------------------------------------------------------------------
@@ -534,118 +535,126 @@ def test_resolver_is_active_when_explicit_override_set() -> None:
 
 
 # ---------------------------------------------------------------------------
-# efin_cost cap (boundary-cut average |GradX|) — see _water_value.efin_cost_for
+# cut_water_values OVERWRITE (boundary-cut lower bound) — efin_cost_for
 # ---------------------------------------------------------------------------
 
 
-def test_efin_cost_for_capped_by_boundary_avg() -> None:
-    """``efin_cost_for`` returns ``min(auto_value, cap[name])``.
+def test_efin_cost_for_overwritten_by_cut_value() -> None:
+    """``efin_cost_for`` OVERWRITES the auto value with ``cut_water_values[name]``.
 
-    LMAULE: auto = 500 (forced via override), cap = 200 → 200.
-    COLBUN: auto = 100 (forced via override), cap = 200 → 100.
+    Semantics changed (2026-06-16): a present cut value replaces the
+    auto estimate entirely — no longer ``min(auto, cap)``.  The
+    overwrite wins whether it is below OR above the auto value.
     """
     cp = _FakeCentralParser(_make_centrals())
 
-    # Pick a small lost_pf so the $/hm³ conversion stays comparable
-    # to the cap numbers; the exact value does not matter as long as
-    # the synthetic auto value lands either above or below the cap.
+    # Pick a small lost_pf so the $/hm³ conversion stays comparable to
+    # the cut numbers; the exact value does not matter — the overwrite
+    # ignores the auto value entirely when a cut value is present.
     resolver_high = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"water_fail_cost": 500.0 * 3600.0 / 1e6},
-        efin_cost_cap={"LMAULE": 200.0, "COLBUN": 200.0},
+        cut_water_values={"LMAULE": 200.0, "COLBUN": 700.0},
     )
     # auto = 500.0 * 1.0 = 500.0
     assert resolver_high.efin_cost(1.0) == pytest.approx(500.0, rel=1e-3)
-    # LMAULE auto=500 vs cap=200 → 200 wins
+    # LMAULE: cut 200 OVERWRITES auto 500 → 200 (below auto).
     assert resolver_high.efin_cost_for("LMAULE", 1.0) == pytest.approx(200.0)
-
-    resolver_low = WaterValueResolver(
-        central_parser=cp,
-        cenre_parser=None,
-        options={"water_fail_cost": 100.0 * 3600.0 / 1e6},
-        efin_cost_cap={"COLBUN": 200.0},
-    )
-    # auto = 100.0; cap=200 → 100 wins (auto is already cheaper)
-    assert resolver_low.efin_cost_for("COLBUN", 1.0) == pytest.approx(100.0)
+    # COLBUN: cut 700 OVERWRITES auto 500 → 700 (ABOVE auto — the old
+    # min-cap would have returned 500; overwrite returns 700).
+    assert resolver_high.efin_cost_for("COLBUN", 1.0) == pytest.approx(700.0)
 
 
 def test_efin_cost_for_no_boundary_data_falls_back() -> None:
-    """Empty cap dict ⇒ ``efin_cost_for`` returns the auto value."""
+    """Empty cut dict ⇒ ``efin_cost_for`` returns the auto value."""
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"auto_water_fail_cost": True},
-        efin_cost_cap={},
+        cut_water_values={},
     )
     auto = resolver.efin_cost(10.05)
     assert resolver.efin_cost_for("LMAULE", 10.05) == pytest.approx(auto)
 
 
 def test_efin_cost_for_missing_reservoir_falls_back() -> None:
-    """Reservoirs not in the cap dict are treated as +inf (no cap)."""
+    """Reservoirs not in the cut dict keep the auto estimate."""
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"auto_water_fail_cost": True},
-        efin_cost_cap={"OTHER": 1.0},
+        cut_water_values={"OTHER": 1.0},
     )
     auto = resolver.efin_cost(10.05)
     assert resolver.efin_cost_for("LMAULE", 10.05) == pytest.approx(auto)
 
 
-def test_efin_cost_back_compat_uncapped() -> None:
-    """Back-compat: ``efin_cost(lost_pf)`` ignores the cap dict."""
+def test_efin_cost_back_compat_ignores_cut_values() -> None:
+    """Back-compat: ``efin_cost(lost_pf)`` ignores the cut dict (auto only)."""
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"auto_water_fail_cost": True},
-        efin_cost_cap={"LMAULE": 1.0},  # would cap to 1.0 if applied
+        cut_water_values={"LMAULE": 1.0},  # would overwrite via efin_cost_for
     )
-    # The legacy non-reservoir-aware method must not apply the cap.
+    # The legacy non-reservoir-aware method must not apply the override.
     expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
     assert resolver.efin_cost(10.05) == pytest.approx(expected, rel=1e-6)
 
 
-def test_soft_emin_cost_not_capped() -> None:
-    """The cap dict is plumbed only through :meth:`efin_cost_for`.
+def test_soft_emin_cost_uses_auto_not_overwrite() -> None:
+    """The cut dict is plumbed only through :meth:`efin_cost_for`.
 
-    The legacy :meth:`efin_cost` method (used by the soft-emin path
-    via the same cost variable in junction_writer) is unaffected.
-    This regression-tests the design constraint: the cap belongs on
-    ``efin_cost``, not on ``soft_emin_cost``.
+    The legacy :meth:`efin_cost` method (used by the soft-emin path via
+    the same cost variable in junction_writer) is unaffected — the
+    boundary-cut overwrite belongs on ``efin_cost``, not ``soft_emin``.
     """
     cp = _FakeCentralParser(_make_centrals())
     resolver = WaterValueResolver(
         central_parser=cp,
         cenre_parser=None,
         options={"auto_water_fail_cost": True},
-        efin_cost_cap={"LMAULE": 1.0},
+        cut_water_values={"LMAULE": 1.0},
     )
-    # Identical input → identical output: the cap is not applied.
+    # Identical input → identical output: the overwrite is not applied.
     expected = _ANCHOR_AUTO * 10.05 * 1e6 / 3600.0
     assert resolver.efin_cost(10.05) == pytest.approx(expected, rel=1e-6)
 
 
+# ---------------------------------------------------------------------------
+# default_water_fail_value — global fallback = max over per-reservoir values
+# ---------------------------------------------------------------------------
+
+
+def test_default_water_fail_value_is_max() -> None:
+    """The global default water-fail value is the max of all inputs."""
+    from gtopt_shared.water_values import default_water_fail_value  # noqa: PLC0415
+
+    assert default_water_fail_value([10.0, 250.0, 99.0]) == pytest.approx(250.0)
+    # Empty / all-None → 0.0 (caller treats as no-op).
+    assert default_water_fail_value([]) == pytest.approx(0.0)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
-# HydroMixin._build_efin_cost_cap — present-value discounting of cut average
+# HydroMixin._build_cut_water_values — PV-discounting of cut lower bounds
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class _FakePlanosParser:
-    """Stub mirroring ``PlanosParser.average_abs_gradient_by_reservoir``."""
+    """Stub mirroring ``PlanosParser.lower_bound_water_value_by_reservoir``."""
 
     def __init__(self, raw: Dict[str, float]) -> None:
         self._raw = dict(raw)
 
-    def average_abs_gradient_by_reservoir(
+    def lower_bound_water_value_by_reservoir(
         self, *, num_scenarios: Any = None, apply_fescala: bool = True
     ) -> Dict[str, float]:
         # Both kwargs are accepted but ignored — this fixture pre-computes
-        # the average to keep the tests focused on the discount step.
+        # the lower bound to keep the tests focused on the discount step.
         _ = (num_scenarios, apply_fescala)
         return dict(self._raw)
 
@@ -664,8 +673,8 @@ class _FakeParser:
         self.parsed_data = dict(parsed_data)
 
 
-def _build_cap(parsed_data: Dict[str, Any]) -> Dict[str, float]:
-    """Invoke ``HydroMixin._build_efin_cost_cap`` against the stub parser."""
+def _build_cut_values(parsed_data: Dict[str, Any]) -> Dict[str, float]:
+    """Invoke ``HydroMixin._build_cut_water_values`` against the stub parser."""
     from plp2gtopt._writer_hydro import HydroMixin  # noqa: PLC0415
 
     class _Probe(HydroMixin):
@@ -674,27 +683,24 @@ def _build_cap(parsed_data: Dict[str, Any]) -> Dict[str, float]:
     probe = _Probe()
     probe.parser = _FakeParser(parsed_data)  # type: ignore[assignment]
     probe.planning = {}  # type: ignore[assignment]
-    return probe._build_efin_cost_cap()  # pylint: disable=protected-access
+    return probe._build_cut_water_values()  # pylint: disable=protected-access
 
 
-def test_build_efin_cost_cap_undiscounts_to_face_value() -> None:
-    """Boundary-cut average is **divided** by the last stage discount factor.
+def test_build_cut_water_values_undiscounts_to_face_value() -> None:
+    """Cut lower bound is **divided** by the last stage discount factor.
 
     PLP's cut gradients on disk are already-discounted (``∂E[Z*]/∂v_i``
-    where ``Z*`` is the LP's NPV objective).
-    ``WaterValueResolver.efin_cost_for`` compares them against an
-    un-discounted face-value ``ANCHOR × lost_pf`` derived from
-    stage-invariant ``gcost``.  Dividing the raw cap by the last
-    stage's ``discount_factor = 1 / FactTasa`` from ``plpeta.dat``
-    un-discounts the cuts back to the auto's frame — raising the cap
-    by ``FactTasa`` (== ``1 / discount_factor``).
+    where ``Z*`` is the LP's NPV objective).  Dividing the raw value by
+    the last stage's ``discount_factor = 1 / FactTasa`` un-discounts the
+    cuts back to the auto's face-value frame — raising the value by
+    ``FactTasa`` (== ``1 / discount_factor``).
     """
     raw = {"LMAULE": 1000.0, "COLBUN": 250.0}
     stages = [
         {"number": 1, "month": 1, "duration": 720.0, "discount_factor": 1.0},
         {"number": 2, "month": 2, "duration": 720.0, "discount_factor": 0.5},
     ]
-    out = _build_cap(
+    out = _build_cut_values(
         {
             "planos_parser": _FakePlanosParser(raw),
             "stage_parser": _FakeStageParser(stages),
@@ -704,11 +710,11 @@ def test_build_efin_cost_cap_undiscounts_to_face_value() -> None:
     assert out["COLBUN"] == pytest.approx(500.0)  # 250 / 0.5
 
 
-def test_build_efin_cost_cap_unity_discount_is_identity() -> None:
-    """A trivial 1.0 discount factor must not perturb the raw average."""
+def test_build_cut_water_values_unity_discount_is_identity() -> None:
+    """A trivial 1.0 discount factor must not perturb the raw value."""
     raw = {"LMAULE": 1000.0}
     stages = [{"number": 1, "month": 1, "duration": 720.0, "discount_factor": 1.0}]
-    out = _build_cap(
+    out = _build_cut_values(
         {
             "planos_parser": _FakePlanosParser(raw),
             "stage_parser": _FakeStageParser(stages),
@@ -717,32 +723,31 @@ def test_build_efin_cost_cap_unity_discount_is_identity() -> None:
     assert out["LMAULE"] == pytest.approx(1000.0)
 
 
-def test_build_efin_cost_cap_missing_stage_parser_keeps_raw() -> None:
-    """Without a stage parser the raw boundary-stage cap is returned."""
+def test_build_cut_water_values_missing_stage_parser_keeps_raw() -> None:
+    """Without a stage parser the raw boundary-stage value is returned."""
     raw = {"LMAULE": 999.0}
-    out = _build_cap({"planos_parser": _FakePlanosParser(raw)})
+    out = _build_cut_values({"planos_parser": _FakePlanosParser(raw)})
     assert out == pytest.approx(raw)
 
 
-def test_build_efin_cost_cap_no_planos_parser_returns_empty() -> None:
-    """No boundary cuts → empty dict → resolver treats every reservoir uncapped."""
-    out = _build_cap({})
+def test_build_cut_water_values_no_planos_parser_returns_empty() -> None:
+    """No boundary cuts → empty dict → resolver keeps auto estimates."""
+    out = _build_cut_values({})
     assert out == {}
 
 
-def test_build_efin_cost_cap_negative_discount_falls_back_to_raw() -> None:
+def test_build_cut_water_values_negative_discount_falls_back_to_raw() -> None:
     """A non-positive discount factor is treated as ``no information``.
 
     Guards against pathological plpeta.dat entries (e.g. a malformed
-    FactTasa).  The method must not return a negative cap, which
-    would silently flip the ``min(auto, cap)`` comparison in
-    ``efin_cost_for``.
+    FactTasa).  The method must not return a negative value, which would
+    silently flip the per-reservoir overwrite in ``efin_cost_for``.
     """
     raw = {"LMAULE": 500.0}
     stages = [
         {"number": 1, "month": 1, "duration": 720.0, "discount_factor": -0.5},
     ]
-    out = _build_cap(
+    out = _build_cut_values(
         {
             "planos_parser": _FakePlanosParser(raw),
             "stage_parser": _FakeStageParser(stages),

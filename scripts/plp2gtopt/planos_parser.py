@@ -385,6 +385,88 @@ class PlanosParser(BaseParser):
             if counts.get(rname, 0) > 0
         }
 
+    def lower_bound_water_value_by_reservoir(
+        self,
+        *,
+        num_scenarios: Optional[int] = None,
+        apply_fescala: bool = True,
+    ) -> Dict[str, float]:
+        """Per-reservoir cut **lower-bound** water value across all cuts.
+
+        Returns ``{reservoir_name: lower_bound}`` in ``$/hm³``.  This is
+        the boundary-cut LOWER BOUND of the (positive) water-value cost,
+        replicating the gtopt C++ ``cut_soft_cost(min)`` rule that the
+        Python converters now own.
+
+        Sign convention
+        ---------------
+        PLP's plpplem2.dat ships ``GradX_i = ∂E[Z]/∂v_i < 0`` on each
+        reservoir state variable — more stored water lowers the future
+        cost, so the coefficient is **negative**.  The corresponding
+        positive water value is ``-GradX_i``.  The *lower bound* of that
+        positive cost is therefore obtained from the **maximum** (least
+        negative) coefficient: ``-max(coeff)`` — see
+        :func:`gtopt_shared.water_values.cut_lower_bound`, which also
+        positive-floors the result when a cut prices water as a liability.
+
+        Unlike :meth:`average_abs_gradient_by_reservoir`, the coefficients
+        here are collected **SIGNED** (no ``abs``), because the
+        lower-bound rule depends on the sign (``-max`` vs ``-min``).  The
+        same per-reservoir ``scale`` (``1/num_scenarios`` when
+        ``num_scenarios >= 2``) and FEscala ``_vscale`` adjustment used by
+        the average helper are applied, so the result lives in the same
+        per-scene ``$/hm³`` space as ``Reservoir.efin_cost``.
+
+        Args:
+            num_scenarios: PLP scenario count (``NVarPhi``).  When ``>= 2``
+                the raw PLP gradients are divided by ``num_scenarios`` to
+                land in gtopt per-scene ``$/hm³``.  ``None``/``0``/``1``
+                disables the divisor.
+            apply_fescala: when True (default) multiply each coefficient by
+                ``10^(FEscala - 6)`` to land in ``$/hm³`` (gtopt's volume
+                basis), matching ``planos_writer._vol_scale``.
+
+        Returns:
+            Mapping from reservoir name to its cut lower-bound water value
+            in ``$/hm³``.  Reservoirs whose cuts carry only zero
+            coefficients (or no cut at all) are omitted.
+        """
+        from gtopt_shared.water_values import cut_lower_bound  # noqa: PLC0415
+
+        if num_scenarios is not None and num_scenarios > 1:
+            scale = 1.0 / float(num_scenarios)
+        else:
+            scale = 1.0
+
+        def _vscale(rname: str) -> float:
+            if not apply_fescala:
+                return 1.0
+            f = self.reservoir_fescala.get(rname)
+            if f is None:
+                return 1.0
+            return 10.0 ** (f - 6)
+
+        # Collect SIGNED scaled coefficients per reservoir (skip val==0 so
+        # structural zeros do not pollute the lower-bound reduction).
+        signed: Dict[str, List[float]] = {}
+        for cut in self.all_cuts:
+            coeffs = cut.get("coefficients") or {}
+            for rname, raw in coeffs.items():
+                try:
+                    val = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if val == 0.0:
+                    continue
+                signed.setdefault(rname, []).append(val * scale * _vscale(rname))
+
+        result: Dict[str, float] = {}
+        for rname, vals in signed.items():
+            lb = cut_lower_bound(vals)
+            if lb is not None:
+                result[rname] = lb
+        return result
+
     # ------------------------------------------------------------------
     # Utility
     # ------------------------------------------------------------------

@@ -14,9 +14,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
+from gtopt_shared.water_values import (
+    WaterValueResolver,
+    default_water_fail_value,
+)
+
 from .aflce_writer import AflceWriter
 from .junction_writer import JunctionWriter
-from ._water_value import WaterValueResolver
 
 _logger = logging.getLogger(__name__)
 
@@ -27,60 +31,56 @@ class HydroMixin:
     parser: Any
     planning: Dict[str, Dict[str, Any]]
 
-    def _build_efin_cost_cap(self) -> Dict[str, float]:
-        """Return the per-reservoir efin_cost cap dict for the resolver.
+    def _build_cut_water_values(self) -> Dict[str, float]:
+        """Return the per-reservoir boundary-cut water-value dict.
 
-        Derived from PLP's boundary cuts (plpplem2.dat) as the average
-        ``|GradX_i|`` across all parsed cuts, divided by the gtopt
-        scenario count to land in per-scene ``$/hm³`` (the same space
-        ``Reservoir.efin_cost`` lives in).  Returns an empty dict when
-        no boundary cuts are available, in which case the resolver
-        treats every reservoir as uncapped.
+        Derived from PLP's boundary cuts (plpplem2.dat) as the cut
+        **lower-bound** water value across all parsed cuts (see
+        :meth:`planos_parser.PlanosParser.lower_bound_water_value_by_reservoir`
+        and :func:`gtopt_shared.water_values.cut_lower_bound`).  Returns
+        an empty dict when no boundary cuts are available, in which case
+        the resolver keeps its auto ``ANCHOR × lost_pf`` estimate for
+        every reservoir.
 
-        The divisor mirrors the ``1/NVarPhi`` factor applied at write
-        time by :func:`planos_writer.write_boundary_cuts_csv`, so the
-        cap is comparable to what gtopt actually loads from
-        ``boundary_cuts.csv``.
+        The value lives in raw ``$/hm³`` (after FEscala scaling).  It is
+        the per-reservoir **OVERWRITE** for ``Reservoir.efin_cost`` (the
+        2026-06-16 decision replaced the legacy ``min(auto, cap)`` cap
+        with a direct overwrite — see
+        :meth:`WaterValueResolver.efin_cost_for`).
 
         Present-value adjustment
         ------------------------
         PLP's boundary cuts encode ``GradX_i = ∂E[Z*]/∂v_i`` where
         ``E[Z*]`` is the **discounted** future cost (PLP's LP objective
         applies the per-stage ``discount_factor = 1/FactTasa`` directly
-        to every coefficient before the dual is taken).  The
-        lost-production-factor surface
-        (``WaterValueResolver.efin_cost_for``) is in **un-discounted**
-        $/hm³ (its ``gcost`` inputs are stage-invariant marginal
-        $/MWh, with no boundary-stage discount baked in).  Without
-        normalising them to the same frame the ``min(auto, cap)``
-        comparison mixes two accounting periods.
-
-        Un-discount the cuts back to the auto's "boundary face-value"
-        frame by **dividing** every per-reservoir average by the last
+        to every coefficient before the dual is taken).  The auto
+        lost-production-factor surface is in **un-discounted** $/hm³ (its
+        ``gcost`` inputs are stage-invariant marginal $/MWh, with no
+        boundary-stage discount baked in).  To keep the overwrite in the
+        same accounting frame as reservoirs that fall back to the auto
+        estimate, un-discount the cuts back to the "boundary face-value"
+        frame by **dividing** every per-reservoir value by the last
         stage's ``discount_factor``.  Since ``discount_factor < 1`` at
-        the boundary on multi-year horizons, this raises the cap —
-        which is the correct direction: the LP's stored cut
-        coefficients are smaller than their boundary face value
-        because PLP already multiplied them by the discount on disk.
+        the boundary on multi-year horizons, this raises the value —
+        which is the correct direction: the LP's stored cut coefficients
+        are smaller than their boundary face value because PLP already
+        multiplied them by the discount on disk.
         """
         planos = self.parser.parsed_data.get("planos_parser")
         if planos is None:
             return {}
-        # `efin_cost` cap = average of |GradX_i| across all cuts, in
-        # raw `$/hm³` (after FEscala scaling — that conversion happens
-        # inside `average_abs_gradient_by_reservoir` when
+        # Per-reservoir cut lower-bound water value, in raw `$/hm³`
+        # (after FEscala scaling — that conversion happens inside
+        # `lower_bound_water_value_by_reservoir` when
         # `apply_fescala=True`).  We DO NOT divide by N here because
         # `efin_cost` is the per-hm³ marginal cost added to the LP
         # objective for the END-of-horizon volume — it represents the
         # *aggregate* marginal water value, not the per-scene share.
-        # The /N scaling is only meaningful when comparing the cut RHS
-        # to a per-scene LP α floor; the `efin_cost` cap stands on its
-        # own.
         try:
-            raw = planos.average_abs_gradient_by_reservoir(num_scenarios=None)
+            raw = planos.lower_bound_water_value_by_reservoir(num_scenarios=None)
         except (AttributeError, TypeError):
             # Defensive — older parser fixtures may not implement the
-            # helper.  Treat as "no cap available" instead of crashing
+            # helper.  Treat as "no cuts available" instead of crashing
             # mid-build.
             return {}
         # Un-discount the cut-derived caps to the auto's face-value
@@ -113,6 +113,63 @@ class HydroMixin:
         if last_df <= 0.0 or last_df == 1.0:
             return raw
         return {name: value / last_df for name, value in raw.items()}
+
+    def apply_default_water_fail(self) -> None:
+        """Stamp a default water-fail value on un-priced reservoirs.
+
+        Computes the global default water-fail value as the **maximum**
+        of every per-reservoir ``efin_cost`` already assigned (see
+        :func:`gtopt_shared.water_values.default_water_fail_value`), then
+        applies it as a fallback to reservoirs that carry a non-trivial
+        terminal volume (``efin``) but were left **without** an
+        ``efin_cost`` — so no reservoir's terminal volume slack is ever
+        priced at zero (free fictitious water).
+
+        Placement rationale: ``efin_cost`` is in ``$/hm³``, but no
+        ``model_options`` field carries a global hydro water-fail default
+        in that unit — ``hydro_spill_cost`` is ``$/m³`` (1e6× off) and
+        ``state_violation_cost`` is ``$/MWh`` (SDDP elastic-filter
+        fallback, converted via production_factor, a different surface).
+        Rather than mis-unit a model option, the default is pushed onto
+        the un-priced reservoirs directly, where the unit matches exactly.
+        A no-op when no reservoir carries a positive ``efin_cost``.
+        """
+        reservoirs = self.planning.get("system", {}).get("reservoir_array", [])
+        if not reservoirs:
+            return
+
+        assigned = [
+            float(r["efin_cost"])
+            for r in reservoirs
+            if isinstance(r.get("efin_cost"), (int, float)) and r["efin_cost"] > 0
+        ]
+        if not assigned:
+            return
+
+        default_wf = default_water_fail_value(assigned)
+        if default_wf <= 0.0:
+            return
+
+        # Fallback only: reservoirs with a real terminal volume but no
+        # explicit per-reservoir price inherit the global default so the
+        # ``vol_end + slack >= efin`` row is never free.
+        patched = 0
+        for r in reservoirs:
+            efin = r.get("efin")
+            has_cost = (
+                isinstance(r.get("efin_cost"), (int, float)) and r["efin_cost"] > 0
+            )
+            if isinstance(efin, (int, float)) and efin > 0 and not has_cost:
+                r["efin_cost"] = default_wf
+                patched += 1
+
+        if patched:
+            _logger.info(
+                "water-value: default water-fail %.2f $/hm³ applied to %d "
+                "un-priced reservoir(s)",
+                default_wf,
+                patched,
+            )
 
     def process_ror_spec(self, options):
         """Resolve ``--ror-as-reservoirs`` once so downstream writers share it.
@@ -284,16 +341,16 @@ class HydroMixin:
         # Construction is cheap (just builds lookup tables); whether it
         # actually drives prices depends on ``resolver.is_active``.
         #
-        # ``efin_cost_cap`` carries the per-reservoir SDDP-revealed
-        # marginal water value (avg ``|GradX_i|`` from the boundary
-        # cuts).  When the auto formula yields a number larger than
-        # what the cuts say the water is actually worth, we cap it
-        # down so the LP stays inside the cut-validity envelope.
+        # ``cut_water_values`` carries the per-reservoir SDDP-revealed
+        # marginal water value (cut LOWER BOUND from the boundary cuts).
+        # When a reservoir is present there, the resolver OVERWRITES its
+        # auto ``ANCHOR × lost_pf`` estimate with that value so the LP
+        # uses the cut-revealed water value directly.
         water_value_resolver = WaterValueResolver(
             central_parser=centrals,
             cenre_parser=cenre,
             options=options,
-            efin_cost_cap=self._build_efin_cost_cap(),
+            cut_water_values=self._build_cut_water_values(),
         )
         # Stash on self so other hydro phases (pmin_as_flowright) can
         # pick up the same instance instead of rebuilding.
@@ -389,7 +446,7 @@ class HydroMixin:
                 central_parser=self.parser.parsed_data.get("central_parser"),
                 cenre_parser=self.parser.parsed_data.get("cenre_parser"),
                 options=options,
-                efin_cost_cap=self._build_efin_cost_cap(),
+                cut_water_values=self._build_cut_water_values(),
             )
 
         laja_parser = self.parser.parsed_data.get("laja_parser")
@@ -751,7 +808,7 @@ class HydroMixin:
                 central_parser=self.parser.parsed_data.get("central_parser"),
                 cenre_parser=self.parser.parsed_data.get("cenre_parser"),
                 options=options,
-                efin_cost_cap=self._build_efin_cost_cap(),
+                cut_water_values=self._build_cut_water_values(),
             )
         writer = PminFlowRightWriter(
             whitelist=whitelist,
