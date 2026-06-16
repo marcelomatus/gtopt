@@ -56,6 +56,10 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<ColIndex> fcols;
   map_reserve(fcols, blocks.size());
 
+  // ``--lp-reduction``: fold FIXED-discharge flows (constants) into the
+  // junction-balance RHS instead of emitting a fixed singleton column.
+  const bool reduce_fixed_flow = sc.options().lp_reduction();
+
   for (auto&& block : blocks) {
     const auto buid = block.uid();
 
@@ -71,6 +75,27 @@ bool FlowLP::add_to_lp(const SystemContext& sc,
     if (!block_discharge_opt.has_value() && !block_fcost.has_value()) {
       continue;
     }
+
+    // lp_reduction: a FIXED-discharge flow (discharge set, no fcost) is a
+    // constant.  Fold ±discharge into the junction-balance RHS rather than
+    // emit a fixed [d, d] singleton column (PaPILO-style singleton
+    // substitution).  Dual-transparent: the balance row's dual (water value /
+    // LMP) is unchanged.  Skipped when fcost is set (a soft slack stays a
+    // column) or there is no junction (flow-turbine mode keeps the column).
+    if (reduce_fixed_flow && junction_ptr != nullptr
+        && block_discharge_opt.has_value() && !block_fcost.has_value())
+    {
+      const double d = *block_discharge_opt;
+      const auto& balance_rows = junction_ptr->balance_rows_at(scenario, stage);
+      auto& brow = lp.row_at(balance_rows.at(buid));
+      // The balance LHS would receive (is_input ? +1 : -1)·d; moving that
+      // constant to the RHS gives (is_input ? -d : +d).
+      const double delta = is_input() ? -d : d;
+      brow.lowb += delta;
+      brow.uppb += delta;
+      continue;  // no LP column emitted for this fixed flow
+    }
+
     const double block_lowb = block_discharge_opt.value_or(0.0);
     const double block_uppb = block_discharge_opt.value_or(DblMax);
     const double block_cost = block_fcost.has_value()
