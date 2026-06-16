@@ -904,8 +904,6 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_row_scales_ = deep_copy_ptr(m_row_scales_);
     cloned.m_col_labels_meta_ = deep_copy_ptr(m_col_labels_meta_);
     cloned.m_row_labels_meta_ = deep_copy_ptr(m_row_labels_meta_);
-    cloned.m_col_meta_index_ = deep_copy_ptr(m_col_meta_index_);
-    cloned.m_row_meta_index_ = deep_copy_ptr(m_row_meta_index_);
     cloned.m_col_names_ = deep_copy_ptr(m_col_names_);
     cloned.m_row_names_ = deep_copy_ptr(m_row_names_);
     cloned.m_col_index_to_name_ = deep_copy_ptr(m_col_index_to_name_);
@@ -916,8 +914,6 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_row_scales_ = m_row_scales_;
     cloned.m_col_labels_meta_ = m_col_labels_meta_;
     cloned.m_row_labels_meta_ = m_row_labels_meta_;
-    cloned.m_col_meta_index_ = m_col_meta_index_;
-    cloned.m_row_meta_index_ = m_row_meta_index_;
     cloned.m_col_names_ = m_col_names_;
     cloned.m_row_names_ = m_row_names_;
     cloned.m_col_index_to_name_ = m_col_index_to_name_;
@@ -1010,8 +1006,6 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
     cloned.m_row_scales_ = m_row_scales_;
     cloned.m_col_labels_meta_ = m_col_labels_meta_;
     cloned.m_row_labels_meta_ = m_row_labels_meta_;
-    cloned.m_col_meta_index_ = m_col_meta_index_;
-    cloned.m_row_meta_index_ = m_row_meta_index_;
     cloned.m_col_names_ = m_col_names_;
     cloned.m_row_names_ = m_row_names_;
     cloned.m_col_index_to_name_ = m_col_index_to_name_;
@@ -1155,16 +1149,6 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_col_labels_meta_count_ = 0;
   m_row_labels_meta_count_ = 0;
 
-  // Hand off the eager dedup maps directly from the FlatLinearProblem
-  // (LinearProblem already built them incrementally during add_col /
-  // add_row).  Skips the full rehash that `rebuild_meta_indexes()`
-  // would otherwise do — saves ~50 ms on 500K-col / 300K-row LPs.
-  // `detach_for_write` is a no-op here in practice (load_flat runs
-  // on the source LP before any clones exist), but the helper is
-  // correct under future lifecycle reorderings.
-  detach_for_write(m_col_meta_index_) = flat_lp.col_meta_index;
-  detach_for_write(m_row_meta_index_) = flat_lp.row_meta_index;
-
   // Preserve coefficient statistics computed during flatten().
   m_stats_nnz_ = flat_lp.stats_nnz;
   m_stats_zeroed_ = flat_lp.stats_zeroed;
@@ -1277,7 +1261,8 @@ ColIndex LinearInterface::add_col(const std::string& name,
   m_backend_->add_col(normalize_bound(collb), normalize_bound(colub), 0.0);
   invalidate_cached_optimal_on_mutation();
 
-  // Uniqueness is enforced on metadata (via m_col_meta_index_) in
+  // Uniqueness is enforced on metadata (via the build-time
+  // LinearProblem dedup and the post-flatten dedup index) in
   // add_col(SparseCol).  The string path here just records the
   // pre-formatted name when one is provided; duplicates surface at
   // the metadata layer.
@@ -1386,25 +1371,12 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   // separate label is constructed.  Unlabelled cols (no class_name
   // / no variable_name / unknown uid / monostate context) are
   // skipped so structural tests that build unnamed cells don't
-  // collide.  The check consults BOTH the frozen flatten-side
-  // `m_col_meta_index_` (set at `load_flat` time, never mutated
-  // post-load) and the per-instance `m_post_flatten_col_meta_index_`
-  // — duplicates against either are reported.
+  // collide.  The check consults the per-instance
+  // `m_post_flatten_col_meta_index_` — duplicate post-flatten
+  // insertions against any previously inserted post-flatten entry
+  // on this instance are reported.
   const auto& meta = m_post_flatten_col_labels_meta_[post_offset];
   if (!is_empty_col_label(meta)) {
-    if (m_col_meta_index_) {
-      const auto& flatten_index = *m_col_meta_index_;
-      if (auto it = flatten_index.find(meta); it != flatten_index.end()) {
-        throw std::runtime_error(
-            std::format("Duplicate LP column metadata: class='{}' var='{}' "
-                        "uid={} (first at col {}, duplicate at col {})",
-                        meta.class_name,
-                        meta.variable_name,
-                        meta.variable_uid,
-                        it->second,
-                        col_idx));
-      }
-    }
     auto [it, inserted] =
         m_post_flatten_col_meta_index_.try_emplace(meta, col_idx);
     if (!inserted) {
@@ -1509,25 +1481,13 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
       .context = col.context,
   };
 
-  // Eager dedup: check the frozen flatten-side index, the per-instance
-  // post-flatten index (cuts, alpha, cascade elastic), AND the per-
-  // clone disposable index.  All three layers must reject duplicates
-  // so a disposable add cannot silently shadow any earlier production
-  // entry.  Unlabelled cols (empty class/variable + unknown_uid +
-  // monostate context) are skipped, matching the production path.
+  // Eager dedup: check the per-instance post-flatten index (cuts,
+  // alpha, cascade elastic) AND the per-clone disposable index.  Both
+  // layers must reject duplicates so a disposable add cannot silently
+  // shadow any earlier post-flatten or disposable entry.  Unlabelled
+  // cols (empty class/variable + unknown_uid + monostate context) are
+  // skipped, matching the production path.
   if (!is_empty_col_label(meta)) {
-    const auto& cmi = *m_col_meta_index_;
-    if (auto sit = cmi.find(meta); sit != cmi.end()) {
-      throw std::runtime_error(std::format(
-          "Duplicate disposable LP column metadata: class='{}' var='{}' "
-          "uid={} (already present at shared col {}, attempted disposable at "
-          "col {})",
-          meta.class_name,
-          meta.variable_name,
-          meta.variable_uid,
-          sit->second,
-          col_idx));
-    }
     if (auto pit = m_post_flatten_col_meta_index_.find(meta);
         pit != m_post_flatten_col_meta_index_.end())
     {
@@ -1589,18 +1549,6 @@ RowIndex LinearInterface::add_row_disposable(const SparseRow& row,
   };
 
   if (!is_empty_row_label(meta)) {
-    const auto& rmi = *m_row_meta_index_;
-    if (auto sit = rmi.find(meta); sit != rmi.end()) {
-      throw std::runtime_error(std::format(
-          "Duplicate disposable LP row metadata: class='{}' cons='{}' "
-          "uid={} (already present at shared row {}, attempted disposable at "
-          "row {})",
-          meta.class_name,
-          meta.constraint_name,
-          meta.variable_uid,
-          sit->second,
-          row_idx));
-    }
     if (auto pit = m_post_flatten_row_meta_index_.find(meta);
         pit != m_post_flatten_row_meta_index_.end())
     {
@@ -1789,7 +1737,8 @@ RowIndex LinearInterface::add_row(const std::string& name,
                       normalize_bound(rowub));
   invalidate_cached_optimal_on_mutation();
 
-  // Uniqueness is enforced on metadata (via m_row_meta_index_) in
+  // Uniqueness is enforced on metadata (via the build-time
+  // LinearProblem dedup and the post-flatten dedup index) in
   // track_row_label_meta.  The string path here just records the
   // pre-formatted name when one is provided.
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
@@ -1829,37 +1778,15 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   };
 
   // Eager metadata-based duplicate detection — see the `add_col`
-  // companion for rationale.  Consults both the frozen flatten-side
-  // `m_row_meta_index_` and the per-instance
-  // `m_post_flatten_row_meta_index_`.
-  //
-  // Replay fast-path: when `m_replay_.replaying()` is true, the row
-  // being installed was already vetted against `m_row_meta_index_` on
-  // its first insertion (it lives in `m_active_cuts_` precisely
-  // because it passed dedup then).  The frozen index is invariant
-  // across `release_backend()` → `reconstruct_backend()` cycles, so
-  // re-probing it on every replay is pure waste — under
-  // `LowMemoryMode::compress` the cost is `cuts × cells × hash` which
-  // dominates the per-iter cut-replay overhead on Juan/IPLP at high
-  // cut counts.  The post-flatten `try_emplace` is preserved on the
-  // replay path so subsequent non-replay readers (`add_row_disposable`,
-  // `delete_rows` rebuild, `clone()`) see a coherent dedup map.
+  // companion for rationale.  Consults the per-instance
+  // `m_post_flatten_row_meta_index_` so duplicate post-flatten
+  // insertions (cuts, alpha, cascade elastic) against any previously
+  // inserted post-flatten entry on this instance are reported.  The
+  // `try_emplace` is preserved on the replay path so subsequent
+  // readers (`add_row_disposable`, `delete_rows` rebuild, `clone()`)
+  // see a coherent dedup map.
   const auto& meta = m_post_flatten_row_labels_meta_[post_offset];
   if (!is_empty_row_label(meta)) {
-    const bool is_replay = m_replay_.replaying();
-    if (!is_replay && m_row_meta_index_) {
-      const auto& flatten_index = *m_row_meta_index_;
-      if (auto it = flatten_index.find(meta); it != flatten_index.end()) {
-        throw std::runtime_error(
-            std::format("Duplicate LP row metadata: class='{}' cons='{}' "
-                        "uid={} (first at row {}, duplicate at row {})",
-                        meta.class_name,
-                        meta.constraint_name,
-                        meta.variable_uid,
-                        it->second,
-                        row_idx));
-      }
-    }
     auto [it, inserted] =
         m_post_flatten_row_meta_index_.try_emplace(meta, row_idx);
     if (!inserted) {
@@ -2487,8 +2414,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   // Row indices shifted on deletion, so every previously-registered
   // `(metadata → RowIndex)` pair on the post-flatten side is now
   // potentially stale.  Rebuild from the current
-  // `m_post_flatten_row_labels_meta_`; frozen `m_row_meta_index_`
-  // is unaffected because no frozen rows were touched.
+  // `m_post_flatten_row_labels_meta_`.
   m_post_flatten_row_meta_index_.clear();
   m_post_flatten_row_meta_index_.reserve(
       m_post_flatten_row_labels_meta_.size());
@@ -3143,7 +3069,7 @@ bool LinearInterface::has_integer_cols() const
 //
 // `generate_labels_from_maps`, `materialize_labels`,
 // `compress_labels_meta_if_needed`, `ensure_labels_meta_decompressed`,
-// `rebuild_meta_indexes`, `push_names_to_solver`, `write_lp` live in
+// `push_names_to_solver`, `write_lp` live in
 // `source/linear_interface_labels.cpp`.
 //
 // `initial_solve`, `resolve`, and the algorithm-fallback helper

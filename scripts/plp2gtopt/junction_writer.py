@@ -38,12 +38,26 @@ from .mance_parser import ManceParser
 from .block_parser import BlockParser
 from .mance_writer import ManceWriter
 from ._water_value import WaterValueResolver
+from .pmin_flowright_writer import (
+    _DEFAULT_FAIL_COST,
+    _FLOW_RIGHT_DIRECTION,
+)
 
 _logger = logging.getLogger(__name__)
 
 # UIDs for synthetic "ocean" drain junctions start above this offset so they
 # cannot collide with central UIDs (which are typically in the range 1–999).
 _OCEAN_UID_OFFSET = 10000
+
+# UID offset for consumptive irrigation-diversion FlowRights (see
+# ``_process_central`` / ``is_irrigation_diversion``).  Each right's UID is
+# ``_IRRIGATION_DIVERSION_UID_OFFSET + central_id``, keeping them unique,
+# stable, and well clear of both central UIDs (1–999) and the waterway-fmin
+# FlowRight range emitted by ``pmin_flowright_writer`` (5500+).
+_IRRIGATION_DIVERSION_UID_OFFSET = 6000
+
+# ``purpose`` metadata stamped on the irrigation-diversion FlowRight.
+_IRRIGATION_DIVERSION_PURPOSE = "irrigation"
 
 # PLP convention: ``PotMax`` (max generation power) and ``VertMax`` (max
 # spillway flow) in plpcnfce.dat are sometimes set to a numeric sentinel
@@ -370,6 +384,7 @@ class HydroSystemOutput(TypedDict):
     reservoir_seepage_array: List[Dict[str, Any]]
     reservoir_discharge_limit_array: List[Dict[str, Any]]
     reservoir_production_factor_array: List[Dict[str, Any]]
+    flow_right_array: List[Dict[str, Any]]
 
 
 class JunctionWriter(BaseWriter):
@@ -731,6 +746,7 @@ class JunctionWriter(BaseWriter):
             "reservoir_seepage_array": [],
             "reservoir_discharge_limit_array": [],
             "reservoir_production_factor_array": [],
+            "flow_right_array": [],
         }
 
         # Track isolated centrals that were skipped
@@ -888,6 +904,51 @@ class JunctionWriter(BaseWriter):
 
         return [cast(Dict[str, Any], system)]
 
+    def _irrigation_diversion_fail_cost(self) -> float:
+        """Return the ``fcost`` [$/(m³/s·h)] for irrigation-diversion rights.
+
+        Reuses the SAME fail-cost the soft-flow-right transform applies — no
+        new number is invented.  Resolution (PLP-native ``$/Hm³`` quantities
+        are converted to gtopt's internal ``$/(m³/s·h)`` via ``× 3.6``, the
+        ``FactTiempoH`` factor; see
+        :meth:`PminFlowRightWriter._resolve_fail_cost`):
+
+        0. CLI override ``--flow-right-fail-cost`` (``$/Hm³`` → ``× 3.6``).
+        1. ``plpmat.dat`` ``CCauFal`` flow-failure cost (``$/Hm³`` → ``× 3.6``).
+        2. ``2 × max(rebalse_cost)`` from plpvrebemb.dat (``$/Hm³`` → ``× 3.6``).
+        3. ``2 × CVert`` plpmat default vert cost (``$/Hm³`` → ``× 3.6``).
+        4. :data:`pmin_flowright_writer._DEFAULT_FAIL_COST` (already in gtopt
+           units).
+        """
+        plp_to_gtopt_units = 3.6
+        opts = self.options or {}
+
+        override = opts.get("flow_right_fail_cost")
+        if override is not None:
+            return float(override) * plp_to_gtopt_units
+
+        ccaufal = 0.0
+        if self.plpmat_parser is not None:
+            ccaufal = float(getattr(self.plpmat_parser, "flow_fail_cost", 0.0) or 0.0)
+        if ccaufal > 0.0:
+            return ccaufal * plp_to_gtopt_units
+
+        max_rebalse = 0.0
+        if self.vrebemb_parser is not None:
+            for entry in self.vrebemb_parser.get_all() or []:
+                cost = float(entry.get("cost", 0.0) or 0.0)
+                max_rebalse = max(max_rebalse, cost)
+        if max_rebalse > 0.0:
+            return 2.0 * max_rebalse * plp_to_gtopt_units
+
+        cvert = 0.0
+        if self.plpmat_parser is not None:
+            cvert = float(getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0)
+        if cvert > 0.0:
+            return 2.0 * cvert * plp_to_gtopt_units
+
+        return _DEFAULT_FAIL_COST
+
     def _process_central(
         self,
         central: Dict[str, Any],
@@ -914,6 +975,33 @@ class JunctionWriter(BaseWriter):
         central_id = central["number"]
         central_name = central["name"]
         central_type = central.get("type", "serie")
+
+        # **Irrigation-diversion centrals** — a structurally-identified
+        # family of ``serie`` transit centrals that divert water OUT of the
+        # river for irrigation while ALSO returning a remainder downstream
+        # via their ``ser_ver`` spillway arc.  Signature (verified to match
+        # exactly RieSur123SCDZ / RIEGZACO / RieSaltos on the CEN65 2-year
+        # case): ``bus == 0`` (no electrical outlet) AND ``ser_hid == 0``
+        # (the generation arc has no PLP downstream junction → it would
+        # otherwise collapse into a *free* source self-drain, see the
+        # gen-path ``force_source_drain`` below) AND ``ser_ver > 0`` (a real
+        # ``_ver`` return arc exists).  For these the gen-to-ocean collapse
+        # is the wrong representation: the diverted water is a consumptive
+        # irrigation offtake, not a costless spill.  We therefore (1) gate
+        # the gen-path source self-drain OFF (so the junction ends up
+        # ``drain = False``, its ``_ver`` arc carrying the river remainder),
+        # and (2) emit a consumptive FlowRight (``direction = -1``) on the
+        # central's own junction modelling the diversion.  NO irrigation
+        # *requirement* data is invented — ``fmin = 0`` (unforced), ``fmax``
+        # = the former gen-path drain capacity (``PotMax / Rendi``) when
+        # finite, and ``fcost`` = the same fail-cost the soft-flow-right
+        # transform uses.
+        is_irrigation_diversion = (
+            central_type in ("serie",)
+            and int(central.get("bus", 0) or 0) == 0
+            and int(central.get("ser_hid", 0) or 0) == 0
+            and int(central.get("ser_ver", 0) or 0) > 0
+        )
 
         # Skip truly isolated serie/pasada centrals: bus<=0, no outgoing
         # waterways (ser_hid=0 AND ser_ver=0), AND not referenced as a
@@ -1375,6 +1463,7 @@ class JunctionWriter(BaseWriter):
             central_type in ("embalse", "serie", "pasada")
             and gen_waterway is None
             and not use_builtin_turbine_waterway
+            and not is_irrigation_diversion
         ):
             if not gen_waterway_needed_downstream:
                 # **Collapse the gen-to-ocean into a source self-drain.**
@@ -1509,8 +1598,15 @@ class JunctionWriter(BaseWriter):
                 turbine_builtin["junction_b"] = self._junction_names.get(
                     ser_hid, str(ser_hid)
                 )
-            if gen_fmax is not None:
-                turbine_builtin["capacity"] = gen_fmax
+            # Do NOT bound the turbine flow with gen_fmax = PotMax / Rendi:
+            # that equals the limit the generator pmax already implies via the
+            # conversion row (gen = rate * flow  =>  flow <= pmax / rate), so
+            # it is redundant.  Leaving the turbine flow unbounded (like a
+            # regular waterway flow) lets gtopt presolve substitute the
+            # turbine_flow column out of the junction balances.  A genuine
+            # input flow limit (e.g. the volume-dependent plpcenpmax discharge
+            # curve) is still applied separately as Turbine.capacity in the
+            # cenpmax path.
             system["turbine_array"].append(turbine_builtin)
             self._builtin_turbine_waterway_count += 1
 
@@ -1617,6 +1713,55 @@ class JunctionWriter(BaseWriter):
             if source_drain_cost is not None:
                 junction["drain_cost"] = source_drain_cost
         system["junction_array"].append(junction)
+
+        # **Irrigation-diversion FlowRight** — for the structurally-identified
+        # diversion centrals (see ``is_irrigation_diversion`` above) the
+        # gen-path source self-drain was gated OFF, so the junction is now a
+        # plain pass-through (``drain == False``, its ``_ver`` arc returns the
+        # river remainder downstream).  Replace the lost free drain with a
+        # CONSUMPTIVE FlowRight (``direction = -1``) on the central's own
+        # junction: water diverted for irrigation leaves the basin at this
+        # point.  This is purely a representation change — no irrigation
+        # *requirement* is invented.  ``fmin = 0`` (the diversion is never
+        # forced); ``fmax`` ports the former gen-path drain capacity
+        # (``PotMax / Rendi``) when finite, else is omitted (unbounded);
+        # ``fcost`` reuses the soft-flow-right fail cost (no new number).
+        if is_irrigation_diversion:
+            # ``drain == False`` is guaranteed here because the gen-path
+            # ``force_source_drain`` was gated off for these centrals and
+            # their ``_ver`` arc exists; assert it so a future refactor that
+            # re-enables the drain cannot silently double-count the offtake.
+            assert not drain, (
+                f"irrigation-diversion central {central_name!r} unexpectedly "
+                "kept drain=True"
+            )
+            fail_cost = self._irrigation_diversion_fail_cost()
+            flow_right: Dict[str, Any] = {
+                "uid": _IRRIGATION_DIVERSION_UID_OFFSET + int(central_id),
+                "name": f"{central_name}_irrigation_right",
+                "purpose": _IRRIGATION_DIVERSION_PURPOSE,
+                "junction_a": central_name,
+                "consumptive": True,
+                "direction": _FLOW_RIGHT_DIRECTION,
+                "fmin": 0.0,
+                "fcost": fail_cost,
+            }
+            if gen_fmax is not None and math.isfinite(gen_fmax):
+                flow_right["fmax"] = float(gen_fmax)
+            system["flow_right_array"].append(flow_right)
+            _logger.info(
+                "irrigation-diversion: emitted consumptive FlowRight '%s' "
+                "(uid=%d, junction_a=%s, fmax=%s, fcost=%g) and disabled the "
+                "free gen-path source drain for serie central '%s' "
+                "(bus=0, ser_hid=0, ser_ver=%d)",
+                flow_right["name"],
+                flow_right["uid"],
+                central_name,
+                flow_right.get("fmax", "unbounded"),
+                fail_cost,
+                central_name,
+                int(central.get("ser_ver", 0) or 0),
+            )
 
         # Promote to a daily-cycle reservoir when the central appears in
         # the --ror-as-reservoirs whitelist.  Eligibility was already

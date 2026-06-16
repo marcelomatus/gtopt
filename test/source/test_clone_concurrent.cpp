@@ -134,7 +134,6 @@ TEST_CASE("Many shallow clones solve concurrently without cross-talk")
   CHECK(failures.load() == 0);
   // After all clones destroyed, source's use_count must drop back to 1.
   CHECK(src.col_labels_meta_use_count() == 1);
-  CHECK(src.col_meta_index_use_count() == 1);
 }
 
 TEST_CASE("Concurrent disposable adds on independent shallow clones")

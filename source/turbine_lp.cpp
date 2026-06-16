@@ -144,11 +144,18 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       }
       const auto gcol = *gcol_opt;
 
-      // adding the turbine-owned flow variable (bounded by the capacity
-      // row below and, indirectly, the generator's pmax via conversion)
+      // adding the turbine-owned flow variable.  The turbine has NO
+      // expansion model (plain ObjectLP, no CapacityBase): `capacity` is a
+      // fixed per-stage max-flow limit, so impose it directly as the
+      // column's upper bound instead of a separate single-variable,
+      // constant-RHS CapacityName row.  This keeps turbine_flow in only the
+      // conversion + junction-balance equalities so presolve can substitute
+      // it out (the extra inequality row used to pin the column cardinality
+      // and block that elimination).  The capacity shadow price is then the
+      // column reduced cost rather than a row dual.
       const auto fc = lp.add_col({
           .lowb = 0.0,
-          .uppb = LinearProblem::DblMax,
+          .uppb = stage_capacity ? *stage_capacity : LinearProblem::DblMax,
           .cost = 0.0,
           .class_name = Element::class_name.full_name(),
           .variable_name = FlowName,
@@ -177,19 +184,9 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
 
-      if (stage_capacity) {
-        auto crow =
-            SparseRow {
-                .class_name = Element::class_name.full_name(),
-                .constraint_name = CapacityName,
-                .variable_uid = uid(),
-                .context = make_block_context(
-                    scenario.uid(), stage.uid(), block.uid()),
-            }
-                .less_equal(*stage_capacity);
-        crow[fc] = 1;
-        crows[buid] = lp.add_row(std::move(crow));
-      }
+      // R1: capacity enforced as the flow column's upper bound above — no
+      // separate CapacityName row for junction (built-in-waterway) turbines,
+      // which own their flow column.
     }
 
     const auto st_key = std::tuple {scenario.uid(), stage.uid()};

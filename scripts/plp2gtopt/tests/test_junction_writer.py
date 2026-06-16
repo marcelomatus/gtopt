@@ -279,6 +279,61 @@ def test_to_json_array_single_plant():
     assert flow["discharge"] == 10.0
 
 
+def test_irrigation_diversion_becomes_flowright():
+    """Irrigation diversion (bus=0, ser_hid=0, ser_ver>0, serie) is modeled
+    as a consumptive FlowRight on the central's own junction — NOT a free
+    drain — while the ``_ver`` return arc to the downstream ``ser_ver``
+    junction is preserved.  Mirrors RieSur123SCDZ / RIEGZACO / RieSaltos in
+    the CEN case (the extraction is a water right; the remainder returns
+    downstream).
+    """
+    central = {
+        "name": "RieTest",
+        "number": 1,
+        "bus": 0,  # transit-only: no electrical generation
+        "pmin": 0,
+        "pmax": 1.0,
+        "vert_min": 0,
+        "vert_max": 9999.0,  # PLP no-limit sentinel
+        "efficiency": 1.0,
+        "ser_hid": 0,  # no downstream generation
+        "ser_ver": 2,  # spill / return to downstream junction 2
+        "afluent": 5.0,
+        "type": "serie",
+    }
+    central_parser = MockCentralParser([central])
+    writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
+    result = writer.to_json_array()[0]
+
+    # The diversion junction must NOT carry a free drain.
+    junction = next(j for j in result["junction_array"] if j["name"] == "RieTest")
+    assert not junction.get("drain")
+    assert "drain_capacity" not in junction
+    assert "drain_cost" not in junction
+
+    # A single consumptive FlowRight is emitted on the central's own junction.
+    frs = [
+        f
+        for f in result.get("flow_right_array", [])
+        if f.get("junction_a") == "RieTest"
+    ]
+    assert len(frs) == 1
+    fr = frs[0]
+    assert fr["consumptive"] is True
+    assert fr["direction"] == -1
+    assert fr["fmin"] == 0.0
+    assert fr.get("fcost") is not None and fr["fcost"] > 0.0
+
+    # The _ver return arc to the downstream ser_ver junction is preserved.
+    vers = [
+        w
+        for w in result["waterway_array"]
+        if "_ver_" in w["name"] and w["junction_a"] == "RieTest"
+    ]
+    assert len(vers) == 1
+    assert vers[0]["junction_b"] == "2"
+
+
 def test_drain_junction():
     """Terminal central (ser_hid=0, ser_ver=0, vert_max>0): the spillway
     capacity is collapsed onto the SOURCE junction's own drain column
@@ -1733,16 +1788,21 @@ def test_real_bound_under_threshold_preserved():
     writer = JunctionWriter(central_parser=central_parser, options=_LEGACY_OPTS)
     result = writer.to_json_array()[0]
 
-    # Generation cap is on the built-in Turbine's ``capacity``; the spill
-    # cap stays on the ``_ver`` Waterway's ``fmax``.
+    # The built-in Turbine carries NO generation cap: gen_fmax = PotMax/Rendi
+    # is redundant with the generator pmax via the conversion row
+    # (gen = rate*flow  =>  flow <= pmax/rate), so the turbine flow is left
+    # unbounded (like a regular waterway flow).  The genuine spill cap stays
+    # on the ``_ver`` Waterway ``fmax`` — that below-sentinel bound is what
+    # this threshold test actually guards.
     turbine = next(t for t in result["turbine_array"] if t["name"] == "PlantRealCap")
     ver_ww = next(
         ww
         for ww in result["waterway_array"]
         if "_ver_" in ww["name"] and ww["junction_a"] == "PlantRealCap"
     )
-    # gen_fmax = pmax / efficiency = 8999 / 1.0 = 8999
-    assert turbine.get("capacity") == pytest.approx(8999.0)
+    assert turbine.get("capacity") is None
+    # gen_fmax = pmax / efficiency = 8999 / 1.0 = 8999, below the 9000 PLP
+    # "no limit" sentinel, so the spill cap is preserved on the _ver waterway.
     assert ver_ww.get("fmax") == pytest.approx(8999.0)
     assert writer._plp_no_limit_count == 0
 

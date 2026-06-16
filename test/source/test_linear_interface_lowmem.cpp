@@ -2116,10 +2116,22 @@ TEST_CASE(  // NOLINT
     li.reconstruct_backend();
     REQUIRE_FALSE(li.is_backend_released());
 
-    // Duplicate detection survives: inserting the same (class, var, uid)
-    // as x1 after a decompress cycle must still throw.
+    // Post-flatten dedup survives the compress/decompress cycle: add a
+    // NEW post-flatten col, then a second add with identical metadata
+    // must throw (collision against the per-instance post-flatten
+    // dedup index).  Duplicates against the FROZEN flatten-time labels
+    // (uid 1/2) are no longer guarded at this runtime layer — that
+    // structural dedup happens at LinearProblem build time.
     {
-      auto try_add = [&]
+      (void)li.add_col(SparseCol {
+          .lowb = 0.0,
+          .uppb = 10.0,
+          .cost = 2.0,
+          .class_name = "Gen",
+          .variable_name = "generation",
+          .variable_uid = Uid {3},  // new post-flatten key
+      });
+      auto try_dup = [&]
       {
         (void)li.add_col(SparseCol {
             .lowb = 0.0,
@@ -2127,10 +2139,10 @@ TEST_CASE(  // NOLINT
             .cost = 2.0,
             .class_name = "Gen",
             .variable_name = "generation",
-            .variable_uid = Uid {1},  // same uid as x1 → duplicate
+            .variable_uid = Uid {3},  // same as the post-flatten add
         });
       };
-      CHECK_THROWS_AS(try_add(), std::runtime_error);
+      CHECK_THROWS_AS(try_dup(), std::runtime_error);
     }
   }
 
@@ -2212,9 +2224,22 @@ TEST_CASE(  // NOLINT
   li.reconstruct_backend();
   REQUIRE_FALSE(li.is_backend_released());
 
-  // Same-uid insertion must still be detected as duplicate after round-trip.
+  // A monostate-context post-flatten col still participates in the
+  // per-instance dedup index after the round-trip: add a new
+  // monostate-context col, then a second identical add must throw.
+  // (Duplicates against the FROZEN flatten-time labels — uid 7 — are
+  // no longer guarded at this runtime layer; that structural dedup is
+  // enforced at LinearProblem build time.)
   {
-    auto try_add = [&]
+    (void)li.add_col(SparseCol {
+        .lowb = 0.0,
+        .uppb = 20.0,
+        .cost = 5.0,
+        .class_name = "Demand",
+        .variable_name = "load",
+        .variable_uid = Uid {8},  // new post-flatten key, monostate context
+    });
+    auto try_dup = [&]
     {
       (void)li.add_col(SparseCol {
           .lowb = 0.0,
@@ -2222,10 +2247,10 @@ TEST_CASE(  // NOLINT
           .cost = 5.0,
           .class_name = "Demand",
           .variable_name = "load",
-          .variable_uid = Uid {7},
+          .variable_uid = Uid {8},
       });
     };
-    CHECK_THROWS_AS(try_add(), std::runtime_error);
+    CHECK_THROWS_AS(try_dup(), std::runtime_error);
   }
 }
 
@@ -3801,14 +3826,15 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LinearInterface — duplicate detection rejects collisions across "
-    "frozen and post-flatten metadata layers")
+    "LinearInterface — duplicate detection rejects collisions within "
+    "the post-flatten metadata layer")
 {
-  // The dedup index is split (frozen `m_col_meta_index_` + per-
-  // instance `m_post_flatten_col_meta_index_`); track_col_label_meta
-  // must consult BOTH so a post-flatten add can't shadow a flatten-
-  // time entry, AND post-flatten entries can't collide with each
-  // other on this instance.
+  // The runtime dedup index is the per-instance
+  // `m_post_flatten_col_meta_index_`; track_col_label_meta consults it
+  // so post-flatten entries can't collide with each other on this
+  // instance.  (Collisions against the original flatten-time
+  // structural labels are caught at build time inside LinearProblem,
+  // not at this runtime layer.)
   LinearProblem lp;
   const auto c0 = lp.add_col(SparseCol {
       .uppb = 10.0,
@@ -3851,20 +3877,6 @@ TEST_CASE(  // NOLINT
       });
     };
     CHECK_NOTHROW(try_add());
-  }
-
-  // Cross-layer collision: same metadata as the FROZEN entry → throw.
-  {
-    auto try_add = [&]
-    {
-      (void)li.add_col(SparseCol {
-          .uppb = 1.0,
-          .class_name = "Bus",
-          .variable_name = "theta",
-          .variable_uid = 1,
-      });
-    };
-    CHECK_THROWS_AS(try_add(), std::runtime_error);
   }
 
   // Within-post-flatten collision: same metadata as the previous
