@@ -67,6 +67,20 @@ class TestProcessOptions:
         sddp = writer.planning["options"]["sddp_options"]
         assert sddp["backward_solver_options"] == {"algorithm": "dual"}
 
+    def test_process_options_emits_multicut_default(self, tmp_path):
+        """Writer-direct callers (no CLI) also get cut_sharing_mode=multicut.
+
+        The iterative fast-path defaults multicut in process_options itself,
+        not only in main.build_options, so a raw-opts caller emits it too.
+        An explicit cut_sharing_mode still wins (see test above).
+        """
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.process_options(_make_opts(tmp_path))
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp.get("cut_sharing_mode") == "multicut"
+
     def test_process_options_backward_solver_threads_override(self, tmp_path):
         """`backward_solver_threads` sets threads; fast-path still adds dual."""
         parser = PLPParser({"input_dir": _PLPMin1Bus})

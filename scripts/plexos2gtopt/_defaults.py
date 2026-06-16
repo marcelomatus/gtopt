@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# Search order for ``share/gtopt/`` files.  Hardcoded user path first so
-# editor-style runs from arbitrary working directories pick up the
-# in-repo file; ``Path(__file__).parents[2] / "share"`` is the canonical
-# checkout-relative path that also works under pytest's site-packages
-# hardlink (because the source tree is in the path).
+# Search order for ``share/gtopt/`` files.  ``Path(__file__).parents[2] /
+# "share"`` is the checkout-relative path; it works for editor-style runs
+# from arbitrary working directories and under pytest's site-packages
+# hardlink, because ``__file__`` resolves back into the source tree.  Kept
+# as a tuple so additional install-layout candidates can be appended.
 _SHARE_CANDIDATES: tuple[Path, ...] = (
-    Path("/home/marce/git/gtopt/share/gtopt"),
     Path(__file__).resolve().parents[2] / "share" / "gtopt",
 )
 
