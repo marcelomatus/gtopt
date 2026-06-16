@@ -1127,6 +1127,21 @@ struct SDDPIterationResult
     SceneIndex source_scene,
     SystemKind kind = SystemKind::forward) noexcept;
 
+/// Enumerate every α (future-cost) column registered on
+/// `(scene_index, phase_index, kind)`, in source-scene order, as
+/// `(col, uid)` pairs.  Single-α modes yield exactly one entry (uid
+/// `sddp_alpha_uid`, offset 0); `CutSharingMode::multicut` (or terminal
+/// `BoundaryCutSharingMode::multicut`) yields N entries
+/// `varphi_0..N-1` (uid = `sddp_alpha_uid + source_scene`).  α uids are
+/// contiguous from `sddp_alpha_uid`, so enumeration stops at the first
+/// registry gap.  Shared by `apply_alpha_floor` and `bound_alpha_for_cut`
+/// so the per-`varphi_s` iteration lives in one place.
+[[nodiscard]] std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    SystemKind kind = SystemKind::forward);
+
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
 /// on the live LP backend and mirrors the change into the

@@ -248,21 +248,11 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
   // Single-α modes register only `varphi_0`; under multicut a scenario-s
   // backward cut references its own `varphi_s`.  `bound_alpha` →
   // `apply_alpha_floor` then re-floors every `varphi` from its own cuts
-  // (idempotent for the columns this cut doesn't touch).  α uids are
-  // contiguous from `sddp_alpha_uid`, so the first registry miss ends
-  // the scan.
-  bool references_alpha = false;
-  for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
-    const auto* svar =
-        find_alpha_state_var(sim, scene_index, phase_index, src, kind);
-    if (svar == nullptr) {
-      break;  // α not registered (or contiguous uids exhausted)
-    }
-    if (cut.cmap.contains(svar->col())) {
-      references_alpha = true;
-      break;
-    }
-  }
+  // (idempotent for the columns this cut doesn't touch).
+  const auto alpha_cols =
+      alpha_cols_on_cell(sim, scene_index, phase_index, kind);
+  const bool references_alpha = std::ranges::any_of(
+      alpha_cols, [&](const auto& cu) { return cut.cmap.contains(cu.first); });
   if (!references_alpha) {
     return;  // cut does not reference α — leave the bootstrap pin.
   }
@@ -333,29 +323,15 @@ void apply_alpha_floor(PlanningLP& planning_lp,
     return;
   }
 
-  // Enumerate every α (future-cost) column on this cell.  Single-α modes
-  // register exactly one (uid offset 0); under `CutSharingMode::multicut`
-  // there are N (`varphi_0..N-1`, uid = sddp_alpha_uid + source_scene).
-  // Each `varphi_s` is floored INDEPENDENTLY from the cuts that reference
-  // it, so a scenario-s cut never floors scenario-d's future-cost column
-  // (the cross-scene routing in `share_cuts_for_phase` keeps each
-  // scenario's cuts pinned to its own `varphi_s`).  The uid-keyed
-  // `update_dynamic_col_bounds` overload below mirrors each release into
-  // the correct replay entry — the name-only overload would always match
-  // `varphi_0`.  α uids are contiguous from `sddp_alpha_uid`, so the
-  // first registry miss ends the list.
-  const auto num_scenes = sim.scene_count();
-  std::vector<std::pair<ColIndex, Uid>> alpha_cols;
-  for (const auto src : iota_range<SceneIndex>(0, num_scenes)) {
-    const auto* svar =
-        find_alpha_state_var(sim, scene_index, phase_index, src, kind);
-    if (svar == nullptr) {
-      break;  // contiguous uids — first gap ends the list
-    }
-    const auto alpha_uid = static_cast<Uid>(
-        sddp_alpha_uid + static_cast<Uid>(static_cast<std::size_t>(src)));
-    alpha_cols.emplace_back(svar->col(), alpha_uid);
-  }
+  // Enumerate every α (future-cost) column on this cell.  Each `varphi_s` is
+  // floored INDEPENDENTLY from the cuts that reference it, so a scenario-s cut
+  // never floors scenario-d's future-cost column (the cross-scene routing in
+  // `share_cuts_for_phase` keeps each scenario's cuts pinned to its own
+  // `varphi_s`).  The uid-keyed `update_dynamic_col_bounds` overload below
+  // mirrors each release into the correct replay entry — the name-only overload
+  // would always match `varphi_0`.
+  const auto alpha_cols =
+      alpha_cols_on_cell(sim, scene_index, phase_index, kind);
   if (alpha_cols.empty()) {
     return;
   }

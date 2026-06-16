@@ -1467,5 +1467,129 @@ TEST_CASE(  // NOLINT
   }
 }
 
+// ---------------------------------------------------------------------------
+// alpha_cols_on_cell — N-α (multicut) vs single-α registration
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "alpha_cols_on_cell — multicut registers N future-cost columns")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;  // register α, skip the solve loop
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  const auto& sim = plp.simulation();
+  constexpr PhaseIndex target_phase {0};  // intermediate → N varphi columns
+
+  const auto cols = alpha_cols_on_cell(sim, first_scene_index(), target_phase);
+  // 2 scenes under multicut → 2 dedicated varphi columns on an intermediate
+  // phase, with contiguous uids from sddp_alpha_uid and distinct LP columns.
+  REQUIRE(cols.size() == 2);
+  CHECK(cols[0].first != cols[1].first);
+  CHECK(cols[0].second == static_cast<Uid>(sddp_alpha_uid));
+  CHECK(cols[1].second == static_cast<Uid>(sddp_alpha_uid + 1));
+
+  // The source-scene overload resolves each varphi_s; the legacy single-α
+  // lookup resolves to varphi_0 (offset 0).
+  const auto* v1 = find_alpha_state_var(
+      sim, first_scene_index(), target_phase, SceneIndex {1});
+  REQUIRE(v1 != nullptr);
+  CHECK(v1->col() == cols[1].first);
+  const auto* legacy =
+      find_alpha_state_var(sim, first_scene_index(), target_phase);
+  CHECK((legacy != nullptr && legacy->col() == cols[0].first));
+}
+
+TEST_CASE(  // NOLINT
+    "alpha_cols_on_cell — single-α modes register one future-cost column")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_sharing = CutSharingMode::none;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  const auto& sim = plp.simulation();
+  constexpr PhaseIndex target_phase {0};
+
+  const auto cols = alpha_cols_on_cell(sim, first_scene_index(), target_phase);
+  REQUIRE(cols.size() == 1);
+  CHECK(cols[0].second == static_cast<Uid>(sddp_alpha_uid));
+  // No varphi_1 exists in single-α mode.
+  CHECK(find_alpha_state_var(
+            sim, first_scene_index(), target_phase, SceneIndex {1})
+        == nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// share_cuts_for_phase — multicut broadcasts all cuts to all scenes
+// ---------------------------------------------------------------------------
+
+TEST_CASE(  // NOLINT
+    "share_cuts_for_phase multicut broadcasts every scene's cut to all scenes")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 0;
+  sddp_opts.enable_api = false;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
+  SDDPMethod sddp(plp, sddp_opts);
+  REQUIRE(sddp.ensure_initialized().has_value());
+
+  constexpr PhaseIndex target_phase {0};
+  const auto num_scenes = static_cast<Index>(plp.simulation().scenes().size());
+  REQUIRE(num_scenes == 2);
+
+  // Scene 0's cut references varphi_0; scene 1's references varphi_1 — the
+  // backward-pass retarget the loader mirrors.  share_cuts_for_phase then
+  // broadcasts both to every scene-LP (mechanically like `max`, valid here
+  // because each cut pins its own dedicated varphi_s).
+  StrongIndexVector<SceneIndex, std::vector<SparseRow>> scene_cuts;
+  scene_cuts.resize(num_scenes);
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto* vs = find_alpha_state_var(
+        plp.simulation(), si, target_phase, si);  // varphi_si
+    REQUIRE(vs != nullptr);
+    SparseRow cut;
+    cut[vs->col()] = 1.0;
+    cut[ColIndex {0}] = 0.5;  // a structural state coefficient
+    cut.lowb = 5.0 + static_cast<double>(static_cast<std::size_t>(si));
+    cut.uppb = LinearProblem::DblMax;
+    scene_cuts[si].push_back(cut);
+  }
+
+  const auto rows_before = plp.system(first_scene_index(), target_phase)
+                               .linear_interface()
+                               .get_numrows();
+
+  share_cuts_for_phase(target_phase, scene_cuts, CutSharingMode::multicut, plp);
+
+  // Both cuts land on every scene-LP (2 cuts → +2 rows per scene).
+  for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+    CAPTURE(si);
+    const auto rows_after =
+        plp.system(si, target_phase).linear_interface().get_numrows();
+    CHECK(rows_after == rows_before + 2);
+  }
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access, hicpp-use-auto,
 // modernize-use-auto)

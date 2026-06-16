@@ -96,6 +96,26 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   return svar ? &svar->get() : nullptr;
 }
 
+std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    SystemKind kind)
+{
+  std::vector<std::pair<ColIndex, Uid>> cols;
+  for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
+    const auto* svar =
+        find_alpha_state_var(sim, scene_index, phase_index, src, kind);
+    if (svar == nullptr) {
+      break;  // contiguous α uids from sddp_alpha_uid — first gap ends it
+    }
+    const auto alpha_uid = static_cast<Uid>(
+        sddp_alpha_uid + static_cast<Uid>(static_cast<std::size_t>(src)));
+    cols.emplace_back(svar->col(), alpha_uid);
+  }
+  return cols;
+}
+
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
   return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);
