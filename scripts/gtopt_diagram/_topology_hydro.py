@@ -539,15 +539,21 @@ class TopologyHydroMixin(TopologyIdsMixin):
             name = _elem_name(fr)
             frid = self._frid(fr)
             purpose = fr.get("purpose", "")
-            discharge = self._resolve_field("FlowRight", fr, "discharge", fallback=None)
+            # `target` is the canonical flow field (soft kink point); `discharge`
+            # is its legacy alias kept for back-compat (see flow_right.hpp).
+            target = self._resolve_field("FlowRight", fr, "target", fallback=None)
+            if target is None:
+                target = self._resolve_field(
+                    "FlowRight", fr, "discharge", fallback=None
+                )
             if self.opts.compact:
                 lbl = str(name)
             else:
                 parts = [f"[FlowRight] {name}"]
                 if purpose:
                     parts.append(str(purpose))
-                if discharge is not None:
-                    parts.append(f"{discharge} m\u00b3/s")
+                if target is not None:
+                    parts.append(f"{target} m\u00b3/s")
                 lbl = "\n".join(parts)
             self.model.add_node(
                 Node(

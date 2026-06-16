@@ -874,7 +874,7 @@ _RIGHTS_PLANNING = {
                 "name": "FR1",
                 "purpose": "environmental",
                 "junction_a": 2,
-                "discharge": 15.0,
+                "target": 15.0,
             },
         ],
     }
