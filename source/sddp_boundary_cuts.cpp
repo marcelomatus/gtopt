@@ -56,6 +56,14 @@ using namespace gtopt::detail;
   }
 
   const bool separated = (mode == BoundaryCutsMode::separated);
+  // Terminal-phase multicut: the boundary cut for source scenario
+  // `rc.scene_uid` is broadcast onto `varphi_{source}` in EVERY scene's
+  // terminal LP — the horizon analogue of the intermediate-phase multicut
+  // routing in share_cuts_for_phase.  Requires register_alpha_variables to
+  // have laid down N terminal α columns, which it does iff
+  // boundary_cut_sharing == multicut.
+  const bool multicut =
+      (options.boundary_cut_sharing == BoundaryCutSharingMode::multicut);
 
   try {
     // ── Read the CSV with the Arrow CSV reader ───────────────────
@@ -477,6 +485,13 @@ using namespace gtopt::detail;
     const auto missing_mode = options.missing_cut_var_mode;
     int cuts_loaded = 0;
     int cuts_skipped = 0;
+    // multicut-only: PLP cuts whose source scenario UID is not in the gtopt
+    // scene set (e.g. when --hydrologies selects N_gtopt < NVarPhi) have no
+    // varphi_s column to land on and are dropped.  Dropping them silently
+    // biases the terminal value function (the dropped scenarios' cost-to-go
+    // is ignored), so we count and warn — see the lp-numerics analysis that
+    // keeps `combined` (mechanism A) the plp2gtopt default.
+    int multicut_cuts_dropped = 0;
     // Per-scene accumulator: collect every (scene_index → SparseRow) install
     // here, then dispatch one bulk `add_rows` per scene at the end of the
     // outer loop.  Saves ~`raw_cuts.size()` backend round-trips per scene
@@ -515,10 +530,17 @@ using namespace gtopt::detail;
         continue;
       }
 
-      // Determine which scenes get this cut
+      // Determine which scenes get this cut, and which α column it targets.
+      //   * separated (per_scene): install only on the matching scene's α.
+      //   * combined  (shared):    broadcast onto every scene's single α.
+      //   * multicut:               broadcast onto EVERY scene's terminal LP
+      //     but target `varphi_{source}` (the α dedicated to the cut's source
+      //     scenario), never the destination's own α — keeping each
+      //     scenario's terminal cuts on a dedicated column.
       SceneIndex scene_start {0};
       SceneIndex scene_end {num_scenes};
-      if (separated) {
+      std::optional<SceneIndex> source_scene;
+      if (separated || multicut) {
         auto it = scene_uid_to_index.find(rc.scene_uid);
         if (it == scene_uid_to_index.end()) {
           // Spdlog formats the structured cut-identity tuple
@@ -528,15 +550,28 @@ using namespace gtopt::detail;
               "scene_array -- skipping",
               uid_of(rc.iteration_index),
               rc.scene_uid);
+          if (multicut) {
+            ++multicut_cuts_dropped;
+          }
           continue;
         }
-        scene_start = it->second;
-        scene_end = next(it->second);
+        if (multicut) {
+          // Broadcast to all scenes; target this scenario's own varphi_s.
+          source_scene = it->second;
+        } else {
+          scene_start = it->second;
+          scene_end = next(it->second);
+        }
       }
 
       for (const auto scene_index : iota_range(scene_start, scene_end)) {
-        const auto* alpha_svar = find_alpha_state_var(
-            planning_lp.simulation(), scene_index, last_phase);
+        const auto* alpha_svar = source_scene
+            ? find_alpha_state_var(planning_lp.simulation(),
+                                   scene_index,
+                                   last_phase,
+                                   *source_scene)
+            : find_alpha_state_var(
+                  planning_lp.simulation(), scene_index, last_phase);
         if (alpha_svar == nullptr) {
           continue;  // No α on this (scene, phase) — nothing to add
         }
@@ -906,6 +941,17 @@ using namespace gtopt::detail;
           "Boundary cuts: skipped {} cut(s) referencing "
           "missing state variables",
           cuts_skipped);
+    }
+
+    if (multicut_cuts_dropped > 0) {
+      SPDLOG_WARN(
+          "SDDP multicut boundary: dropped {} cut(s) whose source scenario "
+          "UID is not in the gtopt scene_array (N_scenes < NVarPhi).  The "
+          "terminal value function ignores those scenarios' cost-to-go, "
+          "biasing LB downward.  Prefer boundary_cuts_mode=combined "
+          "(per_scene α) when the scene set is a subset of the PLP "
+          "hydrologies.",
+          multicut_cuts_dropped);
     }
 
     SPDLOG_INFO(

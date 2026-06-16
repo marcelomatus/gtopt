@@ -567,7 +567,7 @@ def build_options(args: argparse.Namespace) -> dict:
     # ``cplex.prm`` is rewritten to dual / no-presolve for these methods (see
     # ``install_solver_param_files``); without that the prm's ``LPMethod 4``
     # (barrier) would override the JSON algorithm since it is read last.
-    if args.method in ("sddp", "cascade"):
+    if args.method in ("sddp", "cascade", "cascade-reduced"):
         model_opts.setdefault("lp_reduction", True)
         sddp_opts = opts.setdefault("sddp_options", {})
         sddp_opts.setdefault("aperture_solve_mode", "warm")

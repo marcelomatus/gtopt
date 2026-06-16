@@ -233,6 +233,8 @@ std::unique_ptr<PlanningMethod> make_planning_method(
   solver->boundary_cuts_file =
       std::string(options.monolithic_boundary_cuts_file());
   solver->boundary_cuts_mode = options.monolithic_boundary_cuts_mode_enum();
+  solver->boundary_cut_sharing =
+      options.monolithic_boundary_cut_sharing_mode_enum();
   solver->boundary_max_iterations =
       options.monolithic_boundary_max_iterations();
   return solver;

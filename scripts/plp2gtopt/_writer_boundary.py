@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from .planos_writer import write_boundary_cuts_csv
 
@@ -24,7 +24,7 @@ class BoundaryMixin:
     """Boundary-cut + variable-scale processing for ``GTOptWriter``."""
 
     parser: Any
-    planning: Dict[str, Dict[str, Any]]
+    planning: dict[str, dict[str, Any]]
 
     @staticmethod
     def _load_alias_file(alias_file: Path | str | None) -> dict[str, str] | None:
@@ -156,6 +156,17 @@ class BoundaryMixin:
         # NVarPhi in the CSV, so combined + `prob_s × α_s` aggregation
         # reproduces PLP's expected α exactly.  Explicit user setting
         # via `--boundary-cuts-mode` still wins.
+        #
+        # NOTE: we deliberately do NOT switch boundary loading to the
+        # newer `boundary_cut_sharing_mode=multicut` (N terminal varphi
+        # columns).  multicut is only LB-correct when the gtopt scene
+        # count equals PLP's NVarPhi; under `--hydrologies` filtering
+        # (N_scenes < NVarPhi) it silently drops the cuts whose source
+        # scenario is outside the gtopt scene set, biasing the terminal
+        # value downward.  `combined` + NVarPhi pre-division keeps all
+        # cuts as competing lower bounds and is robust to subsets — so it
+        # stays the PLP-faithful default for boundary LOADING (the
+        # intermediate-phase cut SHARING is multicut; see build_options).
         bc_mode = options.get("boundary_cuts_mode")
         if bc_mode is None and planos.cuts:
             bc_mode = "combined"

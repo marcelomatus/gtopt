@@ -245,7 +245,7 @@ class TestBuildOptions:
         # ``hot_start_cuts`` retired in 2026-05 — internal hot-start
         # cuts now travel via the typed Parquet path on the gtopt side.
         args = self._make_args(
-            cut_sharing_mode="shared",
+            cut_sharing_mode="none",
             boundary_cuts_mode="forward",
             boundary_max_iterations=100,
             no_boundary_cuts=True,
@@ -255,7 +255,8 @@ class TestBuildOptions:
             use_line_losses=True,
         )
         opts = build_options(args)
-        assert opts["cut_sharing_mode"] == "shared"
+        # Explicit --cut-sharing-mode wins over the multicut default.
+        assert opts["cut_sharing_mode"] == "none"
         assert opts["boundary_cuts_mode"] == "forward"
         assert opts["boundary_max_iterations"] == 100
         assert opts["no_boundary_cuts"] is True

@@ -1858,6 +1858,21 @@ public:
         BoundaryCutsMode::separated);
   }
 
+  /// Terminal-α sharing for monolithic boundary cuts.  When unset, derive
+  /// from the boundary-cuts mode (combined → shared, else per_scene),
+  /// mirroring `sddp_boundary_cut_sharing_mode_enum`.
+  [[nodiscard]] constexpr auto monolithic_boundary_cut_sharing_mode_enum() const
+      -> BoundaryCutSharingMode
+  {
+    if (const auto& m = m_options_.monolithic_options.boundary_cut_sharing_mode)
+    {
+      return *m;
+    }
+    return monolithic_boundary_cuts_mode_enum() == BoundaryCutsMode::combined
+        ? BoundaryCutSharingMode::shared
+        : BoundaryCutSharingMode::per_scene;
+  }
+
   /// Validate all enum-typed option fields and return a list of warnings.
   ///
   /// Since enum fields are now typed (`std::optional<EnumType>`), invalid

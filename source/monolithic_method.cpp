@@ -57,6 +57,7 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     SDDPOptions bc_opts;
     bc_opts.boundary_cuts_file = boundary_cuts_file;
     bc_opts.boundary_cuts_mode = boundary_cuts_mode;
+    bc_opts.boundary_cut_sharing = boundary_cut_sharing;
     bc_opts.boundary_max_iterations = boundary_max_iterations;
     // Mirror the SDDP α-rebase opt-in / scale onto the monolithic path so
     // the efin-based offset `c` is computed identically (see TASK 2).  The
@@ -90,7 +91,15 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     bc_opts.scale_alpha = scale_alpha;
     SPDLOG_INFO("MonolithicMethod: boundary-cut scale_alpha {}", scale_alpha);
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      register_alpha_variables(planning_lp, scene_index, scale_alpha);
+      // cut_sharing stays `none` (monolithic does no intermediate-phase
+      // sharing — it is one big LP); `boundary_cut_sharing` controls only
+      // the TERMINAL α layout, so multicut lays down N terminal varphi_s
+      // for the boundary-cut loader to route per source scenario.
+      register_alpha_variables(planning_lp,
+                               scene_index,
+                               scale_alpha,
+                               CutSharingMode::none,
+                               boundary_cut_sharing);
     }
 
     // Build per-scene phase state info (alpha columns + outgoing links)

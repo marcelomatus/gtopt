@@ -39,6 +39,13 @@ struct MonolithicOptions
   /** @brief Boundary cuts load mode: noload, separated (default),
    * or combined */
   std::optional<BoundaryCutsMode> boundary_cuts_mode {};
+  /** @brief Terminal-α sharing for boundary cuts: per_scene (default),
+   * shared, or multicut.
+   *
+   * Mirrors `SddpOptions::boundary_cut_sharing_mode`.  Under `multicut` the
+   * terminal phase carries N α columns (varphi_0..N-1) and each scenario's
+   * boundary cut is routed to its own varphi_s in every scene-LP. */
+  std::optional<BoundaryCutSharingMode> boundary_cut_sharing_mode {};
   /** @brief Maximum iterations to load from boundary cuts file (0 = all) */
   OptInt boundary_max_iterations {};
 
@@ -56,6 +63,7 @@ struct MonolithicOptions
     merge_opt(solve_mode, opts.solve_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
+    merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
     if (opts.solver_options.has_value()) {
       if (solver_options.has_value()) {

@@ -16,6 +16,7 @@
 
 namespace daw::json
 {
+using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
 using gtopt::MonolithicOptions;
 using gtopt::SolveMode;
@@ -28,6 +29,7 @@ struct MonolithicOptionsConstructor
       OptName solve_mode_str,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
+      OptName boundary_cut_sharing_mode_str,
       OptInt boundary_max_iterations,
       std::optional<SolverOptions> solver_options) const
   {
@@ -40,6 +42,11 @@ struct MonolithicOptionsConstructor
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
           "boundary_cuts_mode", *boundary_cuts_mode_str);
+    }
+    if (boundary_cut_sharing_mode_str) {
+      opts.boundary_cut_sharing_mode =
+          gtopt::require_enum<BoundaryCutSharingMode>(
+              "boundary_cut_sharing_mode", *boundary_cut_sharing_mode_str);
     }
     opts.boundary_max_iterations = boundary_max_iterations;
     opts.solver_options = solver_options;
@@ -56,16 +63,19 @@ struct json_data_contract<MonolithicOptions>
       json_member_list<json_string_null<"solve_mode", OptName>,
                        json_string_null<"boundary_cuts_file", OptName>,
                        json_string_null<"boundary_cuts_mode", OptName>,
+                       json_string_null<"boundary_cut_sharing_mode", OptName>,
                        json_number_null<"boundary_max_iterations", OptInt>,
                        json_class_null<"solver_options", SolverOptions>>;
 
   static auto to_json_data(MonolithicOptions const& opt)
   {
-    return std::make_tuple(detail::enum_to_opt_name(opt.solve_mode),
-                           opt.boundary_cuts_file,
-                           detail::enum_to_opt_name(opt.boundary_cuts_mode),
-                           opt.boundary_max_iterations,
-                           opt.solver_options);
+    return std::make_tuple(
+        detail::enum_to_opt_name(opt.solve_mode),
+        opt.boundary_cuts_file,
+        detail::enum_to_opt_name(opt.boundary_cuts_mode),
+        detail::enum_to_opt_name(opt.boundary_cut_sharing_mode),
+        opt.boundary_max_iterations,
+        opt.solver_options);
   }
 };
 
