@@ -468,7 +468,13 @@ class TestCommitmentFuelChain:
 class TestEndToEndOverlay:
     @pytest.fixture
     def cen_chile_path(self) -> Path:
-        return Path("/home/marce/git/gtopt/share/gtopt/emissions/cen_chile.json")
+        return (
+            Path(__file__).resolve().parents[3]
+            / "share"
+            / "gtopt"
+            / "emissions"
+            / "cen_chile.json"
+        )
 
     def test_objective_mode_set(self, cen_chile_path: Path) -> None:
         pl = _make_planning()
@@ -673,7 +679,13 @@ class TestNREL118OnlyEmissionsInversion:
 
     @pytest.fixture(scope="class")
     def cen_chile_path(self) -> Path:
-        return Path("/home/marce/git/gtopt/share/gtopt/emissions/cen_chile.json")
+        return (
+            Path(__file__).resolve().parents[3]
+            / "share"
+            / "gtopt"
+            / "emissions"
+            / "cen_chile.json"
+        )
 
     def test_baseline_has_emission_infrastructure(self, nrel118_planning: dict) -> None:
         """Sanity-check the cost-mode fixture before we invert it."""
@@ -983,7 +995,13 @@ class TestMultiPollutantThroughOverlay:
 
     @pytest.fixture
     def cen_chile_path(self) -> Path:
-        return Path("/home/marce/git/gtopt/share/gtopt/emissions/cen_chile.json")
+        return (
+            Path(__file__).resolve().parents[3]
+            / "share"
+            / "gtopt"
+            / "emissions"
+            / "cen_chile.json"
+        )
 
     def test_full_overlay_with_multi_pollutant_zones(
         self, cen_chile_path: Path
