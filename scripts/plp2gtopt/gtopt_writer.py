@@ -28,6 +28,7 @@ from typing import Any, Dict
 from gtopt_shared.json_utils import sanitize_inf as _sanitize_inf
 from gtopt_shared.json_utils import strip_internal_keys as _strip_internal_keys
 
+from ._fast_path import FAST_PATH_METHODS, apply_iterative_fast_path
 from ._writer_boundary import BoundaryMixin
 from ._writer_generation import GenerationMixin
 from ._writer_hydro import HydroMixin
@@ -1225,28 +1226,11 @@ class GTOptWriter(
         # The bundled cplex.prm is retuned to dual / no-presolve to match (see
         # plp2gtopt.install_solver_param_files).  Every field is overridable from
         # the source conf's model_options / sddp_options.
-        if method in ("sddp", "cascade", "cascade-reduced"):
+        if method in FAST_PATH_METHODS:
             src_sddp = options.get("sddp_options") or {}
-            if src_model.get("lp_reduction") is not None:
-                model_opts["lp_reduction"] = src_model["lp_reduction"]
-            else:
-                model_opts.setdefault("lp_reduction", True)
-            sddp_opts.setdefault(
-                "aperture_solve_mode",
-                src_sddp.get("aperture_solve_mode") or "warm",
+            apply_iterative_fast_path(
+                model_opts, sddp_opts, src_model=src_model, src_sddp=src_sddp
             )
-            if "aperture_chunk_size" not in sddp_opts:
-                _acs = src_sddp.get("aperture_chunk_size")
-                sddp_opts["aperture_chunk_size"] = -1 if _acs is None else _acs
-            _fwd = dict(src_sddp.get("forward_solver_options") or {})
-            _fwd.setdefault("algorithm", "dual")
-            _fwd.setdefault("advanced_basis", True)
-            sddp_opts.setdefault("forward_solver_options", _fwd)
-            _bwd = sddp_opts.get("backward_solver_options")
-            if _bwd is None:
-                _bwd = dict(src_sddp.get("backward_solver_options") or {})
-            _bwd.setdefault("algorithm", "dual")
-            sddp_opts["backward_solver_options"] = _bwd
             # PLP-faithful cut sharing: each scene-LP carries N dedicated
             # future-cost columns (varphi_0..N-1) and scenario-s's backward
             # cut lands on varphi_s in every scene-LP, priced 1/N (matches

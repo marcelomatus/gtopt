@@ -16,6 +16,7 @@ from gtopt_shared.state_snapshot import (
     write_state_snapshot,
 )
 
+from ._fast_path import FAST_PATH_METHODS, apply_iterative_fast_path
 from .plp2gtopt import (
     convert_plp_case,
     print_pumped_storage_template,
@@ -567,23 +568,18 @@ def build_options(args: argparse.Namespace) -> dict:
     # ``cplex.prm`` is rewritten to dual / no-presolve for these methods (see
     # ``install_solver_param_files``); without that the prm's ``LPMethod 4``
     # (barrier) would override the JSON algorithm since it is read last.
-    if args.method in ("sddp", "cascade", "cascade-reduced"):
-        model_opts.setdefault("lp_reduction", True)
+    if args.method in FAST_PATH_METHODS:
         sddp_opts = opts.setdefault("sddp_options", {})
-        sddp_opts.setdefault("aperture_solve_mode", "warm")
-        sddp_opts.setdefault("aperture_chunk_size", -1)
-        fwd_solver = sddp_opts.setdefault("forward_solver_options", {})
-        fwd_solver.setdefault("algorithm", "dual")
-        fwd_solver.setdefault("advanced_basis", True)
-        bwd_solver = sddp_opts.setdefault("backward_solver_options", {})
-        bwd_solver.setdefault("algorithm", "dual")
+        apply_iterative_fast_path(model_opts, sddp_opts)
         # PLP-faithful cut sharing: each scene-LP carries N dedicated
         # future-cost columns (varphi_0..N-1) and scenario-s's backward
         # cut lands on varphi_s in every scene-LP, priced 1/N — matching
         # PLP's source-scenario indexing (plp-agrespd.f:94) + 1/N
         # averaging (defprbpd.f:810).  Replaces the prior `none` default
         # (no sharing).  An explicit --cut-sharing-mode wins (applied
-        # below, where args.cut_sharing_mode is not None).
+        # below, where args.cut_sharing_mode is not None).  Set on the
+        # top-level opts dict (CLI plumbing); the writer threads it into
+        # sddp_options.cut_sharing_mode.
         opts.setdefault("cut_sharing_mode", "multicut")
     if getattr(args, "lift_line_caps", None):
         opts["lift_line_caps"] = _parse_lift_line_caps(args.lift_line_caps)
