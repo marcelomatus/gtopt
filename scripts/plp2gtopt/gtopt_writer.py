@@ -1247,6 +1247,15 @@ class GTOptWriter(
                 _bwd = dict(src_sddp.get("backward_solver_options") or {})
             _bwd.setdefault("algorithm", "dual")
             sddp_opts["backward_solver_options"] = _bwd
+            # PLP-faithful cut sharing: each scene-LP carries N dedicated
+            # future-cost columns (varphi_0..N-1) and scenario-s's backward
+            # cut lands on varphi_s in every scene-LP, priced 1/N (matches
+            # plp-agrespd.f:94 source indexing + defprbpd.f:810 averaging).
+            # Defaulted here too — not just in main.build_options — so
+            # writer-direct callers (convert_plp_case with a raw opts dict)
+            # also emit it.  An explicit options["cut_sharing_mode"] set at
+            # line ~978 above wins (setdefault is a no-op then).
+            sddp_opts.setdefault("cut_sharing_mode", "multicut")
 
         planning_opts: dict[str, Any] = {
             "method": method,

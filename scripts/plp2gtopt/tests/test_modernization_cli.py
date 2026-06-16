@@ -103,7 +103,11 @@ def test_build_options_emits_aperture_chunk_size() -> None:
 
 
 def test_build_options_omits_aperture_chunk_size_when_unset() -> None:
-    args = _parse()
+    # monolithic gets no iterative fast-path defaults, so an unset
+    # --aperture-chunk-size leaves it absent.  (sddp/cascade deliberately
+    # default it to -1 via the fast-path block — see
+    # test_main_coverage.test_sddp_method_fast_path_defaults.)
+    args = _parse("--method", "monolithic")
     opts = build_options(args)
     assert "aperture_chunk_size" not in opts.get("sddp_options", {})
 
