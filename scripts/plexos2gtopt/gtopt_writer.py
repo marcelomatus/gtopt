@@ -1913,11 +1913,10 @@ def build_emission_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
 
 # ── Python-side reservoir water-value pricing ──────────────────────────────
 #
-# ``efin_cost`` (the SOFT terminal-volume slack price) is computed HERE, in
+# ``efin_cost`` (the SOFT terminal-volume slack price) is derived HERE, in
 # Python, via the shared :class:`gtopt_shared.water_values.WaterValueResolver`
 # — the SAME library plp2gtopt uses — so both converters derive water values
-# the same way and the gtopt C++ side (``apply_boundary_cut_soft_costs``) no
-# longer has to reconstruct them from the boundary-cut file at load time.
+# the same way.
 #
 # Two surfaces feed the resolver:
 #
@@ -1926,8 +1925,7 @@ def build_emission_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
 #     demand VoLL ($/MWh).  Used for reservoirs WITHOUT a boundary cut.
 #   * cut OVERWRITE = the boundary-cut lower-bound water value, in the
 #     reservoir's native volume unit ($/CMD).  Used (overriding the auto
-#     estimate) for any reservoir present in the boundary cut.  This is the
-#     value the C++ side used to derive itself from ``boundary_cuts.csv``.
+#     estimate) for any reservoir present in the boundary cut.
 #
 # Volume-unit note: plexos2gtopt reservoirs store volume in **CMD** (cumec·day
 # = m³/s × 86 400 s), so ``efin_cost`` is in **$/CMD**.  The boundary-cut
@@ -2100,8 +2098,7 @@ def build_water_value_resolver(
 def build_reservoir_array(
     reservoirs: tuple[ReservoirSpec, ...],
     *,
-    soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
-    water_values: dict[str, float] | None = None,
+    soft_storage_bounds: bool = True,
     apply_default_loss: bool = False,
     water_value_resolver: WaterValueResolver | None = None,
     reservoir_numbers: dict[str, int] | None = None,
@@ -2195,16 +2192,14 @@ def build_reservoir_array(
             entry["emax"] = 0.0
         # End-of-horizon storage target.  ``ReservoirSpec.efin`` is
         # populated from the LAST-day end-of-day floor in
-        # ``Hydro_MinVolume.csv`` (see ``extract_reservoirs``).  Two
-        # paths from here:
+        # ``Hydro_MinVolume.csv`` (see ``extract_reservoirs``).
         #
-        # The end-of-horizon target is ALWAYS soft: ``vol_end + slack >=
-        # efin`` with the slack cost (``efin_cost``, in $/CMD) now derived
-        # HERE, in Python, via the shared :class:`WaterValueResolver` — the
-        # boundary-cut lower-bound water value when the reservoir is in the
-        # cut, else the auto ``ANCHOR × cascade_lost_pf`` estimate.  This
-        # replaces the legacy reliance on the gtopt C++
-        # ``apply_boundary_cut_soft_costs`` pass; plexos2gtopt and plp2gtopt
+        # Under ``soft_storage_bounds`` (the default) the target is soft:
+        # ``vol_end + slack >= efin`` with the slack cost (``efin_cost``, in
+        # $/CMD) derived HERE, in Python, via the shared
+        # :class:`WaterValueResolver` — the boundary-cut lower-bound water
+        # value when the reservoir is in the cut, else the auto
+        # ``ANCHOR × cascade_lost_pf`` estimate.  plexos2gtopt and plp2gtopt
         # share the same Python derivation path.
         #
         # ``never_drain`` is a SEPARATE concern: it disables the
@@ -2222,8 +2217,14 @@ def build_reservoir_array(
             # present, else the auto ``ANCHOR × cascade_lost_pf`` estimate.
             # ``never_drain`` reservoirs keep their hard ``efin`` floor with
             # NO soft price (the sentinel forbids buying out of it).
+            #
+            # ``soft_storage_bounds`` is the global hard/soft toggle shared
+            # with plp2gtopt: when it is False, ``efin`` (the hard floor)
+            # is still emitted but NO ``efin_cost`` slack price is set, so
+            # gtopt enforces a HARD ``vol_end >= efin`` constraint.
             if (
-                water_value_resolver is not None
+                soft_storage_bounds
+                and water_value_resolver is not None
                 and water_value_resolver.anchor > 0.0
                 and not res.never_drain
             ):
@@ -2236,10 +2237,6 @@ def build_reservoir_array(
                 cost = water_value_resolver.efin_cost_for(res.name, lost_pf)
                 if cost > 0.0:
                     entry["efin_cost"] = cost
-            # ``water_values`` (raw boundary-cut slopes) and
-            # ``soft_efin_reservoirs`` are retained for API compatibility but
-            # superseded by the resolver's cut OVERWRITE path.
-            _ = (water_values, soft_efin_reservoirs)
         # Reservoir-internal drain is ENABLED by default on every reservoir
         # — this replicates PLEXOS's per-storage spill column (an unbounded
         # "spill-to-sea" valve at a high penalty) and matches plp2gtopt,
@@ -3500,7 +3497,7 @@ def build_planning(
     name: str,
     default_uc_penalty: float | None = None,
     lp_relax: bool = False,
-    soft_efin_reservoirs: frozenset[str] = frozenset({"L_Maule"}),
+    soft_storage_bounds: bool = True,
     soft_penalty_override: float | None = None,
     default_storage_loss: bool = False,
     fcf_scale_alpha: float | None = None,
@@ -3561,8 +3558,7 @@ def build_planning(
     # Water-value resolver — prices reservoir terminal-volume slack
     # (``efin_cost``, $/CMD) in Python via the shared library, from the
     # already-built generator/demand costs (anchor) + the hydro cascade
-    # (turbines) + the boundary cut (per-reservoir OVERWRITE).  Replaces the
-    # legacy C++ ``apply_boundary_cut_soft_costs`` derivation.
+    # (turbines) + the boundary cut (per-reservoir OVERWRITE).
     water_value_resolver, reservoir_numbers = build_water_value_resolver(
         reservoirs=case.reservoirs,
         turbines=case.turbines,
@@ -3598,15 +3594,11 @@ def build_planning(
         "junction_array": build_junction_array(case.junctions),
         "reservoir_array": build_reservoir_array(
             case.reservoirs,
-            soft_efin_reservoirs=soft_efin_reservoirs,
-            # Per-reservoir water values (boundary-cut slopes) price the SOFT
-            # ``vol_end >= efin`` slack — terminal storage valued at its
-            # marginal water value, not hard-pinned.  The actual ``efin_cost``
-            # is now derived by ``water_value_resolver`` (Python), with these
-            # raw slopes kept for API compatibility.
-            water_values=(
-                dict(case.boundary_cut.slopes) if case.boundary_cut else None
-            ),
+            soft_storage_bounds=soft_storage_bounds,
+            # ``efin_cost`` (the SOFT ``vol_end >= efin`` slack price) is
+            # derived by ``water_value_resolver`` (Python): the boundary-cut
+            # lower-bound water value when the reservoir is in the cut, else
+            # the auto anchor estimate.
             apply_default_loss=default_storage_loss,
             water_value_resolver=water_value_resolver,
             reservoir_numbers=reservoir_numbers,

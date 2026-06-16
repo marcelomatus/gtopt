@@ -19,6 +19,7 @@ from gtopt_shared.cli_flags import (
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
     add_no_lift_lines_argument,
+    add_soft_storage_bounds_argument,
     add_use_single_bus_argument,
 )
 from gtopt_shared.cli_signals import (
@@ -504,24 +505,11 @@ def make_parser() -> argparse.ArgumentParser:
             "and document the physical loss explicitly."
         ),
     )
-    parser.add_argument(
-        "--soft-efin-reservoirs",
-        type=str,
-        default="L_Maule",
-        help=(
-            "Comma-separated reservoir names whose end-of-horizon "
-            "``efin`` is emitted as a SOFT constraint (slack column at "
-            "the reservoir's PLEXOS Water Value, or $1e6/GWh for the "
-            "PLEXOS ``1e+30`` never-drain sentinel reservoirs).  All "
-            "other reservoirs get a HARD ``vol_end >= efin`` row.  "
-            "Default ``L_Maule`` — its 1e+30 Water Value makes the "
-            "floor unreachable without slack once the upstream cascade "
-            "is tightened; every other CEN PCP reservoir reaches its "
-            "PLEXOS-published efin natively.  Pass an empty string "
-            "(``--soft-efin-reservoirs=''``) to make EVERY efin hard, "
-            "or a comma-separated list to opt in additional reservoirs."
-        ),
-    )
+    # Global hard/soft reservoir-floor toggle shared with plp2gtopt.  When
+    # soft (the default) each reservoir's ``efin`` floor is priced via the
+    # C++ ``Reservoir.efin_cost`` slack; ``--no-soft-storage-bounds`` makes
+    # every ``vol_end >= efin`` a HARD constraint instead.
+    add_soft_storage_bounds_argument(parser)
     parser.add_argument(
         "--nseg-losses",
         type=int,
@@ -1131,9 +1119,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_sos2_auto": args.loss_sos2_auto,
         "emin_eod_day1": args.emin_eod_day1,
         "battery_efin_pin": args.battery_efin_pin,
-        "soft_efin_reservoirs": tuple(
-            n.strip() for n in args.soft_efin_reservoirs.split(",") if n.strip()
-        ),
+        "soft_storage_bounds": getattr(args, "soft_storage_bounds", True),
         "auto_lift_lines": args.auto_lift_lines,
         "auto_lift_engine": args.auto_lift_engine,
         "reservoir_spillway": args.reservoir_spillway,

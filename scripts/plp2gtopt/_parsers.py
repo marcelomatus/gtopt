@@ -25,6 +25,7 @@ from gtopt_shared.cli_flags import (
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
     add_scale_objective_argument,
+    add_soft_storage_bounds_argument,
     add_use_kirchhoff_argument,
     add_use_single_bus_argument,
     add_write_out_argument,
@@ -822,19 +823,12 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # for the legacy hard-constraint behaviour.  ``--plp-legacy`` also
     # enables this flag (PLP itself uses these as soft).
     _default_ssb = conf.get("soft_storage_bounds")
-    parser.add_argument(
-        "--soft-storage-bounds",
-        dest="soft_storage_bounds",
-        action=argparse.BooleanOptionalAction,
+    add_soft_storage_bounds_argument(
+        parser,
         default=(
             _default_ssb.lower() not in ("false", "0", "no")
             if _default_ssb is not None
             else True
-        ),
-        help=(
-            "make reservoir efin and maintenance emin soft (slack at "
-            "plpvrebemb / CVert cost) instead of hard constraints "
-            "(default: %(default)s; --plp-legacy implies True)"
         ),
     )
     # Cap on the per-reservoir spillage cost (``Costo de Rebalse`` from

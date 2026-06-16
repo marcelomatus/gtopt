@@ -283,25 +283,13 @@ class TestAutoWaterFailCostMagnitude:
         lost_pf = _REFERENCE_RESERVOIRS_LOST_PF["LMAULE"]
         return lmaule["efin_cost"] / lost_pf * 3600.0 / 1e6
 
-    @staticmethod
-    def _boundary_cut_caps(out_dir_planning) -> dict[str, float]:  # pragma: no cover
-        """Stub left for compatibility — see test docstring.
-
-        The actual ``efin_cost`` test loads the cap dict from the
-        per-test fixture, not from the planning JSON.  This helper
-        was originally proposed to share the cap discovery between
-        tests but ended up unused; kept as a placeholder for
-        future refactoring.
-        """
-        return {}
-
     # ------------------------------------------------------------------
     # Auto pipeline — proportionality across reservoirs
     # ------------------------------------------------------------------
     # Writer and test now read ``last_df`` from the SAME source — the
     # emitted simulation's ``stage_array[-1].discount_factor`` (the
     # value gtopt actually uses at solve time).  The 2026-05-16 fix
-    # to ``_build_efin_cost_cap`` aligned them; this test now passes.
+    # to ``_build_cut_water_values`` aligned them; this test now passes.
     @pytest.mark.parametrize(
         "name,lost_pf",
         list(_REFERENCE_RESERVOIRS_LOST_PF.items()),

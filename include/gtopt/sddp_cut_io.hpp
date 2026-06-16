@@ -106,9 +106,10 @@ struct BoundaryCutCoeffStats
 /// CSV: ``{state_var_name → {min, avg, max}}`` over every cut row, read
 /// through the same Arrow CSV path as ``load_boundary_cuts_csv``.  The state
 /// variable name is the trailing CSV column header (reservoir / battery
-/// name).  This is the single shared parse the scale-alpha and water-value
-/// (efin soft cost) consumers both build on.  Empty when the file is missing,
-/// malformed, or has no state columns.
+/// name).  This is the parse the scale-alpha derivation builds on (the
+/// reservoir efin soft-cost / water-value is now computed in the Python
+/// converters, not here).  Empty when the file is missing, malformed, or has
+/// no state columns.
 [[nodiscard]] auto boundary_cut_coeff_stats(const std::string& filepath)
     -> flat_map<std::string, BoundaryCutCoeffStats>;
 

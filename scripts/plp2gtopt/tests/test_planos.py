@@ -504,20 +504,20 @@ class TestNameAlias:
         assert header[-2:] == ["R1", "R2"]
 
 
-class TestAverageAbsGradientByReservoir:
-    """Tests for PlanosParser.average_abs_gradient_by_reservoir.
+class TestLowerBoundWaterValueByReservoir:
+    """Tests for PlanosParser.lower_bound_water_value_by_reservoir.
 
-    See :meth:`PlanosParser.average_abs_gradient_by_reservoir` for the
-    unit derivation (raw PLP $/Hm³ → per-scene $/hm³ via 1/NVarPhi).
+    The lower bound is ``-max(signed coeff)`` positive-floored (see
+    :func:`gtopt_shared.water_values.cut_lower_bound`), with the same
+    ``1/num_scenarios`` and ``10^(FEscala-6)`` scaling as the average
+    helper.
     """
 
-    def test_basic_three_cuts(self, tmp_path):
-        """Three cuts with GradX_LMAULE = [-100, -200, -300] → avg = 200."""
+    def test_basic_lower_bound_is_neg_max_signed(self, tmp_path):
+        """GradX = [-100, -200, -300] → lower bound = -max = 100."""
         p1 = tmp_path / "plpplaem1.dat"
         p2 = tmp_path / "plpplaem2.dat"
         p1.write_text("1\n1 'LMAULE'\n")
-        # Boundary stage 5; three boundary cuts with the same reservoir
-        # but different GradX values to exercise the average.
         p2.write_text(
             "5\n"
             "1  5  1  1000.0  -100.0\n"
@@ -527,70 +527,12 @@ class TestAverageAbsGradientByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        # No NVarPhi scaling: average over the raw PLP gradients.
-        out = parser.average_abs_gradient_by_reservoir()
-        assert "LMAULE" in out
-        assert out["LMAULE"] == pytest.approx(200.0)
+        out = parser.lower_bound_water_value_by_reservoir()
+        # -max([-100, -200, -300]) = -(-100) = 100.0
+        assert out["LMAULE"] == pytest.approx(100.0)
 
-    def test_skips_zero_coefficients(self, tmp_path):
-        """Zeros must not pollute the average (they are filtered out)."""
-        p1 = tmp_path / "plpplaem1.dat"
-        p2 = tmp_path / "plpplaem2.dat"
-        p1.write_text("1\n1 'R1'\n")
-        # Two cuts, one with zero coefficient.  The parser already
-        # drops 0.0 from the coefficients dict (see
-        # ``test_zero_coefficient_excluded``) so the average is taken
-        # over the surviving non-zero gradient only.
-        p2.write_text("5\n1  5  1  1000.0  -100.0\n1  5  2  1000.0   0.0\n")
-        parser = PlanosParser(p1, p2)
-        parser.parse()
-
-        out = parser.average_abs_gradient_by_reservoir()
-        # Average over non-zero only ⇒ 100.0
-        assert out["R1"] == pytest.approx(100.0)
-
-    def test_reservoir_with_no_nonzero_cuts_omitted(self, tmp_path):
-        """A reservoir whose cuts are all zero is missing from the result."""
-        p1 = tmp_path / "plpplaem1.dat"
-        p2 = tmp_path / "plpplaem2.dat"
-        p1.write_text("2\n1 'R1'\n2 'R2'\n")
-        # R1 has non-zero gradients; R2 is always zero.
-        p2.write_text("5\n1  5  1  1000.0  -100.0  0.0\n1  5  2  1000.0  -200.0  0.0\n")
-        parser = PlanosParser(p1, p2)
-        parser.parse()
-
-        out = parser.average_abs_gradient_by_reservoir()
-        assert out == {"R1": pytest.approx(150.0)}
-
-    def test_includes_non_boundary_stages(self, tmp_path):
-        """``all_cuts`` is the source — non-boundary stages count too.
-
-        The cap is meant to reflect the FULL revealed marginal water
-        value across the SDDP pass, not just the last stage.  Both
-        boundary and hot-start cuts contribute.
-        """
-        p1 = tmp_path / "plpplaem1.dat"
-        p2 = tmp_path / "plpplaem2.dat"
-        p1.write_text("1\n1 'R1'\n")
-        # Boundary stage = 5; one boundary cut and one earlier cut.
-        p2.write_text(
-            "5\n"
-            "1  5  1  1000.0  -100.0\n"  # boundary
-            "1  3  1  500.0   -300.0\n"  # hot-start (stage 3)
-        )
-        parser = PlanosParser(p1, p2)
-        parser.parse()
-
-        # Average across both: (100 + 300) / 2 = 200
-        out = parser.average_abs_gradient_by_reservoir()
-        assert out["R1"] == pytest.approx(200.0)
-
-    def test_num_scenarios_divides_average(self, tmp_path):
-        """``num_scenarios=N`` divides each gradient by N before averaging.
-
-        Mirrors the ``1/NVarPhi`` scaling applied by the writer at CSV
-        export time, so the dict lands in gtopt per-scene ``$/hm³``.
-        """
+    def test_num_scenarios_divides_before_reduction(self, tmp_path):
+        """``num_scenarios=N`` divides each coeff by N before ``-max``."""
         p1 = tmp_path / "plpplaem1.dat"
         p2 = tmp_path / "plpplaem2.dat"
         p1.write_text("1\n1 'R1'\n")
@@ -598,30 +540,84 @@ class TestAverageAbsGradientByReservoir:
         parser = PlanosParser(p1, p2)
         parser.parse()
 
-        # avg(|GradX|) = 150 raw; divide by 4 ⇒ 37.5
-        out = parser.average_abs_gradient_by_reservoir(num_scenarios=4)
-        assert out["R1"] == pytest.approx(37.5)
+        # coeffs /4 = [-25, -50]; -max = 25.0
+        out = parser.lower_bound_water_value_by_reservoir(num_scenarios=4)
+        assert out["R1"] == pytest.approx(25.0)
 
-    def test_num_scenarios_one_is_no_op(self, tmp_path):
-        """``num_scenarios=1`` (or ``None``) leaves the raw average."""
+    def test_fescala_scaling_applied(self, tmp_path):
+        """FEscala scales each coeff by ``10^(FEscala-6)`` before reduction."""
         p1 = tmp_path / "plpplaem1.dat"
         p2 = tmp_path / "plpplaem2.dat"
-        p1.write_text("1\n1 'R1'\n")
+        # CSV format so FEscala (field index 9) is parsed.  FEscala=8 →
+        # 10^(8-6) = 100.
+        p1.write_text(
+            "#Numero,Nombre,Tipo,Barra,NA,VolMin,VolMax,VMinN,VMaxN,FEscala\n"
+            "1,R1,A,0,0,0,0,0,0,8\n"
+        )
         p2.write_text("5\n1  5  1  1000.0  -100.0\n")
         parser = PlanosParser(p1, p2)
         parser.parse()
+        assert parser.reservoir_fescala.get("R1") == 8
 
-        assert parser.average_abs_gradient_by_reservoir(num_scenarios=1)[
-            "R1"
-        ] == pytest.approx(100.0)
-        assert parser.average_abs_gradient_by_reservoir()["R1"] == pytest.approx(100.0)
+        # coeff -100 * 100 = -10000; -max = 10000.0
+        out = parser.lower_bound_water_value_by_reservoir()
+        assert out["R1"] == pytest.approx(10000.0)
+        # apply_fescala=False disables the multiplier.
+        out_no = parser.lower_bound_water_value_by_reservoir(apply_fescala=False)
+        assert out_no["R1"] == pytest.approx(100.0)
+
+    def test_positive_only_coeff_falls_back_to_cut_floor(self, tmp_path):
+        """A cut pricing water as a liability (only positive coeff) → floor.
+
+        ``cut_lower_bound`` computes ``-max([+50]) = -50 <= 0``; with no
+        negative coefficient to fall back to, it returns the ``_CUT_FLOOR``
+        sentinel (1.0) so the reservoir is never priced at zero.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  50.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.lower_bound_water_value_by_reservoir()
+        assert out["R1"] == pytest.approx(1.0)
+
+    def test_mixed_sign_floors_to_smallest_positive_water_value(self, tmp_path):
+        """Mixed signs: ``-max`` non-positive ⇒ use ``-max_neg_coeff``.
+
+        Coeffs ``[+30, -80]`` ⇒ ``-max = -30 <= 0`` ⇒ fall back to the
+        smallest positive water value ``-max(neg) = -(-80) = 80``.
+        """
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("1\n1 'R1'\n")
+        p2.write_text("5\n1  5  1  1000.0  30.0\n1  5  2  1000.0  -80.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.lower_bound_water_value_by_reservoir()
+        assert out["R1"] == pytest.approx(80.0)
 
     def test_empty_cuts_empty_result(self, tmp_path):
-        """No cuts ⇒ empty dict (degenerate / fixture path)."""
+        """No cuts ⇒ empty dict (None / empty handling)."""
         p1 = tmp_path / "plpplaem1.dat"
         p2 = tmp_path / "plpplaem2.dat"
         p1.write_text("")
         p2.write_text("")
         parser = PlanosParser(p1, p2)
         parser.parse()
-        assert parser.average_abs_gradient_by_reservoir() == {}
+        assert not parser.lower_bound_water_value_by_reservoir()
+
+    def test_zero_coefficients_omitted(self, tmp_path):
+        """All-zero cuts for a reservoir ⇒ no lower bound emitted."""
+        p1 = tmp_path / "plpplaem1.dat"
+        p2 = tmp_path / "plpplaem2.dat"
+        p1.write_text("2\n1 'R1'\n2 'R2'\n")
+        # R1 has a real gradient; R2 is always zero.
+        p2.write_text("5\n1  5  1  1000.0  -100.0  0.0\n1  5  2  1000.0  -200.0  0.0\n")
+        parser = PlanosParser(p1, p2)
+        parser.parse()
+
+        out = parser.lower_bound_water_value_by_reservoir()
+        assert out == {"R1": pytest.approx(100.0)}

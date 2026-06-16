@@ -115,3 +115,74 @@ def test_efin_cost_for_overwrites_with_cut_lower_bound() -> None:
     r = _make_resolver(centrals, cut_water_values={"EMB": 77.0})
     lost_pf = r.cascade_lost_pf(1)
     assert r.efin_cost_for("EMB", lost_pf) == pytest.approx(77.0)
+
+
+# ── max_rendi (static rendi vs cenre lift @ vmax) ───────────────────────────
+def test_max_rendi_static_when_no_cenre() -> None:
+    r = _make_resolver([_central(1, "EMB", "embalse", eff=1.5, bus=1)])
+    assert r.max_rendi("EMB") == pytest.approx(1.5)
+    assert r.max_rendi("UNKNOWN") == 0.0  # unknown central → 0
+
+
+def test_max_rendi_lifts_to_cenre_at_vmax() -> None:
+    # cenre segment: constant 3.0 + slope 0.1*(V-0) at vmax=20 → 5.0 > static 1.5.
+    centrals = [_central(1, "EMB", "embalse", eff=1.5, bus=1, emax=20.0)]
+    cenre = SimpleNamespace(
+        efficiencies=[
+            {
+                "name": "EMB",
+                "segments": [{"constant": 3.0, "slope": 0.1, "volume": 0.0}],
+            }
+        ]
+    )
+    r = WaterValueResolver(
+        central_parser=SimpleNamespace(centrals=centrals),
+        cenre_parser=cenre,
+        options={"auto_water_fail_cost": True},
+    )
+    assert r.max_rendi("EMB") == pytest.approx(5.0)
+
+
+# ── junction_lost_pf (single-junction FlowRight rule) ───────────────────────
+def test_junction_lost_pf_uses_own_rendi_when_bus_positive() -> None:
+    r = _make_resolver([_central(7, "GEN", "serie", eff=2.5, bus=1)])
+    assert r.junction_lost_pf(7) == pytest.approx(2.5)
+
+
+def test_junction_lost_pf_zero_when_no_generator() -> None:
+    r = _make_resolver([_central(7, "TRANSIT", "serie", eff=2.5, bus=0)])
+    assert r.junction_lost_pf(7) == 0.0
+    assert r.junction_lost_pf(999) == 0.0  # unknown central
+
+
+# ── fail_cost + is_active gate ──────────────────────────────────────────────
+def test_fail_cost_is_anchor_times_lost_pf() -> None:
+    centrals = [
+        _central(2, "T1", "termica", gcost=40.0),
+        _central(3, "F1", "falla", gcost=400.0),
+    ]
+    r = _make_resolver(centrals)  # anchor = 0.75*40 + 0.25*400 = 130
+    assert r.fail_cost(2.0) == pytest.approx(260.0)
+    assert r.water_fail_cost == pytest.approx(130.0)  # alias for anchor
+
+
+def test_is_active_gate() -> None:
+    centrals = [_central(2, "T1", "termica", gcost=40.0)]
+    cp = SimpleNamespace(centrals=centrals)
+    assert WaterValueResolver(
+        central_parser=cp, options={"auto_water_fail_cost": True}
+    ).is_active
+    assert WaterValueResolver(
+        central_parser=cp, options={"water_fail_cost": 50.0}
+    ).is_active
+    # No gate set → inactive (callers fall back to legacy pricing).
+    assert not WaterValueResolver(central_parser=cp, options={}).is_active
+
+
+def test_explicit_water_fail_cost_overrides_anchor() -> None:
+    centrals = [
+        _central(2, "T1", "termica", gcost=40.0),
+        _central(3, "F1", "falla", gcost=400.0),
+    ]
+    r = _make_resolver(centrals, options={"water_fail_cost": 99.0})
+    assert r.anchor == pytest.approx(99.0)

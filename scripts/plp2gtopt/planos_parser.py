@@ -302,89 +302,6 @@ class PlanosParser(BaseParser):
     # Cap helpers — boundary-cut-derived marginal water values
     # ------------------------------------------------------------------
 
-    def average_abs_gradient_by_reservoir(
-        self,
-        *,
-        num_scenarios: Optional[int] = None,
-        apply_fescala: bool = True,
-    ) -> Dict[str, float]:
-        """Per-reservoir average ``|GradX_i|`` across all parsed cuts.
-
-        Returns ``{reservoir_name: avg_abs_gradient}``.  Skips zero
-        coefficients so structural zeros do not pollute the average.
-        Reservoirs that never appear with a non-zero coefficient are
-        omitted from the result.
-
-        Unit derivation
-        ---------------
-        PLP's plpplem2.dat carries the **raw, NOT-yet-1/NVarPhi-scaled**
-        gradient ``GradX_i = ∂E[Z]/∂v_i`` in ``$/Hm³``.  See the module
-        docstring of :mod:`planos_writer`: PLP folds the probability
-        factor into the α-column objective coefficient, so the data on
-        disk is the *total* (sum-over-scenarios) marginal water value
-        in raw ``$/Hm³``.
-
-        gtopt's per-scene LP uses an α-column with coefficient ``1.0``;
-        :func:`planos_writer.write_boundary_cuts_csv` therefore divides
-        every gradient by ``num_scenarios`` at export time to convert
-        from PLP-shared-LP space to gtopt per-scene α-space, both also
-        ``$/hm³``.
-
-        ``Reservoir.efin_cost`` lives in the per-scene α-space (it is
-        the marginal cost the gtopt LP pays per unit of END-of-horizon
-        volume slack).  For the cap to be apples-to-apples we MUST
-        apply the same ``1/num_scenarios`` divisor here.
-
-        Args:
-            num_scenarios: PLP scenario count (``NVarPhi``).  When
-                ``>= 2`` the in-memory raw PLP gradients are divided by
-                ``num_scenarios`` to land in gtopt per-scene
-                ``$/hm³``.  ``None``, ``0``, or ``1`` disables the
-                divisor (single-scenario / back-compat).
-
-        Returns:
-            Mapping from reservoir name to ``avg(|GradX_i|)`` in
-            ``$/hm³`` (per-scene physical), suitable for ``min``-style
-            comparison against ``WaterValueResolver.efin_cost``.
-        """
-        if num_scenarios is not None and num_scenarios > 1:
-            scale = 1.0 / float(num_scenarios)
-        else:
-            scale = 1.0
-
-        # Per-reservoir FEscala scaling — matches `planos_writer._vol_scale`.
-        # PLP stores GradX in `$/(raw_volume_unit)` where the unit is
-        # `hm³ / 10^(FEscala - 6)`; multiply by `10^(FEscala - 6)` to land
-        # in `$/hm³` (gtopt's volume basis).  Off by default for
-        # back-compat; the boundary-cut writer enables it via the
-        # `apply_fescala=True` keyword.
-        def _vscale(rname: str) -> float:
-            if not apply_fescala:
-                return 1.0
-            f = self.reservoir_fescala.get(rname)
-            if f is None:
-                return 1.0
-            return 10.0 ** (f - 6)
-
-        sums: Dict[str, float] = {}
-        counts: Dict[str, int] = {}
-        for cut in self.all_cuts:
-            coeffs = cut.get("coefficients") or {}
-            for rname, raw in coeffs.items():
-                try:
-                    val = float(raw)
-                except (TypeError, ValueError):
-                    continue
-                if val == 0.0:
-                    continue
-                sums[rname] = sums.get(rname, 0.0) + abs(val) * scale * _vscale(rname)
-                counts[rname] = counts.get(rname, 0) + 1
-        return {
-            rname: total / counts[rname]
-            for rname, total in sums.items()
-            if counts.get(rname, 0) > 0
-        }
-
     def lower_bound_water_value_by_reservoir(
         self,
         *,
@@ -409,13 +326,12 @@ class PlanosParser(BaseParser):
         :func:`gtopt_shared.water_values.cut_lower_bound`, which also
         positive-floors the result when a cut prices water as a liability.
 
-        Unlike :meth:`average_abs_gradient_by_reservoir`, the coefficients
-        here are collected **SIGNED** (no ``abs``), because the
-        lower-bound rule depends on the sign (``-max`` vs ``-min``).  The
-        same per-reservoir ``scale`` (``1/num_scenarios`` when
-        ``num_scenarios >= 2``) and FEscala ``_vscale`` adjustment used by
-        the average helper are applied, so the result lives in the same
-        per-scene ``$/hm³`` space as ``Reservoir.efin_cost``.
+        The coefficients here are collected **SIGNED** (no ``abs``),
+        because the lower-bound rule depends on the sign (``-max`` vs
+        ``-min``).  The per-reservoir ``scale`` (``1/num_scenarios`` when
+        ``num_scenarios >= 2``) and FEscala ``_vscale`` adjustment land
+        the result in the same per-scene ``$/hm³`` space as
+        ``Reservoir.efin_cost``.
 
         Args:
             num_scenarios: PLP scenario count (``NVarPhi``).  When ``>= 2``

@@ -754,3 +754,64 @@ def test_build_cut_water_values_negative_discount_falls_back_to_raw() -> None:
         }
     )
     assert out == pytest.approx(raw)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HydroMixin.apply_default_water_fail — default WF = max over priced reservoirs
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _apply_default_wf(reservoir_array: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Run ``HydroMixin.apply_default_water_fail`` over a reservoir array."""
+    from plp2gtopt._writer_hydro import HydroMixin  # noqa: PLC0415
+
+    class _Probe(HydroMixin):
+        pass
+
+    probe = _Probe()
+    probe.planning = {"system": {"reservoir_array": reservoir_array}}
+    probe.apply_default_water_fail()  # pylint: disable=protected-access
+    return reservoir_array
+
+
+def test_apply_default_water_fail_stamps_max_on_unpriced() -> None:
+    """The default WF = max(priced efin_cost) lands only on efin-but-unpriced."""
+    reservoirs = [
+        {"name": "A", "efin": 10.0, "efin_cost": 100.0},
+        {"name": "B", "efin": 20.0, "efin_cost": 250.0},  # max priced
+        {"name": "C", "efin": 30.0},  # efin but no efin_cost → patched
+    ]
+    out = _apply_default_wf(reservoirs)
+    # Priced reservoirs are left untouched.
+    assert out[0]["efin_cost"] == pytest.approx(100.0)
+    assert out[1]["efin_cost"] == pytest.approx(250.0)
+    # Unpriced reservoir inherits the global default = max(100, 250) = 250.
+    assert out[2]["efin_cost"] == pytest.approx(250.0)
+
+
+def test_apply_default_water_fail_skips_reservoirs_without_efin() -> None:
+    """A reservoir with no terminal volume floor is never stamped."""
+    reservoirs: List[Dict[str, Any]] = [
+        {"name": "A", "efin": 10.0, "efin_cost": 100.0},
+        {"name": "B"},  # no efin → not patched
+        {"name": "C", "efin": 0.0},  # zero efin → not patched
+    ]
+    out = _apply_default_wf(reservoirs)
+    assert "efin_cost" not in out[1]
+    assert "efin_cost" not in out[2]
+
+
+def test_apply_default_water_fail_noop_when_no_priced_reservoir() -> None:
+    """With no positive efin_cost anywhere, nothing is stamped."""
+    reservoirs = [
+        {"name": "A", "efin": 10.0},
+        {"name": "B", "efin": 20.0, "efin_cost": 0.0},
+    ]
+    out = _apply_default_wf(reservoirs)
+    assert "efin_cost" not in out[0]
+    assert out[1]["efin_cost"] == 0.0  # untouched
+
+
+def test_apply_default_water_fail_empty_reservoir_array_is_noop() -> None:
+    """No reservoirs → no error, no mutation."""
+    assert not _apply_default_wf([])

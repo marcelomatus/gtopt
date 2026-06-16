@@ -407,10 +407,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             options.get("output_file"),
             options.get("name"),
         )
-        soft_efin_raw = options.get("soft_efin_reservoirs") or ("L_Maule",)
-        soft_efin_set = frozenset(
-            n.strip() for n in soft_efin_raw if isinstance(n, str) and n.strip()
-        )
+        soft_storage_bounds = bool(options.get("soft_storage_bounds", True))
         # ``cogen_must_run`` is a (names_set, force_all) tuple parsed in
         # main._parse_cogen_must_run.  Unpack to the build_planning
         # kwargs (defaults match the pre-option behaviour).
@@ -427,7 +424,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
             name=planning_name,
             default_uc_penalty=options.get("default_uc_penalty"),
             lp_relax=bool(options.get("lp_relax", False)),
-            soft_efin_reservoirs=soft_efin_set,
+            soft_storage_bounds=soft_storage_bounds,
             soft_penalty_override=options.get("soft_penalty_cost"),
             default_storage_loss=bool(options.get("default_storage_loss", False)),
             loss_cost_eps=float(options.get("loss_cost_eps", 0.0) or 0.0),
