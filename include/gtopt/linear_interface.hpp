@@ -757,6 +757,18 @@ public:
                                                double new_lowb,
                                                double new_uppb) noexcept;
 
+  /// uid-discriminated two-sided bound update — used by
+  /// `CutSharingMode::multicut`, where the N future-cost columns
+  /// (`varphi_0..N-1`) share the α class/variable name and differ only
+  /// by `variable_uid = sddp_alpha_uid + source_scene`.  The name-only
+  /// overload above always matches `varphi_0`; this one matches the
+  /// requested `variable_uid`.  Returns `true` iff the entry was found.
+  [[nodiscard]] bool update_dynamic_col_bounds(std::string_view class_name,
+                                               std::string_view variable_name,
+                                               Uid variable_uid,
+                                               double new_lowb,
+                                               double new_uppb) noexcept;
+
   /// Record a structural row added after the initial flatten/load_flat
   /// (typically cascade elastic-target constraints).  No-op under
   /// `LowMemoryMode::off`.  The recorded row is replayed in

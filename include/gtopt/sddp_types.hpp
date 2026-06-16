@@ -415,6 +415,15 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// runs with non-uniform hydrology / probability scenarios.
   CutSharingMode cut_sharing {CutSharingMode::none};
 
+  /// How terminal/boundary cuts are shared across scenes on the terminal α —
+  /// the terminal-phase analogue of `cut_sharing` (resolved from
+  /// `SddpOptions::boundary_cut_sharing_mode`, with the legacy
+  /// `boundary_cuts_mode` scope as the fallback: separated→per_scene,
+  /// combined→shared).  `per_scene` (default) and `multicut` are valid;
+  /// `shared` is valid only when the post-horizon value is scenario-identical.
+  BoundaryCutSharingMode boundary_cut_sharing {
+      BoundaryCutSharingMode::per_scene};
+
   /// How to drain in-flight cuts after the aggregate-convergence stop
   /// signal fires in `SDDPMethod::solve_async`.  See `CutDrainMode`
   /// in `sddp_enums.hpp` for the full rationale.  Default `iteration`:
@@ -1103,6 +1112,21 @@ struct SDDPIterationResult
     PhaseIndex phase_index,
     SystemKind kind = SystemKind::forward) noexcept;
 
+/// Multicut overload: look up the α column dedicated to @p source_scene
+/// within the (scene_index, phase_index) cell.  Under
+/// `CutSharingMode::multicut` each scene-LP carries N α columns
+/// (`varphi_0..N-1`), keyed by `uid = sddp_alpha_uid + source_scene`; a
+/// scenario-s backward cut is installed on `varphi_s` in EVERY destination
+/// scene-LP (never the destination's own α).  For the single-α modes the
+/// only registered column is `source_scene == scene_index` (uid offset 0),
+/// so passing `source_scene = scene_index` reproduces the legacy lookup.
+[[nodiscard]] const StateVariable* find_alpha_state_var(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    SceneIndex source_scene,
+    SystemKind kind = SystemKind::forward) noexcept;
+
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
 /// on the live LP backend and mirrors the change into the
@@ -1167,7 +1191,10 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 /// up a full `SDDPMethod`.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
-                              double scale_alpha);
+                              double scale_alpha,
+                              CutSharingMode cut_sharing = CutSharingMode::none,
+                              BoundaryCutSharingMode boundary_cut_sharing =
+                                  BoundaryCutSharingMode::per_scene);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case

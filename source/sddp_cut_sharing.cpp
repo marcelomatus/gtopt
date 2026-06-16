@@ -232,22 +232,35 @@ void share_cuts_for_phase(
         phase_index,
         scene_avg_cuts.size());
 
-  } else if (mode == CutSharingMode::max) {
-    // Max mode: add ALL cuts from ALL scenes to ALL scenes.  The LP
-    // solver will pick the tightest active cut on each scene's α^k.
+  } else if (mode == CutSharingMode::max || mode == CutSharingMode::multicut) {
+    // Broadcast mode: add ALL cuts from ALL scenes to ALL scenes.  The
+    // mechanical operation is identical for `max` and `multicut`; the
+    // VALIDITY differs entirely by WHICH α column each cut references:
     //
-    // **VALIDITY WARNING** — see the `accumulate` branch above for
-    // the full audit context.  In summary: a cut from scene S
-    // broadcast onto scene D's α^k_D LP forces
-    //   α^k_D ≥ prob_S · Q_S*(x_S_trial)
-    // which is a valid bound on `Q_D(·)` only when S and D draw
-    // identical sample paths.  Empirical: `max` mode produces the
-    // largest LB-overshoot of the three sharing modes because the
-    // LP picks the TIGHTEST broadcast cut, which is precisely the
-    // scene with the highest (prob_S · Q_S*) — never the actual
-    // bound on D's Q.  `cut_sharing=none` is the only safe choice
-    // for production multi-scenario runs.  See
+    // **`max`** — every cut references the single shared α (`varphi_0`),
+    // so broadcasting scene S's cut onto scene D's LP forces
+    //   varphi_0_D ≥ prob_S · Q_S*(x_S_trial)
+    // a valid bound on `Q_D(·)` only when S and D draw identical sample
+    // paths.  Empirical: `max` produces the largest LB-overshoot of the
+    // sharing modes (the LP picks the TIGHTEST broadcast cut = the scene
+    // with the highest prob_S·Q_S*, never D's actual bound).  Invalid
+    // for heterogeneous scenes — `cut_sharing=none` is the safe choice.
+    // See
     // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`.
+    //
+    // **`multicut`** (PLP-faithful) — scene S's backward cut references
+    // S's OWN dedicated column `varphi_S` (set up by the backward-pass
+    // retarget in `sddp_method_iteration.cpp`), and EVERY scene-LP
+    // carries the full set `varphi_0..N-1` priced 1/N.  Broadcasting
+    // scene S's cut onto scene D's LP therefore forces
+    //   varphi_S_D ≥ Q_S*(x_S_trial)
+    // i.e. `varphi_S` in EVERY LP is bounded ONLY by scenario-S's cuts.
+    // Since the objective sums (1/N)·varphi_s, the master's future-cost
+    // term is (1/N)Σ_s varphi_s ≥ (1/N)Σ_s Q_s = E[Q] — a VALID lower
+    // bound on the expected cost-to-go for heterogeneous scenes (PLP
+    // `plp-agrespd.f:94` IColx = NCol-NSimul+ISimul source indexing,
+    // `defprbpd.f:810` 1/N averaging).  `bound_alpha_for_cut` (called
+    // per cut below) releases whichever `varphi_s` the cut references.
     //
     // Each cut already carries its source-scene metadata from
     // ``apply_cut_sharing_for_iteration::to_sparse_row``, so we
@@ -255,7 +268,7 @@ void share_cuts_for_phase(
     // context (each scene's LP needs a unique-within-LP label;
     // the source scene's metadata is fine cross-scene but breaks
     // the duplicate-label invariant within one LP when the same
-    // cut is appended multiple times for max-mode broadcast).
+    // cut is appended multiple times for the broadcast).
     std::vector<SparseRow> all_cuts;
     {
       size_t total = 0;

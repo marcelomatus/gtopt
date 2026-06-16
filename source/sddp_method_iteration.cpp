@@ -535,8 +535,23 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   //
   // Resolve the α column freshly from the state-variable registry so
   // low_memory reconstruct paths never see a stale cached index.
-  const auto* src_alpha_svar = find_alpha_state_var(
-      planning_lp().simulation(), scene_index, prev_phase_index);
+  //
+  // Under `multicut`, scene S's backward cut must reference S's OWN
+  // future-cost column `varphi_S` (uid = sddp_alpha_uid + S), not the
+  // legacy single α (offset 0).  `share_cuts_for_phase` then broadcasts
+  // this cut to every destination scene-LP, each install targeting the
+  // SAME `varphi_S` column there — mirroring PLP `plp-agrespd.f:94`'s
+  // `IColx = NCol - NSimul + ISimul` source-scenario indexing.  For the
+  // single-α modes `source_scene = scene_index` collapses to offset 0,
+  // reproducing the legacy lookup.
+  const auto* src_alpha_svar =
+      (m_options_.cut_sharing == CutSharingMode::multicut)
+      ? find_alpha_state_var(planning_lp().simulation(),
+                             scene_index,
+                             prev_phase_index,
+                             /*source_scene=*/scene_index)
+      : find_alpha_state_var(
+            planning_lp().simulation(), scene_index, prev_phase_index);
   const auto src_alpha_col = (src_alpha_svar != nullptr)
       ? src_alpha_svar->col()
       : ColIndex {unknown_index};

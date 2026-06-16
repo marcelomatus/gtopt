@@ -113,6 +113,8 @@ namespace
     sddp_opts.boundary_cuts_file = std::string(boundary_cuts);
   }
   sddp_opts.boundary_cuts_mode = options.sddp_boundary_cuts_mode_enum();
+  sddp_opts.boundary_cut_sharing =
+      options.sddp_boundary_cut_sharing_mode_enum();
   sddp_opts.boundary_max_iterations = options.sddp_boundary_max_iterations();
   sddp_opts.missing_cut_var_mode = options.sddp_missing_cut_var_mode();
   sddp_opts.boundary_cuts_mean_shift = options.sddp_boundary_cuts_mean_shift();

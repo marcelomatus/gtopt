@@ -17,6 +17,7 @@
 namespace daw::json
 {
 using gtopt::ApertureSolveMode;
+using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
 using gtopt::CompressionCodec;
 using gtopt::ConvergenceMode;
@@ -66,6 +67,7 @@ struct SddpOptionsConstructor
       OptName aperture_solve_mode_str,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
+      OptName boundary_cut_sharing_mode_str,
       OptBool boundary_cuts_mean_shift,
       OptInt boundary_max_iterations,
       OptName missing_cut_var_mode_str,
@@ -146,6 +148,11 @@ struct SddpOptionsConstructor
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
           "boundary_cuts_mode", *boundary_cuts_mode_str);
+    }
+    if (boundary_cut_sharing_mode_str) {
+      opts.boundary_cut_sharing_mode =
+          gtopt::require_enum<BoundaryCutSharingMode>(
+              "boundary_cut_sharing_mode", *boundary_cut_sharing_mode_str);
     }
     opts.boundary_cuts_mean_shift = boundary_cuts_mean_shift;
     opts.boundary_max_iterations = boundary_max_iterations;
@@ -233,6 +240,7 @@ struct json_data_contract<SddpOptions>
       json_string_null<"aperture_solve_mode", OptName>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
+      json_string_null<"boundary_cut_sharing_mode", OptName>,
       json_bool_null<"boundary_cuts_mean_shift", OptBool>,
       json_number_null<"boundary_max_iterations", OptInt>,
       json_string_null<"missing_cut_var_mode", OptName>,
@@ -295,6 +303,7 @@ struct json_data_contract<SddpOptions>
         detail::enum_to_opt_name(opt.aperture_solve_mode),
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
+        detail::enum_to_opt_name(opt.boundary_cut_sharing_mode),
         opt.boundary_cuts_mean_shift,
         opt.boundary_max_iterations,
         detail::enum_to_opt_name(opt.missing_cut_var_mode),

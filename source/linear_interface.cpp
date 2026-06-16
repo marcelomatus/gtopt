@@ -665,6 +665,16 @@ bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
       class_name, variable_name, new_lowb, new_uppb);
 }
 
+bool LinearInterface::update_dynamic_col_bounds(std::string_view class_name,
+                                                std::string_view variable_name,
+                                                Uid variable_uid,
+                                                double new_lowb,
+                                                double new_uppb) noexcept
+{
+  return m_replay_.update_dynamic_col_bounds(
+      class_name, variable_name, variable_uid, new_lowb, new_uppb);
+}
+
 // Private helper for `apply_post_load_replay` (the sole legitimate
 // internal caller for the bulk cut-replay path).  Keeps the
 // `add_rows(m_active_cuts_)` call self-documenting and gives plan

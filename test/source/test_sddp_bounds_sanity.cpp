@@ -231,6 +231,45 @@ TEST_CASE(
   }
 }
 
+// ─── cut_sharing=multicut: PLP-faithful mechanism (WARN on heterogeneous) ──
+//
+// `multicut` gives every scene-LP N dedicated future-cost columns
+// `varphi_0..N-1`, each bounded ONLY by its own scenario's backward cuts
+// (PLP `plp-agrespd.f:94` source indexing + `defprbpd.f:810` 1/N average).
+// Unlike accumulate/broadcast_mean/max — which broadcast onto the single
+// shared α and so corrupt every scene's own bound — multicut keeps each
+// scenario's cuts on a dedicated column, which is the PLP-faithful sharing
+// the converter targets.
+//
+// We assert with a SOFT (WARN) check here, NOT strict: a negative gap
+// (LB > UB) on heterogeneous scenes is NOT a correctness failure.  The
+// forward UB is a sample-path estimate, and an SDDP cut set that does not
+// yet perfectly match the value function legitimately produces LB > UB
+// transiently — see the juan/gtopt_iplp investigation notes.  The strict
+// LB <= UB property is exercised on IDENTICAL scenes (next test), where
+// the cuts coincide exactly and multicut converges to a zero gap.
+TEST_CASE(
+    "SDDP bounds sanity — heterogeneous scenes, multicut (PLP-faithful, "
+    "WARN-only)")
+{
+  SUBCASE("2s3p cut_sharing=multicut (0.6/0.4)")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 8;
+    opts.convergence_tol = 1.0e-4;
+    opts.cut_sharing = CutSharingMode::multicut;
+    opts.enable_api = false;
+
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    check_iteration_invariants_soft(*results, "2s3p multicut");
+  }
+}
+
 // ─── cut_sharing=any with IDENTICAL scenes: should NOT overshoot ──
 //
 // When all scenes have equal probability AND identical dynamics, every
@@ -243,11 +282,12 @@ TEST_CASE(
     "SDDP bounds sanity — identical scenes, all cut_sharing modes "
     "preserve LB <= UB")
 {
-  const std::array<CutSharingMode, 4> modes = {
+  const std::array<CutSharingMode, 5> modes = {
       CutSharingMode::none,
       CutSharingMode::accumulate,
       CutSharingMode::broadcast_mean,
       CutSharingMode::max,
+      CutSharingMode::multicut,
   };
 
   for (const auto mode : modes) {

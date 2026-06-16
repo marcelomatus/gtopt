@@ -71,6 +71,31 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   return svar ? &svar->get() : nullptr;
 }
 
+const StateVariable* find_alpha_state_var(const SimulationLP& sim,
+                                          SceneIndex scene_index,
+                                          PhaseIndex phase_index,
+                                          SceneIndex source_scene,
+                                          SystemKind kind) noexcept
+{
+  // Multicut: the α column dedicated to `source_scene` is keyed by
+  // `uid = sddp_alpha_uid + source_scene` (offset 0 == the legacy single α).
+  const auto alpha_uid = static_cast<Uid>(
+      sddp_alpha_uid
+      + static_cast<Uid>(static_cast<std::size_t>(source_scene)));
+  auto svar = sim.state_variable(StateVariable::Key {
+      .uid = alpha_uid,
+      .col_name = sddp_alpha_col_name,
+      .class_name = sddp_alpha_lp_class,
+      .lp_key =
+          {
+              .scene_index = scene_index,
+              .phase_index = phase_index,
+              .kind = kind,
+          },
+  });
+  return svar ? &svar->get() : nullptr;
+}
+
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
   return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);

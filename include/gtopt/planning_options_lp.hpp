@@ -1815,6 +1815,20 @@ public:
         BoundaryCutsMode::separated);
   }
 
+  /// How terminal/boundary cuts are shared across scenes on the terminal α.
+  /// Explicit `boundary_cut_sharing_mode` wins; otherwise derived from the
+  /// legacy `boundary_cuts_mode` scope (combined→shared, else per_scene).
+  [[nodiscard]] constexpr auto sddp_boundary_cut_sharing_mode_enum() const
+      -> BoundaryCutSharingMode
+  {
+    if (const auto& m = m_options_.sddp_options.boundary_cut_sharing_mode) {
+      return *m;
+    }
+    return sddp_boundary_cuts_mode_enum() == BoundaryCutsMode::combined
+        ? BoundaryCutSharingMode::shared
+        : BoundaryCutSharingMode::per_scene;
+  }
+
   /// SDDP cut recovery mode as an enum.
   [[nodiscard]] constexpr auto sddp_cut_recovery_mode_enum() const
       -> HotStartMode

@@ -56,8 +56,11 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   auto& phase_states = m_scene_phase_states_[scene_index];
   phase_states.resize(planning_lp().simulation().phases().size());
 
-  gtopt::register_alpha_variables(
-      planning_lp(), scene_index, m_options_.scale_alpha);
+  gtopt::register_alpha_variables(planning_lp(),
+                                  scene_index,
+                                  m_options_.scale_alpha,
+                                  m_options_.cut_sharing,
+                                  m_options_.boundary_cut_sharing);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -70,55 +73,85 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 // only difference is *when* α gets bounded.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
-                              double scale_alpha)
+                              double scale_alpha,
+                              CutSharingMode cut_sharing,
+                              BoundaryCutSharingMode boundary_cut_sharing)
 {
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
+  const auto num_scenes = static_cast<std::size_t>(sim.scene_count());
+  const auto n_phases = phases.size();
 
-  // Add an α column to `li` and register it as a state variable in the
-  // registry selected by `kind`.  Shared by the forward system and (when
+  // Under `multicut`, each scene-LP carries N future-cost columns
+  // (`varphi_0..N-1`, one per SOURCE scene), each priced uniformly 1/N so the
+  // objective's Σ_s (1/N)·varphi_s reconstructs the expected cost-to-go (PLP
+  // `defprbpd.f:810`).  A scenario-s backward cut is later routed onto
+  // `varphi_s` (uid = sddp_alpha_uid + s) in EVERY destination scene-LP, never
+  // the destination's own α — that routing is what keeps the bound valid.
+  // The intermediate phases follow `cut_sharing`; the terminal phase follows
+  // `boundary_cut_sharing` (its boundary cuts land on the terminal α(s)).  For
+  // every non-multicut mode n_alpha == 1 → the legacy single-α layout (uid 0).
+  const bool intermediate_multi = (cut_sharing == CutSharingMode::multicut);
+  const bool terminal_multi =
+      (boundary_cut_sharing == BoundaryCutSharingMode::multicut);
+
+  // Add `n_alpha` α columns to `li` and register each as a state variable in
+  // the registry selected by `kind`.  Shared by the forward system and (when
   // present) the parallel aperture system so both LPs carry α + its cuts.
   const auto register_alpha_on = [&](LinearInterface& li,
                                      PhaseIndex pi,
                                      PhaseUid phase_uid,
-                                     SystemKind kind)
+                                     SystemKind kind,
+                                     std::size_t n_alpha)
   {
-    // α bootstrap: bidirectional pin `lowb = uppb = 0` keeps α at 0 until an
-    // installed cut triggers `bound_alpha` to compute a floor (see the long
-    // rationale below the loop).  `variable_uid` avoids a `-` in the column
-    // label that CoinLpIO would reject.
-    const auto alpha_sparse = SparseCol {
-        .lowb = 0.0,
-        .uppb = 0.0,
-        .cost = 1.0,  // physical cost: α is in $ — scaling handled by
-                      // emit_col_to_backend
-        .is_state = true,
-        .scale = scale_alpha,
-        .class_name = sddp_alpha_class_name,
-        .variable_name = sddp_alpha_col_name,
-        .variable_uid = sddp_alpha_uid,
-        .context = make_scene_phase_context(sim.uid_of(scene_index), phase_uid),
-    };
-    const auto alpha_col = li.add_col(alpha_sparse);
-    std::ignore = sim.add_state_variable(
-        StateVariable::Key {
-            .uid = sddp_alpha_uid,
-            .col_name = sddp_alpha_col_name,
-            .class_name = sddp_alpha_lp_class,
-            .lp_key =
-                {
-                    .scene_index = scene_index,
-                    .phase_index = pi,
-                    .kind = kind,
-                },
-        },
-        alpha_col,
-        0.0,  // scost: no elastic penalty on alpha
-        scale_alpha,  // var_scale: same as SparseCol.scale
-        alpha_sparse.context);
+    const double unit_cost = 1.0 / static_cast<double>(n_alpha);
+    for (std::size_t s = 0; s < n_alpha; ++s) {
+      const auto alpha_uid =
+          static_cast<Uid>(sddp_alpha_uid + static_cast<Uid>(s));
+      // α bootstrap: bidirectional pin `lowb = uppb = 0` keeps α at 0 until an
+      // installed cut triggers `bound_alpha` to compute a floor (see the long
+      // rationale below the loop).  `variable_uid` avoids a `-` in the column
+      // label that CoinLpIO would reject.
+      const auto alpha_sparse = SparseCol {
+          .lowb = 0.0,
+          .uppb = 0.0,
+          .cost =
+              unit_cost,  // physical cost: α is in $ — 1/N average under
+                          // multicut; scaling handled by emit_col_to_backend
+          .is_state = true,
+          .scale = scale_alpha,
+          .class_name = sddp_alpha_class_name,
+          .variable_name = sddp_alpha_col_name,
+          .variable_uid = alpha_uid,
+          .context =
+              make_scene_phase_context(sim.uid_of(scene_index), phase_uid),
+      };
+      const auto alpha_col = li.add_col(alpha_sparse);
+      std::ignore = sim.add_state_variable(
+          StateVariable::Key {
+              .uid = alpha_uid,
+              .col_name = sddp_alpha_col_name,
+              .class_name = sddp_alpha_lp_class,
+              .lp_key =
+                  {
+                      .scene_index = scene_index,
+                      .phase_index = pi,
+                      .kind = kind,
+                  },
+          },
+          alpha_col,
+          0.0,  // scost: no elastic penalty on alpha
+          scale_alpha,  // var_scale: same as SparseCol.scale
+          alpha_sparse.context);
+    }
   };
 
   for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
+    const bool is_last = (static_cast<std::size_t>(pi) + 1 == n_phases);
+    const bool multi = is_last ? terminal_multi : intermediate_multi;
+    const std::size_t n_alpha =
+        multi ? std::max<std::size_t>(num_scenes, 1) : 1;
+
     // Mirror α onto the aperture system (if any) so the backward-pass
     // aperture clones carry α and the cuts installed on it.  Independent
     // idempotency check against the aperture registry.
@@ -127,8 +160,11 @@ void register_alpha_variables(PlanningLP& planning_lp,
         && find_alpha_state_var(sim, scene_index, pi, SystemKind::aperture)
             == nullptr)
     {
-      register_alpha_on(
-          ap_sys->linear_interface(), pi, phase.uid(), SystemKind::aperture);
+      register_alpha_on(ap_sys->linear_interface(),
+                        pi,
+                        phase.uid(),
+                        SystemKind::aperture,
+                        n_alpha);
     }
 
     if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
@@ -145,7 +181,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
     register_alpha_on(planning_lp.system(scene_index, pi).linear_interface(),
                       pi,
                       phase.uid(),
-                      SystemKind::forward);
+                      SystemKind::forward,
+                      n_alpha);
   }
 }
 
@@ -206,12 +243,27 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
                          const SparseRow& cut,
                          SystemKind kind)
 {
-  const auto* alpha_svar = find_alpha_state_var(
-      planning_lp.simulation(), scene_index, phase_index, kind);
-  if (alpha_svar == nullptr) {
-    return;  // α not registered on this cell — nothing to free.
+  const auto& sim = planning_lp.simulation();
+  // Fire iff the cut references ANY future-cost column on this cell.
+  // Single-α modes register only `varphi_0`; under multicut a scenario-s
+  // backward cut references its own `varphi_s`.  `bound_alpha` →
+  // `apply_alpha_floor` then re-floors every `varphi` from its own cuts
+  // (idempotent for the columns this cut doesn't touch).  α uids are
+  // contiguous from `sddp_alpha_uid`, so the first registry miss ends
+  // the scan.
+  bool references_alpha = false;
+  for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
+    const auto* svar =
+        find_alpha_state_var(sim, scene_index, phase_index, src, kind);
+    if (svar == nullptr) {
+      break;  // α not registered (or contiguous uids exhausted)
+    }
+    if (cut.cmap.contains(svar->col())) {
+      references_alpha = true;
+      break;
+    }
   }
-  if (!cut.cmap.contains(alpha_svar->col())) {
+  if (!references_alpha) {
     return;  // cut does not reference α — leave the bootstrap pin.
   }
   bound_alpha(planning_lp, scene_index, phase_index, kind);
@@ -271,12 +323,6 @@ void apply_alpha_floor(PlanningLP& planning_lp,
                        bool bound_above)
 {
   const auto& sim = planning_lp.simulation();
-  const auto* alpha_svar =
-      find_alpha_state_var(sim, scene_index, phase_index, kind);
-  if (alpha_svar == nullptr) {
-    return;
-  }
-  const auto alpha_col = alpha_svar->col();
 
   // Select the forward or aperture system for this cell.  When the aperture
   // system is requested but absent, there is nothing to floor.
@@ -286,6 +332,34 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   if (sys_ptr == nullptr) {
     return;
   }
+
+  // Enumerate every α (future-cost) column on this cell.  Single-α modes
+  // register exactly one (uid offset 0); under `CutSharingMode::multicut`
+  // there are N (`varphi_0..N-1`, uid = sddp_alpha_uid + source_scene).
+  // Each `varphi_s` is floored INDEPENDENTLY from the cuts that reference
+  // it, so a scenario-s cut never floors scenario-d's future-cost column
+  // (the cross-scene routing in `share_cuts_for_phase` keeps each
+  // scenario's cuts pinned to its own `varphi_s`).  The uid-keyed
+  // `update_dynamic_col_bounds` overload below mirrors each release into
+  // the correct replay entry — the name-only overload would always match
+  // `varphi_0`.  α uids are contiguous from `sddp_alpha_uid`, so the
+  // first registry miss ends the list.
+  const auto num_scenes = sim.scene_count();
+  std::vector<std::pair<ColIndex, Uid>> alpha_cols;
+  for (const auto src : iota_range<SceneIndex>(0, num_scenes)) {
+    const auto* svar =
+        find_alpha_state_var(sim, scene_index, phase_index, src, kind);
+    if (svar == nullptr) {
+      break;  // contiguous uids — first gap ends the list
+    }
+    const auto alpha_uid = static_cast<Uid>(
+        sddp_alpha_uid + static_cast<Uid>(static_cast<std::size_t>(src)));
+    alpha_cols.emplace_back(svar->col(), alpha_uid);
+  }
+  if (alpha_cols.empty()) {
+    return;
+  }
+
   auto& sys = *sys_ptr;
   sys.ensure_lp_built();
   auto& li = sys.linear_interface();
@@ -297,114 +371,122 @@ void apply_alpha_floor(PlanningLP& planning_lp,
   const auto col_low_raw = li.get_col_low_raw();
   const auto col_upp_raw = li.get_col_upp_raw();
 
-  double tightest_floor_phys = 0.0;
-  bool any_cut_floor = false;
-  // Symmetric CEILING accumulator (only used when `bound_above`).  The
-  // ceiling is the LOOSEST (largest) upper bound across cuts:
-  //   ceil_cut = rhs − Σⱼ min(coefⱼ·vⱼ)   with min(coefⱼ·vⱼ) over [vⱼ_min,
-  //   vⱼ_max] = coefⱼ·vⱼ_min for coefⱼ>0, coefⱼ·vⱼ_max for coefⱼ<0.
-  // At the optimum α equals the highest binding cut floor, which never
-  // exceeds that cut's own ceiling — so α ≤ max_k ceil_k is valid and
-  // does not cut the optimum.  Taking the MAX across cuts keeps it loose.
-  double loosest_ceil_phys = 0.0;
-  bool any_cut_ceil = false;
-  [[maybe_unused]] std::size_t cuts_with_alpha = 0;
-  for (const auto& cut : li.active_cuts()) {
-    const auto alpha_it = cut.cmap.find(alpha_col);
-    if (alpha_it == cut.cmap.end()) {
-      continue;
-    }
-    ++cuts_with_alpha;
-
-    double sup_sum_phys = 0.0;  // Σ max(coef·v) → floor = rhs − sup_sum
-    double inf_sum_phys = 0.0;  // Σ min(coef·v) → ceil  = rhs − inf_sum
-    bool sup_unbounded = false;
-    bool inf_unbounded = false;
-    for (const auto& [col, coef_phys] : cut.cmap) {
-      if (col == alpha_col) {
+  for (const auto& [alpha_col, alpha_uid] : alpha_cols) {
+    double tightest_floor_phys = 0.0;
+    bool any_cut_floor = false;
+    // Symmetric CEILING accumulator (only used when `bound_above`).  The
+    // ceiling is the LOOSEST (largest) upper bound across cuts:
+    //   ceil_cut = rhs − Σⱼ min(coefⱼ·vⱼ)   with min(coefⱼ·vⱼ) over [vⱼ_min,
+    //   vⱼ_max] = coefⱼ·vⱼ_min for coefⱼ>0, coefⱼ·vⱼ_max for coefⱼ<0.
+    // At the optimum α equals the highest binding cut floor, which never
+    // exceeds that cut's own ceiling — so α ≤ max_k ceil_k is valid and
+    // does not cut the optimum.  Taking the MAX across cuts keeps it loose.
+    double loosest_ceil_phys = 0.0;
+    bool any_cut_ceil = false;
+    [[maybe_unused]] std::size_t cuts_with_alpha = 0;
+    for (const auto& cut : li.active_cuts()) {
+      const auto alpha_it = cut.cmap.find(alpha_col);
+      if (alpha_it == cut.cmap.end()) {
         continue;
       }
-      if (coef_phys == 0.0) {
-        continue;
-      }
-      const double v_min_phys = col_low_phys[col];
-      const double v_max_phys = col_upp_phys[col];
-      const auto c = static_cast<size_t>(col);
-      if (coef_phys > 0.0) {
-        // max(coef·v) = coef·v_max ; min(coef·v) = coef·v_min
-        if (li.is_pos_inf(col_upp_raw[c])) {
-          sup_unbounded = true;
-        } else {
-          sup_sum_phys += coef_phys * v_max_phys;
-        }
-        if (li.is_neg_inf(col_low_raw[c])) {
-          inf_unbounded = true;
-        } else {
-          inf_sum_phys += coef_phys * v_min_phys;
-        }
-      } else {
-        // max(coef·v) = coef·v_min ; min(coef·v) = coef·v_max
-        if (li.is_neg_inf(col_low_raw[c])) {
-          sup_unbounded = true;
-        } else {
-          sup_sum_phys += coef_phys * v_min_phys;
-        }
-        if (li.is_pos_inf(col_upp_raw[c])) {
-          inf_unbounded = true;
-        } else {
-          inf_sum_phys += coef_phys * v_max_phys;
-        }
-      }
-    }
-    if (!sup_unbounded) {
-      const double cut_floor_phys = cut.lowb - sup_sum_phys;
-      tightest_floor_phys = any_cut_floor
-          ? std::min(tightest_floor_phys, cut_floor_phys)
-          : cut_floor_phys;
-      any_cut_floor = true;
-    }
-    if (bound_above && !inf_unbounded) {
-      const double cut_ceil_phys = cut.lowb - inf_sum_phys;
-      loosest_ceil_phys = any_cut_ceil
-          ? std::max(loosest_ceil_phys, cut_ceil_phys)
-          : cut_ceil_phys;
-      any_cut_ceil = true;
-    }
-  }
+      ++cuts_with_alpha;
 
-  // Upper bound: default +∞ (lift from the bootstrap pin's 0 so cuts can
-  // be satisfied — and so future SDDP cuts can push α up).  When
-  // `bound_above` is requested AND at least one cut produced a bounded
-  // ceiling, clamp α from above to the loosest cut-derived ceiling,
-  // turning α into a finite box `[floor, ceil]` (the GPU-clean form, no
-  // free column).  `set_col_upp` divides by α's col_scale (= scale_alpha)
-  // just like `set_col_low`, and `ceil` is in the rebased-physical frame
-  // (`cut.lowb` already carries the mean-shift offset `c`).
-  const double upper_phys =
-      (bound_above && any_cut_ceil) ? loosest_ceil_phys : LinearProblem::DblMax;
-  if (li.is_pos_inf(upper_phys) || li.is_neg_inf(upper_phys)) {
-    li.set_col_upp_raw(alpha_col, upper_phys);
-  } else {
-    li.set_col_upp(alpha_col, upper_phys);
-  }
-  // Use the raw setter for ±∞ sentinel floor values to avoid
-  // set_col_low's internal division by col_scale on sentinels.
-  if (li.is_pos_inf(tightest_floor_phys) || li.is_neg_inf(tightest_floor_phys))
-  {
-    li.set_col_low_raw(alpha_col, tightest_floor_phys);
-  } else {
-    li.set_col_low(alpha_col, tightest_floor_phys);
-  }
-  sys.update_dynamic_col_bounds(sddp_alpha_class_name,
-                                sddp_alpha_col_name,
-                                tightest_floor_phys,
-                                upper_phys);
+      double sup_sum_phys = 0.0;  // Σ max(coef·v) → floor = rhs − sup_sum
+      double inf_sum_phys = 0.0;  // Σ min(coef·v) → ceil  = rhs − inf_sum
+      bool sup_unbounded = false;
+      bool inf_unbounded = false;
+      for (const auto& [col, coef_phys] : cut.cmap) {
+        if (col == alpha_col) {
+          continue;
+        }
+        if (coef_phys == 0.0) {
+          continue;
+        }
+        const double v_min_phys = col_low_phys[col];
+        const double v_max_phys = col_upp_phys[col];
+        const auto c = static_cast<size_t>(col);
+        if (coef_phys > 0.0) {
+          // max(coef·v) = coef·v_max ; min(coef·v) = coef·v_min
+          if (li.is_pos_inf(col_upp_raw[c])) {
+            sup_unbounded = true;
+          } else {
+            sup_sum_phys += coef_phys * v_max_phys;
+          }
+          if (li.is_neg_inf(col_low_raw[c])) {
+            inf_unbounded = true;
+          } else {
+            inf_sum_phys += coef_phys * v_min_phys;
+          }
+        } else {
+          // max(coef·v) = coef·v_min ; min(coef·v) = coef·v_max
+          if (li.is_neg_inf(col_low_raw[c])) {
+            sup_unbounded = true;
+          } else {
+            sup_sum_phys += coef_phys * v_min_phys;
+          }
+          if (li.is_pos_inf(col_upp_raw[c])) {
+            inf_unbounded = true;
+          } else {
+            inf_sum_phys += coef_phys * v_max_phys;
+          }
+        }
+      }
+      if (!sup_unbounded) {
+        const double cut_floor_phys = cut.lowb - sup_sum_phys;
+        tightest_floor_phys = any_cut_floor
+            ? std::min(tightest_floor_phys, cut_floor_phys)
+            : cut_floor_phys;
+        any_cut_floor = true;
+      }
+      if (bound_above && !inf_unbounded) {
+        const double cut_ceil_phys = cut.lowb - inf_sum_phys;
+        loosest_ceil_phys = any_cut_ceil
+            ? std::max(loosest_ceil_phys, cut_ceil_phys)
+            : cut_ceil_phys;
+        any_cut_ceil = true;
+      }
+    }
 
-  SPDLOG_DEBUG("SDDP: α floor at (s{} p{}) → {:.6e} from {} cut(s)",
-               sim.uid_of(scene_index),
-               sim.uid_of(phase_index),
-               tightest_floor_phys,
-               cuts_with_alpha);
+    // Upper bound: default +∞ (lift from the bootstrap pin's 0 so cuts can
+    // be satisfied — and so future SDDP cuts can push α up).  When
+    // `bound_above` is requested AND at least one cut produced a bounded
+    // ceiling, clamp α from above to the loosest cut-derived ceiling,
+    // turning α into a finite box `[floor, ceil]` (the GPU-clean form, no
+    // free column).  `set_col_upp` divides by α's col_scale (= scale_alpha)
+    // just like `set_col_low`, and `ceil` is in the rebased-physical frame
+    // (`cut.lowb` already carries the mean-shift offset `c`).
+    const double upper_phys = (bound_above && any_cut_ceil)
+        ? loosest_ceil_phys
+        : LinearProblem::DblMax;
+    if (li.is_pos_inf(upper_phys) || li.is_neg_inf(upper_phys)) {
+      li.set_col_upp_raw(alpha_col, upper_phys);
+    } else {
+      li.set_col_upp(alpha_col, upper_phys);
+    }
+    // Use the raw setter for ±∞ sentinel floor values to avoid
+    // set_col_low's internal division by col_scale on sentinels.
+    if (li.is_pos_inf(tightest_floor_phys)
+        || li.is_neg_inf(tightest_floor_phys))
+    {
+      li.set_col_low_raw(alpha_col, tightest_floor_phys);
+    } else {
+      li.set_col_low(alpha_col, tightest_floor_phys);
+    }
+    // uid-keyed update so the correct `varphi_s` replay entry is mirrored
+    // under multicut (all N share class/variable name, differ only by uid).
+    std::ignore = sys.update_dynamic_col_bounds(sddp_alpha_class_name,
+                                                sddp_alpha_col_name,
+                                                alpha_uid,
+                                                tightest_floor_phys,
+                                                upper_phys);
+
+    SPDLOG_DEBUG("SDDP: α floor at (s{} p{} uid{}) → {:.6e} from {} cut(s)",
+                 sim.uid_of(scene_index),
+                 sim.uid_of(phase_index),
+                 alpha_uid,
+                 tightest_floor_phys,
+                 cuts_with_alpha);
+  }
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.

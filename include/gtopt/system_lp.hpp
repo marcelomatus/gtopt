@@ -964,6 +964,16 @@ public:
         class_name, variable_name, new_lowb, new_uppb);
   }
 
+  bool update_dynamic_col_bounds(std::string_view class_name,
+                                 std::string_view variable_name,
+                                 Uid variable_uid,
+                                 double new_lowb,
+                                 double new_uppb) noexcept
+  {
+    return m_linear_interface_.update_dynamic_col_bounds(
+        class_name, variable_name, variable_uid, new_lowb, new_uppb);
+  }
+
   void record_cut_row(SparseRow row)
   {
     m_linear_interface_.record_cut_row(std::move(row));

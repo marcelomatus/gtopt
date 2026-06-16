@@ -264,6 +264,31 @@ public:
     return false;
   }
 
+  /// Update both bounds of the dynamic column matching
+  /// `(class_name, variable_name, variable_uid)`.  Needed by
+  /// `CutSharingMode::multicut`, where the N future-cost columns
+  /// (`varphi_0..N-1`) all share the α class/variable name and differ
+  /// ONLY by `variable_uid = sddp_alpha_uid + source_scene`; the
+  /// name-only overload above would always match `varphi_0`.  Returns
+  /// true iff the entry was found.
+  [[nodiscard]] bool update_dynamic_col_bounds(std::string_view class_name,
+                                               std::string_view variable_name,
+                                               Uid variable_uid,
+                                               double new_lowb,
+                                               double new_uppb) noexcept
+  {
+    for (auto& col : m_dynamic_cols_) {
+      if (col.class_name == class_name && col.variable_name == variable_name
+          && col.variable_uid == variable_uid)
+      {
+        col.lowb = new_lowb;
+        col.uppb = new_uppb;
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ── Pending col-bound tracking ──────────────────────────────────────────
   //
   // The lower / upper-bound setters on LinearInterface need to read the
