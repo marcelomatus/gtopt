@@ -281,6 +281,88 @@ TEST_CASE("save and load cuts round-trip via SDDPMethod")  // NOLINT
   std::filesystem::remove(cuts_file);
 }
 
+TEST_CASE(  // NOLINT
+    "load_cuts_parquet multicut broadcasts inherited optimality cuts to "
+    "all scenes")
+{
+  // Under `cut_sharing_mode=multicut` each scene-LP carries the full set
+  // of future-cost columns `varphi_0..N-1`; at run time
+  // `share_cuts_for_phase` broadcasts every scene's cut onto its
+  // `varphi_S` in EVERY scene-LP, but that share is never persisted (only
+  // origin cuts go through `store_cut`).  The loader must therefore
+  // RECONSTRUCT the broadcast — otherwise only each scene's own `varphi_S`
+  // is cut on load, the other N-1 columns free-fall to 0, and the LB
+  // collapses at iter-1 of every cascade level.
+
+  const auto dir = std::filesystem::temp_directory_path()
+      / "gtopt_test_multicut_bcast_roundtrip";
+  std::filesystem::create_directories(dir);
+  const auto cuts_file = (dir / "sddp_cuts.parquet").string();
+
+  // ── Phase 1: generate + save multicut cuts from a 2-scene SDDP ──
+  {
+    auto planning = make_2scene_3phase_hydro_planning();
+    planning.options.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 3;
+    opts.convergence_tol = 1e-6;
+    opts.cut_sharing = CutSharingMode::multicut;
+    opts.cuts_output_file = cuts_file;
+
+    SDDPMethod sddp(planning_lp, opts);
+    REQUIRE(sddp.solve().has_value());
+    REQUIRE_FALSE(sddp.stored_cuts().empty());
+  }
+  REQUIRE(std::filesystem::exists(cuts_file));
+
+  // ── Phase 2: load into a fresh multicut 2-scene solver ──
+  auto planning2 = make_2scene_3phase_hydro_planning();
+  planning2.options.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
+  PlanningLP planning_lp2(std::move(planning2));
+
+  SDDPOptions lopts;
+  lopts.cut_sharing = CutSharingMode::multicut;
+  SDDPMethod sddp2(planning_lp2, lopts);
+  REQUIRE(sddp2.ensure_initialized().has_value());
+
+  const auto& sim = planning_lp2.simulation();
+  const auto num_scenes = static_cast<Index>(sim.scenes().size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
+  REQUIRE(num_scenes == 2);
+
+  // Sum LP rows across the whole (scene, phase) grid.  Measured AFTER
+  // ensure_initialized so structural rows + alpha columns are baseline;
+  // the load delta is then purely the installed cut rows.
+  const auto total_rows = [&]
+  {
+    std::ptrdiff_t n = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
+        n += planning_lp2.system(si, pi).linear_interface().get_numrows();
+      }
+    }
+    return n;
+  };
+  const auto rows_before = total_rows();
+
+  auto loaded = sddp2.load_cuts(cuts_file);
+  REQUIRE(loaded.has_value());
+  REQUIRE(loaded->count >= 1);
+
+  const auto installed = total_rows() - rows_before;
+
+  // Broadcast: every loaded OPTIMALITY cut is installed on ALL
+  // `num_scenes` scene-LPs, so the total rows installed STRICTLY EXCEEDS
+  // the origin-only source count `loaded->count` (which counts each cut
+  // once).  Under the pre-fix per-scene routing, `installed` would equal
+  // `loaded->count` exactly — this is the regression guard.
+  CHECK(installed > static_cast<std::ptrdiff_t>(loaded->count));
+
+  std::filesystem::remove_all(dir);
+}
+
 // ─── alpha resolution as a state variable ──────────────────────────────────
 
 // ─── load_cuts_csv edge cases ───────────────────────────────────────────────

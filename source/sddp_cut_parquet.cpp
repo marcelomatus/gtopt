@@ -6,13 +6,13 @@
  * @copyright BSD-3-Clause
  *
  * The single canonical on-disk format for SDDP cuts.  Uses a typed
- * Arrow schema with a `list<struct<key,val>>` column for cut
+ * Arrow schema with a `list<struct<cls,var,uid,val>>` column for cut
  * coefficients — eliminating the variable-schema CSV tail and the
  * `{:.17g}` text-formatting dance.  Bit-exactness comes free from
  * float64 storage in Parquet.  The legacy CSV and JSON cut writers
  * were retired in 2026-05.
  *
- * On-disk schema (v3, 2026-05):
+ * On-disk schema (v4, 2026-06):
  *     type:      int8        (CutType enum's underlying uint8_t)
  *     phase:     int32
  *     scene:     int32
@@ -20,7 +20,17 @@
  *     extra:     int32       (4th element of IterationContext — multi-cut
  *                             sibling discriminator, sentinel -1 = unset)
  *     rhs:       float64
- *     coeffs:    list<struct<key: utf8, val: float64>>
+ *     coeffs:    list<struct<cls: utf8, var: utf8, uid: int32, val: float64>>
+ *
+ * Each coefficient identifies its state variable by the TYPED triple
+ * (`cls` class name, `var` column name, `uid`).  All three are needed:
+ * `uid` is namespaced by (class, var), not globally unique (e.g.
+ * `Reservoir:efin:1` and `Sddp:alpha:1` coexist).  The low-cardinality
+ * `cls`/`var` columns dictionary-compress to ~nothing.  Schema v4
+ * replaced the v2/v3 packed `key: utf8` = "cls:var:uid" string, which
+ * forced a split + `std::from_chars` re-parse on every load.  Cut files
+ * are internal, single-version temporaries (written and read by the same
+ * binary within one run / cascade), so NO legacy v2/v3 read path is kept.
  *
  * The legacy schema-v2 ``name: utf8`` column was dropped in 2026-05; cut
  * identity now lives in the structured ``CutKey {type, scene_uid,
@@ -85,17 +95,35 @@ auto make_io_error(const std::string& filepath, const std::string& detail)
   };
 }
 
+/// Coefficient struct type for the `coeffs` list column.
+///
+/// Schema v4 (post-2026-06): each coefficient stores the referenced state
+/// variable's identity as THREE TYPED FIELDS — `cls` (class name), `var`
+/// (column name) and `uid` (int32) — plus the `val`.  This replaces the
+/// v2/v3 single packed `key: utf8` field that concatenated
+/// ``"class:var:uid"`` and forced a string split + integer re-parse
+/// (`std::from_chars`) on every load.  Typed columns are self-describing,
+/// dictionary-compress the repetitive `cls`/`var` names, and remove the
+/// brittle parse.  Legacy 2-field (`key`,`val`) files are still read (see
+/// `load_cuts_parquet`).
+auto make_coeff_struct_type() -> std::shared_ptr<arrow::DataType>
+{
+  return arrow::struct_({
+      arrow::field("cls", arrow::utf8(), /*nullable=*/false),
+      arrow::field("var", arrow::utf8(), /*nullable=*/false),
+      arrow::field("uid", arrow::int32(), /*nullable=*/false),
+      arrow::field("val", arrow::float64(), /*nullable=*/false),
+  });
+}
+
 /// Build the Arrow schema for an SDDP cut file (with `scale_objective`
 /// recorded in the file-level key-value metadata).
 auto make_cuts_schema(double scale_objective) -> std::shared_ptr<arrow::Schema>
 {
-  auto coeff_struct_type = arrow::struct_({
-      arrow::field("key", arrow::utf8(), /*nullable=*/false),
-      arrow::field("val", arrow::float64(), /*nullable=*/false),
-  });
+  auto coeff_struct_type = make_coeff_struct_type();
   auto kv = arrow::KeyValueMetadata::Make(
       {"version", "scale_objective"},
-      {"2", std::format("{:.17g}", scale_objective)});
+      {"4", std::format("{:.17g}", scale_objective)});
   // Schema v3 (post-2026-05):
   //  * Drop the legacy ``name`` column — the 4-tuple
   //    ``(scene, phase, iteration, type)`` uniquely identifies every
@@ -152,18 +180,20 @@ auto build_cuts_table(
   arrow::Int32Builder extra_b {pool};
   arrow::DoubleBuilder rhs_b {pool};
 
-  // List<Struct<key, val>> for coefficients
-  auto coeff_struct_type = arrow::struct_({
-      arrow::field("key", arrow::utf8(), false),
-      arrow::field("val", arrow::float64(), false),
-  });
-  auto coeff_key_b = std::make_shared<arrow::StringBuilder>(pool);
+  // List<Struct<cls, var, uid, val>> for coefficients (schema v4 —
+  // typed columns replace the v2/v3 packed "cls:var:uid" key string).
+  auto coeff_struct_type = make_coeff_struct_type();
+  auto coeff_cls_b = std::make_shared<arrow::StringBuilder>(pool);
+  auto coeff_var_b = std::make_shared<arrow::StringBuilder>(pool);
+  auto coeff_uid_b = std::make_shared<arrow::Int32Builder>(pool);
   auto coeff_val_b = std::make_shared<arrow::DoubleBuilder>(pool);
   auto coeff_struct_b = std::make_shared<arrow::StructBuilder>(
       coeff_struct_type,
       pool,
       std::vector<std::shared_ptr<arrow::ArrayBuilder>> {
-          coeff_key_b,
+          coeff_cls_b,
+          coeff_var_b,
+          coeff_uid_b,
           coeff_val_b,
       });
   arrow::ListBuilder coeff_list_b {pool, coeff_struct_b};
@@ -232,14 +262,27 @@ auto build_cuts_table(
     if (pit == phase_map.end()) {
       // Cut targets an unknown phase — write a non-resolving placeholder
       // for each coefficient so the file round-trips its structure but
-      // the loader can surface the issue.  Same fallback as
-      // `write_cut_coefficients_unscaled` in the CSV path.
+      // the loader can surface the issue.  Empty `cls`/`var` never match
+      // a registered state variable, so the loader skips (and warns on)
+      // these — the same "surface the issue" semantics as the legacy
+      // ``"{col}"`` packed key, now expressed in typed columns.  Same
+      // fallback as `write_cut_coefficients_unscaled` in the CSV path.
       for (const auto& [col, coeff] : cut.coefficients) {
         if (auto s = coeff_struct_b->Append(); !s.ok()) {
           return std::unexpected(
               make_io_error(filepath_for_error, s.ToString()));
         }
-        if (auto s = coeff_key_b->Append(std::format("{}", col)); !s.ok()) {
+        if (auto s = coeff_cls_b->Append(std::string_view {}); !s.ok()) {
+          return std::unexpected(
+              make_io_error(filepath_for_error, s.ToString()));
+        }
+        if (auto s = coeff_var_b->Append(std::string_view {}); !s.ok()) {
+          return std::unexpected(
+              make_io_error(filepath_for_error, s.ToString()));
+        }
+        if (auto s = coeff_uid_b->Append(static_cast<int32_t>(col.value_of()));
+            !s.ok())
+        {
           return std::unexpected(
               make_io_error(filepath_for_error, s.ToString()));
         }
@@ -262,13 +305,22 @@ auto build_cuts_table(
                         cut.scene_uid,
                         col)));
       }
+      // Typed coefficient identity: `cls` (class name), `var` (column
+      // name) and `uid` are written as separate columns — no packed
+      // ``cls:var:uid`` string and no integer re-parse on load.  All
+      // three are needed to resolve the column: `uid` is namespaced by
+      // (class, var), not globally unique.
       const auto& [cls, var, uid] = it->second;
       if (auto s = coeff_struct_b->Append(); !s.ok()) {
         return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
       }
-      if (auto s = coeff_key_b->Append(std::format("{}:{}:{}", cls, var, uid));
-          !s.ok())
-      {
+      if (auto s = coeff_cls_b->Append(cls); !s.ok()) {
+        return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
+      }
+      if (auto s = coeff_var_b->Append(var); !s.ok()) {
+        return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
+      }
+      if (auto s = coeff_uid_b->Append(static_cast<int32_t>(uid)); !s.ok()) {
         return std::unexpected(make_io_error(filepath_for_error, s.ToString()));
       }
       if (auto s = coeff_val_b->Append(coeff); !s.ok()) {
@@ -614,6 +666,34 @@ struct CellCuts
     map_reserve(accum,
                 static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
 
+    // Multicut cross-scene re-sharing of INHERITED optimality cuts.
+    //
+    // Under ``cut_sharing_mode=multicut`` each scene-LP carries the full
+    // set of future-cost columns ``varphi_0..N-1`` (uid =
+    // ``sddp_alpha_uid + source_scene``), priced 1/N.  Within a level the
+    // backward pass builds one cut on its own ``varphi_S`` and
+    // ``share_cuts_for_phase`` BROADCASTS it onto ``varphi_S`` in EVERY
+    // scene-LP — but that share is never persisted (only origin cuts go
+    // through ``store_cut`` → the cut file).  So a naive per-scene load
+    // routes each inherited cut back to ONLY its origin scene, leaving
+    // ``varphi_s`` (s != self) UNCUT in every LP → those columns
+    // free-fall to their 0 lower bound → the master future-cost term
+    // ``(1/N)Σ_s varphi_s`` collapses → LB craters at iter-1 of every
+    // cascade level (and on ``--recover`` reload).  Reconstruct the share
+    // here: install each inherited optimality cut on its ``varphi_S`` in
+    // ALL scene-LPs, but ``store_cut`` only the origin copy so the next
+    // level's save stays origin-only (no N×-per-transition blow-up).
+    const bool multicut_broadcast =
+        planning_lp.options().sddp_cut_sharing_mode_enum()
+        == CutSharingMode::multicut;
+    // Broadcast copies (install into the LP + replay buffer only — never
+    // stored), keyed by DESTINATION (scene, phase) cell.
+    flat_map<CellKey, CellCuts> accum_bcast;
+    if (multicut_broadcast) {
+      map_reserve(accum_bcast,
+                  static_cast<size_t>(num_scenes) * phase_uid_to_index.size());
+    }
+
     // De-dup across the full :class:`CutKey` 5-tuple — the same cut
     // may appear in multiple files (combined + append-deltas).  All
     // five components matter for uniqueness: ``scene_uid`` (so two
@@ -695,13 +775,22 @@ struct CellCuts
           return std::unexpected(
               make_io_error(fname, "coeffs column is not list<struct>"));
         }
-        auto coeff_key_arr = std::dynamic_pointer_cast<arrow::StringArray>(
-            coeffs_struct->field(0));
+        // Schema v4 typed coeff columns (cls/var/uid/val).  Looked up by
+        // NAME (no positional assumptions).  Cut files are internal,
+        // single-version temporaries — no legacy (packed-key) fallback.
         auto coeff_val_arr = std::dynamic_pointer_cast<arrow::DoubleArray>(
-            coeffs_struct->field(1));
-        if (!coeff_key_arr || !coeff_val_arr) {
-          return std::unexpected(
-              make_io_error(fname, "coeffs struct missing key/val fields"));
+            coeffs_struct->GetFieldByName("val"));
+        auto coeff_cls_arr = std::dynamic_pointer_cast<arrow::StringArray>(
+            coeffs_struct->GetFieldByName("cls"));
+        auto coeff_var_arr = std::dynamic_pointer_cast<arrow::StringArray>(
+            coeffs_struct->GetFieldByName("var"));
+        auto coeff_uid_arr = std::dynamic_pointer_cast<arrow::Int32Array>(
+            coeffs_struct->GetFieldByName("uid"));
+        if (!coeff_val_arr || !coeff_cls_arr || !coeff_var_arr
+            || !coeff_uid_arr)
+        {
+          return std::unexpected(make_io_error(
+              fname, "coeffs struct missing cls/var/uid/val fields"));
         }
 
         const auto nrows =
@@ -781,47 +870,15 @@ struct CellCuts
           resolved_coeffs.reserve(static_cast<size_t>(list_end - list_start));
 
           for (int64_t k = list_start; k < list_end; ++k) {
-            const auto key_view = coeff_key_arr->GetView(k);
             const auto coeff = coeff_val_arr->Value(k);
 
-            // Parse structured key: "class:var:uid"
-            const auto c1 = key_view.find(':');
-            if (c1 == std::string_view::npos) {
-              SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: malformed coeff key '{}' at iter "
-                  "{}; skipping coefficient",
-                  key_view,
-                  cut_iter_idx);
-              continue;
-            }
-            const auto c2 = key_view.find(':', c1 + 1);
-            if (c2 == std::string_view::npos) {
-              SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: malformed coeff key '{}' at iter "
-                  "{}; skipping coefficient",
-                  key_view,
-                  cut_iter_idx);
-              continue;
-            }
-            const auto cls = key_view.substr(0, c1);
-            const auto var = key_view.substr(c1 + 1, c2 - c1 - 1);
-            const auto uid_str = key_view.substr(c2 + 1);
-            int uid_val = 0;
-            const auto* const end_ptr = uid_str.data() + uid_str.size();
-            const auto [ptr, ec] = std::from_chars(
-                // NOLINTNEXTLINE(bugprone-suspicious-stringview-data-usage)
-                uid_str.data(),
-                end_ptr,
-                uid_val);
-            if (ec != std::errc {}) {
-              SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: invalid uid '{}' in key '{}' "
-                  "at iter {}; skipping coefficient",
-                  uid_str,
-                  key_view,
-                  cut_iter_idx);
-              continue;
-            }
+            // Schema v4 — read the typed (class, var, uid) identity
+            // directly.  All three are needed: ``uid`` is namespaced by
+            // (class, var), not globally unique (e.g. ``Reservoir:efin:1``
+            // and ``Sddp:alpha:1`` coexist).
+            const auto cls = coeff_cls_arr->GetView(k);
+            const auto var = coeff_var_arr->GetView(k);
+            const auto uid_val = coeff_uid_arr->Value(k);
 
             bool found = false;
             for (const auto& [skey, svar] : sv_map) {
@@ -835,9 +892,11 @@ struct CellCuts
             }
             if (!found) {
               SPDLOG_WARN(
-                  "SDDP load_cuts_parquet: structured key '{}' not found in "
+                  "SDDP load_cuts_parquet: coeff ({}:{}:{}) not found in "
                   "state variables at iter {}; ignoring coefficient",
-                  key_view,
+                  cls,
+                  var,
+                  uid_val,
                   cut_iter_idx);
             }
           }
@@ -874,31 +933,32 @@ struct CellCuts
           const auto cut_offset = extra_arr ? cut_extra : result.count;
           const auto phase_uid_ctx = sim.uid_of(phase_index);
 
-          // Route the cut to the specific scene it was generated for
-          // (read from the ``scene`` column).  Falls back to
-          // broadcasting across all scenes when the column is absent
-          // (legacy parquet schema).  Without this routing each cut
-          // would be replicated to all 16 scenes, multiplying both
-          // the LP row count and the cut-store size by N_scenes at
-          // every level transition — observed as 6 400 → 104 800 →
-          // 1 679 560 cuts across juan/IPLP's 3 cascade transitions.
-          auto build_scene_row = [&](SceneIndex scene_idx)
+          // Build a row destined for ``dest_scene`` with an explicit
+          // ``ctx_extra`` context discriminator.  ``ctx_extra`` ENCODES
+          // THE ORIGIN scene (not the destination) so that, when a cut
+          // is broadcast under multicut, the N copies landing on one
+          // destination LP — one per origin scene — carry distinct
+          // ``(scene_uid, phase_uid, iter_uid, extra)`` contexts and so
+          // never collide on the duplicate-label invariant.
+          auto build_dest_row = [&](SceneIndex dest_scene, int ctx_extra)
           {
             auto scene_row = row;
-            scene_row.context = make_iteration_context(sim.uid_of(scene_idx),
+            scene_row.context = make_iteration_context(sim.uid_of(dest_scene),
                                                        phase_uid_ctx,
                                                        uid_of(cut_iter_idx),
-                                                       cut_offset);
+                                                       ctx_extra);
             for (const auto& [col, coeff] : resolved_coeffs) {
               scene_row[col] = coeff;
             }
             return scene_row;
           };
 
-          auto push_to_cell = [&](SceneIndex scene_idx, SparseRow&& scene_row)
+          auto push_to = [&](flat_map<CellKey, CellCuts>& dst,
+                             SceneIndex scene_idx,
+                             SparseRow&& scene_row)
           {
             auto& cell =
-                accum[CellKey {.scene = scene_idx, .phase = phase_index}];
+                dst[CellKey {.scene = scene_idx, .phase = phase_index}];
             if (cut_type == CutType::Optimality) {
               cell.opt.push_back(std::move(scene_row));
             } else {
@@ -907,7 +967,14 @@ struct CellCuts
           };
 
           if (scene_arr) {
-            // Per-scene routing (the file has a ``scene`` column).
+            // Per-scene routing (the file has a ``scene`` column).  This
+            // sends each inherited cut to its ORIGIN scene's cell — the
+            // copy that is both installed AND ``store_cut``'d (so the
+            // next save stays origin-only).  Without per-scene routing
+            // for the stored copy, each cut would be persisted N× and
+            // the cut file would explode by N_scenes at every level
+            // transition (observed 6 400 → 104 800 → 1 679 560 across
+            // juan/IPLP's 3 transitions).
             const auto scene_uid_val = make_uid<Scene>(scene_arr->Value(i));
             // Resolve scene_uid → scene_index.  Skip the cut when the
             // uid doesn't match any scene in the current simulation
@@ -931,12 +998,32 @@ struct CellCuts
                   cut_iter_idx);
               continue;
             }
-            push_to_cell(target_scene, build_scene_row(target_scene));
+            // Origin-encoded context discriminator: shared by the origin
+            // install below and every broadcast copy of THIS cut, so all
+            // copies of one origin cut differ only by destination scene
+            // — and copies from different origins differ in ``ctx_extra``.
+            const auto origin_idx = static_cast<int>(target_scene.value_of());
+            const int ctx_extra =
+                (cut_offset * static_cast<int>(num_scenes)) + origin_idx;
+            push_to(
+                accum, target_scene, build_dest_row(target_scene, ctx_extra));
+            // Multicut: reconstruct ``share_cuts_for_phase`` for this
+            // inherited optimality cut — install (LP + replay only, never
+            // stored) on its ``varphi_S`` in every OTHER scene-LP.
+            if (multicut_broadcast && cut_type == CutType::Optimality) {
+              for (const auto dest : iota_range<SceneIndex>(0, num_scenes)) {
+                if (dest == target_scene) {
+                  continue;  // origin already pushed (+ stored) above
+                }
+                push_to(accum_bcast, dest, build_dest_row(dest, ctx_extra));
+              }
+            }
           } else {
             // Legacy fallback: broadcast to every scene.
             for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes))
             {
-              push_to_cell(scene_index, build_scene_row(scene_index));
+              push_to(
+                  accum, scene_index, build_dest_row(scene_index, cut_offset));
             }
           }
           ++result.count;
@@ -1003,6 +1090,31 @@ struct CellCuts
                                  phase_uid_val);
           }
         }
+      }
+    }
+
+    // Multicut share reconstruction (install-only — NEVER stored): add
+    // each inherited optimality cut to its ``varphi_S`` in every
+    // non-origin scene-LP.  These rows mirror ``share_cuts_for_phase``;
+    // they live only in the live LP + the low-memory replay buffer (via
+    // ``record_cut_row``), exactly as the within-level broadcast does, so
+    // the cut store stays origin-only and the next level's save does not
+    // multiply by N_scenes.  ``bound_alpha_for_cut`` releases whichever
+    // ``varphi_s`` each cut references in the destination LP.
+    for (auto&& [cell_key, cell_cuts] : accum_bcast) {
+      if (cell_cuts.opt.empty()) {
+        continue;
+      }
+      const auto [scene_index, phase_index] =
+          std::pair {cell_key.scene, cell_key.phase};
+      for (const auto& cut : cell_cuts.opt) {
+        bound_alpha_for_cut(planning_lp, scene_index, phase_index, cut);
+      }
+      auto& li =
+          planning_lp.system(scene_index, phase_index).linear_interface();
+      li.add_rows(cell_cuts.opt);
+      for (const auto& cut : cell_cuts.opt) {
+        li.record_cut_row(cut);
       }
     }
 
