@@ -77,13 +77,20 @@ public:
   static constexpr std::string_view LosspName {"lossp"};
   static constexpr std::string_view LossnName {"lossn"};
   /// Consolidated per-(line, block) loss output emitted as
-  /// ``Line/loss_sol.parquet`` when ``--write-out`` includes ``extras``.
-  /// Equals ``LP(lossp) + LP(lossn)`` per cell — at most one of the two
+  /// ``Line/loss_sol.parquet`` under the ``solution`` write-out gate
+  /// (NOT ``extras`` — a previous version of this note was stale; the
+  /// emitter is the ``solution``-gated ``add_col_sol`` /
+  /// ``add_col_sol_values`` path).  For the PWL modes
+  /// (``piecewise`` / ``bidirectional`` / ``adaptive``) it equals
+  /// ``LP(lossp) + LP(lossn)`` per cell — at most one of the two
   /// direction-specific cols is populated on any given block, so the
-  /// sum is the total dissipated energy on that line that block.
-  /// Replaces the paired ``lossp_sol`` / ``lossn_sol`` emission so
-  /// downstream consumers see a single, schema-stable loss stream
-  /// regardless of which direction the LP routed flow.
+  /// sum is the total dissipated energy on that line that block.  For
+  /// ``piecewise_direct`` (no explicit loss column) it is reconstructed
+  /// as ``Σ_k lf_k · seg_k_sol`` summed over both directional segment
+  /// sets (see ``add_to_output``).  Replaces the paired ``lossp_sol`` /
+  /// ``lossn_sol`` emission so downstream consumers see a single,
+  /// schema-stable loss stream regardless of which direction the LP
+  /// routed flow.
   static constexpr std::string_view LossName {"loss"};
   static constexpr std::string_view CapacitypName {"capacityp"};
   static constexpr std::string_view CapacitynName {"capacityn"};
@@ -317,6 +324,16 @@ private:
   STBIndexHolder<ColIndex> flows_cols;  ///< signed flow (tangent_signed_flow)
   STBIndexHolder<std::vector<ColIndex>> flowp_seg_cols;
   STBIndexHolder<std::vector<ColIndex>> flown_seg_cols;
+  /// Per-segment physical loss factors `lf_k` parallel to
+  /// `flowp_seg_cols` / `flown_seg_cols` (same `(scenario, stage) →
+  /// (buid → vector)` keying and same per-segment order).  Populated
+  /// only under `LineLossesMode::piecewise_direct`, which has no
+  /// explicit loss LP column.  `add_to_output` reconstructs the exact
+  /// LP-consistent loss `Σ_k lf_k · primal(seg_col_k)` summed over BOTH
+  /// directional segment sets, capturing bidirectional loss-arbitrage
+  /// flow (which a `R·f²/V²`-at-net-flow approximation would hide).
+  STBIndexHolder<std::vector<double>> flowp_seg_loss;
+  STBIndexHolder<std::vector<double>> flown_seg_loss;
   STBIndexHolder<ColIndex> lossp_cols;
   STBIndexHolder<ColIndex> lossn_cols;
   STBIndexHolder<ColIndex> overloadp_cols;

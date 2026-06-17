@@ -854,6 +854,8 @@ BlockResult add_none(const ScenarioLP& scenario,
       .capn_row = {},
       .seg_p_cols = {},
       .seg_n_cols = {},
+      .seg_p_loss = {},
+      .seg_n_loss = {},
       .flow_col = {},
       .f_abs_col = {},
   };
@@ -1495,6 +1497,8 @@ BlockResult add_bidirectional(const LossConfig& config,
       .capn_row = capn,
       .seg_p_cols = {},
       .seg_n_cols = {},
+      .seg_p_loss = {},
+      .seg_n_loss = {},
       .flow_col = {},
       .f_abs_col = {},
   };
@@ -2185,6 +2189,11 @@ BlockResult add_piecewise(const LossConfig& config,
 /// after the segments saturate left-to-right.  At the optimum, segments
 /// fill in order of increasing loss factor, so the cost stays consistent
 /// with the legacy aggregator-based formulation.
+/// @param lf_out  Out-param filled (cleared first) with the per-segment
+///                physical loss factor `lf_k`, parallel to the returned
+///                segment columns.  Used by `add_piecewise_direct` so
+///                the output layer can reconstruct the exact
+///                LP-consistent loss `Σ_k lf_k · seg_k_sol`.
 [[nodiscard]] std::vector<ColIndex> add_direct_direction(
     const LossConfig& config,
     const ScenarioLP& scenario,
@@ -2197,8 +2206,10 @@ BlockResult add_piecewise(const LossConfig& config,
     double block_tcost,
     Uid uid,
     const DirLabels& labels,
-    bool enforce_capacity)
+    bool enforce_capacity,
+    std::vector<double>& lf_out)
 {
+  lf_out.clear();
   if (block_tmax <= 0.0) {
     return {};
   }
@@ -2247,6 +2258,7 @@ BlockResult add_piecewise(const LossConfig& config,
     apply_linear_allocation(
         sending_brow, receiving_brow, seg_col, lf_k, config.allocation);
     seg_cols.push_back(seg_col);
+    lf_out.push_back(lf_k);
   }
 
   return seg_cols;
@@ -2287,6 +2299,7 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                  Uid uid,
                                  bool enforce_capacity)
 {
+  std::vector<double> seg_p_loss;
   auto seg_p_cols = add_direct_direction(config,
                                          scenario,
                                          stage,
@@ -2298,8 +2311,10 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                          block_tcost,
                                          uid,
                                          positive_labels,
-                                         enforce_capacity);
+                                         enforce_capacity,
+                                         seg_p_loss);
 
+  std::vector<double> seg_n_loss;
   auto seg_n_cols = add_direct_direction(config,
                                          scenario,
                                          stage,
@@ -2311,7 +2326,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
                                          block_tcost,
                                          uid,
                                          negative_labels,
-                                         enforce_capacity);
+                                         enforce_capacity,
+                                         seg_n_loss);
 
   return {
       .fp_col = {},
@@ -2322,6 +2338,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
       .capn_row = {},
       .seg_p_cols = std::move(seg_p_cols),
       .seg_n_cols = std::move(seg_n_cols),
+      .seg_p_loss = std::move(seg_p_loss),
+      .seg_n_loss = std::move(seg_n_loss),
       .flow_col = {},
       .f_abs_col = {},
   };

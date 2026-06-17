@@ -1264,15 +1264,18 @@ class GTOptWriter(
         # through verbatim; otherwise default to a value that captures
         # everything the downstream analyses consume:
         #   * standard streams ``solution,dual,reduced_cost:Generator,Line``
-        #     (mirrors the C++ default) — marginal-unit attribution needs
-        #     ``Generator/generation_cost`` (rc) + ``srmc_sol`` (sol), and
-        #     emission intensity reuses the same marginal-unit identification
-        #     (the emission factor is an external catalogue, not a stream);
+        #     (mirrors the C++ default).  ``solution`` covers marginal-unit
+        #     ``srmc_sol`` AND ``Line/loss_sol`` (loss_sol is solution-gated,
+        #     emitted for every loss mode incl. ``piecewise_direct``); ``rc``
+        #     on Generator gives ``generation_cost`` (the only hard
+        #     requirement of gtopt_marginal_units); emission intensity reuses
+        #     the same marginal-unit identification (the emission factor is an
+        #     external catalogue, not a stream).
         #   * ``extras:Generator,Line`` — adds ``Generator/{vom,fuel}_cost_sol``
         #     and ``heat_rate`` (finer marginal-unit / consequential-emission
-        #     attribution) and the consolidated ``Line/loss_sol`` (the loss
-        #     summary; without it the loss row falls back to generated −
-        #     served).
+        #     attribution) and Line ``overload`` / directional ``lossn``
+        #     diagnostics.  NOTE: loss_sol does NOT need extras (it rides
+        #     ``solution``); these are opt-in audit refinements.
         # Additive only — never drops a standard stream.  Scoped to the two
         # classes the analyses read so it does not bloat every element.
         write_out = options.get("write_out")

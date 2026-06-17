@@ -404,6 +404,17 @@ struct BlockResult
   /// Per-segment columns for the B→A direction.  Same semantics as
   /// `seg_p_cols`; KVL stamps each with `−x_τ`.
   std::vector<ColIndex> seg_n_cols;
+  /// Per-segment physical loss factor `lf_k` for the A→B direction,
+  /// parallel to `seg_p_cols` (same length / order).  Populated only by
+  /// `piecewise_direct` mode.  `lf_k` is the exact coefficient stamped
+  /// into the bus-balance rows for segment `k` (`seg_width · R ·
+  /// (2k−1) / V²`), so the LP-consistent A→B loss is
+  /// `Σ_k seg_p_loss[k] · primal(seg_p_cols[k])` in physical MW — there
+  /// is NO extra column scale on this coefficient in direct mode.
+  std::vector<double> seg_p_loss;
+  /// Per-segment physical loss factor `lf_k` for the B→A direction,
+  /// parallel to `seg_n_cols`.  Same semantics as `seg_p_loss`.
+  std::vector<double> seg_n_loss;
   /// Single SIGNED flow column used by `tangent_signed_flow` mode
   /// (Coffrin outer approximation; no `fp`/`fn` decomposition).  When
   /// populated, `fp_col` / `fn_col` are empty and KVL stamps `+x_τ` on

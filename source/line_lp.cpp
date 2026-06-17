@@ -238,6 +238,10 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<ColIndex> lncols;
   BIndexHolder<std::vector<ColIndex>> fpsegcols;
   BIndexHolder<std::vector<ColIndex>> fnsegcols;
+  // Per-segment physical loss factors `lf_k`, parallel to the
+  // `fpsegcols` / `fnsegcols` column vectors (piecewise_direct only).
+  BIndexHolder<std::vector<double>> fpsegloss;
+  BIndexHolder<std::vector<double>> fnsegloss;
   /// Per-block signed-flow column (populated only under
   /// ``LineLossesMode::tangent_signed_flow``).  When populated, the
   /// directional ``fpcols`` / ``fncols`` maps are empty for this
@@ -268,6 +272,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   map_reserve(lncols, blocks.size());
   map_reserve(fpsegcols, blocks.size());
   map_reserve(fnsegcols, blocks.size());
+  map_reserve(fpsegloss, blocks.size());
+  map_reserve(fnsegloss, blocks.size());
   map_reserve(fscols, blocks.size());
   if (soft_cap_enabled) {
     map_reserve(opcols, blocks.size());
@@ -384,6 +390,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
     store_opt(cnrows, result.capn_row);
     store_vec(fpsegcols, result.seg_p_cols);
     store_vec(fnsegcols, result.seg_n_cols);
+    store_vec(fpsegloss, result.seg_p_loss);
+    store_vec(fnsegloss, result.seg_n_loss);
     store_opt(fscols, result.flow_col);
 
     // ── Soft cap / overload penalty ────────────────────────────────
@@ -504,6 +512,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(lossn_cols, std::move(lncols));
   cond_assign(flowp_seg_cols, std::move(fpsegcols));
   cond_assign(flown_seg_cols, std::move(fnsegcols));
+  cond_assign(flowp_seg_loss, std::move(fpsegloss));
+  cond_assign(flown_seg_loss, std::move(fnsegloss));
   cond_assign(overloadp_cols, std::move(opcols));
   cond_assign(overloadn_cols, std::move(oncols));
   cond_assign(overloadp_rows, std::move(oprows));
@@ -876,6 +886,52 @@ bool LineLP::add_to_output(OutputContext& out) const
     merge_in(lossp_cols);
     merge_in(lossn_cols);
     out.add_col_sol(cname, LossName, pid, loss_combined);
+  } else if (!flowp_seg_cols.empty() || !flown_seg_cols.empty()) {
+    // ``piecewise_direct`` mode: no explicit loss LP column.  The loss
+    // is stamped per-segment into the bus-balance rows via the factors
+    // ``lf_k`` (saved in ``flowp_seg_loss`` / ``flown_seg_loss``,
+    // parallel to ``flowp_seg_cols`` / ``flown_seg_cols``).  Reconstruct
+    // the EXACT LP-consistent loss
+    //   ``Σ_k lf_k · primal(seg_col_k)``
+    // summed over BOTH directional segment sets.  Both directions are
+    // summed (not netted) so the value captures loss-arbitrage cases
+    // where positive- AND negative-direction segments are simultaneously
+    // non-zero — a ``R·f²/V²``-at-net-flow approximation would hide that
+    // and under-report pathological losses.  Emitted on the same
+    // ``solution`` gate as the PWL-mode ``loss_sol`` (``add_col_sol_values``
+    // applies the identity ``sol`` factor pipeline, so the on-disk shape
+    // is bit-for-bit identical to the explicit-column form).  The
+    // ``else`` guarantees we never double-emit: explicit loss columns and
+    // direct segments are mutually exclusive per line.
+    STBIndexHolder<double> loss_values;
+    const auto accumulate_dir =
+        [&](const STBIndexHolder<std::vector<ColIndex>>& cols_holder,
+            const STBIndexHolder<std::vector<double>>& loss_holder)
+    {
+      for (const auto& [st_key, blocks] : cols_holder) {
+        const auto lit = loss_holder.find(st_key);
+        if (lit == loss_holder.end()) {
+          continue;
+        }
+        auto& dst_blocks = loss_values[st_key];
+        for (const auto& [buid, seg_cols] : blocks) {
+          const auto lbit = lit->second.find(buid);
+          if (lbit == lit->second.end()) {
+            continue;
+          }
+          const auto& lf = lbit->second;
+          double cell_loss = 0.0;
+          const auto n = std::min(seg_cols.size(), lf.size());
+          for (std::size_t k = 0; k < n; ++k) {
+            cell_loss += lf[k] * out.primal(seg_cols[k]);
+          }
+          dst_blocks[buid] += cell_loss;
+        }
+      }
+    };
+    accumulate_dir(flowp_seg_cols, flowp_seg_loss);
+    accumulate_dir(flown_seg_cols, flown_seg_loss);
+    out.add_col_sol_values(cname, LossName, pid, loss_values);
   }
   // Extras-gated per-direction loss (B→A leg).  `lossn_cols` is empty
   // for ``tangent_signed_flow`` / ``none`` / ``linear`` /
