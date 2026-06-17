@@ -1229,7 +1229,11 @@ class GTOptWriter(
         if method in FAST_PATH_METHODS:
             src_sddp = options.get("sddp_options") or {}
             apply_iterative_fast_path(
-                model_opts, sddp_opts, src_model=src_model, src_sddp=src_sddp
+                model_opts,
+                sddp_opts,
+                src_model=src_model,
+                src_sddp=src_sddp,
+                invariant=bool(options.get("solver_invariant")),
             )
             # PLP-faithful cut sharing: each scene-LP carries N dedicated
             # future-cost columns (varphi_0..N-1) and scenario-s's backward

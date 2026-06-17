@@ -127,25 +127,36 @@ struct SolverOptions
    */
   std::optional<SolverScaling> scaling {};
 
-  /** @brief Controls barrier crossover.
+  /** @brief Controls barrier crossover — and, with it, which duals the
+   *  cut path consumes.
    *
    *  Exposed via JSON (`solver_options.crossover`) since dbeb01cb —
    *  the previous "internal, not user-visible" caveat is obsolete.
    *
    *  Crossover converts the interior-point solution into a basic feasible
-   *  solution, producing exact dual values (row prices / reduced costs).
+   *  solution, producing **vertex (basic)** dual values (row prices /
+   *  reduced costs).
    *
-   *  The SDDP forward pass sets crossover=false for speed.  When the
-   *  backward pass needs forward-pass duals (no-aperture Benders cuts),
-   *  LinearInterface::ensure_duals() lazily triggers crossover on demand
-   *  by checking SolverBackend::has_duals() and re-solving if needed.
-   *  CLP/CBC always produce duals (simplex), so no re-solve occurs.
+   *  `crossover` is the SINGLE knob governing duals after a barrier solve:
    *
-   *  The elastic filter clone solve also disables crossover (never needs
-   *  duals).
+   *  - `true` (default) — barrier crosses over to a vertex; `get_row_dual` /
+   *    `get_col_dual` return basic duals.
+   *  - `false` — the solve stops at the interior point.  CPLEX/HiGHS still
+   *    expose the **interior** reduced costs / row prices, and
+   *    `LinearInterface::ensure_duals()` uses them DIRECTLY (no lazy
+   *    crossover re-solve).  The interior dual is the unique analytic-center
+   *    dual — a valid optimal dual (valid value-function subgradient) — so
+   *    SDDP optimality cuts built from it are valid supporting hyperplanes,
+   *    AND deterministic: unlike a vertex dual it is NOT basis-dependent, so
+   *    `low_memory` off vs compress (which present the LP to the solver
+   *    differently) cannot diverge onto different equal-cost vertices.  This
+   *    is the off≡compress invariance lever (slower per solve — barrier has
+   *    no warm-start — so it is opt-in via `plp2gtopt --solver-invariant`).
    *
-   *  Only meaningful when algorithm == barrier.  Simplex methods always
-   *  produce duals by construction.
+   *  The SDDP forward pass and the elastic-filter clone set crossover=false
+   *  for speed; the aperture pass sets barrier+crossover=false for the same
+   *  reason.  Only meaningful when algorithm == barrier — simplex methods
+   *  always produce vertex duals by construction.
    *
    *  Backend mapping:
    *  - CPLEX: true → `BARCROSSALG=1` (primal), false → `BARCROSSALG=-1`

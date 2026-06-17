@@ -366,6 +366,36 @@ class TestBuildOptions:
         # monolithic must NOT get the multicut cut-sharing default.
         assert "cut_sharing_mode" not in opts
 
+    def test_sddp_fast_path_invariant(self):
+        # --solver-invariant selects the HYBRID config (off==compress
+        # reproducibility, far cheaper than all-barrier):
+        #   * forward  — barrier + crossover=False (interior, unique trial
+        #     states) + presolve ON (cold barrier benefits from presolve);
+        #   * backward — warm dual + presolve OFF (fast; lp_reduction does the
+        #     build-time structural reduction in place of CPLEX presolve).
+        args = self._make_args(method="sddp", solver_invariant=True)
+        opts = build_options(args)
+        assert opts["sddp_options"]["forward_solver_options"] == {
+            "algorithm": "barrier",
+            "crossover": False,
+            "presolve": True,
+        }
+        assert opts["sddp_options"]["backward_solver_options"] == {
+            "algorithm": "dual",
+            "advanced_basis": True,
+            "presolve": False,
+        }
+        # lp_reduction stays on (substitutes for CPLEX presolve on the backward)
+        assert opts["model_options"]["lp_reduction"] is True
+        # never leaks the plp2gtopt-meta flag into the gtopt JSON options
+        assert "solver_invariant" not in opts["sddp_options"]
+
+    def test_sddp_fast_path_default_not_invariant(self):
+        # Without --solver-invariant the default stays dual + warm-start.
+        args = self._make_args(method="sddp")
+        opts = build_options(args)
+        assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
+
     def test_sddp_method_defaults_cut_sharing_multicut(self):
         # PLP-faithful sharing: sddp defaults cut_sharing_mode to multicut.
         args = self._make_args(method="sddp")

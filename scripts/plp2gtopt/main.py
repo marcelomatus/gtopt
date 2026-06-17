@@ -215,6 +215,22 @@ def make_parser() -> argparse.ArgumentParser:
     add_general_arguments(parser, conf)
 
     parser.add_argument(
+        "--solver-invariant",
+        dest="solver_invariant",
+        action="store_true",
+        help=(
+            "SDDP/cascade only: configure the forward+backward LP solves for "
+            "barrier WITHOUT crossover (crossover=false) and retune the "
+            "bundled cplex.prm to match.  Makes the solve reproducible across "
+            "memory-saving modes (low_memory off == compress): barrier reaches "
+            "the unique analytic-center point and the cut path keeps the unique "
+            "interior duals, so the degenerate-vertex selection that dual "
+            "simplex suffers (different equal-cost trajectory off vs compress) "
+            "cannot occur.  ~2x slower per solve and yields a different but "
+            "equally valid solution than the dual-simplex default."
+        ),
+    )
+    parser.add_argument(
         "--from-state",
         dest="from_state",
         type=Path,
@@ -427,6 +443,9 @@ def build_options(args: argparse.Namespace) -> dict:
         "name": name,
         "sys_version": args.sys_version,
         "method": args.method,
+        # plp2gtopt-meta (consumed at install + fast-path; never emitted to
+        # the gtopt JSON, which is built explicitly from this config dict).
+        "solver_invariant": getattr(args, "solver_invariant", False),
         # Forwarded to ``options.write_out`` (see
         # ``gtopt_writer.write_planning_options``).  ``getattr`` with the
         # canonical default keeps in-tree fixtures that build a minimal
@@ -570,7 +589,11 @@ def build_options(args: argparse.Namespace) -> dict:
     # (barrier) would override the JSON algorithm since it is read last.
     if args.method in FAST_PATH_METHODS:
         sddp_opts = opts.setdefault("sddp_options", {})
-        apply_iterative_fast_path(model_opts, sddp_opts)
+        apply_iterative_fast_path(
+            model_opts,
+            sddp_opts,
+            invariant=getattr(args, "solver_invariant", False),
+        )
         # PLP-faithful cut sharing: each scene-LP carries N dedicated
         # future-cost columns (varphi_0..N-1) and scenario-s's backward
         # cut lands on varphi_s in every scene-LP, priced 1/N — matching

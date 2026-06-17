@@ -3110,31 +3110,23 @@ void LinearInterface::ensure_duals()
   if (m_backend_ == nullptr || m_backend_released_) {
     return;
   }
-  // Duals are always available unless we solved with barrier w/o crossover.
-  // CLP/CBC (simplex-only) always produce vertex duals regardless of options.
-  if (m_last_solver_options_.algorithm != LPAlgo::barrier
-      || m_last_solver_options_.crossover)
-  {
-    return;  // solver already has proper vertex duals
-  }
-
-  // Re-solve with crossover enabled to obtain vertex duals.
-  // The solver warm-starts from the interior-point solution.
-  auto opts = m_last_solver_options_;
-  opts.crossover = true;
-  m_backend_->apply_options(opts);
-
-  ++m_solver_stats_.crossover_solves;
-  const auto t0 = std::chrono::steady_clock::now();
-  m_backend_->resolve();
-  m_solver_stats_.total_solve_time_s +=
-      std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
-          .count();
-
-  // Update cached options so subsequent dual accesses don't re-solve.
-  m_last_solver_options_.crossover = true;
-
-  SPDLOG_INFO("lazy crossover: computed duals on demand ({})", get_prob_name());
+  // The solve already produced usable duals; `crossover` is the single knob:
+  //
+  //   * simplex, or barrier WITH crossover (the default) — vertex (basic)
+  //     reduced costs / row prices are available by construction.
+  //   * barrier WITHOUT crossover (`crossover == false`) — the solve stops at
+  //     the interior point, but CPLEX/HiGHS still expose the **interior**
+  //     reduced costs (`CplexSolverBackend::reduced_cost()` → `CPXgetdj`).
+  //     Those are a valid optimal dual (the unique analytic-center dual ⇒ a
+  //     valid value-function subgradient), so they are used DIRECTLY.
+  //
+  // `ensure_duals()` therefore performs no lazy crossover re-solve: a caller
+  // that sets `crossover == false` is taken at its word ("the interior duals
+  // are fine").  This is what makes barrier/no-crossover SDDP reproducible
+  // across `low_memory` modes — a crossover re-solve here would recover
+  // BASIS-DEPENDENT vertex duals, non-unique under degeneracy, reintroducing
+  // the off↔compress cut divergence.  Callers needing basic duals leave
+  // `crossover` at its `true` default.
 }
 
 // ── Status ──

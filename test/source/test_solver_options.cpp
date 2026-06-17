@@ -169,6 +169,24 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
     CHECK_FALSE(deserialized.feasible_eps.has_value());
     CHECK_FALSE(deserialized.barrier_eps.has_value());
     CHECK_FALSE(deserialized.mip_gap.has_value());
+    // Default: crossover on.
+    CHECK(deserialized.crossover);
+  }
+
+  SUBCASE("barrier/no-crossover round-trips (off==compress invariance config)")
+  {
+    // crossover=false is the single knob: barrier interior point + interior
+    // duals used directly (ensure_duals does no lazy crossover re-solve).
+    const SolverOptions original {
+        .algorithm = LPAlgo::barrier,
+        .crossover = false,
+    };
+
+    const auto deserialized =
+        daw::json::from_json<SolverOptions>(daw::json::to_json(original));
+
+    CHECK(deserialized.algorithm == LPAlgo::barrier);
+    CHECK_FALSE(deserialized.crossover);
   }
 }
 

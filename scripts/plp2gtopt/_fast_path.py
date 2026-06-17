@@ -39,6 +39,7 @@ def apply_iterative_fast_path(
     *,
     src_model: dict[str, Any] | None = None,
     src_sddp: dict[str, Any] | None = None,
+    invariant: bool = False,
 ) -> None:
     """Apply the iterative SDDP fast-path defaults in place.
 
@@ -47,6 +48,26 @@ def apply_iterative_fast_path(
     the writer-direct path) wins. ``src_model`` / ``src_sddp`` are the
     source planning's ``model_options`` / ``sddp_options`` (empty on the
     CLI path, where there is nothing to inherit from).
+
+    ``invariant`` selects the forward/backward LP algorithm:
+
+    * ``False`` (default) — **dual simplex + warm-start** (``advanced_basis``
+      on the forward).  Fastest, but the optimal *basis* is non-unique under
+      LP degeneracy, so ``low_memory_mode`` off vs compress can land on
+      different (equal-cost) vertices → non-reproducible per-cell LPs.
+
+    * ``True`` — **barrier without crossover** (``crossover=False``).  Barrier
+      converges to the unique analytic-center point and the cut path consumes
+      that solve's unique interior duals directly (``crossover=False`` is the
+      single knob — ``LinearInterface::ensure_duals`` does no lazy crossover),
+      so off ≡ compress (bit-identical trajectories) regardless of how the LP
+      is presented to the solver.  ``presolve`` is left at its default (ON):
+      cold barrier re-factorizes from scratch every solve, so presolve
+      shrinking the LP is pure benefit (unlike the dual+warm default, where
+      presolve is disabled to preserve the warm basis).  Slower per solve and
+      yields a different (equally valid) solution than the simplex vertex.
+      Pair with the matching ``cplex.prm`` retune
+      (``install_solver_param_files(..., invariant=True)``).
     """
     src_model = src_model or {}
     src_sddp = src_sddp or {}
@@ -66,12 +87,36 @@ def apply_iterative_fast_path(
     fwd = sddp_opts.get("forward_solver_options")
     if fwd is None:
         fwd = dict(src_sddp.get("forward_solver_options") or {})
-    fwd.setdefault("algorithm", "dual")
-    fwd.setdefault("advanced_basis", True)
-    sddp_opts["forward_solver_options"] = fwd
-
     bwd = sddp_opts.get("backward_solver_options")
     if bwd is None:
         bwd = dict(src_sddp.get("backward_solver_options") or {})
-    bwd.setdefault("algorithm", "dual")
+
+    if invariant:
+        # off==compress reproducibility, HYBRID:
+        #   * FORWARD — barrier + crossover=False (+ presolve ON).  Barrier
+        #     reaches the unique analytic-center point, so the forward trial
+        #     reservoir trajectory is deterministic / presentation-independent
+        #     (this is where the off vs compress divergence was seeded).
+        #     crossover=False keeps the unique interior duals; presolve is ON
+        #     because cold barrier re-factorizes every solve, so presolve
+        #     shrinking the LP is pure speedup.
+        #   * BACKWARD apertures — warm-start dual + presolve OFF (the fast
+        #     default).  The aperture pass (aperture_solve_mode=warm) honors
+        #     these, reusing the basis across a chunk (aperture_chunk_size=-1).
+        #     Cheap; safe IFF the aperture duals are unique — empirically
+        #     validated per case (the seed was the forward primal, not the
+        #     cut duals).  Falls back to forward's barrier on both passes if a
+        #     case turns out to need invariant backward duals too.
+        fwd.setdefault("algorithm", "barrier")
+        fwd.setdefault("crossover", False)
+        fwd.setdefault("presolve", True)
+        bwd.setdefault("algorithm", "dual")
+        bwd.setdefault("advanced_basis", True)
+        bwd.setdefault("presolve", False)
+    else:
+        fwd.setdefault("algorithm", "dual")
+        fwd.setdefault("advanced_basis", True)
+        bwd.setdefault("algorithm", "dual")
+
+    sddp_opts["forward_solver_options"] = fwd
     sddp_opts["backward_solver_options"] = bwd

@@ -534,7 +534,7 @@ def run_post_check(
 _BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
 
 
-def _retune_cplex_prm_for_iterative(prm_path: Path) -> None:
+def _retune_cplex_prm_for_iterative(prm_path: Path, *, invariant: bool = False) -> None:
     """Rewrite a copied ``cplex.prm`` for SDDP / cascade iterative LP solves.
 
     The bundled ``cplex.prm`` is tuned for plexos2gtopt-derived *monolithic
@@ -573,20 +573,40 @@ def _retune_cplex_prm_for_iterative(prm_path: Path) -> None:
         return (
             s.startswith("CPXPARAM_LPMethod")
             or s.startswith("CPXPARAM_Advance")
+            or s.startswith("CPXPARAM_SolutionType")
             or s.startswith("CPXPARAM_Preprocessing_Presolve")
             or s.startswith("CPXPARAM_MIP")
         )
 
     kept = [ln for ln in lines if not _is_dropped(ln)]
-    kept.append("# --- plp2gtopt iterative (sddp/cascade) LP overrides ---")
-    kept.append("CPXPARAM_LPMethod                               2")
-    kept.append("CPXPARAM_Advance                                1")
-    kept.append("CPXPARAM_Preprocessing_Presolve                 0")
+    if invariant:
+        # off==compress reproducibility, HYBRID (forward barrier / backward
+        # warm-dual).  The prm is intentionally METHOD-NEUTRAL: it pins NO
+        # LPMethod / Advance / SolutionType / Preprocessing_Presolve so that
+        # the per-pass JSON ``forward_solver_options`` / ``backward_solver_
+        # options`` drive each pass independently (the prm is read LAST and
+        # would otherwise override gtopt's per-pass settings, forcing one
+        # method on all passes).  The split is:
+        #   * forward  — barrier + crossover=false (→ CPLEX BARCROSSALG=-1,
+        #     interior point) + presolve ON  → unique, invariant trial states;
+        #   * backward — warm dual + presolve OFF + lp_reduction (build-time
+        #     structural reduction substitutes for per-solve CPLEX presolve)
+        #     → fast.
+        # See ``_fast_path.apply_iterative_fast_path(invariant=True)``.
+        kept.append(
+            "# --- plp2gtopt iterative INVARIANT: method-neutral; "
+            "per-pass JSON solver_options drive forward(barrier)/backward(dual) ---"
+        )
+    else:
+        kept.append("# --- plp2gtopt iterative (sddp/cascade) LP overrides ---")
+        kept.append("CPXPARAM_LPMethod                               2")
+        kept.append("CPXPARAM_Advance                                1")
+        kept.append("CPXPARAM_Preprocessing_Presolve                 0")
     prm_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
 
 
 def install_solver_param_files(
-    output_dir: Path, *, iterative: bool = False
+    output_dir: Path, *, iterative: bool = False, invariant: bool = False
 ) -> list[Path]:
     """Copy every bundled solver param file into ``<output_dir>/solvers/``.
 
@@ -616,7 +636,7 @@ def install_solver_param_files(
         dst = target_dir / src.name
         shutil.copyfile(src, dst)
         if iterative and src.name == "cplex.prm":
-            _retune_cplex_prm_for_iterative(dst)
+            _retune_cplex_prm_for_iterative(dst, invariant=invariant)
         installed.append(dst)
         logger.info("installed solver param file: %s", dst)
     return installed
@@ -838,6 +858,7 @@ def convert_plp_case(options: dict[str, Any]) -> int:
         install_solver_param_files(
             output_dir,
             iterative=options.get("method") in ("sddp", "cascade"),
+            invariant=bool(options.get("solver_invariant")),
         )
 
         # --- Outside the progress context: print tables ---

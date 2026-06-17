@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file      test_ensure_duals.cpp
- * @brief     Tests for LinearInterface::ensure_duals (lazy crossover)
+ * @brief     Tests for LinearInterface::ensure_duals (dual availability;
+ *             crossover=false uses interior duals directly, no re-solve)
  * @date      2026-04-05
  * @copyright BSD-3-Clause
  */
@@ -166,11 +167,14 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "LinearInterface - lazy crossover with barrier crossover=false")  // NOLINT
+    "LinearInterface - barrier crossover=false yields duals "
+    "without crossover")  // NOLINT
 {
-  // Barrier with crossover=false: calling get_row_dual_raw() should
-  // trigger ensure_duals() which re-solves with crossover=true.
-  // The primal solution should remain the same; duals should be valid.
+  // Barrier with crossover=false: get_row_dual_raw() returns the solve's
+  // INTERIOR duals directly — ensure_duals() does NO lazy crossover re-solve
+  // (crossover=false is honored as "interior duals are fine").  The interior
+  // dual is a valid optimal dual; here the optimum is unique so it equals the
+  // vertex dual.  (On CLP, barrier always crosses over — same valid duals.)
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
       .uppb = 10.0,
@@ -198,29 +202,29 @@ TEST_CASE(
   // Primal should be feasible before requesting duals
   CHECK(li.get_col_sol()[x1] == doctest::Approx(0.0).epsilon(0.01));
 
-  // This call triggers lazy crossover
+  // Duals come straight from the solve (no crossover re-solve)
   const auto duals = li.get_row_dual_raw();
   CHECK(duals.size() == 1);
-  // After crossover, duals should be proper vertex duals
+  // The binding constraint's dual is valid and nonzero
   CHECK(duals[0] != doctest::Approx(0.0));
 
-  // Primal solution should still be correct after crossover
+  // Primal solution is the (unique) optimum
   const auto sol = li.get_col_sol();
   CHECK(sol[x1] == doctest::Approx(0.0).epsilon(0.01));
   CHECK(sol[x2] == doctest::Approx(5.0).epsilon(0.01));
 
-  // Second call to get_row_dual_raw() should NOT re-trigger crossover
-  // (m_last_solver_options_.crossover was updated to true)
+  // A second dual read returns the same values (idempotent, no re-solve)
   const auto duals2 = li.get_row_dual_raw();
   CHECK(duals2[0] == doctest::Approx(duals[0]));
 }
 
 TEST_CASE(
-    "LinearInterface - lazy crossover preserves solution after "
-    "resolve")  // NOLINT
+    "LinearInterface - barrier crossover=false resolve yields duals "
+    "directly")  // NOLINT
 {
-  // Solve with barrier+crossover, resolve with barrier w/o crossover,
-  // then request duals (triggers lazy crossover on the resolve's solution).
+  // Solve with barrier+crossover, tighten a row, resolve with barrier w/o
+  // crossover, then read duals — returned straight from the interior solve
+  // (no crossover re-solve), valid for the (unique) updated optimum.
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
       .uppb = 10.0,
@@ -263,7 +267,7 @@ TEST_CASE(
   });
   REQUIRE(res2.has_value());
 
-  // Request duals (triggers lazy crossover)
+  // Request duals — returned directly from the interior solve (no crossover)
   const auto duals = li.get_row_dual_raw();
   CHECK(duals.size() == 1);
   CHECK(duals[0] != doctest::Approx(0.0));
