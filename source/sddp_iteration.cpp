@@ -160,23 +160,27 @@ inline constexpr std::array<ZScoreBucket, 4> kZScoreTable {
 ///      wall time at expensive levels (juan/full_network ≈ 13 min
 ///      per iter).  Always ``false`` when ``convergence_mode ==
 ///      gap_only`` (the stationary path is intentionally inert there).
-///   3. ``gap_ok`` — symmetric magnitude check
-///      ``|ir.gap| < stationary_gap_ceiling``.  **Pure pathology
-///      safety net** (default ceiling 0.5 = 50 %): accepts arbitrary
-///      multi-cut overshoot and the natural zero-crossing of the
-///      signed gap; rejects only wild |gap| > 50 % that would
-///      indicate broken cuts or LB pinned to bootstrap.  Not a
-///      convergence criterion — ``stationary_ok`` is the signal.
+///
+/// The former ``gap_ok`` clause (``|ir.gap| < stationary_gap_ceiling``)
+/// was REMOVED (2026-06-16): it was AND'd into ``converged()`` and so
+/// acted as a hard convergence gate, contradicting its documented role
+/// as a mere "safety net".  Under the multi-cut / multicut overshoot
+/// regime the signed gap stabilises at a large NEGATIVE value (LB > UB
+/// because the shared cuts do not perfectly match each scene's own
+/// value function) — a stationary, non-improving state that the ceiling
+/// nonetheless refused to call converged, wasting every remaining
+/// iteration at expensive levels.  ΔUB stationarity is the sole signal:
+/// once the upper bound stops moving the level has converged regardless
+/// of the residual signed-gap magnitude.
 struct StationaryCheck
 {
   bool past_min_iterations {false};
   bool stationary_ok {false};
-  bool gap_ok {false};
 
-  /// AND of all three signals — the canonical stop predicate.
+  /// AND of both signals — the canonical stop predicate.
   [[nodiscard]] auto converged() const noexcept -> bool
   {
-    return past_min_iterations && stationary_ok && gap_ok;
+    return past_min_iterations && stationary_ok;
   }
 };
 
@@ -202,8 +206,6 @@ struct StationaryCheck
     c.stationary_ok =
         (ir.gap_change < opts.stationary_tol && ir.gap_change < 1.0);
   }
-
-  c.gap_ok = std::abs(ir.gap) < opts.stationary_gap_ceiling;
 
   return c;
 }
@@ -467,12 +469,13 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // ``ir.converged`` — it only computes ``ir.gap`` and
       // ``ir.gap_change`` and emits the negative-gap WARN.
       //
-      // The convergence signal is **ΔUB stationarity**; the
-      // ``|gap| < stationary_gap_ceiling`` clause is a pathology
-      // safety net, not a trigger.  See the StationaryCheck docs for
-      // the rationale (multi-cut overshoot makes the signed gap
-      // non-monotone; UB is the policy-cost MC estimate we are
-      // optimising).
+      // The convergence signal is **ΔUB stationarity** alone; the
+      // ``|gap| < stationary_gap_ceiling`` gate was removed (2026-06-16)
+      // because it blocked stationary multicut-overshoot states from
+      // ever converging.  See the StationaryCheck docs for the rationale
+      // (multi-cut overshoot makes the signed gap non-monotone and can
+      // leave it stationary at a large negative value; UB is the
+      // policy-cost MC estimate we are optimising).
       //
       // ``convergence_mode`` gating:
       //   gap_only       → stationary path inert (stationary_ok=false);
@@ -496,13 +499,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
         SPDLOG_INFO(
             "SDDP Iter [i{}]: ΔUB stationary convergence "
-            "(ΔUB={:.6f} < tol={:.6f}; |gap|={:.4f} within safety net "
-            "ceiling={:.2f}) [CONVERGED]",
+            "(ΔUB={:.6f} < tol={:.6f}; signed gap={:.4f}) [CONVERGED]",
             gtopt::uid_of(iteration_index),
             ir.gap_change,
             m_options_.stationary_tol,
-            std::abs(ir.gap),
-            m_options_.stationary_gap_ceiling);
+            ir.gap);
       }
 
       // ── Statistical CI convergence ──
@@ -635,16 +636,12 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
         // `kSddpGapFpEpsilon` (sddp_types.hpp) since
         // `convergence_tol` may be a negative sentinel here.
         //
-        // Absolute-gap ceiling matches the pure-stationary block above:
-        // when scene UBs are wildly heterogeneous (different cuts →
-        // different optima), σ inflates and z·σ becomes so wide that
-        // *any* sub-50%-of-mean gap qualifies as "noise."  The ceiling
-        // refuses to interpret that as convergence — same defensive
-        // posture as ``stationary_gap_ceiling`` (default 0.5).  Tighten
-        // the option (e.g. 0.05) for runs where σ explosion is expected.
-        if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold
-            && std::abs(ir.gap) < m_options_.stationary_gap_ceiling)
-        {
+        // The ``stationary_gap_ceiling`` clause was removed here too
+        // (2026-06-16) — see the StationaryCheck docs: it gated
+        // convergence on |gap| and so refused stationary multicut
+        // overshoot states.  The CI test (``gap_abs <= ci_threshold``)
+        // and the negative-gap FP guard remain.
+        if (gap_abs > -kSddpGapFpEpsilon && gap_abs <= ci_threshold) {
           ir.converged = true;
           ir.statistical_converged = true;
           update_live_metrics_([](LiveMetrics& m) { m.converged = true; });
@@ -664,14 +661,10 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
               sigma,
               n_feasible);
         }
-        // (b) Gap exceeds CI but is no longer improving.
-        // AND semantics: UB-stationary AND gap-magnitude — matches
-        // the pure-stationary block above.  Uses the symmetric
-        // ``std::abs`` magnitude check for the same reason as the
-        // pure-stationary path (mild negative overshoot OK, wild
-        // negative overshoot rejected).
-        else if (gap_is_stationary
-                 && std::abs(ir.gap) < m_options_.stationary_gap_ceiling)
+        // (b) Gap exceeds CI but is no longer improving.  ΔUB
+        // stationarity alone (the gap_ceiling magnitude clause was
+        // removed 2026-06-16 — see the StationaryCheck docs).
+        else if (gap_is_stationary)
         {
           ir.converged = true;
           ir.statistical_converged = true;
@@ -1942,13 +1935,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       // (sddp_method_iteration.cpp, 2026-05-14): the primary
       // gap-vs-tol exit is gone.  ΔUB stationarity is the sole
       // convergence trigger, evaluated below via
-      // ``evaluate_stationary_check``; ``|gap| < stationary_gap_ceiling``
-      // remains as the pathology safety net inside that helper.
+      // ``evaluate_stationary_check``; the ``|gap| <
+      // stationary_gap_ceiling`` gate was removed (2026-06-16).
 
       // Stationary gap check — uses the same ``evaluate_stationary_check``
-      // helper as the synchronous ``iterate()`` path so the AND'd
-      // convergence semantics (UB-stationarity + symmetric gap
-      // magnitude) stay in lockstep.  ``ir.gap_change`` is recomputed
+      // helper as the synchronous ``iterate()`` path so the
+      // convergence semantics (UB-stationarity only) stay in lockstep.
+      // ``ir.gap_change`` is recomputed
       // here (the sync path delegates to ``finalize_iteration_result``
       // upstream) because the async aggregate result is assembled
       // inline; everything after that delegates to the shared helper.

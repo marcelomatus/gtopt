@@ -5181,7 +5181,8 @@ TEST_CASE(  // NOLINT
 // fixture with three different (tol, ceiling) combinations and reading
 // ``ir.stationary_converged`` on the returned results.
 TEST_CASE(  // NOLINT
-    "SDDPMethod - stationary convergence requires BOTH stationary AND gap_ok")
+    "SDDPMethod - stationary convergence requires ΔUB stationarity "
+    "(gap_ceiling gate removed 2026-06-16)")
 {
   constexpr int kMaxIters = 12;
   constexpr int kMinIters = 4;
@@ -5231,9 +5232,9 @@ TEST_CASE(  // NOLINT
     for (const auto& ir : results) {
       if (ir.stationary_converged) {
         fired = true;
-        // Both legs must hold whenever it fires.
+        // The ΔUB stationarity leg must hold whenever it fires; the
+        // |gap| magnitude is no longer constrained (gap_ceiling removed).
         CHECK(ir.gap_change < 0.5);
-        CHECK(std::abs(ir.gap) < 1.0);
       }
     }
     CHECK(fired);
@@ -5261,137 +5262,39 @@ TEST_CASE(  // NOLINT
   }
 
   SUBCASE(
-      "ONLY gap_is_stationary satisfied (ceiling impossibly tight) → "
-      "no stationary_converged")
+      "stationarity alone converges — gap_ceiling no longer gates "
+      "(removed 2026-06-16)")
   {
-    // A loose ``stationary_tol`` would trigger stationarity easily,
-    // but a NEGATIVE ceiling (``-1.0``) forces ``gap_ok`` (``|gap| <
-    // ceiling``) to be permanently false on every iteration — even
-    // the fully-converged one where the 3-phase fixture lands at
-    // gap = 0.0 exactly (otherwise a positive but tiny ceiling like
-    // 1e-15 would still accept a gap of exactly 0).  AND ⇒
-    // ``stationary_converged`` must never fire.  Pins the lower
-    // bound: removing the magnitude (ceiling) leg would let this
-    // subcase converge spuriously on pure stationarity.
+    // The ``|gap| < stationary_gap_ceiling`` AND-leg was removed from
+    // the convergence predicate: ΔUB stationarity is the sole signal.
+    // A NEGATIVE ceiling (``-1.0``) used to force the old ``gap_ok`` leg
+    // permanently false and block convergence; now it is ignored, so a
+    // loose ``stationary_tol`` must STILL drive ``stationary_converged``
+    // to fire on the cleanly-converging 3-phase fixture.  This pins the
+    // new contract: a stationary state converges regardless of the
+    // (signed or magnitude) gap — the whole point of removing the
+    // ceiling so multicut-overshoot stationary states can converge.
     const auto results = run_with(/*stationary_tol=*/0.5,
                                   /*stationary_gap_ceiling=*/-1.0);
-    for (const auto& ir : results) {
-      CHECK_FALSE(ir.stationary_converged);
-    }
+    const bool fired = std::ranges::any_of(
+        results, [](const auto& ir) { return ir.stationary_converged; });
+    CHECK(fired);
   }
 }
 
-// ─── Symmetric ``|gap| < ceiling`` rejects wild overshoot ──────────────────
+// ─── stationary_gap_ceiling convergence gate REMOVED (2026-06-16) ──────────
 //
-// Pin the post-2026-05 invariant in ``source/sddp_iteration.cpp``:
-//
-//     const bool gap_ok = std::abs(ir.gap) < stationary_gap_ceiling;
-//
-// The magnitude check is SYMMETRIC.  A mild negative gap (e.g. -3 % from
-// multi-cut / aperture overshoot) is acceptable; a wild negative gap
-// (e.g. -70 %: LB drifts well above UB due to broken cut weights or
-// mis-modelled aperture variance) is NOT — it indicates an LP-level
-// pathology and must continue iterating.
-//
-// We exercise the contract directly on the ``SDDPIterationResult`` /
-// ``SDDPOptions`` fields rather than through ``solve()``:
-//   - Driving a real fixture to LB-overshoot of -70 % is brittle and
-//     hardware-sensitive (depends on solver tie-breaking + cut order).
-//   - The test below MUST fail loudly if a future refactor flips
-//     ``std::abs(ir.gap) < ceiling`` back to the signed
-//     ``ir.gap < ceiling`` form (which would silently accept arbitrarily
-//     negative gaps as "converged"), so we encode the contract directly.
-//
-// The companion test below ALSO runs a normal ``solve()`` on the standard
-// fixture and verifies the invariant on real iteration results — so a
-// regression that breaks the in-loop check on a real solve still surfaces.
-TEST_CASE(  // NOLINT
-    "SDDPMethod - stationary_gap_ceiling is SYMMETRIC (|gap| < ceiling)")
-{
-  // Loose stationary_tol (0.5) so ``gap_is_stationary`` is trivially
-  // true after the first iter with any reasonable UB change.  Ceiling
-  // 0.05 (5 %) — the production default.
-  constexpr double kCeiling = 0.05;
-
-  SUBCASE("mild negative gap (-0.03) satisfies symmetric ceiling")
-  {
-    // |−0.03| = 0.03 < 0.05 → gap_ok = true.  Typical multi-cut /
-    // aperture overshoot pattern on juan/IPLP-class cases (LB above
-    // optimum by a few percent) must STILL converge under the
-    // symmetric ceiling — that's the whole point of accepting mild
-    // overshoot.
-    SDDPIterationResult ir;
-    ir.upper_bound = 100.0;
-    ir.lower_bound = 103.0;
-    ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-    REQUIRE(ir.gap == doctest::Approx(-0.03));
-
-    const bool gap_ok = std::abs(ir.gap) < kCeiling;
-    CHECK(gap_ok);
-  }
-
-  SUBCASE("wild negative gap (-0.70) violates symmetric ceiling")
-  {
-    // |−0.70| = 0.70 > 0.05 → gap_ok = false.  Indicates LB well above
-    // UB (cut over-tightening); stationary convergence must be blocked
-    // until the cut family stabilises.  The OLD signed test
-    // ``ir.gap < ceiling`` would have spuriously accepted this (a
-    // very negative number is always < any positive ceiling) — that's
-    // the regression this test guards against.
-    SDDPIterationResult ir;
-    ir.upper_bound = 100.0;
-    ir.lower_bound = 170.0;
-    ir.gap = compute_convergence_gap(ir.upper_bound, ir.lower_bound);
-    REQUIRE(ir.gap == doctest::Approx(-0.70));
-
-    const bool gap_ok_symmetric = std::abs(ir.gap) < kCeiling;
-    CHECK_FALSE(gap_ok_symmetric);
-
-    // Sanity: the OLD asymmetric check would have wrongly accepted
-    // this — leave this assertion in to make the regression direction
-    // unambiguous.  If someone reverts the abs(), the previous
-    // subcase still passes (mild overshoot) but THIS subcase fails.
-    const bool gap_ok_signed = ir.gap < kCeiling;  // legacy / WRONG form
-    CHECK(gap_ok_signed);  // demonstrates the legacy form mis-accepts
-  }
-
-  SUBCASE("real solve: stationary_converged implies |gap| < ceiling")
-  {
-    // Companion behavioural check — runs a real solve on the standard
-    // 3-phase hydro fixture and asserts the in-loop magnitude check
-    // matches the symmetric semantics on every observed
-    // ``stationary_converged`` iteration.  Mirrors the pre-existing
-    // ``stationary_converged implies gap < 0.5`` guard but pins the
-    // SYMMETRIC form rather than the signed form.
-    auto planning = make_3phase_hydro_planning();
-    PlanningLP plp(std::move(planning));
-
-    SDDPOptions sddp_opts;
-    sddp_opts.max_iterations = 12;
-    sddp_opts.min_iterations = 4;
-    // Disable the primary gap-only convergence path so any observed
-    // ``ir.stationary_converged`` comes strictly from the stationary
-    // branch — the one whose magnitude check we are pinning here.
-    sddp_opts.convergence_tol = -1.0;
-    sddp_opts.stationary_tol = 0.5;  // loose → fires easily
-    sddp_opts.stationary_window = 2;
-    sddp_opts.stationary_gap_ceiling = kCeiling;
-    sddp_opts.convergence_mode = ConvergenceMode::gap_stationary;
-    sddp_opts.enable_api = false;
-    sddp_opts.apertures = std::vector<Uid> {};
-
-    SDDPMethod sddp(plp, sddp_opts);
-    auto results = sddp.solve();
-    REQUIRE(results.has_value());
-    REQUIRE(!results->empty());
-
-    for (const auto& ir : *results) {
-      if (ir.stationary_converged) {
-        CHECK(std::abs(ir.gap) < kCeiling);
-      }
-    }
-  }
-}
+// The former "SDDPMethod - stationary_gap_ceiling is SYMMETRIC" TEST_CASE was
+// deleted along with the gate it pinned.  ``|gap| < stationary_gap_ceiling``
+// used to be AND'd into the stationary convergence predicate, which blocked
+// stationary multicut-overshoot states (large persistent NEGATIVE gap, LB >
+// UB because shared cuts don't perfectly match each scene's value function)
+// from ever converging.  ΔUB stationarity is now the sole signal — once the
+// upper bound stops moving the level has converged regardless of the residual
+// signed-gap magnitude.  The new contract (stationarity alone converges,
+// ignoring the gap ceiling) is pinned by the "stationarity alone converges"
+// subcase in the TEST_CASE above.  ``stationary_gap_ceiling`` remains a
+// parsed SDDPOptions field for back-compat but no longer affects convergence.
 
 // ─── Phase B safety-net (pin behaviors across the sddp_method.cpp split) ───
 //
