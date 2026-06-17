@@ -1281,11 +1281,13 @@ def test_install_solver_param_files_no_bundle(tmp_path):
 
 
 def test_install_solver_param_files_iterative_retunes_cplex(tmp_path):
-    """iterative=True rewrites cplex.prm to dual simplex + no presolve.
+    """iterative=True rewrites cplex.prm to dual simplex + warm start + no
+    presolve, and STRIPS MIP-only params.
 
-    The bundled prm forces barrier (LPMethod 4) for monolithic MIPs; under
-    sddp/cascade we want dual + presolve-off on the warm per-iteration LPs.
-    Other tuned lines (Gomory) and the .opts/non-cplex prm are untouched.
+    The bundled prm forces barrier (LPMethod 4) and MIP cut families
+    (Gomory) for monolithic MIPs; sddp/cascade are pure LP, so we want
+    dual + warm-start + presolve-off and NO MIP params on the warm
+    per-iteration LPs.  The .opts/non-cplex prm is untouched.
     """
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -1293,6 +1295,7 @@ def test_install_solver_param_files_iterative_retunes_cplex(tmp_path):
         "CPLEX Parameter File Version 22.1.1.0\n"
         "CPXPARAM_MIP_Cuts_Gomory   2\n"
         "CPXPARAM_LPMethod          4\n"
+        "CPXPARAM_Preprocessing_Presolve   1\n"
     )
     (bundle / "highs.opts").write_text("solver = simplex\n")
 
@@ -1305,13 +1308,17 @@ def test_install_solver_param_files_iterative_retunes_cplex(tmp_path):
         _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
 
     cplex_txt = (target / "solvers" / "cplex.prm").read_text()
-    # barrier directive dropped; dual + no-presolve appended exactly once.
+    # barrier directive dropped; dual + warm-start + no-presolve appended once.
     assert "CPXPARAM_LPMethod                               2" in cplex_txt
+    assert "CPXPARAM_Advance                                1" in cplex_txt
     assert "CPXPARAM_Preprocessing_Presolve                 0" in cplex_txt
     assert cplex_txt.count("CPXPARAM_LPMethod") == 1
+    assert cplex_txt.count("CPXPARAM_Preprocessing_Presolve") == 1
     assert "LPMethod          4" not in cplex_txt
-    # tuned non-LPMethod lines preserved; .opts left alone.
-    assert "CPXPARAM_MIP_Cuts_Gomory" in cplex_txt
+    # MIP-only params are stripped (no-ops on a pure LP); .opts left alone.
+    assert "CPXPARAM_MIP" not in cplex_txt
+    # the version header is preserved so CPLEX can still parse the file.
+    assert "CPLEX Parameter File Version" in cplex_txt
     assert (target / "solvers" / "highs.opts").read_text() == "solver = simplex\n"
 
 

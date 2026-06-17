@@ -535,37 +535,52 @@ _BUNDLED_SOLVERS_DIR = Path(__file__).resolve().parent / "solvers"
 
 
 def _retune_cplex_prm_for_iterative(prm_path: Path) -> None:
-    """Rewrite a copied ``cplex.prm`` for SDDP / cascade iterative solves.
+    """Rewrite a copied ``cplex.prm`` for SDDP / cascade iterative LP solves.
 
-    The bundled ``cplex.prm`` is tuned for plexos2gtopt-derived *monolithic*
-    MIPs, where ``LPMethod 4`` (barrier) wins and CPLEX presolve helps.  Under
-    the iterative methods the per-iteration LPs are warm-started and the
-    structural redundancy is already stripped by ``model_options.lp_reduction``,
-    so the right choices invert:
+    The bundled ``cplex.prm`` is tuned for plexos2gtopt-derived *monolithic
+    MIPs* — barrier (``LPMethod 4``), CPLEX presolve, and MIP cut families
+    (``CPXPARAM_MIP_*`` such as ``MIP_Cuts_Gomory``).  SDDP / cascade solves
+    are **pure LP** (no integer variables), warm-started across resolves, with
+    structural redundancy already stripped by ``model_options.lp_reduction``.
+    So every one of those knobs is wrong here and the LP knobs invert:
 
-      * ``CPXPARAM_LPMethod 2`` — dual simplex, fastest on warm bases (the
-        bundled prm's own header recommends dropping barrier under SDDP).
+      * ``CPXPARAM_LPMethod 2`` — dual simplex (forward + backward), fastest
+        on a warm basis (the bundled prm's own header recommends dropping
+        barrier under SDDP).
+      * ``CPXPARAM_Advance 1`` — keep/advance the warm-start basis across the
+        per-iteration resolves (warm-start dual).
       * ``CPXPARAM_Preprocessing_Presolve 0`` — disable CPLEX presolve; the
         reduced LP is reused across every iteration, so paying for presolve
-        each resolve is wasted work.
+        on each resolve is wasted work (and presolve discards the basis we
+        want to warm-start from).
+
+    ALL ``CPXPARAM_MIP_*`` directives are dropped: they are no-ops on a pure
+    LP and just misrepresent the file as MIP-tuned.
 
     The prm is read *last* by the backend (it overrides the JSON
-    ``solver_options``), so the algorithm choice must live here, not only in
-    the JSON.  ``MIP_Cuts_Gomory 2`` and any other tuned lines are preserved.
+    ``solver_options``), so the algorithm/warm-start/presolve choices must
+    live here, not only in the JSON.
     """
     try:
         lines = prm_path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return
-    # Drop any existing LPMethod / Presolve directives (keep comments + others).
-    kept = [
-        ln
-        for ln in lines
-        if not ln.strip().startswith("CPXPARAM_LPMethod")
-        and not ln.strip().startswith("CPXPARAM_Preprocessing_Presolve")
-    ]
-    kept.append("# --- plp2gtopt iterative (sddp/cascade) overrides ---")
+
+    # Drop the LP knobs we re-set below AND every MIP-only directive (the
+    # bundled monolithic prm's Gomory/other cut params do nothing for an LP).
+    def _is_dropped(ln: str) -> bool:
+        s = ln.strip()
+        return (
+            s.startswith("CPXPARAM_LPMethod")
+            or s.startswith("CPXPARAM_Advance")
+            or s.startswith("CPXPARAM_Preprocessing_Presolve")
+            or s.startswith("CPXPARAM_MIP")
+        )
+
+    kept = [ln for ln in lines if not _is_dropped(ln)]
+    kept.append("# --- plp2gtopt iterative (sddp/cascade) LP overrides ---")
     kept.append("CPXPARAM_LPMethod                               2")
+    kept.append("CPXPARAM_Advance                                1")
     kept.append("CPXPARAM_Preprocessing_Presolve                 0")
     prm_path.write_text("\n".join(kept) + "\n", encoding="utf-8")
 
