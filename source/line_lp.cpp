@@ -236,6 +236,12 @@ bool LineLP::add_to_lp(SystemContext& sc,
   BIndexHolder<RowIndex> cnrows;
   BIndexHolder<ColIndex> lpcols;
   BIndexHolder<ColIndex> lncols;
+  // Per-direction linear loss factors, parallel to `fpcols` / `fncols`.
+  // Populated only under `LineLossesMode::linear` (non-zero
+  // `result.fp_loss` / `fn_loss`); stay empty for every other mode so
+  // the linear branch in `add_to_output` is a no-op there.
+  BIndexHolder<double> fplossfac;
+  BIndexHolder<double> fnlossfac;
   BIndexHolder<std::vector<ColIndex>> fpsegcols;
   BIndexHolder<std::vector<ColIndex>> fnsegcols;
   // Per-segment physical loss factors `lf_k`, parallel to the
@@ -270,6 +276,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   map_reserve(cnrows, blocks.size());
   map_reserve(lpcols, blocks.size());
   map_reserve(lncols, blocks.size());
+  map_reserve(fplossfac, blocks.size());
+  map_reserve(fnlossfac, blocks.size());
   map_reserve(fpsegcols, blocks.size());
   map_reserve(fnsegcols, blocks.size());
   map_reserve(fpsegloss, blocks.size());
@@ -384,6 +392,17 @@ bool LineLP::add_to_lp(SystemContext& sc,
     };
     store_opt(fpcols, result.fp_col);
     store_opt(fncols, result.fn_col);
+    // Linear-mode loss factors (non-zero only under `add_linear`).
+    // Stored alongside the aggregator flow cols so `add_to_output` can
+    // reconstruct `loss = lossfactor · primal(flow)`.  Gated on a
+    // non-zero factor so non-linear modes (which leave `fp_loss` /
+    // `fn_loss` at 0) never populate these maps.
+    if (result.fp_col && result.fp_loss != 0.0) {
+      fplossfac[buid] = result.fp_loss;
+    }
+    if (result.fn_col && result.fn_loss != 0.0) {
+      fnlossfac[buid] = result.fn_loss;
+    }
     store_opt(lpcols, result.lossp_col);
     store_opt(lncols, result.lossn_col);
     store_opt(cprows, result.capp_row);
@@ -507,6 +526,8 @@ bool LineLP::add_to_lp(SystemContext& sc,
   cond_assign(capacityn_rows, std::move(cnrows));
   cond_assign(flowp_cols, std::move(fpcols));
   cond_assign(flown_cols, std::move(fncols));
+  cond_assign(flowp_lossfactor, std::move(fplossfac));
+  cond_assign(flown_lossfactor, std::move(fnlossfac));
   cond_assign(flows_cols, std::move(fscols));
   cond_assign(lossp_cols, std::move(lpcols));
   cond_assign(lossn_cols, std::move(lncols));
@@ -931,6 +952,48 @@ bool LineLP::add_to_output(OutputContext& out) const
     };
     accumulate_dir(flowp_seg_cols, flowp_seg_loss);
     accumulate_dir(flown_seg_cols, flown_seg_loss);
+    out.add_col_sol_values(cname, LossName, pid, loss_values);
+  } else if (!flowp_lossfactor.empty() || !flown_lossfactor.empty()) {
+    // ``linear`` mode: no explicit loss LP column and no per-segment
+    // cols.  The line's loss is the linear factor ``config.lossfactor``
+    // applied to the directional aggregator flow cols (stamped into the
+    // bus balance via ``apply_linear_allocation``), captured per cell in
+    // ``flowp_lossfactor`` / ``flown_lossfactor`` parallel to
+    // ``flowp_cols`` / ``flown_cols``.  Reconstruct the LP-consistent
+    // per-(line, block) loss
+    //   ``flowp_lossfactor · primal(flowp) + flown_lossfactor · primal(flown)``
+    // summed over BOTH directions (not netted) so simultaneous bi-
+    // directional flow is captured rather than hidden.  Emitted on the
+    // same ``solution`` gate as the other modes' ``loss_sol`` via
+    // ``add_col_sol_values`` (identity ``sol`` factor pipeline → bit-
+    // identical on-disk shape).  Reached only when branches 1 (explicit
+    // loss cols) and 2 (piecewise_direct seg cols) did NOT fire — the
+    // ``else if`` chain guarantees no double-emit; the non-empty
+    // lossfactor-holder guard additionally makes this a no-op for any
+    // other mode that happens to populate ``flowp_cols`` but not the
+    // lossfactor maps (those modes leave ``fp_loss`` / ``fn_loss`` at 0).
+    STBIndexHolder<double> loss_values;
+    const auto accumulate_linear_dir =
+        [&](const STBIndexHolder<ColIndex>& cols_holder,
+            const STBIndexHolder<double>& loss_holder)
+    {
+      for (const auto& [st_key, blocks] : cols_holder) {
+        const auto lit = loss_holder.find(st_key);
+        if (lit == loss_holder.end()) {
+          continue;
+        }
+        auto& dst_blocks = loss_values[st_key];
+        for (const auto& [buid, col] : blocks) {
+          const auto lbit = lit->second.find(buid);
+          if (lbit == lit->second.end()) {
+            continue;
+          }
+          dst_blocks[buid] += lbit->second * out.primal(col);
+        }
+      }
+    };
+    accumulate_linear_dir(flowp_cols, flowp_lossfactor);
+    accumulate_linear_dir(flown_cols, flown_lossfactor);
     out.add_col_sol_values(cname, LossName, pid, loss_values);
   }
   // Extras-gated per-direction loss (B→A leg).  `lossn_cols` is empty

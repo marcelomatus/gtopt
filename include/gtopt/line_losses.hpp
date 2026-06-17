@@ -391,6 +391,15 @@ struct BlockResult
 {
   std::optional<ColIndex> fp_col;  ///< A→B flow column (aggregator)
   std::optional<ColIndex> fn_col;  ///< B→A flow column (aggregator)
+  /// Per-direction LINEAR loss factor stamped on `fp_col` / `fn_col`
+  /// (`config.lossfactor`).  Non-zero ONLY under `LineLossesMode::
+  /// linear`, where the line's loss is `fp_loss · primal(fp_col) +
+  /// fn_loss · primal(fn_col)` — there is no explicit loss column or
+  /// per-segment col in that mode.  Default `0` for every other mode
+  /// (their loss is carried by `lossp_col` / `lossn_col` or the
+  /// `seg_*_loss` vectors instead).
+  double fp_loss {};
+  double fn_loss {};
   std::optional<ColIndex> lossp_col;  ///< A→B loss column (PWL modes)
   std::optional<ColIndex> lossn_col;  ///< B→A loss column (PWL modes)
   std::optional<RowIndex> capp_row;  ///< A→B capacity constraint

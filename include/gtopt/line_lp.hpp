@@ -321,6 +321,17 @@ private:
 
   STBIndexHolder<ColIndex> flowp_cols;
   STBIndexHolder<ColIndex> flown_cols;
+  /// Per-direction LINEAR loss factors, keyed identically to
+  /// `flowp_cols` / `flown_cols` (`(scenario, stage) → (buid →
+  /// double)`).  Populated ONLY under `LineLossesMode::linear`, where
+  /// the line's loss has no explicit column: `add_to_output`
+  /// reconstructs the per-cell loss as
+  /// `flowp_lossfactor · primal(flowp_cols) +
+  ///  flown_lossfactor · primal(flown_cols)`.  Empty (no outer key)
+  /// for every other mode — making the linear `add_to_output` branch a
+  /// no-op even if reached.
+  STBIndexHolder<double> flowp_lossfactor;
+  STBIndexHolder<double> flown_lossfactor;
   STBIndexHolder<ColIndex> flows_cols;  ///< signed flow (tangent_signed_flow)
   STBIndexHolder<std::vector<ColIndex>> flowp_seg_cols;
   STBIndexHolder<std::vector<ColIndex>> flown_seg_cols;

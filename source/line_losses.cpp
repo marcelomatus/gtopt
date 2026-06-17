@@ -848,6 +848,8 @@ BlockResult add_none(const ScenarioLP& scenario,
   return {
       .fp_col = fpc,
       .fn_col = {},
+      .fp_loss = {},
+      .fn_loss = {},
       .lossp_col = {},
       .lossn_col = {},
       .capp_row = {},
@@ -900,6 +902,10 @@ BlockResult add_linear(const LossConfig& config,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     result.fp_col = fpc;
+    // Capture the linear loss factor stamped on this column so
+    // `LineLP::add_to_output` can reconstruct the per-cell loss
+    // `fp_loss · primal(fp_col)` (linear mode has no loss/seg column).
+    result.fp_loss = config.lossfactor;
     apply_linear_allocation(
         brow_a, brow_b, fpc, config.lossfactor, config.allocation);
 
@@ -927,6 +933,7 @@ BlockResult add_linear(const LossConfig& config,
         .context = make_block_context(scenario.uid(), stage.uid(), block.uid()),
     });
     result.fn_col = fnc;
+    result.fn_loss = config.lossfactor;
     apply_linear_allocation(
         brow_b, brow_a, fnc, config.lossfactor, config.allocation);
 
@@ -1491,6 +1498,8 @@ BlockResult add_bidirectional(const LossConfig& config,
   return {
       .fp_col = fp,
       .fn_col = fn,
+      .fp_loss = {},
+      .fn_loss = {},
       .lossp_col = lsp,
       .lossn_col = lsn,
       .capp_row = capp,
@@ -2332,6 +2341,8 @@ BlockResult add_piecewise_direct(const LossConfig& config,
   return {
       .fp_col = {},
       .fn_col = {},
+      .fp_loss = {},
+      .fn_loss = {},
       .lossp_col = {},
       .lossn_col = {},
       .capp_row = {},
