@@ -15,6 +15,10 @@ The config (benchmarked to ~PLP parity on the CEN65 2-year case):
 * ``sddp_options.aperture_chunk_size``  = ``-1`` (all apertures/phase per chunk,
   one LP clone, warm-start reuse)
 * forward/backward solver ``algorithm`` = ``dual`` (+ ``advanced_basis`` forward)
+* ``sddp_options.low_memory_mode``       = ``off`` (the reference oracle —
+  off never diverges, so the fast dual+warm config is correct there).
+  ``--solver-invariant`` flips this to ``compress`` and swaps in the
+  barrier/no-crossover forward config (memory savings WITH reproducibility).
 
 The bundled ``cplex.prm`` is retuned to dual / no-presolve to match (see
 ``plp2gtopt.install_solver_param_files``).
@@ -83,6 +87,19 @@ def apply_iterative_fast_path(
     if "aperture_chunk_size" not in sddp_opts:
         acs = src_sddp.get("aperture_chunk_size")
         sddp_opts["aperture_chunk_size"] = -1 if acs is None else acs
+
+    # Memory mode default.  The fast dual+warm config is correct only under
+    # low_memory_mode=off (the reference oracle — off never diverges).  Under
+    # compress the same config diverges from off, so couple compress with the
+    # invariant solver config: default => OFF (fast + correct), and
+    # --solver-invariant => compress (memory savings WITH reproducibility,
+    # paired with the barrier/no-crossover forward config below).  Overridable
+    # by an explicit JSON low_memory_mode or by gtopt's --memory-saving (which,
+    # when passed, wins; when omitted, this JSON value stands).
+    sddp_opts.setdefault(
+        "low_memory_mode",
+        src_sddp.get("low_memory_mode") or ("compress" if invariant else "off"),
+    )
 
     fwd = sddp_opts.get("forward_solver_options")
     if fwd is None:

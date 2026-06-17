@@ -387,14 +387,19 @@ class TestBuildOptions:
         }
         # lp_reduction stays on (substitutes for CPLEX presolve on the backward)
         assert opts["model_options"]["lp_reduction"] is True
+        # invariant couples with compress (memory savings WITH reproducibility)
+        assert opts["sddp_options"]["low_memory_mode"] == "compress"
         # never leaks the plp2gtopt-meta flag into the gtopt JSON options
         assert "solver_invariant" not in opts["sddp_options"]
 
     def test_sddp_fast_path_default_not_invariant(self):
-        # Without --solver-invariant the default stays dual + warm-start.
+        # Without --solver-invariant the default stays dual + warm-start, and
+        # memory mode defaults to OFF (the reference oracle: off never diverges;
+        # dual+warm is correct there).  compress is opt-in via --solver-invariant.
         args = self._make_args(method="sddp")
         opts = build_options(args)
         assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
+        assert opts["sddp_options"]["low_memory_mode"] == "off"
 
     def test_sddp_method_defaults_cut_sharing_multicut(self):
         # PLP-faithful sharing: sddp defaults cut_sharing_mode to multicut.
