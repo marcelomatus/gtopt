@@ -402,6 +402,26 @@ def _parse_log_timestamp(line: str) -> float | None:
     return dt.timestamp()
 
 
+def log_first_timestamp(log_file: Path) -> float | None:
+    """Unix-epoch of the FIRST ``[YYYY-MM-DD HH:MM:SS.sss]`` line in the log.
+
+    This is the gtopt process start — emitted before the bootstrap
+    iteration's cut is serialised — so anchoring the table's solve_start
+    here gives the first iteration a real wall time (LP build + first
+    solve) instead of 0.  ``None`` when the file is missing/unreadable or
+    has no timestamped line.
+    """
+    try:
+        with log_file.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                ts = _parse_log_timestamp(line)
+                if ts is not None:
+                    return ts
+    except OSError:
+        return None
+    return None
+
+
 def parse_log(log_file: Path) -> tuple[list[IterRow], list[dict]]:
     """Parse a gtopt log file for the full per-iter history.
 
@@ -600,6 +620,7 @@ def render_table(
     *,
     case_name: str,
     solver_status: dict,
+    solve_start_override: float | None = None,
     width: int = 119,
 ) -> str:
     """Format the multi-level convergence table as a single string."""
@@ -609,8 +630,16 @@ def render_table(
 
     # Header line with solve-start / now / elapsed.
     if stats and stats[0].rows:
-        # True solve start = first iter's timestamp minus its logged elapsed.
-        start_ts = stats[0].rows[0].mtime - (stats[0].rows[0].elapsed_s or 0.0)
+        # True solve start: the log's first line timestamp (process start,
+        # captured before the bootstrap iteration) when available — this is
+        # what makes the FIRST iteration show its real wall (LP build + first
+        # solve) instead of 0.  Fall back to the first iter's timestamp minus
+        # its logged elapsed (the bootstrap row often has no elapsed token).
+        start_ts = (
+            solve_start_override
+            if solve_start_override is not None
+            else stats[0].rows[0].mtime - (stats[0].rows[0].elapsed_s or 0.0)
+        )
         now_ts = max(r.mtime for s in stats for r in s.rows)
         elapsed = now_ts - start_ts
         start_dt = datetime.fromtimestamp(start_ts)
@@ -648,7 +677,11 @@ def render_table(
         out.append("  (no cut files yet — run hasn't produced an iteration)")
         return "\n".join(out)
     first_row = stats[0].rows[0]
-    solve_start = first_row.mtime - (first_row.elapsed_s or 0.0)
+    solve_start = (
+        solve_start_override
+        if solve_start_override is not None
+        else first_row.mtime - (first_row.elapsed_s or 0.0)
+    )
     t0 = solve_start
 
     prev_level_end_mtime: float | None = None
@@ -691,8 +724,10 @@ def render_table(
         # the solver actually checks.
         if c.stationary_tol is not None:
             header_fields.append(f"stationary_tol={c.stationary_tol:g}")
-        if c.stationary_gap_ceiling is not None:
-            header_fields.append(f"gap_ceiling={c.stationary_gap_ceiling:g}")
+        # ``stationary_gap_ceiling`` is intentionally NOT shown: the
+        # |gap| < ceiling convergence gate was removed (2026-06-16) — ΔUB
+        # stationarity is the sole signal — so the field is vestigial and
+        # displaying it misrepresents what the solver checks.
         out.append(f"  LEVEL: {c.name:<14} " + "  ".join(header_fields))
         out.append(f"  {sep}")
         out.append(iter_header)
@@ -1039,9 +1074,19 @@ def main(argv: list[str] | None = None) -> int:
             meta = meta_by_name.get(s.cfg.name)
             if meta and "new_cuts" in meta:
                 s.new_cuts_total = meta["new_cuts"]
+    # Anchor the table's solve_start at the log's first timestamp (the
+    # process start) so the first iteration's wall reflects the LP build +
+    # first solve rather than 0.
+    solve_start_override = (
+        log_first_timestamp(log_file) if log_file is not None else None
+    )
     print(
         render_table(
-            stats, case_name=case_dir.name, solver_status=status, width=args.width
+            stats,
+            case_name=case_dir.name,
+            solver_status=status,
+            solve_start_override=solve_start_override,
+            width=args.width,
         )
     )
     return 0
