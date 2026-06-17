@@ -904,6 +904,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Override the results directory (default: <case_dir>/results).",
     )
     parser.add_argument(
+        "--log",
+        dest="log_path",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit path to the gtopt log (a `gtopt_*.log` file, or a "
+            "directory containing them — newest wins).  Use this when the "
+            "run's `output_directory` / launch cwd differs from `case_dir` "
+            "so the log lives outside the auto-probed locations.  Without a "
+            "reachable log the table degrades to a cuts-only view (no "
+            "per-iter UB/LB/gap) and prints a warning."
+        ),
+    )
+    parser.add_argument(
         "--width", type=int, default=119, help="Table width (default: 119)."
     )
     parser.add_argument(
@@ -940,11 +954,17 @@ def main(argv: list[str] | None = None) -> int:
     # logs/` and never fell through to the populated alternative,
     # which dropped the tool back to the cut-file fallback path with
     # no UB / LB / kappa per iter.
+    # gtopt writes `output/logs/` relative to its LAUNCH cwd, which is most
+    # often the directory holding the input JSON — so probe there too
+    # (handles `output_directory` pointed elsewhere than the launch dir).
     log_search_dirs = [
         case_dir / "output" / "logs",
         results_dir / "logs",
+        results_dir.parent / "output" / "logs",
         case_dir / "logs",
         case_dir.parent / "output" / "logs",
+        input_json.parent / "output" / "logs",
+        input_json.parent / "logs",
     ]
 
     def _newest_log_mtime(d: Path) -> float:
@@ -1002,15 +1022,36 @@ def main(argv: list[str] | None = None) -> int:
     # cascade level transitions (solver_status.json is a rolling
     # snapshot; once L1 starts, L0's per-iter UB/LB are gone).  Falls
     # back to cuts + solver_status only when no log is reachable.
-    log_file: Path | None = None
-    if logs_dir.is_dir():
-        log_candidates = sorted(
-            (p for p in logs_dir.iterdir() if LOG_FILE_RE.match(p.name)),
+    def _newest_log_in(d: Path) -> Path | None:
+        """Newest ``gtopt_*.log`` in directory ``d`` (None if none)."""
+        if not d.is_dir():
+            return None
+        cands = sorted(
+            (p for p in d.iterdir() if LOG_FILE_RE.match(p.name)),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
-        if log_candidates:
-            log_file = log_candidates[0]
+        return cands[0] if cands else None
+
+    log_file: Path | None = None
+    if args.log_path is not None:
+        # Explicit override: accept either a log file or a directory of logs.
+        if args.log_path.is_dir():
+            log_file = _newest_log_in(args.log_path)
+            if log_file is None:
+                print(
+                    f"WARNING: --log dir {args.log_path} has no gtopt_*.log",
+                    file=sys.stderr,
+                )
+        elif args.log_path.is_file():
+            log_file = args.log_path
+        else:
+            print(
+                f"WARNING: --log path not found: {args.log_path}",
+                file=sys.stderr,
+            )
+    if log_file is None:
+        log_file = _newest_log_in(logs_dir)
 
     log_rows: list[IterRow] = []
     log_metas: list[dict] = []
@@ -1058,7 +1099,21 @@ def main(argv: list[str] | None = None) -> int:
             except (OSError, json.JSONDecodeError):
                 status = {}
     else:
-        # Fallback: cuts + solver_status (legacy path).
+        # Fallback: cuts + solver_status (legacy path).  No log was
+        # reachable, so per-iter UB/LB/gap/kappa cannot be recovered for
+        # past levels — every row but the live one renders as "—".  Warn
+        # LOUDLY so a degraded table is never mistaken for a broken solve.
+        searched = "\n".join(f"    {d}" for d in log_search_dirs)
+        print(
+            "WARNING: no gtopt_*.log found — convergence table degraded to "
+            "the cuts-only view\n"
+            "         (per-iter UB/LB/gap/kappa unavailable; only the live "
+            "iter has bounds).\n"
+            "         Point --log at the run's log file/dir to get the full "
+            "table.  Searched:\n"
+            f"{searched}",
+            file=sys.stderr,
+        )
         rows = collect_iter_rows(cuts_dir, min_mtime=min_mtime)
         status = merge_history(rows, solver_status)
         attach_kappa_from_log(rows, logs_dir)
