@@ -70,6 +70,7 @@
 #include <tuple>
 
 #include <gtopt/hardware_info.hpp>
+#include <gtopt/memory_monitor.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/work_pool.hpp>
 
@@ -296,7 +297,38 @@ public:
   pool_config.max_threads_ceiling = ceiling;
   pool_config.max_cpu_threshold =
       static_cast<int>(100.0 - (50.0 / static_cast<double>(ceiling)));
-  pool_config.max_process_rss_mb = memory_limit_mb;
+
+  // Memory governance: throttle on gtopt's OWN projected RSS, not on
+  // system-wide usage.  The marginal-RSS dispatch gate
+  // (`can_dispatch_task` gate #4 + `update_memory_model_`) measures this
+  // pool's per-task footprint and admits up to a process-RSS budget — a
+  // graduated, self-scoped throttle.  It only activates when
+  // `max_process_rss_mb > 0`, so default the budget to a fraction of
+  // physical RAM when the caller leaves it unset (was 0 = OFF, which left
+  // ONLY the blunt system-wide gates below active).
+  //
+  // Why this matters: the previous default gated routine dispatch on
+  // system `mem_pct >= 90%` / `free < 4 GB`.  Those count EVERY process
+  // (an unrelated 17 GB clangd pushed the box over 90% and collapsed the
+  // SDDP pool to a single worker) and, under `low_memory_mode=off`, cannot
+  // be relieved by throttling at all — the 800 cell LPs stay resident
+  // regardless of how many solve concurrently, so draining frees only
+  // solver scratch.  Serializing to one core bought ~0 memory at ~20x the
+  // latency.  Keying on gtopt's own RSS ignores external pressure and lets
+  // the pool run at full concurrency whenever its own footprint (resident
+  // LPs + marginal scratch) fits the budget.
+  //
+  // The system-wide gates are kept ONLY as near-OOM safety backstops
+  // (97% / 1 GB free) so they fire just before the kernel OOM-killer, not
+  // as a routine throttle.
+  if (memory_limit_mb > 0.0) {
+    pool_config.max_process_rss_mb = memory_limit_mb;
+  } else {
+    const auto total_mb = MemoryMonitor::get_system_memory_snapshot().total_mb;
+    pool_config.max_process_rss_mb = total_mb > 0.0 ? 0.90 * total_mb : 0.0;
+  }
+  pool_config.max_memory_percent = 97.0;
+  pool_config.min_free_memory_mb = 1024.0;
 
   auto pool = std::make_unique<SDDPWorkPool>(pool_config);
   pool->start();
@@ -309,8 +341,10 @@ public:
       base_threads,
       cell_task_headroom,
       static_cast<double>(pool_config.max_cpu_threshold),
-      memory_limit_mb > 0
-          ? std::format(" memory_limit={:.0f}MB", memory_limit_mb)
+      pool_config.max_process_rss_mb > 0
+          ? std::format(" rss_budget={:.0f}MB{}",
+                        pool_config.max_process_rss_mb,
+                        memory_limit_mb > 0 ? "" : " (auto 0.90xRAM)")
           : "",
       physical_concurrency(),
       std::thread::hardware_concurrency());

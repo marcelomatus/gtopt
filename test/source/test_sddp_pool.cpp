@@ -460,3 +460,33 @@ TEST_CASE(  // NOLINT
     CHECK(pool->max_threads() == base);
   }
 }
+
+TEST_CASE("make_sddp_work_pool memory-governance defaults")  // NOLINT
+{
+  // Regression pin for the work-pool memory-governor fix: routine dispatch
+  // throttling must be driven by gtopt's OWN projected RSS (the marginal
+  // gate, which requires max_process_rss_mb > 0), NOT by system-wide
+  // memory% — so unrelated processes can't collapse the pool to one worker,
+  // and an off-mode resident LP set doesn't serialize for no memory gain.
+  // The system gates are demoted to near-OOM backstops.
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("unset memory_limit auto-enables an own-RSS budget")
+  {
+    auto pool = make_sddp_work_pool(0.5, /*memory_limit_mb=*/0.0);
+    REQUIRE(pool != nullptr);
+    // Was 0 (gate OFF) before the fix; now defaults to a fraction of RAM.
+    CHECK(pool->max_process_rss_mb() > 0.0);
+    // System memory% gate demoted to a near-OOM backstop (was 90%).
+    CHECK(pool->max_memory_percent() >= 95.0);
+    pool->shutdown();
+  }
+
+  SUBCASE("explicit memory_limit is honored verbatim")
+  {
+    auto pool = make_sddp_work_pool(0.5, /*memory_limit_mb=*/12345.0);
+    REQUIRE(pool != nullptr);
+    CHECK(pool->max_process_rss_mb() == doctest::Approx(12345.0));
+    pool->shutdown();
+  }
+}

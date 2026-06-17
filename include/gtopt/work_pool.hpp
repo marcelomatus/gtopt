@@ -832,6 +832,20 @@ public:
     return max_threads_ceiling_;
   }
 
+  /// Process-RSS budget driving the marginal-RSS dispatch gate (0 = the
+  /// gate + measured model are disabled).  Exposed for tests / diagnostics.
+  [[nodiscard]] double max_process_rss_mb() const noexcept
+  {
+    return max_process_rss_mb_;
+  }
+
+  /// System-wide memory-usage backstop threshold (percent).  Routine
+  /// throttling is the marginal-RSS gate; this fires only near OOM.
+  [[nodiscard]] double max_memory_percent() const noexcept
+  {
+    return max_memory_percent_;
+  }
+
   // ── Slot-release guard for in-task blocking ─────────────────────────────
   //
   // Background.  `worker_loop` increments `tasks_active_` and
@@ -1496,6 +1510,9 @@ private:
       const auto rss_threshold =
           is_critical ? max_process_rss_mb_ * 1.1 : max_process_rss_mb_;
 
+      const double per_task = meas_per_task_mb_.load(std::memory_order_relaxed);
+      const double projected = rss + per_task;
+
       // Rate limit: admit at most one task per memory-monitor interval so
       // each admission's real RSS impact is observed (the monitor refreshes
       // RSS on that cadence) before we decide again.  This is the
@@ -1503,7 +1520,18 @@ private:
       // of them" burst — without it, right after an admit the marginal
       // estimate is still ~0 and the gate would wave the whole queue
       // through.  Critical tasks bypass the pacing.
-      if (!is_critical) {
+      //
+      // BUT the pacing only matters NEAR the budget: a burst admitted with
+      // ample headroom cannot overshoot, so pacing every admission far from
+      // the budget needlessly serializes pools with many small tasks to
+      // ~1-per-monitor-interval even with tens of GB free (observed: the
+      // SDDP backward pass crawling at Active:1/96 with RSS 34 GB ≪ 76 GB
+      // budget once the gate was enabled).  Gate the pacing on a marginal
+      // zone within ~15% of the budget; below it, skip pacing and admit at
+      // full concurrency (the hard projection cap below still applies, so a
+      // burst can never project past the budget).
+      const double pacing_floor = rss_threshold * 0.85;
+      if (!is_critical && rss >= pacing_floor) {
         const auto now = std::chrono::steady_clock::now();
         const auto since_admit =
             now - last_admit_time_.load(std::memory_order_relaxed);
@@ -1516,9 +1544,8 @@ private:
       // Project adding ONE more task at the MEASURED marginal cost.  `rss`
       // already reflects the tasks in flight (their allocation is resident),
       // so we add a single task's measured footprint — peak then settles at
-      // ≈ rss + per_task ≤ limit, i.e. overshoot bounded by one task.
-      const double per_task = meas_per_task_mb_.load(std::memory_order_relaxed);
-      const double projected = rss + per_task;
+      // ≈ rss + per_task ≤ limit, i.e. overshoot bounded by one task.  This
+      // hard cap applies at ALL rss levels (not just the marginal zone).
       if (projected >= rss_threshold) {
         throttled_process_rss_.fetch_add(1, std::memory_order_relaxed);
         SPDLOG_DEBUG(
