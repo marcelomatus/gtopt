@@ -743,17 +743,27 @@ def _resource_summary_rows(results_dir: Path) -> list[tuple[str, str]]:
 
     rows: list[tuple[str, str]] = []
 
-    rss_now = status.get("pool_process_rss_mb")
-    free_now = status.get("pool_available_memory_mb")
-    pct_now = status.get("pool_memory_percent")
-
     rt = status.get("realtime") or {}
     rss_series = rt.get("process_rss_mb") or []
     cpu_series = rt.get("cpu_loads") or []
+    free_series = rt.get("available_memory_mb") or []
+    pct_series = rt.get("memory_percent") or []
+
+    # Prefer the always-fresh realtime ring; fall back to the top-level
+    # `pool_*` snapshot only when the ring is empty AND the snapshot is a
+    # positive (real) reading.  The per-iteration `pool_*` fields can be a
+    # stale 0 at the final write, which previously rendered "0 MB / 0% used".
+    def _final(series: list, pool_key: str):
+        if series:
+            return float(series[-1])
+        pool_v = status.get(pool_key)
+        return float(pool_v) if pool_v is not None and float(pool_v) > 0.0 else None
+
+    rss_now = _final(rss_series, "pool_process_rss_mb")
+    free_now = _final(free_series, "pool_available_memory_mb")
+    pct_now = _final(pct_series, "pool_memory_percent")
 
     rss_peak = max(rss_series) if rss_series else None
-    if rss_now is None and rss_series:
-        rss_now = rss_series[-1]
 
     if rss_now is not None:
         if rss_peak is not None and abs(rss_peak - float(rss_now)) > 1.0:
@@ -913,44 +923,104 @@ def _compute_energy_indicators(
             scale_obj = opts.get("scale_objective", 1000.0) or 1000.0
         indicators["scale_objective"] = scale_obj
 
-        def _energy_twh(df) -> float:
-            """Sum uid:* columns weighted by block duration → TWh."""
-            uid_cols = [c for c in df.columns if c.startswith("uid:")]
-            if not uid_cols or "block" not in df.columns:
-                return 0.0
-            if "scenario" in df.columns:
-                df = df.groupby("block", as_index=False)[uid_cols].mean()
-            total = 0.0
-            for _, row in df.iterrows():
-                dur = durations.get(int(row["block"]), 1.0)
-                total += float(np.sum(row[uid_cols].to_numpy(dtype=np.float64))) * dur
-            return total / 1e6  # MWh → TWh
-
-        def _discounted_energy_twh(df) -> float:
-            """Sum uid:* columns × duration × effective_discount → TWh.
+        def _block_weight(blk: int, discounted: bool) -> float:
+            """Per-block weight: duration, optionally × effective discount.
 
             The effective discount factor per stage combines the JSON
             ``discount_factor`` with ``exp(-ln(1+r)×t/8766)`` from the
             ``annual_discount_rate``, matching the C++ LP coefficients.
             """
-            uid_cols = [c for c in df.columns if c.startswith("uid:")]
-            if not uid_cols or "block" not in df.columns:
+            dur = durations.get(blk, 1.0)
+            if not discounted:
+                return dur
+            stage_uid = block_to_stage.get(blk)
+            eff_df = (
+                stage_effective_discount.get(stage_uid, 1.0)
+                if stage_uid is not None
+                else 1.0
+            )
+            return dur * eff_df
+
+        def _is_long(df) -> bool:
+            """True for the long output layout (bare ``uid`` + ``value``
+            columns, no per-element ``uid:N`` columns).  Mirrors
+            ``gtopt_check_output._reader.dataset_layout``: gtopt switched the
+            solution output to long (``output_layout: "long"``) in 2026-05,
+            so the energy summary must read both shapes."""
+            cols = set(df.columns)
+            return (
+                "uid" in cols
+                and "value" in cols
+                and not any(str(c).startswith("uid:") for c in cols)
+            )
+
+        def _energy_twh(df, discounted: bool = False) -> float:
+            """Total dispatched energy → TWh, weighted by block duration
+            (and effective discount when ``discounted``).  Handles both the
+            long (``uid``/``value`` rows) and the legacy wide (``uid:N``
+            columns) layouts.  Scenario/scene replicas are averaged so the
+            result is the expected energy, not an N-fold sum."""
+            if "block" not in df.columns:
+                return 0.0
+            if _is_long(df):
+                # Mean ``value`` over scenario/scene replicas per
+                # (block, uid), then Σ value × weight(block).
+                grp = df.groupby(["block", "uid"], as_index=False)["value"].mean()
+                vals = grp["value"].to_numpy(dtype=np.float64)
+                wts = np.array(
+                    [_block_weight(int(b), discounted) for b in grp["block"]],
+                    dtype=np.float64,
+                )
+                return float(np.sum(vals * wts)) / 1e6  # MWh → TWh
+            uid_cols = [c for c in df.columns if str(c).startswith("uid:")]
+            if not uid_cols:
                 return 0.0
             if "scenario" in df.columns:
                 df = df.groupby("block", as_index=False)[uid_cols].mean()
             total = 0.0
             for _, row in df.iterrows():
                 blk = int(row["block"])
-                dur = durations.get(blk, 1.0)
-                stage_uid = block_to_stage.get(blk)
-                eff_df = (
-                    stage_effective_discount.get(stage_uid, 1.0)
-                    if stage_uid is not None
-                    else 1.0
-                )
                 mw = float(np.sum(row[uid_cols].to_numpy(dtype=np.float64)))
-                total += mw * dur * eff_df
+                total += mw * _block_weight(blk, discounted)
             return total / 1e6  # MWh → TWh
+
+        def _discounted_energy_twh(df) -> float:
+            return _energy_twh(df, discounted=True)
+
+        def _operational_cost(gen_df, srmc_df) -> float:
+            """Total operational cost ($) = Σ srmc · dispatch · duration.
+
+            ``srmc_sol`` is the generator's active-segment marginal cost
+            (``vom + fuel``, $/MWh); multiplied by its dispatch (MW) and the
+            block duration (h) it IS the operational cost (see
+            ``source/generator_lp.cpp``: "total operational cost is
+            srmc · dispatch · duration").  Long layout only (the current
+            output); joined on (scenario, stage, block, uid) and averaged
+            over scenarios to give the expected cost."""
+            if not (_is_long(gen_df) and _is_long(srmc_df)):
+                return 0.0
+            keys = ["scenario", "stage", "block", "uid"]
+            if any(k not in gen_df.columns for k in keys) or any(
+                k not in srmc_df.columns for k in keys
+            ):
+                return 0.0
+            merged = gen_df[keys + ["value"]].merge(
+                srmc_df[keys + ["value"]], on=keys, suffixes=("_gen", "_srmc")
+            )
+            if merged.empty:
+                return 0.0
+            durs = np.array(
+                [durations.get(int(b), 1.0) for b in merged["block"]],
+                dtype=np.float64,
+            )
+            merged["_cost"] = (
+                merged["value_gen"].to_numpy(dtype=np.float64)
+                * merged["value_srmc"].to_numpy(dtype=np.float64)
+                * durs
+            )
+            # Sum per scenario, then average across scenarios → expected $.
+            per_scen = merged.groupby("scenario")["_cost"].sum()
+            return float(per_scen.mean()) if not per_scen.empty else 0.0
 
         # Generated energy
         gen_df = _read_result_table(results_dir, "Generator/generation_sol")
@@ -958,10 +1028,23 @@ def _compute_energy_indicators(
             indicators["generated_twh"] = _energy_twh(gen_df)
             indicators["discounted_energy_twh"] = _discounted_energy_twh(gen_df)
 
+        # Operational cost (Σ srmc · dispatch · duration) from srmc_sol.
+        srmc_df = _read_result_table(results_dir, "Generator/srmc_sol")
+        if gen_df is not None and srmc_df is not None:
+            op_cost = _operational_cost(gen_df, srmc_df)
+            if op_cost > 0.0:
+                indicators["operational_cost"] = op_cost
+
         # Served demand
         load_df = _read_result_table(results_dir, "Demand/load_sol")
         if load_df is not None:
             indicators["served_twh"] = _energy_twh(load_df)
+
+        # LCOE = total operational cost / total served energy ($/MWh).
+        served_twh = indicators.get("served_twh", 0.0)
+        op_cost = indicators.get("operational_cost", 0.0)
+        if op_cost > 0.0 and served_twh > 0.0:
+            indicators["lcoe_op_per_served"] = op_cost / (served_twh * 1e6)
 
         # Load shedding
         fail_df = _read_result_table(results_dir, "Demand/fail_sol")
@@ -969,6 +1052,22 @@ def _compute_energy_indicators(
             shed = _energy_twh(fail_df)
             if shed > 1e-6:
                 indicators["shed_twh"] = shed
+
+        # Total losses.  Prefer the explicit Line/loss_sol (transmission
+        # losses, emitted under ``--write-out extras``); otherwise fall back
+        # to the system energy gap generated − served (covers transmission
+        # plus storage/pump/converter consumption).  Reported in GWh and as
+        # a percentage of served energy.
+        gen_twh = indicators.get("generated_twh", 0.0)
+        loss_df = _read_result_table(results_dir, "Line/loss_sol")
+        if loss_df is not None:
+            indicators["losses_twh"] = _energy_twh(loss_df)
+        elif gen_twh > 0.0 and served_twh > 0.0:
+            indicators["losses_twh"] = max(0.0, gen_twh - served_twh)
+        if indicators.get("losses_twh", 0.0) > 0.0 and served_twh > 0.0:
+            indicators["losses_pct_served"] = (
+                100.0 * indicators["losses_twh"] / served_twh
+            )
 
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         log.debug("energy indicator computation failed", exc_info=True)
@@ -1022,6 +1121,24 @@ def report_solution(
     if "shed_twh" in indicators:
         rows.append(("Load shedding", f"{indicators['shed_twh']:.3f} TWh"))
 
+    # Total losses in GWh and as a % of served energy.
+    if "losses_twh" in indicators:
+        loss_gwh = indicators["losses_twh"] * 1e3
+        pct = indicators.get("losses_pct_served")
+        loss_str = f"{loss_gwh:,.1f} GWh"
+        if pct is not None:
+            loss_str = f"{loss_str}  ({pct:.1f}% of served)"
+        rows.append(("Total losses", loss_str))
+
+    # Operational cost (Σ srmc · dispatch · duration) and the derived
+    # LCOE = operational cost / served energy.
+    if "operational_cost" in indicators:
+        rows.append(("Operational cost", f"${indicators['operational_cost']:,.2f}"))
+    if "lcoe_op_per_served" in indicators:
+        rows.append(
+            ("LCOE (op/served)", f"${indicators['lcoe_op_per_served']:.2f}/MWh")
+        )
+
     # Avg generation cost = total cost / generated energy
     gen_twh = indicators.get("generated_twh", 0.0)
     if true_obj is not None and gen_twh > 0:
@@ -1046,10 +1163,6 @@ def report_solution(
         ext_str = ", ".join(f"{ext}: {cnt}" for ext, cnt in sorted(file_counts.items()))
         rows.append(("Output files", f"{total_files} ({_format_size(total_size)})"))
         rows.append(("  by type", ext_str))
-
-    classes = _count_output_classes(results_dir)
-    if classes:
-        rows.append(("Element classes", ", ".join(classes)))
 
     # ── Resources (gtopt RSS / system free / CPU / LP-pool) ──
     for label, value in _resource_summary_rows(results_dir):

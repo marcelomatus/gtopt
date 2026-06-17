@@ -52,6 +52,37 @@ def _sum_numeric(df: pd.DataFrame, skip_cols: set[str]) -> dict[str, float]:
     return totals
 
 
+def _is_long(df: pd.DataFrame) -> bool:
+    """True for the long output layout (bare ``uid`` + ``value`` columns,
+    no per-element ``uid:N`` columns).  Mirrors
+    ``gtopt_check_output._reader.dataset_layout``: gtopt switched the
+    solution output to long (``output_layout: "long"``) in 2026-05, so the
+    summary must read both shapes.  A wide dataset always has ``uid:N``
+    columns and never a bare ``uid`` column; a long one is the reverse."""
+    cols = {str(c) for c in df.columns}
+    return (
+        "uid" in cols
+        and "value" in cols
+        and not any(c.startswith("uid:") for c in cols)
+    )
+
+
+def _per_uid_totals(df: pd.DataFrame, skip_cols: set[str]) -> dict[str, float]:
+    """Per-element column sums, layout-aware.
+
+    Wide: sum each ``uid:N`` column (keyed by that column name).  Long:
+    group the single ``value`` column by ``uid`` (keyed by the bare uid
+    string).  Both feed ``_extract_tech_total`` and the element counts.
+    """
+    if _is_long(df):
+        if "uid" not in df.columns or "value" not in df.columns:
+            return {}
+        vals = pd.to_numeric(df["value"], errors="coerce").fillna(0)
+        grouped = vals.groupby(df["uid"]).sum()
+        return {str(k): float(v) for k, v in grouped.items()}
+    return _sum_numeric(df, skip_cols)
+
+
 def _extract_tech_total(
     per_uid_totals: dict[str, float], tech_map: dict[str, str] | None
 ) -> dict[str, float]:
@@ -172,70 +203,73 @@ def summarize_output_dict(
     # Indexing columns present in every per-block CSV.
     skip_cols = {"scenario", "stage", "block", "phase", "scene"}
 
+    def _n_blocks(df: pd.DataFrame) -> int:
+        """Distinct block count (long) or row count (wide fallback)."""
+        if _is_long(df) and "block" in df.columns:
+            return int(df["block"].nunique())
+        return len(df)
+
+    def _n_elements(df: pd.DataFrame, per_uid: dict[str, float]) -> int:
+        """Element count — distinct ``uid`` (long) or ``uid:N`` column
+        count (wide, == len(per_uid))."""
+        if _is_long(df):
+            return int(df["uid"].nunique()) if "uid" in df.columns else 0
+        return len(per_uid)
+
+    def _value_series(df: pd.DataFrame):
+        """Numeric data series for min/max/mean stats, layout-aware: the
+        ``value`` column (long) or every non-index column flattened (wide)."""
+        if _is_long(df):
+            return pd.to_numeric(df["value"], errors="coerce").dropna()
+        cols = [c for c in df.columns if c not in skip_cols]
+        if not cols:
+            return pd.Series(dtype=float)
+        return pd.to_numeric(df[cols].stack(), errors="coerce").dropna()
+
     # Generation
     gen = _find_path(outputs, _GEN_PATH)
     if gen is not None:
         df = _rows_to_df(gen)
-        totals = _sum_numeric(df, skip_cols)
+        totals = _per_uid_totals(df, skip_cols)
         summary["total_generation"] = float(sum(totals.values()))
         summary["generation_by_tech"] = _extract_tech_total(totals, tech_map)
-        summary["n_generators"] = len(totals)
-        summary["n_blocks"] = len(df)
+        summary["n_generators"] = _n_elements(df, totals)
+        summary["n_blocks"] = _n_blocks(df)
 
     # Generation cost
     gen_cost = _find_path(outputs, _GEN_COST_PATH)
     if gen_cost is not None:
         df = _rows_to_df(gen_cost)
         summary["total_cost_generation"] = float(
-            sum(_sum_numeric(df, skip_cols).values())
+            sum(_per_uid_totals(df, skip_cols).values())
         )
 
     # Load
     load = _find_path(outputs, _LOAD_PATH)
     if load is not None:
         df = _rows_to_df(load)
-        summary["total_load"] = float(sum(_sum_numeric(df, skip_cols).values()))
+        summary["total_load"] = float(sum(_per_uid_totals(df, skip_cols).values()))
 
     # Unserved demand
     fail = _find_path(outputs, _FAIL_PATH)
     if fail is not None:
         df = _rows_to_df(fail)
-        per_col = _sum_numeric(df, skip_cols)
+        per_col = _per_uid_totals(df, skip_cols)
         summary["total_unserved"] = float(sum(per_col.values()))
         # Peak single-cell unserved across all cells
-        peak = 0.0
-        for col in df.columns:
-            if col in skip_cols:
-                continue
-            try:
-                col_max = float(pd.to_numeric(df[col], errors="coerce").max())
-                peak = max(peak, col_max)
-            except (TypeError, ValueError):
-                continue
-        summary["peak_unserved"] = peak
+        vals = _value_series(df)
+        summary["peak_unserved"] = float(vals.max()) if not vals.empty else 0.0
 
     # LMPs from balance_dual
     bal = _find_path(outputs, _BAL_DUAL)
     if bal is not None:
         df = _rows_to_df(bal)
-        mins: list[float] = []
-        maxs: list[float] = []
-        means: list[float] = []
-        for col in df.columns:
-            if col in skip_cols:
-                continue
-            vals = pd.to_numeric(df[col], errors="coerce").dropna()
-            if vals.empty:
-                continue
-            mins.append(float(vals.min()))
-            maxs.append(float(vals.max()))
-            means.append(float(vals.mean()))
-        if mins:
-            summary["lmp_min"] = min(mins)
-            summary["lmp_max"] = max(maxs)
-            summary["lmp_mean"] = sum(means) / len(means)
-        # Number of buses = column count minus indexing columns
-        summary["n_buses"] = len([c for c in df.columns if c not in skip_cols])
+        vals = _value_series(df)
+        if not vals.empty:
+            summary["lmp_min"] = float(vals.min())
+            summary["lmp_max"] = float(vals.max())
+            summary["lmp_mean"] = float(vals.mean())
+        summary["n_buses"] = _n_elements(df, _per_uid_totals(df, skip_cols))
 
     # Line count (from flow_sol) if available.  Falls back to the legacy
     # ``flowp_sol`` stem when the case was produced by a pre-unified-flow
@@ -243,7 +277,7 @@ def summarize_output_dict(
     flow = _find_path(outputs, _FLOW_PATH) or _find_path(outputs, "Line/flowp_sol")
     if flow is not None:
         df = _rows_to_df(flow)
-        summary["n_lines"] = len([c for c in df.columns if c not in skip_cols])
+        summary["n_lines"] = _n_elements(df, _per_uid_totals(df, skip_cols))
 
     return summary
 

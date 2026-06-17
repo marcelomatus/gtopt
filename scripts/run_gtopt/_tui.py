@@ -832,6 +832,24 @@ def _build_header(
             )
             bounds.append("   Gap ", style="bold")
             bounds.append(f"{100.0 * gap:.2f}%", style=gap_style)
+        # Δ Gap — the change in gap since the previous iteration (in
+        # percentage points).  This is the quantity the SDDP/cascade
+        # convergence test actually watches (ΔUB-stationarity): once it
+        # falls below the per-level tolerance the solver stops.  Small
+        # |Δ| → converging (green); larger → still moving (yellow).
+        hist = data.get("history") or []
+        if len(hist) >= 2:
+            dgap = hist[-1].get("gap", 0.0) - hist[-2].get("gap", 0.0)
+            adg = abs(dgap)
+            dg_style = (
+                "bold green"
+                if adg < 0.01
+                else "bold yellow"
+                if adg < 0.05
+                else "bold red"
+            )
+            bounds.append("   ΔGap ", style="bold")
+            bounds.append(f"{100.0 * dgap:+.2f}%", style=dg_style)
         # Iteration counter, when SDDP-style data is present
         it = data.get("iteration")
         max_it = data.get("max_iterations")
@@ -1022,19 +1040,33 @@ def _build_history(data: dict) -> Panel:
     table.add_column("Lower Bound", justify="right", width=16)
     table.add_column("Upper Bound", justify="right", width=16)
     table.add_column("Gap", justify="right", width=10)
-    table.add_column("Cuts", justify="right", width=5)
+    table.add_column("Δ Gap", justify="right", width=9)
     table.add_column("Fwd", justify="right", width=7)
     table.add_column("Bwd", justify="right", width=7)
 
-    for rec in history[-_MAX_HISTORY_ROWS:]:
+    # Δ Gap = change in the gap since the previous iteration, in percentage
+    # points (negative = gap shrinking, i.e. converging).  Computed over the
+    # FULL history so the first visible row keeps its true predecessor even
+    # when the table is sliced to the last _MAX_HISTORY_ROWS.  Replaces the
+    # former "Cuts" column — the per-iter gap movement is the convergence
+    # signal operators actually track.
+    for idx, rec in enumerate(history[-_MAX_HISTORY_ROWS:]):
+        full_idx = max(0, len(history) - _MAX_HISTORY_ROWS) + idx
         g = rec.get("gap", 0.0)
         gap_style = "green" if g < 0.01 else "yellow" if g < 0.1 else "red"
+        if full_idx > 0:
+            dg = g - history[full_idx - 1].get("gap", 0.0)
+            # Shrinking gap (dg < 0) is progress → green; growing → red.
+            dg_style = "green" if dg < 0 else "red" if dg > 0 else "dim"
+            dg_cell = f"[{dg_style}]{100.0 * dg:+.2f}%[/{dg_style}]"
+        else:
+            dg_cell = "[dim]—[/dim]"
         table.add_row(
             str(rec.get("iteration", 0)),
             _format_number(rec.get("lower_bound", 0.0)),
             _format_number(rec.get("upper_bound", 0.0)),
             f"[{gap_style}]{100.0 * g:.2f}%[/{gap_style}]",
-            str(rec.get("cuts_added", 0)),
+            dg_cell,
             f"{rec.get('forward_pass_s', 0.0):.1f}s",
             f"{rec.get('backward_pass_s', 0.0):.1f}s",
         )
@@ -1084,10 +1116,15 @@ def _build_system(data: dict) -> Panel:
     workers = rt.get("active_workers", [])
     mem_pcts = rt.get("memory_percent", [])
     rss_vals = rt.get("process_rss_mb", [])
+    free_vals = rt.get("available_memory_mb", [])
 
-    # Pool-level snapshot (top-level JSON, not realtime).  Prefer these
-    # for the headline numbers — they reflect the full process and the
-    # OS' free memory at the last poll, not just the realtime ring.
+    # The realtime ring is the AUTHORITATIVE live source: the background
+    # SolverMonitor refreshes it every ~0.5 s, so it always reflects the
+    # current poll.  The top-level `pool_*` snapshot is written only at
+    # iteration boundaries and can lag (or be 0 when the snapshot pool's
+    # monitor is stale) — so prefer the ring and use `pool_*` only as a
+    # fallback when the ring is empty.  A non-positive `pool_*` is treated
+    # as "no reading" so a stale 0 never shadows a fresh ring value.
     pool_rss = data.get("pool_process_rss_mb")
     pool_free = data.get("pool_available_memory_mb")
     pool_pct = data.get("pool_memory_percent")
@@ -1095,14 +1132,16 @@ def _build_system(data: dict) -> Panel:
     pool_active = async_data.get("pool_tasks_active")
     pool_pending = async_data.get("pool_tasks_pending")
 
+    def _live(ring: list, pool_v) -> float:
+        if ring:
+            return float(ring[-1])
+        return float(pool_v) if pool_v is not None and float(pool_v) > 0.0 else 0.0
+
     cpu_val = cpus[-1] if cpus else 0.0
     worker_val = workers[-1] if workers else 0
-    mem_val = (
-        float(pool_pct) if pool_pct is not None else (mem_pcts[-1] if mem_pcts else 0.0)
-    )
-    rss_val = (
-        float(pool_rss) if pool_rss is not None else (rss_vals[-1] if rss_vals else 0.0)
-    )
+    mem_val = _live(mem_pcts, pool_pct)
+    rss_val = _live(rss_vals, pool_rss)
+    free_val = _live(free_vals, pool_free)
 
     bar_width = 30
     cpu_filled = int(cpu_val * bar_width / 100)
@@ -1131,13 +1170,13 @@ def _build_system(data: dict) -> Panel:
             style="cyan",
         )
 
-    if pool_free is not None:
+    if free_val > 0.0:
         mem_right = Text(
-            f"gtopt: {_format_mb(rss_val)}   Free: {_format_mb(float(pool_free))}",
+            f"gtopt: {_format_mb(rss_val)}   Free: {_format_mb(free_val)}",
             style="blue",
         )
     else:
-        mem_right = Text(f"RSS: {_format_mb(rss_val)}", style="blue")
+        mem_right = Text(f"gtopt: {_format_mb(rss_val)}", style="blue")
 
     grid.add_row(
         Text("CPU", style="bold"),

@@ -130,6 +130,7 @@ struct MonitorPoint
   int active_workers {};  ///< Number of active worker threads
   double memory_percent {};  ///< System memory usage percentage [0–100]
   double process_rss_mb {};  ///< Process RSS in MB
+  double available_memory_mb {};  ///< System available (free) memory in MB
 };
 
 // ─── SolverMonitor ───────────────────────────────────────────────────────────
@@ -210,6 +211,7 @@ public:
                   .active_workers = stats.active_threads,
                   .memory_percent = stats.current_memory_percent,
                   .process_rss_mb = stats.process_rss_mb,
+                  .available_memory_mb = stats.available_memory_mb,
               });
             }
             std::this_thread::sleep_for(m_update_interval_);
@@ -277,6 +279,15 @@ public:
         json += ", ";
       }
       json += std::format("{:.0f}", m_history_[i].process_rss_mb);
+    }
+    json += "],\n";
+
+    json += "    \"available_memory_mb\": [";
+    for (std::size_t i = 0; i < m_history_.size(); ++i) {
+      if (i > 0) {
+        json += ", ";
+      }
+      json += std::format("{:.0f}", m_history_[i].available_memory_mb);
     }
     json += "]\n";
     json += "  }\n";
