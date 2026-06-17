@@ -1260,12 +1260,27 @@ class GTOptWriter(
         }
         # ``options.write_out`` controls which output streams gtopt
         # serialises (sol / dual / rc / extras, optionally restricted to
-        # element classes).  When the CLI was given (or the conf file
-        # set a default), thread it through verbatim; otherwise leave
-        # the field unset so gtopt picks its own default.
+        # element classes).  An explicit CLI / conf value is threaded
+        # through verbatim; otherwise default to a value that captures
+        # everything the downstream analyses consume:
+        #   * standard streams ``solution,dual,reduced_cost:Generator,Line``
+        #     (mirrors the C++ default) — marginal-unit attribution needs
+        #     ``Generator/generation_cost`` (rc) + ``srmc_sol`` (sol), and
+        #     emission intensity reuses the same marginal-unit identification
+        #     (the emission factor is an external catalogue, not a stream);
+        #   * ``extras:Generator,Line`` — adds ``Generator/{vom,fuel}_cost_sol``
+        #     and ``heat_rate`` (finer marginal-unit / consequential-emission
+        #     attribution) and the consolidated ``Line/loss_sol`` (the loss
+        #     summary; without it the loss row falls back to generated −
+        #     served).
+        # Additive only — never drops a standard stream.  Scoped to the two
+        # classes the analyses read so it does not bloat every element.
         write_out = options.get("write_out")
-        if write_out:
-            planning_opts["write_out"] = write_out
+        if not write_out:
+            write_out = (
+                "solution,dual,reduced_cost:Generator,Line,extras:Generator,Line"
+            )
+        planning_opts["write_out"] = write_out
 
         if method == "cascade":
             # Per-level aperture budgets use ``num_apertures`` (resolved
