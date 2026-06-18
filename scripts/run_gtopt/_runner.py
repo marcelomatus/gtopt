@@ -1092,6 +1092,49 @@ def _compute_energy_indicators(
                 100.0 * indicators["losses_twh"] / served_twh
             )
 
+        # Average LMP ($/MWh) from the bus balance dual.  Demand-weighted
+        # (the price actually paid by load) when the demand→bus map and the
+        # served load are available; otherwise a plain duration-weighted mean
+        # of the bus marginal prices.  Expected over scenario/scene replicas.
+        lmp_df = _read_result_table(results_dir, "Bus/balance_dual")
+        if lmp_df is not None and _is_long(lmp_df) and "block" in lmp_df.columns:
+            lmp = lmp_df.groupby(["block", "uid"], as_index=False)["value"].mean()
+            lmp["dur"] = [durations.get(int(b), 1.0) for b in lmp["block"]]
+            demand_bus = {
+                d["uid"]: d.get("bus")
+                for d in data.get("system", {}).get("demand_array", [])
+                if isinstance(d, dict) and "uid" in d
+            }
+            avg_lmp = None
+            if demand_bus and load_df is not None and _is_long(load_df):
+                ld = load_df.groupby(["block", "uid"], as_index=False)["value"].mean()
+                ld["bus"] = [demand_bus.get(int(u)) for u in ld["uid"]]
+                ld = ld[ld["bus"].notna()]
+                if not ld.empty:
+                    load_bus = ld.groupby(["block", "bus"], as_index=False)[
+                        "value"
+                    ].sum()
+                    load_bus = load_bus.rename(columns={"value": "load", "bus": "uid"})
+                    load_bus["uid"] = load_bus["uid"].astype(lmp["uid"].dtype)
+                    merged = lmp.merge(load_bus, on=["block", "uid"], how="inner")
+                    wts = merged["load"].to_numpy(dtype=np.float64) * merged[
+                        "dur"
+                    ].to_numpy(dtype=np.float64)
+                    if wts.sum() > 0.0:
+                        avg_lmp = float(
+                            (merged["value"].to_numpy(dtype=np.float64) * wts).sum()
+                            / wts.sum()
+                        )
+            if avg_lmp is None:
+                dur = lmp["dur"].to_numpy(dtype=np.float64)
+                if dur.sum() > 0.0:
+                    avg_lmp = float(
+                        (lmp["value"].to_numpy(dtype=np.float64) * dur).sum()
+                        / dur.sum()
+                    )
+            if avg_lmp is not None:
+                indicators["avg_lmp"] = avg_lmp
+
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         log.debug("energy indicator computation failed", exc_info=True)
 
@@ -1174,6 +1217,8 @@ def report_solution(
         rows.append(
             ("LCOE (op/served)", f"${indicators['lcoe_op_per_served']:.2f}/MWh")
         )
+    if "avg_lmp" in indicators:
+        rows.append(("Average LMP", f"${indicators['avg_lmp']:.2f}/MWh"))
 
     # Avg generation cost = total cost / generated energy
     gen_twh = indicators.get("generated_twh", 0.0)
