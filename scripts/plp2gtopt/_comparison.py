@@ -785,6 +785,11 @@ _INPUT_FILE_INDICATORS: tuple[tuple[str, str, str], ...] = (
     ),
     ("plpminembh.dat", "soft per-stage min volume", "reservoir min vol (Σ)"),
     ("plpcenre.dat", "reservoir production factor", "reservoir efficiencies (#)"),
+    (
+        "plpcenpmax.dat",
+        "volume-dependent Pmax/head curve",
+        "reservoir efficiencies (#) [+ to plpcenre]",
+    ),
     ("plpcenfi.dat / plpfilemb.dat", "reservoir seepage/filtration", "seepages (#)"),
     ("plpralco.dat", "volume→max-discharge curve", "discharge limits (#)"),
     ("plpvrebemb.dat", "spill threshold & cost (efin)", "reservoirs (#)"),
@@ -1150,7 +1155,21 @@ def _log_comparison(
         note=f"hid_indep=T {_arrow} use_state_variable=False",
         indent=1,
     )
-    _row("production factors", p_res_eff, g_res_eff, indent=1)
+    # The PLP column counts only plpcenre.dat (rendimiento) entries, but
+    # gtopt's production factors also include plpcenpmax.dat volume-dependent
+    # Pmax/head curves.  A reservoir with a Pmax curve but no rendimiento row
+    # (e.g. CIPRESES) therefore shows up only on the gtopt side — an expected
+    # difference, not a conversion error.
+    if g_res_eff > p_res_eff:
+        _pfac_note = (
+            f"+{g_res_eff - p_res_eff} from plpcenpmax.dat "
+            "(Pmax/head curve, no plpcenre rendimiento)"
+        )
+    elif p_res_eff and g_res_eff == p_res_eff:
+        _pfac_note = f"= plpcenre.dat {_check}"
+    else:
+        _pfac_note = ""
+    _row("production factors", p_res_eff, g_res_eff, note=_pfac_note, indent=1)
     _row("seepages", p_seepages, g_seepages, indent=1)
     _row("discharge limits", p_discharge_limits, g_discharge_limits, indent=1)
     table.add_row("", "", "", "", "")
