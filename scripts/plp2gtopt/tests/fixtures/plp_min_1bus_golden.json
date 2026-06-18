@@ -33,8 +33,10 @@
       "forward_solver_options": {
         "advanced_basis": true,
         "algorithm": "dual"
-      }
-    }
+      },
+      "low_memory_mode": "off"
+    },
+    "write_out": "solution,dual,reduced_cost:Generator,Line,extras:Generator,Line"
   },
   "simulation": {
     "annual_discount_rate": 0.0,

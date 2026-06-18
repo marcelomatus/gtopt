@@ -162,8 +162,30 @@ def detect_technology(
 # centipo.csv reader (PLP's own technology override file)
 # ---------------------------------------------------------------------------
 
-# PLP centipo.csv label → gtopt technology mapping
+# PLP centipo.csv label → gtopt technology mapping.
+#
+# The authoritative CEN ``centipo.csv`` uses the ``Tipo_T`` codes below
+# (T?? = thermal by fuel, P?? = renewable park, etc.).  Mapping these is
+# what makes coal/gas/diesel/biomass/solar/wind classification data-driven
+# instead of name-pattern guesswork.  Legacy single-letter / 3-char codes
+# are kept for older fixtures.
 _CENTIPO_LABEL_MAP: dict[str, str] = {
+    # --- CEN Tipo_T codes (authoritative) ---
+    "TCA": "coal",  # Termo Carbón
+    "TGN": "gas",  # Termo Gas Natural
+    "TDI": "diesel",  # Termo Diésel
+    "TFO": "diesel",  # Termo Fuel-Oil (liquid fossil, grouped with diesel)
+    "TBM": "biomass",  # Termo Biomasa
+    "TBG": "biomass",  # Termo Biogás
+    "TPC": "thermal",  # Termo Petcoke (rare)
+    "TCO": "thermal",  # Termo Coke (rare)
+    "PFV": "solar",  # Planta FotoVoltaica
+    "CSP": "csp",  # Concentrated Solar Power
+    "PE": "wind",  # Parque Eólico
+    "GEO": "geothermal",  # Geotérmica
+    "HP": "hydro_ror",  # Hidro Pasada
+    "RSA": "battery",  # battery charging side (BAT_*_LOAD)
+    # --- Legacy single-letter codes ---
     "E": "hydro_reservoir",
     "A": "hydro_reservoir",
     "S": "hydro_ror",
@@ -173,18 +195,16 @@ _CENTIPO_LABEL_MAP: dict[str, str] = {
     "B": "battery",
     "F": "curtailment",
     "M": "modular",
-    # Common 3-char labels used in Chilean CEN system
+    # --- Legacy 3-char labels ---
     "SOL": "solar",
     "FV": "solar",
     "EO": "wind",
     "EOL": "wind",
-    "GEO": "geothermal",
     "BIO": "biomass",
     "GNL": "gas",
     "CAR": "coal",
     "DIE": "diesel",
     "NUC": "nuclear",
-    "CSP": "csp",
     "HID": "hydro_ror",
     "MIN": "hydro_small",
     "BOM": "hydro_pumped",
@@ -194,12 +214,16 @@ _CENTIPO_LABEL_MAP: dict[str, str] = {
 def load_centipo_csv(input_dir) -> dict[str, str]:
     """Read PLP's ``centipo.csv`` file if present.
 
-    Returns a {central_name: technology} dict.  The file format is::
+    Returns a {central_name: technology} dict.  Two formats are accepted::
 
         # header line (skipped)
-        CentralName  Label
+        Central,Tipo_T          # comma-separated (authoritative CEN export)
+        GUACOLDA_1,TCA
 
-    Where Label is a 1-3 character code mapped to a technology string.
+        CentralName  Label      # legacy whitespace-separated
+
+    Where the label/Tipo_T code is mapped to a technology string via
+    ``_CENTIPO_LABEL_MAP``.
     """
     from pathlib import Path  # noqa: PLC0415
 
@@ -220,10 +244,12 @@ def load_centipo_csv(input_dir) -> dict[str, str]:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                parts = line.split()
+                # CEN export is comma-separated; legacy fixtures use
+                # whitespace.  Pick the delimiter present on the line.
+                parts = line.split(",") if "," in line else line.split()
                 if len(parts) >= 2:
-                    name = parts[0].strip("'\"")
-                    label = parts[1].strip("'\"").upper()
+                    name = parts[0].strip().strip("'\"")
+                    label = parts[1].strip().strip("'\"").upper()
                     tech = _CENTIPO_LABEL_MAP.get(label, label.lower())
                     result[name] = tech
     except OSError as exc:

@@ -349,6 +349,28 @@ def test_524_no_fallback_when_gcost_is_schedule(tmp_path, monkeypatch):
     assert result[0]["type"] == "thermal"  # NOT renewable:hydro
 
 
+def test_524_no_fallback_for_large_zero_cost_unit(tmp_path):
+    """A LARGE zero-cost thermal that name-detection missed and that is not
+    in centipo.csv must NOT default to renewable:hydro — a 334 MW unit is
+    not a "small distributed" mini-hydro.  Capacity gate (#524)."""
+    centrals = [
+        {
+            "name": "IE_MEJILLONES_GN_B",  # 334 MW gas, scalar zero cost here
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 334.3,
+            "pmin": 0.0,
+            "gcost": 0.0,
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    result = writer.to_json_array()
+    assert result[0]["type"] == "thermal"  # NOT renewable:hydro
+
+
 def test_524_pattern_match_beats_fallback(tmp_path):
     """When auto-detect catches the name (_FV → solar), the
     fallback never runs."""

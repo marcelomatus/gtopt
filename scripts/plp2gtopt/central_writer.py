@@ -19,6 +19,13 @@ from .stage_parser import StageParser
 from .tech_detect import detect_technology, suspect_technology
 
 
+# Upper capacity (MW) below which a zero-cost, name-unmatched thermal is
+# treated as a small distributed mini-hydro by the Issue #524 fallback.
+# Larger zero-cost units (e.g. 334 MW gas/diesel at IE_MEJILLONES, the
+# 110 MW CERRO_DOMINADOR CSP) are NOT mini-hydros and must stay thermal.
+_MINI_HYDRO_MAX_MW: float = 20.0
+
+
 # ----------------------------------------------------------------------
 # CEN cogen reference cache (best-effort load of the bundled CSV).
 # See ``share/gtopt/cogen/cen_chile_cogen.csv``.
@@ -232,7 +239,20 @@ class CentralWriter(BaseWriter):
             gcost_is_zero = gcost is None or (
                 isinstance(gcost, (int, float)) and float(gcost) == 0.0
             )
-            if auto_detect_tech and gen_type == "thermal" and gcost_is_zero:
+            # Capacity gate: a "small distributed renewable" is, by
+            # definition, small.  Restrict the mini-hydro default to units
+            # at or below ``_MINI_HYDRO_MAX_MW`` so large zero-cost thermals
+            # (IE_MEJILLONES gas/diesel, CERRO_DOMINADOR CSP) stay thermal.
+            cap = central.get("pmax")
+            is_small = isinstance(cap, (int, float)) and 0.0 < float(cap) <= (
+                _MINI_HYDRO_MAX_MW
+            )
+            if (
+                auto_detect_tech
+                and gen_type == "thermal"
+                and gcost_is_zero
+                and is_small
+            ):
                 gen_type = "renewable:hydro"
 
             generator: Dict[str, Any] = {

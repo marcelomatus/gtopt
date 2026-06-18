@@ -147,6 +147,38 @@ def test_load_centipo_csv(tmp_path: Path):
     assert result["GasZ"] == "gas"
 
 
+def test_load_centipo_csv_comma_cen_codes(tmp_path: Path):
+    """Authoritative CEN ``centipo.csv`` is comma-separated and uses the
+    ``Tipo_T`` codes (TCA/TGN/TDI/PFV/PE/TBM/CSP/HP/GEO/RSA).  Regression
+    for the bug where the whitespace-only split silently dropped every row
+    of a comma-delimited file (coal/gas/etc. never classified)."""
+    centipo = tmp_path / "centipo.csv"
+    centipo.write_text(
+        "Central,Tipo_T\n"
+        "GUACOLDA_1,TCA\n"  # coal
+        "IE_MEJILLONES_GN_A,TGN\n"  # gas
+        "IE_MEJILLONES_DIE,TDI\n"  # diesel
+        "CERRO_DOMINADOR_CS,CSP\n"  # csp
+        "ARAUCO_MAPA_BL1,TBM\n"  # biomass
+        "ALTO_HOSPICIO,HP\n"  # run-of-river hydro
+        "CERRO_PABELLON_U1,GEO\n"  # geothermal
+        "ALENA_EO,PE\n"  # wind
+        "BAT_ARENA_LOAD,RSA\n"  # battery charging side
+    )
+    from plp2gtopt.tech_detect import load_centipo_csv
+
+    result = load_centipo_csv(tmp_path)
+    assert result["GUACOLDA_1"] == "coal"
+    assert result["IE_MEJILLONES_GN_A"] == "gas"
+    assert result["IE_MEJILLONES_DIE"] == "diesel"
+    assert result["CERRO_DOMINADOR_CS"] == "csp"
+    assert result["ARAUCO_MAPA_BL1"] == "biomass"
+    assert result["ALTO_HOSPICIO"] == "hydro_ror"
+    assert result["CERRO_PABELLON_U1"] == "geothermal"
+    assert result["ALENA_EO"] == "wind"
+    assert result["BAT_ARENA_LOAD"] == "battery"
+
+
 def test_load_centipo_csv_missing(tmp_path: Path):
     """Missing centipo.csv returns empty dict."""
     from plp2gtopt.tech_detect import load_centipo_csv
