@@ -54,6 +54,11 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _POLL_INTERVAL = 1.0  # seconds between status file polls
+# Resource telemetry older than this (status-file age) is flagged stale in
+# the CPU/MEM panel.  A current gtopt rewrites the file on the monitor's
+# ~0.5 s cadence, and the TUI polls at ~1 s; 6 s comfortably clears that
+# while still catching a binary that only rewrites at iteration boundaries.
+_STATUS_STALE_S = 6.0
 _MAX_LOG_LINES = 16  # rolling log buffer size
 _MAX_HISTORY_ROWS = 8  # iteration rows shown in the table
 # Rich Live refresh rate.  At 4 Hz the dashboard noticeably flickered and
@@ -570,7 +575,18 @@ def _load_status(path: Path | None) -> dict[str, Any]:
         return {}
     try:
         text = path.read_text(encoding="utf-8")
-        return json.loads(text)
+        data = json.loads(text)
+        # Stamp how old the file is so the resource panel can flag stale
+        # telemetry.  A current gtopt rewrites the status file on the
+        # monitor's ~0.5 s sampling cadence (CPU/MEM live-refresh fix), so a
+        # large age means the running binary predates that fix and only
+        # rewrites at iteration boundaries.
+        if isinstance(data, dict):
+            try:
+                data["_status_age_s"] = max(0.0, time.time() - path.stat().st_mtime)
+            except OSError:
+                pass
+        return data
     except (OSError, json.JSONDecodeError):
         return {}
 
@@ -1194,6 +1210,23 @@ def _build_system(data: dict) -> Panel:
         Text.from_markup(f"{mem_bar} {mem_val:.0f}%"),
         mem_right,
     )
+
+    # Staleness note.  A current gtopt rewrites the status file every ~0.5 s
+    # (monitor periodic-write fix), so CPU/MEM stays live between iterations.
+    # If the file is much older than that, the running binary predates the
+    # fix and only refreshes at iteration boundaries — tell the user so a
+    # frozen panel isn't mistaken for a hung solve.
+    age = data.get("_status_age_s")
+    if isinstance(age, (int, float)) and age > _STATUS_STALE_S:
+        grid.add_row(
+            Text("note", style="dim yellow"),
+            Text(
+                f"CPU/MEM sample {age:.0f}s old — live refresh needs a gtopt "
+                "rebuilt with the monitor periodic-write fix",
+                style="dim yellow",
+            ),
+            "",
+        )
 
     cpu_spark = _sparkline(cpus) if cpus else ""
     mem_spark = _sparkline(mem_pcts) if mem_pcts else ""

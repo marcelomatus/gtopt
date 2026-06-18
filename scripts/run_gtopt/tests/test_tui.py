@@ -458,6 +458,29 @@ def test_build_system_empty():
     assert panel is not None
 
 
+def _render(panel) -> str:
+    from rich.console import Console  # noqa: PLC0415
+
+    console = Console(width=120, file=None, record=True)
+    console.print(panel)
+    return console.export_text()
+
+
+def test_build_system_stale_note_shown():
+    """A status file much older than the monitor cadence flags stale CPU/MEM
+    telemetry (running gtopt predates the periodic-write fix)."""
+    data = {**_SAMPLE_STATUS, "_status_age_s": 42.0}
+    text = _render(_build_system(data))
+    assert "live refresh needs" in text
+
+
+def test_build_system_fresh_no_note():
+    """Fresh telemetry shows no staleness note."""
+    data = {**_SAMPLE_STATUS, "_status_age_s": 0.3}
+    text = _render(_build_system(data))
+    assert "live refresh needs" not in text
+
+
 def test_build_log_empty():
     panel = _build_log([])
     assert panel is not None
