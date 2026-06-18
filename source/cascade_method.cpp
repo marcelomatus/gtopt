@@ -92,6 +92,12 @@ auto CascadePlanningMethod::build_level_sddp_opts(
       opts.aperture_selection_mode = gtopt::require_enum<ApertureSelectionMode>(
           "aperture_selection_mode", *level_solver->aperture_selection_mode);
     }
+    if (level_solver->aperture_solve_mode.has_value()) {
+      opts.aperture_solve_mode = gtopt::require_enum<ApertureSolveMode>(
+          "aperture_solve_mode", *level_solver->aperture_solve_mode);
+    }
+    opts.aperture_chunk_size =
+        level_solver->aperture_chunk_size.value_or(opts.aperture_chunk_size);
     opts.min_iterations =
         level_solver->min_iterations.value_or(opts.min_iterations);
     opts.convergence_tol =

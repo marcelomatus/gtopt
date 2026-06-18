@@ -238,6 +238,13 @@ class TestGTOptWriterProcessMethods:
         assert levels[2]["sddp_options"]["num_apertures"] == 8
         assert levels[2]["sddp_options"]["aperture_selection_mode"] == "stride"
         assert levels[2]["sddp_options"]["stationary_tol"] == 0.01  # 1 %
+        # Big multi-bus levels override the warm/-1 fast-path with cold
+        # (reduced_cost) + auto chunk (parallel backward aperture pass).
+        assert levels[2]["sddp_options"]["aperture_solve_mode"] == "reduced_cost"
+        assert levels[2]["sddp_options"]["aperture_chunk_size"] == 0
+        # Small single-bus levels inherit the warm/-1 fast-path (warm wins).
+        assert "aperture_solve_mode" not in levels[0]["sddp_options"]
+        assert "aperture_solve_mode" not in levels[1]["sddp_options"]
         # Level 3: full network — full per-phase aperture list (every
         # scenario).  ``num_apertures`` and ``aperture_selection_mode``
         # must be ABSENT so the C++ side iterates the full

@@ -662,6 +662,16 @@ class GTOptWriter(
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
+            # Big multi-bus LPs: warm-start aperture reuse is net-negative at
+            # this scale (warm/cold ≈1.2–1.4, measured 2026-06-08) AND the
+            # fast-path's serial chunk (-1) caps parallelism at S tasks/phase,
+            # idling cores at the phase barrier.  Override the inherited
+            # warm/-1 with cold barrier (reduced_cost: no crossover, the C++
+            # default) + auto chunk (0 → ~2× cores tasks/phase) so the
+            # backward aperture pass saturates the machine.  warm/-1 is kept
+            # only on the small warmup/uninodal levels where warm wins.
+            "aperture_solve_mode": "reduced_cost",
+            "aperture_chunk_size": 0,
         }
         # L3: num_apertures / aperture_selection_mode intentionally
         # unset → full per-phase list (docstring §2).
@@ -685,6 +695,13 @@ class GTOptWriter(
             # to 85 % via ``stationary_gap_ceiling`` below.
             "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
+            # Largest LPs in the ladder (multi-bus + Kirchhoff, full aperture
+            # list).  Same rationale as L2 transport: cold barrier
+            # (reduced_cost) + auto chunk so the backward aperture pass runs
+            # ~2× cores tasks/phase instead of the fast-path's S serial
+            # tasks, and avoids the net-negative warm-start at this scale.
+            "aperture_solve_mode": "reduced_cost",
+            "aperture_chunk_size": 0,
         }
 
         # ── Level array ────────────────────────────────────────────────

@@ -73,6 +73,20 @@ struct CascadeLevelMethod
   /// or `"tail"` / `"last"`.  See `SddpOptions::aperture_selection_mode`
   /// for full semantics.
   OptName aperture_selection_mode {};
+  /// Aperture re-solve mode for this level (nullopt = inherit base
+  /// ``SDDPOptions::aperture_solve_mode``).  Small single-bus levels
+  /// (warmup / uninodal) win with ``"warm"`` (basis reuse across a serial
+  /// chunk); the large multi-bus levels (transport / full_network) are
+  /// net-negative under warm-start and should use ``"reduced_cost"`` (cold
+  /// barrier, no crossover) so chunks can be split for parallelism.
+  OptName aperture_solve_mode {};
+  /// Aperture chunk size for this level (nullopt = inherit base
+  /// ``SDDPOptions::aperture_chunk_size``).  ``0`` = auto (≈2× cores tasks
+  /// per phase, the balanced default), ``-1`` = fully serial per scene
+  /// (one LP clone, warm-start reuse, but caps parallelism at S tasks),
+  /// ``K`` = K apertures per chunk.  Pair ``-1``/large with ``"warm"`` and
+  /// ``0``/small with ``"reduced_cost"``.
+  OptInt aperture_chunk_size {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};
   /// Stationary-gap tolerance for this level (nullopt = inherit base).
@@ -116,6 +130,8 @@ struct CascadeLevelMethod
     merge_opt(apertures, opts.apertures);
     merge_opt(num_apertures, opts.num_apertures);
     merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
+    merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
+    merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(stationary_tol, opts.stationary_tol);
     merge_opt(stationary_gap_ceiling, opts.stationary_gap_ceiling);

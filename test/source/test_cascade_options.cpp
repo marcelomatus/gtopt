@@ -229,6 +229,34 @@ TEST_CASE("CascadeLevelMethod - Merge num_apertures overlay wins")
   CHECK(*base.num_apertures == 8);
 }
 
+TEST_CASE("CascadeLevelMethod - Merge aperture_solve_mode / chunk_size")
+{
+  CascadeLevelMethod base {
+      .aperture_solve_mode = "warm",
+      .aperture_chunk_size = -1,
+  };
+  const CascadeLevelMethod overlay {
+      .aperture_solve_mode = "reduced_cost",
+      .aperture_chunk_size = 0,
+  };
+  base.merge(overlay);
+  REQUIRE(base.aperture_solve_mode.has_value());
+  CHECK(*base.aperture_solve_mode == "reduced_cost");
+  REQUIRE(base.aperture_chunk_size.has_value());
+  CHECK(*base.aperture_chunk_size == 0);
+
+  // Overlay-unset keeps the base values.
+  CascadeLevelMethod base2 {
+      .aperture_solve_mode = "warm",
+      .aperture_chunk_size = -1,
+  };
+  base2.merge(CascadeLevelMethod {.max_iterations = 50});
+  REQUIRE(base2.aperture_solve_mode.has_value());
+  CHECK(*base2.aperture_solve_mode == "warm");
+  REQUIRE(base2.aperture_chunk_size.has_value());
+  CHECK(*base2.aperture_chunk_size == -1);
+}
+
 TEST_CASE(
     "CascadeLevelMethod - Merge keeps base num_apertures when overlay unset")
 {
