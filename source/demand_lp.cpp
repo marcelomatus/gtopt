@@ -298,6 +298,9 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         const auto block_ecost = CostHelper::block_ecost(
             scenario, stage, block, block_fcost.value_or(0.0));
         lcol_cost = -block_ecost;
+        if (block_ecost > 0.0) {
+          fail_penalized_ = true;
+        }
         if (use_option_c) {
           // Option C: col represents neg_fail ∈ [-lmax, 0].
           col_lowb = -block_lmax;
@@ -535,7 +538,13 @@ bool DemandLP::add_to_output(OutputContext& out) const
   if (option_c_active) {
     out.add_col_sol_values(cname, LoadName, pid, load_sol_values);
   }
-  out.add_col_sol_values(cname, FailName, pid, fail_sol_values);
+  // Only emit fail_sol when failure is actually penalized.  An unpenalized
+  // demand (fcost == 0, e.g. a battery-charge `<name>_dem`) has
+  // `fail = lmax − load` equal to unused dispatchable load capacity, not
+  // curtailment — emitting it pollutes Demand/fail_sol.
+  if (fail_penalized_) {
+    out.add_col_sol_values(cname, FailName, pid, fail_sol_values);
+  }
 
   return CapacityBase::add_to_output(out);
 }

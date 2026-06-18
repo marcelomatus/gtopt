@@ -128,6 +128,17 @@ private:
   /// `fail = −col_primal`) from the forced/non-substituted path where
   /// the column already represents `load` directly.
   STBIndexHolder<double> block_offset_values_;
+
+  /// True once any (scenario, stage, block) cell carries a strictly
+  /// positive failure cost (effective `fcost` after the global
+  /// `demand_fail_cost` fallback).  Set in `add_to_lp`.  When it stays
+  /// false the demand's failure is unpenalized — e.g. a battery-charge
+  /// `<name>_dem` pinned to `fcost == 0` by `System::expand_batteries`:
+  /// its reconstructed `fail = lmax − load` is just unused dispatchable
+  /// load capacity, not curtailment, so `add_to_output` skips emitting
+  /// `Demand/fail_sol` for it (avoids e.g. 211 TWh of battery
+  /// non-charging polluting the failure output).
+  bool fail_penalized_ {false};
 };
 
 using DemandLPId = ObjectId<DemandLP>;

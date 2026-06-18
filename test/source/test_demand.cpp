@@ -876,6 +876,104 @@ TEST_CASE("DemandLP - add_to_output with fail and emin variables")
   std::filesystem::remove_all(tmpdir);
 }
 
+TEST_CASE("DemandLP - fail_sol emitted only when failure is penalized")
+{
+  // A demand with a positive (effective) fail cost emits Demand/fail_sol;
+  // a demand pinned to fcost=0 (e.g. a battery-charge `<name>_dem`) does
+  // NOT — its `fail = lmax - load` is unused dispatchable load capacity,
+  // not curtailment.
+  using namespace gtopt;
+
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  // Generator capacity (50) below demand lmax (100) so the penalized case
+  // is forced to fail 50 MW (nonzero fail_sol).
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 50.0,
+      },
+  };
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1.0,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  auto fail_sol_emitted = [&](double fcost) -> bool
+  {
+    const Array<Demand> demand_array = {
+        {
+            .uid = Uid {1},
+            .name = "d1",
+            .bus = Uid {1},
+            .lmax = 100.0,
+            .fcost = fcost,
+        },
+    };
+    const auto tmpdir = std::filesystem::temp_directory_path()
+        / std::format("gtopt_failsol_gate_{}", fcost);
+    std::filesystem::remove_all(tmpdir);
+    std::filesystem::create_directories(tmpdir);
+
+    PlanningOptions opts;
+    opts.output_directory = tmpdir.string();
+    opts.output_format = DataFormat::parquet;
+
+    const System system = {
+        .name = "FailSolGate",
+        .bus_array = bus_array,
+        .demand_array = demand_array,
+        .generator_array = generator_array,
+    };
+    const PlanningOptionsLP options(opts);
+    SimulationLP simulation_lp(simulation, options);
+    SystemLP system_lp(system, simulation_lp);
+    auto&& lp = system_lp.linear_interface();
+    const auto result = lp.resolve();
+    REQUIRE(result.has_value());
+    system_lp.write_out();
+    const bool exists =
+        std::filesystem::exists(tmpdir / "Demand" / "fail_sol.parquet");
+    std::filesystem::remove_all(tmpdir);
+    return exists;
+  };
+
+  SUBCASE("fcost>0 -> fail_sol emitted")
+  {
+    CHECK(fail_sol_emitted(1000.0));
+  }
+  SUBCASE("fcost=0 -> fail_sol suppressed")
+  {
+    CHECK_FALSE(fail_sol_emitted(0.0));
+  }
+}
+
 TEST_CASE("DemandLP - emin with fcost and expansion across stages")
 {
   // Exercises the combined path: emin + fcost fallback + capacity expansion
