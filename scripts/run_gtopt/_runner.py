@@ -1099,10 +1099,29 @@ def _compute_energy_indicators(
             if prod_cost > 0.0:
                 indicators["production_cost"] = prod_cost
 
-        # Served demand
+        # Restrict demand metrics to REAL consumer demands.  gtopt models
+        # other consumers (notably battery charging) as Demand-class LP
+        # elements that also write Demand/load_sol & Demand/fail_sol but are
+        # NOT in demand_array — their unmet charge capacity shows up as huge
+        # spurious "fail" (e.g. 211 TWh of battery non-charging on the CEN
+        # 2-year case).  Counting only demand_array uids keeps "served" and
+        # "shedding" about actual load.
+        demand_uids = {
+            d["uid"]
+            for d in data.get("system", {}).get("demand_array", [])
+            if isinstance(d, dict) and "uid" in d
+        }
+
+        def _real_demand(df):
+            if df is None or "uid" not in getattr(df, "columns", []):
+                return df
+            return df[df["uid"].isin(demand_uids)] if demand_uids else df
+
+        # Served demand (consumer load only)
         load_df = _read_result_table(results_dir, "Demand/load_sol")
-        if load_df is not None:
-            indicators["served_twh"] = _energy_twh(load_df)
+        load_real = _real_demand(load_df)
+        if load_real is not None:
+            indicators["served_twh"] = _energy_twh(load_real)
 
         # LCOE = production cost / total served energy ($/MWh).
         served_twh = indicators.get("served_twh", 0.0)
@@ -1110,18 +1129,15 @@ def _compute_energy_indicators(
         if prod_cost > 0.0 and served_twh > 0.0:
             indicators["lcoe_op_per_served"] = prod_cost / (served_twh * 1e6)
 
-        # Load shedding (unserved demand) — energy and penalty cost.
-        fail_df = _read_result_table(results_dir, "Demand/fail_sol")
+        # Load shedding (unserved consumer demand) — energy and penalty cost.
+        fail_df = _real_demand(_read_result_table(results_dir, "Demand/fail_sol"))
         if fail_df is not None:
             shed = _energy_twh(fail_df)
             if shed > 1e-6:
                 indicators["shed_twh"] = shed
-            # Unserved-demand cost = unserved energy × VoLL.  The fail
-            # variables are emitted under their own element uids (NOT the
-            # demand uids), so a per-uid fcost join is not possible; the
-            # demands all carry the same curtailment penalty (fcost, $/MWh),
-            # so a representative VoLL × shed energy is exact when fcost is
-            # uniform and a faithful estimate otherwise.
+            # Unserved-demand cost = unserved energy × VoLL.  Demands carry a
+            # uniform fcost ($/MWh), so a representative VoLL × shed energy is
+            # exact when uniform and a faithful estimate otherwise.
             fcosts = [
                 float(d["fcost"])
                 for d in data.get("system", {}).get("demand_array", [])
