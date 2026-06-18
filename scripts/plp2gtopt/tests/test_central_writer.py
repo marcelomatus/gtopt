@@ -311,6 +311,44 @@ def test_524_no_fallback_when_gcost_nonzero(tmp_path):
     assert result[0]["type"] in ("thermal", "diesel")  # tolerant on pattern hit
 
 
+def test_524_no_fallback_when_gcost_is_schedule(tmp_path, monkeypatch):
+    """A thermal whose ``gcost`` is a time-varying cost SCHEDULE (the
+    string ``"gcost"`` referencing a parquet column) DOES burn fuel and
+    must stay ``thermal`` — never reclassified to ``renewable:hydro``.
+
+    Regression for the coal-as-hydro bug: the old check treated a string
+    gcost as "no fuel cost" (it is not an int/float), so real coal / gas /
+    diesel plants (Guacolda, Angamos, Kelar, …) with scheduled fuel costs
+    were mislabeled as hydro, hiding coal from the technology breakdown and
+    mis-attributing their fuel cost to "hydro".
+    """
+    centrals = [
+        {
+            "name": "GUACOLDA_1",  # coal, no _FV/_EO pattern → bare "thermal"
+            "number": 1,
+            "bus": 1,
+            "type": "termica",
+            "pmax": 128.3,
+            "pmin": 0.0,
+            "gcost": 0.0,  # scalar in the .dat, but overridden by the schedule
+        },
+    ]
+    parser: typing.Any = _make_central_parser_from_list(centrals)
+    options: dict = {"output_dir": tmp_path, "auto_detect_tech": True}
+    writer = CentralWriter(parser, options=options)
+    # Force the time-varying-cost path: the central's parquet column is in
+    # the "gcost" set → gcost becomes the string "gcost" inside to_json_array.
+    pcol = writer.pcol_name("GUACOLDA_1", 1)
+    monkeypatch.setattr(
+        writer,
+        "_write_parquet_files",
+        lambda: {"gcost": [pcol], "pmin": [], "pmax": []},
+    )
+    result = writer.to_json_array()
+    assert result[0]["gcost"] == "gcost"  # schedule reference, not a scalar
+    assert result[0]["type"] == "thermal"  # NOT renewable:hydro
+
+
 def test_524_pattern_match_beats_fallback(tmp_path):
     """When auto-detect catches the name (_FV → solar), the
     fallback never runs."""

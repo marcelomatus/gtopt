@@ -221,11 +221,18 @@ class CentralWriter(BaseWriter):
             #
             # Gated on ``auto_detect_tech=True`` so the legacy "suspected"
             # description workflow (auto-detect off) is preserved.
-            if (
-                auto_detect_tech
-                and gen_type == "thermal"
-                and (not isinstance(gcost, (int, float)) or float(gcost or 0) == 0.0)
-            ):
+            # Only reclassify a GENUINELY zero-cost thermal (scalar 0 or
+            # absent gcost).  A STRING ``gcost`` is a time-varying fuel-cost
+            # SCHEDULE — the unit DOES burn fuel, so it must stay thermal.
+            # The old check treated a string as "no cost" (because it is not
+            # an int/float), which reclassified real coal / gas / diesel
+            # plants (Guacolda, Angamos, Kelar, San Isidro, …) as
+            # ``renewable:hydro`` — hiding coal from the tech breakdown and
+            # mis-attributing their fuel cost to "hydro".
+            gcost_is_zero = gcost is None or (
+                isinstance(gcost, (int, float)) and float(gcost) == 0.0
+            )
+            if auto_detect_tech and gen_type == "thermal" and gcost_is_zero:
                 gen_type = "renewable:hydro"
 
             generator: Dict[str, Any] = {
