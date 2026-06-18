@@ -837,7 +837,12 @@ def _build_header(
         # convergence test actually watches (ΔUB-stationarity): once it
         # falls below the per-level tolerance the solver stops.  Small
         # |Δ| → converging (green); larger → still moving (yellow).
+        # ALWAYS render the field (with "—" when it can't be computed yet,
+        # i.e. fewer than two history rows — the first iteration of a run
+        # or of each cascade level) so it does not flicker in and out of
+        # the header and shift the layout.
         hist = data.get("history") or []
+        bounds.append("   ΔGap ", style="bold")
         if len(hist) >= 2:
             dgap = hist[-1].get("gap", 0.0) - hist[-2].get("gap", 0.0)
             adg = abs(dgap)
@@ -848,8 +853,9 @@ def _build_header(
                 if adg < 0.05
                 else "bold red"
             )
-            bounds.append("   ΔGap ", style="bold")
             bounds.append(f"{100.0 * dgap:+.2f}%", style=dg_style)
+        else:
+            bounds.append("—", style="dim")
         # Iteration counter, when SDDP-style data is present
         it = data.get("iteration")
         max_it = data.get("max_iterations")
