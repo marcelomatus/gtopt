@@ -32,6 +32,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -214,6 +215,11 @@ public:
                   .available_memory_mb = stats.available_memory_mb,
               });
             }
+            // Rewrite the status file every tick with the cached iteration
+            // data + this fresh ring sample, so the realtime CPU/MEM/Workers
+            // numbers refresh on the sampling cadence instead of only once
+            // per (multi-second) iteration.  Sole periodic writer.
+            do_periodic_write();
             std::this_thread::sleep_for(m_update_interval_);
           }
         },
@@ -230,11 +236,84 @@ public:
     return m_history_;
   }
 
+  /// Append the fresh pool/realtime block (and the document-closing `}`)
+  /// to a partial iteration JSON document.
+  ///
+  /// Emits the top-level `pool_memory_percent` / `pool_process_rss_mb` /
+  /// `pool_available_memory_mb` scalars from the most recent sampled
+  /// ring point (so they stay live between iterations), then the
+  /// `"realtime"` history block, then closes the JSON object.
+  ///
+  /// `json` is expected to be the partial document produced by
+  /// `build_iteration_status_json()` (begins with `{`, no trailing `}`).
+  void build_realtime_status_json(std::string& json) const
+  {
+    const std::scoped_lock lock(m_mutex_);
+
+    // ── Fresh pool scalars (latest sampled ring point) ──
+    double mem_pct = 0.0;
+    double rss_mb = 0.0;
+    double avail_mb = 0.0;
+    if (!m_history_.empty()) {
+      const auto& last = m_history_.back();
+      mem_pct = last.memory_percent;
+      rss_mb = last.process_rss_mb;
+      avail_mb = last.available_memory_mb;
+    }
+    json += std::format("  \"pool_memory_percent\": {:.1f},\n", mem_pct);
+    json += std::format("  \"pool_process_rss_mb\": {:.0f},\n", rss_mb);
+    json += std::format("  \"pool_available_memory_mb\": {:.0f},\n", avail_mb);
+
+    append_history_json_locked(json);
+
+    json += "}\n";
+  }
+
   /// Append the `"realtime"` JSON block to `json` using collected history.
   void append_history_json(std::string& json) const
   {
     const std::scoped_lock lock(m_mutex_);
+    append_history_json_locked(json);
+  }
 
+  /// Register the cached iteration-portion JSON and target path so the
+  /// background sampling thread rewrites the status file every tick with
+  /// FRESH realtime/pool numbers (and the last iteration's unchanged
+  /// iteration data).  Called on the solver thread once per iteration —
+  /// cheap (a guarded string move).
+  void update_status(std::string iteration_json, std::string path)
+  {
+    const std::scoped_lock lock(m_status_mutex_);
+    m_iteration_json_ = std::move(iteration_json);
+    m_status_path_ = std::move(path);
+    m_have_status_.store(true, std::memory_order_release);
+  }
+
+  /// Write content atomically to path (write tmp, rename).
+  static void write_status(const std::string& content,
+                           const std::string& path) noexcept
+  {
+    if (path.empty()) {
+      return;
+    }
+    const auto tmp = path + ".tmp";
+    try {
+      namespace fs = std::filesystem;
+      fs::create_directories(fs::path(path).parent_path());
+      {
+        std::ofstream out(tmp);
+        out << content;
+      }
+      fs::rename(tmp, path);
+    } catch (const std::exception& e) {
+      SPDLOG_WARN("SolverMonitor: could not write {}: {}", path, e.what());
+    }
+  }
+
+private:
+  /// Append the `"realtime"` JSON block to `json` (caller holds m_mutex_).
+  void append_history_json_locked(std::string& json) const
+  {
     json += "  \"realtime\": {\n";
 
     json += "    \"timestamps\": [";
@@ -293,32 +372,43 @@ public:
     json += "  }\n";
   }
 
-  /// Write content atomically to path (write tmp, rename).
-  static void write_status(const std::string& content,
-                           const std::string& path) noexcept
+  /// Rewrite the status file with the cached iteration JSON plus a freshly
+  /// built pool/realtime block.  No-op until the solver thread has called
+  /// `update_status()` at least once.  Runs on the monitor sampling thread
+  /// (the sole periodic writer) — it NEVER touches live solver state, only
+  /// the cached prebuilt iteration string.
+  void do_periodic_write()
   {
-    if (path.empty()) {
+    if (!m_have_status_.load(std::memory_order_acquire)) {
       return;
     }
-    const auto tmp = path + ".tmp";
-    try {
-      namespace fs = std::filesystem;
-      fs::create_directories(fs::path(path).parent_path());
-      {
-        std::ofstream out(tmp);
-        out << content;
+    std::string doc;
+    std::string path;
+    {
+      const std::scoped_lock lock(m_status_mutex_);
+      if (m_status_path_.empty()) {
+        return;
       }
-      fs::rename(tmp, path);
-    } catch (const std::exception& e) {
-      SPDLOG_WARN("SolverMonitor: could not write {}: {}", path, e.what());
+      doc = m_iteration_json_;  // copy cached iteration portion
+      path = m_status_path_;
     }
+    // Append the fresh pool/realtime block + closing brace (locks m_mutex_).
+    build_realtime_status_json(doc);
+    write_status(doc, path);
   }
 
-private:
   Interval m_update_interval_;
   std::jthread m_thread_;
   mutable std::mutex m_mutex_;
   std::vector<MonitorPoint> m_history_;
+
+  // ── Cached iteration JSON + target path for periodic refresh ──
+  // Guarded by m_status_mutex_ (separate from m_mutex_ so the cheap
+  // per-iteration setter does not contend with ring sampling).
+  mutable std::mutex m_status_mutex_;
+  std::string m_iteration_json_;
+  std::string m_status_path_;
+  std::atomic<bool> m_have_status_ {false};
 };
 
 }  // namespace gtopt

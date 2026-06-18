@@ -986,7 +986,7 @@ public:
   void maybe_write_api_status(const std::string& status_file,
                               const std::vector<SDDPIterationResult>& results,
                               std::chrono::steady_clock::time_point solve_start,
-                              const SolverMonitor& monitor) const;
+                              SolverMonitor& monitor) const;
 
   /// Save cuts (combined + per-scene) after an iteration, handling infeasible
   /// scene renaming.

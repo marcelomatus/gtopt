@@ -280,7 +280,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
   });
 
   // Default-constructed SolverMonitor (no background thread started)
-  const SolverMonitor monitor;
+  SolverMonitor monitor;
 
   write_solver_status(tmp_file, results, 2.5, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
@@ -331,7 +331,7 @@ TEST_CASE("write_solver_status handles empty results")  // NOLINT
   };
 
   const std::vector<SDDPIterationResult> results;
-  const SolverMonitor monitor;
+  SolverMonitor monitor;
 
   write_solver_status(tmp_file, results, 0.0, snap, monitor);
   CHECK(std::filesystem::exists(tmp_file));
@@ -370,7 +370,7 @@ TEST_CASE(
   };
 
   const std::vector<SDDPIterationResult> results;
-  const SolverMonitor monitor;
+  SolverMonitor monitor;
 
   write_solver_status(tmp_file, results, 5.0, snap, monitor);
 
@@ -381,6 +381,110 @@ TEST_CASE(
 
   CHECK(content.find("\"status\": \"converged\"") != std::string::npos);
   CHECK(content.find("\"converged\": true") != std::string::npos);
+
+  std::filesystem::remove(tmp_file);
+}
+
+// ─── Split iteration/realtime status tests ─────────────────────────────────
+
+TEST_CASE(
+    "build_iteration_status_json omits realtime/pool, "
+    "no trailing brace")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const SolverStatusSnapshot snap {
+      .iteration_index = IterationIndex {2},
+      .gap = 0.1,
+      .lower_bound = 900.0,
+      .upper_bound = 1000.0,
+      .max_iterations = 50,
+  };
+  const std::vector<SDDPIterationResult> results;
+
+  const std::string iter = build_iteration_status_json(results, 1.0, snap);
+
+  // Iteration scalars present.
+  CHECK(iter.find("\"version\": 1") != std::string::npos);
+  CHECK(iter.find("\"iteration\": 2") != std::string::npos);
+  CHECK(iter.find("\"history\": [") != std::string::npos);
+
+  // Realtime + pool block NOT yet present (monitor-owned).
+  CHECK(iter.find("\"realtime\"") == std::string::npos);
+  CHECK(iter.find("\"pool_process_rss_mb\"") == std::string::npos);
+
+  // Partial document — begins with '{', does NOT end with a closing '}'.
+  REQUIRE_FALSE(iter.empty());
+  CHECK(iter.front() == '{');
+  const auto last = iter.find_last_not_of(" \n\t");
+  CHECK((last != std::string::npos && iter[last] != '}'));
+}
+
+TEST_CASE(
+    "build_realtime_status_json completes the document with "
+    "pool/realtime keys")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const SolverStatusSnapshot snap {
+      .iteration_index = IterationIndex {1},
+      .max_iterations = 10,
+  };
+  const std::vector<SDDPIterationResult> results;
+
+  std::string doc = build_iteration_status_json(results, 0.5, snap);
+
+  SolverMonitor monitor;  // no thread started; empty ring
+  monitor.build_realtime_status_json(doc);
+
+  // Full schema restored: pool_* scalars + realtime block + closing brace.
+  CHECK(doc.find("\"pool_memory_percent\"") != std::string::npos);
+  CHECK(doc.find("\"pool_process_rss_mb\"") != std::string::npos);
+  CHECK(doc.find("\"pool_available_memory_mb\"") != std::string::npos);
+  CHECK(doc.find("\"realtime\"") != std::string::npos);
+  CHECK(doc.find("\"cpu_loads\"") != std::string::npos);
+  CHECK(doc.find("\"active_workers\"") != std::string::npos);
+
+  const auto last = doc.find_last_not_of(" \n\t");
+  REQUIRE(last != std::string::npos);
+  CHECK(doc[last] == '}');
+}
+
+TEST_CASE(
+    "update_status drives a periodic refresh write off "
+    "the cached iteration JSON")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  const auto tmp_file = (std::filesystem::temp_directory_path()
+                         / "gtopt_test_sddp_status_periodic.json")
+                            .string();
+  std::filesystem::remove(tmp_file);
+
+  const SolverStatusSnapshot snap {
+      .iteration_index = IterationIndex {7},
+      .max_iterations = 20,
+  };
+  const std::vector<SDDPIterationResult> results;
+  const std::string iter = build_iteration_status_json(results, 3.0, snap);
+
+  SolverMonitor monitor;
+  monitor.update_status(iter, tmp_file);
+
+  // Simulate one monitor tick: it should write the cached iteration data
+  // plus a fresh realtime/pool block, producing a complete document.
+  std::string doc = iter;
+  monitor.build_realtime_status_json(doc);
+  SolverMonitor::write_status(doc, tmp_file);
+
+  REQUIRE(std::filesystem::exists(tmp_file));
+  const std::ifstream ifs(tmp_file);
+  std::ostringstream oss;
+  oss << ifs.rdbuf();
+  const auto content = oss.str();
+  CHECK(content.find("\"iteration\": 7") != std::string::npos);
+  CHECK(content.find("\"realtime\"") != std::string::npos);
+  CHECK(content.find("\"pool_process_rss_mb\"") != std::string::npos);
 
   std::filesystem::remove(tmp_file);
 }

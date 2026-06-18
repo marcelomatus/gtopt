@@ -1821,7 +1821,7 @@ void SDDPMethod::maybe_write_api_status(
     const std::string& status_file,
     const std::vector<SDDPIterationResult>& results,
     std::chrono::steady_clock::time_point solve_start,
-    const SolverMonitor& monitor) const
+    SolverMonitor& monitor) const
 {
   if (!m_options_.enable_api || status_file.empty()) {
     return;

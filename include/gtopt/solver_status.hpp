@@ -83,6 +83,38 @@ struct SolverStatusSnapshot
   double avg_lp_task_rss_delta_mb {};
 };
 
+/// Build the ITERATION portion of the solver-status JSON document.
+///
+/// Serialises every field that depends on live solver state (top-level
+/// scalars, async block, lp_task_stats, per-iteration `history`, and the
+/// `phase_grid`) EXCEPT the real-time pool/`realtime` block, which the
+/// `SolverMonitor` owns and refreshes on its own sampling cadence.
+///
+/// The returned string is a partial JSON document: it begins with `{`
+/// and ends WITHOUT the closing `}` — the caller (or the monitor thread)
+/// appends the freshly-sampled pool/realtime block and the closing brace
+/// via `build_realtime_status_json()`.
+///
+/// This is intended to be called on the SOLVER thread, where `results`
+/// and `phase_grid` are stable (i.e. the per-iteration synchronisation
+/// point), so the monitor thread never touches live solver state.
+///
+/// @param results         Vector of per-iteration results
+/// @param elapsed_seconds Total elapsed time since solve() started
+/// @param snapshot        Current solver state snapshot
+/// @return Partial JSON string (no trailing `}`)
+[[nodiscard]] std::string build_iteration_status_json(
+    const std::vector<SDDPIterationResult>& results,
+    double elapsed_seconds,
+    const SolverStatusSnapshot& snapshot);
+
+/// Register this run in the run-discovery registry (idempotent).
+///
+/// Normally invoked indirectly via `write_solver_status()`; exposed so the
+/// monitor thread can ensure the registry entry exists when it becomes the
+/// sole periodic writer.
+void register_solver_run(const std::string& filepath);
+
 /// Write solver status JSON to a file.
 ///
 /// Builds a JSON string with the solver's current state, per-iteration
@@ -93,11 +125,17 @@ struct SolverStatusSnapshot
 /// @param results         Vector of per-iteration results
 /// @param elapsed_seconds Total elapsed time since solve() started
 /// @param snapshot        Current solver state snapshot
+/// Also registers the iteration portion + path with the monitor (via
+/// `SolverMonitor::update_status`) so the monitor's background sampling
+/// thread keeps rewriting the file every tick with fresh realtime/pool
+/// numbers between iterations.  The monitor is the sole periodic writer;
+/// this call performs one immediate fresh write at the iteration boundary.
+///
 /// @param monitor         SolverMonitor for real-time workpool stats
 void write_solver_status(const std::string& filepath,
                          const std::vector<SDDPIterationResult>& results,
                          double elapsed_seconds,
                          const SolverStatusSnapshot& snapshot,
-                         const SolverMonitor& monitor);
+                         SolverMonitor& monitor);
 
 }  // namespace gtopt

@@ -106,19 +106,27 @@ void register_run_once(const std::string& filepath)
 
 }  // namespace
 
-void write_solver_status(const std::string& filepath,
-                         const std::vector<SDDPIterationResult>& results,
-                         double elapsed_seconds,
-                         const SolverStatusSnapshot& snapshot,
-                         const SolverMonitor& monitor)
+void register_solver_run(const std::string& filepath)
 {
-  // Register this run in the discovery registry on the very first
-  // call.  Idempotent (std::call_once); cleaned up at process exit.
   register_run_once(filepath);
+}
 
+std::string build_iteration_status_json(
+    const std::vector<SDDPIterationResult>& results,
+    double elapsed_seconds,
+    const SolverStatusSnapshot& snapshot)
+{
   // Build JSON manually using std::format to avoid adding a new
   // dependency.  This is monitoring output only — correctness over
   // aesthetics.
+  //
+  // This produces the ITERATION portion only: it omits both the
+  // `pool_*` scalars and the trailing `realtime` block (and the closing
+  // `}`).  Those are appended fresh by the SolverMonitor on its own
+  // sampling cadence so the CPU/MEM/Workers numbers stay live between
+  // iterations.  Key order within a JSON object is not significant for
+  // the Python readers (`json.load`), so moving `pool_*` to the tail
+  // alongside `realtime` keeps the schema (set of keys) byte-identical.
 
   std::string json;
   json.reserve(4096);
@@ -201,13 +209,13 @@ void write_solver_status(const std::string& filepath,
     json += "  },\n";
   }
 
-  // ── Memory and LP task stats ──
-  json += std::format("  \"pool_memory_percent\": {:.1f},\n",
-                      snapshot.pool_memory_percent);
-  json += std::format("  \"pool_process_rss_mb\": {:.0f},\n",
-                      snapshot.pool_process_rss_mb);
-  json += std::format("  \"pool_available_memory_mb\": {:.0f},\n",
-                      snapshot.pool_available_memory_mb);
+  // ── LP task stats ──
+  //
+  // NOTE: the `pool_memory_percent` / `pool_process_rss_mb` /
+  // `pool_available_memory_mb` scalars are NOT emitted here — they are
+  // appended fresh by the monitor's realtime block (see
+  // `SolverMonitor::build_realtime_status_json`) so they stay live
+  // between iterations.
   if (snapshot.lp_tasks_dispatched > 0) {
     json += "  \"lp_task_stats\": {\n";
     json +=
@@ -276,13 +284,36 @@ void write_solver_status(const std::string& filepath,
     json += ",\n";
   }
 
-  // ── Real-time workpool monitoring history ──
-  monitor.append_history_json(json);
+  // Intentionally NO closing `}` — the caller appends the fresh
+  // pool/realtime block via SolverMonitor::build_realtime_status_json().
+  return json;
+}
 
-  json += "}\n";
+void write_solver_status(const std::string& filepath,
+                         const std::vector<SDDPIterationResult>& results,
+                         double elapsed_seconds,
+                         const SolverStatusSnapshot& snapshot,
+                         SolverMonitor& monitor)
+{
+  // Register this run in the discovery registry on the very first
+  // call.  Idempotent (std::call_once); cleaned up at process exit.
+  register_run_once(filepath);
 
-  // Write atomically via SolverMonitor::write_status (write tmp, rename)
-  SolverMonitor::write_status(json, filepath);
+  // Build the iteration portion on the SOLVER thread (where `results`
+  // and `phase_grid` are stable).
+  std::string iteration_json =
+      build_iteration_status_json(results, elapsed_seconds, snapshot);
+
+  // Hand the prebuilt iteration string + path to the monitor so its
+  // background thread keeps refreshing the realtime/pool block every
+  // tick between iterations (it copies the string under its own mutex —
+  // cheap, and it never touches live solver state).
+  monitor.update_status(iteration_json, filepath);
+
+  // Do one immediate fresh write at the iteration boundary so the file
+  // is current the instant the iteration finishes.
+  monitor.build_realtime_status_json(iteration_json);
+  SolverMonitor::write_status(iteration_json, filepath);
 }
 
 }  // namespace gtopt
