@@ -572,8 +572,6 @@ def test_bundled_ipcc_defaults_carry_ch4_and_n2o() -> None:
     """The bundled defaults file ships CH4 + N2O on every fuel after the
     multi-pollutant extension.  Spot-check a few canonical values.
     """
-    from gtopt_shared.emissions import load_emission_defaults  # noqa: PLC0415
-
     d = load_emission_defaults()
     # IPCC 2006 Vol 2 Ch 2 Table 2.2 spot-checks:
     diesel = d.lookup("diesel")
@@ -830,10 +828,6 @@ def test_cen_chile_override_file_loads_and_overrides_coal() -> None:
     ``coal_sub_bituminous`` (0.0961) — the Chilean-fleet reality —
     instead of the IPCC default ``coal_bituminous`` (0.0946).
     """
-    from pathlib import Path  # noqa: PLC0415
-
-    from gtopt_shared.emissions import load_emission_defaults  # noqa: PLC0415
-
     # Repo-relative path (resolves from any cwd via __file__ anchor).
     overlay = (
         Path(__file__).resolve().parents[3]

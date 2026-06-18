@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from gtopt_config import DEFAULT_CONFIG_PATH, get_version, load_config, save_section
-from gtopt_shared.cli_signals import (
+from gtopt_shared.cli_signals import (  # pylint: disable=unused-import
     install_termination_handlers,
     signal_handler,  # noqa: F401  re-export for back-compat / tests
 )

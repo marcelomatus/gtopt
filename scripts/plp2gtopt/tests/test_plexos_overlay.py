@@ -830,5 +830,5 @@ def test_overlay_no_emission_arrays_in_source_no_op() -> None:
     report = PlexosOverlay(src, Path("p.json")).apply(planning)
 
     # No emission infrastructure auto-sprouted; nothing was carried.
-    assert report.emissions_carried == ()
-    assert report.emission_zones_carried == ()
+    assert not report.emissions_carried
+    assert not report.emission_zones_carried

@@ -1276,7 +1276,7 @@ def test_install_solver_param_files_no_bundle(tmp_path):
     finally:
         _plp2gtopt_mod._BUNDLED_SOLVERS_DIR = original
 
-    assert installed == []
+    assert not installed
     assert not (target / "solvers").exists()
 
 

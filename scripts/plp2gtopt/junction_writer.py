@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, cast, TypedDict
 
 import pandas as pd
 
+from gtopt_shared.water_values import WaterValueResolver
+
 from .base_writer import BaseWriter
 from .central_parser import CentralParser
 from .cenfi_parser import CenfiParser
@@ -37,7 +39,6 @@ from .stage_parser import StageParser
 from .mance_parser import ManceParser
 from .block_parser import BlockParser
 from .mance_writer import ManceWriter
-from gtopt_shared.water_values import WaterValueResolver
 from .pmin_flowright_writer import (
     _FLOW_RIGHT_DIRECTION,
     resolve_flow_right_fail_cost,

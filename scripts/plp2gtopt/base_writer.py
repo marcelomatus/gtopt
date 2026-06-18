@@ -354,7 +354,7 @@ class BaseWriter(ABC):
 # pulling ``to_long_layout`` straight out of ``plp2gtopt.base_writer``.
 # Legacy names preserved (``_INDEX_COLS``, ``_col_to_uid``,
 # ``to_long_layout``) so existing imports continue to work.
-from gtopt_shared.dataframe import (  # noqa: E402,F401
+from gtopt_shared.dataframe import (  # noqa: E402,F401  # pylint: disable=wrong-import-position,wrong-import-order
     INDEX_COLS as _INDEX_COLS,
     column_to_uid as _col_to_uid,
     to_long_layout,

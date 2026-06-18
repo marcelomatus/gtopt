@@ -67,7 +67,7 @@ class TestBuildEmissionsRay:
 
     def test_zero_epf_omitted_from_slopes(self) -> None:
         """Reservoirs with EPF=0 (terminal hydros) drop out."""
-        rhs, slopes = build_emissions_ray(
+        _rhs, slopes = build_emissions_ray(
             {
                 "L_Maule": 9.34,
                 "TERMINAL_HYDRO": 0.0,
@@ -99,7 +99,7 @@ class TestBuildEmissionsRay:
     def test_empty_input_produces_empty_slopes(self) -> None:
         rhs, slopes = build_emissions_ray({})
         assert rhs == 0.0
-        assert slopes == {}
+        assert not slopes
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ class TestWriteEmissionsRayCsv:
             {"L_Maule": 9.34, "COLBUN": 1.42},
             reservoir_order=["L_Maule", "COLBUN"],
         )
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             rows = list(csv.reader(f))
         assert len(rows) == 2
         assert rows[0] == ["iteration", "scene", "rhs", "L_Maule", "COLBUN"]
@@ -139,7 +139,7 @@ class TestWriteEmissionsRayCsv:
             {"L_Maule": 9.34},  # only one EPF
             reservoir_order=["L_Maule", "TERMINAL"],
         )
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             rows = list(csv.reader(f))
         assert float(rows[1][3]) > 0
         assert float(rows[1][4]) == 0.0
@@ -148,7 +148,7 @@ class TestWriteEmissionsRayCsv:
         """No reservoir_order → sorted alphabetically."""
         p = tmp_path / "boundary_cuts.csv"
         write_emissions_ray_csv(p, {"Z": 1.0, "A": 2.0, "M": 1.5})
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             rows = list(csv.reader(f))
         assert rows[0][3:] == ["A", "M", "Z"]
 
