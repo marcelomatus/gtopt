@@ -224,11 +224,24 @@ def check_input_files(json_path: Path, **_kwargs) -> CheckResult:
                 if not isinstance(value, str) or not value:
                     continue
 
+                # A string field is a file-backed FieldSched reference ONLY
+                # when it names a file: either an explicit ``dir@stem`` or
+                # the FieldSched default where the value equals the field
+                # name (``"pmax": "pmax"`` → Generator/pmax.parquet).  A
+                # value that differs from the field name and has no ``@`` is
+                # an ENUM (e.g. ``cogen_mode: "dispatched"``,
+                # ``purpose: "environmental"``) or an ELEMENT REFERENCE
+                # (e.g. ``source_generator: "BAT_X"``,
+                # ``bypass_junction: "X_ocean"``) — NOT a file.  Treating
+                # those as files produced spurious "missing input file"
+                # warnings (e.g. ``Generator/dispatched.parquet``).
                 if "@" in value:
                     parts = value.split("@", 1)
                     dir_name, fname = parts[0], parts[1]
-                else:
+                elif value == field_name:
                     dir_name, fname = class_name, value
+                else:
+                    continue
 
                 key = (dir_name, fname)
                 if key in checked:
