@@ -659,6 +659,57 @@ def _parse_gtopt_bounds(planning_json: Path) -> tuple[list[dict], list[dict]]:
     return gens, lines
 
 
+def _field_peak(val: Any) -> float | None:
+    """Peak numeric value of a (possibly nested ``[[...]]``) JSON field.
+
+    Reserve-provision ``urmax``/``drmax`` are emitted as per-block matrices when
+    a CFdata profile drives them; the peak recovers the max reserve capability
+    to compare against the PLEXOS CFdata cap.  Scalars pass through; ``None`` /
+    non-numeric give ``None``.
+    """
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    flat: list[float] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for e in node:
+                _walk(e)
+        elif isinstance(node, (int, float)):
+            flat.append(float(node))
+
+    _walk(val)
+    return max(flat) if flat else None
+
+
+def _parse_gtopt_provisions(planning_json: Path) -> list[dict]:
+    """Extract reserve-provision cap records from the planning JSON.
+
+    Each record is ``{name, generator, urmax, drmax}`` where ``urmax``/``drmax``
+    are the emitted (scalar or per-block) reserve caps.  Empty when the JSON has
+    no ``reserve_provision_array``.
+    """
+    if not planning_json.is_file():
+        return []
+    data = json.loads(planning_json.read_text())
+    provs: list[dict] = []
+    for p in data.get("system", {}).get("reserve_provision_array", []):
+        gen = p.get("generator")
+        if gen is None:
+            continue
+        provs.append(
+            {
+                "name": str(p.get("name", gen)),
+                "generator": str(gen),
+                "urmax": p.get("urmax"),
+                "drmax": p.get("drmax"),
+            }
+        )
+    return provs
+
+
 def _bounds_item(name: str, field_name: str, gval: Any, pval: float) -> dict | None:
     """Emit a B12 mismatch dict when ``gval`` (gtopt) differs from ``pval``.
 
@@ -815,6 +866,32 @@ def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
         if rev is not None:
             for fld in ("tmax_ba", "tmax_normal_ba"):
                 it = _bounds_item(name, fld, ln[fld], rev)
+                if it is not None:
+                    items.append(it)
+
+    # --- Reserve provision caps (gtopt urmax/drmax vs PLEXOS CFdata MRU/MRD) ---
+    # The converter sets ``reserve_provision.urmax``/``drmax`` to the per-(gen,
+    # hour) MAX RESERVE CAPABILITY aggregated from CFdata/{CPF,CSF,CTF} MRU/MRD
+    # files (the AUTHORITATIVE PLEXOS cap — sol max == CFdata cap exactly).  B12
+    # never covered these (only Gen/Lin bounds), so a wrong provision cap was
+    # invisible to the LP-level audit.  Compare the emitted peak against the
+    # CFdata peak; skip provisions with no CFdata data (their urmax falls back
+    # to the pmax nameplate, which is not a CFdata-driven value to audit).
+    if (input_dir / "CFdata").is_dir():
+        from .parsers import _cf_maxresp_aggregate  # noqa: PLC0415
+        from .plexos_loader import PlexosBundle  # noqa: PLC0415
+
+        bundle = PlexosBundle(root=input_dir, source=input_dir)
+        for prov in _parse_gtopt_provisions(planning_json):
+            gen = prov["generator"]
+            for fld, direction in (("urmax", "MRU"), ("drmax", "MRD")):
+                cf = _cf_maxresp_aggregate(bundle, gen, direction)
+                if not cf:
+                    continue
+                exp = max(cf)
+                it = _bounds_item(
+                    f"{prov['name']} ({gen})", fld, _field_peak(prov[fld]), exp
+                )
                 if it is not None:
                     items.append(it)
 

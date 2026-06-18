@@ -261,6 +261,25 @@ class GeneratorSpec:
     inherits_emission_from: str = ""
 
 
+def generator_has_fuel_cost(gen: "GeneratorSpec") -> bool:
+    """True when *gen* has a real marginal energy cost (fuel + heat rate).
+
+    Single source of truth shared by the writer
+    (:func:`plexos2gtopt.gtopt_writer.build_generator_array`) and the
+    post-conversion comparison (:mod:`plexos2gtopt._comparison`).  A
+    fuel-cost generator whose ``Fixed Load`` is set is a forced-dispatch /
+    commitment trajectory PLEXOS pins exactly (emitted as ``pmin = pmax``);
+    a zero-cost renewable / RoR with a Fixed Load is emitted as a
+    curtailable cap (``pmin = 0``).  Mirrors the ``has_fuel_cost`` predicate
+    that gates that branch — keep the two definitions identical so the
+    comparison's PLEXOS-side ``pmin`` mirror cannot drift from the writer.
+    """
+    has_fuel = bool(gen.fuel_names) or gen.fuel_price_override > 0.0
+    return bool(gen.heat_rate_segments and gen.pmax_segments) or (
+        gen.heat_rate > 0.0 and has_fuel
+    )
+
+
 @dataclass(frozen=True)
 class LineSpec:
     """A transmission line (``t_class[Line]``)."""

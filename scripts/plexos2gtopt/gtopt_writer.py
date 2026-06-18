@@ -46,6 +46,7 @@ from .entities import (
     FlowSpec,
     FuelSpec,
     GeneratorSpec,
+    generator_has_fuel_cost,
     JunctionSpec,
     LineSpec,
     NodeSpec,
@@ -682,10 +683,9 @@ def build_generator_array(
                 # / commitment trajectory PLEXOS pins exactly (pmin=pmax).
                 # No fuel and zero heat rate ⇒ zero-cost renewable / RoR ⇒
                 # curtailable cap (pmin=0).  See the block comment above.
-                has_fuel_cost = bool(gen.heat_rate_segments and gen.pmax_segments) or (
-                    gen.heat_rate > 0.0
-                    and (primary_fuel is not None or gen.fuel_price_override > 0.0)
-                )
+                # Shared predicate so the post-conversion comparison's
+                # PLEXOS-side pmin mirror cannot drift from this branch.
+                has_fuel_cost = generator_has_fuel_cost(gen)
                 pmin_blocks: list[float] = []
                 pmax_blocks: list[float] = []
                 for t, fl in enumerate(fl_profile):

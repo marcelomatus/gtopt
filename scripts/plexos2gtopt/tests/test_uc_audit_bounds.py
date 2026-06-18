@@ -72,6 +72,53 @@ def test_b12_flags_chacao_line(tmp_path: Path) -> None:
     assert {"tmax_ab", "tmax_ba", "tmax_normal_ab", "tmax_normal_ba"} <= set(by_field)
 
 
+def _write_cfdata_mru(
+    root: Path, gen: str, direction: str, values: list[float]
+) -> None:
+    """Write a CFdata/CPF/CPF_<gen>_<dir>.csv with VALUE as the last column."""
+    d = root / "CFdata" / "CPF"
+    d.mkdir(parents=True, exist_ok=True)
+    rows = ["NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE"]
+    for i, v in enumerate(values, start=1):
+        rows.append(f"{gen},2025,11,9,{i},1,{v}")
+    (d / f"CPF_{gen}_{direction}.csv").write_text("\n".join(rows) + "\n")
+
+
+def test_b12_flags_reserve_provision_cap(tmp_path: Path) -> None:
+    """A reserve provision whose emitted urmax peak disagrees with the CFdata
+    MRU peak is reported; a matching one is not.  Guards the B12 extension that
+    closed the reserve-provision-cap blind spot."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "line_array": [],
+                    "generator_array": [],
+                    "reserve_provision_array": [
+                        # peak 100 matches CFdata peak 100 → no flag
+                        {"name": "p_ok", "generator": "GEN1", "urmax": [[0.0, 100.0]]},
+                        # peak 50 vs CFdata peak 100 → flagged
+                        {"name": "p_bad", "generator": "GEN2", "urmax": [[0.0, 50.0]]},
+                    ],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    _write_cfdata_mru(input_dir, "GEN1", "MRU", [0.0, 100.0])
+    _write_cfdata_mru(input_dir, "GEN2", "MRU", [0.0, 100.0])
+
+    items = build_b12_bounds(gtopt_json, input_dir)
+    by_name = {it["name"]: it for it in items}
+    assert "p_ok (GEN1)" not in by_name  # peak ties → not flagged
+    bad = by_name.get("p_bad (GEN2)")
+    assert bad is not None and bad["field"] == "urmax"
+    assert bad["gtopt"] == 50.0
+    assert bad["plexos"] == 100.0
+
+
 def test_b12_within_tolerance_not_flagged(tmp_path: Path) -> None:
     """A line whose gtopt rating matches the CSV is NOT reported."""
     gtopt_json = tmp_path / "DATOS.json"

@@ -831,6 +831,69 @@ class TestComputeIndicators:
         assert ind.total_battery_initial_mwh == pytest.approx(75.0)  # 50 + 25
         assert ind.total_reservoir_min_vol == pytest.approx(140.0)  # 100 + 40
 
+    def test_profile_indicators_use_peak_not_first_block(self) -> None:
+        """STRUCTURAL GUARD against the 'first-block of a per-block profile'
+        bug class (e.g. reserve provision understated ~30% because block 0 is
+        midnight, where solar/BESS capability is 0).
+
+        Every cap/floor indicator backed by a time-varying field is given a
+        ``[[0, peak]]`` profile whose FIRST block is 0 and whose PEAK is the
+        real value.  A regression to ``_first_scalar`` (block 0) would make
+        each of these collapse to ~0, so this test fails loudly.  Keep every
+        profile-backed cap/floor indicator represented here.
+        """
+        case = json.loads(json.dumps(_VALID_CASE))
+        # pmin / urmax / drmax / urreq / drreq / ramp_up emitted as single-stage
+        # TB matrices [[block0, block1]] with block0 = 0 (midnight) < peak.
+        case["system"]["generator_array"] = [
+            {
+                "uid": 1,
+                "name": "g1",
+                "bus": 1,
+                "pmax": 200,
+                "gcost": 20,
+                "pmin": [[0.0, 50.0]],
+            },
+        ]
+        case["system"]["commitment_array"] = [
+            {
+                "uid": 1,
+                "name": "c1",
+                "generator": 1,
+                "pmin": [[0.0, 80.0]],
+                "ramp_up": [[0.0, 5.0]],
+            },
+        ]
+        case["system"]["reserve_zone_array"] = [
+            {"uid": 1, "name": "z1", "urreq": [[0.0, 300.0]], "drreq": [[0.0, 250.0]]},
+        ]
+        case["system"]["reserve_provision_array"] = [
+            {
+                "uid": 1,
+                "name": "p1",
+                "generator": "g1",
+                "urmax": [[0.0, 120.0]],
+                "drmax": [[0.0, 90.0]],
+            },
+        ]
+        ind = compute_indicators(case)
+        assert ind.total_gen_min_stable_mw == pytest.approx(50.0)  # peak, not 0
+        assert ind.commitment_min_stable_mw == pytest.approx(80.0)  # peak, not 0
+        assert ind.num_units_with_ramp_limit == 1  # peak ramp_up > 0, not block 0
+        assert ind.up_reserve_req_mw == pytest.approx(300.0)  # peak, not 0
+        assert ind.dn_reserve_req_mw == pytest.approx(250.0)  # peak, not 0
+        assert ind.total_up_provision_mw == pytest.approx(120.0)  # peak, not 0
+        assert ind.total_dn_provision_mw == pytest.approx(90.0)  # peak, not 0
+        # Reserve adequacy margin = peak provision − peak requirement.
+        assert ind.up_reserve_margin_mw == pytest.approx(120.0 - 300.0)
+        assert ind.dn_reserve_margin_mw == pytest.approx(90.0 - 250.0)
+        # Profile-coverage counts detect the NON-CONSTANT [[0, x]] profiles.
+        assert ind.num_provision_profiles == 1  # urmax/drmax vary
+        assert ind.num_gen_pmax_profiles == 0  # g1 pmax is scalar here
+        # Fixed-load forced energy: pmin [[0, 50]] over 2 unit-duration blocks
+        # → (0 + 50) × 1h = 50 MWh = 0.05 GWh (per-block accumulation, not peak).
+        assert ind.fixed_load_energy_gwh == pytest.approx(0.05)
+
     def test_num_counts(self) -> None:
         ind = compute_indicators(_INDICATOR_CASE)
         assert ind.num_generators == 2

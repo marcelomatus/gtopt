@@ -135,6 +135,7 @@ class SystemIndicators:
     min_gcost: float = 0.0
     max_gcost: float = 0.0
     avg_heat_rate: float = 0.0  # fuel-unit/MWh, mean over fuelled generators
+    avg_fuel_price: float = 0.0  # $/fuel-unit, mean over priced fuels (Fuel_Price)
     num_fuelled_generators: int = 0
     total_fuel_offtake_cap: float = 0.0  # Σ Fuel.max_offtake (weekly caps)
     num_fuel_caps: int = 0
@@ -160,8 +161,14 @@ class SystemIndicators:
     # -- Tier 4: network & demand --
     num_lossy_lines: int = 0  # lines with a piecewise/linear loss model
     total_turbine_capacity_mw: float = 0.0  # Σ pmax of turbine-driven gens
-    total_up_provision_mw: float = 0.0  # Σ ReserveProvision.urmax
-    total_dn_provision_mw: float = 0.0  # Σ ReserveProvision.drmax
+    total_up_provision_mw: float = 0.0  # Σ peak ReserveProvision.urmax
+    total_dn_provision_mw: float = 0.0  # Σ peak ReserveProvision.drmax
+    up_reserve_margin_mw: float = 0.0  # peak provision − peak requirement (up)
+    dn_reserve_margin_mw: float = 0.0  # peak provision − peak requirement (dn)
+    num_fuel_emission_factors: int = 0  # fuels with a synthesized emission factor
+    fixed_load_energy_gwh: float = 0.0  # Σ Generator.pmin × duration (must-take)
+    num_gen_pmax_profiles: int = 0  # generators with a non-constant pmax profile
+    num_provision_profiles: int = 0  # provisions with a non-constant urmax/drmax
     demand_fail_cost: float = 0.0  # VoLL [$/MWh]
     renewable_energy_gwh: float = 0.0  # Σ renewable capacity × duration
     num_generators: int = 0
@@ -172,7 +179,10 @@ class SystemIndicators:
     # One aggregate per PLEXOS input file that no other indicator reflects, so
     # a file silently not read (empty / missing) shows up as a zero here.
     total_gen_min_stable_mw: float = (
-        0.0  # Σ Generator.pmin (Gen_MinStableLevel/FixedLoad)
+        0.0  # Σ peak Generator.pmin (Gen_FixedLoad forced floor)
+    )
+    commitment_min_stable_mw: float = (
+        0.0  # Σ peak Commitment.pmin (Gen_MinStableLevel, when-committed)
     )
     total_initial_gen_power_mw: float = (
         0.0  # Σ Commitment.initial_power (Gen_IniGeneration)
@@ -683,13 +693,14 @@ def compute_indicators(
                 total_line_cap += val
 
     # --- Reserve requirement (MW) ---
-    # First-block up (``urreq``) and down (``drreq``) reserve requirement
-    # summed across all reserve zones.
+    # PEAK up (``urreq``) and down (``drreq``) reserve requirement summed across
+    # all reserve zones.  Requirements are day-type profiles; block 0 is the
+    # off-peak (midnight) hour, so peak is the binding system requirement.
     up_reserve_req = 0.0
     dn_reserve_req = 0.0
     for zone in sys_data.get("reserve_zone_array", []):
-        ur = _first_scalar(zone.get("urreq"))
-        dr = _first_scalar(zone.get("drreq"))
+        ur = _peak_scalar(zone.get("urreq"))
+        dr = _peak_scalar(zone.get("drreq"))
         if ur is not None:
             up_reserve_req += ur
         if dr is not None:
@@ -860,6 +871,11 @@ def compute_indicators(
     min_gcost = min(gcosts) if gcosts else 0.0
     max_gcost = max(gcosts) if gcosts else 0.0
     avg_heat_rate = sum(heat_rates) / len(heat_rates) if heat_rates else 0.0
+    # Average fuel price ($/fuel-unit) over priced fuels — a direct read-receipt
+    # for Fuel_Price.csv (the avg gen cost only reflects it indirectly, folded
+    # through heat rate, so a fuel-price mismatch can hide there).
+    fuel_prices = [p for p in fuel_price.values() if p > 0.0]
+    avg_fuel_price = sum(fuel_prices) / len(fuel_prices) if fuel_prices else 0.0
     fuel_caps = [
         c
         for c in (
@@ -876,8 +892,11 @@ def compute_indicators(
     ]
 
     # Σ generator minimum stable level (Gen_MinStableLevel / Gen_FixedLoad).
+    # ``pmin`` is emitted as a per-block ``[[...]]`` profile for fixed-load
+    # forced units, so reduce by PEAK (not block 0 — which is midnight, where a
+    # must-take solar/RoR fixed-load floor is 0 and would understate the total).
     total_gen_min_stable = sum(
-        _first_scalar(g.get("pmin")) or 0.0
+        _peak_scalar(g.get("pmin")) or 0.0
         for g in generators
         if not _is_failure_generator(g)
     )
@@ -905,7 +924,13 @@ def compute_indicators(
         abs(_first_scalar(c.get("initial_hours")) or 0.0) for c in commits
     )
     num_units_with_ramp_limit = sum(
-        1 for c in commits if (_first_scalar(c.get("ramp_up")) or 0.0) > 0.0
+        1 for c in commits if (_peak_scalar(c.get("ramp_up")) or 0.0) > 0.0
+    )
+    # Commitment-conditional Min Stable Level (Gen_MinStableLevel → Commitment
+    # .pmin, enforced only when committed) — PEAK reduction (per-block profile).
+    # Distinct from the unconditional Fixed-Load floor on generator.pmin.
+    total_commitment_min_stable = sum(
+        _peak_scalar(c.get("pmin")) or 0.0 for c in commits
     )
 
     # === Tier 3: storage & FCF ===
@@ -939,9 +964,13 @@ def compute_indicators(
         pmax_by_name.get(t.get("generator"), 0.0)
         for t in sys_data.get("turbine_array", [])
     )
+    # Reserve provision caps: ``urmax``/``drmax`` are emitted as per-block
+    # ``[[...]]`` profiles (the CFdata MRU/MRD per-hour reserve capability), so
+    # reduce by PEAK.  Block 0 is midnight, where solar/BESS reserve capability
+    # is ~0 — first-block would understate the total reserve capability by ~30%.
     provs = sys_data.get("reserve_provision_array", [])
-    total_up_prov = sum(_first_scalar(p.get("urmax")) or 0.0 for p in provs)
-    total_dn_prov = sum(_first_scalar(p.get("drmax")) or 0.0 for p in provs)
+    total_up_prov = sum(_peak_scalar(p.get("urmax")) or 0.0 for p in provs)
+    total_dn_prov = sum(_peak_scalar(p.get("drmax")) or 0.0 for p in provs)
     model_opts = opts.get("model_options", {}) if isinstance(opts, dict) else {}
     demand_fail_cost = float(
         model_opts.get("demand_fail_cost", opts.get("demand_fail_cost", 0.0)) or 0.0
@@ -962,6 +991,60 @@ def compute_indicators(
             if v is not None:
                 dur = blocks[b_idx].get("duration", 1.0) if b_idx < len(blocks) else 1.0
                 renew_energy += v * dur
+
+    # Fuels carrying an emission factor (#).  PLEXOS ships no explicit rates for
+    # CEN PCP; the converter SYNTHESIZES them from the bundled IPCC defaults.
+    # A COUNT (not a rate sum) is the robust check for synthesized data: a Δ vs
+    # the PLEXOS-expected coverage flags a fuel family missing from the defaults
+    # (the real risk), without depending on the exact rate values.
+    num_fuel_emission_factors = sum(
+        1 for f in sys_data.get("fuel_array", []) if f.get("emission_factors")
+    )
+
+    # Fixed-load forced energy (GWh): Σ generator.pmin per block × duration —
+    # the must-take volume PLEXOS pins via Gen_FixedLoad (emitted as a per-block
+    # ``pmin`` profile).  Reuses the per-block × duration accumulation so a
+    # mismatch in the forced trajectory (not just its peak) is visible.
+    fixed_load_energy = 0.0
+    for gen in generators:
+        if _is_failure_generator(gen):
+            continue
+        pmin_field = gen.get("pmin")
+        if pmin_field is None:
+            continue
+        for b_idx in range(num_blocks):
+            v = _scalar_at_block(pmin_field, b_idx)
+            if v:
+                dur = blocks[b_idx].get("duration", 1.0) if b_idx < len(blocks) else 1.0
+                fixed_load_energy += v * dur
+
+    # Profile-coverage counts — number of elements whose cap is emitted as a
+    # NON-CONSTANT per-block profile.  These tie out with the PLEXOS side only
+    # if every time-varying field survived conversion as a profile, so a
+    # "profile silently flattened to a scalar" regression shows up as a Δ here.
+    def _is_varying(field: Any) -> bool:
+        vec = _block_vector(field)
+        if not isinstance(vec, list):
+            return False
+        nums = [float(v) for v in vec if isinstance(v, (int, float))]
+        return bool(nums) and (max(nums) - min(nums)) > 1e-9
+
+    num_gen_pmax_profiles = sum(
+        1
+        for g in generators
+        if _is_varying(
+            g.get("capacity") if g.get("capacity") is not None else g.get("pmax")
+        )
+    )
+    num_provision_profiles = sum(
+        1 for p in provs if _is_varying(p.get("urmax")) or _is_varying(p.get("drmax"))
+    )
+
+    # Reserve adequacy margin (peak provision capability − peak requirement).
+    # Negative = the summed peak reserve capability cannot meet the summed peak
+    # requirement (an LP-feasibility red flag, not just a count).
+    up_reserve_margin = total_up_prov - up_reserve_req
+    dn_reserve_margin = total_dn_prov - dn_reserve_req
 
     return SystemIndicators(
         total_gen_capacity_mw=total_gen_cap,
@@ -990,6 +1073,7 @@ def compute_indicators(
         min_gcost=min_gcost,
         max_gcost=max_gcost,
         avg_heat_rate=avg_heat_rate,
+        avg_fuel_price=avg_fuel_price,
         num_fuelled_generators=len(heat_rates),
         total_fuel_offtake_cap=sum(fuel_caps),
         num_fuel_caps=len(fuel_caps),
@@ -1011,6 +1095,12 @@ def compute_indicators(
         total_turbine_capacity_mw=total_turb_cap,
         total_up_provision_mw=total_up_prov,
         total_dn_provision_mw=total_dn_prov,
+        up_reserve_margin_mw=up_reserve_margin,
+        dn_reserve_margin_mw=dn_reserve_margin,
+        num_fuel_emission_factors=num_fuel_emission_factors,
+        fixed_load_energy_gwh=fixed_load_energy / 1e3,
+        num_gen_pmax_profiles=num_gen_pmax_profiles,
+        num_provision_profiles=num_provision_profiles,
         demand_fail_cost=demand_fail_cost,
         renewable_energy_gwh=renew_energy / 1e3,
         num_generators=num_gen,
@@ -1018,6 +1108,7 @@ def compute_indicators(
         num_blocks=num_blocks if num_blocks > 0 else len(demand_by_block),
         num_flows=num_flow,
         total_gen_min_stable_mw=total_gen_min_stable,
+        commitment_min_stable_mw=total_commitment_min_stable,
         total_initial_gen_power_mw=total_initial_gen_power,
         num_units_initial_on=num_units_initial_on,
         total_initial_commit_hours=total_initial_commit_hours,

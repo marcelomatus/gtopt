@@ -23,10 +23,56 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from .entities import PlexosCase
+from .entities import PlexosCase, generator_has_fuel_cost
 from .uc_families import UC_FAMILY_ORDER, uc_family
 
 logger = logging.getLogger(__name__)
+
+
+def _profile_peak(
+    scalar: float,
+    profile: tuple[float, ...] | list[float] | None,
+    layout: tuple[tuple[int, ...], ...] = (),
+    reducer: str = "mean",
+) -> float:
+    """PLEXOS-side PEAK of a per-block *profile*, mirroring the writer.
+
+    The writer emits time-varying caps/floors (``urmax``/``drmax`` reserve
+    capability, fixed-load ``pmin``) as per-block profiles, aggregating the raw
+    hourly series to blocks with *reducer* (``min`` for reserve caps, ``mean``
+    for fixed load).  The gtopt side reads that emitted profile with
+    :func:`_peak_scalar`, so to tie out the PLEXOS side must aggregate the raw
+    profile the SAME way and then take the peak.  Falls back to *scalar* when no
+    profile is present (the writer emits the scalar field in that case).
+    """
+    if profile:
+        from .gtopt_writer import _aggregate_to_blocks  # noqa: PLC0415
+
+        blocks = _aggregate_to_blocks(list(profile), layout, reducer=reducer)
+        nums = [float(v) for v in blocks if isinstance(v, (int, float))]
+        return max(nums) if nums else 0.0
+    return float(scalar or 0.0)
+
+
+def _plexos_effective_gen_pmin(
+    gen: Any, layout: tuple[tuple[int, ...], ...] = ()
+) -> float:
+    """PEAK of the ``pmin`` the writer actually EMITS for *gen*.
+
+    Mirrors :func:`plexos2gtopt.gtopt_writer.build_generator_array`: the
+    always-on floor ``gen.pmin`` plus, for a fuel-cost unit with a Fixed Load,
+    the forced ``pmin = pmax = fixed_load`` (curtailable renewables/RoR keep
+    ``pmin = 0``).  Reducing by peak ties out with the gtopt-side
+    ``_peak_scalar(generator.pmin)``.  This is the unconditional Fixed-Load
+    floor only — the commitment-conditional Min Stable Level travels on
+    ``Commitment.pmin`` (see ``commitment_min_stable_mw``).
+    """
+    base = float(gen.pmin) if gen.pmin and gen.pmin > 0.0 else 0.0
+    if gen.fixed_load_profile and generator_has_fuel_cost(gen):
+        peak_fl = _profile_peak(0.0, gen.fixed_load_profile, layout, reducer="mean")
+        return max(base, peak_fl)
+    return base
+
 
 # UC families that are converter-synthesised wiring, NOT translated PLEXOS
 # Constraint objects, so they are excluded from the PLEXOS↔gtopt user-
@@ -54,8 +100,16 @@ _INPUT_FILE_INDICATORS: tuple[tuple[str, str, str], ...] = (
     # -- generation --
     ("Gen_Rating.csv", "Generator.pmax (+ DLR profile)", "gen capacity (MW)"),
     ("Gen_UnitsOut.csv", "pmax derate by units-out", "gen capacity (MW)"),
-    ("Gen_FixedLoad.csv", "forced pmin=pmax (fixed output)", "gen min-stable (Σ MW)"),
-    ("Gen_MinStableLevel.csv", "Generator/Commitment.pmin", "gen min-stable (Σ MW)"),
+    (
+        "Gen_FixedLoad.csv",
+        "forced pmin=pmax (fixed output)",
+        "gen fixed-load floor (Σ MW)",
+    ),
+    (
+        "Gen_MinStableLevel.csv",
+        "Commitment.pmin (when-committed)",
+        "commitment min-stable (Σ MW)",
+    ),
     ("Gen_HeatRate.csv", "heat rate (+ segments)", "avg heat rate (fuel/MWh)"),
     ("Gen_VOMCharge.csv", "VOM charge (folded → gcost)", "avg/min/max gen cost"),
     ("Gen_AuxUse.csv", "aux-use fraction (folded → gcost)", "avg/min/max gen cost"),
@@ -121,7 +175,7 @@ _INPUT_FILE_INDICATORS: tuple[tuple[str, str, str], ...] = (
         "up/dn reserve provision (MW)",
     ),
     # -- fuels --
-    ("Fuel_Price.csv", "Fuel.price", "avg/min/max gen cost"),
+    ("Fuel_Price.csv", "Fuel.price", "avg fuel price ($/unit)"),
     ("Fuel_MaxOfftakeWeek.csv", "Fuel.max_offtake (weekly)", "fuel offtake cap (Σ)"),
     # -- solution database (optional) --
     ("<Model> Solution.accdb (t_phase_3)", "PLEXOS block layout", "blocks (#)"),
@@ -290,6 +344,10 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
     thermal / renewable rule used for the counts; demand / energy / water are
     summed across the per-block profiles.
     """
+    # Block layout (interval-id lists per block) drives the same per-block
+    # aggregation the writer applies, so PEAK-based PLEXOS-side indicators tie
+    # out with the gtopt side's _peak_scalar of the emitted (aggregated) field.
+    layout = getattr(case.bundle, "block_layout", ()) or ()
     turbine_gens = _turbine_gen_names(case)
     total_cap = hydro_cap = thermal_cap = renewable_cap = 0.0
     for g in case.generators:
@@ -323,13 +381,14 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
         rev = abs(ln.tmin_ab) if ln.tmin_ab else fwd
         line_cap += (abs(fwd) + abs(rev)) * units
 
-    # Reserve requirement (MW): first-block up (``ur_requirement``) and down
-    # (``dr_requirement``) summed across all reserve zones.
+    # Reserve requirement (MW): PEAK up (``ur_requirement``) and down
+    # (``dr_requirement``) summed across all reserve zones — block 0 is the
+    # off-peak (midnight) hour, so peak is the binding system requirement.
     up_reserve_req = sum(
-        float(r.ur_requirement[0]) for r in case.reserves if r.ur_requirement
+        max(r.ur_requirement) for r in case.reserves if r.ur_requirement
     )
     dn_reserve_req = sum(
-        float(r.dr_requirement[0]) for r in case.reserves if r.dr_requirement
+        max(r.dr_requirement) for r in case.reserves if r.dr_requirement
     )
 
     # Demand per block (sum across demands).
@@ -428,6 +487,80 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
         elif g.pmax > 0.0:
             renew_energy += g.pmax * total_hours
 
+    # Reserve provision peak capability (mirrors the gtopt-side _peak_scalar of
+    # the emitted urmax/drmax profile) — reused for the adequacy margin below.
+    total_up_prov = sum(
+        _profile_peak(p.urmax, p.urmax_profile, layout, reducer="min")
+        for p in case.reserve_provisions
+    )
+    total_dn_prov = sum(
+        _profile_peak(p.drmax, p.drmax_profile, layout, reducer="min")
+        for p in case.reserve_provisions
+    )
+
+    # Fuels EXPECTED to carry an emission factor after the converter's
+    # emission-defaults overlay.  PLEXOS ships no explicit rates for CEN PCP, so
+    # this reuses the canonical ``gtopt_shared.emissions`` defaults (the same
+    # bundled IPCC file the converter applies) to predict COVERAGE: a fuel is
+    # covered when it already has an explicit rate OR a defaults entry with a
+    # non-zero factor.  A Δ vs the emitted gtopt count flags a fuel family the
+    # defaults do not cover (the real risk).  Rate VALUES are not compared —
+    # they are synthesized, so re-deriving them independently is not robust.
+    num_fuel_emission_factors = 0
+    try:
+        from gtopt_shared.emissions import load_emission_defaults  # noqa: PLC0415
+
+        _defaults = load_emission_defaults()
+        for fu in case.fuels:
+            if fu.co2_rate or fu.co2_upstream_rate:
+                num_fuel_emission_factors += 1
+                continue
+            factor = _defaults.lookup(fu.name, subtype_hint=(fu.subtype or None))
+            if factor is not None and factor.has_factor:
+                num_fuel_emission_factors += 1
+    except (ImportError, FileNotFoundError, ValueError):
+        num_fuel_emission_factors = sum(
+            1 for fu in case.fuels if fu.co2_rate or fu.co2_upstream_rate
+        )
+
+    # Fixed-load forced energy (GWh): Σ emitted-equivalent pmin per block ×
+    # duration (mirrors gtopt_writer.build_generator_array's fixed-load branch),
+    # plus the always-on scalar floor × horizon.  Ties out with the gtopt-side
+    # Σ generator.pmin × duration.
+    from .gtopt_writer import _aggregate_to_blocks  # noqa: PLC0415
+
+    fixed_load_energy = 0.0
+    for g in case.generators:
+        base = float(g.pmin) if g.pmin and g.pmin > 0.0 else 0.0
+        if g.fixed_load_profile:
+            fl_blocks = (
+                _aggregate_to_blocks(list(g.fixed_load_profile), layout, reducer="mean")
+                if layout
+                else list(g.fixed_load_profile)
+            )
+            hf = generator_has_fuel_cost(g)
+            blk = [(fl if hf else 0.0) if fl > 0.0 else base for fl in fl_blocks]
+            for v, dur in zip(blk, _durations_for(case, len(blk))):
+                fixed_load_energy += v * dur
+        elif base > 0.0:
+            fixed_load_energy += base * total_hours
+
+    # Profile-coverage counts — # elements with a NON-CONSTANT source profile;
+    # a "profile silently flattened to a scalar" regression shows up as a Δ vs
+    # the gtopt side's count of non-constant emitted profiles.
+    def _varying(prof: tuple[float, ...] | list[float] | None) -> bool:
+        if not prof:
+            return False
+        nums = [float(v) for v in prof]
+        return bool(nums) and (max(nums) - min(nums)) > 1e-9
+
+    num_gen_pmax_profiles = sum(1 for g in case.generators if _varying(g.pmax_profile))
+    num_provision_profiles = sum(
+        1
+        for p in case.reserve_provisions
+        if _varying(p.urmax_profile) or _varying(p.drmax_profile)
+    )
+
     return {
         "total_gen_capacity_mw": total_cap,
         "hydro_capacity_mw": hydro_cap,
@@ -450,6 +583,12 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
         "min_gcost": min(gcosts) if gcosts else 0.0,
         "max_gcost": max(gcosts) if gcosts else 0.0,
         "avg_heat_rate": sum(heat_rates) / len(heat_rates) if heat_rates else 0.0,
+        "avg_fuel_price": (
+            sum(p for p in fuel_price.values() if p > 0.0)
+            / len([p for p in fuel_price.values() if p > 0.0])
+            if any(p > 0.0 for p in fuel_price.values())
+            else 0.0
+        ),
         "total_fuel_offtake_cap": sum(fuel_caps),
         "num_fuel_caps": float(len(fuel_caps)),
         # Tier 2: commitment
@@ -468,8 +607,19 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
         # Tier 4: network & demand
         "num_lossy_lines": float(sum(1 for ln in case.lines if ln.resistance > 0.0)),
         "total_turbine_capacity_mw": total_turb_cap,
-        "total_up_provision_mw": sum(p.urmax for p in case.reserve_provisions),
-        "total_dn_provision_mw": sum(p.drmax for p in case.reserve_provisions),
+        # Reserve provision caps: PEAK of the per-(gen, hour) CFdata MRU/MRD
+        # reserve-capability profile (writer aggregates with reducer="min"),
+        # NOT the scalar ``urmax = pmax`` nameplate fallback — that fallback is
+        # 2-16000x too loose and is only emitted when no profile exists.  Mirror
+        # the writer so this ties out with the gtopt-side _peak_scalar(urmax).
+        "total_up_provision_mw": total_up_prov,
+        "total_dn_provision_mw": total_dn_prov,
+        "up_reserve_margin_mw": total_up_prov - up_reserve_req,
+        "dn_reserve_margin_mw": total_dn_prov - dn_reserve_req,
+        "num_fuel_emission_factors": float(num_fuel_emission_factors),
+        "fixed_load_energy_gwh": fixed_load_energy / 1e3,
+        "num_gen_pmax_profiles": float(num_gen_pmax_profiles),
+        "num_provision_profiles": float(num_provision_profiles),
         "peak_demand_mw": peak_dem,
         "demand_fail_cost": float(getattr(case.bundle, "demand_fail_cost", 0.0) or 0.0),
         "renewable_energy_gwh": renew_energy / 1e3,
@@ -477,7 +627,21 @@ def _plexos_indicators(case: PlexosCase) -> dict[str, float]:
         # indicator-less PLEXOS input file — see the input-file table in the
         # report).  These tie out 1:1 with the gtopt side because the writer
         # copies each spec field straight into the JSON.
-        "total_gen_min_stable_mw": sum(g.pmin for g in case.generators),
+        # Fixed-Load forced floor (unconditional pmin=pmax) — the writer derives
+        # the emitted generator.pmin from fixed_load_profile, NOT the raw
+        # ``g.pmin`` (which is 0 in CEN PCP: PLEXOS keeps Min Stable Level on the
+        # Commitment object).  Mirror the writer so this ties out.
+        "total_gen_min_stable_mw": sum(
+            _plexos_effective_gen_pmin(g, layout) for g in case.generators
+        ),
+        # Commitment-conditional Min Stable Level (Gen_MinStableLevel.csv →
+        # Commitment.pmin, enforced only when the unit is committed).  Distinct
+        # from the unconditional Fixed-Load floor above; surfaced separately so
+        # the audit does not silently drop PLEXOS's primary min-generation data.
+        "commitment_min_stable_mw": sum(
+            _profile_peak(c.pmin, getattr(c, "pmin_profile", ()), layout)
+            for c in case.commitments
+        ),
         "total_initial_gen_power_mw": sum(c.initial_power for c in case.commitments),
         "num_units_initial_on": float(
             sum(1 for c in case.commitments if c.initial_status > 0)
@@ -545,6 +709,7 @@ def _gtopt_indicators(
         "min_gcost": ind.min_gcost,
         "max_gcost": ind.max_gcost,
         "avg_heat_rate": ind.avg_heat_rate,
+        "avg_fuel_price": ind.avg_fuel_price,
         "total_fuel_offtake_cap": ind.total_fuel_offtake_cap,
         "num_fuel_caps": float(ind.num_fuel_caps),
         "total_startup_cost": ind.total_startup_cost,
@@ -562,11 +727,18 @@ def _gtopt_indicators(
         "total_turbine_capacity_mw": ind.total_turbine_capacity_mw,
         "total_up_provision_mw": ind.total_up_provision_mw,
         "total_dn_provision_mw": ind.total_dn_provision_mw,
+        "up_reserve_margin_mw": ind.up_reserve_margin_mw,
+        "dn_reserve_margin_mw": ind.dn_reserve_margin_mw,
+        "num_fuel_emission_factors": float(ind.num_fuel_emission_factors),
+        "fixed_load_energy_gwh": ind.fixed_load_energy_gwh,
+        "num_gen_pmax_profiles": float(ind.num_gen_pmax_profiles),
+        "num_provision_profiles": float(ind.num_provision_profiles),
         "peak_demand_mw": ind.peak_demand_mw,
         "demand_fail_cost": ind.demand_fail_cost,
         "renewable_energy_gwh": ind.renewable_energy_gwh,
         # Tier 5: input-file read receipts
         "total_gen_min_stable_mw": ind.total_gen_min_stable_mw,
+        "commitment_min_stable_mw": ind.commitment_min_stable_mw,
         "total_initial_gen_power_mw": ind.total_initial_gen_power_mw,
         "num_units_initial_on": float(ind.num_units_initial_on),
         "total_initial_commit_hours": ind.total_initial_commit_hours,
@@ -1085,6 +1257,7 @@ def _log_indicators(
     _ind_row("min gen cost ($/MWh)", *_both("min_gcost"))
     _ind_row("max gen cost ($/MWh)", *_both("max_gcost"))
     _ind_row("avg heat rate (fuel/MWh)", *_both("avg_heat_rate"), decimals=3)
+    _ind_row("avg fuel price ($/unit)", *_both("avg_fuel_price"), decimals=2)
     _ind_row("fuel offtake cap (Σ)", *_both("total_fuel_offtake_cap"), decimals=0)
     _ind_row("fuels with cap (#)", *_both("num_fuel_caps"), decimals=0)
     # -- Commitment --
@@ -1110,12 +1283,25 @@ def _log_indicators(
     _ind_row("turbine capacity (MW)", *_both("total_turbine_capacity_mw"), decimals=1)
     _ind_row("up reserve provision (MW)", *_both("total_up_provision_mw"), decimals=0)
     _ind_row("dn reserve provision (MW)", *_both("total_dn_provision_mw"), decimals=0)
+    _ind_row("up reserve margin (MW)", *_both("up_reserve_margin_mw"), decimals=0)
+    _ind_row("dn reserve margin (MW)", *_both("dn_reserve_margin_mw"), decimals=0)
+    _ind_row("gen pmax profiles (#)", *_both("num_gen_pmax_profiles"), decimals=0)
+    _ind_row("provision profiles (#)", *_both("num_provision_profiles"), decimals=0)
+    _ind_row(
+        "fuels w/ emission factor (#)", *_both("num_fuel_emission_factors"), decimals=0
+    )
+    _ind_row("fixed-load energy (GWh)", *_both("fixed_load_energy_gwh"), decimals=1)
     _ind_row("renewable energy (GWh)", *_both("renewable_energy_gwh"), decimals=1)
 
     # -- input-file read receipts -------------------------------------------
     # One aggregate per PLEXOS input file no other indicator reflects, so a
     # file silently not read shows up as a zero (see input-file table below).
-    _ind_row("gen min-stable (Σ MW)", *_both("total_gen_min_stable_mw"), decimals=0)
+    _ind_row(
+        "gen fixed-load floor (Σ MW)", *_both("total_gen_min_stable_mw"), decimals=0
+    )
+    _ind_row(
+        "commitment min-stable (Σ MW)", *_both("commitment_min_stable_mw"), decimals=0
+    )
     _ind_row(
         "initial gen power (Σ MW)", *_both("total_initial_gen_power_mw"), decimals=0
     )
@@ -1265,15 +1451,26 @@ def _log_drop_funnel(case: PlexosCase, gtopt_counts: Any) -> None:
     colr = con.is_terminal
     g = gtopt_counts
 
-    # (label, raw PLEXOS count, gtopt emitted, note) — only classes that drop.
+    # (label, raw PLEXOS count, gtopt emitted, drop-note, gain-note) — only
+    # classes that change.  gtopt can emit MORE than the raw XML count when the
+    # converter recovers CSV-only objects (e.g. CSV-only thermals folded back in
+    # as zero-capacity audit entries), so each class carries a separate note for
+    # the gained direction.
     storage_note = "pondage/tailrace demoted to junction; _GNL_INF dropped"
+    gen_gain = "recovered CSV-only thermals as zero-capacity audit entries"
     candidates = [
-        ("Lines", raw.get("Line", 0), g.lines, "mothballed / all-zero / no endpoint"),
-        ("Batteries", raw.get("Battery", 0), g.batteries, "_AUX reserve buffers"),
-        ("Storage → Reservoirs", raw.get("Storage", 0), g.reservoirs, storage_note),
-        ("Generators", raw.get("Generator", 0), g.generators, ""),
+        (
+            "Lines",
+            raw.get("Line", 0),
+            g.lines,
+            "mothballed / all-zero / no endpoint",
+            "",
+        ),
+        ("Batteries", raw.get("Battery", 0), g.batteries, "_AUX reserve buffers", ""),
+        ("Storage → Reservoirs", raw.get("Storage", 0), g.reservoirs, storage_note, ""),
+        ("Generators", raw.get("Generator", 0), g.generators, "", gen_gain),
     ]
-    rows = [(lbl, rawn, emit, note) for lbl, rawn, emit, note in candidates if rawn]
+    rows = [row for row in candidates if row[1]]
     if not rows:
         return
 
@@ -1287,15 +1484,21 @@ def _log_drop_funnel(case: PlexosCase, gtopt_counts: Any) -> None:
     table.add_column("Class", no_wrap=True, min_width=22)
     table.add_column("PLEXOS raw", justify="right", min_width=10)
     table.add_column("gtopt", justify="right", min_width=8)
-    table.add_column("dropped", justify="right", min_width=8)
+    table.add_column("Δ", justify="right", min_width=8)
     table.add_column("Reason", style="dim")
-    for lbl, rawn, emit, note in rows:
+    for lbl, rawn, emit, drop_note, gain_note in rows:
         dropped = rawn - emit
         if dropped == 0:
             dtxt = "[bold green]✓[/bold green]" if colr else "ok"
-        else:
+            note = ""
+        elif dropped > 0:
             dtxt = f"[bold yellow]-{dropped}[/bold yellow]" if colr else f"-{dropped}"
-        table.add_row(lbl, str(rawn), str(emit), dtxt, note if dropped else "")
+            note = drop_note
+        else:
+            gained = -dropped
+            dtxt = f"[bold cyan]+{gained}[/bold cyan]" if colr else f"+{gained}"
+            note = gain_note
+        table.add_row(lbl, str(rawn), str(emit), dtxt, note)
     con.print(table)
 
 
