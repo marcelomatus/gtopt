@@ -868,6 +868,10 @@ def _compute_energy_indicators(
         # Load simulation structure from planning JSON
         durations: dict[int, float] = {}
         block_to_stage: dict[int, int] = {}
+        # Generator uid → technology ``type`` (hydro_reservoir / hydro_ror /
+        # thermal / solar / wind / gas / …), for the per-technology
+        # generation breakdown in the summary.
+        gen_type: dict[int, str] = {}
         # Effective discount factor per stage: combines the JSON
         # discount_factor with the annual discount rate applied at the
         # stage's start time (matching the C++ StageLp constructor).
@@ -879,6 +883,10 @@ def _compute_energy_indicators(
             blocks = data.get("simulation", {}).get("block_array", [])
             for b in blocks:
                 durations[b["uid"]] = b.get("duration", 1.0)
+
+            for g in data.get("system", {}).get("generator_array", []):
+                if isinstance(g, dict) and "uid" in g:
+                    gen_type[g["uid"]] = g.get("type") or "other"
 
             stages = data.get("simulation", {}).get("stage_array", [])
             block_uids = [b["uid"] for b in blocks]
@@ -1028,6 +1036,21 @@ def _compute_energy_indicators(
             indicators["generated_twh"] = _energy_twh(gen_df)
             indicators["discounted_energy_twh"] = _discounted_energy_twh(gen_df)
 
+            # Generation by technology → TWh.  Same expected-energy method as
+            # _energy_twh (mean over scenario/scene per (block, uid), ×
+            # duration), aggregated by the generator's ``type``.  Stored
+            # under ``gentech::<type>`` keys so report_solution can render a
+            # per-technology breakdown without changing the dict value type.
+            if gen_type and _is_long(gen_df) and "uid" in gen_df.columns:
+                grp = gen_df.groupby(["block", "uid"], as_index=False)["value"].mean()
+                grp["mwh"] = grp["value"].to_numpy(dtype=np.float64) * np.array(
+                    [durations.get(int(b), 1.0) for b in grp["block"]],
+                    dtype=np.float64,
+                )
+                grp["tech"] = [gen_type.get(int(u), "other") for u in grp["uid"]]
+                for tech, mwh in grp.groupby("tech")["mwh"].sum().items():
+                    indicators[f"gentech::{tech}"] = float(mwh) / 1e6
+
         # Operational cost (Σ srmc · dispatch · duration) from srmc_sol.
         srmc_df = _read_result_table(results_dir, "Generator/srmc_sol")
         if gen_df is not None and srmc_df is not None:
@@ -1116,6 +1139,19 @@ def report_solution(
 
     if "generated_twh" in indicators:
         rows.append(("Generated energy", f"{indicators['generated_twh']:.3f} TWh"))
+        # Per-technology breakdown (TWh + % of generation), largest first.
+        total_gen = indicators.get("generated_twh", 0.0)
+        tech_rows = sorted(
+            (
+                (k.split("::", 1)[1], v)
+                for k, v in indicators.items()
+                if k.startswith("gentech::")
+            ),
+            key=lambda kv: -kv[1],
+        )
+        for tech, twh in tech_rows:
+            pct = (100.0 * twh / total_gen) if total_gen > 0 else 0.0
+            rows.append((f"  {tech}", f"{twh:.3f} TWh ({pct:.1f}%)"))
     if "served_twh" in indicators:
         rows.append(("Served demand", f"{indicators['served_twh']:.3f} TWh"))
     if "shed_twh" in indicators:
