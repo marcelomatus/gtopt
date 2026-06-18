@@ -40,6 +40,15 @@ double DemandLP::fail_sol_at(const ScenarioLP& scenario,
   // this method returns the algebraically-equivalent quantity from
   // the post-substitution LP.  See `add_to_output` for the
   // companion bulk-emit site that produces `Demand/fail_sol.csv`.
+  //
+  // Unpenalized demands (fcost=0, e.g. the battery-charge `<name>_dem`)
+  // have no real curtailment — `fail = lmax − load` is just unused
+  // dispatchable load capacity.  Report 0 so the SDDP `unserved_demand`
+  // convergence indicator is not polluted (matches the suppressed
+  // `fail_sol` output in `add_to_output`).
+  if (!fail_penalized_) {
+    return 0.0;
+  }
   const std::tuple st_key {scenario.uid(), stage.uid()};
   const auto lmax_it = block_lmax_values_.find(st_key);
   if (lmax_it == block_lmax_values_.end()) {
