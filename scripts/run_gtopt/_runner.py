@@ -1030,6 +1030,46 @@ def _compute_energy_indicators(
             per_scen = merged.groupby("scenario")["_cost"].sum()
             return float(per_scen.mean()) if not per_scen.empty else 0.0
 
+        def _dual_weighted_cost(value_df, uid_to_bus, dual_df) -> float:
+            """Σ value(uid) · bus_dual(bus(uid)) · duration, summed per
+            scenario then averaged → expected $.
+
+            ``value_df`` is a per-element flow (load_sol or generation_sol);
+            ``dual_df`` is ``Bus/balance_dual`` (the LMP, $/MWh, keyed by bus
+            uid).  Each element is priced at the marginal price of the bus it
+            sits on.  Used for the LMP-valued withdrawal cost (load × LMP) and
+            injection value (generation × LMP).  Long layout only."""
+            cols = ["scenario", "block", "uid", "value"]
+            if value_df is None or dual_df is None:
+                return 0.0
+            if not (_is_long(value_df) and _is_long(dual_df)):
+                return 0.0
+            if any(c not in value_df.columns for c in cols) or any(
+                c not in dual_df.columns for c in cols
+            ):
+                return 0.0
+            v = value_df[cols].copy()
+            v["bus"] = [uid_to_bus.get(int(u)) for u in v["uid"]]
+            v = v[v["bus"].notna()]
+            if v.empty:
+                return 0.0
+            dd = dual_df[cols].rename(columns={"uid": "bus", "value": "lmp"})
+            v["bus"] = v["bus"].astype(dd["bus"].dtype)
+            merged = v.merge(dd, on=["scenario", "block", "bus"], how="inner")
+            if merged.empty:
+                return 0.0
+            durs = np.array(
+                [durations.get(int(b), 1.0) for b in merged["block"]],
+                dtype=np.float64,
+            )
+            merged["_cost"] = (
+                merged["value"].to_numpy(dtype=np.float64)
+                * merged["lmp"].to_numpy(dtype=np.float64)
+                * durs
+            )
+            per_scen = merged.groupby("scenario")["_cost"].sum()
+            return float(per_scen.mean()) if not per_scen.empty else 0.0
+
         # Generated energy
         gen_df = _read_result_table(results_dir, "Generator/generation_sol")
         if gen_df is not None:
@@ -1051,23 +1091,24 @@ def _compute_energy_indicators(
                 for tech, mwh in grp.groupby("tech")["mwh"].sum().items():
                     indicators[f"gentech::{tech}"] = float(mwh) / 1e6
 
-        # Operational cost (Σ srmc · dispatch · duration) from srmc_sol.
+        # Production cost (Σ srmc · dispatch · duration) from srmc_sol — the
+        # actual variable resource cost (fuel + vom) of producing energy.
         srmc_df = _read_result_table(results_dir, "Generator/srmc_sol")
         if gen_df is not None and srmc_df is not None:
-            op_cost = _operational_cost(gen_df, srmc_df)
-            if op_cost > 0.0:
-                indicators["operational_cost"] = op_cost
+            prod_cost = _operational_cost(gen_df, srmc_df)
+            if prod_cost > 0.0:
+                indicators["production_cost"] = prod_cost
 
         # Served demand
         load_df = _read_result_table(results_dir, "Demand/load_sol")
         if load_df is not None:
             indicators["served_twh"] = _energy_twh(load_df)
 
-        # LCOE = total operational cost / total served energy ($/MWh).
+        # LCOE = production cost / total served energy ($/MWh).
         served_twh = indicators.get("served_twh", 0.0)
-        op_cost = indicators.get("operational_cost", 0.0)
-        if op_cost > 0.0 and served_twh > 0.0:
-            indicators["lcoe_op_per_served"] = op_cost / (served_twh * 1e6)
+        prod_cost = indicators.get("production_cost", 0.0)
+        if prod_cost > 0.0 and served_twh > 0.0:
+            indicators["lcoe_op_per_served"] = prod_cost / (served_twh * 1e6)
 
         # Load shedding
         fail_df = _read_result_table(results_dir, "Demand/fail_sol")
@@ -1092,19 +1133,35 @@ def _compute_energy_indicators(
                 100.0 * indicators["losses_twh"] / served_twh
             )
 
-        # Average LMP ($/MWh) from the bus balance dual.  Demand-weighted
-        # (the price actually paid by load) when the demand→bus map and the
-        # served load are available; otherwise a plain duration-weighted mean
-        # of the bus marginal prices.  Expected over scenario/scene replicas.
+        # Bus-dual (LMP) valued costs.  Read Bus/balance_dual once and use it
+        # for three things: the withdrawal cost (load × LMP, what demand pays
+        # at the marginal price), the injection value (generation × LMP, what
+        # generation earns at the marginal price), and the average LMP.  The
+        # withdrawal−injection gap is the network surplus (congestion + loss
+        # rents).  All expected over scenario/scene replicas.
         lmp_df = _read_result_table(results_dir, "Bus/balance_dual")
         if lmp_df is not None and _is_long(lmp_df) and "block" in lmp_df.columns:
-            lmp = lmp_df.groupby(["block", "uid"], as_index=False)["value"].mean()
-            lmp["dur"] = [durations.get(int(b), 1.0) for b in lmp["block"]]
             demand_bus = {
                 d["uid"]: d.get("bus")
                 for d in data.get("system", {}).get("demand_array", [])
                 if isinstance(d, dict) and "uid" in d
             }
+            gen_bus = {
+                g["uid"]: g.get("bus")
+                for g in data.get("system", {}).get("generator_array", [])
+                if isinstance(g, dict) and "uid" in g
+            }
+            if load_df is not None:
+                wd_cost = _dual_weighted_cost(load_df, demand_bus, lmp_df)
+                if wd_cost > 0.0:
+                    indicators["withdrawal_cost"] = wd_cost
+            if gen_df is not None:
+                inj_val = _dual_weighted_cost(gen_df, gen_bus, lmp_df)
+                if inj_val > 0.0:
+                    indicators["injection_value"] = inj_val
+
+            lmp = lmp_df.groupby(["block", "uid"], as_index=False)["value"].mean()
+            lmp["dur"] = [durations.get(int(b), 1.0) for b in lmp["block"]]
             avg_lmp = None
             if demand_bus and load_df is not None and _is_long(load_df):
                 ld = load_df.groupby(["block", "uid"], as_index=False)["value"].mean()
@@ -1203,19 +1260,31 @@ def report_solution(
     # Total losses in GWh and as a % of served energy.
     if "losses_twh" in indicators:
         loss_gwh = indicators["losses_twh"] * 1e3
-        pct = indicators.get("losses_pct_served")
+        loss_pct: float | None = indicators.get("losses_pct_served")
         loss_str = f"{loss_gwh:,.1f} GWh"
-        if pct is not None:
-            loss_str = f"{loss_str}  ({pct:.1f}% of served)"
+        if loss_pct is not None:
+            loss_str = f"{loss_str}  ({loss_pct:.1f}% of served)"
         rows.append(("Total losses", loss_str))
 
-    # Operational cost (Σ srmc · dispatch · duration) and the derived
-    # LCOE = operational cost / served energy.
-    if "operational_cost" in indicators:
-        rows.append(("Operational cost", f"${indicators['operational_cost']:,.2f}"))
+    # Three total-cost views:
+    #   • Production cost (SRMC)   Σ generation · srmc · duration — the real
+    #     variable resource cost (fuel + vom) of producing energy.
+    #   • Withdrawal cost (LMP)    Σ load · bus_dual · duration — what demand
+    #     pays at the marginal price (consumer payment).
+    #   • Injection value (LMP)    Σ generation · bus_dual · duration — what
+    #     generation earns at the marginal price (producer revenue).
+    # Withdrawal − Injection = network surplus (congestion + loss rents).
+    if "production_cost" in indicators:
+        rows.append(
+            ("Production cost (SRMC)", f"${indicators['production_cost']:,.2f}")
+        )
+    if "withdrawal_cost" in indicators:
+        rows.append(("Withdrawal cost (LMP)", f"${indicators['withdrawal_cost']:,.2f}"))
+    if "injection_value" in indicators:
+        rows.append(("Injection value (LMP)", f"${indicators['injection_value']:,.2f}"))
     if "lcoe_op_per_served" in indicators:
         rows.append(
-            ("LCOE (op/served)", f"${indicators['lcoe_op_per_served']:.2f}/MWh")
+            ("LCOE (prod/served)", f"${indicators['lcoe_op_per_served']:.2f}/MWh")
         )
     if "avg_lmp" in indicators:
         rows.append(("Average LMP", f"${indicators['avg_lmp']:.2f}/MWh"))
