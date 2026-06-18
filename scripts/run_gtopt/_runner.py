@@ -1110,12 +1110,26 @@ def _compute_energy_indicators(
         if prod_cost > 0.0 and served_twh > 0.0:
             indicators["lcoe_op_per_served"] = prod_cost / (served_twh * 1e6)
 
-        # Load shedding
+        # Load shedding (unserved demand) — energy and penalty cost.
         fail_df = _read_result_table(results_dir, "Demand/fail_sol")
         if fail_df is not None:
             shed = _energy_twh(fail_df)
             if shed > 1e-6:
                 indicators["shed_twh"] = shed
+            # Unserved-demand cost = unserved energy × VoLL.  The fail
+            # variables are emitted under their own element uids (NOT the
+            # demand uids), so a per-uid fcost join is not possible; the
+            # demands all carry the same curtailment penalty (fcost, $/MWh),
+            # so a representative VoLL × shed energy is exact when fcost is
+            # uniform and a faithful estimate otherwise.
+            fcosts = [
+                float(d["fcost"])
+                for d in data.get("system", {}).get("demand_array", [])
+                if isinstance(d, dict) and isinstance(d.get("fcost"), (int, float))
+            ]
+            if shed > 1e-9 and fcosts:
+                voll = float(np.median(fcosts))
+                indicators["unserved_cost"] = shed * 1e6 * voll
 
         # Total losses.  Prefer the explicit Line/loss_sol (transmission
         # losses, emitted under ``--write-out extras``); otherwise fall back
@@ -1191,6 +1205,12 @@ def _compute_energy_indicators(
                     )
             if avg_lmp is not None:
                 indicators["avg_lmp"] = avg_lmp
+            # Min/max bus marginal price across all (block, bus) cells
+            # (expected over scenario/scene replicas).
+            lmp_vals = lmp["value"].to_numpy(dtype=np.float64)
+            if lmp_vals.size:
+                indicators["lmp_min"] = float(lmp_vals.min())
+                indicators["lmp_max"] = float(lmp_vals.max())
 
     except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
         log.debug("energy indicator computation failed", exc_info=True)
@@ -1266,28 +1286,70 @@ def report_solution(
             loss_str = f"{loss_str}  ({loss_pct:.1f}% of served)"
         rows.append(("Total losses", loss_str))
 
-    # Three total-cost views:
-    #   • Production cost (SRMC)   Σ generation · srmc · duration — the real
-    #     variable resource cost (fuel + vom) of producing energy.
-    #   • Withdrawal cost (LMP)    Σ load · bus_dual · duration — what demand
-    #     pays at the marginal price (consumer payment).
-    #   • Injection value (LMP)    Σ generation · bus_dual · duration — what
-    #     generation earns at the marginal price (producer revenue).
+    # Total-cost views — each as a total $ and a per-energy unit cost:
+    #   • Production cost (SRMC)   Σ generation·srmc·dur — real variable
+    #     resource cost (fuel+vom); /MWh served = LCOE.
+    #   • Withdrawal cost (LMP)    Σ load·bus_dual·dur — what demand pays at
+    #     the marginal price; /MWh served = avg price paid.
+    #   • Injection value (LMP)    Σ generation·bus_dual·dur — what generation
+    #     earns at the marginal price; /MWh gen = avg price earned.
+    #   • Unserved demand          Σ fail·fcost·dur — curtailment penalty;
+    #     /MWh unserved = effective VoLL.
     # Withdrawal − Injection = network surplus (congestion + loss rents).
+    served_mwh = indicators.get("served_twh", 0.0) * 1e6
+    gen_mwh = indicators.get("generated_twh", 0.0) * 1e6
+    shed_mwh = indicators.get("shed_twh", 0.0) * 1e6
+
+    def _cost_row(label: str, total: float, denom_mwh: float, basis: str):
+        if denom_mwh > 0.0:
+            return (label, f"${total:,.2f}  (${total / denom_mwh:.2f}/MWh {basis})")
+        return (label, f"${total:,.2f}")
+
     if "production_cost" in indicators:
         rows.append(
-            ("Production cost (SRMC)", f"${indicators['production_cost']:,.2f}")
+            _cost_row(
+                "Production cost (SRMC)",
+                indicators["production_cost"],
+                served_mwh,
+                "served",
+            )
         )
     if "withdrawal_cost" in indicators:
-        rows.append(("Withdrawal cost (LMP)", f"${indicators['withdrawal_cost']:,.2f}"))
-    if "injection_value" in indicators:
-        rows.append(("Injection value (LMP)", f"${indicators['injection_value']:,.2f}"))
-    if "lcoe_op_per_served" in indicators:
         rows.append(
-            ("LCOE (prod/served)", f"${indicators['lcoe_op_per_served']:.2f}/MWh")
+            _cost_row(
+                "Withdrawal cost (LMP)",
+                indicators["withdrawal_cost"],
+                served_mwh,
+                "served",
+            )
+        )
+    if "injection_value" in indicators:
+        rows.append(
+            _cost_row(
+                "Injection value (LMP)",
+                indicators["injection_value"],
+                gen_mwh,
+                "gen",
+            )
+        )
+    if "unserved_cost" in indicators:
+        rows.append(
+            _cost_row(
+                "Unserved demand",
+                indicators["unserved_cost"],
+                shed_mwh,
+                "unserved",
+            )
         )
     if "avg_lmp" in indicators:
-        rows.append(("Average LMP", f"${indicators['avg_lmp']:.2f}/MWh"))
+        avg = indicators["avg_lmp"]
+        lo = indicators.get("lmp_min")
+        hi = indicators.get("lmp_max")
+        if lo is not None and hi is not None:
+            lmp_str = f"min ${lo:.2f} / avg ${avg:.2f} / max ${hi:.2f} /MWh"
+        else:
+            lmp_str = f"${avg:.2f}/MWh"
+        rows.append(("LMP (min/avg/max)", lmp_str))
 
     # Avg generation cost = total cost / generated energy
     gen_twh = indicators.get("generated_twh", 0.0)
