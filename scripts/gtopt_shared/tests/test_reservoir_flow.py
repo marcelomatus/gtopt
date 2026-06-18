@@ -704,7 +704,6 @@ def test_seepage_cap_feeds_conduit_and_fmax() -> None:
     """A ``filt_*`` waterway with no numeric fmax contributes its seepage
     rate to the reservoir's outflow conduit → larger ``fmax``."""
     from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
-        estimate_reservoir_flow_bounds,
         resolve_reservoir_seepage_caps,
     )
 

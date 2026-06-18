@@ -626,7 +626,7 @@ def test_writer_turbine_builtin_waterway_emits_junctions() -> None:
     assert "waterway" not in out[0]
     assert out[0]["production_factor"] == 1.2
     # No penstock waterway clone is appended any more.
-    assert extra_ww == []
+    assert not extra_ww
 
 
 def test_writer_terminal_turbine_drains_no_junction_b() -> None:

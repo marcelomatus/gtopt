@@ -116,7 +116,6 @@ def test_real_bundle_locate_and_extract() -> None:
         # The tempdir is somewhere under ``$TMPDIR`` (``tempfile.mkdtemp()``
         # honours it; this environment sets ``TMPDIR=~/tmp`` — never assume
         # ``/tmp``), NOT next to the archive.
-        import os
         import tempfile
 
         tmp_root = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()).resolve()

@@ -336,14 +336,14 @@ class TestPolicyInvariants:
     def test_classify_is_pure(self):
         """Same inputs ⇒ same outputs across repeated calls (no I/O,
         no env-var dependency)."""
-        kwargs = dict(
-            constraint_name="ANTUCOmin",
-            expression='1 * generator("u").generation >= 137',
-            op=">=",
-            plexos_penalty=0.0,
-            is_inactive=False,
-            hard_set=_HARD,
-        )
+        kwargs = {
+            "constraint_name": "ANTUCOmin",
+            "expression": '1 * generator("u").generation >= 137',
+            "op": ">=",
+            "plexos_penalty": 0.0,
+            "is_inactive": False,
+            "hard_set": _HARD,
+        }
         first = classify(**kwargs)
         second = classify(**kwargs)
         assert first == second

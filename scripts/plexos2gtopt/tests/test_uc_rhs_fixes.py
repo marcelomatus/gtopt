@@ -947,7 +947,7 @@ def test_build_rhs_profile_skips_expired_tagged_rows() -> None:
         rows, base_value=0.0, horizon_start=datetime(2026, 4, 22), n_blocks=24
     )
     # No active tagged row → no profile → caller falls back to scalar.
-    assert prof == ()
+    assert not prof
 
 
 def test_build_rhs_profile_last_write_wins_on_overlap() -> None:
@@ -1220,7 +1220,7 @@ def test_build_rhs_date_overlay_skips_when_no_dated_row() -> None:
     prof = _build_rhs_date_overlay_profile(
         rows, base_value=10000.0, horizon_start=datetime(2026, 4, 22), n_blocks=168
     )
-    assert prof == ()
+    assert not prof
 
 
 def test_build_rhs_date_overlay_skips_when_window_outside_horizon() -> None:
@@ -1238,7 +1238,7 @@ def test_build_rhs_date_overlay_skips_when_window_outside_horizon() -> None:
     prof = _build_rhs_date_overlay_profile(
         rows, base_value=10000.0, horizon_start=datetime(2026, 4, 22), n_blocks=168
     )
-    assert prof == ()
+    assert not prof
 
 
 def test_build_rhs_date_overlay_ignores_timeslice_tagged_rows() -> None:
@@ -1259,7 +1259,7 @@ def test_build_rhs_date_overlay_ignores_timeslice_tagged_rows() -> None:
     prof = _build_rhs_date_overlay_profile(
         rows, base_value=10000.0, horizon_start=datetime(2026, 4, 22), n_blocks=168
     )
-    assert prof == ()
+    assert not prof
 
 
 def test_build_rhs_date_overlay_returns_empty_without_horizon_start() -> None:
@@ -1276,7 +1276,7 @@ def test_build_rhs_date_overlay_returns_empty_without_horizon_start() -> None:
     prof = _build_rhs_date_overlay_profile(
         rows, base_value=10000.0, horizon_start=None, n_blocks=168
     )
-    assert prof == ()
+    assert not prof
 
 
 # --------------------------------------------------------------------------- #

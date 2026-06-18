@@ -178,7 +178,7 @@ def apply_emission_overrides(
     *,
     uns_price_dollar: float | None = None,
     scc: float = DEFAULT_SCC,
-) -> dict[str, float]:
+) -> dict[str, float | str]:
     """Walk the planning dict and replace cost-mode defaults with
     emissions-mode values (in tCO2 / unit).
 
@@ -204,7 +204,7 @@ def apply_emission_overrides(
 
     Returns ``{field_name: new_value}`` for reporting.
     """
-    applied: dict[str, float] = {}
+    applied: dict[str, float | str] = {}
     sys_ = planning.setdefault("system", {})
     mo = planning.setdefault("options", {}).setdefault("model_options", {})
     em_uns_dollar = uns_price_dollar

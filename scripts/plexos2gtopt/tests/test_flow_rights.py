@@ -38,7 +38,7 @@ def test_extract_flow_rights_returns_empty_when_csv_has_rows(tmp_path: Path) -> 
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     turbines = (TurbineSpec(generator_name="EL_TORO_U1", reservoir_name="ELTORO"),)
     out = extract_flow_rights(bundle, turbines)
-    assert out == ()
+    assert not out
 
 
 def test_extract_flow_rights_returns_empty_with_generator_prefix_row(
@@ -52,7 +52,7 @@ def test_extract_flow_rights_returns_empty_with_generator_prefix_row(
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     turbines = (TurbineSpec(generator_name="ANTUCO_U1", reservoir_name="POLCURA"),)
     out = extract_flow_rights(bundle, turbines)
-    assert out == ()
+    assert not out
 
 
 def test_extract_flow_rights_returns_empty_on_dupes(tmp_path: Path) -> None:
@@ -66,7 +66,7 @@ def test_extract_flow_rights_returns_empty_on_dupes(tmp_path: Path) -> None:
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     turbines = (TurbineSpec(generator_name="EL_TORO_U1", reservoir_name="ELTORO"),)
     out = extract_flow_rights(bundle, turbines)
-    assert out == ()
+    assert not out
 
 
 def test_extract_flow_rights_returns_empty_on_unresolvable(tmp_path: Path) -> None:
@@ -77,7 +77,7 @@ def test_extract_flow_rights_returns_empty_on_unresolvable(tmp_path: Path) -> No
     )
     bundle = PlexosBundle(root=tmp_path, source=tmp_path)
     out = extract_flow_rights(bundle, turbines=())
-    assert out == ()
+    assert not out
 
 
 def test_extract_flow_rights_no_csv(tmp_path: Path) -> None:
@@ -200,4 +200,4 @@ def test_build_flow_right_array_no_longer_appends_synthetic_waterway() -> None:
     )
     extra: list[dict] = []
     build_flow_right_array(fr, waterways=waterways, extra_waterways=extra)
-    assert extra == []
+    assert not extra

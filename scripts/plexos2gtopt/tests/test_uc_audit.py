@@ -209,8 +209,8 @@ def test_run_audit_end_to_end_minimal(tmp_path: Path) -> None:
     )
     res = run_audit(inputs)
     assert res.intersection == ["Shared"]
-    assert res.missing_from_gtopt == []
-    assert res.synthetic_in_gtopt == []
+    assert not res.missing_from_gtopt
+    assert not res.synthetic_in_gtopt
     assert res.summary["n_plexos"] == 1
     assert res.summary["n_gtopt_total"] == 1
     assert res.summary["n_intersection"] == 1

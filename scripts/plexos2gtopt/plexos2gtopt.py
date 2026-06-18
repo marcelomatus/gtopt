@@ -280,7 +280,11 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 # profiles (BundleSpec is constructed AFTER
                 # extract_case so the layout isn't otherwise visible
                 # there).
-                bundle.block_layout = block_layout
+                # ``PlexosBundle`` carries this as a dynamic attribute the
+                # downstream extractors read via ``hasattr`` (see
+                # parsers.extract_reservoirs); the loader dataclass does not
+                # declare it, so the assignment is intentionally untyped.
+                bundle.block_layout = block_layout  # type: ignore[attr-defined]
                 logger.info(
                     "horizon-mode=plexos: %d blocks across %d days "
                     "(loaded from PLEXOS solution)",
@@ -411,7 +415,9 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         # ``cogen_must_run`` is a (names_set, force_all) tuple parsed in
         # main._parse_cogen_must_run.  Unpack to the build_planning
         # kwargs (defaults match the pre-option behaviour).
-        _cogen_must_run_opt = options.get("cogen_must_run") or (
+        _cogen_must_run_opt: tuple[frozenset[str], bool] = options.get(
+            "cogen_must_run"
+        ) or (
             frozenset(),
             False,
         )

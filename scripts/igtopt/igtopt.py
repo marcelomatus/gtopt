@@ -39,7 +39,7 @@ __version__ = get_version()
 # Existing internal references to ``_probe_parquet_codec`` /
 # ``_DEFAULT_COMPRESSION`` continue to work; the canonical bodies live
 # in ``gtopt_shared/parquet.py``.
-from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-import-position
+from gtopt_shared.parquet import (  # noqa: E402,F401  pylint: disable=wrong-import-position,ungrouped-imports
     DEFAULT_COMPRESSION as _DEFAULT_COMPRESSION,
     probe_parquet_codec as _probe_parquet_codec,
 )

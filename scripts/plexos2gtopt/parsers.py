@@ -950,14 +950,12 @@ def _extract_fuel_max_offtake_week(
     # Horizon coverage [ref_date, ref_date + horizon_days - 1].  Each
     # week_start row covers [week_start, week_start + 6].  Overlap days
     # weight each week's contribution; rows with zero overlap drop out.
-    from datetime import timedelta as _td
-
-    horizon_last = ref_date + _td(days=horizon_days - 1)
+    horizon_last = ref_date + timedelta(days=horizon_days - 1)
     out: dict[str, float] = {}
     for name, candidates in rows_by_fuel.items():
         total_gj = 0.0
         for wk_start, cap_tj in candidates:
-            wk_last = wk_start + _td(days=6)
+            wk_last = wk_start + timedelta(days=6)
             overlap_lo = max(wk_start, ref_date)
             overlap_hi = min(wk_last, horizon_last)
             overlap_days = (overlap_hi - overlap_lo).days + 1
@@ -1937,9 +1935,7 @@ def extract_generators(
     # each period, if PLEXOS committed 0 units, set pmax=0 (forces
     # gen=0); otherwise scale pmax by the fraction of units PLEXOS
     # committed (full pmax × units_on / max_units).
-    import os
-
-    use_plexos_commit = os.environ.get("GTOPT_USE_PLEXOS_COMMIT", "0").lower() in (
+    use_plexos_commit = _os.environ.get("GTOPT_USE_PLEXOS_COMMIT", "0").lower() in (
         "1",
         "true",
         "yes",
@@ -1997,7 +1993,7 @@ def extract_generators(
     # HYDRO TURBINE generators (those with a Head Storage membership)
     # to avoid the ReserveProvisionLP::flat_map::at defect that fires
     # when thermal generator gen-cols get elided at zero hours.
-    use_plexos_gen_cap = os.environ.get("GTOPT_USE_PLEXOS_GEN_CAP", "0").lower() in (
+    use_plexos_gen_cap = _os.environ.get("GTOPT_USE_PLEXOS_GEN_CAP", "0").lower() in (
         "1",
         "true",
         "yes",
@@ -2114,9 +2110,12 @@ def extract_generators(
         # the application reduces to a hard mask: ``pmax[t] = 0`` for
         # every ``t`` with ``Units Out[t] > 0``.  Multi-unit gens
         # would derate proportionally; keep the formula general.
-        units_out_profile = units_out.get(gen.name) if units_out else None
+        units_out_profile: list[float] = (
+            units_out.get(gen.name, []) if units_out else []
+        )
         if units_out_profile and profile:
-            max_units = max(max(units_out_profile), 1.0)
+            peak_units = max(units_out_profile, default=0.0)
+            max_units = peak_units if peak_units > 1.0 else 1.0
             new_profile = list(profile)
             n = min(len(new_profile), len(units_out_profile))
             for i in range(n):
@@ -2152,9 +2151,9 @@ def extract_generators(
             if max_units > 0 and profile:
                 # period_id in cache is 1-indexed; profile is 0-indexed
                 new_profile = list(profile)
-                for i in range(len(new_profile)):
+                for i, val in enumerate(new_profile):
                     units_p = commit.get(i + 1, max_units)
-                    new_profile[i] = new_profile[i] * (units_p / max_units)
+                    new_profile[i] = val * (units_p / max_units)
                 profile = tuple(new_profile)
         # PLEXOS-gen-cap override: hard-cap pmax_profile to PLEXOS's
         # solved per-period Generation.  Curve-fits dispatch envelope
@@ -2179,10 +2178,10 @@ def extract_generators(
                     seed = max(profile) if profile else max(gen_cap.values())
                     profile = tuple([seed] * horizon_h)
                 new_profile = list(profile)
-                for i in range(len(new_profile)):
+                for i, val in enumerate(new_profile):
                     cap_p = gen_cap.get(i + 1)
                     if cap_p is not None:
-                        new_profile[i] = min(new_profile[i], cap_p)
+                        new_profile[i] = min(val, cap_p)
                 profile = tuple(new_profile)
         # Use the max of the per-hour profile as the static pmax (gtopt
         # will multiply by pmax_factor when we emit the profile).
@@ -3379,8 +3378,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # for the matching ``BAT_<name>`` Generator (the canonical
         # location for the battery's actual per-period MW rating).
         gen_rating_peak = max(gen_rating.get(batt.name, [0]) or [0])
-        if gen_rating_peak > max_power:
-            max_power = gen_rating_peak
+        max_power = max(max_power, gen_rating_peak)
         charge_eff_pct = db.static_property(
             "Battery", batt.object_id, "Charge Efficiency", default=100.0
         )
@@ -3652,9 +3650,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             # Set ``GTOPT_EMIN_EOD_DAY1=1`` (or pass ``--emin-eod-day1``)
             # to enable the hard hour-24 clamp; default is the all-soft
             # behaviour.
-            import os as _os
-
-            _eod_day1 = _os.environ.get("GTOPT_EMIN_EOD_DAY1", "0") in (
+            _eod_day1 = os.environ.get("GTOPT_EMIN_EOD_DAY1", "0") in (
                 "1",
                 "true",
                 "True",
@@ -4379,13 +4375,13 @@ def extract_waterways(
         # did; the sink credit was irrelevant (water leaves the basin).  The
         # full per-block profile is carried so a target that pauses (e.g.
         # irrigation only on day 1) is honoured block-by-block.
+        t_name_is_sink = t_name is not None and t_name.endswith("_sink")
         if (
             forced_targets_out is not None
             and has_forced
             and forced_target > 0.0
             and not is_bypass
-            and t_name is not None
-            and t_name.endswith("_sink")
+            and t_name_is_sink
         ):
             forced_targets_out.append((ww.name, f_name, forced_target, tuple(forced)))
             if t_name in synthetic_sinks:
@@ -5741,9 +5737,7 @@ def extract_commitments(
                         if v > 0.0
                     ]
                     cap = min(pos_pmax, default=0.0)
-                prof = [
-                    min(v, cap) if (cap > 0.0 and v > cap) else v for v in msl_series
-                ]
+                prof = [min(v, cap) if (0.0 < cap < v) else v for v in msl_series]
             if len(set(prof)) > 1:
                 cmt_pmin_profile = tuple(prof)
         # PLEXOS ``Initial Generation`` (Gen_IniGeneration.csv) →
@@ -5791,8 +5785,8 @@ def extract_commitments(
             and initial_status > 0.0
             and ramp_down > 0.0
         ):
-            prof = gen_spec.pmax_profile or ()
-            pmax0 = prof[0] if prof else (gen_spec.pmax or 0.0)
+            pmax_prof = gen_spec.pmax_profile or ()
+            pmax0 = pmax_prof[0] if pmax_prof else (gen_spec.pmax or 0.0)
             if pmax0 > 0.0 and initial_power > pmax0 + ramp_down:
                 logger.info(
                     "extract_commitments: %s initial_power %.4f → %.4f "
@@ -5864,17 +5858,19 @@ def extract_commitments(
         # all with the wider ``initial_hours`` / ``noload_cost`` /
         # ``initial_power`` UC params (which qualify ``any_param``
         # above but on their own carry no commitment economics).
-        if (
-            not startup_cost
-            and not shutdown_cost
-            and not cmt_pmin
-            and not min_up
-            and not min_down
-            and not ramp_up
-            and not ramp_down
-            # ...UNLESS PLEXOS forces this unit's commitment (Gen_Commit
-            # 0/+1): keep it so the forced ``u`` has a variable to pin.
-            and not _forced_commit
+        # ...UNLESS PLEXOS forces this unit's commitment (Gen_Commit
+        # 0/+1): keep it so the forced ``u`` has a variable to pin.
+        if not any(
+            (
+                startup_cost,
+                shutdown_cost,
+                cmt_pmin,
+                min_up,
+                min_down,
+                ramp_up,
+                ramp_down,
+                _forced_commit,
+            )
         ):
             continue
 
@@ -5951,8 +5947,8 @@ def extract_commitments(
         gen_spec_for_pmax = next((g for g in generators if g.name == name), None)
         force_off = False
         if gen_spec_for_pmax is not None:
-            prof = gen_spec_for_pmax.pmax_profile or ()
-            eff_pmax = max(prof) if prof else (gen_spec_for_pmax.pmax or 0.0)
+            pmax_prof = gen_spec_for_pmax.pmax_profile or ()
+            eff_pmax = max(pmax_prof) if pmax_prof else (gen_spec_for_pmax.pmax or 0.0)
             if eff_pmax <= 0.0:
                 force_off = True
         if force_off:
@@ -9801,9 +9797,7 @@ def _build_fuel_offtake_caps_ucs(
         # actual per-period RHS values where they're available;
         # fall back to the uniform decomposition otherwise.
         per_period = (
-            extract_fuel_offtake_caps.rhs_per_period.get(  # type: ignore[attr-defined]
-                fuel_name, {}
-            )
+            extract_fuel_offtake_caps.rhs_per_period.get(fuel_name, {})
             if hasattr(extract_fuel_offtake_caps, "rhs_per_period")
             else {}
         )
@@ -10808,7 +10802,7 @@ def extract_case(
         # caller can opt out of the duplicate-removal step.
         _rs_mode = _os_rs.environ.get("GTOPT_RESERVOIR_SPILL", "").lower()
         if _rs_mode == "strict":
-            real_reservoir_names = {r.name for r in reservoirs}
+            real_reservoir_names = frozenset(r.name for r in reservoirs)
             removed_real = [
                 n
                 for n in list(junction_drain_configs.keys())

@@ -260,7 +260,7 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                 else (bus_ref if isinstance(bus_ref, str) else f"bus{bus_ref}")
             )
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
-            label, icon, palette_key = meta
+            label, _icon, palette_key = meta
             nid = f"agg_type_{bus_ref}_{gt}"
             # Use the raw ``name`` field (no ``:uid`` suffix) so the
             # common-stem detection sees the shared prefix cleanly.
@@ -296,7 +296,7 @@ class TopologyNetworkMixin(TopologyIdsMixin):
                 continue
             total = sum(_gen_pmax(g) for g in grp)
             meta = _GEN_TYPE_META.get(gt, ("?", "⚡", "gen"))
-            label, icon, palette_key = meta
+            label, _icon, palette_key = meta
             nid = f"agg_global_{gt}"
             # Global aggregation only has a type label (no per-bus
             # name stem); use it as line 1 and the unit count + total

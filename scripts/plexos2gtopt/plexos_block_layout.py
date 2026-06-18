@@ -470,7 +470,6 @@ def _read_cached_csv(cache_dir: Path, table: str) -> list[dict[str, str]] | None
     Returns ``None`` when the file is missing or unreadable; otherwise
     returns the parsed CSV as a list-of-dicts (one per row).
     """
-    import csv
     import io
 
     path = cache_dir / f"{table}.csv.zst"
@@ -517,7 +516,13 @@ def extract_storage_solution_efin(
     members = _read_cached_csv(cache_dir, "t_membership")
     keys = _read_cached_csv(cache_dir, "t_key")
     data0 = _read_cached_csv(cache_dir, "t_data_0")
-    if any(t is None for t in (objects, classes, members, keys, data0)):
+    if (
+        objects is None
+        or classes is None
+        or members is None
+        or keys is None
+        or data0 is None
+    ):
         return None
 
     storage_cls_id = next(
@@ -592,7 +597,13 @@ def extract_storage_volume_trajectory(
     members = _read_cached_csv(cache_dir, "t_membership")
     keys = _read_cached_csv(cache_dir, "t_key")
     data0 = _read_cached_csv(cache_dir, "t_data_0")
-    if any(t is None for t in (objects, classes, members, keys, data0)):
+    if (
+        objects is None
+        or classes is None
+        or members is None
+        or keys is None
+        or data0 is None
+    ):
         return None
 
     sto_cls_id = next((c["class_id"] for c in classes if c["name"] == "Storage"), None)
@@ -648,7 +659,13 @@ def extract_generator_generation_per_period(
     members = _read_cached_csv(cache_dir, "t_membership")
     keys = _read_cached_csv(cache_dir, "t_key")
     data0 = _read_cached_csv(cache_dir, "t_data_0")
-    if any(t is None for t in (objects, classes, members, keys, data0)):
+    if (
+        objects is None
+        or classes is None
+        or members is None
+        or keys is None
+        or data0 is None
+    ):
         return None
 
     gen_cls_id = next(
@@ -711,7 +728,13 @@ def extract_generator_commit_per_period(
     members = _read_cached_csv(cache_dir, "t_membership")
     keys = _read_cached_csv(cache_dir, "t_key")
     data0 = _read_cached_csv(cache_dir, "t_data_0")
-    if any(t is None for t in (objects, classes, members, keys, data0)):
+    if (
+        objects is None
+        or classes is None
+        or members is None
+        or keys is None
+        or data0 is None
+    ):
         return None
 
     gen_cls_id = next(
@@ -792,7 +815,9 @@ def extract_fuel_offtake_caps(
     keys = _read_cached_csv(cache_dir, "t_key")
     data0 = _read_cached_csv(cache_dir, "t_data_0")
     props = _read_cached_csv(cache_dir, "t_property")
-    if any(t is None for t in (objects, classes, members, keys, data0, props)):
+    if objects is None or classes is None or members is None:
+        return None
+    if keys is None or data0 is None or props is None:
         return None
 
     # Locate the "Constraint" class id and the "RHS" property id.

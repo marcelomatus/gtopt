@@ -80,7 +80,7 @@ class TestInstallEnvAlwaysExport:
     def test_none_skips_export(self):
         env: dict[str, str] = {}
         ConversionOptions().install_env(env)
-        assert env == {}
+        assert not env
 
 
 class TestInstallEnvTruthyOnly:
@@ -113,7 +113,7 @@ class TestInstallEnvTruthyOnly:
         """Legacy ``if options.get("..."):`` only set the var on truthy."""
         env: dict[str, str] = {}
         ConversionOptions(**{field: False}).install_env(env)
-        assert env == {}, (
+        assert not env, (
             f"truthy-only flag {field}=False must leave env-var ABSENT so "
             f"the consumer's os.environ.get(KEY, '0') fallback applies"
         )
@@ -141,7 +141,7 @@ class TestInstallEnvPresenceBoolean:
     def test_none_skips(self):
         env: dict[str, str] = {}
         ConversionOptions(emin_eod_day1=None, battery_efin_pin=None).install_env(env)
-        assert env == {}
+        assert not env
 
 
 # ── Integration: full mapping table coverage ──────────────────────────────

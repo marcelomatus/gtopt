@@ -200,7 +200,7 @@ def apply_state_to_args(
     # ``parser.parse_args`` call.
     filtered_argv: list[str] = []
     skip_next = False
-    for i, tok in enumerate(cli_argv):
+    for tok in cli_argv:
         if skip_next:
             skip_next = False
             continue

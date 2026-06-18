@@ -162,7 +162,7 @@ def test_b12_units_out_generator_not_flagged(tmp_path: Path) -> None:
     _write_gen_csv(input_dir / "Gen_Commit.csv", "LOS_CONDORES_U1", -1)
 
     items = build_b12_bounds(gtopt_json, input_dir)
-    assert items == []
+    assert not items
 
 
 def test_b12_fixed_load_generator_not_flagged(tmp_path: Path) -> None:
@@ -185,7 +185,7 @@ def test_b12_fixed_load_generator_not_flagged(tmp_path: Path) -> None:
     items = build_b12_bounds(gtopt_json, input_dir)
     # Neither pmax (36==36) nor pmin (36 vs expected fixed-load 36) fires;
     # the legacy MinStableLevel=3 comparison is correctly overridden.
-    assert items == []
+    assert not items
 
 
 def test_b12_genuine_pmax_mismatch_still_flagged(tmp_path: Path) -> None:

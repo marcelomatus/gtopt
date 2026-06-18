@@ -303,15 +303,15 @@ class PlexosDb:
         if not models:
             return set()
         if model_name is None:
-            preferred = next(
+            chosen = next(
                 (m for m in models if m.name == "PRGdia_Full_Definitivo"),
                 models[0],
             )
-            chosen = preferred
         else:
-            chosen = next((m for m in models if m.name == model_name), None)
-            if chosen is None:
+            match = next((m for m in models if m.name == model_name), None)
+            if match is None:
                 return set()
+            chosen = match
         scn_class_id = self.class_id("Scenario")
         if scn_class_id is None:
             return set()

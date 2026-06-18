@@ -260,7 +260,7 @@ def test_build_flow_array_aggregates_discharge() -> None:
 def test_load_block_layout_from_accdb_missing_file(tmp_path: Path) -> None:
     """Missing accdb ⇒ empty tuple, no exception."""
     out = load_block_layout_from_accdb(tmp_path / "does_not_exist.accdb")
-    assert out == ()
+    assert not out
 
 
 def test_load_block_layout_from_accdb_without_mdbtools(tmp_path: Path) -> None:
@@ -269,7 +269,7 @@ def test_load_block_layout_from_accdb_without_mdbtools(tmp_path: Path) -> None:
     fake_accdb.write_bytes(b"fake")
     with patch("plexos2gtopt.plexos_block_layout._have_mdb_tools", return_value=False):
         out = load_block_layout_from_accdb(fake_accdb)
-    assert out == ()
+    assert not out
 
 
 def test_load_block_layout_from_accdb_parses_t_phase_3(tmp_path: Path) -> None:

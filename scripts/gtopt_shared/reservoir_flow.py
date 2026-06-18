@@ -814,13 +814,13 @@ def _seepage_eval_volume(
         emax = reservoir.get("emax")
         if isinstance(emax, (int, float)) and not isinstance(emax, bool):
             return float(emax)
-    bps = [
-        s.get("volume")
+    bps: list[float] = [
+        float(vol)
         for s in segments
-        if isinstance(s.get("volume"), (int, float))
-        and not isinstance(s.get("volume"), bool)
+        if isinstance((vol := s.get("volume")), (int, float))
+        and not isinstance(vol, bool)
     ]
-    return float(max(bps)) if bps else 0.0
+    return max(bps) if bps else 0.0
 
 
 def resolve_reservoir_seepage_caps(system: dict[str, Any]) -> dict[Any, float]:

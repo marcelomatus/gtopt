@@ -20,9 +20,10 @@ from gtopt_shared.description_meta import (
 
 
 def test_parse_meta_empty_inputs():
-    assert parse_meta(None) == {}
-    assert parse_meta("") == {}
-    assert parse_meta("Plain prose; nothing structured.") == {}
+    empty: dict[str, str] = {}
+    assert parse_meta(None) == empty
+    assert parse_meta("") == empty
+    assert parse_meta("Plain prose; nothing structured.") == empty
 
 
 def test_parse_meta_key_value_pairs():

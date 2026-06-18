@@ -665,6 +665,7 @@ class TestNREL118OnlyEmissionsInversion:
                 capture_output=True,
                 text=True,
                 timeout=60,
+                check=False,
             )
             if result.returncode != 0 or not out.is_file():
                 pytest.skip(

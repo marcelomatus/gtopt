@@ -132,11 +132,7 @@ def _sanitize_inf_impl(obj: Any, omit_keys: frozenset[str]) -> Any:
         # backend, so the writer doesn't try.
         drops: list[Any] = []
         for k, v in obj.items():
-            if (
-                k in omit_keys
-                and isinstance(v, float)
-                and (v == math.inf or v == -math.inf)
-            ):
+            if k in omit_keys and isinstance(v, float) and v in (math.inf, -math.inf):
                 drops.append(k)
         for k in drops:
             del obj[k]

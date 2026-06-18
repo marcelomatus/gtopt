@@ -270,9 +270,7 @@ class TopologyBuilder(
         self.model = GraphModel(title=self.sys.get("name", "gtopt Network"))
         # Propagate the collapse-on-load list to the renderer (HTML).
         # Empty list = layout-hint mode (default).
-        self.model.collapse_groups = list(  # type: ignore[attr-defined]
-            self.opts.collapse_groups or []
-        )
+        self.model.collapse_groups = list(self.opts.collapse_groups or [])
         self._resolver = resolver  # FieldSchedResolver or None
         self._turb_refs = _turbine_gen_refs(self.sys)
         self._turb_way_refs = _turbine_waterway_refs(self.sys)

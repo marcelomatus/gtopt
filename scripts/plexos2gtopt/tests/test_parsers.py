@@ -8,12 +8,13 @@ so failures point at one extractor at a time.
 
 from __future__ import annotations
 
+import os as _os
 from pathlib import Path
 
 import pytest
 
 from plexos2gtopt.entities import BundleSpec
-from plexos2gtopt.entities import GeneratorSpec, PlexosCase
+from plexos2gtopt.entities import GeneratorSpec, LineSpec, PlexosCase
 from plexos2gtopt.parsers import (
     FUEL_FAMILY_BIOGAS,
     FUEL_FAMILY_BIOMASA,
@@ -30,6 +31,8 @@ from plexos2gtopt.parsers import (
     FUEL_FAMILY_SOLAR,
     FUEL_FAMILY_THERMAL,
     FUEL_FAMILY_WIND,
+    _apply_adaptive_loss_segments,
+    _apply_loss_sos2_policy,
     _build_plant_cap_ucs,
     _extract_config_mutex_groups,
     extract_batteries,
@@ -2399,18 +2402,12 @@ def test_extract_config_mutex_groups_no_uniq_returns_empty(tmp_path: Path) -> No
     xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
     xml_path.write_text(xml)
     db = load_xml(xml_path)
-    assert _extract_config_mutex_groups(db) == []
+    assert not _extract_config_mutex_groups(db)
 
 
 # --------------------------------------------------------------------------- #
 # Adaptive per-line loss-segment count (cube-root rule)
 # --------------------------------------------------------------------------- #
-import os as _os  # noqa: E402
-
-from plexos2gtopt.entities import LineSpec  # noqa: E402
-from plexos2gtopt.parsers import _apply_adaptive_loss_segments  # noqa: E402
-
-
 def _reset_loss_env() -> None:
     """Clear every env var the adaptive helper consults so each test starts
     from a known state (defaults: err_pct=0.01, ceiling=6, extend=off,
@@ -2958,8 +2955,6 @@ def test_dynamic_respects_err_pct_zero_uniform_fallback() -> None:
 # --------------------------------------------------------------------------- #
 # Issue #504 task #5 — SOS2 fill-order selector (loss_use_sos2 post-pass)
 # --------------------------------------------------------------------------- #
-
-from plexos2gtopt.parsers import _apply_loss_sos2_policy  # noqa: E402
 
 
 def _reset_sos2_env() -> None:

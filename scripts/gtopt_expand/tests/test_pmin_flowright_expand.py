@@ -491,7 +491,7 @@ class TestEnsureBypassForFlowrights:
             ],
         }
         ensure_bypass_for_flowrights(system)
-        assert system["waterway_array"] == []
+        assert system["waterway_array"] == []  # pylint: disable=use-implicit-booleaness-not-comparison
 
     def test_idempotent_on_explicit_bypass_junction(self) -> None:
         """When a FlowRight already declares ``bypass_junction``, the

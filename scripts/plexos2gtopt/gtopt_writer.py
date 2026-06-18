@@ -3491,7 +3491,10 @@ def _collapse_orphan_drain_outflows(system: dict[str, Any]) -> int:
     return len(collapsed)
 
 
-def build_planning(
+def build_planning(  # pylint: disable=too-many-arguments
+    # Keyword-only CLI/config surface threaded straight from main(); the
+    # parameter list mirrors the user-facing options 1:1, so bundling them
+    # into a config object would only obscure the conversion entry point.
     case: PlexosCase,
     *,
     name: str,

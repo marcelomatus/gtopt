@@ -1583,7 +1583,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if not hasattr(self.model, "plant_meta"):
                 # mypy false-positive: GraphModel is open for attribute
                 # attachment (lacks __slots__).
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
+                self.model.plant_meta = {}
             label_bits: list[str] = [str(pname)]
             if p.get("pmax") is not None:
                 label_bits.append(f"pmax={p['pmax']:g}")
@@ -1591,9 +1591,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
                 label_bits.append(f"n_units={p['n_units']}")
             if p.get("uniq_mutex"):
                 label_bits.append("uniq")
-            self.model.plant_meta[subcluster_tag] = (  # type: ignore[attr-defined]
-                " · ".join(label_bits)
-            )
+            self.model.plant_meta[subcluster_tag] = " · ".join(label_bits)
 
         # 2. Auto-detected groups.
         #    Primary signal: turbines sharing the same upstream junction
@@ -1612,8 +1610,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if tagged < 2:
                 continue
             if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
-            self.model.plant_meta[cluster_key] = label  # type: ignore[attr-defined]
+                self.model.plant_meta = {}
+            self.model.plant_meta[cluster_key] = label
 
     def _substations(self):
         """Cluster co-located buses into substation subgraphs.
@@ -1716,10 +1714,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if tagged < 2:
                 continue
             if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
-            self.model.plant_meta[cluster_key] = (  # type: ignore[attr-defined]
-                f"{prefix} substation ({tagged} buses)"
-            )
+                self.model.plant_meta = {}
+            self.model.plant_meta[cluster_key] = f"{prefix} substation ({tagged} buses)"
 
     # ─── Basin detection (A: hydro drainage cascade) ────────────────────────
     def _basins(self):
@@ -1983,8 +1979,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
                 tag(self._frid(fr), lab)
 
         if not hasattr(self.model, "plant_meta"):
-            self.model.plant_meta = {}  # type: ignore[attr-defined]
-        self.model.plant_meta.update(basin_meta)  # type: ignore[attr-defined]
+            self.model.plant_meta = {}
+        self.model.plant_meta.update(basin_meta)
 
     # ─── Reserve-zone grouping (B) ──────────────────────────────────────────
     def _reserve_zone_groups(self):
@@ -2047,8 +2043,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         if meta:
             if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
-            self.model.plant_meta.update(meta)  # type: ignore[attr-defined]
+                self.model.plant_meta = {}
+            self.model.plant_meta.update(meta)
 
     # ─── Fuel-sharing grouping (C) ─────────────────────────────────────────
     @staticmethod
@@ -2191,8 +2187,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         if meta:
             if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
-            self.model.plant_meta.update(meta)  # type: ignore[attr-defined]
+                self.model.plant_meta = {}
+            self.model.plant_meta.update(meta)
 
     @staticmethod
     def _bus_ref_resolver(buses: list) -> tuple[dict, dict]:
@@ -2367,8 +2363,8 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         if community_meta:
             if not hasattr(self.model, "plant_meta"):
-                self.model.plant_meta = {}  # type: ignore[attr-defined]
-            self.model.plant_meta.update(community_meta)  # type: ignore[attr-defined]
+                self.model.plant_meta = {}
+            self.model.plant_meta.update(community_meta)
 
     # ─── N4: basin layout via topological sort ────────────────────────────────
     def _basin_layout_hints(self):
@@ -2477,7 +2473,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             # Stash on the model for the renderer to consult.  Maps
             # basin tag → ordered list of junction node IDs from
             # upstream to downstream.
-            self.model.basin_topo_order = topo_order  # type: ignore[attr-defined]
+            self.model.basin_topo_order = topo_order
 
     # ─── N3: edge betweenness centrality (backbone identification) ────────────
     def _backbone_betweenness(self):
@@ -2563,7 +2559,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             if na and nb:
                 by_nid[(na, nb)] = score
                 by_nid[(nb, na)] = score
-        self.model.edge_betweenness = by_nid  # type: ignore[attr-defined]
+        self.model.edge_betweenness = by_nid
 
     # ─── Isolated bus + orphan generator + electrical-loop detection ─────────
     def _isolated_buses(self):
@@ -2609,9 +2605,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         # Stash count on the model for the renderer / report.
         existing = getattr(self.model, "isolated_bus_count", 0)
-        self.model.isolated_bus_count = (  # type: ignore[attr-defined]
-            existing + len(isolated_uids)
-        )
+        self.model.isolated_bus_count = existing + len(isolated_uids)
 
     def _orphan_generators(self):
         """N11: flag generators whose bus can't reach any demand bus.
@@ -2676,9 +2670,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
 
         if orphans:
             existing = getattr(self.model, "orphan_generator_count", 0)
-            self.model.orphan_generator_count = (  # type: ignore[attr-defined]
-                existing + len(orphans)
-            )
+            self.model.orphan_generator_count = existing + len(orphans)
 
     # ─── N5: k-core HV backbone overlay ──────────────────────────────────────
     def _hv_backbone(self):
@@ -2725,7 +2717,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             for uid in backbone_uids
             if uid in bus_node_id_by_uid
         }
-        self.model.hv_backbone_buses = backbone_nids  # type: ignore[attr-defined]
+        self.model.hv_backbone_buses = backbone_nids
 
     # ─── N6 / N7: focus subgraph + electrical distance ───────────────────────
     def _focus_distance(self):
@@ -2795,7 +2787,7 @@ class TopologyHydroMixin(TopologyIdsMixin):
             nid = bus_node_id_by_uid.get(uid)
             if nid:
                 dist_by_nid[nid] = d
-        self.model.bus_focus_distance = dist_by_nid  # type: ignore[attr-defined]
+        self.model.bus_focus_distance = dist_by_nid
 
     # ─── N10: electrical cycle detection ─────────────────────────────────────
     def _electrical_loops(self):
@@ -2841,4 +2833,4 @@ class TopologyHydroMixin(TopologyIdsMixin):
             nids = [bus_node_id_by_uid.get(uid) for uid in cyc]
             if all(nids):
                 cycle_nids.append([n for n in nids if n])
-        self.model.electrical_loops = cycle_nids  # type: ignore[attr-defined]
+        self.model.electrical_loops = cycle_nids

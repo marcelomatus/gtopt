@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import pickle
 import re
@@ -801,7 +802,6 @@ def _compute_plexos_line_losses_analytic_mwh(
     is the apples-to-apples bridge to gtopt, which prices PWL losses inside
     the LP.  Returns 0.0 when no flows / resistances are available.
     """
-    import json
 
     bundle_path: Path | None = None
     for cand in sorted(case_dir.glob("*.json")):
@@ -850,7 +850,6 @@ def compute_gtopt_problem_stats(case_dir: Path) -> dict[str, float | str]:
     ``{rows, cols, int_vars, run_s, solver, method}`` with missing pieces
     defaulting to 0 / "" so the renderer degrades gracefully.
     """
-    import json
     from datetime import datetime
 
     out_dir = case_dir / "output"
@@ -1026,7 +1025,6 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     block durations.  Reads parquet directly via pyarrow (already a
     transitive dep of gtopt).
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -1200,7 +1198,6 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     # absent (e.g. an LP-relax run without commitment binaries),
     # contributes 0 — the metric still adds cleanly into the operational
     # total.
-    import json as _json
 
     startup_cost_usd = 0.0
     shutdown_cost_usd = 0.0
@@ -1209,7 +1206,7 @@ def compute_gtopt_energy_totals(case_dir: Path) -> dict[str, float]:
     if commit_dir.is_dir() and planning_path.is_file():
         try:
             with planning_path.open() as f:
-                _plan = _json.load(f)
+                _plan = json.load(f)
             _commit_arr = _plan.get("system", {}).get("commitment_array", [])
             su_by_uid = {
                 int(c["uid"]): float(c.get("startup_cost") or 0.0)
@@ -1378,7 +1375,6 @@ def compute_gtopt_per_unit_srmc(
     ``Generator/srmc_sol.parquet`` on the (scene, phase, scenario,
     stage, block, uid) key and weighting by per-block duration.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -1498,7 +1494,7 @@ def _render_srmc_compare(
     console.print(t1)
 
     # (2) PLEXOS-only
-    plexos_only = [(n, p_m, p_s) for n, p_m, p_s, g_m, _ in rows if p_m > 1 and g_m < 1]
+    plexos_only = [(n, p_m, p_s) for n, p_m, p_s, g_m, _ in rows if g_m < 1 < p_m]
     plexos_only.sort(key=lambda r: r[1], reverse=True)
     t2 = Table(
         title=(
@@ -1514,7 +1510,7 @@ def _render_srmc_compare(
     console.print(t2)
 
     # (3) gtopt-only
-    gtopt_only = [(n, g_m, g_s) for n, p_m, _, g_m, g_s in rows if g_m > 1 and p_m < 1]
+    gtopt_only = [(n, g_m, g_s) for n, p_m, _, g_m, g_s in rows if p_m < 1 < g_m]
     gtopt_only.sort(key=lambda r: r[1], reverse=True)
     t3 = Table(
         title=(
@@ -1612,7 +1608,6 @@ def compute_gtopt_per_bus_lmp(
     horizon (Σ value·duration / Σ duration).  Bus names come from
     the bundle JSON's bus_array.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -1869,18 +1864,22 @@ def compute_plexos_per_line(
             for p, v in fields.get(fname, ()):
                 cap_by_period[p] = cap_by_period.get(p, 0.0) + abs(v)
 
-        def _is_in_service(period: int) -> bool:
-            # Service iff at least one direction has a non-zero limit.
-            # Default to TRUE when no limit data exists (legacy lines that
-            # don't ship Export/Import Limit but still get a Flow series).
-            return not cap_by_period or cap_by_period.get(period, 0.0) > 1e-9
+        # Service iff at least one direction has a non-zero limit.  Default
+        # to TRUE when no limit data exists (legacy lines that don't ship
+        # Export/Import Limit but still get a Flow series).  Precompute the
+        # in-service period set so the filters below stay simple inline
+        # membership tests (no per-iteration closure).
+        no_caps = not cap_by_period
+        served_periods = frozenset(p for p, c in cap_by_period.items() if c > 1e-9)
 
         for fname, rows in fields.items():
             if fname == "flow":
                 # Total absolute energy transferred (non-cancelling) —
                 # filter to in-service periods only (see comment above).
                 entry["energy_mwh"] = sum(
-                    abs(v) * durations.get(p, 0) for p, v in rows if _is_in_service(p)
+                    abs(v) * durations.get(p, 0)
+                    for p, v in rows
+                    if no_caps or p in served_periods
                 )
                 # Peak instantaneous |flow| — pairs with max_flow to
                 # detect cap-violating lines (PLEXOS Enforce Limits=0
@@ -1888,7 +1887,7 @@ def compute_plexos_per_line(
                 # in-service periods so an outage-block phantom value
                 # doesn't masquerade as a real peak.
                 entry["peak_flow_mw"] = max(
-                    (abs(v) for p, v in rows if _is_in_service(p)),
+                    (abs(v) for p, v in rows if no_caps or p in served_periods),
                     default=0.0,
                 )
                 # Σ |MW|² · dur over in-service periods — the flow² energy
@@ -1896,7 +1895,9 @@ def compute_plexos_per_line(
                 # caller recompute PLEXOS line losses from PLEXOS's own flows
                 # with the exact same formula gtopt uses on its flows.
                 entry["sum_f2_dur"] = sum(
-                    (v * v) * durations.get(p, 0) for p, v in rows if _is_in_service(p)
+                    (v * v) * durations.get(p, 0)
+                    for p, v in rows
+                    if no_caps or p in served_periods
                 )
                 entry["active"] = 1.0 if rows else 0.0
             elif fname == "min_flow":
@@ -1943,7 +1944,6 @@ def compute_gtopt_per_line(
         Surfaces which lines were deliberately lifted to explain
         peak > cap cases in the Step 6c cap-violation table.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -2434,9 +2434,6 @@ def compute_gtopt_generation_by_technology(
     the ``_plexos_name_to_category`` accdb hit; if both are passed,
     ``cat_by_name`` wins and ``accdb_path`` is ignored.
     """
-    import json
-    import re
-
     import pyarrow.parquet as pq
 
     bundle_path: Path | None = None
@@ -2528,14 +2525,19 @@ def _render_technology_compare(
             f"{100 * p / p_total:>5.1f}%",
             f"{100 * g / g_total:>5.1f}%",
         )
+    plexos_total = sum(plexos_tech.values())
+    gtopt_total = sum(gtopt_tech.values())
+    total_pct = (
+        f"{100 * (gtopt_total - plexos_total) / plexos_total:>+6.1f}%"
+        if plexos_tech
+        else "—"
+    )
     table.add_row(
         "TOTAL",
-        f"{sum(plexos_tech.values()):>13,.0f}",
-        f"{sum(gtopt_tech.values()):>13,.0f}",
-        f"{sum(gtopt_tech.values()) - sum(plexos_tech.values()):>+13,.0f}",
-        f"{100 * (sum(gtopt_tech.values()) - sum(plexos_tech.values())) / sum(plexos_tech.values()):>+6.1f}%"
-        if plexos_tech
-        else "—",
+        f"{plexos_total:>13,.0f}",
+        f"{gtopt_total:>13,.0f}",
+        f"{gtopt_total - plexos_total:>+13,.0f}",
+        total_pct,
         "100.0%",
         "100.0%",
     )
@@ -2708,7 +2710,6 @@ def compute_gtopt_reservoir_volumes(
     is the duration-weighted average of efin (end-of-block volume)
     since gtopt doesn't write a separate "instantaneous" series.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -2772,7 +2773,6 @@ def compute_gtopt_reservoir_water_value(
     (the storage-balance shadow price, $ per cumec-day) over the horizon.
     Pairs with PLEXOS Storage ``Shadow Price`` (prop 680).
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -3010,7 +3010,6 @@ def compute_gtopt_battery_operation(
     ``Battery/fout_sol.parquet`` (discharging MW), duration-weighted.
     Returns ``{name → {charge_mwh, discharge_mwh, net_mwh}}``.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -3240,7 +3239,6 @@ def compute_gtopt_commitment(
     ``Σ_t v_{g,t} × startup_cost_g`` so the comparison line lines up with
     PLEXOS's pid-120 dollar value.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -3687,7 +3685,6 @@ def load_uc_penalty_breakdown(
     descending penalty.  Missing files / empty parquet → empty dict.
     """
     # Local imports keep the Step-1 path's startup time low.
-    import json as _json
 
     import pyarrow.parquet as _pq
 
@@ -3695,7 +3692,7 @@ def load_uc_penalty_breakdown(
     uid_to_name: dict[int, str] = {}
     uid_to_penalty: dict[int, float] = {}
     if plan_path.exists():
-        plan = _json.loads(plan_path.read_text(encoding="utf-8"))
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
         for uc in plan.get("system", {}).get("user_constraint_array", []):
             uid_to_name[uc["uid"]] = uc.get("name", f"uc_{uc['uid']}")
             raw = uc.get("penalty")
@@ -3738,7 +3735,7 @@ def load_uc_penalty_breakdown(
         # This matches how the LP itself prices the slack on the
         # objective row.
         eff_penalty = uid_to_penalty.get(uid, 0.0)
-        if eff_penalty <= 0.0 and penalty_per_unit > 0.0:
+        if eff_penalty <= 0.0 < penalty_per_unit:
             eff_penalty = penalty_per_unit
         cost = total_slack * eff_penalty
         breakdown[name] = {
@@ -3925,14 +3922,13 @@ def compute_uc_block_drilldown(
     accdb_path: Path,
     breakdown: dict[str, dict],
     top_n: int = 5,
-) -> dict[str, list[dict[str, float]]]:
+) -> dict[str, list[dict[str, float | str]]]:
     """Per-block PLEXOS vs gtopt LHS comparison for the top-N
     slacking UCs.
 
     Returns ``{uc_name: list of {block, plexos_lhs, gtopt_lhs, slack,
     rhs, op}}``, with one entry per block carrying non-zero slack.
     """
-    import json
 
     import pyarrow.parquet as pq
 
@@ -4009,11 +4005,11 @@ def compute_uc_block_drilldown(
             slack_by_uc_block.setdefault(int(uc_uid), {})[int(blk)] = float(val)
 
     blocks = sorted(durations)
-    out: dict[str, list[dict[str, float]]] = {}
-    for uc_name, item, (terms, op, rhs) in chosen:
+    out: dict[str, list[dict[str, float | str]]] = {}
+    for uc_name, _item, (terms, op, rhs) in chosen:
         uc = uc_by_name[uc_name]
         uc_uid = int(uc["uid"])
-        rows: list[dict[str, float]] = []
+        rows: list[dict[str, float | str]] = []
         slack_blk = slack_by_uc_block.get(uc_uid, {})
         for blk in blocks:
             p_lhs = sum(
@@ -4049,7 +4045,7 @@ def compute_uc_block_drilldown(
 
 
 def _render_uc_block_drilldown(
-    drilldown: dict[str, list[dict[str, float]]],
+    drilldown: dict[str, list[dict[str, float | str]]],
     case_dir: Path,
     console: Console,
     *,
@@ -4059,7 +4055,6 @@ def _render_uc_block_drilldown(
     UC with non-zero slack or a bound violation on either side."""
     if not drilldown:
         return
-    import json
 
     bundle_path = next(
         (
@@ -4094,24 +4089,28 @@ def _render_uc_block_drilldown(
         t.add_column("P meets?", justify="center")
         t.add_column("G meets?", justify="center")
         for r in rows[:max_blocks_per_uc]:
+            # ``op`` is the only string field; the rest are numeric.
+            op = str(r["op"])
+            block = float(r["block"])
+            hours = float(r["hours"])
+            rhs = float(r["rhs"])
+            plexos_lhs = float(r["plexos_lhs"])
+            gtopt_lhs = float(r["gtopt_lhs"])
+            slack = float(r["slack"])
             p_meets = (
-                (r["plexos_lhs"] >= r["rhs"] - 1e-6)
-                if r["op"] == ">="
-                else (r["plexos_lhs"] <= r["rhs"] + 1e-6)
+                (plexos_lhs >= rhs - 1e-6) if op == ">=" else (plexos_lhs <= rhs + 1e-6)
             )
             g_meets = (
-                (r["gtopt_lhs"] >= r["rhs"] - 1e-6)
-                if r["op"] == ">="
-                else (r["gtopt_lhs"] <= r["rhs"] + 1e-6)
+                (gtopt_lhs >= rhs - 1e-6) if op == ">=" else (gtopt_lhs <= rhs + 1e-6)
             )
             t.add_row(
-                str(int(r["block"])),
-                f"{r['hours']:.0f}",
-                f"{r['rhs']:.3f}",
-                r["op"],
-                f"{r['plexos_lhs']:,.3f}",
-                f"{r['gtopt_lhs']:,.3f}",
-                f"{r['slack']:,.3f}",
+                str(int(block)),
+                f"{hours:.0f}",
+                f"{rhs:.3f}",
+                op,
+                f"{plexos_lhs:,.3f}",
+                f"{gtopt_lhs:,.3f}",
+                f"{slack:,.3f}",
                 "✓" if p_meets else "✗",
                 "✓" if g_meets else "✗",
             )

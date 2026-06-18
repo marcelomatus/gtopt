@@ -39,7 +39,7 @@ def test_alpha_fcf_decision_variable_is_never_emitted() -> None:
 
 def test_alpha_fcf_only_yields_empty_decision_variable_array() -> None:
     out = build_decision_variable_array((DecisionVariableSpec(name="alpha_fcf"),))
-    assert out == []
+    assert not out
 
 
 def test_fcf_future_cost_user_constraint_is_never_emitted_to_json() -> None:

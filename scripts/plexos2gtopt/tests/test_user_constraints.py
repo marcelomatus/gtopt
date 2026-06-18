@@ -1597,8 +1597,8 @@ def _sample_ucs() -> list[dict[str, object]]:
 
 def test_pampl_uc_mode_off_drops_everything(tmp_path: Path) -> None:
     files, remaining = write_user_constraint_pampl(_sample_ucs(), tmp_path, mode="off")
-    assert files == []
-    assert remaining == []
+    assert not files
+    assert not remaining
     assert not list(tmp_path.glob("*.pampl"))
 
 
@@ -1646,7 +1646,7 @@ def test_pampl_per_block_rhs_matrix_emitted_as_pampl_clause(
     ]
     files, remaining = write_user_constraint_pampl(ucs, tmp_path, mode="hard")
     # It is NOT left inline in the JSON any more.
-    assert remaining == []
+    assert not remaining
     assert files
     text = "\n".join(p.read_text() for p in tmp_path.glob("*.pampl"))
     assert "RALCOramp_max_e1" in text
@@ -1691,7 +1691,7 @@ def test_pampl_uc_only_keeps_single_family(tmp_path: Path) -> None:
 
 
 def test_pampl_uc_off_drops_named_family(tmp_path: Path) -> None:
-    files, _ = write_user_constraint_pampl(
+    _files, _ = write_user_constraint_pampl(
         _family_ucs(), tmp_path, off=frozenset({"security"})
     )
     names = sorted(p.name for p in tmp_path.glob("*.pampl"))
@@ -1703,7 +1703,7 @@ def test_pampl_uc_off_drops_named_family(tmp_path: Path) -> None:
 def test_filter_user_constraints_shared_helper() -> None:
     ucs = _family_ucs()  # config_exclusivity, security, reserve
     assert len(filter_user_constraints(ucs)) == 3  # hard keeps all
-    assert filter_user_constraints(ucs, mode="off") == []
+    assert not filter_user_constraints(ucs, mode="off")
     assert [
         u["name"] for u in filter_user_constraints(ucs, only=frozenset({"reserve"}))
     ] == ["CTF_North"]

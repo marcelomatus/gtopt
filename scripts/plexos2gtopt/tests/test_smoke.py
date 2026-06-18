@@ -141,7 +141,7 @@ def test_install_solver_param_files_no_bundle(tmp_path: Path) -> None:
     finally:
         gw._BUNDLED_SOLVERS_DIR = original  # type: ignore[attr-defined]
 
-    assert installed == []
+    assert not installed
     assert not (target / "solvers").exists()
 
 
