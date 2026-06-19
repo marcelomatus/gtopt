@@ -898,6 +898,82 @@ def build_b12_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
     return items
 
 
+def build_b13_profile_collapse(planning_json: Path, input_dir: Path) -> list[dict]:
+    """B13: per-block profile-collapse detector (gtopt JSON vs PLEXOS input).
+
+    B12 compares only the PEAK of a rating against ``max(CSV)``, so a converter
+    that collapses a time-varying input profile to its peak scalar matches B12
+    exactly and slips through — the loss is in the de-rated blocks B12 never
+    inspects (e.g. battery BAT_TOCOPILLA 72→110 MW emitted as a flat 110).
+    B13 closes that blind spot: when a per-period ``Gen_Rating`` series VARIES
+    across the horizon, the emitted gtopt cap MUST be a per-block profile
+    (a JSON list), not a scalar.
+
+    Scope: ``generator.pmax`` and ``battery.pmax_discharge`` — the fields whose
+    rating maps DIRECTLY to ``Gen_Rating`` with no lift / fixed-load / units-out
+    override that could legitimately produce a scalar from a varying input
+    (lines carry the --lift-line-caps inflation, commitments the MSL clamp, so
+    they are intentionally excluded to avoid false positives; the parse-time
+    ``_warn_if_series_varies`` guard and B12 cover those).  An absent or
+    zero-capacity field (val <= 0) is N/A.
+    """
+    items: list[dict] = []
+    if not planning_json.is_file():
+        return items
+    rating_path = input_dir / "Gen_Rating.csv"
+    if not rating_path.is_file():
+        return items
+    from .plexos_csv import read_long  # noqa: PLC0415
+
+    # Read the FULL horizon, not just day 1 — battery DLR ratings vary
+    # across DAYS (e.g. BAT_ALFALFAL_VR2), so an n_days=1 read would miss
+    # cross-day variation.  Count the distinct (Y,M,D) days in the CSV.
+    _days: set[tuple[str | None, str | None, str | None]] = set()
+    with rating_path.open(encoding="utf-8-sig", newline="") as _fh:
+        for _row in csv.DictReader(_fh):
+            _days.add((_row.get("YEAR"), _row.get("MONTH"), _row.get("DAY")))
+    gen_rating = read_long(rating_path, n_days=max(1, len(_days)))
+    data = json.loads(planning_json.read_text())
+    system = data.get("system", {})
+
+    def _varies(series: list[float]) -> bool:
+        # Compare only DEFINED (non-zero) periods — read_long zero-pads sparse
+        # CSVs, and 0 means "no row", not a real rating.
+        nz = [v for v in series if v != 0.0]
+        return bool(nz) and (max(nz) - min(nz)) > 1.0e-9
+
+    def _check(name: str | None, val: Any, label: str) -> None:
+        if name is None:
+            return
+        series = gen_rating.get(name)
+        if not series or not _varies(series):
+            return
+        if isinstance(val, list):
+            return  # emitted as a per-block profile — correct
+        if not isinstance(val, (int, float)) or val <= 0.0:
+            return  # absent / zero-capacity — not applicable
+        nz = [v for v in series if v != 0.0]
+        items.append(
+            {
+                "name": name,
+                "field": label,
+                "input": "Gen_Rating",
+                "input_range": [round(min(nz), 4), round(max(nz), 4)],
+                "gtopt_scalar": round(float(val), 4),
+            }
+        )
+
+    for g in system.get("generator_array", []):
+        cap = g.get("capacity")
+        _check(
+            g.get("name"), cap if cap is not None else g.get("pmax"), "generator.pmax"
+        )
+    for b in system.get("battery_array", []):
+        _check(b.get("name"), b.get("pmax_discharge"), "battery.pmax_discharge")
+
+    return items
+
+
 # ---------------------------------------------------------------------------
 # PLEXOS sol .accdb cache loaders
 # ---------------------------------------------------------------------------
@@ -1633,6 +1709,12 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
     if inputs.plexos_input_dir is not None and inputs.plexos_input_dir.is_dir():
         for item in build_b12_bounds(inputs.gtopt_json, inputs.plexos_input_dir):
             buckets["B12_bounds_mismatch"].append(item)
+        # B13: per-block profile-collapse (a varying Gen_Rating must not be
+        # emitted as a scalar cap — the blind spot B12's peak-vs-peak misses).
+        for item in build_b13_profile_collapse(
+            inputs.gtopt_json, inputs.plexos_input_dir
+        ):
+            buckets["B13_profile_collapse"].append(item)
 
     summary = {
         "n_plexos": len(plexos_names),

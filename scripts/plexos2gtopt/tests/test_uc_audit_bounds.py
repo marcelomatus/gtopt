@@ -17,6 +17,7 @@ from pathlib import Path
 from plexos2gtopt.uc_audit import (
     AuditInputs,
     build_b12_bounds,
+    build_b13_profile_collapse,
     run_audit,
 )
 
@@ -117,6 +118,64 @@ def test_b12_flags_reserve_provision_cap(tmp_path: Path) -> None:
     assert bad is not None and bad["field"] == "urmax"
     assert bad["gtopt"] == 50.0
     assert bad["plexos"] == 100.0
+
+
+def test_b13_flags_battery_power_collapse(tmp_path: Path) -> None:
+    """B13 flags a varying Gen_Rating emitted as a SCALAR cap (the blind spot
+    B12's peak-vs-peak misses), and passes a properly per-block profile."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "generator_array": [],
+                    "battery_array": [
+                        # varying rating but scalar cap → collapse, flagged
+                        {"name": "BAT_DLR", "pmax_discharge": 110.0},
+                        # varying rating emitted as a per-block profile → OK
+                        {"name": "BAT_OK", "pmax_discharge": [[72.0, 110.0]]},
+                    ],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    (input_dir / "Gen_Rating.csv").write_text(
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "BAT_DLR,2026,1,1,1,1,72\nBAT_DLR,2026,1,1,2,1,110\n"
+        "BAT_OK,2026,1,1,1,1,72\nBAT_OK,2026,1,1,2,1,110\n"
+    )
+    by_name = {
+        it["name"]: it for it in build_b13_profile_collapse(gtopt_json, input_dir)
+    }
+    assert "BAT_DLR" in by_name  # scalar cap on a varying rating → flagged
+    assert by_name["BAT_DLR"]["field"] == "battery.pmax_discharge"
+    assert by_name["BAT_DLR"]["gtopt_scalar"] == 110.0
+    assert by_name["BAT_DLR"]["input_range"] == [72.0, 110.0]
+    assert "BAT_OK" not in by_name  # per-block profile → not flagged
+
+
+def test_b13_constant_rating_not_flagged(tmp_path: Path) -> None:
+    """A constant Gen_Rating emitted as a scalar is correct — not flagged."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "generator_array": [{"name": "G1", "pmax": 50.0}],
+                    "battery_array": [],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    (input_dir / "Gen_Rating.csv").write_text(
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
+        "G1,2026,1,1,1,1,50\nG1,2026,1,1,2,1,50\n"
+    )
+    assert build_b13_profile_collapse(gtopt_json, input_dir) == []
 
 
 def test_b12_within_tolerance_not_flagged(tmp_path: Path) -> None:
