@@ -426,6 +426,14 @@ class BatterySpec:
     efin: float = 0.0
     pmax_charge: float = 0.0
     pmax_discharge: float = 0.0
+    # Per-hour power rating (length = bundle.n_days × 24) from the matching
+    # ``BAT_<name>`` Generator's ``Gen_Rating`` series.  When it VARIES across
+    # the horizon (battery DLR — e.g. BAT_TOCOPILLA 72→110 MW), the writer
+    # emits ``pmax_charge``/``pmax_discharge`` as a per-block matrix matching
+    # this series instead of the scalar peak above (which would over-state the
+    # battery's power in the de-rated blocks).  Empty ⇒ constant rating ⇒
+    # scalar.  CEN ships symmetric Max Power, so one series feeds both legs.
+    power_profile: tuple[float, ...] = field(default_factory=tuple)
     input_efficiency: float = 1.0
     output_efficiency: float = 1.0
     # PLEXOS Min Charge / Min Discharge Level (MW): minimum power when

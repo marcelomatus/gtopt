@@ -209,6 +209,38 @@ def test_build_battery_array_snapshot() -> None:
     _assert_snapshot("build_battery_array", build_battery_array(batteries))
 
 
+def test_build_battery_array_dlr_power_profile() -> None:
+    """A time-varying battery power rating (battery DLR, e.g. BAT_TOCOPILLA
+    72→110 MW) is emitted as a per-block pmax_charge/pmax_discharge profile,
+    NOT collapsed to the peak.  A constant rating stays a scalar."""
+    batteries = (
+        BatterySpec(
+            object_id=1,
+            name="BAT_DLR",
+            bus_name="b",
+            emax=100.0,
+            pmax_charge=110.0,
+            pmax_discharge=110.0,
+            power_profile=(72.0, 72.0, 110.0, 110.0),
+        ),
+        BatterySpec(
+            object_id=2,
+            name="BAT_FLAT",
+            bus_name="b",
+            emax=50.0,
+            pmax_charge=40.0,
+            pmax_discharge=40.0,
+        ),
+    )
+    out = {e["name"]: e for e in build_battery_array(batteries)}
+    # Varying rating → per-block matrix preserving the de-rated blocks.
+    assert out["BAT_DLR"]["pmax_discharge"] == [[72.0, 72.0, 110.0, 110.0]]
+    assert out["BAT_DLR"]["pmax_charge"] == [[72.0, 72.0, 110.0, 110.0]]
+    # Constant rating (no profile) → scalar peak.
+    assert out["BAT_FLAT"]["pmax_discharge"] == 40.0
+    assert out["BAT_FLAT"]["pmax_charge"] == 40.0
+
+
 def test_build_reservoir_array_snapshot() -> None:
     """Reservoir entries emit energy bounds + water value + optional profiles."""
     reservoirs = (

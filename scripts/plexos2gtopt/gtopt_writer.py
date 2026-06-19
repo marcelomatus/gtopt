@@ -1574,6 +1574,24 @@ def build_demand_array(
     return out
 
 
+def _battery_power_field(
+    power_profile: tuple[float, ...],
+    scalar: float,
+    block_layout: tuple[tuple[int, ...], ...],
+) -> list[list[float]] | float:
+    """Battery DLR power cap: a per-block matrix when the Gen_Rating series
+    varies, else the scalar peak.  Block aggregation uses ``min`` (most
+    restrictive within a block) since this is a power cap."""
+    if power_profile and (max(power_profile) != min(power_profile)):
+        blocks = (
+            _aggregate_to_blocks(list(power_profile), block_layout, reducer="min")
+            if block_layout
+            else list(power_profile)
+        )
+        return [blocks]
+    return scalar
+
+
 def build_battery_array(
     batteries: tuple[BatterySpec, ...],
     block_layout: tuple[tuple[int, ...], ...] = (),
@@ -1691,10 +1709,19 @@ def build_battery_array(
             #     to false, unlike reservoirs.
             entry["daily_cycle"] = False
             entry["use_state_variable"] = True
+
+        # Per-block power rating (battery DLR): when the Gen_Rating series
+        # varies, emit pmax_charge/pmax_discharge as a per-block matrix so the
+        # de-rated blocks are honoured; otherwise the scalar peak.  CEN ships
+        # symmetric Max Power, so the same profile feeds both legs.
         if bat.pmax_discharge > 0.0:
-            entry["pmax_discharge"] = bat.pmax_discharge
+            entry["pmax_discharge"] = _battery_power_field(
+                bat.power_profile, bat.pmax_discharge, block_layout
+            )
         if bat.pmax_charge > 0.0:
-            entry["pmax_charge"] = bat.pmax_charge
+            entry["pmax_charge"] = _battery_power_field(
+                bat.power_profile, bat.pmax_charge, block_layout
+            )
         # PLEXOS ``Min Charge Level`` / ``Min Discharge Level`` are
         # *commitment-conditional* — they fire only when the battery
         # actively enters charge / discharge mode (u_charge=1 /

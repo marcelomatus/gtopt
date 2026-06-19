@@ -3467,11 +3467,15 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # Override the placeholder Max Power with the Gen_Rating peak
         # for the matching ``BAT_<name>`` Generator (the canonical
         # location for the battery's actual per-period MW rating).
-        _warn_if_series_varies(
-            "battery power rating", batt.name, gen_rating.get(batt.name, [])
-        )
-        gen_rating_peak = max(gen_rating.get(batt.name, [0]) or [0])
+        _power_series = gen_rating.get(batt.name) or []
+        gen_rating_peak = max(_power_series) if _power_series else 0.0
         max_power = max(max_power, gen_rating_peak)
+        # Keep the full per-period rating when it VARIES (battery DLR) so the
+        # writer can emit a per-block pmax_charge/pmax_discharge profile instead
+        # of the scalar peak (which over-states power in the de-rated blocks).
+        battery_power_profile = (
+            tuple(_power_series) if len(set(_power_series)) > 1 else ()
+        )
         charge_eff_pct = db.static_property(
             "Battery", batt.object_id, "Charge Efficiency", default=100.0
         )
@@ -3568,6 +3572,7 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
                 efin=eini if pin_efin else 0.0,
                 pmax_charge=max_power,
                 pmax_discharge=max_power,
+                power_profile=battery_power_profile,
                 pmin_charge=pmin_charge,
                 pmin_discharge=pmin_discharge,
                 max_cycles_day=max_cycles_day,
