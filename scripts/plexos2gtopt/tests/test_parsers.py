@@ -1945,6 +1945,36 @@ def test_extract_lines_el0_rating_suppresses_auto_lift(
     assert explicit.soft_cap_lifted is True
 
 
+def test_warn_if_series_varies(caplog: pytest.LogCaptureFixture) -> None:
+    """Structural guard: warns only on genuine variation among DEFINED periods.
+
+    Inputs read with ``read_long(fill_forward=False)`` zero-pad undefined
+    periods, so a sparse period-1-only series ``[v, 0, 0, …]`` must NOT warn;
+    a real intra-horizon change among non-zero values MUST warn.
+    """
+    import logging
+
+    from plexos2gtopt.parsers import _warn_if_series_varies
+
+    # Sparse period-1 only (rest zero-padding) → no warning.
+    with caplog.at_level(logging.WARNING):
+        _warn_if_series_varies("heat rate", "G", [0.23, 0.0, 0.0, 0.0])
+    assert "time-varying" not in caplog.text
+
+    # Constant non-zero → no warning.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _warn_if_series_varies("heat rate", "G", [0.23, 0.23, 0.23])
+    assert "time-varying" not in caplog.text
+
+    # Genuine variation among DEFINED (non-zero) periods → warning.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _warn_if_series_varies("heat rate", "G", [0.23, 0.0, 0.30, 0.0])
+    assert "time-varying" in caplog.text
+    assert "G" in caplog.text
+
+
 def test_extract_lines_el0_default_strict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

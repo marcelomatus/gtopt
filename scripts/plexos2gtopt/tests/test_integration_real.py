@@ -370,7 +370,6 @@ def test_real_bundle_p4_hydro_topology() -> None:
             or r.spill_penalty_per_mwh > 0
             or r.emin_profile
             or r.emax_profile
-            or r.inflow_profile
         )
         # Tolerate the pure-eini case ONLY when the Reservoir is the
         # head of a turbine — series-hydro Reservoirs (CURILLINQUE,

@@ -473,7 +473,6 @@ class ReservoirSpec:
     # space mid-week.  Empty tuple ⇒ scalar fallback.
     emin_profile: tuple[float, ...] = field(default_factory=tuple)
     emax_profile: tuple[float, ...] = field(default_factory=tuple)
-    inflow_profile: tuple[float, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

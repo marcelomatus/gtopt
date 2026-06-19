@@ -1733,6 +1733,39 @@ def _recover_csv_only_thermals(
 _PMAX_DEGENERATE_FLOOR_MW = 1.0e-3
 
 
+def _warn_if_series_varies(
+    field: str, name: str, series: list[float] | tuple[float, ...]
+) -> None:
+    """Warn when a PLEXOS per-period input series is about to be collapsed to a
+    single scalar but is NOT constant across the horizon.
+
+    Several inputs (heat rate, VO&M, fuel transport, turbine production factor)
+    have NO per-block profile field on their gtopt target spec, so the converter
+    keeps only the period-1 value.  On CEN PCP these are flat, so this is a
+    no-op; but if a future bundle ships a genuinely time-varying series the
+    variation would be silently lost — this surfaces it as a WARNING instead.
+    Structural guard against the "profile silently collapsed to scalar" class.
+
+    Only DEFINED periods are compared: these inputs are read with
+    ``read_long(fill_forward=False)``, which zero-pads undefined periods (a
+    sparse period-1-only CSV becomes ``[v, 0, 0, …]``), so 0 means "no row",
+    not a real value.  Comparing the non-zero values avoids false-flagging that
+    padding while still catching genuine intra-horizon variation among the
+    periods PLEXOS actually defines.
+    """
+    defined = [v for v in series if v != 0.0]
+    if defined and (max(defined) - min(defined)) > 1.0e-9:
+        logger.warning(
+            "extract: '%s' ships a time-varying %s (%.4g..%.4g across defined "
+            "periods) but gtopt carries a single scalar — the per-period "
+            "variation is NOT transferred.",
+            name,
+            field,
+            min(defined),
+            max(defined),
+        )
+
+
 def extract_generators(
     db: PlexosDb,
     bundle: PlexosBundle,
@@ -2233,6 +2266,7 @@ def extract_generators(
         # explicit heat_rate=0 for ~6 renewable generators (geothermal,
         # solar thermal) where fuel consumption truly is zero.
         if gen.name in heat_rate_csv:
+            _warn_if_series_varies("heat rate", gen.name, heat_rate_csv[gen.name])
             heat_rate = heat_rate_csv[gen.name][0]
         else:
             # PLEXOS heat-rate conventions, in order of preference:
@@ -2250,6 +2284,7 @@ def extract_generators(
         # VOM: CSV-present (even 0) takes precedence; only fall back to
         # t_data when the generator is absent from the CSV.
         if gen.name in vom_csv:
+            _warn_if_series_varies("VO&M charge", gen.name, vom_csv[gen.name])
             vom = vom_csv[gen.name][0]
         else:
             vom = db.static_property("Generator", gen.object_id, "VO&M Charge")
@@ -2271,10 +2306,16 @@ def extract_generators(
             for fname in gen_fuel_names:
                 key = gen.name + fname
                 if key in fuel_transport_csv:
+                    _warn_if_series_varies(
+                        "fuel transport charge", key, fuel_transport_csv[key]
+                    )
                     fuel_transport = fuel_transport_csv[key][0]
                     fuel_transport_found = True
                     break
             if not fuel_transport_found and gen.name in fuel_transport_csv:
+                _warn_if_series_varies(
+                    "fuel transport charge", gen.name, fuel_transport_csv[gen.name]
+                )
                 fuel_transport = fuel_transport_csv[gen.name][0]
         # 118-Bus prices fuel per-generator instead of per-fuel.
         fuel_price_override = db.static_property(
@@ -3426,6 +3467,9 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # Override the placeholder Max Power with the Gen_Rating peak
         # for the matching ``BAT_<name>`` Generator (the canonical
         # location for the battery's actual per-period MW rating).
+        _warn_if_series_varies(
+            "battery power rating", batt.name, gen_rating.get(batt.name, [])
+        )
         gen_rating_peak = max(gen_rating.get(batt.name, [0]) or [0])
         max_power = max(max_power, gen_rating_peak)
         charge_eff_pct = db.static_property(
@@ -3910,7 +3954,6 @@ def _reservoir_is_pure_pondage(r: ReservoirSpec) -> bool:
         and not r.never_drain
         and not r.emin_profile
         and not r.emax_profile
-        and not r.inflow_profile
     )
 
 
@@ -4649,6 +4692,7 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                 if vals:
                     nonzero = [v for v in vals if v > 0.0]
                     if nonzero:
+                        _warn_if_series_varies("turbine production factor", k, nonzero)
                         csv_pf[k] = nonzero[0]
         except (OSError, ValueError) as exc:
             logger.debug("Hydro_EfficiencyIncr.csv fallback failed: %s", exc)
