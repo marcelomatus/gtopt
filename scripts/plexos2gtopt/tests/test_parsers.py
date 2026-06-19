@@ -1902,6 +1902,49 @@ def test_extract_lines_no_lift_pins_hard_cap(
     assert noop.soft_cap is False
 
 
+def test_extract_lines_el0_rating_suppresses_auto_lift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The DEFAULT (auto) ``--lift-line-caps`` list does NOT lift an EL=0 line
+    that ships a real Max Rating, but an EXPLICIT list does (precedence).
+
+    An EL=0 line with a PLEXOS-defined rating (``Lin_MaxRating``) is the
+    operator's stated intent, so the automatic strict-mode lift is suppressed
+    and the line is hard-capped at its original rating.  A user-supplied
+    ``--lift-line-caps`` value (differing from the shipped default) takes
+    precedence and lifts it to the soft-cap band regardless.
+    """
+    from gtopt_shared.cli_flags import DEFAULT_LIFT_LINE_CAPS_PLEXOS
+
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(_EL0_LINE_XML)
+    _write_csv(
+        tmp_path,
+        "Lin_MaxRating.csv",
+        "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\nCABLE,2026,1,1,1,1,90\n",
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path)
+    db = load_xml(xml_path)
+    monkeypatch.setenv("GTOPT_EL0_LINES", "strict")
+    monkeypatch.delenv("GTOPT_NO_LIFT_LINES", raising=False)
+
+    # Default (auto) lift list active → rated EL=0 line is hard-capped, NOT
+    # lifted (automatic lift suppressed).
+    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", DEFAULT_LIFT_LINE_CAPS_PLEXOS)
+    auto = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert auto.enforce_limits == 2
+    assert auto.soft_cap is False
+    assert auto.soft_cap_lifted is False
+    assert auto.tmax_ab == 90.0  # original rating, not 6× inflated
+
+    # Explicit list (differs from default) naming the line → lifted (precedence).
+    monkeypatch.setenv("GTOPT_LIFT_LINE_CAPS", "CABLE")
+    explicit = {ln.name: ln for ln in extract_lines(db, bundle)}["CABLE"]
+    assert explicit.enforce_limits == 1
+    assert explicit.soft_cap is True
+    assert explicit.soft_cap_lifted is True
+
+
 def test_extract_lines_el0_default_strict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

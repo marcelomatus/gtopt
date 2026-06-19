@@ -2590,6 +2590,26 @@ def extract_lines(
 
         _lift_raw = _os_lift.environ.get("GTOPT_LIFT_LINE_CAPS", "")
         _lift_set = {n.strip() for n in _lift_raw.split(",") if n.strip()}
+        # Distinguish an EXPLICIT user ``--lift-line-caps`` list from the
+        # shipped default (auto) list: the default is the curated
+        # ``DEFAULT_LIFT_LINE_CAPS_PLEXOS``, so any other non-empty value is a
+        # deliberate user choice.  Explicit lifts take precedence over the
+        # rating-based auto-lift suppression below; the default/auto list does
+        # NOT lift a rated EL=0 line.
+        from gtopt_shared.cli_flags import (  # noqa: PLC0415
+            DEFAULT_LIFT_LINE_CAPS_PLEXOS,
+        )
+
+        _default_lift_set = {
+            n.strip() for n in DEFAULT_LIFT_LINE_CAPS_PLEXOS.split(",") if n.strip()
+        }
+        _lift_is_explicit = bool(_lift_set) and _lift_set != _default_lift_set
+        # PLEXOS defines this line's rating when it ships a Max Rating profile
+        # (``tmax_series``), a Min Rating (``tmin_series``), or any Max Flow /
+        # Max Rating scalar (``tmax > 0`` — guaranteed here, since tmax<=0 lines
+        # were already skipped).  When it does, the automatic EL=0 lift is
+        # suppressed: the rating is the operator's intent, not a missing cap.
+        _has_tmax_mechanism = tmax > 0.0 or bool(tmax_series) or bool(tmin_series)
         # ``--no-lift-lines`` (GTOPT_NO_LIFT_LINES): the INVERSE of the lift
         # list — names PINNED to a plain HARD cap at their rating, overriding
         # the EL=0 soft-cap free band.  For genuine physical limits PLEXOS
@@ -2641,23 +2661,52 @@ def extract_lines(
                 line.name,
                 enforce_limits,
             )
-        elif line.name in _lift_set:
-            # LIFT to a soft cap (3× free / 6× hard band).  Under the
-            # ``--el0-lines strict`` default both EL=0 and EL=1 lines are
-            # plain hard caps; the lift list carves out the corridors the
-            # PLEXOS solution actually runs ABOVE rating (the data-derived 34
-            # EL=0 lines + the EL=1 ``Capricornio110->LaNegra110``).  A bare
-            # hard cap there would create unserved demand in the radial
-            # load pocket; the soft band lets the LP push past the rating at a
-            # penalty without teleporting GWs (the 6× hard cap blocks that).
-            # ``--lift-line-caps`` is an explicit override, so it stays soft
-            # regardless of ``--el0-lines`` / ``--no-lift-lines``.
+        elif line.name in _lift_set and _lift_is_explicit:
+            # EXPLICIT ``--lift-line-caps`` (a user list differing from the
+            # shipped default) takes PRECEDENCE for ALL lines: lift to a soft
+            # cap (3× free / 6× hard band) regardless of any rating mechanism.
             enforce_limits = 1
             soft_cap = True
             soft_cap_lifted = True
             logger.info(
-                "extract_lines: '%s' (--lift-line-caps) → soft cap, free to "
-                "3x rating then penalised up to 6x (was EL=%d hard cap).",
+                "extract_lines: '%s' (--lift-line-caps, explicit) → soft cap, "
+                "free to 3x rating then penalised up to 6x (was EL=%d).",
+                line.name,
+                enforce_limits_orig,
+            )
+        elif enforce_limits == 0 and _has_tmax_mechanism and _el0_mode == "strict":
+            # AUTOMATIC (default, ``--el0-lines strict``) EL=0 lifting is
+            # SUPPRESSED when PLEXOS defines this line's rating (a ``tmax_ab``
+            # Max Rating profile, a Min Rating, or a Max Flow scalar): the rating
+            # is the operator's stated intent, so pin to a plain HARD cap at the
+            # ORIGINAL rating instead of inflating it to the default 3× free / 6×
+            # hard soft-cap band (which, with ``--loss-extend-overload`` ON, also
+            # stretches the loss envelope to 6×).  This OVERRIDES the default
+            # ``--lift-line-caps`` auto-list.  Lifting BY OPTION still takes
+            # precedence: an EXPLICIT ``--lift-line-caps`` (handled above) or the
+            # explicit ``--el0-lines extended`` mode (falls through below) lifts
+            # regardless.  A radial pocket PLEXOS itself ran above rating may
+            # turn the LP infeasible — surfaced, not silently re-lifted.
+            enforce_limits = 2
+            logger.info(
+                "extract_lines: '%s' (EL=0 with PLEXOS rating) → hard cap at "
+                "original rating %.1f; automatic lift suppressed.",
+                line.name,
+                tmax,
+            )
+        elif line.name in _lift_set:
+            # DEFAULT/auto lift list (the shipped curated corridors): lifts
+            # non-EL=0 entries that PLEXOS runs above rating — e.g. the EL=1
+            # ``Capricornio110->LaNegra110``.  EL=0 rated entries were already
+            # hard-capped just above (automatic lift suppressed).  The soft band
+            # lets the LP push past the rating at a penalty without teleporting
+            # GWs (the 6× hard cap blocks that).
+            enforce_limits = 1
+            soft_cap = True
+            soft_cap_lifted = True
+            logger.info(
+                "extract_lines: '%s' (--lift-line-caps, default) → soft cap, "
+                "free to 3x rating then penalised up to 6x (was EL=%d).",
                 line.name,
                 enforce_limits_orig,
             )
