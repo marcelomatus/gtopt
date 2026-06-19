@@ -307,6 +307,43 @@ def test_auto_discover_res_zip_returns_none_when_missing(
     assert auto_discover_res_zip(datos) is None
 
 
+def test_auto_discover_res_zip_finds_res_inside_bundle_dir(
+    tmp_path: Path,
+) -> None:
+    # CEN PCP bundle dirs ship DATOS + RES INSIDE the dir.  Passing the
+    # directory must find the RES within it, NOT scan the parent
+    # (regression: dir branch used input_bundle.parent.iterdir()).
+    bundle = tmp_path / "pcp_2025-10-19"
+    bundle.mkdir()
+    (bundle / "DATOS20251019.zip.xz").write_bytes(b"")
+    res = bundle / "RES20251019.zip.xz"
+    res.write_bytes(b"")
+    assert auto_discover_res_zip(bundle) == res
+
+
+def test_auto_discover_res_zip_dir_returns_none_when_no_res(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "pcp_2025-10-19"
+    bundle.mkdir()
+    (bundle / "DATOS20251019.zip.xz").write_bytes(b"")
+    # a sibling RES in the PARENT must not be picked up.
+    (tmp_path / "RES20251019.zip.xz").write_bytes(b"")
+    assert auto_discover_res_zip(bundle) is None
+
+
+def test_auto_discover_res_zip_dir_prefers_date_matching_res(
+    tmp_path: Path,
+) -> None:
+    bundle = tmp_path / "pcp_2025-10-19"
+    bundle.mkdir()
+    (bundle / "DATOS20251019.zip.xz").write_bytes(b"")
+    (bundle / "RES20251005.zip.xz").write_bytes(b"")  # stray, wrong date
+    res = bundle / "RES20251019.zip.xz"
+    res.write_bytes(b"")
+    assert auto_discover_res_zip(bundle) == res
+
+
 # ---------------------------------------------------------------------------
 # T5: read_long fill_forward carries the last defined value across gaps
 # ---------------------------------------------------------------------------

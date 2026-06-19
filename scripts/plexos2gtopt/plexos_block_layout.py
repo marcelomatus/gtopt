@@ -928,21 +928,42 @@ def extract_fuel_offtake_caps(
 
 
 def auto_discover_res_zip(input_bundle: Path) -> Path | None:
-    """Look for a sibling ``RES*.zip[.xz]`` matching the bundle date.
+    """Locate the ``RES*.zip[.xz]`` solution bundle for ``input_bundle``.
 
-    CEN PCP daily bundles are named ``DATOS<DATE>.zip[.xz]`` next to
-    ``RES<DATE>.zip[.xz]``.  We replace the leading ``DATOS`` with
-    ``RES`` and check whether the sibling exists.  Returns ``None``
-    when no matching sibling is found.
+    CEN PCP daily bundles pair ``DATOS<DATE>.zip[.xz]`` with
+    ``RES<DATE>.zip[.xz]``.  Two input shapes are supported:
+
+    * ``input_bundle`` is a **directory** holding both files — scan the
+      directory itself for ``RES*`` (preferring the date that matches a
+      sibling ``DATOS*``).
+    * ``input_bundle`` is the **DATOS file** — replace the leading
+      ``DATOS`` with ``RES`` and check the sibling next to it.
+
+    Returns ``None`` when no matching ``RES`` archive is found.
     """
     input_bundle = input_bundle.resolve()
     if input_bundle.is_dir():
-        candidates = [
+        # CEN PCP bundle dirs ship ``DATOS<DATE>.zip[.xz]`` next to
+        # ``RES<DATE>.zip[.xz]`` INSIDE the dir, so scan the dir itself
+        # (not its parent).  Prefer the RES whose date matches a sibling
+        # DATOS when several are present.
+        res = [
             p
-            for p in input_bundle.parent.iterdir()
+            for p in input_bundle.iterdir()
             if p.name.startswith("RES") and (p.suffix in (".zip", ".xz"))
         ]
-        return candidates[0] if candidates else None
+        if not res:
+            return None
+        datos = next(
+            (p for p in input_bundle.iterdir() if p.name.startswith("DATOS")),
+            None,
+        )
+        if datos is not None:
+            date_tag = datos.name[len("DATOS") :].split(".")[0]
+            for p in res:
+                if date_tag and date_tag in p.name:
+                    return p
+        return res[0]
     # File case: replace DATOS prefix with RES.
     name = input_bundle.name
     if name.startswith("DATOS"):
