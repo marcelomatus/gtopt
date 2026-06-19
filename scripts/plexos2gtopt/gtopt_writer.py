@@ -3143,6 +3143,7 @@ def build_commitment_array(
 def build_reserve_provision_array(
     provisions: tuple[ReserveProvisionSpec, ...],
     block_layout: tuple[tuple[int, ...], ...] = (),
+    committed_gens: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """One ``ReserveProvision`` per :class:`ReserveProvisionSpec`.
 
@@ -3211,21 +3212,34 @@ def build_reserve_provision_array(
             entry["drmax"] = [blocks]
         elif p.drmax > 0.0:
             entry["drmax"] = p.drmax
-        # PLEXOS "Min Provision" is a hard floor on reserve provision
-        # that PLEXOS itself gates on the generator being COMMITTED in
-        # the block.  gtopt's ``reserve_provision_lp.cpp`` does NOT
-        # apply such gating; setting ``urmin``/``drmin`` ships them as
-        # ``provision >= urmin`` for every block, regardless of unit
-        # status.  When the LP wants the unit dispatched below ``urmin``
-        # (or off entirely while the unit is "available"), the floor
-        # collides with ``provision <= gen`` and the LP becomes
-        # infeasible (observed on EL_TORO_U4 block 32 in CEN PCP 7d).
-        # Drop ``urmin``/``drmin`` until gtopt supports commitment-
-        # conditional reserve provision floors — PLEXOS Min Provision
-        # is currently unmodeled.  Reserve provision stays in
-        # ``[0, urmax]`` / ``[0, drmax]``.
-        _ = p.urmin
-        _ = p.drmin
+        # PLEXOS "Min Provision" (``ReserveGenerators.Min Provision``) is a
+        # floor on the reserve a generator must supply, GATED on the unit being
+        # COMMITTED in the block.  gtopt models exactly that: the provision col
+        # is created with ``lowb = urmin`` (reserve_provision_lp.cpp) and, for a
+        # generator that HAS a commitment, ``CommitmentLP`` rewrites it to the
+        # conditional linkage row ``provision - urmin·u >= 0`` and resets
+        # ``lowb = 0`` (commitment_lp.cpp:701-773) — so the floor only binds
+        # when ``u = 1``.  Emit ``urmin``/``drmin`` ONLY for committed
+        # generators: without a commitment the ``lowb = urmin`` floor stays
+        # ALWAYS-ON (``provision >= urmin`` every block) and collides with
+        # ``provision <= gen headroom`` when the unit is off / at full output
+        # (the historical EL_TORO_U4 block-32 infeasibility).
+        if p.generator_name in committed_gens:
+            if p.urmin > 0.0:
+                entry["urmin"] = p.urmin
+            if p.drmin > 0.0:
+                entry["drmin"] = p.drmin
+        elif p.urmin > 0.0 or p.drmin > 0.0:
+            logger.debug(
+                "build_reserve_provision_array: '%s' has Min Provision "
+                "(urmin=%.4g drmin=%.4g) but generator '%s' has no commitment "
+                "— floor dropped (an always-on row would risk infeasibility; "
+                "PLEXOS gates Min Provision on Available Units).",
+                p.name or p.generator_name,
+                p.urmin,
+                p.drmin,
+                p.generator_name,
+            )
         out.append(entry)
     return out
 
@@ -3633,6 +3647,10 @@ def build_planning(  # pylint: disable=too-many-arguments
         "reserve_provision_array": build_reserve_provision_array(
             case.reserve_provisions,
             block_layout=case.bundle.block_layout,
+            # PLEXOS Min Provision (urmin/drmin) is emitted only for generators
+            # with a commitment, so the commitment-conditional floor row
+            # (provision - urmin·u >= 0) in commitment_lp.cpp can gate it.
+            committed_gens=frozenset(c.generator_name for c in case.commitments),
         ),
         "commitment_array": build_commitment_array(
             case.commitments,

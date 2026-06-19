@@ -135,13 +135,18 @@ std::expected<void, Error> add_provision(
       block_rmax = lp.get_col_uppb(gcol);
     }
     // PLEXOS Min Provision floor — when set, clamp the provision col's
-    // lower bound to the per-block value.  This is an unconditional
-    // (always-on) floor: if the generator must always provide ≥urmin
-    // reserve, the LP solves through commitment_lp's gen-col linkage.
-    // Conditional-on-commitment behaviour (provision ≥ urmin × u) is
-    // a future refinement; v0 is the simpler always-on row that
-    // mirrors PLEXOS's "every committed unit must provide at least
-    // X MW" semantic on this gen.
+    // lower bound to the per-block value.  This seeds the floor as an
+    // unconditional ``provision ≥ urmin`` (the col ``lowb``).  For a
+    // generator that HAS a commitment, ``CommitmentLP::add_to_lp`` then
+    // rewrites it into the commitment-CONDITIONAL linkage row
+    // ``provision − urmin·u ≥ 0`` and resets ``lowb = 0`` (see
+    // commitment_lp.cpp "PLEXOS Min Provision linkage"), so the floor
+    // only binds when the unit is committed (``u = 1``) — matching
+    // PLEXOS's "Min Provision gated by Available Units" semantic.  The
+    // plexos2gtopt converter therefore emits ``urmin``/``drmin`` ONLY
+    // for committed generators; for a generator with no commitment the
+    // seed below would stay an always-on floor and could make the LP
+    // infeasible when the unit is off / at full output.
     const auto block_rmin = rp.min.optval(stage.uid(), buid).value_or(0.0);
 
     // LP-size: when both bounds collapse to zero the provision column is
