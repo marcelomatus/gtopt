@@ -475,45 +475,32 @@ def test_build_reserve_provision_array_snapshot() -> None:
     )
 
 
-def test_reserve_provision_min_provision_gated_on_commitment() -> None:
-    """PLEXOS Min Provision (urmin/drmin) is emitted ONLY for committed gens.
+def test_reserve_provision_min_provision_not_emitted() -> None:
+    """PLEXOS Min Provision (urmin/drmin) is NOT emitted — it stays a safe
+    ``[0, urmax]`` provision.
 
-    gtopt builds the commitment-conditional floor ``provision - urmin·u >= 0``
-    (commitment_lp.cpp) only when the generator has a commitment.  Without one
-    the floor would be an always-on ``provision >= urmin`` row that collides
-    with ``provision <= headroom`` (the historical EL_TORO_U4 infeasibility),
-    so the converter drops it for non-committed generators.
+    As a HARD floor it makes the LP infeasible on real CEN data: even gated on
+    commitment (``provision - urmin·u >= 0``) and clamped to the per-block
+    urmax cap, a flat urmin can exceed the *dynamic* generator headroom (a
+    committed unit pinned near pmax has no spare capacity for up-reserve), so
+    ``provision >= urmin`` collides with ``provision <= pmax - gen`` and the
+    --no-mip LP is infeasible (pcp_2025-11-09).  Reproducing PLEXOS's
+    energy+reserve co-optimisation needs a soft-slack reserve floor (future
+    C++ work); until then the converter emits only the urmax/drmax caps.
     """
     provisions = (
         ReserveProvisionSpec(
-            generator_name="COMMITTED_G",
+            generator_name="G1",
             reserve_zones=("Z",),
             urmax=50.0,
             drmax=30.0,
             urmin=5.0,
             drmin=4.0,
         ),
-        ReserveProvisionSpec(
-            generator_name="UNCOMMITTED_G",
-            reserve_zones=("Z",),
-            urmax=20.0,
-            urmin=3.0,
-            drmin=2.0,
-        ),
     )
-    out = {
-        e["generator"]: e
-        for e in build_reserve_provision_array(
-            provisions, committed_gens=frozenset({"COMMITTED_G"})
-        )
-    }
-    # Committed generator → conditional floor emitted.
-    assert out["COMMITTED_G"]["urmin"] == 5.0
-    assert out["COMMITTED_G"]["drmin"] == 4.0
-    # Non-committed generator → floor dropped (no always-on row).
-    assert "urmin" not in out["UNCOMMITTED_G"]
-    assert "drmin" not in out["UNCOMMITTED_G"]
-    # Default (no committed_gens) → every floor dropped.
-    out_default = {e["generator"]: e for e in build_reserve_provision_array(provisions)}
-    assert "urmin" not in out_default["COMMITTED_G"]
-    assert "drmin" not in out_default["COMMITTED_G"]
+    out = {e["generator"]: e for e in build_reserve_provision_array(provisions)}
+    assert out["G1"]["urmax"] == 50.0
+    assert out["G1"]["drmax"] == 30.0
+    # Min Provision floors are deliberately NOT emitted (feasibility).
+    assert "urmin" not in out["G1"]
+    assert "drmin" not in out["G1"]

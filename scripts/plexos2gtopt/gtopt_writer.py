@@ -3167,10 +3167,29 @@ def build_commitment_array(
     return out
 
 
+def _reserve_cap(
+    profile: tuple[float, ...],
+    scalar: float,
+    block_layout: tuple[tuple[int, ...], ...],
+) -> list[list[float]] | float | None:
+    """Emitted reserve cap (urmax/drmax): per-block ``[[blocks]]`` from the
+    CFdata MRU/MRD profile (min-aggregated — a cap), else the scalar, else
+    ``None`` when there is no positive cap."""
+    if profile:
+        blocks = (
+            _aggregate_to_blocks(list(profile), block_layout, reducer="min")
+            if block_layout
+            else list(profile)
+        )
+        return [blocks]
+    if scalar > 0.0:
+        return scalar
+    return None
+
+
 def build_reserve_provision_array(
     provisions: tuple[ReserveProvisionSpec, ...],
     block_layout: tuple[tuple[int, ...], ...] = (),
-    committed_gens: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """One ``ReserveProvision`` per :class:`ReserveProvisionSpec`.
 
@@ -3221,52 +3240,30 @@ def build_reserve_provision_array(
         # cascade.  Aggregator: SUM of MRU across CPF/CSF/CTF (CTFON
         # tertiary on-line) per direction — the conservative upper
         # envelope for the single-column reserve_provision LP variable.
-        if p.urmax_profile:
-            blocks = (
-                _aggregate_to_blocks(list(p.urmax_profile), block_layout, reducer="min")
-                if block_layout
-                else list(p.urmax_profile)
-            )
-            entry["urmax"] = [blocks]
-        elif p.urmax > 0.0:
-            entry["urmax"] = p.urmax
-        if p.drmax_profile:
-            blocks = (
-                _aggregate_to_blocks(list(p.drmax_profile), block_layout, reducer="min")
-                if block_layout
-                else list(p.drmax_profile)
-            )
-            entry["drmax"] = [blocks]
-        elif p.drmax > 0.0:
-            entry["drmax"] = p.drmax
-        # PLEXOS "Min Provision" (``ReserveGenerators.Min Provision``) is a
-        # floor on the reserve a generator must supply, GATED on the unit being
-        # COMMITTED in the block.  gtopt models exactly that: the provision col
-        # is created with ``lowb = urmin`` (reserve_provision_lp.cpp) and, for a
-        # generator that HAS a commitment, ``CommitmentLP`` rewrites it to the
-        # conditional linkage row ``provision - urmin·u >= 0`` and resets
-        # ``lowb = 0`` (commitment_lp.cpp:701-773) — so the floor only binds
-        # when ``u = 1``.  Emit ``urmin``/``drmin`` ONLY for committed
-        # generators: without a commitment the ``lowb = urmin`` floor stays
-        # ALWAYS-ON (``provision >= urmin`` every block) and collides with
-        # ``provision <= gen headroom`` when the unit is off / at full output
-        # (the historical EL_TORO_U4 block-32 infeasibility).
-        if p.generator_name in committed_gens:
-            if p.urmin > 0.0:
-                entry["urmin"] = p.urmin
-            if p.drmin > 0.0:
-                entry["drmin"] = p.drmin
-        elif p.urmin > 0.0 or p.drmin > 0.0:
-            logger.debug(
-                "build_reserve_provision_array: '%s' has Min Provision "
-                "(urmin=%.4g drmin=%.4g) but generator '%s' has no commitment "
-                "— floor dropped (an always-on row would risk infeasibility; "
-                "PLEXOS gates Min Provision on Available Units).",
-                p.name or p.generator_name,
-                p.urmin,
-                p.drmin,
-                p.generator_name,
-            )
+        ur_cap = _reserve_cap(p.urmax_profile, p.urmax, block_layout)
+        if ur_cap is not None:
+            entry["urmax"] = ur_cap
+        dr_cap = _reserve_cap(p.drmax_profile, p.drmax, block_layout)
+        if dr_cap is not None:
+            entry["drmax"] = dr_cap
+        # PLEXOS "Min Provision" (``ReserveGenerators.Min Provision``, urmin/
+        # drmin) is NOT emitted: as a HARD floor it makes the LP infeasible on
+        # real CEN data, and gtopt has no soft (penalised-slack) reserve-floor
+        # yet.  The C++ side already gates it on commitment
+        # (``provision - urmin·u >= 0``, commitment_lp.cpp) and we tried two
+        # further guards — emit only for committed gens, and clamp urmin to the
+        # per-block urmax (Min Provision <= Max Response) — but the floor can
+        # STILL exceed the *dynamic* generator headroom: a committed unit pinned
+        # near pmax (Fixed Load / must-take) has no spare capacity for up-reserve,
+        # so ``provision >= urmin`` collides with ``provision <= pmax - gen`` and
+        # the --no-mip LP is infeasible (verified on pcp_2025-11-09).  PLEXOS
+        # co-optimises energy+reserve and simply does not bind Min Provision
+        # where capability is exhausted; reproducing that needs a soft-slack
+        # reserve-provision floor (future C++ work).  Until then, reserve
+        # provision stays in ``[0, urmax]`` — the safe, feasible model the
+        # converter shipped before.
+        _ = p.urmin
+        _ = p.drmin
         out.append(entry)
     return out
 
@@ -3674,10 +3671,6 @@ def build_planning(  # pylint: disable=too-many-arguments
         "reserve_provision_array": build_reserve_provision_array(
             case.reserve_provisions,
             block_layout=case.bundle.block_layout,
-            # PLEXOS Min Provision (urmin/drmin) is emitted only for generators
-            # with a commitment, so the commitment-conditional floor row
-            # (provision - urmin·u >= 0) in commitment_lp.cpp can gate it.
-            committed_gens=frozenset(c.generator_name for c in case.commitments),
         ),
         "commitment_array": build_commitment_array(
             case.commitments,
