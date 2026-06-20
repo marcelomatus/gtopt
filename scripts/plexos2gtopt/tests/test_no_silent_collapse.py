@@ -14,18 +14,21 @@ controls), and asserts none of them is silently collapsed.
 
 History: ``extract_reservoirs`` used to collapse ``Hydro_MinVolume`` to a
 scalar ``static_emin`` and ``Hydro_MaxVolume`` to ``min(emax_series)`` (losing
-e.g. CANUTILLAR's 12,330 → 10,570 step), and ``extract_fuels`` kept only the
-period-1 fuel price — all silently.  This guard fails on that behaviour and
-passes once profiles are emitted / warnings fire.
+e.g. CANUTILLAR's 12,330 → 10,570 step), and ``extract_fuels`` /
+``extract_turbines`` kept only the period-1 fuel price / production factor —
+all silently.  Since ``Fuel.price`` and ``Turbine.production_factor`` became
+per-(stage, block) (``OptTBRealFieldSched``), those two now emit per-block
+PROFILES instead of warning.  This guard fails on the old behaviour and passes
+once profiles are emitted / warnings fire.
 """
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
 
+from plexos2gtopt.gtopt_writer import build_fuel_array
 from plexos2gtopt.parsers import extract_fuels, extract_reservoirs
 from plexos2gtopt.plexos_loader import PlexosBundle
 from plexos2gtopt.plexos_xml import NS, load_xml
@@ -78,6 +81,30 @@ _XML = f"""<?xml version="1.0" standalone="yes"?>
     <collection_id>2</collection_id>
     <parent_object_id>20</parent_object_id>
     <child_object_id>40</child_object_id>
+  </t_membership>
+</MasterDataSet>
+"""
+
+
+# One hydro Generator (HYDRO) with a Head Storage membership to a Storage
+# (RES) — the minimum extract_turbines needs to emit a TurbineSpec.
+_TURBINE_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>HYDRO</name></t_object>
+  <t_object><object_id>30</object_id><class_id>8</class_id><name>RES</name></t_object>
+  <t_collection>
+    <collection_id>50</collection_id>
+    <parent_class_id>2</parent_class_id>
+    <child_class_id>8</child_class_id>
+    <name>Head Storage</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>600</membership_id>
+    <collection_id>50</collection_id>
+    <parent_object_id>20</parent_object_id>
+    <child_object_id>30</child_object_id>
   </t_membership>
 </MasterDataSet>
 """
@@ -157,21 +184,81 @@ def test_emin_emax_not_silently_collapsed(tmp_path: Path) -> None:
     assert max(res.emax_profile) == pytest.approx(2000.0)
 
 
-def test_fuel_price_collapse_warns(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A varying Fuel_Price has no per-block field on gtopt's Fuel (the price
-    is pre-folded into scalar gcost), so the collapse must at least WARN."""
+def test_fuel_price_emits_per_block_profile(tmp_path: Path) -> None:
+    """A varying Fuel_Price must now be carried as a per-period profile on
+    the FuelSpec AND emitted as a per-block ``[[...]]`` matrix by
+    ``build_fuel_array`` — no longer collapsed to the period-1 scalar."""
     bundle = _build_bundle(tmp_path)
     db = load_xml(bundle.xml_path)
-    with caplog.at_level(logging.WARNING, logger="plexos2gtopt.parsers"):
-        fuels = extract_fuels(db, bundle)
-    assert any(f.name == "GAS" for f in fuels)
-    msgs = " ".join(rec.getMessage() for rec in caplog.records)
-    assert "fuel price" in msgs and "GAS" in msgs, (
-        "varying Fuel_Price was collapsed to the period-1 scalar with no "
-        "warning — silent collapse."
+    fuels = extract_fuels(db, bundle)
+    gas = next(f for f in fuels if f.name == "GAS")
+
+    # The full per-period series must survive parsing (50 → 90).
+    assert gas.price_profile, (
+        "varying Fuel_Price was dropped — price_profile is empty (silent "
+        "collapse to the period-1 scalar)."
     )
+    assert len(set(gas.price_profile)) > 1
+    assert max(gas.price_profile) == pytest.approx(90.0)
+
+    # The writer must emit a per-block matrix (not a scalar) given the
+    # per-hour block layout, and the high price (90) must survive.
+    entry = next(
+        e
+        for e in build_fuel_array(fuels, block_layout=bundle.block_layout)
+        if e["name"] == "GAS"
+    )
+    price = entry["price"]
+    assert _is_profile(price), (
+        "varying Fuel_Price collapsed to a scalar in build_fuel_array — "
+        "the per-block profile was not emitted."
+    )
+    blocks = price[0]
+    assert len(set(blocks)) > 1
+    assert max(blocks) == pytest.approx(90.0)
+
+
+def test_turbine_pf_emits_per_block_profile(tmp_path: Path) -> None:
+    """A varying Hydro_EfficiencyIncr (head-dependent production factor) must
+    be carried as a per-period profile on the TurbineSpec AND emitted as a
+    per-block ``[[...]]`` matrix by ``build_turbine_array``."""
+    from plexos2gtopt.gtopt_writer import build_turbine_array
+    from plexos2gtopt.parsers import extract_turbines
+
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_TURBINE_XML)
+    # Head-dependent PF varies across the day (1.6 → 0.8).
+    (tmp_path / "Hydro_EfficiencyIncr.csv").write_text(
+        _long_csv("HYDRO", _varying(1.6, 0.8))
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
+    bundle.block_layout = tuple((h,) for h in range(1, 25))
+    db = load_xml(bundle.xml_path)
+    turbines = extract_turbines(db, bundle)
+    tur = next(t for t in turbines if t.generator_name == "HYDRO")
+
+    assert tur.pf_profile, (
+        "varying Hydro_EfficiencyIncr was dropped — pf_profile is empty "
+        "(silent collapse to the period-1 scalar)."
+    )
+    assert len(set(tur.pf_profile)) > 1
+
+    # Built-in waterway mode (extra_waterways set) so the turbine is
+    # emitted (legacy mode skips turbines without a PLEXOS waterway).
+    entry = next(
+        e
+        for e in build_turbine_array(
+            turbines, extra_waterways=[], block_layout=bundle.block_layout
+        )
+        if e["generator"] == "HYDRO"
+    )
+    pf = entry["production_factor"]
+    assert _is_profile(pf), (
+        "varying Hydro_EfficiencyIncr collapsed to a scalar in "
+        "build_turbine_array — the per-block profile was not emitted."
+    )
+    blocks = pf[0]
+    assert len(set(blocks)) > 1
+    assert max(blocks) == pytest.approx(1.6)
 
 
 def test_constant_series_emits_no_profile(tmp_path: Path) -> None:

@@ -104,7 +104,13 @@ public:
 
   /// @name Parameter accessors (resolved schedules)
   /// @{
-  [[nodiscard]] auto param_price(StageUid s) const { return price_.at(s); }
+  /// Per-(stage, block) fuel price.  Back-compat: a scalar or
+  /// per-stage `Fuel.price` broadcasts to every block, so callers that
+  /// previously read a per-stage price keep getting the same value.
+  [[nodiscard]] auto param_price(StageUid s, BlockUid b) const
+  {
+    return price_.optval(s, b);
+  }
   [[nodiscard]] auto param_heat_content(StageUid s) const
   {
     return heat_content_.at(s);
@@ -136,7 +142,7 @@ public:
   /// @}
 
 private:
-  OptTRealSched price_;
+  OptTBRealSched price_;
   OptTRealSched heat_content_;
   OptTRealSched combustion_ef_;
   OptTRealSched upstream_ef_;

@@ -140,21 +140,20 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   if (const auto& fuel_ref = generator().fuel; fuel_ref.has_value()) {
     static_fuel_lp = &sc.element<FuelLP>(FuelLPSId {fuel_ref.value()});
   }
-  const double static_fuel_price = (static_fuel_lp != nullptr)
-      ? static_fuel_lp->param_price(stage.uid()).value_or(0.0)
-      : 0.0;
   const Uid static_fuel_uid =
       (static_fuel_lp != nullptr) ? static_fuel_lp->uid() : Uid {0};
 
   // Per-block fuel override cache.  Empty when ``fuel_per_block`` is
-  // unset; otherwise holds (uid, FuelLP*, stage_price) for every
-  // distinct uid that appears in the schedule at this stage.  Sized
-  // for small N (typically 2-3 fuels per generator).
+  // unset; otherwise holds (uid, FuelLP*) for every distinct uid that
+  // appears in the schedule at this stage.  Sized for small N
+  // (typically 2-3 fuels per generator).  The fuel PRICE is now
+  // per-(stage, block) (Fuel.price upgraded to OptTBRealFieldSched), so
+  // it is resolved per block in ``resolve_block_fuel`` rather than
+  // cached once per stage.
   struct PerBlockFuelEntry
   {
     Uid uid;
     const FuelLP* fuel_lp;
-    double stage_price;
   };
   std::vector<PerBlockFuelEntry> per_block_fuels;
   if (has_fuel_per_block()) {
@@ -168,37 +167,40 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
         continue;
       }
       const auto* flp = &sc.element<FuelLP>(FuelLPSId {SingleId {opt.value()}});
-      const double price = flp->param_price(stage.uid()).value_or(0.0);
       per_block_fuels.push_back({
           .uid = opt.value(),
           .fuel_lp = flp,
-          .stage_price = price,
       });
     }
   }
 
-  // Resolves the effective (FuelLP*, stage price) at a given block.
-  // Falls back to the static pair when no per-block override is set
-  // OR the override cell is the sentinel uid 0.  Hot-path: when
-  // ``per_block_fuels`` is empty the lambda short-circuits, so the
-  // legacy single-fuel cost is one well-predicted branch.
+  // Resolves the effective (FuelLP*, per-block price) at a given block.
+  // Falls back to the static fuel when no per-block override is set OR
+  // the override cell is the sentinel uid 0.  The price is read
+  // per-(stage, block); a scalar / per-stage `Fuel.price` broadcasts to
+  // every block, so the legacy single-value behaviour is preserved.
+  // Hot-path: when ``per_block_fuels`` is empty the lambda
+  // short-circuits to the static fuel.
   const auto resolve_block_fuel =
       [&](BlockUid buid) -> std::pair<const FuelLP*, double>
   {
-    if (per_block_fuels.empty()) {
-      return {static_fuel_lp, static_fuel_price};
+    const FuelLP* flp = static_fuel_lp;
+    if (!per_block_fuels.empty()) {
+      if (const auto opt = param_fuel_per_block(stage.uid(), buid);
+          opt.has_value() && opt.value() != Uid {0})
+      {
+        const auto it = std::ranges::find_if(per_block_fuels,
+                                             [u = opt.value()](const auto& f)
+                                             { return f.uid == u; });
+        if (it != per_block_fuels.end()) {
+          flp = it->fuel_lp;
+        }
+      }
     }
-    const auto opt = param_fuel_per_block(stage.uid(), buid);
-    if (!opt.has_value() || opt.value() == Uid {0}) {
-      return {static_fuel_lp, static_fuel_price};
-    }
-    const auto it = std::ranges::find_if(per_block_fuels,
-                                         [u = opt.value()](const auto& f)
-                                         { return f.uid == u; });
-    if (it == per_block_fuels.end()) {
-      return {static_fuel_lp, static_fuel_price};
-    }
-    return {it->fuel_lp, it->stage_price};
+    const double price = (flp != nullptr)
+        ? flp->param_price(stage.uid(), buid).value_or(0.0)
+        : 0.0;
+    return {flp, price};
   };
 
   const auto& hr_segs = generator().heat_rate_segments;

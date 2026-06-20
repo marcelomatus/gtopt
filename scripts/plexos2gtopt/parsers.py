@@ -1131,15 +1131,18 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         # Using ``dict.get(name, [0.0])[0]`` followed by
         # ``if price == 0.0`` would silently overwrite those with
         # the System→Fuels static-property default (often non-zero).
+        price_profile: tuple[float, ...] = ()
         if fuel.name in prices:
-            price = prices[fuel.name][0]
-            # gtopt ``Fuel.price`` is STAGE-schedulable, but the converter
-            # pre-folds the fuel price into each generator's scalar gcost
-            # (``fuel.price × heat_rate + gcost``) at conversion time, so
-            # only the period-1 value is carried.  Surface any genuine
-            # time variation as a WARNING rather than dropping it silently
-            # (structural-guard class: "series collapsed to scalar").
-            _warn_if_series_varies("fuel price", fuel.name, prices[fuel.name])
+            series = prices[fuel.name]
+            price = series[0]
+            # gtopt ``Fuel.price`` is now per-(stage, block)
+            # (``OptTBRealFieldSched``), so a genuinely time-varying
+            # ``Fuel_Price.csv`` series is no longer collapsed to the
+            # period-1 scalar — the full profile is carried through to
+            # the writer, which aggregates it to the block layout and
+            # emits a ``[[stage_blocks]]`` matrix when it varies.  The
+            # scalar ``price`` is kept as the constant / fallback value.
+            price_profile = tuple(series)
         else:
             # Fallback: XML-only schemas (RTS-96) ship the fuel
             # price as a static property on the System→Fuels collection.
@@ -1207,6 +1210,7 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
                 object_id=fuel.object_id,
                 name=fuel.name,
                 price=price,
+                price_profile=price_profile,
                 heat_content=float(heat_content or 0.0),
                 co2_rate=co2_rate,
                 co2_upstream_rate=co2_upstream_rate,
@@ -4685,7 +4689,14 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                 tail_by_gen[m.parent_object_id] = res_obj.name
 
     # CSV fallback: Hydro_EfficiencyIncr.csv keyed by generator name.
+    # ``csv_pf`` keeps the scalar (first nonzero, the constant /
+    # fallback value); ``csv_pf_profile`` keeps the FULL per-period
+    # series so the writer can emit a per-(stage, block) profile when
+    # the head-dependent PF genuinely varies — gtopt
+    # ``Turbine.production_factor`` is now per-block
+    # (``OptTBRealFieldSched``), so the variation is no longer dropped.
     csv_pf: dict[str, float] = {}
+    csv_pf_profile: dict[str, tuple[float, ...]] = {}
     if bundle.has("Hydro_EfficiencyIncr.csv"):
         try:
             csv_pf_raw = read_long(
@@ -4696,8 +4707,8 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                 if vals:
                     nonzero = [v for v in vals if v > 0.0]
                     if nonzero:
-                        _warn_if_series_varies("turbine production factor", k, nonzero)
                         csv_pf[k] = nonzero[0]
+                        csv_pf_profile[k] = tuple(vals)
         except (OSError, ValueError) as exc:
             logger.debug("Hydro_EfficiencyIncr.csv fallback failed: %s", exc)
 
@@ -4722,6 +4733,7 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                 reservoir_name=res_obj.name,
                 production_factor=pf,
                 tail_reservoir_name=tail_by_gen.get(gen_obj.object_id),
+                pf_profile=csv_pf_profile.get(gen_obj.name, ()),
             )
         )
     return tuple(out)

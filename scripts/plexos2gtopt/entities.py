@@ -171,6 +171,15 @@ class FuelSpec:
     #: ``None`` ⇒ hard floor.
     min_offtake_cost: float | None = None
 
+    #: Full per-period fuel-price series from ``Fuel_Price.csv`` (one
+    #: value per PLEXOS interval / hour over the bundle horizon).  Since
+    #: gtopt ``Fuel.price`` is now per-(stage, block)
+    #: (``OptTBRealFieldSched``), the writer aggregates this profile to
+    #: the block layout and emits a ``[[stage_blocks]]`` matrix when the
+    #: series genuinely varies; constant / absent series collapse to the
+    #: scalar :attr:`price`.  Empty tuple ⇒ no profile (scalar only).
+    price_profile: tuple[float, ...] = ()
+
 
 @dataclass(frozen=True)
 class GeneratorSpec:
@@ -578,6 +587,14 @@ class TurbineSpec:
     reservoir_name: str
     production_factor: float = 0.0  # MW per m³/s (Hydro_EfficiencyIncr fp_med)
     tail_reservoir_name: str | None = None
+    #: Full per-period production-factor series from
+    #: ``Hydro_EfficiencyIncr.csv`` (head-dependent PF over the bundle
+    #: horizon).  Since gtopt ``Turbine.production_factor`` is now
+    #: per-(stage, block) (``OptTBRealFieldSched``), the writer
+    #: aggregates this profile to the block layout and emits a
+    #: ``[[stage_blocks]]`` matrix when it varies; constant / absent
+    #: series collapse to the scalar :attr:`production_factor`.
+    pf_profile: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)

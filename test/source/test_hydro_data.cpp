@@ -112,18 +112,26 @@ TEST_CASE("Turbine with time-varying conversion rate")
 
   Turbine turbine;
 
-  std::vector<Real> rate_schedule = {0.80, 0.85, 0.90, 0.82};
+  // `production_factor` is now per-(stage, block): the inline-array form
+  // is a 2-D `[stage][block]` matrix (was a flat per-stage vector).
+  // Here four stages, one block each, carrying head-dependent PF.
+  std::vector<std::vector<Real>> rate_schedule = {
+      {0.80},
+      {0.85},
+      {0.90},
+      {0.82},
+  };
   turbine.production_factor = rate_schedule;
 
   REQUIRE(turbine.production_factor.has_value());
-  auto* vec_ptr =
-      std::get_if<std::vector<Real>>(&turbine.production_factor.value());
-  REQUIRE(vec_ptr != nullptr);
-  CHECK(vec_ptr->size() == 4);
-  CHECK((*vec_ptr)[0] == 0.80);
-  CHECK((*vec_ptr)[1] == 0.85);
-  CHECK((*vec_ptr)[2] == 0.90);
-  CHECK((*vec_ptr)[3] == 0.82);
+  auto* mat_ptr = std::get_if<std::vector<std::vector<Real>>>(
+      &turbine.production_factor.value());
+  REQUIRE(mat_ptr != nullptr);
+  CHECK(mat_ptr->size() == 4);
+  CHECK((*mat_ptr)[0][0] == 0.80);
+  CHECK((*mat_ptr)[1][0] == 0.85);
+  CHECK((*mat_ptr)[2][0] == 0.90);
+  CHECK((*mat_ptr)[3][0] == 0.82);
 }
 
 TEST_CASE("Waterway construction and default values")

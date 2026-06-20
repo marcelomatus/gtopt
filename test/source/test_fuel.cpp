@@ -445,8 +445,10 @@ TEST_CASE("FuelLP resolves the three schedules and exposes them")  // NOLINT
   REQUIRE(fuels.size() == 1);
   const auto& fuel_lp = fuels.front();
   const auto& t = system_lp.phase().stages()[0];
+  const auto& b0 = t.blocks().front();
 
-  CHECK(fuel_lp.param_price(t.uid()).value_or(0.0) == doctest::Approx(8.5));
+  CHECK(fuel_lp.param_price(t.uid(), b0.uid()).value_or(0.0)
+        == doctest::Approx(8.5));
   CHECK(fuel_lp.param_combustion_emission_factor(t.uid()).value_or(0.0)
         == doctest::Approx(0.0561));
   CHECK(fuel_lp.param_upstream_emission_factor(t.uid()).value_or(0.0)

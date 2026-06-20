@@ -488,17 +488,17 @@ TEST_CASE(  // NOLINT
               {
                   .uid = Uid {30},
                   .name = "ng",
-                  .price = OptTRealFieldSched {3.0},
+                  .price = OptTBRealFieldSched {3.0},
               },
               {
                   .uid = Uid {31},
                   .name = "coal",
-                  .price = OptTRealFieldSched {2.0},
+                  .price = OptTBRealFieldSched {2.0},
               },
               {
                   .uid = Uid {32},
                   .name = "diesel",
-                  .price = OptTRealFieldSched {15.0},
+                  .price = OptTBRealFieldSched {15.0},
               },
           },
       .emission_array =

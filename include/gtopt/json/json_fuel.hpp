@@ -43,7 +43,7 @@ struct json_data_contract<Fuel>
       json_string_null<"type", OptName>,
       json_string_null<"subtype", OptName>,
       json_string_null<"description", OptName>,
-      json_variant_null<"price", OptTRealFieldSched, jvtl_TRealFieldSched>,
+      json_variant_null<"price", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"heat_content",
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,

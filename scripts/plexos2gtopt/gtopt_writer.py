@@ -1475,6 +1475,63 @@ def build_line_array(
     return out
 
 
+def _fill_forward_defined(series: list[float] | tuple[float, ...]) -> list[float]:
+    """Replace zero-padding (undefined periods) with the last DEFINED
+    (non-zero) value, mirroring ``read_long(fill_forward=True)``.
+
+    ``Fuel_Price.csv`` / ``Hydro_EfficiencyIncr.csv`` are read with
+    ``fill_forward=False``, so a monthly value defined only at period 1
+    becomes ``[v, 0, 0, …]``.  Treating those zeros as real prices /
+    production-factors would make fuel free (or the turbine dead) in
+    every later block.  Fill them forward from the last defined value so
+    a single-period monthly value broadcasts across the horizon, while a
+    genuinely time-varying series keeps its real steps.  Leading zeros
+    (no defined value yet) are back-filled from the first defined value.
+    """
+    out = list(series)
+    last: float | None = None
+    for k, v in enumerate(out):
+        if v != 0.0:
+            last = v
+        elif last is not None:
+            out[k] = last
+    # Back-fill any leading zeros from the first defined value.
+    first_defined = next((v for v in series if v != 0.0), None)
+    if first_defined is not None:
+        for k, v in enumerate(out):
+            if v == 0.0:
+                out[k] = first_defined
+            else:
+                break
+    return out
+
+
+def _per_block_field_value(
+    scalar: float,
+    profile: tuple[float, ...] | list[float],
+    block_layout: tuple[tuple[int, ...], ...],
+    *,
+    reducer: str = "mean",
+) -> Any:
+    """Resolve a per-(stage, block) field value from a PLEXOS series.
+
+    Returns a ``[[stage_blocks]]`` 2-D matrix when the series (after
+    fill-forwarding zero-padding) genuinely varies across blocks; else
+    the constant ``scalar`` (back-compat).  Shared by ``Fuel.price`` and
+    ``Turbine.production_factor`` so both upgrade consistently.
+    """
+    if not block_layout or not profile:
+        return scalar
+    filled = _fill_forward_defined(profile)
+    # Defined values constant ⇒ no real time variation ⇒ keep scalar.
+    if (max(filled) - min(filled)) <= 1.0e-9:
+        return scalar
+    blocks = _aggregate_to_blocks(filled, block_layout, reducer=reducer)
+    if (max(blocks) - min(blocks)) <= 1.0e-9:
+        return scalar
+    return [blocks]
+
+
 def _aggregate_to_blocks(
     hourly: tuple[float, ...] | list[float],
     block_layout: tuple[tuple[int, ...], ...],
@@ -1837,13 +1894,20 @@ def build_battery_array(
     return out
 
 
-def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
+def build_fuel_array(
+    fuels: tuple[FuelSpec, ...],
+    block_layout: tuple[tuple[int, ...], ...] = (),
+) -> list[dict[str, Any]]:
     """One fuel entry per :class:`FuelSpec`.
 
-    Monthly ``Fuel_Price.csv`` is already collapsed to the day-of-
-    bundle scalar by :func:`parsers.extract_fuels`; ``heat_content``
-    stays at the parsed default (zero) unless the bundle ships a
-    per-fuel ``Heat Content`` t_data row.
+    ``Fuel_Price.csv`` ships a per-interval price series; since gtopt
+    ``Fuel.price`` is per-(stage, block) (``OptTBRealFieldSched``), a
+    genuinely time-varying series is aggregated to ``block_layout``
+    (mean reducer) and emitted as a ``[[stage_blocks]]`` 2-D matrix.
+    A constant / absent series collapses to the scalar
+    :attr:`FuelSpec.price` (back-compat).  ``heat_content`` stays at
+    the parsed default (zero) unless the bundle ships a per-fuel
+    ``Heat Content`` t_data row.
 
     When :attr:`FuelSpec.co2_rate` or :attr:`FuelSpec.co2_upstream_rate`
     is non-zero, a ``"emission_factors"`` array is emitted holding a
@@ -1862,10 +1926,18 @@ def build_fuel_array(fuels: tuple[FuelSpec, ...]) -> list[dict[str, Any]]:
     """
     out: list[dict[str, Any]] = []
     for i, fuel in enumerate(fuels):
+        # Per-block fuel price: when the source series genuinely varies
+        # (after fill-forwarding the zero-padding of undefined periods),
+        # emit a ``[[stage_blocks]]`` matrix so gtopt honours the
+        # per-period price (``fuel.price × heat_rate`` per block).
+        # Otherwise carry the constant scalar.
+        price_value = _per_block_field_value(
+            fuel.price, fuel.price_profile, block_layout, reducer="mean"
+        )
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": fuel.name,
-            "price": fuel.price,
+            "price": price_value,
             "heat_content": fuel.heat_content,
         }
         # Canonical fuel-family tag — gtopt-side ``Fuel.type``
@@ -2516,6 +2588,7 @@ def build_turbine_array(
     turbines: tuple[TurbineSpec, ...],
     waterways: tuple[WaterwaySpec, ...] = (),
     extra_waterways: list[dict[str, Any]] | None = None,
+    block_layout: tuple[tuple[int, ...], ...] = (),
 ) -> list[dict[str, Any]]:
     """One Turbine per :class:`TurbineSpec`.
 
@@ -2608,7 +2681,15 @@ def build_turbine_array(
                 continue
             entry["waterway"] = waterway_ref
         if t.production_factor > 0.0:
-            entry["production_factor"] = t.production_factor
+            # Per-block production factor: when the head-dependent PF
+            # series genuinely varies (after fill-forwarding the
+            # zero-padding of undefined periods), emit a
+            # ``[[stage_blocks]]`` matrix so gtopt's conversion row
+            # (``power = efficiency × pf × flow``) honours it block by
+            # block.  Otherwise carry the constant scalar.
+            entry["production_factor"] = _per_block_field_value(
+                t.production_factor, t.pf_profile, block_layout, reducer="mean"
+            )
         out.append(entry)
     if builtin_count:
         logger.info(
@@ -3584,7 +3665,7 @@ def build_planning(  # pylint: disable=too-many-arguments
     planning validator doesn't complain about empty schemas.
     """
     use_single_bus = len(case.nodes) <= 1
-    fuel_array = build_fuel_array(case.fuels)
+    fuel_array = build_fuel_array(case.fuels, block_layout=case.bundle.block_layout)
     emission_array = build_emission_array(case.fuels)
     # Synthesise the virtual unit-price Fuel when any generator emits
     # piecewise segments without a real Fuel-membership. The cost
@@ -3685,6 +3766,7 @@ def build_planning(  # pylint: disable=too-many-arguments
             case.turbines,
             case.waterways,
             extra_waterways=waterway_array,
+            block_layout=case.bundle.block_layout,
         ),
         "flow_array": build_flow_array(
             case.flows,

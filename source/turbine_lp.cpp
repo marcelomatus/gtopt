@@ -50,12 +50,18 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
-  const auto stage_production_factor =
-      production_factor.at(stage.uid()).value_or(1.0);
+  // `efficiency` is per-stage; `production_factor` and `capacity` are
+  // per-(stage, block) (scalar / per-stage forms broadcast to every
+  // block).  Resolve efficiency once; resolve PF + capacity per block
+  // inside the loops below.
   const auto stage_efficiency = efficiency.at(stage.uid()).value_or(1.0);
-  const auto stage_conversion_rate = stage_efficiency * stage_production_factor;
 
-  const auto stage_capacity = capacity.at(stage.uid());
+  // Per-block effective conversion rate `efficiency × production_factor`.
+  const auto block_conversion_rate = [&](BlockUid buid) -> double
+  {
+    return stage_efficiency
+        * production_factor.optval(stage.uid(), buid).value_or(1.0);
+  };
 
   auto&& blocks = stage.blocks();
 
@@ -100,7 +106,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
       rrow[gcol] = 1.0;
-      rrow[dcol] = -stage_conversion_rate;
+      rrow[dcol] = -block_conversion_rate(buid);
 
       rrows[buid] = lp.add_row(std::move(rrow.less_equal(0)));
     }
@@ -151,9 +157,10 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
       // the conversion + junction-balance equalities so presolve can
       // substitute it out; the capacity shadow price becomes the column
       // reduced cost instead of a row dual.
+      const auto block_capacity = capacity.optval(stage.uid(), buid);
       const auto fc = lp.add_col({
           .lowb = 0.0,
-          .uppb = stage_capacity ? *stage_capacity : LinearProblem::DblMax,
+          .uppb = block_capacity ? *block_capacity : LinearProblem::DblMax,
           .cost = 0.0,
           .class_name = Element::class_name.full_name(),
           .variable_name = FlowName,
@@ -177,7 +184,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
-      rrow[fc] = -stage_conversion_rate;
+      rrow[fc] = -block_conversion_rate(buid);
       rrow[gcol] = 1.0;
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
@@ -214,13 +221,13 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
           .context =
               make_block_context(scenario.uid(), stage.uid(), block.uid()),
       };
-      rrow[fcol] = -stage_conversion_rate;
+      rrow[fcol] = -block_conversion_rate(buid);
       rrow[gcol] = 1.0;
 
       rrows[buid] =
           lp.add_row(std::move(use_drain ? rrow.less_equal(0) : rrow.equal(0)));
 
-      if (stage_capacity) {
+      if (const auto block_capacity = capacity.optval(stage.uid(), buid)) {
         auto crow =
             SparseRow {
                 .class_name = Element::class_name.full_name(),
@@ -229,7 +236,7 @@ bool TurbineLP::add_to_lp(const SystemContext& sc,
                 .context = make_block_context(
                     scenario.uid(), stage.uid(), block.uid()),
             }
-                .less_equal(*stage_capacity);
+                .less_equal(*block_capacity);
         crow[fcol] = 1;
 
         crows[buid] = lp.add_row(std::move(crow));

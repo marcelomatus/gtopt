@@ -119,9 +119,9 @@ std::optional<double> gen_param_emission_rate(const SystemContext& sc,
 std::optional<double> fuel_param_price(const SystemContext& sc,
                                        Uid uid,
                                        StageUid s,
-                                       BlockUid /*b*/)
+                                       BlockUid b)
 {
-  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_price(s);
+  return sc.get_element(ObjectSingleId<FuelLP> {uid}).param_price(s, b);
 }
 std::optional<double> fuel_param_heat_content(const SystemContext& sc,
                                               Uid uid,
@@ -343,10 +343,10 @@ std::optional<double> fr_param_uvalue(const SystemContext& sc,
 std::optional<double> tur_param_production_factor(const SystemContext& sc,
                                                   Uid uid,
                                                   StageUid s,
-                                                  BlockUid /*b*/)
+                                                  BlockUid b)
 {
   return sc.get_element(ObjectSingleId<TurbineLP> {uid})
-      .param_production_factor(s);
+      .param_production_factor(s, b);
 }
 std::optional<double> tur_param_efficiency(const SystemContext& sc,
                                            Uid uid,
@@ -358,9 +358,9 @@ std::optional<double> tur_param_efficiency(const SystemContext& sc,
 std::optional<double> tur_param_capacity(const SystemContext& sc,
                                          Uid uid,
                                          StageUid s,
-                                         BlockUid /*b*/)
+                                         BlockUid b)
 {
-  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s);
+  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s, b);
 }
 
 // Waterway — per-(stage, block) fmin/fmax + per-stage capacity, lossfactor,

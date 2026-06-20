@@ -138,11 +138,20 @@ struct Fuel
   OptName description {};  ///< Optional free-text description (e.g. conversion
                            ///< provenance)
 
-  /// Fuel price `[$/<fuel_unit>]`, stage-schedulable.  The fuel-unit is
-  /// the user's choice (tonne, MMBtu, Nm³, GJ, …) and must match
-  /// `heat_rate`, `combustion_emission_factor`,
+  /// Fuel price `[$/<fuel_unit>]`, **per-(stage, block)** schedulable.
+  /// The fuel-unit is the user's choice (tonne, MMBtu, Nm³, GJ, …) and
+  /// must match `heat_rate`, `combustion_emission_factor`,
   /// `upstream_emission_factor`, and `heat_content` for this fuel.
-  OptTRealFieldSched price {};
+  ///
+  /// Accepts the same value forms as `Generator.pmax`: a scalar
+  /// constant, a `[stage]` 1-D array, a `[stage][block]` 2-D matrix, or
+  /// a filename string referencing a Parquet/CSV schedule under
+  /// `input_directory/Fuel/`.  Scalar / per-stage values broadcast to
+  /// every block (back-compat with the legacy per-stage `price`).  This
+  /// lets a single-stage PLEXOS conversion carry the per-period
+  /// Fuel_Price profile across the horizon instead of collapsing it to
+  /// one value.
+  OptTBRealFieldSched price {};
 
   /// Heat content `[GJ/<fuel_unit>]`, stage-schedulable.  Optional —
   /// when set, enables physical/energy fuel-consumption reporting in
