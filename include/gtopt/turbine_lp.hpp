@@ -124,23 +124,19 @@ public:
   }
 
   /// @name Parameter accessors for user constraint resolution.
-  /// `production_factor` / `capacity` are per-(stage, block) schedules
-  /// (scalar / per-stage forms broadcast to every block); `efficiency`
-  /// stays per-stage.  Returned by the ``ampl_dispatch_registry`` shims
-  /// so PAMPL constraints can reference ``turbine('X').<field>``.
+  /// Per-stage Turbine schedules — discard the block argument.  Returned
+  /// by the ``ampl_dispatch_registry`` shims so PAMPL constraints can
+  /// reference ``turbine('X').<field>`` as a constant scalar.
   /// @{
-  [[nodiscard]] auto param_production_factor(StageUid s, BlockUid b) const
+  [[nodiscard]] auto param_production_factor(StageUid s) const
   {
-    return production_factor.optval(s, b);
+    return production_factor.at(s);
   }
   [[nodiscard]] auto param_efficiency(StageUid s) const
   {
     return efficiency.at(s);
   }
-  [[nodiscard]] auto param_capacity(StageUid s, BlockUid b) const
-  {
-    return capacity.optval(s, b);
-  }
+  [[nodiscard]] auto param_capacity(StageUid s) const { return capacity.at(s); }
   /// @}
 
   [[nodiscard]] bool add_to_lp(const SystemContext& sc,
@@ -168,9 +164,9 @@ public:
   }
 
 private:
-  OptTBRealSched production_factor;
+  OptTRealSched production_factor;
   OptTRealSched efficiency;
-  OptTBRealSched capacity;
+  OptTRealSched capacity;
 
   STBIndexHolder<RowIndex> conversion_rows;
   STBIndexHolder<RowIndex> capacity_rows;

@@ -44,6 +44,8 @@ from .entities import (
     NodeSpec,
     PlantSpec,
     PlexosCase,
+    ProductionFactorSegmentSpec,
+    ReservoirProductionFactorSpec,
     ReservoirSpec,
     ReserveProvisionSpec,
     ReserveSpec,
@@ -4710,14 +4712,15 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                 tail_by_gen[m.parent_object_id] = res_obj.name
 
     # CSV fallback: Hydro_EfficiencyIncr.csv keyed by generator name.
-    # ``csv_pf`` keeps the scalar (first nonzero, the constant /
-    # fallback value); ``csv_pf_profile`` keeps the FULL per-period
-    # series so the writer can emit a per-(stage, block) profile when
-    # the head-dependent PF genuinely varies — gtopt
-    # ``Turbine.production_factor`` is now per-block
-    # (``OptTBRealFieldSched``), so the variation is no longer dropped.
+    # ``csv_pf`` keeps the SCALAR production factor (first nonzero value).
+    # ``Turbine.production_factor`` is a per-stage scalar (MW per m³/s): the
+    # PLEXOS "Efficiency Incr" property is NOT time-varying — its proper
+    # varying axis is the generation Load Point (a piecewise efficiency curve)
+    # or reservoir volume / hydraulic head.  The head-dependent variation is
+    # modelled separately by gtopt's ``ReservoirProductionFactor`` (the PLP
+    # "rendimiento" curve), emitted by extract_reservoir_production_factors
+    # when the bundle ships head-effect data.
     csv_pf: dict[str, float] = {}
-    csv_pf_profile: dict[str, tuple[float, ...]] = {}
     if bundle.has("Hydro_EfficiencyIncr.csv"):
         try:
             csv_pf_raw = read_long(
@@ -4729,7 +4732,6 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
                     nonzero = [v for v in vals if v > 0.0]
                     if nonzero:
                         csv_pf[k] = nonzero[0]
-                        csv_pf_profile[k] = tuple(vals)
         except (OSError, ValueError) as exc:
             logger.debug("Hydro_EfficiencyIncr.csv fallback failed: %s", exc)
 
@@ -4748,14 +4750,136 @@ def extract_turbines(db: PlexosDb, bundle: PlexosBundle) -> tuple[TurbineSpec, .
         pf = csv_pf.get(gen_obj.name)
         if pf is None or pf <= 0.0:
             pf = db.static_property("Generator", gen_obj.object_id, "Efficiency Incr")
+        # GUARD: a turbine with production_factor 0 converts flow -> 0 MW, so a
+        # commitment that forces this generator on (pmin > 0), a reserve
+        # obligation, or any other UC constraint becomes infeasible — the unit
+        # is asked to produce power it physically cannot.  PF=0 only arises when
+        # NEITHER Hydro_EfficiencyIncr.csv NOR the static "Efficiency Incr"
+        # property ships a value (the static default is 0.0).  Never let it pass
+        # silently: warn loudly so a non-dispatchable turbine is caught at
+        # conversion time rather than surfacing as an opaque LP infeasibility.
+        # Verified empirically zero across the 14 CEN PCP cases; this guard
+        # keeps it that way.
+        if pf is None or pf <= 0.0:
+            logger.warning(
+                "turbine for generator '%s' resolved to production_factor=0 "
+                "(no Hydro_EfficiencyIncr.csv value and no static "
+                "'Efficiency Incr'): it cannot convert flow to power and must "
+                "NOT be dispatched/committed — check the PLEXOS efficiency data",
+                gen_obj.name,
+            )
         out.append(
             TurbineSpec(
                 generator_name=gen_obj.name,
                 reservoir_name=res_obj.name,
                 production_factor=pf,
                 tail_reservoir_name=tail_by_gen.get(gen_obj.object_id),
-                pf_profile=csv_pf_profile.get(gen_obj.name, ()),
             )
+        )
+    return tuple(out)
+
+
+def _build_pf_segments(
+    points: list[tuple[float, float]],
+) -> tuple[ProductionFactorSegmentSpec, ...]:
+    """Build piecewise-linear concave point-slope segments from sorted
+    ``(volume, production_factor)`` breakpoints (ascending by volume).
+
+    Each segment carries ``constant`` = PF AT its breakpoint volume and
+    ``slope`` = the local rate toward the next breakpoint (0 past the last
+    point), matching gtopt's ``evaluate_production_factor`` concave-min
+    envelope ``min_i(constant_i + slope_i·(V − volume_i))``.
+    """
+    segs: list[ProductionFactorSegmentSpec] = []
+    n = len(points)
+    for i, (vol, pf) in enumerate(points):
+        if i < n - 1:
+            vol2, pf2 = points[i + 1]
+            slope = (pf2 - pf) / (vol2 - vol) if vol2 != vol else 0.0
+        else:
+            slope = 0.0  # flat beyond the last breakpoint
+        segs.append(ProductionFactorSegmentSpec(volume=vol, slope=slope, constant=pf))
+    return tuple(segs)
+
+
+def extract_reservoir_production_factors(
+    db: PlexosDb, bundle: PlexosBundle
+) -> tuple[ReservoirProductionFactorSpec, ...]:
+    """Emit one ``ReservoirProductionFactor`` per turbine-driven generator
+    that ships PLEXOS head-effect curve data (a volume→efficiency relation).
+
+    gtopt's ``ReservoirProductionFactor`` is the volume-indexed
+    generalization of the scalar ``Turbine.production_factor`` — the
+    conversion rate [MW·s/m³] as a piecewise-concave function of reservoir
+    volume (hydraulic head), re-linearized per SDDP phase (so it is constant
+    within a single monolithic solve).  PLEXOS encodes the curve as paired
+    multi-band ``Head Storage Volume Point`` (volume breakpoints, hm³) and
+    ``Head Storage Efficiency Point`` (production factor at each point,
+    MW per m³/s) properties, gated by a non-zero ``Head Effects Method``.
+
+    Returns an EMPTY tuple when no generator carries this data — the case for
+    every current CEN PCP bundle (head effects off; the schema does not even
+    define the head-storage-point properties), so turbines keep their scalar
+    production factor.  No fictitious curve is ever invented.
+    """
+    head_coll = db.collection_for_named("Generator", "Storage", "Head Storage")
+    if head_coll is None:
+        return ()
+    gcoll = db.collection_for("System", "Generator")
+    if gcoll is None:
+        return ()
+    vol_pid = db.property_by_name(gcoll.collection_id, "Head Storage Volume Point")
+    eff_pid = db.property_by_name(gcoll.collection_id, "Head Storage Efficiency Point")
+    if vol_pid is None or eff_pid is None:
+        # Schema ships no head-storage curve properties (e.g. CEN PCP).
+        return ()
+    hem_pid = db.property_by_name(gcoll.collection_id, "Head Effects Method")
+    objs = db.object_by_id()
+    out: list[ReservoirProductionFactorSpec] = []
+    uid = 1
+    for m in db.memberships_of(head_coll.collection_id):
+        gen_obj = objs.get(m.parent_object_id)
+        res_obj = objs.get(m.child_object_id)
+        if gen_obj is None or res_obj is None:
+            continue
+        gmid = db.system_membership_id("Generator", gen_obj.object_id)
+        if gmid is None:
+            continue
+        # Head effects must be enabled (non-zero method) for the curve to bind.
+        if hem_pid is not None:
+            hem_rows = db.data_for(gmid, hem_pid)
+            if hem_rows and abs(hem_rows[0].value) < 1e-12:
+                continue
+        # Pair volume and efficiency points by band (data_id order), then sort
+        # by volume for the concave construction.
+        vol_rows = sorted(db.data_for(gmid, vol_pid), key=lambda r: r.data_id)
+        eff_rows = sorted(db.data_for(gmid, eff_pid), key=lambda r: r.data_id)
+        points = sorted(
+            (
+                (float(vr.value), float(er.value))
+                for vr, er in zip(vol_rows, eff_rows, strict=False)
+            ),
+            key=lambda p: p[0],
+        )
+        if not points:
+            continue
+        mean_pf = sum(pf for _, pf in points) / len(points)
+        out.append(
+            ReservoirProductionFactorSpec(
+                uid=uid,
+                name=f"rpf_{gen_obj.name}",
+                turbine_name=gen_obj.name,
+                reservoir_name=res_obj.name,
+                mean_production_factor=mean_pf,
+                segments=_build_pf_segments(points),
+            )
+        )
+        uid += 1
+    if out:
+        logger.info(
+            "extract_reservoir_production_factors: emitted %d head-dependent "
+            "production-factor curve(s) from PLEXOS head-storage efficiency data",
+            len(out),
         )
     return tuple(out)
 
@@ -11097,6 +11221,7 @@ def extract_case(
         waterways=waterways,
         junctions=junctions,
         turbines=turbines,
+        reservoir_production_factors=extract_reservoir_production_factors(db, bundle),
         flows=extract_flows(db, bundle, known_junction_names),
         reserves=reserves,
         reserve_provisions=extract_reserve_provisions(

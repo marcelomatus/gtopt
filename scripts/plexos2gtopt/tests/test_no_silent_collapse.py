@@ -218,15 +218,19 @@ def test_fuel_price_emits_per_block_profile(tmp_path: Path) -> None:
     assert max(blocks) == pytest.approx(90.0)
 
 
-def test_turbine_pf_emits_per_block_profile(tmp_path: Path) -> None:
-    """A varying Hydro_EfficiencyIncr (head-dependent production factor) must
-    be carried as a per-period profile on the TurbineSpec AND emitted as a
-    per-block ``[[...]]`` matrix by ``build_turbine_array``."""
+def test_turbine_pf_is_scalar_not_per_block(tmp_path: Path) -> None:
+    """``Turbine.production_factor`` is a SCALAR (MW per m³/s).  PLEXOS
+    "Efficiency Incr" is not time-varying — its proper varying axis is
+    generation Load Point or reservoir volume / head, the latter modelled by
+    gtopt's volume-indexed ``ReservoirProductionFactor`` (PLP "rendimiento").
+    So even a varying ``Hydro_EfficiencyIncr`` is carried as the scalar
+    production factor, NOT a per-block turbine profile."""
     from plexos2gtopt.gtopt_writer import build_turbine_array
     from plexos2gtopt.parsers import extract_turbines
 
     (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_TURBINE_XML)
-    # Head-dependent PF varies across the day (1.6 → 0.8).
+    # Even if Hydro_EfficiencyIncr varies across the day (1.6 → 0.8), the
+    # turbine takes the (first nonzero) scalar production factor.
     (tmp_path / "Hydro_EfficiencyIncr.csv").write_text(
         _long_csv("HYDRO", _varying(1.6, 0.8))
     )
@@ -236,14 +240,10 @@ def test_turbine_pf_emits_per_block_profile(tmp_path: Path) -> None:
     turbines = extract_turbines(db, bundle)
     tur = next(t for t in turbines if t.generator_name == "HYDRO")
 
-    assert tur.pf_profile, (
-        "varying Hydro_EfficiencyIncr was dropped — pf_profile is empty "
-        "(silent collapse to the period-1 scalar)."
-    )
-    assert len(set(tur.pf_profile)) > 1
+    # No per-period profile field on the spec — production_factor is scalar.
+    assert not hasattr(tur, "pf_profile")
+    assert tur.production_factor == pytest.approx(1.6)  # first nonzero value
 
-    # Built-in waterway mode (extra_waterways set) so the turbine is
-    # emitted (legacy mode skips turbines without a PLEXOS waterway).
     entry = next(
         e
         for e in build_turbine_array(
@@ -252,13 +252,11 @@ def test_turbine_pf_emits_per_block_profile(tmp_path: Path) -> None:
         if e["generator"] == "HYDRO"
     )
     pf = entry["production_factor"]
-    assert _is_profile(pf), (
-        "varying Hydro_EfficiencyIncr collapsed to a scalar in "
-        "build_turbine_array — the per-block profile was not emitted."
+    assert not _is_profile(pf), (
+        "Turbine.production_factor must be a scalar, not a per-block profile "
+        "— head/volume variation belongs to ReservoirProductionFactor."
     )
-    blocks = pf[0]
-    assert len(set(blocks)) > 1
-    assert max(blocks) == pytest.approx(1.6)
+    assert pf == pytest.approx(1.6)
 
 
 def test_constant_series_emits_no_profile(tmp_path: Path) -> None:
@@ -337,3 +335,119 @@ def test_constant_emin_csv_overrides_static_min_volume(
         f"[{label}] constant Hydro_MinVolume ({csv_floor}) must override the "
         f"static Min Volume default ({static_min}); got emin={res.emin}"
     )
+
+
+def test_zero_pf_turbine_warns(tmp_path: Path, caplog) -> None:  # type: ignore[no-untyped-def]
+    """GUARD: a turbine whose production_factor resolves to 0 — no
+    Hydro_EfficiencyIncr.csv value AND no static 'Efficiency Incr' (default
+    0.0) — must emit a WARNING.  A PF=0 turbine converts flow to 0 MW, so any
+    commitment/reserve/UC constraint that forces the generator on becomes
+    infeasible; it must never be created silently and then dispatched."""
+    import logging
+
+    from plexos2gtopt.parsers import extract_turbines
+
+    # _TURBINE_XML ships HYDRO -> RES (Head Storage) but NO 'Efficiency Incr'
+    # property, and we write NO Hydro_EfficiencyIncr.csv ⇒ PF resolves to 0.
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_TURBINE_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
+    bundle.block_layout = tuple((h,) for h in range(1, 25))
+    db = load_xml(bundle.xml_path)
+    with caplog.at_level(logging.WARNING):
+        turbines = extract_turbines(db, bundle)
+    tur = next(t for t in turbines if t.generator_name == "HYDRO")
+    assert (tur.production_factor or 0.0) <= 0.0  # PF really is 0
+    assert any("production_factor=0" in r.getMessage() for r in caplog.records), (
+        "a PF=0 turbine was emitted without a warning — it could be dispatched "
+        "silently and cause an opaque LP infeasibility"
+    )
+
+
+# HYDRO (gen) -> RES (Head Storage) with a head-effect volume->efficiency curve:
+# System->Generator collection (3) carrying Head Effects Method (enabled) plus
+# paired multi-band Head Storage Volume/Efficiency Point properties.
+_HEAD_EFFECT_XML = f"""<?xml version="1.0" standalone="yes"?>
+<MasterDataSet xmlns="{NS[1:-1]}">
+  <t_class><class_id>1</class_id><name>System</name></t_class>
+  <t_class><class_id>2</class_id><name>Generator</name></t_class>
+  <t_class><class_id>8</class_id><name>Storage</name></t_class>
+  <t_object><object_id>1</object_id><class_id>1</class_id><name>SEN</name></t_object>
+  <t_object><object_id>20</object_id><class_id>2</class_id><name>HYDRO</name></t_object>
+  <t_object><object_id>30</object_id><class_id>8</class_id><name>RES</name></t_object>
+  <t_collection>
+    <collection_id>3</collection_id><parent_class_id>1</parent_class_id>
+    <child_class_id>2</child_class_id><name>Generators</name>
+  </t_collection>
+  <t_collection>
+    <collection_id>50</collection_id><parent_class_id>2</parent_class_id>
+    <child_class_id>8</child_class_id><name>Head Storage</name>
+  </t_collection>
+  <t_membership>
+    <membership_id>700</membership_id><collection_id>3</collection_id>
+    <parent_object_id>1</parent_object_id><child_object_id>20</child_object_id>
+  </t_membership>
+  <t_membership>
+    <membership_id>600</membership_id><collection_id>50</collection_id>
+    <parent_object_id>20</parent_object_id><child_object_id>30</child_object_id>
+  </t_membership>
+  <t_property>
+    <property_id>800</property_id><collection_id>3</collection_id>
+    <name>Head Storage Volume Point</name>
+  </t_property>
+  <t_property>
+    <property_id>801</property_id><collection_id>3</collection_id>
+    <name>Head Storage Efficiency Point</name>
+  </t_property>
+  <t_property>
+    <property_id>802</property_id><collection_id>3</collection_id>
+    <name>Head Effects Method</name>
+  </t_property>
+  <t_data><data_id>10</data_id><membership_id>700</membership_id><property_id>802</property_id><value>1</value></t_data>
+  <t_data><data_id>11</data_id><membership_id>700</membership_id><property_id>800</property_id><value>10.0</value></t_data>
+  <t_data><data_id>12</data_id><membership_id>700</membership_id><property_id>800</property_id><value>50.0</value></t_data>
+  <t_data><data_id>13</data_id><membership_id>700</membership_id><property_id>801</property_id><value>1.0</value></t_data>
+  <t_data><data_id>14</data_id><membership_id>700</membership_id><property_id>801</property_id><value>2.0</value></t_data>
+</MasterDataSet>
+"""
+
+
+def test_reservoir_production_factor_emitted_from_head_effect_data(
+    tmp_path: Path,
+) -> None:
+    """(b) Head-effect path: when a bundle ships PLEXOS head-storage
+    volume/efficiency points (with Head Effects Method enabled), emit a
+    ReservoirProductionFactor with a concave volume→PF curve."""
+    from plexos2gtopt.parsers import extract_reservoir_production_factors
+
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_HEAD_EFFECT_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
+    db = load_xml(bundle.xml_path)
+    rpfs = extract_reservoir_production_factors(db, bundle)
+
+    assert len(rpfs) == 1
+    r = rpfs[0]
+    assert r.turbine_name == "HYDRO"
+    assert r.reservoir_name == "RES"
+    assert r.mean_production_factor == pytest.approx(1.5)  # (1.0 + 2.0) / 2
+    assert [s.volume for s in r.segments] == [
+        pytest.approx(10.0),
+        pytest.approx(50.0),
+    ]
+    # PF at the breakpoints, with the local concave slope toward the next.
+    assert r.segments[0].constant == pytest.approx(1.0)
+    assert r.segments[0].slope == pytest.approx((2.0 - 1.0) / (50.0 - 10.0))
+    assert r.segments[1].constant == pytest.approx(2.0)
+    assert r.segments[1].slope == pytest.approx(0.0)  # flat past the last point
+
+
+def test_no_reservoir_production_factor_without_head_data(tmp_path: Path) -> None:
+    """(b) No-op when the bundle ships no head-storage curve properties — the
+    case for every CEN PCP bundle (turbines keep their scalar PF)."""
+    from plexos2gtopt.parsers import extract_reservoir_production_factors
+
+    # _TURBINE_XML has a Head Storage membership but no head-storage-point
+    # properties, exactly like the CEN PCP schema.
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_TURBINE_XML)
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
+    db = load_xml(bundle.xml_path)
+    assert extract_reservoir_production_factors(db, bundle) == ()

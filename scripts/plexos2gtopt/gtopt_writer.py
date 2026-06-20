@@ -52,6 +52,7 @@ from .entities import (
     NodeSpec,
     PlantSpec,
     PlexosCase,
+    ReservoirProductionFactorSpec,
     ReservoirSpec,
     ReserveProvisionSpec,
     ReserveSpec,
@@ -2681,15 +2682,11 @@ def build_turbine_array(
                 continue
             entry["waterway"] = waterway_ref
         if t.production_factor > 0.0:
-            # Per-block production factor: when the head-dependent PF
-            # series genuinely varies (after fill-forwarding the
-            # zero-padding of undefined periods), emit a
-            # ``[[stage_blocks]]`` matrix so gtopt's conversion row
-            # (``power = efficiency × pf × flow``) honours it block by
-            # block.  Otherwise carry the constant scalar.
-            entry["production_factor"] = _per_block_field_value(
-                t.production_factor, t.pf_profile, block_layout, reducer="mean"
-            )
+            # Scalar production factor (MW per m³/s).  PLEXOS "Efficiency Incr"
+            # is not time-varying; any head-dependent variation is carried by
+            # gtopt's volume-indexed ReservoirProductionFactor element, not a
+            # per-block turbine profile.
+            entry["production_factor"] = t.production_factor
         out.append(entry)
     if builtin_count:
         logger.info(
@@ -2708,6 +2705,35 @@ def build_turbine_array(
             "Sample: %s",
             len(skipped),
             ", ".join(skipped[:5]),
+        )
+    return out
+
+
+def build_reservoir_production_factor_array(
+    rpfs: tuple[ReservoirProductionFactorSpec, ...],
+) -> list[dict[str, Any]]:
+    """Serialize volume-dependent (head-effect) production-factor curves to
+    gtopt ``ReservoirProductionFactor`` JSON entries (turbine + reservoir +
+    ``mean_production_factor`` + concave volume→PF ``segments``).
+
+    Empty input → empty list, in which case the caller omits the key entirely
+    so the JSON is unchanged for bundles without head-effect data (all CEN
+    PCP cases).
+    """
+    out: list[dict[str, Any]] = []
+    for r in rpfs:
+        out.append(
+            {
+                "uid": r.uid,
+                "name": r.name,
+                "turbine": r.turbine_name,
+                "reservoir": r.reservoir_name,
+                "mean_production_factor": r.mean_production_factor,
+                "segments": [
+                    {"volume": s.volume, "slope": s.slope, "constant": s.constant}
+                    for s in r.segments
+                ],
+            }
         )
     return out
 
@@ -3804,6 +3830,14 @@ def build_planning(  # pylint: disable=too-many-arguments
             block_layout=case.bundle.block_layout,
         ),
     }
+    # Volume-dependent (head-effect) production-factor curves — emitted ONLY
+    # when the bundle ships PLEXOS head-storage efficiency data.  CEN PCP ships
+    # none, so the key is omitted and the JSON stays unchanged for those cases.
+    rpf_array = build_reservoir_production_factor_array(
+        case.reservoir_production_factors
+    )
+    if rpf_array:
+        system["reservoir_production_factor_array"] = rpf_array
     # Stamp a global default water-fail price ($/CMD = max over the per-
     # reservoir ``efin_cost`` already assigned) onto reservoirs that carry an
     # ``efin`` target but were left un-priced — mirrors plp2gtopt's
@@ -4647,6 +4681,7 @@ __all__ = [
     "build_planning",
     "build_provenance",
     "build_reservoir_array",
+    "build_reservoir_production_factor_array",
     "build_reserve_provision_array",
     "build_reserve_zone_array",
     "build_simulation",

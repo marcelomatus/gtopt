@@ -25,10 +25,10 @@ struct json_data_contract<Turbine>
       json_variant<"generator", SingleId>,
       json_bool_null<"drain", OptBool>,
       json_variant_null<"production_factor",
-                        OptTBRealFieldSched,
-                        jvtl_TBRealFieldSched>,
+                        OptTRealFieldSched,
+                        jvtl_TRealFieldSched>,
       json_variant_null<"efficiency", OptTRealFieldSched, jvtl_TRealFieldSched>,
-      json_variant_null<"capacity", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"main_reservoir", OptSingleId, jvtl_SingleId>>;
 
   constexpr static auto to_json_data(Turbine const& turbine)

@@ -587,14 +587,45 @@ class TurbineSpec:
     reservoir_name: str
     production_factor: float = 0.0  # MW per m³/s (Hydro_EfficiencyIncr fp_med)
     tail_reservoir_name: str | None = None
-    #: Full per-period production-factor series from
-    #: ``Hydro_EfficiencyIncr.csv`` (head-dependent PF over the bundle
-    #: horizon).  Since gtopt ``Turbine.production_factor`` is now
-    #: per-(stage, block) (``OptTBRealFieldSched``), the writer
-    #: aggregates this profile to the block layout and emits a
-    #: ``[[stage_blocks]]`` matrix when it varies; constant / absent
-    #: series collapse to the scalar :attr:`production_factor`.
-    pf_profile: tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
+class ProductionFactorSegmentSpec:
+    """One breakpoint of a piecewise-linear concave production-factor curve.
+
+    Point-slope form matching gtopt ``ProductionFactorSegment`` /
+    PLP ``FRendimientos``: ``constant`` is the production factor [MW·s/m³]
+    AT the breakpoint ``volume`` [hm³], and ``slope`` [pf per hm³] is the
+    local rate toward the next breakpoint.  The curve value at volume V is
+    ``min_i(constant_i + slope_i·(V − volume_i))`` (concave envelope).
+    """
+
+    volume: float
+    slope: float
+    constant: float
+
+
+@dataclass(frozen=True)
+class ReservoirProductionFactorSpec:
+    """Volume-dependent (hydraulic-head) turbine production factor.
+
+    Mirrors gtopt's ``ReservoirProductionFactor`` head element (the PLP
+    "rendimiento" curve): associates a turbine with the reservoir whose
+    volume drives its conversion rate, plus a piecewise-linear concave
+    volume→PF curve.  Emitted by ``extract_reservoir_production_factors``
+    ONLY when a PLEXOS bundle ships head-effect curve data (head-storage
+    efficiency/volume points); CEN PCP ships none, so no entry is produced
+    and turbines keep their scalar :attr:`TurbineSpec.production_factor`.
+    The curve re-linearizes per SDDP phase (constant within a monolithic
+    solve), so it changes nothing for the one-week monolithic PLEXOS cases.
+    """
+
+    uid: int
+    name: str
+    turbine_name: str
+    reservoir_name: str
+    mean_production_factor: float = 1.0
+    segments: tuple[ProductionFactorSegmentSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1081,6 +1112,12 @@ class PlexosCase:
     waterways: tuple[WaterwaySpec, ...] = field(default_factory=tuple)
     junctions: tuple[JunctionSpec, ...] = field(default_factory=tuple)
     turbines: tuple[TurbineSpec, ...] = field(default_factory=tuple)
+    #: Volume-dependent (head-effect) turbine production factors.  Empty for
+    #: every CEN PCP bundle (head effects off); populated only when a bundle
+    #: ships PLEXOS head-storage efficiency/volume curve data.
+    reservoir_production_factors: tuple[ReservoirProductionFactorSpec, ...] = field(
+        default_factory=tuple
+    )
     flows: tuple[FlowSpec, ...] = field(default_factory=tuple)
     reserves: tuple[ReserveSpec, ...] = field(default_factory=tuple)
     reserve_provisions: tuple[ReserveProvisionSpec, ...] = field(default_factory=tuple)

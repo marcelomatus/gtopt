@@ -186,14 +186,10 @@ struct Turbine
 
   /// Water-to-power production factor [MW·s/m³ = MW / (m³/s)].
   /// Multiplied by ``efficiency`` to form the effective conversion
-  /// rate in the LP.  **Per-(stage, block)** schedulable: accepts a
-  /// scalar, a ``[stage]`` 1-D array, a ``[stage][block]`` 2-D matrix,
-  /// or a filename string referencing a Parquet/CSV schedule under
-  /// ``input_directory/Turbine/``.  Scalar / per-stage forms broadcast
-  /// to every block (back-compat).  Per-block support lets a
-  /// single-stage PLEXOS conversion carry head-dependent PF variation
-  /// across the horizon instead of collapsing it to one value.
-  OptTBRealFieldSched production_factor {};
+  /// rate in the LP.  Accepts scalar, ``[stage]`` 1-D array, or a
+  /// filename string referencing a Parquet/CSV schedule under
+  /// ``input_directory/Turbine/``.
+  OptTRealFieldSched production_factor {};
   /// Turbine efficiency [p.u., dimensionless] (default 1.0).
   /// Effective conversion rate is ``efficiency × production_factor``.
   /// Accepts the same value forms as ``production_factor``.
@@ -202,11 +198,9 @@ struct Turbine
   /// (``waterway.flow``, ``flow.discharge``, or built-in
   /// ``Turbine/flow``) via a per-block ``≤ capacity`` row.  Note this
   /// is a FLOW bound, not a power bound: the corresponding power cap
-  /// is ``capacity × efficiency × production_factor`` [MW].
-  /// **Per-(stage, block)** schedulable — accepts the same value forms
-  /// as ``production_factor`` (scalar / per-stage broadcast to every
-  /// block for back-compat).
-  OptTBRealFieldSched capacity {};
+  /// is ``capacity × efficiency × production_factor`` [MW].  Accepts
+  /// the same value forms as ``production_factor``.
+  OptTRealFieldSched capacity {};
 
   /// Optional reservoir uid or name whose volume drives the turbine's
   /// conversion rate (hydraulic-head effects).  When set, the SDDP

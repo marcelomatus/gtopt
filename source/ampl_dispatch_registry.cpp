@@ -343,10 +343,10 @@ std::optional<double> fr_param_uvalue(const SystemContext& sc,
 std::optional<double> tur_param_production_factor(const SystemContext& sc,
                                                   Uid uid,
                                                   StageUid s,
-                                                  BlockUid b)
+                                                  BlockUid /*b*/)
 {
   return sc.get_element(ObjectSingleId<TurbineLP> {uid})
-      .param_production_factor(s, b);
+      .param_production_factor(s);
 }
 std::optional<double> tur_param_efficiency(const SystemContext& sc,
                                            Uid uid,
@@ -358,9 +358,9 @@ std::optional<double> tur_param_efficiency(const SystemContext& sc,
 std::optional<double> tur_param_capacity(const SystemContext& sc,
                                          Uid uid,
                                          StageUid s,
-                                         BlockUid b)
+                                         BlockUid /*b*/)
 {
-  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s, b);
+  return sc.get_element(ObjectSingleId<TurbineLP> {uid}).param_capacity(s);
 }
 
 // Waterway — per-(stage, block) fmin/fmax + per-stage capacity, lossfactor,
