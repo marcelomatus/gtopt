@@ -2483,6 +2483,27 @@ public:
     return *m_col_scales_;
   }
 
+  /// Objective time-basis of a column (Power / Energy / Raw), used by
+  /// `OutputContext` to pick the inverse cost-factor family for the
+  /// column's reduced-cost readback.  Out-of-range (post-flatten) indices
+  /// default to `Power`.  Populated from
+  /// `FlatLinearProblem::col_cost_scale_types` at `load_flat`.
+  [[nodiscard]] ConstraintScaleType col_cost_scale_type_at(
+      ColIndex index) const noexcept
+  {
+    const auto i = static_cast<size_t>(index);
+    return i < m_col_cost_scale_types_->size() ? (*m_col_cost_scale_types_)[i]
+                                               : ConstraintScaleType::Power;
+  }
+
+  /// Whole-vector view of per-column objective time-basis.  Empty when not
+  /// populated (bare LinearInterface / unflattened LP).
+  [[nodiscard]] std::span<const ConstraintScaleType> col_cost_scale_types()
+      const noexcept
+  {
+    return *m_col_cost_scale_types_;
+  }
+
   /**
    * @brief Gets the row equilibration scale factor for a single row.
    *
@@ -2526,6 +2547,26 @@ public:
   [[nodiscard]] const auto& get_row_scales() const noexcept
   {
     return *m_row_scales_;
+  }
+
+  /// Objective time-basis of a row (Power / Energy / Raw), used by
+  /// `OutputContext` to pick the inverse cost-factor family for the row's
+  /// dual readback.  Out-of-range (post-flatten / cut) indices default to
+  /// `Power`.  Populated from `FlatLinearProblem::row_cost_scale_types`.
+  [[nodiscard]] ConstraintScaleType row_cost_scale_type_at(
+      RowIndex index) const noexcept
+  {
+    const auto i = static_cast<size_t>(index);
+    return i < m_row_cost_scale_types_->size() ? (*m_row_cost_scale_types_)[i]
+                                               : ConstraintScaleType::Power;
+  }
+
+  /// Whole-vector view of per-row objective time-basis.  Empty when not
+  /// populated (bare LinearInterface / unflattened LP).
+  [[nodiscard]] std::span<const ConstraintScaleType> row_cost_scale_types()
+      const noexcept
+  {
+    return *m_row_cost_scale_types_;
   }
 
   /// Equilibration method in effect for this LP (selected by
@@ -2989,6 +3030,20 @@ private:
       std::make_shared<StrongIndexVector<ColIndex, double>>()};
   mutable std::shared_ptr<StrongIndexVector<RowIndex, double>> m_row_scales_ {
       std::make_shared<StrongIndexVector<RowIndex, double>>()};
+  /// Per-column / per-row objective time-basis (Power / Energy / Raw),
+  /// populated from `FlatLinearProblem::col_cost_scale_types` /
+  /// `row_cost_scale_types` at `load_flat`.  Frozen after flatten (never
+  /// mutated post-load), so `shared_ptr` lets shallow clones share without
+  /// copying — same lifecycle as `m_col_scales_`.  Consumed by
+  /// `OutputContext` to choose the inverse cost-factor family when reading
+  /// reduced costs / duals back to physical units.  Out-of-range (post-
+  /// flatten) indices default to `Power` via `*_cost_scale_type_at`.
+  mutable std::shared_ptr<std::vector<ConstraintScaleType>>
+      m_col_cost_scale_types_ {
+          std::make_shared<std::vector<ConstraintScaleType>>()};
+  mutable std::shared_ptr<std::vector<ConstraintScaleType>>
+      m_row_cost_scale_types_ {
+          std::make_shared<std::vector<ConstraintScaleType>>()};
   /// Equilibration method used at load_flat() time.  Persisted so that
   /// `add_row` / `add_rows` (the post-build cut path) apply the same
   /// per-row scaling the bulk build did, keeping kappa stable as cuts

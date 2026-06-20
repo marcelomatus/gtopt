@@ -692,6 +692,22 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
     });
   }
 
+  // Per-column / per-row objective time-basis (Power / Energy / Raw),
+  // carried into FlatLinearProblem so OutputContext can select the
+  // inverse cost-factor family per element when reading reduced costs /
+  // duals back to physical units.  Captured verbatim from the SparseCol /
+  // SparseRow; out-of-range (post-flatten) indices default to Power.
+  std::vector<ConstraintScaleType> col_cost_scale_types;
+  col_cost_scale_types.reserve(cols.size());
+  for (const auto& col : cols) {
+    col_cost_scale_types.push_back(col.cost_scale_type);
+  }
+  std::vector<ConstraintScaleType> row_cost_scale_types;
+  row_cost_scale_types.reserve(rows.size());
+  for (const auto& row : rows) {
+    row_cost_scale_types.push_back(row.cost_scale_type);
+  }
+
   // Index name maps
   using fp_index_map_t = FlatLinearProblem::index_map_t;
   auto build_name_map = [](const auto& names,
@@ -1270,6 +1286,8 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rowmp = std::move(rowmp),
       .col_labels_meta = std::move(col_labels_meta),
       .row_labels_meta = std::move(row_labels_meta),
+      .col_cost_scale_types = std::move(col_cost_scale_types),
+      .row_cost_scale_types = std::move(row_cost_scale_types),
       .name = pname,  // always copy (trivially small, enables multiple flatten)
       .stats_nnz = stats_nnz,
       .stats_zeroed = stats_zeroed,

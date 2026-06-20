@@ -534,6 +534,7 @@ public:
       eicol = lp.add_col({
           .lowb = storage().eini.value_or(stage_emin),
           .uppb = storage().eini.value_or(stage_emax),
+          .cost_scale_type = ConstraintScaleType::Energy,
           .scale = energy_scale,
           .class_name = opts.class_name,
           .variable_name = EiniName,
@@ -553,6 +554,7 @@ public:
       eicol = lp.add_col({
           .lowb = sini_lowb,
           .uppb = stage_emax,
+          .cost_scale_type = ConstraintScaleType::Energy,
           .scale = energy_scale,
           .class_name = opts.class_name,
           .variable_name = SiniName,
@@ -624,6 +626,10 @@ public:
 
       auto erow =
           SparseRow {
+              // STOCK constraint: its dual is the water value / energy
+              // shadow price ($/stored-unit, e.g. $/CMD) — duration-
+              // independent, read back WITHOUT the per-block 1/duration term.
+              .cost_scale_type = ConstraintScaleType::Energy,
               .class_name = cname,
               .constraint_name = EnergyBalanceName,
               .variable_uid = opts.variable_uid,
@@ -675,6 +681,9 @@ public:
           .lowb = emin_block ? efin_block_lowb : 0.0,
           .uppb = block_emax,
           .cost = block_ecost_val,
+          // STOCK state column: reduced cost is $/stored-unit, read back
+          // WITHOUT the per-block 1/duration term (Energy time-basis).
+          .cost_scale_type = ConstraintScaleType::Energy,
           .scale = energy_scale,
           .class_name = opts.class_name,
           .variable_name = EnergyName,
@@ -771,6 +780,9 @@ public:
         const double lp_efin = *efin_opt;
         auto efin_row =
             SparseRow {
+                // Terminal-volume target `vol_end >= efin` — its dual is a
+                // $/stored-unit shadow price (Energy time-basis).
+                .cost_scale_type = ConstraintScaleType::Energy,
                 .class_name = cname,
                 .constraint_name = EfinName,
                 .variable_uid = opts.variable_uid,
@@ -801,6 +813,8 @@ public:
               .lowb = 0,
               .uppb = LinearProblem::DblMax,
               .cost = slack_cost,
+              // STOCK state penalty: $/stored-unit (Energy time-basis).
+              .cost_scale_type = ConstraintScaleType::Energy,
               .scale = energy_scale,
               .class_name = opts.class_name,
               .variable_name = EfinSlackName,
@@ -845,6 +859,8 @@ public:
           .lowb = 0,
           .uppb = LinearProblem::DblMax,
           .cost = slack_cost,
+          // STOCK state penalty: $/stored-unit (Energy time-basis).
+          .cost_scale_type = ConstraintScaleType::Energy,
           .scale = energy_scale,
           .class_name = opts.class_name,
           .variable_name = SoftEminName,
@@ -854,6 +870,9 @@ public:
 
       auto semin_row =
           SparseRow {
+              // Soft minimum-volume floor — its dual is a $/stored-unit
+              // shadow price (Energy time-basis).
+              .cost_scale_type = ConstraintScaleType::Energy,
               .class_name = cname,
               .constraint_name = SeminGeName,
               .variable_uid = opts.variable_uid,
@@ -1072,6 +1091,10 @@ public:
     // Primal and reduced-cost outputs: the LinearInterface now returns
     // physical values from get_col_sol() (LP × col_scale) and
     // get_col_cost() (LP / col_scale), so no manual rescaling needed.
+    // All energy/SoC columns are STOCK state ($/stored-unit): their
+    // `cost_scale_type` is set to Energy at add_to_lp, so OutputContext
+    // reads their reduced costs back with the duration-free factor,
+    // consistent with the energy-balance dual below.
     out.add_col_sol(cname, EiniName, pid, eini_cols);
     out.add_col_cost(cname, EiniName, pid, eini_cols);
     out.add_col_sol(cname, SiniName, pid, sini_cols);
@@ -1091,6 +1114,13 @@ public:
     // with `"water_value"`) while keeping the LP variable / row
     // names — and thus `<class>.energy.sol` / `<class>.energy.cost` —
     // untouched.
+    // The energy balance is a STOCK constraint (stored-unit, e.g. CMD), so its
+    // dual (water value / energy shadow price) must be back-scaled WITHOUT the
+    // block-duration term — otherwise multi-hour blocks report slope/duration
+    // instead of the true per-stored-unit value.  The `energy_rows` carry
+    // `cost_scale_type = Energy` (set at add_to_lp), so OutputContext selects
+    // the 1/(prob*discount) factor.  (Per-block power duals like LMP keep the
+    // duration term via the Power default.)
     out.add_row_dual(
         cname, energy_dual_name, pid, energy_rows, output_dual_scale);
 

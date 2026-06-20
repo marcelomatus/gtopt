@@ -67,6 +67,16 @@ struct SparseRow
   /// callers.  Default `unknown_index` preserves legacy row-max
   /// behavior.
   ColIndex pivot_col {unknown_index};
+  /// Time-basis of this row's dual, used to choose the inverse factor family
+  /// when the LP dual is read back to physical units in `OutputContext`.
+  ///   - `Power`  → readback ÷ (prob·disc·duration) (DEFAULT — per-block
+  ///     power-balance LMP $/MWh, current behaviour).
+  ///   - `Energy` → readback ÷ (prob·disc) (STOCK / commodity dual: storage
+  ///     energy-balance water value $/CMD, fuel offtake $/fuel-unit, emission
+  ///     cap $/tonne — duration-INdependent).
+  ///   - `Raw`    → readback ÷ 1 (face-value, no prob/disc/duration descale).
+  /// See `SparseCol::cost_scale_type` for the full rationale.
+  ConstraintScaleType cost_scale_type {ConstraintScaleType::Power};
   std::string_view class_name {};  ///< Class name (e.g. "Bus", "Reservoir")
   std::string_view
       constraint_name {};  ///< Constraint type (e.g. "bal", "cap", "kvl")

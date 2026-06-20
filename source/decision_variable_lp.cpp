@@ -114,6 +114,11 @@ bool DecisionVariableLP::add_to_lp(const SystemContext& sc,
         .lowb = lower,
         .uppb = upper,
         .cost = col_cost,
+        // Mirror the objective time-basis onto the column so the reduced-cost
+        // readback in OutputContext is the exact inverse of the fold above
+        // (Power → ÷duration, Energy → ÷(prob·disc), Raw → face value, e.g.
+        // alpha_fcf / VoRS penalties).
+        .cost_scale_type = scale_type,
         .class_name = cname,
         .variable_name = ValueName,
         .variable_uid = uid(),

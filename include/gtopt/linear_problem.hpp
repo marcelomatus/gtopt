@@ -125,6 +125,15 @@ struct FlatLinearProblem
   std::vector<SparseColLabel> col_labels_meta;
   std::vector<SparseRowLabel> row_labels_meta;
 
+  /// Per-column / per-row objective time-basis, captured from
+  /// `SparseCol::cost_scale_type` / `SparseRow::cost_scale_type` at
+  /// `flatten()`.  Consumed by `OutputContext` (via `LinearInterface`) to
+  /// select the inverse cost-factor family when reading reduced costs / duals
+  /// back to physical units (Power → ÷duration, Energy → no ÷duration, Raw →
+  /// face value).  Empty / out-of-range indices default to `Power`.
+  std::vector<ConstraintScaleType> col_cost_scale_types;
+  std::vector<ConstraintScaleType> row_cost_scale_types;
+
   std::string name;  ///< Problem name
 
   /// @name Coefficient statistics (populated when

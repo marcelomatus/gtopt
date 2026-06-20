@@ -912,6 +912,8 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_variable_scale_map_ = deep_copy_ptr(m_variable_scale_map_);
     cloned.m_col_scales_ = deep_copy_ptr(m_col_scales_);
     cloned.m_row_scales_ = deep_copy_ptr(m_row_scales_);
+    cloned.m_col_cost_scale_types_ = deep_copy_ptr(m_col_cost_scale_types_);
+    cloned.m_row_cost_scale_types_ = deep_copy_ptr(m_row_cost_scale_types_);
     cloned.m_col_labels_meta_ = deep_copy_ptr(m_col_labels_meta_);
     cloned.m_row_labels_meta_ = deep_copy_ptr(m_row_labels_meta_);
     cloned.m_col_names_ = deep_copy_ptr(m_col_names_);
@@ -922,6 +924,8 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_variable_scale_map_ = m_variable_scale_map_;
     cloned.m_col_scales_ = m_col_scales_;
     cloned.m_row_scales_ = m_row_scales_;
+    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
+    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
     cloned.m_col_labels_meta_ = m_col_labels_meta_;
     cloned.m_row_labels_meta_ = m_row_labels_meta_;
     cloned.m_col_names_ = m_col_names_;
@@ -1014,6 +1018,8 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
     cloned.m_variable_scale_map_ = m_variable_scale_map_;
     cloned.m_col_scales_ = m_col_scales_;
     cloned.m_row_scales_ = m_row_scales_;
+    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
+    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
     cloned.m_col_labels_meta_ = m_col_labels_meta_;
     cloned.m_row_labels_meta_ = m_row_labels_meta_;
     cloned.m_col_names_ = m_col_names_;
@@ -1110,6 +1116,16 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // Preserve per-row equilibration scale factors (empty when disabled).
   detach_for_write(m_row_scales_)
       .assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
+
+  // Preserve per-column / per-row objective time-basis (Power / Energy /
+  // Raw) so OutputContext can choose the inverse cost-factor family per
+  // element when reading reduced costs / duals back to physical units.
+  detach_for_write(m_col_cost_scale_types_)
+      .assign(flat_lp.col_cost_scale_types.begin(),
+              flat_lp.col_cost_scale_types.end());
+  detach_for_write(m_row_cost_scale_types_)
+      .assign(flat_lp.row_cost_scale_types.begin(),
+              flat_lp.row_cost_scale_types.end());
 
   // Persist the equilibration method so the follow-up PR that migrates
   // Benders cut construction to physical accessors can apply the same

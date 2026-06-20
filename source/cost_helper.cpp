@@ -63,6 +63,34 @@ auto compute_block_discount_icost_factors(
   return factors;
 }
 
+auto compute_block_icost_factors_no_duration(
+    const std::vector<ScenarioLP>& scenarios,
+    const std::vector<StageLP>& stages) -> block_factor_matrix_t
+{
+  // Like ``block_icost_factors`` but WITHOUT the block-duration term, i.e.
+  // ``1 / (probability * discount)``.  This is the correct back-scale for
+  // duals of *stock* constraints (storage energy balance → water value /
+  // energy shadow price, $ per stored-unit) which — unlike per-block *power*
+  // balances (LMP, $/MWh) — must NOT be divided by the block duration.
+  const auto active_scenarios =
+      std::ranges::to<std::vector>(enumerate_active<Index>(scenarios));
+  const auto active_stages =
+      std::ranges::to<std::vector>(enumerate_active<Index>(stages));
+
+  block_factor_matrix_t factors(active_scenarios.size(), active_stages.size());
+
+  for (auto&& [si, scenario] : active_scenarios) {
+    for (auto&& [ti, stage] : active_stages) {
+      const double factor =
+          1.0 / (scenario.probability_factor() * stage.discount_factor());
+      factors[si][ti] =
+          to_vector(stage.blocks(), [factor](const auto&) { return factor; });
+    }
+  }
+
+  return factors;
+}
+
 auto compute_stage_icost_factors(const std::vector<StageLP>& stages)
     -> stage_factor_matrix_t
 {
@@ -74,6 +102,22 @@ auto compute_stage_icost_factors(const std::vector<StageLP>& stages)
                                             const auto& [i, s] = is;
                                             return 1.0
                                                 / CostHelper::cost_factor(s);
+                                          }));
+}
+
+auto compute_stage_icost_factors_no_duration(const std::vector<StageLP>& stages)
+    -> stage_factor_matrix_t
+{
+  // 1 / discount — the duration-free back-scale for per-stage STOCK /
+  // commodity duals (e.g. emission cap = $/tonne), which must not carry
+  // the 1/stage_duration term that per-stage energy duals do.
+  auto&& active_stages = enumerate_active<Index>(stages);
+  return std::ranges::to<std::vector>(active_stages
+                                      | std::views::transform(
+                                          [&](const auto& is)
+                                          {
+                                            const auto& [i, s] = is;
+                                            return 1.0 / s.discount_factor();
                                           }));
 }
 
@@ -92,6 +136,32 @@ auto compute_scenario_stage_icost_factors(
   for (auto&& [si, scenario] : active_scenarios) {
     for (auto&& [ti, stage] : active_stages) {
       factors[si][ti] = 1.0 / CostHelper::cost_factor(scenario, stage);
+    }
+  }
+
+  return factors;
+}
+
+auto compute_scenario_stage_icost_factors_no_duration(
+    const std::vector<ScenarioLP>& scenarios,
+    const std::vector<StageLP>& stages) -> scenario_stage_factor_matrix_t
+{
+  // 1 / (probability * discount) — duration-free back-scale for per-
+  // (scenario, stage) STOCK / commodity duals & reduced costs (storage
+  // efin / soft_emin / eini state, per-stage fuel offtake = $/fuel-unit),
+  // which must NOT carry the 1/stage_duration term.
+  const auto active_scenarios =
+      std::ranges::to<std::vector>(enumerate_active<Index>(scenarios));
+  const auto active_stages =
+      std::ranges::to<std::vector>(enumerate_active<Index>(stages));
+
+  scenario_stage_factor_matrix_t factors(active_scenarios.size(),
+                                         active_stages.size());
+
+  for (auto&& [si, scenario] : active_scenarios) {
+    for (auto&& [ti, stage] : active_stages) {
+      factors[si][ti] =
+          1.0 / (scenario.probability_factor() * stage.discount_factor());
     }
   }
 
@@ -122,6 +192,16 @@ auto CostHelper::block_discount_icost_factors() const
   return *m_block_discount_icost_cache_;
 }
 
+auto CostHelper::block_icost_factors_no_duration() const
+    -> const block_factor_matrix_t&
+{
+  if (!m_block_icost_no_dur_cache_) {
+    m_block_icost_no_dur_cache_ = compute_block_icost_factors_no_duration(
+        m_scenarios_.get(), m_stages_.get());
+  }
+  return *m_block_icost_no_dur_cache_;
+}
+
 auto CostHelper::stage_icost_factors() const -> const stage_factor_matrix_t&
 {
   if (!m_stage_icost_cache_) {
@@ -138,6 +218,26 @@ auto CostHelper::scenario_stage_icost_factors() const
                                                              m_stages_.get());
   }
   return *m_ss_icost_cache_;
+}
+
+auto CostHelper::stage_icost_factors_no_duration() const
+    -> const stage_factor_matrix_t&
+{
+  if (!m_stage_icost_no_dur_cache_) {
+    m_stage_icost_no_dur_cache_ =
+        compute_stage_icost_factors_no_duration(m_stages_.get());
+  }
+  return *m_stage_icost_no_dur_cache_;
+}
+
+auto CostHelper::scenario_stage_icost_factors_no_duration() const
+    -> const scenario_stage_factor_matrix_t&
+{
+  if (!m_ss_icost_no_dur_cache_) {
+    m_ss_icost_no_dur_cache_ = compute_scenario_stage_icost_factors_no_duration(
+        m_scenarios_.get(), m_stages_.get());
+  }
+  return *m_ss_icost_no_dur_cache_;
 }
 
 }  // namespace gtopt

@@ -190,6 +190,21 @@ public:
       const;
 
   /**
+   * @brief Inverse cost factors for blocks WITHOUT the duration term.
+   *
+   * Lazily computed, then cached.
+   * Formula: 1 / (probability * discount)   (same for all blocks in a stage)
+   *
+   * Use for duals of *stock* constraints (storage energy balance →
+   * water value / energy shadow price, $ per stored-unit), which must not be
+   * divided by block duration the way per-block power-balance duals (LMP) are.
+   *
+   * @return Const reference to cached matrix of duration-free inverse factors
+   */
+  [[nodiscard]] const block_factor_matrix_t& block_icost_factors_no_duration()
+      const;
+
+  /**
    * @brief Returns cached inverse cost factors for stages (1/cost_factor).
    *
    * Lazily computed on first call (probability = 1.0), then cached.
@@ -198,6 +213,11 @@ public:
    * @return Const reference to cached vector of inverse cost factors
    */
   [[nodiscard]] const stage_factor_matrix_t& stage_icost_factors() const;
+
+  /// Per-stage inverse factors WITHOUT duration: 1 / discount.
+  /// Use for per-stage STOCK / commodity duals (e.g. emission cap $/tonne).
+  [[nodiscard]] const stage_factor_matrix_t& stage_icost_factors_no_duration()
+      const;
 
   /**
    * @brief Returns cached inverse cost factors for scenario-stage pairs.
@@ -210,6 +230,13 @@ public:
   [[nodiscard]] const scenario_stage_factor_matrix_t&
   scenario_stage_icost_factors() const;
 
+  /// Per-(scenario, stage) inverse factors WITHOUT duration:
+  /// 1 / (probability * discount).  Use for per-stage STOCK / commodity
+  /// duals & reduced costs (storage efin / soft_emin / eini state,
+  /// per-stage fuel offtake $/fuel-unit).
+  [[nodiscard]] const scenario_stage_factor_matrix_t&
+  scenario_stage_icost_factors_no_duration() const;
+
 private:
   std::reference_wrapper<const PlanningOptionsLP> m_options_;
   std::reference_wrapper<const std::vector<ScenarioLP>> m_scenarios_;
@@ -217,8 +244,12 @@ private:
 
   mutable std::optional<block_factor_matrix_t> m_block_icost_cache_;
   mutable std::optional<block_factor_matrix_t> m_block_discount_icost_cache_;
+  mutable std::optional<block_factor_matrix_t> m_block_icost_no_dur_cache_;
   mutable std::optional<stage_factor_matrix_t> m_stage_icost_cache_;
+  mutable std::optional<stage_factor_matrix_t> m_stage_icost_no_dur_cache_;
   mutable std::optional<scenario_stage_factor_matrix_t> m_ss_icost_cache_;
+  mutable std::optional<scenario_stage_factor_matrix_t>
+      m_ss_icost_no_dur_cache_;
 };
 
 }  // namespace gtopt

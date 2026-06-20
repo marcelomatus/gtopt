@@ -284,6 +284,9 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
         }
         const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
         SparseRow brow {
+            // Fuel-offtake cap dual is a $/fuel-unit scarcity price
+            // (commodity / duration-independent → Energy time-basis).
+            .cost_scale_type = ConstraintScaleType::Energy,
             .class_name = cname,
             .constraint_name = MaxOfftakeName,
             .variable_uid = uid(),
@@ -318,6 +321,8 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
     } else {
       // Per-stage SUM (default): Σ_b Σ_g (hr · dur · gen_g) ≤ max_offtake.
       SparseRow cap_row {
+          // Fuel-offtake cap dual = $/fuel-unit (Energy time-basis).
+          .cost_scale_type = ConstraintScaleType::Energy,
           .class_name = cname,
           .constraint_name = MaxOfftakeName,
           .variable_uid = uid(),
@@ -380,6 +385,8 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
         }
         const auto block_ctx = make_block_context(scen_uid, stage_uid, buid);
         SparseRow brow {
+            // Fuel-offtake floor dual = $/fuel-unit (Energy time-basis).
+            .cost_scale_type = ConstraintScaleType::Energy,
             .class_name = cname,
             .constraint_name = MinOfftakeName,
             .variable_uid = uid(),
@@ -419,6 +426,8 @@ bool FuelLP::add_to_lp(const SystemContext& sc,
     } else {
       // Per-stage SUM floor: Σ_b Σ_g (hr · dur · gen_g) + slack ≥ min_offtake.
       SparseRow floor_row {
+          // Fuel-offtake floor dual = $/fuel-unit (Energy time-basis).
+          .cost_scale_type = ConstraintScaleType::Energy,
           .class_name = cname,
           .constraint_name = MinOfftakeName,
           .variable_uid = uid(),
@@ -472,6 +481,10 @@ bool FuelLP::add_to_output(OutputContext& out) const
     out.add_col_cost(cname, MaxOfftakeSlackName, pid, max_offtake_slack_cols_);
   }
   if (!max_offtake_block_rows_.empty()) {
+    // Per-block fuel-offtake cap `Σ hr·dur·gen ≤ cap` — its dual is a
+    // $/fuel-unit scarcity price (duration-independent).  The rows carry
+    // `cost_scale_type = Energy` (set at add_to_lp), so OutputContext
+    // back-scales WITHOUT the 1/duration term.
     out.add_row_dual(cname, MaxOfftakeName, pid, max_offtake_block_rows_);
   }
   if (!max_offtake_block_slack_cols_.empty()) {
@@ -488,6 +501,9 @@ bool FuelLP::add_to_output(OutputContext& out) const
     out.add_col_cost(cname, MinOfftakeSlackName, pid, min_offtake_slack_cols_);
   }
   if (!min_offtake_block_rows_.empty()) {
+    // Per-block fuel-offtake floor — dual is a $/fuel-unit price; same
+    // Energy `cost_scale_type` (duration-free back-scale) as the
+    // max-offtake block dual above.
     out.add_row_dual(cname, MinOfftakeName, pid, min_offtake_block_rows_);
   }
   if (!min_offtake_block_slack_cols_.empty()) {

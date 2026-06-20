@@ -313,6 +313,8 @@ TEST_CASE("Linear problem advanced operations")
         .rowmp = {},
         .col_labels_meta = {},
         .row_labels_meta = {},
+        .col_cost_scale_types = {},
+        .row_cost_scale_types = {},
         .name = "SEN",
     };
 
@@ -363,6 +365,8 @@ TEST_CASE("Linear problem advanced operations")
         .rowmp = {},
         .col_labels_meta = {},
         .row_labels_meta = {},
+        .col_cost_scale_types = {},
+        .row_cost_scale_types = {},
         .name = "SEN",
     };
 

@@ -81,6 +81,9 @@ bool EmissionZoneLP::add_to_lp([[maybe_unused]] const SystemContext& sc,
   }
 
   SparseRow cap_row {
+      // Emission-cap dual is a $/tonne scarcity price (commodity /
+      // duration-independent → Energy time-basis).
+      .cost_scale_type = ConstraintScaleType::Energy,
       .class_name = cname,
       .constraint_name = CapName,
       .variable_uid = uid(),

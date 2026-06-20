@@ -12,8 +12,11 @@
 #pragma once
 
 #include <array>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 
 #include <gtopt/arrow_types.hpp>
@@ -42,6 +45,44 @@ namespace gtopt
 /// that every downstream write uses the same pre-validated codec without
 /// re-probing on each file.
 [[nodiscard]] std::string probe_parquet_codec(std::string_view requested);
+
+namespace detail
+{
+/// True when @p T is a per-block inner map (the `mapped_type` of an
+/// STB-style holder's outer map): it exposes `mapped_type` and is not
+/// itself the scalar index value.  Used by `OutputContext::first_index_of`
+/// to decide whether the outer map's value is a nested block map (STB) or
+/// the index value directly (ST / T / GSTB).
+template<typename T, typename = void>
+inline constexpr bool is_nested_block_map_v = false;
+template<typename T>
+inline constexpr bool is_nested_block_map_v<
+    T,
+    std::void_t<typename std::remove_cvref_t<T>::mapped_type,
+                decltype(std::declval<std::remove_cvref_t<T>>().begin())>> =
+    true;
+
+/// The LP-index value type stored in an index holder
+/// (`ColIndex` / `RowIndex`).  For STB-style nested holders this is the
+/// inner block map's `mapped_type`; for ST / T / GSTB it is the outer
+/// map's `mapped_type` directly.
+template<typename IndexHolder, typename = void>
+struct holder_index_value
+{
+  using type = typename std::remove_cvref_t<IndexHolder>::mapped_type;
+};
+template<typename IndexHolder>
+struct holder_index_value<
+    IndexHolder,
+    std::void_t<typename std::remove_cvref_t<
+        typename std::remove_cvref_t<IndexHolder>::mapped_type>::mapped_type>>
+{
+  using type = typename std::remove_cvref_t<
+      typename std::remove_cvref_t<IndexHolder>::mapped_type>::mapped_type;
+};
+template<typename IndexHolder>
+using holder_index_value_t = typename holder_index_value<IndexHolder>::type;
+}  // namespace detail
 
 class OutputContext
 {
@@ -442,7 +483,7 @@ public:
               holder,
               col_cost_span,
               &stb_prelude,
-              sc.get().block_icost_factors());
+              block_factor_for(col_scale_type_of(holder)));
   }
 
   constexpr void add_col_cost(std::string_view cname,
@@ -453,6 +494,10 @@ public:
     if (!emit_reduced_cost(cname)) {
       return;
     }
+    // The inverse cost-factor family is chosen per element from the
+    // column's stored `cost_scale_type`: a STOCK column (e.g. storage
+    // energy state, Energy) reads back $/stored-unit WITHOUT the per-block
+    // 1/duration term that a power column ($/MWh, Power default) carries.
     add_field(cname,
               col_name,
               "cost",
@@ -460,7 +505,7 @@ public:
               holder,
               col_cost_span,
               &stb_prelude,
-              sc.get().block_icost_factors());
+              block_factor_for(col_scale_type_of(holder)));
   }
 
   /// Extras-gated variant of `add_col_cost(..., STBIndexHolder<ColIndex>)`.
@@ -500,7 +545,7 @@ public:
               holder,
               row_dual_span,
               &stb_prelude,
-              sc.get().block_icost_factors());
+              block_factor_for(row_scale_type_of(holder)));
   }
 
   constexpr void add_row_dual(std::string_view cname,
@@ -511,6 +556,11 @@ public:
     if (!emit_dual(cname)) {
       return;
     }
+    // The inverse cost-factor family is chosen per element from the row's
+    // stored `cost_scale_type`: stock / commodity duals (storage energy
+    // balance → water value $/CMD, fuel-offtake $/fuel-unit; Energy) are
+    // duration-independent and read back WITHOUT the 1/duration term that
+    // per-block power duals (LMP, Power default) need.
     add_field(cname,
               row_name,
               "dual",
@@ -518,7 +568,7 @@ public:
               holder,
               row_dual_span,
               &stb_prelude,
-              sc.get().block_icost_factors());
+              block_factor_for(row_scale_type_of(holder)));
   }
 
   /// Extras-gated variant of `add_row_dual(..., STBIndexHolder<RowIndex>)`.
@@ -555,8 +605,17 @@ public:
     if (!emit_dual(cname)) {
       return;
     }
-    add_field_st_scaled(
-        cname, row_name, "dual", id, holder, row_dual_span, st_scale);
+    // Per-element inverse cost-factor family (Power / Energy / Raw) selected
+    // from the row's stored `cost_scale_type`, composed with the extra
+    // per-(scenario,stage) back-scale `st_scale` (daily-cycle correction).
+    add_field_st_scaled(cname,
+                        row_name,
+                        "dual",
+                        id,
+                        holder,
+                        row_dual_span,
+                        st_scale,
+                        block_factor_for(row_scale_type_of(holder)));
   }
 
   /// add_row_dual using discount-only scaling (`scale_obj / discount[t]`).
@@ -613,7 +672,7 @@ public:
               holder,
               col_cost_span,
               &st_prelude,
-              sc.get().scenario_stage_icost_factors());
+              ss_factor_for(col_scale_type_of(holder)));
   }
 
   constexpr void add_row_dual(std::string_view cname,
@@ -624,6 +683,10 @@ public:
     if (!emit_dual(cname)) {
       return;
     }
+    // Per-element inverse cost-factor family from the row's stored
+    // `cost_scale_type`: a per-stage STOCK / commodity dual ($/stored-unit,
+    // $/fuel-unit, $/tonne; Energy) gets the duration-free back-scale,
+    // unlike per-stage power/energy-flow duals (Power default).
     add_field(cname,
               row_name,
               "dual",
@@ -631,7 +694,7 @@ public:
               holder,
               row_dual_span,
               &st_prelude,
-              sc.get().scenario_stage_icost_factors());
+              ss_factor_for(row_scale_type_of(holder)));
   }
 
   // ── T stage-indexed overloads ────────────────────────────────────
@@ -669,7 +732,7 @@ public:
               holder,
               col_cost_span,
               &t_prelude,
-              sc.get().stage_icost_factors());
+              stage_factor_for(col_scale_type_of(holder)));
   }
 
   constexpr void add_row_dual(std::string_view cname,
@@ -687,7 +750,7 @@ public:
               holder,
               row_dual_span,
               &t_prelude,
-              sc.get().stage_icost_factors());
+              stage_factor_for(row_scale_type_of(holder)));
   }
 
   /// Which output fields were requested for this context.
@@ -748,11 +811,143 @@ private:
   ScaledView col_cost_span;
   ScaledView row_dual_span;
 
+  /// Per-column / per-row objective time-basis (Power / Energy / Raw),
+  /// borrowed from the LinearInterface (frozen after flatten).  Drives the
+  /// per-element inverse cost-factor selection in `cost_factor_for_col` /
+  /// `dual_factor_for_row`.  Out-of-range (post-flatten) indices default to
+  /// `Power` via `LinearInterface::*_cost_scale_type_at`-equivalent logic
+  /// inlined in those helpers.
+  std::span<const ConstraintScaleType> col_cost_scale_types;
+  std::span<const ConstraintScaleType> row_cost_scale_types;
+
   ArrowFieldArrays stb_prelude;
   ArrowFieldArrays st_prelude;
   ArrowFieldArrays t_prelude;
 
   FieldVectorMap<double> field_vector_map;
+
+  // ── cost-factor selection by per-element time-basis ──────────────
+  //
+  // Within a single `add_*` call the holder addresses exactly one
+  // element instance, so every column / row it references shares the
+  // same `cost_scale_type` (set at the element's `add_to_lp` site).
+  // We therefore read the time-basis of the holder's first stored
+  // index once and pick the inverse cost-factor family accordingly,
+  // rather than branching per cell.  Selection (readback is the
+  // inverse of the objective fold, per element):
+  //   Power  → block_icost_factors            (÷ prob·disc·duration)
+  //   Energy → block_icost_factors_no_duration(÷ prob·disc)
+  //   Raw    → empty matrix                    (÷ 1; only scale_objective,
+  //                                             applied in get_col_cost)
+
+  /// Representative `cost_scale_type` of the column referenced by an
+  /// index holder.  Reads the first stored ColIndex; defaults to
+  /// `Power` for empty holders or out-of-range (post-flatten) indices.
+  template<typename IndexHolder>
+  [[nodiscard]] ConstraintScaleType col_scale_type_of(
+      const IndexHolder& holder) const noexcept
+  {
+    const auto col = first_index_of(holder);
+    if (!col) {
+      return ConstraintScaleType::Power;
+    }
+    const auto i = static_cast<size_t>(*col);
+    return i < col_cost_scale_types.size() ? col_cost_scale_types[i]
+                                           : ConstraintScaleType::Power;
+  }
+
+  /// Representative `cost_scale_type` of the row referenced by an index
+  /// holder.  See `col_scale_type_of`.
+  template<typename IndexHolder>
+  [[nodiscard]] ConstraintScaleType row_scale_type_of(
+      const IndexHolder& holder) const noexcept
+  {
+    const auto row = first_index_of(holder);
+    if (!row) {
+      return ConstraintScaleType::Power;
+    }
+    const auto i = static_cast<size_t>(*row);
+    return i < row_cost_scale_types.size() ? row_cost_scale_types[i]
+                                           : ConstraintScaleType::Power;
+  }
+
+  /// Block-level inverse cost-factor matrix for a per-block (STB / GSTB)
+  /// readback, chosen by the element's @p type.  Power → with-duration,
+  /// Energy → duration-free, Raw → empty (no per-cell descale).
+  [[nodiscard]] const block_factor_matrix_t& block_factor_for(
+      ConstraintScaleType type) const
+  {
+    static const block_factor_matrix_t kEmpty {};
+    switch (type) {
+      case ConstraintScaleType::Energy:
+        return sc.get().block_icost_factors_no_duration();
+      case ConstraintScaleType::Raw:
+        return kEmpty;
+      case ConstraintScaleType::Power:
+        break;
+    }
+    return sc.get().block_icost_factors();
+  }
+
+  /// Per-(scenario, stage) inverse cost-factor matrix for an ST readback,
+  /// chosen by the element's @p type.  See `block_factor_for`.
+  [[nodiscard]] const scenario_stage_factor_matrix_t& ss_factor_for(
+      ConstraintScaleType type) const
+  {
+    static const scenario_stage_factor_matrix_t kEmpty {};
+    switch (type) {
+      case ConstraintScaleType::Energy:
+        return sc.get().scenario_stage_icost_factors_no_duration();
+      case ConstraintScaleType::Raw:
+        return kEmpty;
+      case ConstraintScaleType::Power:
+        break;
+    }
+    return sc.get().scenario_stage_icost_factors();
+  }
+
+  /// Per-stage inverse cost-factor matrix for a T readback, chosen by the
+  /// element's @p type.  See `block_factor_for`.
+  [[nodiscard]] const stage_factor_matrix_t& stage_factor_for(
+      ConstraintScaleType type) const
+  {
+    static const stage_factor_matrix_t kEmpty {};
+    switch (type) {
+      case ConstraintScaleType::Energy:
+        return sc.get().stage_icost_factors_no_duration();
+      case ConstraintScaleType::Raw:
+        return kEmpty;
+      case ConstraintScaleType::Power:
+        break;
+    }
+    return sc.get().stage_icost_factors();
+  }
+
+  /// Extract the first stored index value from any STB / ST / T / GSTB
+  /// index holder (nested or flat map).  Returns `std::nullopt` when the
+  /// holder is empty or the (nested) inner map has no entries.  The inner
+  /// value type is the LP column / row index (`ColIndex` / `RowIndex`).
+  template<typename IndexHolder>
+  [[nodiscard]] static constexpr auto first_index_of(
+      const IndexHolder& holder) noexcept
+      -> std::optional<typename detail::holder_index_value_t<IndexHolder>>
+  {
+    using Value = typename detail::holder_index_value_t<IndexHolder>;
+    if (holder.empty()) {
+      return std::nullopt;
+    }
+    const auto& front = holder.begin()->second;
+    if constexpr (detail::is_nested_block_map_v<decltype(front)>) {
+      // STB-style: outer (scenario,stage) → inner block → index.
+      if (front.empty()) {
+        return std::nullopt;
+      }
+      return Value {front.begin()->second};
+    } else {
+      // ST / T / GSTB-style: value is the index directly.
+      return Value {front};
+    }
+  }
 
   // ── private helpers ──────────────────────────────────────────────
 
@@ -873,6 +1068,9 @@ private:
   }
 
   /// add_field variant with additional per-(scenario,stage) back-scale.
+  /// @p factor is the per-element-selected block-level inverse cost-factor
+  /// matrix (Power → with-duration, Energy → duration-free, Raw → empty),
+  /// composed with the per-(scenario,stage) @p st_scale.
   template<typename IndexHolder, typename Span>
   void add_field_st_scaled(std::string_view cname,
                            std::string_view fname,
@@ -880,17 +1078,15 @@ private:
                            const Id& id,
                            const IndexHolder& holder,
                            const Span& value_span,
-                           const STIndexHolder<double>& st_scale)
+                           const STIndexHolder<double>& st_scale,
+                           const block_factor_matrix_t& factor)
   {
     if (holder.empty() || value_span.empty()) {
       return;
     }
 
     auto&& [values, valid] = sc.get().flat(
-        holder,
-        [&](auto i) { return value_span[i]; },
-        sc.get().block_icost_factors(),
-        st_scale);
+        holder, [&](auto i) { return value_span[i]; }, factor, st_scale);
 
     if (values.empty()) {
       return;

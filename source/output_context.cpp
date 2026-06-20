@@ -915,6 +915,8 @@ OutputContext::OutputContext(const SystemContext& psc,
     , col_sol_span(linear_interface.get_col_sol())
     , col_cost_span(linear_interface.get_col_cost())
     , row_dual_span(linear_interface.get_row_dual())
+    , col_cost_scale_types(linear_interface.col_cost_scale_types())
+    , row_cost_scale_types(linear_interface.row_cost_scale_types())
     , stb_prelude(make_stb_prelude(psc.stb_uids()))
     , st_prelude(make_st_prelude(psc.st_uids()))
     , t_prelude(make_t_prelude(psc.t_uids()))

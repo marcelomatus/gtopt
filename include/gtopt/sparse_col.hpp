@@ -17,6 +17,7 @@
 
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_context.hpp>
+#include <gtopt/user_constraint_enums.hpp>
 
 namespace gtopt
 {
@@ -98,6 +99,19 @@ struct SparseCol
                            ///< columns and to never-integer-declared
                            ///< [0, 1] variables (startup/shutdown).
                            ///< See task #50 for rationale.
+  /// Time-basis of this column's objective coefficient, used to choose the
+  /// inverse factor family when the LP reduced cost is read back to physical
+  /// units in `OutputContext`.  Primal-in and dual-out are inverse by
+  /// construction per element:
+  ///   - `Power`  → objective × (prob·disc·duration); readback ÷ same
+  ///     (DEFAULT — instantaneous-power $/MWh reduced cost, current behaviour).
+  ///   - `Energy` → objective × (prob·disc); readback ÷ (prob·disc)
+  ///     (STOCK / commodity, e.g. stored-energy state $/MWh-stored, $/CMD —
+  ///     duration-INdependent, must NOT carry the per-block 1/duration term).
+  ///   - `Raw`    → objective × 1; readback ÷ 1 (face-value money, e.g.
+  ///     `alpha_fcf`, VoRS penalties — no prob/disc/duration descale).
+  ConstraintScaleType cost_scale_type {ConstraintScaleType::Power};
+
   double scale {1.0};  ///< Physical-to-LP scale: physical_value = LP_value ×
                        ///< scale (default: 1.0 = no scaling)
 
