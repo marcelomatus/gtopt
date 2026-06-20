@@ -3,6 +3,9 @@
 /// @brief Tests for StorageLP coverage: daily_cycle, soft_emin, drain,
 ///        efin constraint, cross-phase boundary, physical accessors.
 
+#include <algorithm>
+#include <limits>
+
 #include <doctest/doctest.h>
 #include <gtopt/battery.hpp>
 #include <gtopt/battery_lp.hpp>
@@ -1101,6 +1104,127 @@ TEST_CASE(  // NOLINT
   // efin_slack column from StorageLP::EfinSlackName lives in the LP
   // when efin_cost > 0.  Verify the LP solved cleanly with both
   // slack mechanisms instantiated — the obj > 0 above covers that.
+}
+
+// ─── Per-block emin floor binds under strict_storage_emin ───────────────────
+//
+// Regression for the 2026-06-19 fix: prior to it the per-(stage, block)
+// ``block_emin`` value computed by ``block_maxmin_at`` was NEVER used as the
+// energy column's lower bound — only the last-block efin handoff was floored
+// under strict mode, so intra-stage blocks could dip below the emin schedule
+// (e.g. PEHUENCHE 1175 < emin 1234 on a PLEXOS run).  This builds a 1-stage,
+// 2-block battery whose dispatch is pulled below emin by an expensive
+// generator + cheap battery discharge, and checks:
+//   * strict_storage_emin=true  ⇒ EVERY block's energy stays >= emin;
+//   * strict_storage_emin=false ⇒ a block IS allowed to dip below emin.
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+/// Build + solve a single-battery system with an explicit
+/// ``strict_storage_emin`` setting and a topology that incentivises a
+/// below-emin dip.  Returns the minimum physical energy seen across all
+/// blocks of the first stage.
+double min_block_energy_with_strict(bool strict)
+{
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  // Generator is the only alternative supply and it is EXPENSIVE, so the
+  // optimiser would rather drain the battery below its emin floor if it
+  // were allowed to.
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 1000.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .lmax = 40.0,
+      },
+  };
+  const Array<Battery> battery_array = {
+      {
+          .uid = Uid {1},
+          .name = "bat_emin_floor",
+          .bus = Uid {1},
+          .input_efficiency = 1.0,
+          .output_efficiency = 1.0,
+          .emin = 30.0,  // per-block floor (scalar broadcasts to every block)
+          .emax = 100.0,
+          .eini = 50.0,
+          .pmax_discharge = 40.0,
+          .capacity = 100.0,
+          .use_state_variable = true,
+          .daily_cycle = false,
+      },
+  };
+
+  const System system = {
+      .name = "StrictEminTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .battery_array = battery_array,
+  };
+
+  PlanningOptions opts;
+  opts.model_options.demand_fail_cost = 100000.0;
+  opts.model_options.strict_storage_emin = strict;
+
+  auto options = PlanningOptionsLP {opts};
+  SimulationLP sim_lp(make_simple_simulation(), options);
+  SystemLP sys_lp(system, sim_lp);
+
+  auto& li = sys_lp.linear_interface();
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto& bat_lp = sys_lp.elements<BatteryLP>().front();
+  const auto& sc0 = sys_lp.scene().scenarios().front();
+  const auto& stg0 = sys_lp.phase().stages().front();
+  const auto& sol = li.get_col_sol();
+  const auto& ecols = bat_lp.energy_cols_at(sc0, stg0);
+
+  double min_e = std::numeric_limits<double>::infinity();
+  for ([[maybe_unused]] const auto& [buid, col] : ecols) {
+    const double phys = bat_lp.to_physical(sol[col]);
+    min_e = std::min(min_e, phys);
+  }
+  return min_e;
+}
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "StorageLP per-block emin floor binds under strict_storage_emin")
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("strict=true keeps every block at or above emin")
+  {
+    const double min_e = min_block_energy_with_strict(true);
+    // emin=30 must hold on EVERY block, not just the efin handoff.
+    CHECK(min_e >= doctest::Approx(30.0).epsilon(1e-6));
+  }
+
+  SUBCASE("strict=false allows a block to dip below emin")
+  {
+    const double min_e = min_block_energy_with_strict(false);
+    // With the lax (PLP / SDDP iter-0) default the energy column has lowb=0,
+    // so the expensive generator + demand pull the battery below its emin.
+    CHECK(min_e < doctest::Approx(30.0));
+  }
 }
 
 // NOLINTEND(misc-const-correctness)

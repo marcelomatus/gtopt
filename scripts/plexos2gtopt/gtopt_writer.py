@@ -342,6 +342,33 @@ def _flatten_positive(seq: Iterable[Any]) -> Iterator[float]:
             yield float(x)
 
 
+def _iter_numeric_leaves(node: Any) -> Iterator[float]:
+    """Yield every numeric leaf of a (possibly nested) list / scalar."""
+    if isinstance(node, list):
+        for e in node:
+            yield from _iter_numeric_leaves(e)
+    elif isinstance(node, (int, float)):
+        yield float(node)
+
+
+def _field_peak(val: Any, default: float = 0.0) -> float:
+    """Peak numeric value of a JSON field that may be a scalar OR a (possibly
+    nested ``[[...]]``) per-block profile.
+
+    Reservoir ``emin``/``emax`` are ``OptTBRealFieldSched`` — emitted as a
+    per-block matrix when the PLEXOS input varies (e.g. CANUTILLAR emax
+    ``[[12330.8, …, 10569.6]]``).  Any downstream scalar comparison
+    (``emax > 0``) must reduce the profile to a representative scalar first;
+    this returns the max over all numeric leaves (``default`` when none).
+    """
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    flat = list(_iter_numeric_leaves(val))
+    return max(flat) if flat else default
+
+
 def soft_penalty_cost(
     gcost_values: Iterable[Any],
     voll_values: Iterable[Any],
@@ -3321,7 +3348,7 @@ def _internalise_real_reservoir_ocean_spill(system: dict[str, Any]) -> int:
     real_res: dict[str, dict[str, Any]] = {
         r["name"]: r
         for r in reservoirs
-        if r.get("emax", 0.0) > 0.0 and r.get("spillway_capacity") != 0.0
+        if _field_peak(r.get("emax")) > 0.0 and r.get("spillway_capacity") != 0.0
     }
 
     # Ocean drain junctions PINNED by a consumptive FlowRight bypass.

@@ -1133,6 +1133,13 @@ def extract_fuels(db: PlexosDb, bundle: PlexosBundle) -> tuple[FuelSpec, ...]:
         # the System→Fuels static-property default (often non-zero).
         if fuel.name in prices:
             price = prices[fuel.name][0]
+            # gtopt ``Fuel.price`` is STAGE-schedulable, but the converter
+            # pre-folds the fuel price into each generator's scalar gcost
+            # (``fuel.price × heat_rate + gcost``) at conversion time, so
+            # only the period-1 value is carried.  Surface any genuine
+            # time variation as a WARNING rather than dropping it silently
+            # (structural-guard class: "series collapsed to scalar").
+            _warn_if_series_varies("fuel price", fuel.name, prices[fuel.name])
         else:
             # Fallback: XML-only schemas (RTS-96) ship the fuel
             # price as a static property on the System→Fuels collection.
@@ -3708,84 +3715,76 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         if eini == 0.0:
             eini = db.static_property("Storage", storage.object_id, "Initial Volume")
         # ── Build per-block emin/emax profile ─────────────────────────
-        # PLEXOS shape: ``Hydro_*Volume.csv`` ships operational
-        # floors / caps at SPECIFIC end-of-day hours (slot 23, 47,
-        # …, 167 for a 7-day week).  We verified for ELTORO that
-        # PLEXOS binds the floor EXACTLY at those hours.
+        # PLEXOS ``Hydro_*Volume.csv`` ships a TRUE per-period operational
+        # floor / cap series (one value per hour).  Earlier code collapsed
+        # this to a single scalar (``emin = static_emin``,
+        # ``emax = min(emax_series)``), SILENTLY losing the time variation:
+        #   * CANUTILLAR Max Volume steps 12,330.8 (h1-23) → 10,569.6
+        #     (h24+) — the early high cap was discarded, so gtopt could
+        #     never fill above the constant 10,570 even though PLEXOS holds
+        #     ~10,690 in the first day.
+        #   * ELTORO / L_Maule Min Volume step from 0 to an operational
+        #     end-of-day floor (18,346 at h24; 9,007 at h94) which the
+        #     scalar floor (static_emin) never enforced.
+        # We now emit the FULL per-block profile, aggregating the hourly
+        # series to gtopt blocks with the most-restrictive reducer:
+        #   * emin → MAX over the block's hours (highest floor binds), then
+        #     clamped at or above the static physical floor.
+        #   * emax → MIN over the block's hours (lowest cap binds), bounded
+        #     by the static physical cap when one is defined.
+        # This keeps every block's bound feasible (it never tightens beyond
+        # the worst hour inside the block) while preserving the real
+        # operational variation.  The scalar fallback (``emin`` / ``emax``
+        # above) is kept for reservoirs whose series is absent or constant.
         #
-        # Conservative pass: only honour the FIRST-day and LAST-day
-        # end-of-day floors / caps (hour 24 and hour ``n_days * 24``).
-        # Mid-week end-of-day spikes are skipped — they over-
-        # constrained v17 for reservoirs lacking an nphi safety
-        # valve (e.g. L_Maule blocks 82/97 hitting 7,969 with only
-        # 175 hm³ headroom).  Block 0 always uses the static
-        # physical floor / cap.
+        # Whether the per-block emin BINDS in the LP is gated C++-side by
+        # ``model_options.strict_storage_emin`` (default true for
+        # plexos2gtopt's monolithic runs; plp2gtopt emits false for SDDP
+        # iter-0 feasibility).  emax always binds per-block.
+        #
+        # ``GTOPT_EMIN_EOD_DAY1`` (``--emin-eod-day1``) is retained as a
+        # legacy *restriction*: when set, only the end-of-day-1 (hour 24)
+        # CSV floor is honoured for emin (all other hours fall back to the
+        # static floor) — the old conservative behaviour for bundles where
+        # the full per-block floor over-constrained a reservoir lacking an
+        # nphi safety valve.  Default OFF ⇒ the full per-block floor.
         emin_profile: tuple[float, ...] = ()
         emax_profile: tuple[float, ...] = ()
         block_layout = getattr(bundle, "block_layout", ())
         if block_layout and (emin_series or emax_series):
-            # Hard per-block emin clamp from ``Hydro_MinVolume.csv`` —
-            # at end-of-day 1 (hour 24) only, controlled by
-            # ``GTOPT_EMIN_EOD_DAY1`` env var (default OFF).  When ON,
-            # honours the PLEXOS operational floor at the close of the
-            # first operating day.  Default OFF because the hard hour-24
-            # clamp pins reservoirs near full at midnight of day 1,
-            # blocking day-1 drawdown and inflating reservoir water-value
-            # duals well above PLEXOS's storage Shadow Price (CANUTILLAR
-            # 2.6×, ELTORO/L_Maule ~1.1-1.2×); the soft end-of-week
-            # ``efin`` slack already carries the terminal valuation.
-            #
-            # The last-day EOD floor (hour 168 on a weekly run) is
-            # carried independently as the soft ``efin`` + ``efin_cost``
-            # slack below — not duplicated here.  Mid-week EOD floors
-            # (hour 48, 72, 96, 120, 144) are still skipped because
-            # they previously over-constrained ``L_Maule`` blocks 82/97
-            # (7,969 hm³ target with only 175 hm³ headroom and no nphi
-            # safety valve in CEN PCP).  Hour 24 was never one of the
-            # offending bindings on the 2026-04-22 bundle, so it stays
-            # hard.
-            #
-            # Set ``GTOPT_EMIN_EOD_DAY1=1`` (or pass ``--emin-eod-day1``)
-            # to enable the hard hour-24 clamp; default is the all-soft
-            # behaviour.
             _eod_day1 = os.environ.get("GTOPT_EMIN_EOD_DAY1", "0") in (
                 "1",
                 "true",
                 "True",
             )
-            allowed_eod_hours: set[int] = {24} if _eod_day1 else set()
             emin_per_block: list[float] = []
             emax_per_block: list[float] = []
             for intervals in block_layout:
-                # 1-indexed hour intervals → 0-indexed CSV slot;
-                # only consider hours that match one of our allowed
-                # end-of-day boundaries (first / last day).
-                csv_emin_in_block = [
+                # 1-indexed hour intervals → 0-indexed CSV slot.  Under the
+                # legacy --emin-eod-day1 restriction only hour 24 feeds the
+                # emin floor; otherwise every hour in the block does.
+                emin_hours = [
                     emin_series[h - 1]
                     for h in intervals
-                    if h in allowed_eod_hours
-                    and 0 < h <= len(emin_series)
+                    if 0 < h <= len(emin_series)
                     and emin_series[h - 1] > 0.0
+                    and (not _eod_day1 or h == 24)
                 ]
-                csv_emax_in_block = [
+                emax_hours = [
                     emax_series[h - 1]
                     for h in intervals
-                    if h in allowed_eod_hours
-                    and 0 < h <= len(emax_series)
-                    and emax_series[h - 1] > 0.0
+                    if 0 < h <= len(emax_series) and emax_series[h - 1] > 0.0
                 ]
                 emin_per_block.append(
-                    max([static_emin] + csv_emin_in_block)
-                    if csv_emin_in_block
-                    else static_emin
+                    max([static_emin] + emin_hours) if emin_hours else static_emin
                 )
                 emax_per_block.append(
-                    min([static_emax] + csv_emax_in_block)
-                    if csv_emax_in_block and static_emax > 0.0
-                    else static_emax
+                    min([static_emax] + emax_hours)
+                    if emax_hours and static_emax > 0.0
+                    else (min(emax_hours) if emax_hours else static_emax)
                 )
-            # Only emit the profile when it actually varies across
-            # blocks (otherwise the scalar emin/emax suffices).
+            # Only emit the profile when it actually varies across blocks
+            # (otherwise the scalar emin/emax suffices and stays smaller).
             if len(set(emin_per_block)) > 1:
                 emin_profile = tuple(emin_per_block)
             if len(set(emax_per_block)) > 1:
@@ -5629,6 +5628,13 @@ def extract_commitments(
         units = ini_units.get(name, [])
         up = ini_hours_up.get(name, [])
         down = ini_hours_down.get(name, [])
+        # gtopt commitment start / shutdown costs are scalars; PLEXOS
+        # treats them as period-invariant.  Warn (don't silently drop) if
+        # a future bundle ships a time-varying series.
+        if sc:
+            _warn_if_series_varies("start cost", name, sc)
+        if sd:
+            _warn_if_series_varies("shutdown cost", name, sd)
         startup_cost = sc[0] if sc else 0.0
         shutdown_cost = sd[0] if sd else 0.0
         initial_status = 1.0 if units and units[0] > 0.0 else 0.0

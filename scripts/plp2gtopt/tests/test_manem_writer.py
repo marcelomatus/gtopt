@@ -154,12 +154,22 @@ def test_to_dataframe_with_empty_parser():
     assert df_emax.empty
 
 
-def _make_central_parser(tmp_path, name, number=1):
-    """Create a minimal CentralParser with one central entry."""
+def _make_central_parser(tmp_path, name, number=1, emin=None, emax=None):
+    """Create a minimal CentralParser with one central entry.
+
+    When ``emin`` / ``emax`` are given they are stored on the central
+    record so the ManemWriter can use them as the per-stage DENSE default
+    for stages a reservoir's maintenance does not cover.
+    """
 
     parser = CentralParser.__new__(CentralParser)
     parser.file_path = tmp_path / "plpcnfce.dat"
-    parser._data = [{"name": name, "number": number, "type": "embalse"}]
+    record = {"name": name, "number": number, "type": "embalse"}
+    if emin is not None:
+        record["emin"] = emin
+    if emax is not None:
+        record["emax"] = emax
+    parser._data = [record]
     parser._name_index_map = {name: 0}
     parser._number_index_map = {number: 0}
     parser.num_embalses = 1
@@ -282,3 +292,70 @@ def test_emin_parquet_is_per_stage_only(tmp_path):
     assert float(s2_emin) == pytest.approx(0.35)
     assert float(s1_emax) == pytest.approx(1.50)
     assert float(s2_emax) == pytest.approx(1.45)
+
+
+def test_partial_manem_coverage_falls_back_to_base(tmp_path):
+    """A reservoir with PARTIAL manem coverage must get the BASE emin/emax on
+    the uncovered stages and the maintenance value on covered ones.
+
+    The emitted emin/emax profile must be DENSE: every stage carries a
+    value, never NaN / missing.  Without the dense default the C++
+    ``Reservoir`` reader (which broadcasts a stage-indexed series across all
+    blocks) would see a hole on the uncovered stages.
+    """
+    # Manem lists ONLY stage 2 (emin=200, emax=900); stages 1 and 3 are
+    # uncovered and must inherit the reservoir's base emin=100 / emax=1000.
+    manem_f = tmp_path / "plpmanem.dat"
+    manem_f.write_text(" 1\n'RESERVOIR1'\n   1\n   02     001  200.0  900.0\n")
+    manem_parser = ManemParser(manem_f)
+    manem_parser.parse()
+
+    central_parser = _make_central_parser(
+        tmp_path, "RESERVOIR1", emin=100.0, emax=1000.0
+    )
+    stage_parser = _make_stage_parser(tmp_path, 3)
+
+    writer = ManemWriter(manem_parser, central_parser, stage_parser)
+    df_emin, df_emax = writer.to_dataframe()
+
+    data_col = next(c for c in df_emin.columns if c.startswith("uid:"))
+    # Dense: one row per stage, no NaN anywhere.
+    assert len(df_emin) == 3
+    assert len(df_emax) == 3
+    assert not df_emin[data_col].isna().any()
+    assert not df_emax[data_col].isna().any()
+
+    covered_stage = int(manem_parser.get_all()[0]["stage"][0])
+    for stage in (1, 2, 3):
+        emin_v = float(df_emin[df_emin["stage"] == stage][data_col].iloc[0])
+        emax_col = next(c for c in df_emax.columns if c.startswith("uid:"))
+        emax_v = float(df_emax[df_emax["stage"] == stage][emax_col].iloc[0])
+        if stage == covered_stage:
+            assert emin_v == pytest.approx(200.0)
+            assert emax_v == pytest.approx(900.0)
+        else:
+            # Uncovered stage → reservoir BASE emin / emax (dense default).
+            assert emin_v == pytest.approx(100.0)
+            assert emax_v == pytest.approx(1000.0)
+
+
+def test_missing_base_emin_emax_no_nan(tmp_path):
+    """Even when the CentralParser record lacks base emin/emax, the emitted
+    profile must be NaN-free (last-resort 0.0 fill).  Guards the C++ reader
+    from ever receiving a NaN bound."""
+    manem_f = tmp_path / "plpmanem.dat"
+    manem_f.write_text(" 1\n'RESERVOIR1'\n   1\n   02     001  200.0  900.0\n")
+    manem_parser = ManemParser(manem_f)
+    manem_parser.parse()
+
+    # No emin/emax on the central record.
+    central_parser = _make_central_parser(tmp_path, "RESERVOIR1")
+    stage_parser = _make_stage_parser(tmp_path, 3)
+
+    writer = ManemWriter(manem_parser, central_parser, stage_parser)
+    df_emin, df_emax = writer.to_dataframe()
+
+    data_col = next(c for c in df_emin.columns if c.startswith("uid:"))
+    emax_col = next(c for c in df_emax.columns if c.startswith("uid:"))
+    assert not df_emin[data_col].isna().any()
+    assert not df_emax[emax_col].isna().any()

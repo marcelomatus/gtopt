@@ -643,24 +643,31 @@ public:
       // - Global final condition (efin) is a named >= row added below for the
       //   last block (is_last_block) of the last stage.
       //
-      // PLP-style emin enforcement (revised 2026-04-25): the per-stage `emin`
-      // floor is applied to the last-block energy column (which serves
-      // as `efin`, the inter-stage handoff state) ONLY when the user opts in
-      // via `model_options.strict_storage_emin=true`.  Intra-stage
-      // blocks always use `lowb = 0` so the energy-balance row has the same
-      // headroom as PLP's `qe<u>_b` Free / `ve<u>` Free formulation.
+      // PLP-style emin enforcement (revised 2026-06-19): the per-(stage,
+      // block) `emin` floor is bound as the per-block energy column's lower
+      // bound — `.lowb = block_emin` — ONLY when the user opts in via
+      // `model_options.strict_storage_emin=true`.  When false (the PLP-
+      // faithful default for plp2gtopt), intra-stage blocks AND the
+      // last-block efin handoff use `lowb = 0` so the energy-balance row has
+      // the same headroom as PLP's `qe<u>_b` Free / `ve<u>` Free formulation.
       //
-      // Why default lax: at iter-0 of an SDDP cascade, the forward pass may
-      // fix `sini = stage_emin` if the predecessor's trial drove the reservoir
-      // to its floor.  Combined with the energy-balance equation
+      // Why the `strict_storage_emin` flag IS the feasibility guard: at
+      // iter-0 of an SDDP cascade, the forward pass may fix `sini =
+      // stage_emin` if the predecessor's trial drove the reservoir to its
+      // floor.  Combined with the energy-balance equation
       // `energy_b = sini − fcr·duration·extraction − ...`, a per-block
       // `lowb = stage_emin` leaves zero headroom and forces a primal
       // infeasibility.  PLP's per-stage LP avoids this by enforcing emin only
-      // on the future-volume column (`vf<u> ≥ vmin`).  Mirroring that here
-      // keeps the LP feasible across the iter-0 cascade.  When
-      // `strict_storage_emin=true`, the historic strict bound is
-      // restored — `efin_block_lowb = stage_emin` — preserving the inter-
-      // stage semantics so the next stage's `sini` is also ≥ stage_emin.
+      // on the future-volume column (`vf<u> ≥ vmin`).  plp2gtopt therefore
+      // emits `strict_storage_emin=false`, keeping the LP feasible across the
+      // iter-0 cascade.  plexos2gtopt runs monolithic with no Benders cuts
+      // clamping `sini`, so the strict default (`true`) is feasible and
+      // makes the PLEXOS per-period Min Volume floor bind every block (was
+      // previously dropped on intra-stage blocks → storage dipped below emin,
+      // e.g. PEHUENCHE 1175 < emin 1234).  When `strict_storage_emin=true`,
+      // the last-block efin column ALSO carries `efin_block_lowb =
+      // stage_emin`, preserving the inter-stage handoff so the next stage's
+      // `sini` is ≥ stage_emin.
       //
       // Capacity (uppb = block_emax) is a real physical bound and is
       // read per-block — ``emin`` / ``emax`` are ``OptTBRealSched`` so
@@ -669,6 +676,13 @@ public:
       const auto [block_emax, block_emin] =
           sc.block_maxmin_at(stage, block, emax, emin, stage_capacity);
       const bool emin_block = (buid == blocks.back().uid());
+      // Per-block hard emin floor.  Under the lax default
+      // (`strict_storage_emin=false`) this stays 0 for every block (PLP /
+      // SDDP iter-0 feasibility).  Under strict mode the last block uses the
+      // efin handoff floor (`efin_block_lowb`) and the intra-stage blocks use
+      // their own per-(stage, block) `block_emin` schedule value.
+      const double block_lowb =
+          strict_volume ? (emin_block ? efin_block_lowb : block_emin) : 0.0;
       // Per-(stage, block) ecost (since PR-D).  `scenario_stage_ecost`
       // applies the scenario probability + discount; we divide by
       // stage.duration() so the LP cost stays in $/(physical_unit)
@@ -678,7 +692,7 @@ public:
               scenario, stage, ecost.at(stage.uid(), buid).value_or(0.0))
           / stage.duration();
       const auto ec = lp.add_col({
-          .lowb = emin_block ? efin_block_lowb : 0.0,
+          .lowb = block_lowb,
           .uppb = block_emax,
           .cost = block_ecost_val,
           // STOCK state column: reduced cost is $/stored-unit, read back

@@ -974,6 +974,133 @@ def build_b13_profile_collapse(planning_json: Path, input_dir: Path) -> list[dic
     return items
 
 
+def _parse_gtopt_reservoir_bounds(planning_json: Path) -> list[dict]:
+    """Extract reservoir ``emin``/``emax`` records from the planning JSON.
+
+    Each record is ``{name, emin, emax}`` where the bound is the RAW JSON
+    value — either a scalar or a per-block profile (a nested ``[[...]]``
+    list).  Empty when the JSON ships no ``reservoir_array``.
+    """
+    if not planning_json.is_file():
+        return []
+    data = json.loads(planning_json.read_text())
+    out: list[dict] = []
+    for r in data.get("system", {}).get("reservoir_array", []):
+        name = r.get("name")
+        if name is None:
+            continue
+        out.append({"name": str(name), "emin": r.get("emin"), "emax": r.get("emax")})
+    return out
+
+
+def build_b14_reservoir_bounds(planning_json: Path, input_dir: Path) -> list[dict]:
+    """B14: reservoir storage-bound consistency (gtopt JSON vs PLEXOS input).
+
+    Reservoir ``emin``/``emax`` are NATIVE element bounds on
+    ``reservoir_array`` — they are outside the Generator/Line scope of B12
+    and the UC-name audit, so a collapsed or wrong reservoir bound was
+    previously INVISIBLE to the audit (the exact silent-collapse class this
+    bucket guards: ``Hydro_MaxVolume`` 12,330 → 10,570 emitted as a flat
+    10,570 scalar, so gtopt can never hold above the day-1 cap PLEXOS
+    honours).
+
+    Two checks against ``Hydro_MinVolume.csv`` / ``Hydro_MaxVolume.csv``
+    (WIDE per-period series, keyed by reservoir name):
+
+      * ``emax_peak_below_input`` — the PLEXOS Max Volume series peaks
+        above the gtopt ``emax`` peak (gtopt caps the reservoir tighter
+        than PLEXOS ever did — CANUTILLAR loses its 12,331 intra-day cap).
+      * ``profile_collapsed`` — the PLEXOS series VARIES across the horizon
+        but gtopt emitted a bare scalar (mirrors B13 for reservoir bounds).
+
+    Emin is the PLEXOS *operational floor* and is intentionally NOT flagged
+    when gtopt's scalar floor sits at-or-above the PLEXOS peak floor (the
+    soft ``efin`` slack carries the operational end-of-day target); only a
+    genuine scalar collapse of a varying floor is reported.
+    """
+    items: list[dict] = []
+    if not planning_json.is_file():
+        return items
+    from .plexos_csv import read_wide  # noqa: PLC0415
+
+    emax_path = input_dir / "Hydro_MaxVolume.csv"
+    emin_path = input_dir / "Hydro_MinVolume.csv"
+
+    def _read_days(path: Path) -> dict[str, list[float]]:
+        if not path.is_file():
+            return {}
+        days: set[tuple[str | None, str | None, str | None]] = set()
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                days.add((row.get("YEAR"), row.get("MONTH"), row.get("DAY")))
+        return read_wide(path, n_days=max(1, len(days)))
+
+    emax_series = _read_days(emax_path)
+    emin_series = _read_days(emin_path)
+    if not emax_series and not emin_series:
+        return items  # no reservoir input to audit against
+
+    def _nonzero(series: list[float]) -> list[float]:
+        return [v for v in series if v != 0.0]
+
+    def _varies(series: list[float]) -> bool:
+        nz = _nonzero(series)
+        return bool(nz) and (max(nz) - min(nz)) > 1.0e-9
+
+    for r in _parse_gtopt_reservoir_bounds(planning_json):
+        name = r["name"]
+        # ── emax: must not cap below the PLEXOS Max Volume peak ──────────
+        emax_in = emax_series.get(name)
+        if emax_in:
+            nz = _nonzero(emax_in)
+            in_peak = max(nz) if nz else None
+            g_peak = _field_peak(r["emax"])
+            if (
+                in_peak is not None
+                and g_peak is not None
+                and _bounds_differ(g_peak, in_peak)
+            ):
+                if g_peak < in_peak:  # gtopt caps tighter than PLEXOS ever was
+                    items.append(
+                        {
+                            "name": name,
+                            "field": "reservoir.emax",
+                            "input": "Hydro_MaxVolume",
+                            "kind": "emax_peak_below_input",
+                            "input_peak": round(in_peak, 4),
+                            "gtopt_peak": round(g_peak, 4),
+                        }
+                    )
+            # Varying input but scalar gtopt value ⇒ collapsed profile.
+            if _varies(emax_in) and not isinstance(r["emax"], list):
+                items.append(
+                    {
+                        "name": name,
+                        "field": "reservoir.emax",
+                        "input": "Hydro_MaxVolume",
+                        "kind": "profile_collapsed",
+                        "input_range": [round(min(nz), 4), round(max(nz), 4)],
+                        "gtopt_scalar": r["emax"],
+                    }
+                )
+        # ── emin: only flag a genuine scalar collapse of a varying floor ─
+        emin_in = emin_series.get(name)
+        if emin_in and _varies(emin_in) and not isinstance(r["emin"], list):
+            nz = _nonzero(emin_in)
+            items.append(
+                {
+                    "name": name,
+                    "field": "reservoir.emin",
+                    "input": "Hydro_MinVolume",
+                    "kind": "profile_collapsed",
+                    "input_range": [round(min(nz), 4), round(max(nz), 4)],
+                    "gtopt_scalar": r["emin"],
+                }
+            )
+
+    return items
+
+
 # ---------------------------------------------------------------------------
 # PLEXOS sol .accdb cache loaders
 # ---------------------------------------------------------------------------
@@ -1715,6 +1842,14 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             inputs.gtopt_json, inputs.plexos_input_dir
         ):
             buckets["B13_profile_collapse"].append(item)
+        # B14: reservoir storage-bound consistency (native emin/emax vs
+        # Hydro_Min/MaxVolume) — the bound class B12 (Gen/Lin only) never
+        # covered, so a collapsed reservoir cap (CANUTILLAR 12,331→10,570)
+        # was invisible to the audit.
+        for item in build_b14_reservoir_bounds(
+            inputs.gtopt_json, inputs.plexos_input_dir
+        ):
+            buckets["B14_reservoir_bounds_mismatch"].append(item)
 
     summary = {
         "n_plexos": len(plexos_names),

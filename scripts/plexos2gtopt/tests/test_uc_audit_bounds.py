@@ -18,8 +18,99 @@ from plexos2gtopt.uc_audit import (
     AuditInputs,
     build_b12_bounds,
     build_b13_profile_collapse,
+    build_b14_reservoir_bounds,
     run_audit,
 )
+
+
+def _write_wide_volume_csv(path: Path, col: str, per_hour: list[float]) -> None:
+    """Write a 1-day WIDE Hydro_*Volume.csv (YEAR,MONTH,DAY,PERIOD,<col>)."""
+    lines = ["YEAR,MONTH,DAY,PERIOD," + col]
+    for h, v in enumerate(per_hour, start=1):
+        lines.append(f"2025,10,19,{h},{v}")
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_b14_flags_emax_cap_below_input(tmp_path: Path) -> None:
+    """B14 flags a reservoir whose gtopt emax caps BELOW the PLEXOS Max Volume
+    peak (the CANUTILLAR 12,331 -> 10,570 silent collapse)."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "generator_array": [],
+                    "reservoir_array": [
+                        {"name": "CANUTILLAR", "emin": 5205.0, "emax": 10569.6},
+                    ],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    _write_wide_volume_csv(
+        input_dir / "Hydro_MaxVolume.csv", "CANUTILLAR", [12330.8] * 23 + [10569.6]
+    )
+    by_kind = {
+        (it["name"], it["kind"]): it
+        for it in build_b14_reservoir_bounds(gtopt_json, input_dir)
+    }
+    key = ("CANUTILLAR", "emax_peak_below_input")
+    assert key in by_kind
+    assert by_kind[key]["input_peak"] == 12330.8
+    assert by_kind[key]["gtopt_peak"] == 10569.6
+    # The varying input + scalar gtopt value is ALSO a collapsed profile.
+    assert ("CANUTILLAR", "profile_collapsed") in by_kind
+
+
+def test_b14_profile_emax_not_flagged(tmp_path: Path) -> None:
+    """A reservoir emitting the full per-block emax profile (carrying the high
+    intra-day cap) is NOT flagged."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "generator_array": [],
+                    "reservoir_array": [
+                        {
+                            "name": "CANUTILLAR",
+                            "emin": 5205.0,
+                            "emax": [[12330.8, 10569.6]],
+                        },
+                    ],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    _write_wide_volume_csv(
+        input_dir / "Hydro_MaxVolume.csv", "CANUTILLAR", [12330.8] * 23 + [10569.6]
+    )
+    assert not build_b14_reservoir_bounds(gtopt_json, input_dir)
+
+
+def test_b14_constant_input_not_flagged(tmp_path: Path) -> None:
+    """A constant Max Volume series emitted as a scalar is correct."""
+    gtopt_json = tmp_path / "DATOS.json"
+    gtopt_json.write_text(
+        json.dumps(
+            {
+                "system": {
+                    "generator_array": [],
+                    "reservoir_array": [
+                        {"name": "COLBUN", "emin": 4416.9, "emax": 17977.4},
+                    ],
+                }
+            }
+        )
+    )
+    input_dir = tmp_path / "datos"
+    input_dir.mkdir()
+    _write_wide_volume_csv(input_dir / "Hydro_MaxVolume.csv", "COLBUN", [17977.4] * 24)
+    assert not build_b14_reservoir_bounds(gtopt_json, input_dir)
 
 
 def _write_max_rating_csv(path: Path, name: str, value: float) -> None:
@@ -175,7 +266,7 @@ def test_b13_constant_rating_not_flagged(tmp_path: Path) -> None:
         "NAME,YEAR,MONTH,DAY,PERIOD,BAND,VALUE\n"
         "G1,2026,1,1,1,1,50\nG1,2026,1,1,2,1,50\n"
     )
-    assert build_b13_profile_collapse(gtopt_json, input_dir) == []
+    assert not build_b13_profile_collapse(gtopt_json, input_dir)
 
 
 def test_b12_within_tolerance_not_flagged(tmp_path: Path) -> None:
