@@ -273,3 +273,67 @@ def test_constant_series_emits_no_profile(tmp_path: Path) -> None:
     res = next(r for r in extract_reservoirs(db, bundle) if r.name == "RES_VARY")
     assert not res.emin_profile  # constant ⇒ scalar suffices
     assert not res.emax_profile
+
+
+def _xml_with_static_min(static_min: float) -> str:
+    """``_XML`` with a static System→Storages ``Min Volume`` property for
+    RES_VARY (membership 520) set to ``static_min`` — the *stale default*
+    that the per-period CSV must override."""
+    inject = f"""
+  <t_property>
+    <property_id>7000</property_id>
+    <collection_id>93</collection_id>
+    <name>Min Volume</name>
+  </t_property>
+  <t_data>
+    <data_id>9001</data_id>
+    <membership_id>520</membership_id>
+    <property_id>7000</property_id>
+    <value>{static_min}</value>
+  </t_data>
+"""
+    return _XML.replace("</MasterDataSet>", inject + "</MasterDataSet>")
+
+
+@pytest.mark.parametrize(
+    ("static_min", "csv_floor", "label"),
+    [
+        # POLCURA-like: stale static default ABOVE the per-period CSV floor.
+        # PLEXOS draws down to 3.093; gtopt must NOT over-constrain to 3.998.
+        (3.9983877, 3.0929944, "polcura_static_above_csv"),
+        # CANUTILLAR-like: stale static default BELOW the CSV floor (1041 vs
+        # 5741.7).  gtopt must raise the floor to the value PLEXOS enforces.
+        (1041.0625, 5741.7384, "canutillar_static_below_csv"),
+    ],
+)
+def test_constant_emin_csv_overrides_static_min_volume(
+    tmp_path: Path, static_min: float, csv_floor: float, label: str
+) -> None:
+    """CLASS GUARD: a CONSTANT ``Hydro_MinVolume.csv`` series is PLEXOS's
+    authoritative operational floor and OVERRIDES the static ``Min Volume``
+    default — in BOTH directions.  The old converter used ``emin =
+    static_emin`` (and ``max([static_emin] + hours)`` per block), so it
+    over-constrained POLCURA (static 3.998 > CSV 3.093) and under-constrained
+    CANUTILLAR (static 1041 < CSV 5741.7).  The emitted scalar ``emin`` must
+    equal the CSV value, not the static default."""
+    (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_xml_with_static_min(static_min))
+    (tmp_path / "Hydro_MinVolume.csv").write_text(
+        _wide_csv("RES_VARY", [csv_floor] * 24)
+    )
+    # A non-zero cap so the reservoir is kept (not dropped as a zero-storage
+    # topology node).
+    (tmp_path / "Hydro_MaxVolume.csv").write_text(
+        _wide_csv("RES_VARY", [max(static_min, csv_floor) * 2.0] * 24)
+    )
+    bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
+    bundle.block_layout = tuple((h,) for h in range(1, 25))
+    db = load_xml(bundle.xml_path)
+    # Sanity: the static default really is what we injected (so the test is
+    # exercising the override, not a no-op).
+    assert db.static_property("Storage", 30, "Min Volume") == pytest.approx(static_min)
+    res = next(r for r in extract_reservoirs(db, bundle) if r.name == "RES_VARY")
+    assert not res.emin_profile  # constant ⇒ scalar, no profile
+    assert res.emin == pytest.approx(csv_floor), (
+        f"[{label}] constant Hydro_MinVolume ({csv_floor}) must override the "
+        f"static Min Volume default ({static_min}); got emin={res.emin}"
+    )

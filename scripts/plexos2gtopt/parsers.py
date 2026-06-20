@@ -3701,16 +3701,23 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
         static_emin = (
             db.static_property("Storage", storage.object_id, "Min Volume") or 0.0
         )
-        # Scalar fallbacks.  ``emin`` uses the PHYSICAL static floor
-        # (PLEXOS ``Min Volume`` property) only — NOT ``max(emin_series)``,
-        # which would lift the operational end-of-day floor (e.g.
-        # ELTORO's 12,142 GWh end-of-week target) into a constant
-        # block-by-block hard floor, making the LP infeasible whenever
-        # natural inflows can't refill the reservoir.  The end-of-day
-        # floor is honoured separately as a SOFT ``efin`` slack below.
-        # ``emax`` continues to take the binding (min) CSV value so
-        # operational caps are respected at every block (caps are
-        # typically physically achievable; floors are aspirational).
+        # Scalar fallbacks.  ``emin`` STARTS at the static physical floor
+        # (PLEXOS ``Min Volume`` property) but that is only the fallback for
+        # reservoirs with NO per-period series: when ``emin_series`` exists it
+        # is PLEXOS's authoritative operational floor and OVERRIDES the static
+        # default (a per-period data file overrides the static scalar for every
+        # period it covers).  For a CONSTANT series the override is applied to
+        # the scalar after the per-block loop (``elif emin_per_block`` below);
+        # for a VARYING series the variation is carried by the per-block
+        # profile.  We deliberately do NOT collapse a varying series with
+        # ``max(emin_series)`` — that would lift an aspirational end-of-day
+        # floor (e.g. ELTORO's end-of-week target) into a constant hard block
+        # floor and make the LP infeasible.  Instead each block takes the max
+        # over only its OWN hours (zeros = "no floor" are skipped), so an
+        # end-of-day target binds only the block that contains it.  The
+        # end-of-horizon floor is also honoured as a SOFT ``efin`` slack below.
+        # ``emax`` takes the binding (min) CSV value so operational caps are
+        # respected at every block (verified to tie out 1:1 with PLEXOS).
         emax = min(emax_series) if emax_series else static_emax
         emin = static_emin
         eini = eini_series[0] if eini_series else 0.0
@@ -3780,7 +3787,11 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                     if 0 < h <= len(emax_series) and emax_series[h - 1] > 0.0
                 ]
                 emin_per_block.append(
-                    max([static_emin] + emin_hours) if emin_hours else static_emin
+                    # Series is authoritative: max over the block's OWN hours.
+                    # ``static_emin`` is a no-data fallback only — NOT a floor
+                    # over the series (using it as a floor over-constrained
+                    # POLCURA, static 3.998 > CSV 3.093).
+                    max(emin_hours) if emin_hours else static_emin
                 )
                 emax_per_block.append(
                     min([static_emax] + emax_hours)
@@ -3791,6 +3802,16 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
             # (otherwise the scalar emin/emax suffices and stays smaller).
             if len(set(emin_per_block)) > 1:
                 emin_profile = tuple(emin_per_block)
+            elif emin_per_block:
+                # CONSTANT per-period floor: the Hydro_MinVolume.csv value is
+                # PLEXOS's authoritative operational floor and OVERRIDES the
+                # stale static ``Min Volume`` default.  Adopt it as the scalar
+                # (POLCURA CSV 3.093 vs static 3.998 ⇒ was over-constrained;
+                # CANUTILLAR CSV 5741.7 vs static 1041.1 ⇒ was under-constrained;
+                # MACHICURA CSV 117.8 vs static 82.5).  ``emin_per_block`` uses
+                # the series per block (static only as a no-data fallback), so
+                # this scalar equals PLEXOS's per-period Min Volume.
+                emin = emin_per_block[0]
             if len(set(emax_per_block)) > 1:
                 emax_profile = tuple(emax_per_block)
         # ── End-of-horizon target ─────────────────────────────────────
