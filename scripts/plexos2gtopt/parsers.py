@@ -3788,13 +3788,26 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                     for h in intervals
                     if 0 < h <= len(emax_series) and emax_series[h - 1] > 0.0
                 ]
-                emin_per_block.append(
-                    # Series is authoritative: max over the block's OWN hours.
-                    # ``static_emin`` is a no-data fallback only — NOT a floor
-                    # over the series (using it as a floor over-constrained
-                    # POLCURA, static 3.998 > CSV 3.093).
-                    max(emin_hours) if emin_hours else static_emin
-                )
+                # Series is authoritative: max over the block's OWN hours.
+                # ``static_emin`` is a no-data fallback only — NOT a floor
+                # over the series (using it as a floor over-constrained
+                # POLCURA, static 3.998 > CSV 3.093).
+                _emin_blk = max(emin_hours) if emin_hours else static_emin
+                # Soft-emin clamp (2026-06-21): a per-block Min-Volume floor
+                # ABOVE the reservoir's initial volume would FORCE refill, but
+                # PLEXOS treats Min Volume as soft/aspirational and ends BELOW
+                # it (EL_TORO efin 18,258 < the h24 floor spike 18,346, while
+                # eini = 18,299).  Under ``strict_storage_emin=true`` that hard
+                # spike held back ~30 GWh of cheap hydro on 2026-10-19,
+                # replaced by gas (+$2.6 M).  Clamp the floor at ``eini`` so it
+                # can never force net accumulation above the start; floors
+                # at/below ``eini`` still bind (preserving the per-block
+                # drawdown intent).  The end-of-horizon target is still carried
+                # softly by ``efin`` / the boundary cut, so the intra-horizon
+                # hard spike is redundant and over-constraining.
+                if eini is not None and eini > 0.0:
+                    _emin_blk = min(_emin_blk, eini)
+                emin_per_block.append(_emin_blk)
                 emax_per_block.append(
                     min([static_emax] + emax_hours)
                     if emax_hours and static_emax > 0.0

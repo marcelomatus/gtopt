@@ -3170,11 +3170,33 @@ def build_flow_right_array(
     return out
 
 
+def _zero_pmax_generator_names(
+    generators: tuple[GeneratorSpec, ...],
+) -> frozenset[str]:
+    """Names of generators that can NEVER dispatch — ``pmax`` is 0 across the
+    whole horizon (scalar and profile) and there is no piecewise capacity.
+
+    Their commitment binaries (``u``/``v``/``w`` per block) are phantom: a
+    ``pmax = 0`` unit contributes exactly 0 MW whether or not it carries a
+    ``Commitment``, so the binaries are pure MIP bloat.  Dropping them removes
+    ~330 dead binaries per phantom unit (CONTY_FV, HUASCO-TG_U4/U5_IFO on the
+    CEN PCP) — see the MIP diagnosis 2026-06-21.  Marginal-neutral: no LP
+    coefficient changes, dispatch / LMPs are identical.
+    """
+    names: set[str] = set()
+    for gen in generators:
+        eff_pmax = max(gen.pmax_profile) if gen.pmax_profile else gen.pmax
+        if eff_pmax == 0.0 and not gen.pmax_segments:
+            names.add(gen.name)
+    return frozenset(names)
+
+
 def build_commitment_array(
     commitments: tuple[CommitmentSpec, ...],
     *,
     lp_relax: bool = False,
     block_layout: tuple[tuple[int, ...], ...] = (),
+    skip_generators: frozenset[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """One ``Commitment`` per :class:`CommitmentSpec`.
 
@@ -3198,6 +3220,12 @@ def build_commitment_array(
     """
     out: list[dict[str, Any]] = []
     for i, c in enumerate(commitments):
+        if c.generator_name in skip_generators:
+            # Phantom commitment on a pmax=0 unit — skip it so the MIP does
+            # not carry dead u/v/w binaries (see _zero_pmax_generator_names).
+            # uids stay on the 1-based SOURCE index, so survivors keep stable
+            # uids; gaps are fine (Commitment uids are opaque, unreferenced).
+            continue
         entry: dict[str, Any] = {
             "uid": i + 1,
             "name": f"uc_{c.generator_name}",
@@ -3840,6 +3868,7 @@ def build_planning(  # pylint: disable=too-many-arguments
             case.commitments,
             lp_relax=lp_relax,
             block_layout=case.bundle.block_layout,
+            skip_generators=_zero_pmax_generator_names(case.generators),
         ),
         "flow_right_array": build_flow_right_array(
             case.flow_rights,

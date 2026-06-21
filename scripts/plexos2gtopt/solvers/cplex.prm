@@ -4,11 +4,15 @@ CPLEX Parameter File Version 22.1.1.0
 #
 # Two recommended overrides on top of CPLEX defaults:
 #
-#   1. CPXPARAM_MIP_Cuts_Gomory = 2
-#      CPLEX `tools tune` ran 4 parameter-set tests on
-#         /tmp/gtopt_pcp_mip4_tan/output/logs/error_0_0_scene_0_phase_0.lp
-#      in 5,282 s.  Its `Fixed and tuned parameter settings` verdict was
-#      `mip cuts gomory 2` — the only forced override that pays off.
+#   1. CPXPARAM_MIP_Cuts_Gomory = 1   (DOWNGRADED from 2 on 2026-06-21)
+#      CPLEX `tools tune` originally picked `gomory 2` from a single
+#      relaxation LP.  But on the degenerate late-autumn weeks (2026-04-12,
+#      04-22) `gomory 2` runs 6 aggressive cut rounds that move the LP bound
+#      only 0.009 % in 3,449 s while each dual-simplex re-solve gets ~5×
+#      slower — root-cut time exploded to 13× the fast weeks (MIP diagnosis
+#      2026-06-21).  Mode 1 (moderate) drops the per-node aggression;
+#      combined with `CutPasses = 3` below the root-cut work is bounded.
+#      Harmless on the easy weeks (cuts there closed in ≤3 rounds).
 #
 #   2. CPXPARAM_LPMethod = 4
 #      LP-method benchmark on the same LP (relaxation only, 14 threads):
@@ -36,7 +40,21 @@ CPLEX Parameter File Version 22.1.1.0
 #      optimal branch-and-bound; the last fraction of a percent is
 #      dispatch-irrelevant for the PLEXOS comparison.  1 % typically
 #      lands an incumbent + closes the gap in well under a minute.
+#
+#   4. CPXPARAM_MIP_Limits_CutPasses = 3
+#      CPXPARAM_MIP_Strategy_RINSHeur = 50
+#      CPXPARAM_MIP_Strategy_HeuristicEffort = 0.30   (added 2026-06-21)
+#      On 04-12/04-22 the MIP spent ~3,449 s in root cut rounds (bound
+#      +0.009 %) then ground a 142 % gap over 2,790 B&C nodes because the
+#      first incumbent (+1.96 M) sat far from the root LP (−0.82 M).
+#      Capping cut passes at 3, running RINS every 50 nodes, and raising
+#      heuristic effort 6× (default 0.05) find a good incumbent early so the
+#      gap closes fast.  Pure search-strategy params — NO LP coefficient or
+#      scaling change ⇒ LMPs, water values and reduced costs are unaffected.
 # ---------------------------------------------------------------------
-CPXPARAM_MIP_Cuts_Gomory                        2
+CPXPARAM_MIP_Cuts_Gomory                        1
 CPXPARAM_LPMethod                               4
 CPXPARAM_MIP_Tolerances_MIPGap                  0.01
+CPXPARAM_MIP_Limits_CutPasses                   3
+CPXPARAM_MIP_Strategy_RINSHeur                  50
+CPXPARAM_MIP_Strategy_HeuristicEffort           0.30
