@@ -44,9 +44,12 @@
 
 #pragma once
 
+#include <optional>
+
 #include <gtopt/basic_types.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
+#include <gtopt/sddp_enums.hpp>
 
 namespace gtopt
 {
@@ -85,18 +88,23 @@ struct FutureCost
   /// `sddp_options.boundary_cuts_mean_shift`.
   OptBool mean_shift {};
 
-  /// Cross-scene cut sharing: `"none"` (each scene keeps its own cut) or
-  /// `"multicut"` (N dedicated `varphi_s`, one per source scene, priced
-  /// `1/N`).  Was `sddp_options.boundary_cut_sharing`.
-  OptName sharing {};
+  /// Cross-scene cut sharing: `per_scene` (each scene keeps its own cut),
+  /// `shared` (broadcast every cut onto every scene's terminal α), or
+  /// `multicut` (N dedicated `varphi_s`, one per source scene, priced
+  /// `1/N`).  Typed enum (no magic strings).  Was
+  /// `sddp_options.boundary_cut_sharing`.
+  std::optional<BoundaryCutSharingMode> sharing {};
 
-  /// Boundary-cut load mode: `"separated"` or `"combined"`.  Was
+  /// Boundary-cut load mode: `noload`, `separated` (per-scene, default), or
+  /// `combined` (broadcast all cuts to all scenes).  Typed enum.  Was
   /// `sddp_options.boundary_cuts_mode`.
-  OptName mode {};
+  std::optional<BoundaryCutsMode> mode {};
 
-  /// Terminal-state valuation mode override.  Was
+  /// Terminal-state water-value valuation statistic — `min`, `avg`, or `max`
+  /// of each cut column's coefficients, used as the terminal soft cost on the
+  /// named state variables.  Typed enum.  Was
   /// `simulation.boundary_cuts_valuation`.
-  OptName valuation {};
+  std::optional<BoundaryCutSoftCost> valuation {};
 };
 
 }  // namespace gtopt
