@@ -539,6 +539,64 @@ def test_real_bundle_convert_emits_valid_planning(tmp_path: Path) -> None:
 
 
 @_skip_if_missing
+def test_real_bundle_reservoir_extraction_box_and_drain(tmp_path: Path) -> None:
+    """plexos2gtopt must ship the SAME reservoir extraction/drain config as
+    plp2gtopt — regression guard for two coupled rules that were silently
+    dropped (PLEXOS 2026-02-15 MIP infeasibility):
+
+    1. **Symmetric extraction box** — ``widen_extraction_bounds_symmetric``
+       (``factor=2``) is applied so every reservoir with a finite extraction
+       bound ships ``fmin == -fmax``.  The raw DIRECTIONAL estimate
+       (``fmin = -max_inflow``, e.g. RAPEL ``-1``) under-sizes how much natural
+       junction inflow the reservoir can ACCEPT into storage, forcing a
+       water-short hydro turbine ON below its commitment min-stable level.
+    2. **Drain (spillway) coherence** — no reservoir is silently left
+       un-drained: it either has the spillway drain ENABLED (``spillway_cost``
+       set AND ``spillway_capacity != 0``) or is an explicit ``never_drain``
+       head (``spillway_capacity == 0``, e.g. ELTORO).
+    """
+    out_file = tmp_path / "DATOS_box.json"
+    convert_plexos_bundle(
+        {
+            "input_bundle": REAL_BUNDLE,
+            "output_dir": tmp_path,
+            "output_file": out_file,
+            "use_single_bus": True,
+            "horizon_mode": "hourly",
+            "horizon_days": 1,
+        }
+    )
+    reservoirs = json.loads(out_file.read_text())["system"].get("reservoir_array", [])
+    assert reservoirs, "fixture must contain reservoirs"
+
+    n_symmetric = 0
+    for r in reservoirs:
+        fmin, fmax = r.get("fmin"), r.get("fmax")
+        finite = (
+            isinstance(fmin, (int, float))
+            and not isinstance(fmin, bool)
+            and (isinstance(fmax, (int, float)) and not isinstance(fmax, bool))
+        )
+        if finite:
+            assert abs(fmin + fmax) < 1e-9, (
+                f"{r['name']}: extraction box not symmetric (fmin={fmin}, "
+                f"fmax={fmax}) — widen_extraction_bounds_symmetric not applied"
+            )
+            n_symmetric += 1
+        # Drain coherence: a non-never_drain reservoir must actually create the
+        # drain column (spillway_cost set, capacity != 0).
+        cap = r.get("spillway_capacity")
+        cost = r.get("spillway_cost")
+        never_drain = cap == 0.0
+        if not never_drain:
+            assert cost is not None, (
+                f"{r['name']}: spillway_cost unset with capacity {cap} — the C++ "
+                "gate (drain_cost.has_value()) drops the drain column entirely"
+            )
+    assert n_symmetric > 0, "expected ≥1 reservoir with finite extraction bounds"
+
+
+@_skip_if_missing
 @_skip_if_no_gtopt
 @_xfail_stale_gtopt_binary
 def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:

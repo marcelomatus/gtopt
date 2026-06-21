@@ -632,6 +632,7 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
         if options.get("reservoir_flow_estimate", True):
             from gtopt_shared.reservoir_flow import (  # noqa: PLC0415
                 apply_reservoir_flow_estimates,
+                widen_extraction_bounds_symmetric,
             )
 
             # Size the reservoir extraction ``fmax`` from the PHYSICAL
@@ -654,6 +655,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 generator_capacities=case.generator_nameplates or None,
                 extra_turbines=case.extra_turbines or None,
             )
+            # Replace the DIRECTIONAL estimate with the SAME symmetric box
+            # plp2gtopt applies (gtopt_writer.py): ``[-2·e, +2·e]`` with
+            # ``e = max(|fmin_est|, |fmax_est|)``.  The directional accept cap
+            # (``fmin = -max_inflow``, e.g. RAPEL ``-1``) under-sizes how much
+            # natural junction inflow the reservoir can take into storage, so a
+            # water-short hydro unit's turbine is forced ON below its commitment
+            # min-stable level → MIP infeasible (PLEXOS 2026-02-15).  Both
+            # converters must apply this identically — see
+            # ``test_reservoir_extraction_bounds_symmetric``.
+            widen_extraction_bounds_symmetric(planning, factor=2.0)
 
         write_planning(planning, output_file)
 
