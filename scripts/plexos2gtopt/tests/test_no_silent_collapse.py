@@ -184,6 +184,33 @@ def test_emin_emax_not_silently_collapsed(tmp_path: Path) -> None:
     assert max(res.emax_profile) == pytest.approx(2000.0)
 
 
+def test_per_block_emin_clamped_at_initial_volume(tmp_path: Path) -> None:
+    """CLASS GUARD: a per-block Min-Volume floor ABOVE the reservoir's initial
+    volume is clamped at ``eini`` — it must never force refill above the start.
+
+    PLEXOS treats Min Volume as soft/aspirational and ends BELOW it (EL_TORO
+    efin 18,258 < the h24 floor spike 18,346, eini 18,299); under
+    ``strict_storage_emin=true`` that hard spike held back ~30 GWh of cheap
+    hydro on 2026-10-19 (+$2.6 M gas).  Floors at/below ``eini`` still bind.
+    """
+    bundle = _build_bundle(tmp_path)
+    # RES_VARY Min Volume = 100 (h1-12) → 250 (h13-24).  Set eini = 150 so the
+    # 250 spike sits ABOVE the start while the 100 trough sits below it.
+    (tmp_path / "Hydro_InitialVolume.csv").write_text(
+        _long_csv("RES_VARY", [150.0] * 24)
+    )
+    db = load_xml(bundle.xml_path)
+    reservoirs = extract_reservoirs(db, bundle)
+    res = next(r for r in reservoirs if r.name == "RES_VARY")
+
+    assert res.emin_profile, "a varying floor must still produce a profile"
+    # The 250 spike is clamped to eini (150); the 100 trough is untouched.
+    assert max(res.emin_profile) == pytest.approx(150.0)
+    assert min(res.emin_profile) == pytest.approx(100.0)
+    # No per-block floor may exceed the initial volume.
+    assert all(v <= 150.0 + 1e-9 for v in res.emin_profile)
+
+
 def test_fuel_price_emits_per_block_profile(tmp_path: Path) -> None:
     """A varying Fuel_Price must now be carried as a per-period profile on
     the FuelSpec AND emitted as a per-block ``[[...]]`` matrix by

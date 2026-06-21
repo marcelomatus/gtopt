@@ -669,6 +669,71 @@ def test_build_commitment_array_with_noload() -> None:
     assert out[0]["noload_cost"] == 42.0
 
 
+def test_zero_pmax_generator_names_identifies_dead_units() -> None:
+    """_zero_pmax_generator_names flags only units that can never dispatch."""
+    from plexos2gtopt.gtopt_writer import _zero_pmax_generator_names
+
+    gens = (
+        GeneratorSpec(object_id=1, name="LIVE_SCALAR", bus_name="b", pmax=50.0),
+        GeneratorSpec(object_id=2, name="DEAD_SCALAR", bus_name="b", pmax=0.0),
+        GeneratorSpec(
+            object_id=3,
+            name="DEAD_PROFILE",
+            bus_name="b",
+            pmax=0.0,
+            pmax_profile=tuple([0.0] * 24),
+        ),
+        GeneratorSpec(
+            object_id=4,
+            name="LIVE_PROFILE",
+            bus_name="b",
+            pmax=0.0,
+            pmax_profile=tuple([0.0] * 12 + [30.0] * 12),
+        ),
+        GeneratorSpec(
+            object_id=5,
+            name="LIVE_SEGMENTS",
+            bus_name="b",
+            pmax=0.0,
+            pmax_segments=(20.0, 40.0),
+        ),
+    )
+    # Only the two genuinely-dead units (scalar 0 + all-zero profile) flag;
+    # a unit with a non-zero hour OR piecewise capacity is live.
+    assert _zero_pmax_generator_names(gens) == frozenset(
+        {"DEAD_SCALAR", "DEAD_PROFILE"}
+    )
+
+
+def test_build_commitment_array_skips_phantom_pmax_zero() -> None:
+    """A commitment on a pmax=0 unit is dropped (dead MIP binaries).
+
+    CONTY_FV-class phantom: a unit that can never dispatch carries u/v/w
+    binaries that only bloat the MIP.  Survivors keep their 1-based SOURCE
+    uid (gaps are fine — Commitment uids are opaque and unreferenced).
+    """
+    commits = (
+        CommitmentSpec(generator_name="LIVE", startup_cost=100.0),
+        CommitmentSpec(generator_name="PHANTOM", startup_cost=100.0),
+    )
+    out = build_commitment_array(commits, skip_generators=frozenset({"PHANTOM"}))
+    assert [e["generator"] for e in out] == ["LIVE"]
+    assert out[0]["uid"] == 1  # source index 0 → uid 1
+
+    # Phantom FIRST → the survivor's uid follows the source index (gap is OK).
+    commits2 = (
+        CommitmentSpec(generator_name="PHANTOM", startup_cost=100.0),
+        CommitmentSpec(generator_name="LIVE", startup_cost=100.0),
+    )
+    out2 = build_commitment_array(commits2, skip_generators=frozenset({"PHANTOM"}))
+    assert [e["generator"] for e in out2] == ["LIVE"]
+    assert out2[0]["uid"] == 2  # source index 1 → uid 2 (gap at 1)
+
+    # Back-compat: no skip set ⇒ every commitment emitted.
+    out_all = build_commitment_array(commits)
+    assert [e["generator"] for e in out_all] == ["LIVE", "PHANTOM"]
+
+
 def test_build_generator_array_per_block_pmax_when_varying() -> None:
     """build_generator_array emits a per-block matrix when pmax_profile varies."""
     from plexos2gtopt.gtopt_writer import build_generator_array
