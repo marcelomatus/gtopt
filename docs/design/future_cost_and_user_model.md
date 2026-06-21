@@ -1,7 +1,12 @@
 # FutureCost / UserModel element refactor + AMPL indexing-set scope
 
-Status: design agreed (2026-06-21). Schema `include/gtopt/future_cost.hpp`
-landed; rest pending.
+Status: design agreed (2026-06-21).  **Landed:** schema
+`include/gtopt/future_cost.hpp` (typed enums); **piece 1** — the capability
+concepts (`HasAddToLp`/`HasAddToOutput` split + the new
+`HasAddToPhaseLp`/`HasAddToGlobalLp`/`HasAddToPlanning`) and the
+`add_to_planning_lp` driver pass (run once per (scene, phase) cell after the
+stage loop; inert until an element provides the hooks).  **Pending:** pieces
+2–5 (FutureCostLP, UserModel, AMPL scope/`sum{}`, AMPL state vars).
 
 ## Motivation
 

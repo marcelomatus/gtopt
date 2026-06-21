@@ -117,6 +117,53 @@ concept HasAddToOutput = requires(T obj, OutputContext& output_context) {
 template<typename T>
 concept AddToLP = HasAddToLp<T> && HasAddToOutput<T>;
 
+// ── Planning-level (coarse-scope) capabilities ────────────────────────────
+//
+// The per-(scenario, stage) `add_to_lp` pass above is the operational build.
+// Some constructs are coarser than a stage: they instantiate ONCE per
+// (scene, phase) cell — recourse / per-phase state variables, and the
+// terminal FutureCost α cut + annual caps.  Rather than fake these with
+// per-block AMPL special cases, an element advertises a planning capability
+// and is dispatched by the planning pass (`add_to_planning_lp`, run after the
+// stage loop).  See docs/design/future_cost_and_user_model.md (pieces 2, 5).
+//
+// Both signatures take the cell's (scene, phase) and the LP; "phase" vs
+// "global" differ by ORDERING and intent, not arguments — the phase sweep
+// runs first so global-scope objects (the FutureCost α cut) can reference the
+// state columns the phase sweep registered.  No current element provides
+// either; the passes are inert no-ops until FutureCostLP / UserModelLP land.
+
+/// Per-(scene, phase) recourse / state-variable LP-build participation.
+template<typename T>
+concept HasAddToPhaseLp = requires(T obj,
+                                   SystemContext& system_context,
+                                   const SceneLP& scene,
+                                   const PhaseLP& phase,
+                                   LinearProblem& lp) {
+  {
+    obj.add_to_phase_lp(system_context, scene, phase, lp)
+  } -> std::same_as<bool>;
+};
+
+/// Global (un-indexed) planning-level LP-build participation — one
+/// row/col for the whole cell LP (the FutureCost α terminal cut, annual caps).
+template<typename T>
+concept HasAddToGlobalLp = requires(T obj,
+                                    SystemContext& system_context,
+                                    const SceneLP& scene,
+                                    const PhaseLP& phase,
+                                    LinearProblem& lp) {
+  {
+    obj.add_to_global_lp(system_context, scene, phase, lp)
+  } -> std::same_as<bool>;
+};
+
+/// Planning-level participation in either coarse scope — the discriminator
+/// for the planning passes and the capability `FutureCostLP` / `UserModelLP`
+/// will advertise.  An element may provide phase-scope, global-scope, or both.
+template<typename T>
+concept HasAddToPlanning = HasAddToPhaseLp<T> || HasAddToGlobalLp<T>;
+
 // Verify all required types satisfy AddToLP concept
 static_assert(AddToLP<BusLP>);
 static_assert(AddToLP<DemandLP>);

@@ -186,6 +186,51 @@ constexpr auto add_to_lp(auto& collections,
   return count;
 }
 
+/// @brief Planning-level (coarse-scope) build passes for one (scene, phase)
+/// cell.  Runs once, AFTER the per-(scenario, stage) `add_to_lp` loop.
+///
+/// Two ordered sweeps over all collections:
+///   1. phase scope  — recourse / per-phase state variables (piece 5);
+///   2. global scope — the FutureCost α terminal cut + annual caps (piece 2),
+/// so the global sweep can reference state columns the phase sweep just
+/// registered.  Each element is dispatched via `if constexpr (HasAddTo*Lp<T>)`;
+/// passive / per-block-only elements are skipped at compile time.  No current
+/// element provides either method, so both sweeps are inert no-ops until
+/// `FutureCostLP` / `UserModelLP` land — the `[[maybe_unused]]` markers keep
+/// `-Werror` happy while every `if constexpr` branch is the (discarded) `else`.
+///
+/// @return total participating-element count across both sweeps.
+constexpr auto add_to_planning_lp(
+    auto& collections,
+    [[maybe_unused]] SystemContext& system_context,
+    [[maybe_unused]] const SceneLP& scene,
+    [[maybe_unused]] const PhaseLP& phase,
+    [[maybe_unused]] LinearProblem& lp)
+{
+  auto phase_visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+    if constexpr (HasAddToPhaseLp<T>) {
+      return e.add_to_phase_lp(system_context, scene, phase, lp);
+    } else {
+      return true;
+    }
+  };
+  auto global_visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+    if constexpr (HasAddToGlobalLp<T>) {
+      return e.add_to_global_lp(system_context, scene, phase, lp);
+    } else {
+      return true;
+    }
+  };
+
+  const auto phase_count = visit_elements(collections, phase_visitor);
+  const auto global_count = visit_elements(collections, global_visitor);
+  return phase_count + global_count;
+}
+
 /// @brief Pin orphaned theta variables in disconnected bus islands.
 ///
 /// After all elements are added to the LP for a (scenario, stage), some
@@ -464,6 +509,12 @@ constexpr auto flatten_from_collections(auto& collections,
       }
     }
   }
+
+  // Planning-level passes — coarse-scope constructs built ONCE per
+  // (scene, phase) cell, after the per-(scenario, stage) operational build.
+  // Inert until FutureCost (piece 2) / AMPL state vars (piece 5) provide the
+  // `add_to_phase_lp` / `add_to_global_lp` hooks.  See add_to_planning_lp.
+  add_to_planning_lp(collections, system_context, scene, phase, lp);
 
   // Compute LP fingerprint before flattening (structured metadata is still
   // available in the raw cols/rows vectors).  Skipped unless the user
