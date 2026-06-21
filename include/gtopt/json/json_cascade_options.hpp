@@ -91,7 +91,9 @@ struct json_data_contract<CascadeLevel>
                        json_string_null<"system_file", OptName>,
                        json_string_null<"aperture_system_file", OptName>,
                        json_class_null<"sddp_options", CascadeLevelMethod>,
-                       json_class_null<"transition", CascadeTransition>>;
+                       json_class_null<"transition", CascadeTransition>,
+                       json_string_null<"output_subdir", OptName>,
+                       json_string_null<"write_out", OptName>>;
 
   constexpr static auto to_json_data(CascadeLevel const& opt)
   {
@@ -102,7 +104,9 @@ struct json_data_contract<CascadeLevel>
                                  opt.system_file,
                                  opt.aperture_system_file,
                                  opt.sddp_options,
-                                 opt.transition);
+                                 opt.transition,
+                                 opt.output_subdir,
+                                 opt.write_out);
   }
 };
 

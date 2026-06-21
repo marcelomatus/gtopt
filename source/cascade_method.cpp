@@ -26,6 +26,7 @@
 #include <gtopt/fmap.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/label_maker.hpp>
+#include <gtopt/planning_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_common.hpp>  // gtopt::format_si
 #include <gtopt/sddp_cut_io.hpp>
@@ -139,6 +140,41 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
   copy.options.model_options.merge(model_opts);
   return copy;
 }
+
+namespace
+{
+
+/// Apply per-level output overrides (`output_subdir`, `write_out`) to a
+/// freshly cloned ``Planning``.  Mutates ``planning.options``:
+///
+///   - ``output_subdir`` is appended to the base ``output_directory`` so
+///     that this level's ``write_out`` results land under a dedicated
+///     subdirectory (mirrors the per-level routing already applied to
+///     ``cuts_output_file`` at ``cascade_method.cpp:598-615``).
+///     ``planning.options.output_directory`` defaults to ``"output"`` when
+///     unset (see ``PlanningOptionsLP::default_output_directory``), so the
+///     same default is used here to anchor the per-level subdirectory.
+///   - ``write_out`` is parsed via ``parse_output_flags`` and overrides
+///     the base ``planning.options.write_out``.
+[[nodiscard]] auto apply_level_output_overrides(
+    Planning planning,
+    const std::string& output_subdir,
+    const std::optional<std::string>& write_out_spec) -> Planning
+{
+  if (!output_subdir.empty()) {
+    static constexpr std::string_view default_output_directory = "output";
+    const auto base = planning.options.output_directory.value_or(
+        std::string {default_output_directory});
+    planning.options.output_directory =
+        (std::filesystem::path(base) / output_subdir).string();
+  }
+  if (write_out_spec.has_value()) {
+    planning.options.write_out = parse_output_flags(*write_out_spec);
+  }
+  return planning;
+}
+
+}  // namespace
 
 // ─── Collect state variable targets ─────────────────────────────────────────
 
@@ -688,7 +724,20 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     const bool has_system_swap =
         level.system_file.has_value() && !level.system_file->empty();
 
-    if (level_idx == 0 && !has_system_swap
+    // Per-level output overrides (Issue #479): when the user opts into
+    // a per-level output subdirectory or a per-level ``write_out``
+    // selector, the caller's PlanningLP must not be reused at level 0
+    // — its ``planning.options.output_directory`` / ``write_out``
+    // belong to the caller and we cannot mutate them safely.  Force a
+    // fresh clone so the overrides land on a private copy.
+    const std::string output_subdir_str =
+        level.output_subdir.value_or(std::string {});
+    const bool has_output_subdir = !output_subdir_str.empty();
+    const bool has_write_out_override = level.write_out.has_value();
+    const bool has_output_override =
+        has_output_subdir || has_write_out_override;
+
+    if (level_idx == 0 && !has_system_swap && !has_output_override
         && planning_lp.planning().options.model_options.covers(effective_model))
     {
       current_lp = &planning_lp;
@@ -713,6 +762,21 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
             modified_planning.system.line_array.size(),
             modified_planning.system.generator_array.size(),
             modified_planning.system.demand_array.size());
+      }
+
+      if (has_output_override) {
+        modified_planning = apply_level_output_overrides(
+            std::move(modified_planning),
+            output_subdir_str,
+            level.write_out.has_value()
+                ? std::optional<std::string> {*level.write_out}
+                : std::optional<std::string> {});
+        SPDLOG_INFO(
+            "Cascade [{}]: applied per-level output overrides "
+            "(output_subdir='{}', write_out='{}')",
+            level_name,
+            output_subdir_str,
+            level.write_out.value_or(std::string {"<inherit>"}));
       }
 
       // State variable transfer uses structured keys — no LP names needed.
@@ -771,13 +835,15 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // output paths are shared across levels).  The last active level
     // keeps `skip_simulation_pass = false` so its simulation runs end-
     // to-end and its outputs land on disk under the configured
-    // `output_directory`.  Filed as
-    // https://github.com/marcelomatus/gtopt/issues/479 for the
-    // accompanying feature flag that routes per-level output to
-    // separate subdirectories — opting back in to the previous
-    // behaviour will then require a config flip rather than a code
-    // change here.
-    level_opts.skip_simulation_pass = (level_idx != last_active_level_idx);
+    // `output_directory`.  Resolved by Issue #479: opting back in to
+    // the previous behaviour is now a config flip — setting
+    // `CascadeLevel.output_subdir` on an intermediate level routes its
+    // per-element output to a dedicated subdirectory (no overlap with
+    // later levels) and therefore re-enables that level's simulation
+    // pass.  Setting only `CascadeLevel.write_out` on its own keeps
+    // the legacy skip (since the output paths would still collide).
+    level_opts.skip_simulation_pass =
+        (level_idx != last_active_level_idx) && !has_output_subdir;
 
     // Seed the level's iteration counter past all iterations that prior
     // levels consumed.  Hot-start cuts loaded below (via load_cuts) may
@@ -1146,6 +1212,30 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     if (remaining_budget >= 0) {
       remaining_budget = std::max(0, remaining_budget - level_iterations);
       SPDLOG_INFO("Cascade: remaining global budget = {}", remaining_budget);
+    }
+
+    // ── Per-level output emission (Issue #479) ──
+    // When the user set ``CascadeLevel.output_subdir`` for this level,
+    // emit its per-element parquet output NOW — while the level's LP is
+    // still alive and before the state-extraction cleanup drops the
+    // owned LP.  Each level writes under its own
+    // ``<output_directory>/<output_subdir>/...`` (set above by
+    // ``apply_level_output_overrides``), so emissions never overlap
+    // across levels.
+    //
+    // The final active level is left to the existing delegate-transfer
+    // path (see ``Transfer the final level's LP to the caller`` below),
+    // which lets the caller's ``planning_lp.write_out()`` drive the
+    // emission.  The intermediate emission here mirrors the work the
+    // caller would do — ``PlanningLP::write_out`` is idempotent
+    // (guarded by ``SystemLP::m_output_written_``).
+    if (has_output_subdir && level_idx != last_active_level_idx
+        && current_lp != nullptr)
+    {
+      SPDLOG_INFO("Cascade [{}]: emitting per-level output under '{}'",
+                  level_name,
+                  output_subdir_str);
+      current_lp->write_out();
     }
 
     // Advance the global iteration index past every index this level

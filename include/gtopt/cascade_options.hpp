@@ -186,6 +186,29 @@ struct CascadeLevel
   std::optional<CascadeLevelMethod> sddp_options {};
   /// Transition from the previous level.
   std::optional<CascadeTransition> transition {};
+  /// Optional per-level output subdirectory.  When set, the level's
+  /// `write_out` results land under
+  /// ``<planning.options.output_directory>/<output_subdir>/<Element>/...``
+  /// instead of the shared root, so intermediate cascade levels can
+  /// preserve their per-element output instead of being overwritten by
+  /// the next level.  Setting this on a non-final-active level also
+  /// re-enables the level's simulation pass (which is otherwise
+  /// skipped because every cascade level shares the same output paths
+  /// — see ``source/cascade_method.cpp`` for the
+  /// ``skip_simulation_pass`` rule).  Mirrors the per-level routing
+  /// already applied to ``cuts_output_file`` at
+  /// ``source/cascade_method.cpp:598-615``.  Issue #479.
+  OptName output_subdir {};
+  /// Optional per-level override of ``planning.options.write_out``
+  /// (which fields ``OutputContext`` emits: solution / dual /
+  /// reduced_cost).  Same JSON syntax as the top-level ``write_out``
+  /// option, e.g. ``"none"``, ``"solution"``, ``"solution,dual"`` or
+  /// ``"all"``.  When unset, the level inherits the base options'
+  /// ``write_out``.  Combined with ``output_subdir`` this lets the
+  /// user opt every level back in to writing (and decide how much to
+  /// emit per level) without disturbing the default last-level-wins
+  /// behaviour.  Issue #479.
+  OptName write_out {};
 
   /// Merge another CascadeLevel on top of this one.  Used by
   /// `CascadeOptions::merge` for element-wise level-array merges (e.g.
@@ -227,6 +250,9 @@ struct CascadeLevel
         transition = std::move(opts.transition);
       }
     }
+
+    merge_opt(output_subdir, std::move(opts.output_subdir));
+    merge_opt(write_out, std::move(opts.write_out));
   }
 };
 
