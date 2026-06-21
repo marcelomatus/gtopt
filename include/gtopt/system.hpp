@@ -41,6 +41,7 @@
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/fuel.hpp>
+#include <gtopt/future_cost.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/hydrogen_node.hpp>
@@ -231,6 +232,8 @@ struct System
       decision_variable_array {};  ///< Free continuous decision vars referenced
                                    ///< by user constraints (PLEXOS DV maps
                                    ///< here)
+  Array<FutureCost>
+      future_cost_array {};  ///< Cost-to-go (FCF / α) planning elements
   Array<Plant>
       plant_array {};  ///< Plant primitive: groups generator config variants
                        ///< (combined-cycle TGA/TGB/TV, fuel-band families)

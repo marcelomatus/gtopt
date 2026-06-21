@@ -35,6 +35,7 @@
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
@@ -219,6 +220,22 @@ static_assert(AddToLP<DecisionVariableLP>);
 static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
 
+// FutureCostLP is a planning-level element: GLOBAL-scope build + output, with
+// NO per-(scenario, stage) add_to_lp.  It satisfies HasAddToPlanning +
+// HasAddToOutput but NOT the operational AddToLP — the planning pass
+// (`add_to_planning_lp`) dispatches it, not the per-block visitor.
+static_assert(HasAddToGlobalLp<FutureCostLP>);
+static_assert(HasAddToPlanning<FutureCostLP>);
+static_assert(HasAddToOutput<FutureCostLP>);
+static_assert(!HasAddToLp<FutureCostLP>);
+// Ordering: the α cut references reservoir + AMPL terminal state columns, so
+// FutureCostLP must sit after ReservoirLP and UserConstraintLP in the type
+// list (the planning pass runs after the whole stage loop, but pin the index
+// order too).
+static_assert(lp_type_index_v<FutureCostLP> > lp_type_index_v<ReservoirLP>);
+static_assert(
+    lp_type_index_v<FutureCostLP> > lp_type_index_v<UserConstraintLP>);
+
 /**
  * @concept HasUpdateLP
  * @brief Concept satisfied by LP element types that implement `update_lp()`.
@@ -341,8 +358,11 @@ public:
   }
 
   /// Tuple of collections for all LP component types.
-  /// `UserConstraintLP` is placed LAST so that user-constraint rows are
-  /// added to the LP after all other elements whose columns they reference.
+  /// `UserConstraintLP` is the last OPERATIONAL collection so user-constraint
+  /// rows are added after every element whose columns they reference.
+  /// `FutureCostLP` follows it — planning-only (no per-(scenario, stage)
+  /// `add_to_lp`), built by the separate `add_to_planning_lp` pass after the
+  /// stage loop, so it never participates in the operational build order.
   // NOTE: this tuple ordering governs the LP-construction order via
   // `visit_elements`.  ConverterLP intentionally runs AFTER
   // CommitmentLP / SimpleCommitmentLP so that the battery's
@@ -392,7 +412,8 @@ public:
                                    Collection<LngTerminalLP>,
                                    Collection<DecisionVariableLP>,
                                    Collection<PlantLP>,
-                                   Collection<UserConstraintLP>>;
+                                   Collection<UserConstraintLP>,
+                                   Collection<FutureCostLP>>;
 
   /// @return The full collections tuple.
   ///

@@ -722,10 +722,18 @@ void create_collections(const auto& system_context,
   std::get<Collection<PlantLP>>(colls) =
       make_collection<PlantLP>(ic, sys.plant_array);
 
-  // UserConstraintLP is placed LAST so that user-constraint rows are added to
-  // the LP after all other elements whose columns they reference.
+  // UserConstraintLP is the last OPERATIONAL collection so user-constraint rows
+  // are added after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =
       make_collection<UserConstraintLP>(ic, sys.user_constraint_array);
+
+  // FutureCostLP (planning-only) is populated last so its α cut can reference
+  // the reservoir + AMPL terminal state columns built above.  It contributes
+  // nothing to the operational stage pass (no add_to_lp); the planning pass
+  // (`add_to_planning_lp`) dispatches its `add_to_global_lp` after the stage
+  // loop.
+  std::get<Collection<FutureCostLP>>(colls) =
+      make_collection<FutureCostLP>(ic, sys.future_cost_array);
 
 #ifdef GTOPT_EXTRA
   std::get<Collection<EmissionZoneLP>>(colls) =
