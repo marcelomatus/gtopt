@@ -502,6 +502,12 @@ class WaterwaySpec:
     storage_to: str | None = None
     fmin: float = 0.0
     fmax: float = 0.0
+    #: Soft-``fmin`` penalty [$/(m³/s)/h] (gtopt ``Waterway.fmin_fcost``,
+    #: mirroring ``Generator.pmin_fcost``).  When > 0 the hard ``flow >= fmin``
+    #: floor becomes soft: a water-short ecological / bypass flow can
+    #: under-deliver at this penalty instead of going infeasible.  Water still
+    #: routes downstream (non-consumptive).  0 ⇒ hard floor.
+    fmin_fcost: float = 0.0
     # Per-hour forced-flow profile (length = bundle.n_days × 24) for
     # waterways whose ``Hydro_WaterFlows.csv`` column carries a
     # TIME-VARYING value.  When non-empty, the writer emits
@@ -896,6 +902,19 @@ class CommitmentSpec:
     generator_name: str
     startup_cost: float = 0.0
     shutdown_cost: float = 0.0
+    # Full per-period start / shutdown cost series from
+    # ``Gen_StartCost.csv`` / ``Gen_ShutDownCost.csv`` (one value per
+    # PLEXOS interval over the bundle horizon).  gtopt
+    # ``Commitment.startup_cost`` / ``shutdown_cost`` are now
+    # per-(stage, block) (``OptTBRealFieldSched``), so the writer
+    # fill-forwards undefined periods, aggregates this profile to the
+    # block layout and emits a ``[[stage_blocks]]`` matrix when the
+    # series genuinely varies; constant / absent series collapse to the
+    # scalar :attr:`startup_cost` / :attr:`shutdown_cost`.  The catalog
+    # showed Gen_StartCost varies for 210 units and Gen_ShutDownCost for
+    # 181 units across the 14 CEN cases.  Empty tuple ⇒ scalar only.
+    startup_cost_profile: tuple[float, ...] = field(default_factory=tuple)
+    shutdown_cost_profile: tuple[float, ...] = field(default_factory=tuple)
     min_up_time: float = 0.0
     min_down_time: float = 0.0
     initial_status: float = 0.0  # 1 = online at t=0, 0 = offline

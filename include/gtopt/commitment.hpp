@@ -147,8 +147,21 @@ struct Commitment
   // works with or without a Commitment binary (see
   // ``source/generator_lp.cpp:272+``).
 
-  OptTRealFieldSched startup_cost {};  ///< Startup cost [$/start]
-  OptTRealFieldSched shutdown_cost {};  ///< Shutdown cost [$/stop]
+  /// Startup cost [$/start], **per-(stage, block)** schedulable.
+  ///
+  /// Accepts the same value forms as `Generator.pmax`: a scalar
+  /// constant, a `[stage]` 1-D array, a `[stage][block]` 2-D matrix, or
+  /// a filename string referencing a schedule.  Scalar / per-stage
+  /// values broadcast to every block (back-compat with the legacy
+  /// per-stage `startup_cost`).  This lets a single-stage PLEXOS
+  /// conversion carry the per-period Gen_StartCost profile across the
+  /// horizon instead of collapsing it to one value.  Applied to the
+  /// startup (`v`) variable in the objective, resolved block-by-block.
+  OptTBRealFieldSched startup_cost {};  ///< Startup cost [$/start]
+  /// Shutdown cost [$/stop], **per-(stage, block)** schedulable — same
+  /// value forms and broadcast semantics as `startup_cost`.  Applied to
+  /// the shutdown (`w`) variable in the objective, resolved per block.
+  OptTBRealFieldSched shutdown_cost {};  ///< Shutdown cost [$/stop]
   OptReal noload_cost {};  ///< No-load cost when committed [$/hr]
 
   /// Minimum stable level when committed [MW].  Distinct from

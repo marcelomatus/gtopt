@@ -204,6 +204,17 @@ def build_options(
             "use_kirchhoff": not use_single_bus,
             "scale_objective": _DEFAULT_OBJ_SCALE,
             "demand_fail_cost": demand_fail_cost,
+            # Soft reserve requirement: PLEXOS treats the reserve requirement
+            # as SOFT (a ``Shortage`` property, priced) and clears reserve at
+            # up to ~$191/MW on this case while never shorting.  gtopt's
+            # ``reserve_zone_lp`` enforces the requirement HARD unless a
+            # ``reserve_shortage_cost`` is set — which left the LP infeasible
+            # when a water-short hydro unit was forced ON only to satisfy a
+            # hard reserve floor.  Pin it just under ``demand_fail_cost`` so
+            # reserve is held as strongly as possible (matching PLEXOS's full
+            # provision) yet a shortage is always preferred over shedding load,
+            # removing the hard-floor infeasibility.
+            "reserve_shortage_cost": max(demand_fail_cost - 1.0, 0.0),
             # ``loss_cost_eps`` (default 0.0) is emitted ONLY when > 0
             # so legacy JSON output stays byte-identical when the flag
             # is not passed.  When set, every PWL/bidirectional line
@@ -2581,6 +2592,11 @@ def build_waterway_array(
                 entry["fmin"] = ww.fmin
         if ww.fcost > 0.0:
             entry["fcost"] = ww.fcost
+        # Soft-fmin penalty: turns the (possibly per-block) fmin floor soft.
+        # Only meaningful when an fmin floor is actually emitted (not for
+        # inactivated zero-pinned arcs).
+        if ww.fmin_fcost > 0.0 and not ww.inactive:
+            entry["fmin_fcost"] = ww.fmin_fcost
         out.append(entry)
     return out
 
@@ -3189,10 +3205,23 @@ def build_commitment_array(
         }
         if lp_relax:
             entry["relax"] = True
-        if c.startup_cost > 0.0:
-            entry["startup_cost"] = c.startup_cost
-        if c.shutdown_cost > 0.0:
-            entry["shutdown_cost"] = c.shutdown_cost
+        # Start / shutdown cost: per-block ``[[stage_blocks]]`` matrix
+        # when the PLEXOS series genuinely varies (after fill-forwarding
+        # the zero-padding of undefined periods + block aggregation),
+        # else the constant scalar.  gtopt ``Commitment.startup_cost`` /
+        # ``shutdown_cost`` are now per-(stage, block)
+        # (``OptTBRealFieldSched``); a single-period monthly cost
+        # broadcasts (back-compat) instead of emitting ``[v, 0, 0, …]``.
+        startup_value = _per_block_field_value(
+            c.startup_cost, c.startup_cost_profile, block_layout, reducer="mean"
+        )
+        if isinstance(startup_value, list) or startup_value > 0.0:
+            entry["startup_cost"] = startup_value
+        shutdown_value = _per_block_field_value(
+            c.shutdown_cost, c.shutdown_cost_profile, block_layout, reducer="mean"
+        )
+        if isinstance(shutdown_value, list) or shutdown_value > 0.0:
+            entry["shutdown_cost"] = shutdown_value
         if c.min_up_time > 0.0:
             entry["min_up_time"] = c.min_up_time
         if c.min_down_time > 0.0:

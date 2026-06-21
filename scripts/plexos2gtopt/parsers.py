@@ -4510,16 +4510,21 @@ def extract_waterways(
             if t_name in synthetic_sinks:
                 synthetic_sinks.remove(t_name)
             continue
-        # INACTIVE diversion waterway — ``Caudal_Eco_*`` / ``Riego_*`` /
-        # ``Ext_*`` whose Hydro_WaterFlows.csv column is all zeros AND
-        # whose PLEXOS Min Flow / Max Flow static properties are unset.
-        # Without fmin/fmax the writer leaves the arc UNCAPPED (default
-        # ``fmax`` -> +inf), so the LP can discover it as a free water
-        # path and drain the upstream reservoir (e.g. ``Ext_Maule``:
-        # L_Maule -> LA_MINA).  The correct boundary-cut water value
-        # currently keeps it idle, but pinning ``fmax = 0`` closes the
-        # path structurally (mass-conservation hardening).
-        _diversion_prefixes = ("Caudal_Eco", "Riego_", "Ext_")
+        # INACTIVE diversion waterway — only genuinely EXTRACTIVE
+        # ``Riego_*`` (irrigation to agriculture: water consumed, leaves the
+        # basin) whose Hydro_WaterFlows.csv column is all zeros AND whose
+        # PLEXOS Min Flow / Max Flow static properties are unset.  Without
+        # fmin/fmax the writer leaves the arc UNCAPPED (default ``fmax`` ->
+        # +inf), so the LP could discover an unused extraction path as a free
+        # water leak; pinning ``fmax = 0`` closes it structurally
+        # (mass-conservation hardening).
+        #
+        # ``Caudal_Eco_*`` (ecological flow — returns to the river) and
+        # ``Ext_*`` (inter-reservoir transfer, e.g. ``Ext_Maule``:
+        # L_Maule -> LA_MINA -> ISLA) are NON-consumptive: the water stays in
+        # the system, so they are NOT inactivatable diversions — closing them
+        # would sever a real downstream river / transfer path.
+        _diversion_prefixes = ("Riego_",)
         inactive = (
             ww.name.startswith(_diversion_prefixes)
             and not has_forced
@@ -4538,6 +4543,20 @@ def extract_waterways(
                 f_name,
                 t_name,
             )
+        # SOFT fmin for ecological-flow (``Caudal_Eco_*``) and bypass
+        # (``B_*``) forced flows: the obligation is real but must yield when
+        # the upstream reservoir is water-short, otherwise the hard floor
+        # (combined with a hard reservoir emin + integer commitment) renders
+        # the LP infeasible.  ``Waterway.fmin_fcost`` makes ``flow >= fmin``
+        # soft (under-deliver at the HYDRO_SOFT penalty) while the water still
+        # routes downstream (non-consumptive).  Filtration (``Filt_*``,
+        # physical seepage) stays HARD; irrigation (``Riego_*``) is a
+        # consumptive FlowRight handled separately.
+        fmin_fcost = (
+            _uc_policy.HYDRO_SOFT
+            if (has_forced and ww.name.startswith(("Caudal_Eco", "B_")))
+            else 0.0
+        )
         out.append(
             WaterwaySpec(
                 object_id=ww.object_id,
@@ -4546,6 +4565,7 @@ def extract_waterways(
                 storage_to=t_name,
                 fmin=fmin,
                 fmax=fmax,
+                fmin_fcost=fmin_fcost,
                 forced_flow_profile=forced_profile,
                 inactive=inactive,
                 fcost=fcost,
@@ -5056,6 +5076,44 @@ def _parse_res_requirement_csv(
     return out
 
 
+# PLEXOS reserve-shortage penalty is exposed under one of several property
+# names depending on PLEXOS version / template; CEN PCP uses ``VoRS`` (Value
+# of Reserve Shortage).  Probed in order, first match wins.
+RESERVE_VIOLATION_COST_PROPS = (
+    "Violation Cost",
+    "Shortage Penalty",
+    "Penalty Cost",
+    "VoRS",
+    "Cost",
+)
+
+
+def probe_reserve_violation_cost(
+    db: PlexosDb, object_id: int
+) -> tuple[float, str | None]:
+    """Raw PLEXOS reserve shortage-penalty INPUT (VoRS family) + source prop.
+
+    Returns ``(raw_value, prop_name)`` for the first
+    :data:`RESERVE_VIOLATION_COST_PROPS` member that is either the ``-1``
+    "use default" sentinel or a strictly positive cost, verbatim;
+    ``(0.0, None)`` when none is defined.
+
+    Sentinel semantics: ``VoRS = -1`` means "use the PLEXOS default reserve
+    penalty" — PLEXOS keeps a SOFT ``Shortage`` variable (priced at the
+    default) rather than a hard equality.  :func:`extract_reserves` maps the
+    ``-1`` to gtopt's hard form (``urcost = 0``, writer omits the field) and
+    relies on the global ``model_options.reserve_shortage_cost`` to restore
+    softness.  Returning the raw value lets the audit (``uc_audit`` B17) quote
+    the actual penalty input instead of only inferring softness from the
+    ``Shortage`` OUTPUT property in the solution cache.
+    """
+    for prop_name in RESERVE_VIOLATION_COST_PROPS:
+        val = db.static_property("Reserve", object_id, prop_name)
+        if val == -1.0 or val > 0.0:
+            return float(val), prop_name
+    return 0.0, None
+
+
 def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, ...]:
     """One :class:`ReserveSpec` per ``t_object`` in class ``Reserve``.
 
@@ -5113,26 +5171,6 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
         5: "replacement",
         6: "tertiary",
     }
-    # PLEXOS reserve-shortage penalty is exposed under one of several
-    # property names depending on PLEXOS version / template.  Probe the
-    # canonical name first, then a documented set of fallbacks; CEN PCP
-    # uses ``VoRS`` (Value of Reserve Shortage).
-    #
-    # Sentinel handling: PLEXOS uses ``VoRS = -1`` to mean "make the
-    # reserve constraint HARD" (no shortage admissible — the constraint
-    # is enforced as an equality on the requirement column with no
-    # slack variable, and the dual on the binding equality IS the
-    # implicit reserve cost).  We map that to gtopt's "hard" form by
-    # leaving ``urcost``/``drcost`` at ``0.0``; the writer omits the
-    # field, and ``reserve_zone_lp.cpp`` then fixes the requirement
-    # column to ``lowb = uppb = block_rreq`` — no slack added.
-    violation_cost_props = (
-        "Violation Cost",
-        "Shortage Penalty",
-        "Penalty Cost",
-        "VoRS",
-        "Cost",
-    )
     out: list[ReserveSpec] = []
     for rsv in reserves_objs:
         profile = csv_profiles.get(rsv.name, [])
@@ -5173,20 +5211,12 @@ def extract_reserves(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReserveSpec, .
         plexos_type_raw = db.static_property("Reserve", rsv.object_id, "Type")
         plexos_type = int(plexos_type_raw) if plexos_type_raw else 0
         type_tag = type_tag_map.get(plexos_type, "other")
-        violation_cost = 0.0
-        for prop_name in violation_cost_props:
-            val = db.static_property("Reserve", rsv.object_id, prop_name)
-            if val is None:
-                continue
-            if val == -1.0:
-                # PLEXOS "use default / hard" sentinel — leave the
-                # shortage cost at 0 so the writer omits the field and
-                # the LP fixes the requirement column with no slack.
-                violation_cost = 0.0
-                break
-            if val > 0.0:
-                violation_cost = float(val)
-                break
+        # ``-1`` is the PLEXOS "use default / hard" sentinel — leave the
+        # shortage cost at 0 so the writer omits the field and the LP fixes the
+        # requirement column with no slack (the global
+        # ``model_options.reserve_shortage_cost`` then restores softness).
+        violation_raw, _violation_src = probe_reserve_violation_cost(db, rsv.object_id)
+        violation_cost = violation_raw if violation_raw > 0.0 else 0.0
         # PLEXOS Type 4 = Regulation Lower (down reserve); everything
         # else (1/2/3/5/6/unknown) is treated as a raise/up product.
         # The Reserve object carries a single shortage cost, applied in
@@ -5727,13 +5757,20 @@ def extract_commitments(
     # ``0`` = forced-off-this-period, every value ``+1`` = must-
     # commit-this-period).  Until the writer supports per-period
     # forced-status the file is purely informational here.
+    # Read the FULL horizon (``n_days``) so a genuinely time-varying
+    # start / shutdown cost series survives to the writer, which emits a
+    # per-(stage, block) ``[[stage_blocks]]`` matrix.  gtopt
+    # ``Commitment.startup_cost`` / ``shutdown_cost`` are now
+    # per-(stage, block) (``OptTBRealFieldSched``); reading only day-1
+    # collapsed the variation that the catalog showed for 210 / 181 CEN
+    # units.
     start_cost = (
-        read_long(bundle.csv("Gen_StartCost.csv"))
+        read_long(bundle.csv("Gen_StartCost.csv"), n_days=bundle.n_days)
         if bundle.has("Gen_StartCost.csv")
         else {}
     )
     shut_cost = (
-        read_long(bundle.csv("Gen_ShutDownCost.csv"))
+        read_long(bundle.csv("Gen_ShutDownCost.csv"), n_days=bundle.n_days)
         if bundle.has("Gen_ShutDownCost.csv")
         else {}
     )
@@ -5785,15 +5822,17 @@ def extract_commitments(
         units = ini_units.get(name, [])
         up = ini_hours_up.get(name, [])
         down = ini_hours_down.get(name, [])
-        # gtopt commitment start / shutdown costs are scalars; PLEXOS
-        # treats them as period-invariant.  Warn (don't silently drop) if
-        # a future bundle ships a time-varying series.
-        if sc:
-            _warn_if_series_varies("start cost", name, sc)
-        if sd:
-            _warn_if_series_varies("shutdown cost", name, sd)
+        # gtopt commitment start / shutdown costs are now per-(stage,
+        # block) (``OptTBRealFieldSched``), so a genuinely time-varying
+        # ``Gen_StartCost.csv`` / ``Gen_ShutDownCost.csv`` series is no
+        # longer collapsed to the period-1 scalar — the FULL profile is
+        # carried to the writer, which fill-forwards undefined periods,
+        # aggregates to the block layout and emits a ``[[stage_blocks]]``
+        # matrix when it varies (constant / absent series stay scalar).
         startup_cost = sc[0] if sc else 0.0
         shutdown_cost = sd[0] if sd else 0.0
+        startup_cost_profile: tuple[float, ...] = tuple(sc) if sc else ()
+        shutdown_cost_profile: tuple[float, ...] = tuple(sd) if sd else ()
         initial_status = 1.0 if units and units[0] > 0.0 else 0.0
         # PLEXOS reports IniHoursUp / IniHoursDown as separate
         # non-negative scalars; the active one wins. gtopt's
@@ -6224,6 +6263,8 @@ def extract_commitments(
                 generator_name=name,
                 startup_cost=startup_cost,
                 shutdown_cost=shutdown_cost,
+                startup_cost_profile=startup_cost_profile,
+                shutdown_cost_profile=shutdown_cost_profile,
                 min_up_time=min_up,
                 min_down_time=min_down,
                 initial_status=initial_status,

@@ -23,6 +23,9 @@ struct json_data_contract<Waterway>
       json_variant_null<"capacity", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"lossfactor", OptTRealFieldSched, jvtl_TRealFieldSched>,
       json_variant_null<"fmin", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_variant_null<"fmin_fcost",
+                        OptTBRealFieldSched,
+                        jvtl_TBRealFieldSched>,
       json_variant_null<"fmax", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
       json_variant_null<"fcost", OptTRealFieldSched, jvtl_TRealFieldSched>>;
 
@@ -38,6 +41,7 @@ struct json_data_contract<Waterway>
                                  waterway.capacity,
                                  waterway.lossfactor,
                                  waterway.fmin,
+                                 waterway.fmin_fcost,
                                  waterway.fmax,
                                  waterway.fcost);
   }

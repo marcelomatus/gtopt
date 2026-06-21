@@ -34,8 +34,9 @@ A summary table on stdout, plus an optional JSON dump containing:
 
 Exit code
 ---------
-* ``0``: no significant bugs detected (B2/B5 buckets empty)
-* ``1``: significant bugs detected (RHS scale mismatch or hard-list drift)
+* ``0``: no significant bugs detected (B2/B5 empty, no B17 HIGH flag)
+* ``1``: significant bugs detected (RHS scale mismatch, hard-list drift, or a
+  B17 hard-in-gtopt-but-soft-in-PLEXOS reserve mismatch)
 """
 
 from __future__ import annotations
@@ -1213,6 +1214,1088 @@ def build_plexos_solution(cache_dir: Path) -> dict[str, dict]:
 
 
 # ---------------------------------------------------------------------------
+# PLEXOS sol Storage / per-period property loader (B14/B15 sol path)
+# ---------------------------------------------------------------------------
+# Storages are ``collection_id`` 93, child ``class_id`` 8.  The per-period
+# solution columns (verified against ``t_property`` in the 02-15 sol cache):
+#   643 Max Volume   644 Min Volume   645 Initial Volume   646 End Volume
+#   680 Shadow Price
+# Each (object, property) maps to ONE ``key_id`` in ``t_key.csv``; the
+# per-block series lives in ``t_data_0.csv`` ordered by ``period_id``.
+STORAGE_COLLECTION_ID = 93
+STORAGE_PROP_MAX_VOLUME = 643
+STORAGE_PROP_MIN_VOLUME = 644
+STORAGE_PROP_END_VOLUME = 646
+STORAGE_PROP_SHADOW_PRICE = 680
+# Fuel objects: ``System → Fuels`` collection_id 40.  The CEN sol does NOT
+# report a per-period Fuel "Price" — only Offtake (376) and Shadow Price
+# (394) — so the B15 sol path is opportunistic (it fires only when a Fuel
+# Price property is present), with the converter-parsed input CSV as the
+# robust fallback (clearly marked "input-vs-emitted").
+FUEL_COLLECTION_ID = 40
+# Candidate per-period Fuel Price property names (resolved from t_property
+# when a name map is supplied — the numeric id is schema-dependent).
+_FUEL_PRICE_PROP_NAMES = ("Price",)
+
+# ---------------------------------------------------------------------------
+# PLEXOS sol Reserve property loader (B17 soft-slack coverage)
+# ---------------------------------------------------------------------------
+# Reserve objects are ``class_id`` 14, exposed through the
+# ``System → Reserves`` collection_id 156.  The properties that prove the
+# reserve requirement is modelled SOFT in PLEXOS (validated against the CEN
+# PCP 2026-02-15 sol cache):
+#   851 Provision   854 Shortage   857 (Risk/CleanProvision)   860 Price
+#   862 (Marginal/ShadowPrice)
+# The PRESENCE of the ``Shortage`` property (854) on the reserve membership is
+# the signal that PLEXOS treats the requirement as soft — when it can't meet
+# the reserve it under-provides at a penalty (Σ provision + shortage ≥ req)
+# rather than failing.  The clearing ``Price`` (860) max is the PLEXOS reserve
+# marginal value — a sound lower bound for gtopt's ``reserve_shortage_cost``
+# (it must exceed the typical reserve marginal yet stay below ``demand_fail_cost``
+# VoLL so a reserve shortfall is always cheaper than shedding load).
+RESERVE_CLASS_ID = 14
+SYS_RESERVE_COLLECTION_ID = 156
+RESERVE_PROP_SHORTAGE = 854
+RESERVE_PROP_PRICE = 860
+
+
+def load_plexos_reserve_softness(cache_dir: Path) -> dict[str, Any]:
+    """Detect PLEXOS reserve softness from the sol cache.
+
+    Reads the Reserve membership (collection 156, child class 14) and reports
+    whether the ``Shortage`` property (854) is present — the marker that PLEXOS
+    models the reserve requirement SOFT — plus the clearing ``Price`` (860)
+    maximum across all reserve objects (the suggested ``reserve_shortage_cost``
+    lower bound).  Returns a dict::
+
+        {
+          "shortage_present": bool,   # 854 present on any reserve membership
+          "price_max": float | None,  # max clearing price (860), None if absent
+          "shortage_max": float | None,  # max reported shortage (854)
+          "n_reserves": int,          # reserve objects in the cache
+          "reserve_names": list[str],
+        }
+
+    A missing cache / table degrades gracefully to ``shortage_present=False``,
+    ``price_max=None`` so the B17 cross-check simply does not fire.
+    """
+    out: dict[str, Any] = {
+        "shortage_present": False,
+        "price_max": None,
+        "shortage_max": None,
+        "n_reserves": 0,
+        "reserve_names": [],
+    }
+    try:
+        objects: dict[int, str] = {}
+        names: list[str] = []
+        for r in _read_csv(cache_dir / "t_object.csv"):
+            try:
+                oid = int(r["object_id"])
+                cid = int(r["class_id"])
+            except (ValueError, KeyError):
+                continue
+            objects[oid] = r["name"]
+            if cid == RESERVE_CLASS_ID:
+                names.append(r["name"])
+        # membership_id -> reserve object_id (collection 156, child class 14)
+        mem_to_oid: dict[int, int] = {}
+        for m in _read_csv(cache_dir / "t_membership.csv"):
+            try:
+                if (
+                    int(m["collection_id"]) == SYS_RESERVE_COLLECTION_ID
+                    and int(m["child_class_id"]) == RESERVE_CLASS_ID
+                ):
+                    mem_to_oid[int(m["membership_id"])] = int(m["child_object_id"])
+            except (ValueError, KeyError):
+                continue
+        # key_id -> property_id for reserve memberships
+        shortage_keys: set[int] = set()
+        price_keys: set[int] = set()
+        shortage_present = False
+        for k in _read_csv(cache_dir / "t_key.csv"):
+            try:
+                mid = int(k["membership_id"])
+                pid = int(k["property_id"])
+            except (ValueError, KeyError):
+                continue
+            if mid not in mem_to_oid:
+                continue
+            if pid == RESERVE_PROP_SHORTAGE:
+                shortage_present = True
+                shortage_keys.add(int(k["key_id"]))
+            elif pid == RESERVE_PROP_PRICE:
+                price_keys.add(int(k["key_id"]))
+        price_max: float | None = None
+        shortage_max: float | None = None
+        if shortage_keys or price_keys:
+            for r in _read_csv(cache_dir / "t_data_0.csv"):
+                try:
+                    kid = int(r["key_id"])
+                    v = float(r["value"])
+                except (ValueError, KeyError):
+                    continue
+                if kid in price_keys:
+                    price_max = v if price_max is None else max(price_max, v)
+                elif kid in shortage_keys:
+                    shortage_max = v if shortage_max is None else max(shortage_max, v)
+    except FileNotFoundError:
+        return out
+    out["shortage_present"] = shortage_present
+    out["price_max"] = price_max
+    out["shortage_max"] = shortage_max
+    out["n_reserves"] = len(names)
+    out["reserve_names"] = sorted(names)
+    return out
+
+
+def load_plexos_reserve_vors(
+    xml_path: Path | None,
+) -> dict[str, dict[str, Any]]:
+    """Per-reserve raw VoRS (shortage-penalty) INPUT from the PLEXOS model XML.
+
+    The solution cache exposes only reserve OUTPUTS (Provision / Shortage /
+    Price); the shortage PENALTY is an INPUT (``VoRS`` family) carried on the
+    Reserve objects in the model XML.  Reads it via the same probe the converter
+    uses (:func:`plexos2gtopt.parsers.probe_reserve_violation_cost`) so B17 can
+    QUOTE the actual penalty input instead of only inferring softness from the
+    ``Shortage`` output.
+
+    Returns ``{reserve_name: {"vors": float, "source_prop": str | None,
+    "interpreted": "default_sentinel" | "explicit_cost" | "no_penalty"}}``:
+
+    * ``default_sentinel`` — ``VoRS = -1`` (PLEXOS uses its default penalty;
+      the reserve stays SOFT with a ``Shortage`` variable).
+    * ``explicit_cost`` — a strictly positive penalty was set.
+    * ``no_penalty`` — no VoRS-family property defined (gtopt treats it hard).
+
+    Returns ``{}`` when the XML is absent / unreadable (the B17 cross-check then
+    falls back to the ``Shortage``-output inference).
+    """
+    if xml_path is None or not Path(xml_path).is_file():
+        return {}
+    try:
+        from .parsers import probe_reserve_violation_cost
+        from .plexos_xml import load_xml
+    except ImportError as exc:  # pragma: no cover - defensive
+        logger.warning("reserve VoRS read unavailable: %s", exc)
+        return {}
+    try:
+        db = load_xml(xml_path)
+    except (OSError, ValueError) as exc:  # pragma: no cover - defensive
+        logger.warning("reserve VoRS read failed (%s): %s", xml_path, exc)
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for r in db.objects_of_class("Reserve"):
+        raw, src = probe_reserve_violation_cost(db, r.object_id)
+        if raw == -1.0:
+            interp = "default_sentinel"
+        elif raw > 0.0:
+            interp = "explicit_cost"
+        else:
+            interp = "no_penalty"
+        out[r.name] = {"vors": raw, "source_prop": src, "interpreted": interp}
+    return out
+
+
+def _storage_series_from_cache(
+    cache_dir: Path,
+    prop_ids: tuple[int, ...],
+) -> dict[str, dict[int, list[float]]]:
+    """Per-period Storage solution series from the PLEXOS sol cache.
+
+    Returns ``{storage_name: {property_id: [v_period1, v_period2, ...]}}`` for
+    the requested ``prop_ids``.  The series is ordered by ``period_id`` (the
+    LP block index), so it aligns 1:1 with gtopt's block layout for a
+    single-stage daily case.  Missing tables / properties degrade to an empty
+    dict so the caller skips the sol path gracefully.
+    """
+    needed = set(prop_ids)
+    objects: dict[int, str] = {}
+    try:
+        for r in _read_csv(cache_dir / "t_object.csv"):
+            try:
+                objects[int(r["object_id"])] = r["name"]
+            except (ValueError, KeyError):
+                continue
+        # membership_id -> storage object_id (collection 93)
+        mem_to_oid: dict[int, int] = {}
+        for m in _read_csv(cache_dir / "t_membership.csv"):
+            try:
+                if int(m["collection_id"]) == STORAGE_COLLECTION_ID:
+                    mem_to_oid[int(m["membership_id"])] = int(m["child_object_id"])
+            except (ValueError, KeyError):
+                continue
+        # key_id -> (storage_name, property_id)
+        key_to_tag: dict[int, tuple[str, int]] = {}
+        for k in _read_csv(cache_dir / "t_key.csv"):
+            try:
+                mid = int(k["membership_id"])
+                pid = int(k["property_id"])
+            except (ValueError, KeyError):
+                continue
+            oid = mem_to_oid.get(mid)
+            if oid is None or pid not in needed:
+                continue
+            name = objects.get(oid)
+            if name is not None:
+                key_to_tag[int(k["key_id"])] = (name, pid)
+        # ordered per-period values
+        ordered: dict[int, list[tuple[int, float]]] = defaultdict(list)
+        for r in _read_csv(cache_dir / "t_data_0.csv"):
+            try:
+                kid = int(r["key_id"])
+            except (ValueError, KeyError):
+                continue
+            if kid not in key_to_tag:
+                continue
+            try:
+                period = int(r.get("period_id", 0))
+            except (ValueError, TypeError):
+                period = len(ordered[kid])
+            try:
+                ordered[kid].append((period, float(r["value"])))
+            except (ValueError, KeyError, TypeError):
+                continue
+    except FileNotFoundError:
+        return {}
+    out: dict[str, dict[int, list[float]]] = defaultdict(dict)
+    for kid, pairs in ordered.items():
+        name, pid = key_to_tag[kid]
+        pairs.sort(key=lambda t: t[0])
+        out[name][pid] = [v for _, v in pairs]
+    return dict(out)
+
+
+# ---------------------------------------------------------------------------
+# gtopt emitted-profile expansion (scalar | [[stage][block]] matrix)
+# ---------------------------------------------------------------------------
+def _emitted_block_series(val: Any, n_blocks: int) -> list[float] | None:
+    """Expand a gtopt JSON field into a flat per-block series of length ``n_blocks``.
+
+    Handles BOTH forms the writer emits:
+      * a scalar (``int`` / ``float``)            → broadcast to every block,
+      * a ``[[stage][block]]`` matrix (nested list) → flattened in stage order.
+    A flat ``[block]`` list is also accepted.  Returns ``None`` when the value
+    is absent / non-numeric, or an empty list when there is nothing to expand.
+    """
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return [float(val)] * max(0, n_blocks)
+    if isinstance(val, list):
+        flat: list[float] = []
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, list):
+                for e in node:
+                    _walk(e)
+            else:
+                try:
+                    flat.append(float(node))
+                except (TypeError, ValueError):
+                    pass
+
+        _walk(val)
+        return flat or None
+    return None
+
+
+def _series_varies(series: list[float], *, drop_zero: bool = False) -> bool:
+    """True when ``series`` carries more than one distinct value (tolerance 1e-6).
+
+    When ``drop_zero`` is set, zero entries are ignored first (PLEXOS / read_long
+    zero-pad sparse periods; 0 means "no row", not a real value).
+    """
+    vals = [v for v in series if v != 0.0] if drop_zero else list(series)
+    return len(vals) > 1 and (max(vals) - min(vals)) > 1.0e-6
+
+
+def _trim_trailing_zeros(series: list[float]) -> list[float]:
+    """Drop trailing zero entries (``read_long`` zero-pads undefined periods).
+
+    The CEN long-format readers return a fixed ``periods × n_days`` length and
+    zero-fill periods with no CSV row.  Those trailing zeros are "no data", not
+    a real value, so they must be stripped before a per-block comparison —
+    otherwise a short (e.g. monthly-constant) input series resampled against a
+    24-period-padded vector picks up phantom zeros.  At least one element is
+    always kept.
+    """
+    end = len(series)
+    while end > 1 and series[end - 1] == 0.0:
+        end -= 1
+    return series[:end]
+
+
+def _resample_to(series: list[float], n: int) -> list[float]:
+    """Resample ``series`` to length ``n`` by nearest-index sampling.
+
+    PLEXOS per-period series and gtopt's emitted block series usually share the
+    same block count, but a benign length mismatch (e.g. a stage padded with a
+    trailing block) is bridged by proportional index mapping rather than
+    rejected — the per-block comparison is robust to a one-off off-by-one.
+    """
+    if not series or n <= 0:
+        return []
+    if len(series) == n:
+        return list(series)
+    out: list[float] = []
+    for i in range(n):
+        j = min(len(series) - 1, (i * len(series)) // n)
+        out.append(series[j])
+    return out
+
+
+# B14/B15/B16 per-block comparison tolerance.  A value is "the same" only when
+# within BOTH a relative and an absolute band (reuses the spirit of B12).
+_PROFILE_REL_TOL = 0.01
+_PROFILE_ABS_TOL = 1.0e-3
+
+
+def _distinct_set_mismatch(gtopt: list[float], plexos: list[float]) -> dict | None:
+    """Compare two series by their DISTINCT VALUE SETS (position-independent).
+
+    Used by the INPUT-vs-EMITTED checks (B15 fuel price, B16 turbine PF) where
+    the gtopt value is already aggregated to the block layout but the PLEXOS
+    input is per-(hour) — so a positional per-block compare is unsound (we lack
+    the writer's period→block reducer).  Comparing the distinct levels each side
+    carries still catches a unit / magnitude / sign error and a coarser-than-
+    input quantisation, without false-flagging a benign re-bucketing.  Returns a
+    diff dict when the distinct sets differ beyond tolerance, else ``None``.
+    """
+    g_dist = _distinct_values(list(gtopt))
+    p_dist = _distinct_values(list(plexos))
+    if not g_dist or not p_dist:
+        return None
+    same_count = len(g_dist) == len(p_dist)
+    aligned = same_count and not any(
+        _value_differs(a, b) for a, b in zip(g_dist, p_dist)
+    )
+    if aligned:
+        return None
+    return {
+        "gtopt_distinct": [round(v, 6) for v in g_dist],
+        "plexos_distinct": [round(v, 6) for v in p_dist],
+    }
+
+
+def _profile_block_diff(
+    gtopt: list[float], plexos: list[float]
+) -> tuple[float, float, int] | None:
+    """Worst per-block absolute / relative diff between two equal-block series.
+
+    Returns ``(max_abs, max_rel, worst_block)`` when the two series differ
+    beyond tolerance in at least one block, else ``None``.  ``plexos`` is
+    resampled to ``len(gtopt)`` first.
+    """
+    if not gtopt or not plexos:
+        return None
+    p = _resample_to(plexos, len(gtopt))
+    worst_abs = 0.0
+    worst_rel = 0.0
+    worst_blk = -1
+    flagged = False
+    for i, (g, q) in enumerate(zip(gtopt, p)):
+        d = abs(g - q)
+        rel = d / max(abs(g), abs(q), 1.0)
+        if d > _PROFILE_ABS_TOL and rel > _PROFILE_REL_TOL:
+            flagged = True
+            if d > worst_abs:
+                worst_abs, worst_rel, worst_blk = d, rel, i
+    if not flagged:
+        return None
+    return worst_abs, worst_rel, worst_blk
+
+
+def build_b14_reservoir_bounds_sol(
+    planning_json: Path,
+    storages: dict[str, dict[int, list[float]]],
+) -> list[dict]:
+    """B14 (sol-based): reservoir emin/emax vs the PLEXOS SOLUTION Storage series.
+
+    Unlike the input-CSV variant (:func:`build_b14_reservoir_bounds`, which
+    needs ``Hydro_Min/MaxVolume.csv`` — usually absent inside CEN
+    ``DATOS*.zip.xz`` bundles), this reads the per-period Storage
+    Min Volume (644) / Max Volume (643) / End Volume (646) that the PLEXOS sol
+    ALWAYS carries, so the check actually runs on a CEN bundle.
+
+    For every reservoir present in BOTH the JSON and the sol it emits, with a
+    clear ``kind`` bucket tag:
+
+      * ``profile_collapsed`` — PLEXOS Min/Max Volume VARIES across the
+        horizon but gtopt emitted a bare scalar (the silent-collapse
+        regression this whole effort targets).
+      * ``profile_spurious`` — gtopt emitted a varying profile but the PLEXOS
+        series is constant.
+      * ``value_mismatch`` — the per-block emax values differ beyond tolerance
+        (reports gtopt vs PLEXOS, max abs/rel diff, worst block).
+      * ``emin_over_constrained`` (HIGH) — gtopt's emitted ``emin`` floor lies
+        ABOVE PLEXOS's per-period Min Volume at one or more blocks: gtopt's
+        hard floor forbids reservoir levels PLEXOS itself uses, so gtopt could
+        never reproduce the PLEXOS trajectory.  Always a real converter bug
+        (the POLCURA 2026-02-15 case: gtopt 3.998 vs PLEXOS 3.093, 15 blocks).
+      * ``emin_value_mismatch`` (INFO) — gtopt's ``emin`` differs from PLEXOS's
+        Min Volume but sits BELOW it: gtopt may intentionally relax to a
+        physical floor + soft ``efin``, so this is informational.
+      * ``bound_violated_in_sol`` — PLEXOS End Volume ever lies OUTSIDE gtopt's
+        ``[emin, emax]`` band (gtopt's bound is inconsistent with PLEXOS's own
+        trajectory — gtopt could never reproduce the PLEXOS solution).
+
+    Every profile check asserts gtopt's emitted matrix value EQUALS PLEXOS's
+    matrix value per block — the emax via :func:`_profile_block_diff` and the
+    emin via the per-block over/under comparison above.  The emin direction is
+    split because a too-HIGH floor is a hard bug while a too-LOW floor is the
+    documented soft-efin design.
+    """
+    items: list[dict] = []
+    if not planning_json.is_file() or not storages:
+        return items
+
+    for r in _parse_gtopt_reservoir_bounds(planning_json):
+        name = r["name"]
+        sol = storages.get(name)
+        if not sol:
+            continue
+        end_vol = sol.get(STORAGE_PROP_END_VOLUME, [])
+        n_blocks = len(
+            sol.get(STORAGE_PROP_MAX_VOLUME) or sol.get(STORAGE_PROP_MIN_VOLUME) or []
+        ) or len(end_vol)
+        if n_blocks == 0:
+            continue
+
+        for field_name, gval, pid, is_floor in (
+            ("reservoir.emax", r["emax"], STORAGE_PROP_MAX_VOLUME, False),
+            ("reservoir.emin", r["emin"], STORAGE_PROP_MIN_VOLUME, True),
+        ):
+            p_series = sol.get(pid)
+            if not p_series:
+                continue
+            p_varies = _series_varies(p_series, drop_zero=True)
+            g_is_list = isinstance(gval, list)
+            g_series = _emitted_block_series(gval, n_blocks)
+            base = {"name": name, "field": field_name, "source": "plexos_sol"}
+            # profile_collapsed: PLEXOS Min/Max Volume VARIES but gtopt emitted a
+            # bare scalar.  For the FLOOR (emin) only flag a GENUINE collapse —
+            # i.e. gtopt's scalar sits BELOW the PLEXOS floor peak (it could not
+            # reproduce the high intra-day floor), not the documented efin design
+            # where gtopt's physical floor legitimately sits below the PLEXOS
+            # operational Min (efin carries that on the soft slack).
+            if p_varies and not g_is_list:
+                nz = [v for v in p_series if v != 0.0]
+                g_scalar = float(gval) if isinstance(gval, (int, float)) else None
+                genuine = True
+                if is_floor and g_scalar is not None and nz:
+                    # efin-design floor: gtopt scalar at-or-below PLEXOS floor is
+                    # expected, not a collapse.
+                    genuine = g_scalar > max(nz) + _PROFILE_ABS_TOL
+                if genuine:
+                    items.append(
+                        {
+                            **base,
+                            "kind": "profile_collapsed",
+                            "plexos_range": [round(min(nz), 4), round(max(nz), 4)],
+                            "gtopt_scalar": gval,
+                        }
+                    )
+            # The CAP (emax) gets the full profile_spurious / value_mismatch
+            # checks: gtopt's emitted matrix value MUST equal PLEXOS's Max
+            # Volume value per block.
+            elif not is_floor:
+                # profile_spurious: gtopt varying, PLEXOS constant.
+                if g_is_list and _series_varies(g_series or []) and not p_varies:
+                    items.append(
+                        {
+                            **base,
+                            "kind": "profile_spurious",
+                            "plexos_constant": round(p_series[0], 4),
+                            "gtopt_range": [
+                                round(min(g_series or [0.0]), 4),
+                                round(max(g_series or [0.0]), 4),
+                            ],
+                        }
+                    )
+                elif g_series is not None:
+                    diff = _profile_block_diff(g_series, p_series)
+                    if diff is not None:
+                        worst_abs, worst_rel, worst_blk = diff
+                        items.append(
+                            {
+                                **base,
+                                "kind": "value_mismatch",
+                                "max_abs_diff": round(worst_abs, 4),
+                                "max_rel_diff": round(worst_rel, 6),
+                                "worst_block": worst_blk,
+                                "gtopt_at_worst": round(g_series[worst_blk], 4),
+                                "plexos_at_worst": round(
+                                    _resample_to(p_series, len(g_series))[worst_blk], 4
+                                ),
+                            }
+                        )
+
+            # ── emin VALUE comparison (gtopt floor vs PLEXOS per-period Min) ──
+            # gtopt's emitted Reservoir.emin is a HARD LP floor (vol >= emin).
+            # It MUST NOT exceed PLEXOS's actual per-period Min Volume, or gtopt
+            # forbids reservoir levels PLEXOS itself uses (over-constraint).
+            # The converter sometimes takes emin from PLEXOS's *static* Min
+            # Volume property while PLEXOS's matrix carries a lower per-period
+            # Min — the POLCURA 2026-02-15 case (gtopt 3.998 vs PLEXOS 3.093).
+            #   * emin_over_constrained (HIGH): gtopt_emin > PLEXOS_min beyond
+            #     tol at any block — always a real bug (gtopt could never
+            #     reproduce the PLEXOS trajectory).
+            #   * emin_value_mismatch (informational): gtopt_emin < PLEXOS_min
+            #     (or otherwise differs) — gtopt may intentionally relax to a
+            #     physical floor + soft efin, so lower severity.
+            if is_floor and g_series is not None:
+                p_blk = _resample_to(p_series, len(g_series))
+                worst_over = 0.0
+                blk_over = -1
+                worst_under = 0.0
+                blk_under = -1
+                n_over = 0
+                for i, (g, q) in enumerate(zip(g_series, p_blk)):
+                    # PLEXOS zero-pads periods that carry no Min Volume row
+                    # (read_long / sol export); a 0.0 means "no floor", not a
+                    # real floor of 0 — skip it so gtopt's physical floor above
+                    # a zero-pad period is never mis-flagged (ELTORO 130/132).
+                    if q == 0.0:
+                        continue
+                    over = g - q  # gtopt floor ABOVE PLEXOS min → over-constraint
+                    if over > _PROFILE_ABS_TOL:
+                        n_over += 1
+                        if over > worst_over:
+                            worst_over, blk_over = over, i
+                    under = q - g  # gtopt floor BELOW PLEXOS min → relaxed
+                    if under > _PROFILE_ABS_TOL and under > worst_under:
+                        worst_under, blk_under = under, i
+                if blk_over >= 0:
+                    items.append(
+                        {
+                            **base,
+                            "kind": "emin_over_constrained",
+                            "priority": "HIGH",
+                            "direction": "gtopt_emin_above_plexos_min",
+                            "max_over_by": round(worst_over, 4),
+                            "worst_block": blk_over,
+                            "n_blocks_over": n_over,
+                            "gtopt_at_worst": round(g_series[blk_over], 4),
+                            "plexos_at_worst": round(p_blk[blk_over], 4),
+                        }
+                    )
+                elif blk_under >= 0:
+                    items.append(
+                        {
+                            **base,
+                            "kind": "emin_value_mismatch",
+                            "priority": "INFO",
+                            "direction": "gtopt_emin_below_plexos_min",
+                            "max_under_by": round(worst_under, 4),
+                            "worst_block": blk_under,
+                            "gtopt_at_worst": round(g_series[blk_under], 4),
+                            "plexos_at_worst": round(p_blk[blk_under], 4),
+                        }
+                    )
+
+        # bound_violated_in_sol: End Volume outside gtopt's [emin, emax].  Uses
+        # the gtopt-emitted bound series (scalar broadcast or matrix) per block.
+        if end_vol:
+            emin_s = _emitted_block_series(r["emin"], len(end_vol))
+            emax_s = _emitted_block_series(r["emax"], len(end_vol))
+            worst_below = 0.0
+            worst_above = 0.0
+            blk_below = blk_above = -1
+            for i, ev in enumerate(end_vol):
+                if emin_s is not None:
+                    lo = emin_s[min(i, len(emin_s) - 1)]
+                    if lo - ev > _PROFILE_ABS_TOL and (lo - ev) > worst_below:
+                        worst_below, blk_below = lo - ev, i
+                if emax_s is not None:
+                    hi = emax_s[min(i, len(emax_s) - 1)]
+                    if ev - hi > _PROFILE_ABS_TOL and (ev - hi) > worst_above:
+                        worst_above, blk_above = ev - hi, i
+            if blk_below >= 0 or blk_above >= 0:
+                items.append(
+                    {
+                        "name": name,
+                        "field": "reservoir.end_volume",
+                        "source": "plexos_sol",
+                        "kind": "bound_violated_in_sol",
+                        "below_emin_by": round(worst_below, 4),
+                        "below_block": blk_below,
+                        "above_emax_by": round(worst_above, 4),
+                        "above_block": blk_above,
+                    }
+                )
+
+    return items
+
+
+def build_b15_fuel_price(
+    planning_json: Path,
+    input_dir: Path | None,
+    plexos_fuel_price: dict[str, list[float]] | None = None,
+) -> list[dict]:
+    """B15: Fuel.price per-block profile vs PLEXOS price (sol-first, input fallback).
+
+    gtopt emits ``Fuel.price`` as a scalar OR a ``[[stage][block]]`` matrix when
+    the input ``Fuel_Price.csv`` series varies.  This check compares the emitted
+    profile against the PLEXOS price series, PREFERRING the sol when the sol
+    reports a per-period Fuel Price (``plexos_fuel_price``, keyed by fuel name)
+    and falling back to the converter input ``Fuel_Price.csv`` otherwise.  The
+    ``source`` field on each item records which side was used
+    (``"plexos_sol"`` or ``"input_csv"``); the latter is an INPUT-vs-EMITTED
+    check, not a vs-sol check.
+
+    Buckets (``kind``): ``profile_collapsed`` (PLEXOS varies, gtopt scalar),
+    ``profile_spurious`` (gtopt varies, PLEXOS constant), ``value_mismatch``
+    (per-block values differ beyond tolerance).
+    """
+    items: list[dict] = []
+    if not planning_json.is_file():
+        return items
+
+    source = "plexos_sol"
+    price_series: dict[str, list[float]] = plexos_fuel_price or {}
+    if not price_series:
+        # Input-CSV fallback (clearly marked input-vs-emitted).
+        if input_dir is None:
+            return items
+        fp = input_dir / "Fuel_Price.csv"
+        if not fp.is_file():
+            return items
+        from .plexos_csv import read_long  # noqa: PLC0415
+
+        # Read the full horizon so cross-day price changes are not missed.
+        days: set[tuple[str | None, str | None, str | None]] = set()
+        with fp.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                days.add((row.get("YEAR"), row.get("MONTH"), row.get("DAY")))
+        price_series = read_long(fp, n_days=max(1, len(days)), fill_forward=True)
+        source = "input_csv"
+    if not price_series:
+        return items
+
+    data = json.loads(planning_json.read_text())
+    for f in data.get("system", {}).get("fuel_array", []):
+        name = f.get("name")
+        if name is None:
+            continue
+        p_series = price_series.get(str(name))
+        if not p_series:
+            continue
+        if source == "input_csv":
+            p_series = _trim_trailing_zeros(p_series)
+        p_varies = _series_varies(p_series, drop_zero=True)
+        gval = f.get("price")
+        g_is_list = isinstance(gval, list)
+        base = {"name": str(name), "field": "fuel.price", "source": source}
+        if p_varies and not g_is_list:
+            nz = [v for v in p_series if v != 0.0]
+            items.append(
+                {
+                    **base,
+                    "kind": "profile_collapsed",
+                    "plexos_range": [round(min(nz), 4), round(max(nz), 4)],
+                    "gtopt_scalar": gval,
+                }
+            )
+            continue
+        g_series = _emitted_block_series(gval, len(p_series))
+        if g_is_list and _series_varies(g_series or []) and not p_varies:
+            items.append(
+                {
+                    **base,
+                    "kind": "profile_spurious",
+                    "plexos_constant": round(p_series[0], 4),
+                    "gtopt_range": [
+                        round(min(g_series or [0.0]), 4),
+                        round(max(g_series or [0.0]), 4),
+                    ],
+                }
+            )
+            continue
+        if g_series is not None:
+            diff = _distinct_set_mismatch(g_series, p_series)
+            if diff is not None:
+                items.append({**base, "kind": "value_mismatch", **diff})
+    return items
+
+
+def build_b16_turbine_pf(planning_json: Path, input_dir: Path | None) -> list[dict]:
+    """B16: Turbine production_factor / capacity vs the bundle input series.
+
+    ``Turbine.production_factor`` (MW per m³/s) is NOT a native PLEXOS solution
+    property, so this is always an INPUT-vs-EMITTED check (every item carries
+    ``source = "input_csv"``).  The per-period engineering series is
+    ``Hydro_EfficiencyIncr.csv`` (keyed by the turbine's GENERATOR name); the
+    turbine ``capacity`` (when emitted) is compared against ``Gen_Rating.csv``.
+
+    Buckets (``kind``): ``profile_collapsed`` (input varies, gtopt scalar),
+    ``profile_spurious`` (gtopt varies, input constant), ``value_mismatch``
+    (per-block values differ beyond tolerance).  Skips gracefully when the
+    input dir / CSV is absent (the usual CEN-bundle case).
+    """
+    items: list[dict] = []
+    if not planning_json.is_file() or input_dir is None:
+        return items
+    pf_path = input_dir / "Hydro_EfficiencyIncr.csv"
+    rating_path = input_dir / "Gen_Rating.csv"
+    if not pf_path.is_file() and not rating_path.is_file():
+        return items
+    from .plexos_csv import read_long  # noqa: PLC0415
+
+    def _read_full(path: Path) -> dict[str, list[float]]:
+        if not path.is_file():
+            return {}
+        days: set[tuple[str | None, str | None, str | None]] = set()
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                days.add((row.get("YEAR"), row.get("MONTH"), row.get("DAY")))
+        return read_long(path, n_days=max(1, len(days)), fill_forward=True)
+
+    pf_series = _read_full(pf_path)
+    rating_series = _read_full(rating_path)
+    if not pf_series and not rating_series:
+        return items
+
+    data = json.loads(planning_json.read_text())
+    for t in data.get("system", {}).get("turbine_array", []):
+        name = t.get("name")
+        gen = t.get("generator")
+        if name is None:
+            continue
+        for field_name, gval, series_by_gen in (
+            ("turbine.production_factor", t.get("production_factor"), pf_series),
+            ("turbine.capacity", t.get("capacity"), rating_series),
+        ):
+            if gval is None:
+                continue
+            key = str(gen) if gen is not None else None
+            p_series = series_by_gen.get(key) if key is not None else None
+            if not p_series:
+                continue
+            p_series = _trim_trailing_zeros(p_series)
+            p_varies = _series_varies(p_series, drop_zero=True)
+            g_is_list = isinstance(gval, list)
+            base = {
+                "name": str(name),
+                "generator": key,
+                "field": field_name,
+                "source": "input_csv",
+            }
+            if p_varies and not g_is_list:
+                nz = [v for v in p_series if v != 0.0]
+                items.append(
+                    {
+                        **base,
+                        "kind": "profile_collapsed",
+                        "input_range": [round(min(nz), 6), round(max(nz), 6)],
+                        "gtopt_scalar": gval,
+                    }
+                )
+                continue
+            g_series = _emitted_block_series(gval, len(p_series))
+            if g_is_list and _series_varies(g_series or []) and not p_varies:
+                items.append(
+                    {
+                        **base,
+                        "kind": "profile_spurious",
+                        "input_constant": round(p_series[0], 6),
+                        "gtopt_range": [
+                            round(min(g_series or [0.0]), 6),
+                            round(max(g_series or [0.0]), 6),
+                        ],
+                    }
+                )
+                continue
+            if g_series is not None:
+                diff = _distinct_set_mismatch(g_series, p_series)
+                if diff is not None:
+                    items.append({**base, "kind": "value_mismatch", **diff})
+    return items
+
+
+# ---------------------------------------------------------------------------
+# B17: soft-slack coverage for the integer-coupled constraint families
+# ---------------------------------------------------------------------------
+# A whole CLASS the UC-name / bounds audits MISS: constraints that COUPLE to
+# the integer unit-commitment and are enforced HARD in gtopt while PLEXOS
+# treats them SOFT (priced slack).  The bug this guards: gtopt's reserve
+# requirement was HARD (``reserve_zone_lp`` enforces ``Σ provision ≥ req`` with
+# no shortage slack), so a water-short hydro unit was forced ON only to satisfy
+# the floor → primal infeasibility; PLEXOS's reserve has a ``Shortage``
+# property and simply under-provides at a penalty.  B17 reports, per
+# integer-coupled family, whether gtopt uses a soft-slack COST or a hard floor,
+# the slack-cost VALUES, and FLAGS hard-in-gtopt-but-soft-in-PLEXOS mismatches.
+#
+# Families (all couple to the binary commit status u):
+#   1. reserve requirement   → model_options.reserve_shortage_cost (soft slack)
+#   2. commitment min-stable  → Generator.pmin_fcost (soft pmin slack)
+#   3. waterway forced flow   → Waterway.fmin_fcost   (soft fmin slack)
+# Context (reported, not flagged): model_options.hydro_spill_cost,
+# strict_storage_emin.
+#
+# The KEY cross-check is reserve: when the PLEXOS sol exposes the reserve
+# ``Shortage`` property (soft in PLEXOS) AND gtopt's reserve_shortage_cost is
+# unset/0 (hard in gtopt) → HIGH ``reserve_requirement_hard_but_plexos_soft``.
+
+
+def _model_options(planning_json: Path) -> dict[str, Any]:
+    """Return the ``options.model_options`` dict from the planning JSON.
+
+    Empty dict when the file / block is absent so the caller degrades cleanly.
+    """
+    if not planning_json.is_file():
+        return {}
+    data = json.loads(planning_json.read_text())
+    opts = data.get("options", {}) or {}
+    mo = opts.get("model_options", {}) or {}
+    return mo if isinstance(mo, dict) else {}
+
+
+def _commitment_pmin_generators(planning_json: Path) -> set[str]:
+    """Generators carrying a non-trivial COMMITMENT min-stable level (pmin>0).
+
+    These are the units whose ``gen ≥ pmin·u`` floor couples to the binary
+    commit status — the family whose soft slack is ``Generator.pmin_fcost``.
+    A commitment with ``pmin`` unset / 0 imposes no floor, so it is excluded.
+    """
+    if not planning_json.is_file():
+        return set()
+    data = json.loads(planning_json.read_text())
+    system = data.get("system", {})
+    out: set[str] = set()
+    for c in system.get("commitment_array", []):
+        gen = c.get("generator")
+        if gen is None:
+            continue
+        peak = _field_peak(c.get("pmin"))
+        if peak is not None and peak > 0.0:
+            out.add(str(gen))
+    return out
+
+
+def build_b17_soft_slack(
+    planning_json: Path,
+    reserve_softness: dict[str, Any] | None,
+    reserve_vors: dict[str, dict[str, Any]] | None = None,
+) -> list[dict]:
+    """B17: soft-slack coverage for the integer-coupled constraint families.
+
+    Reports, per family, whether gtopt uses a soft-slack cost or a hard floor
+    and the cost VALUES, and emits the HIGH cross-check flag
+    ``reserve_requirement_hard_but_plexos_soft`` when PLEXOS models the reserve
+    soft but gtopt's ``reserve_shortage_cost`` is unset/0.
+
+    ``reserve_softness`` is the dict from :func:`load_plexos_reserve_softness`
+    (``None`` ⇒ the reserve cross-check is skipped, only the gtopt-side report
+    is emitted).  ``reserve_vors`` is the dict from
+    :func:`load_plexos_reserve_vors` (``None``/empty ⇒ PLEXOS softness is
+    inferred from the ``Shortage`` OUTPUT alone).  When present it lets the
+    reserve items QUOTE the actual penalty INPUT (``plexos_vors_*``) and treats
+    PLEXOS as soft when the VoRS is the ``-1`` default sentinel or a positive
+    cost — even if the ``Shortage`` output is absent from the cache.  Each item
+    carries a ``family`` tag and either an ``info`` / ``report`` payload or a
+    ``priority`` (``HIGH``) flag with the suggested remediation.
+    """
+    items: list[dict] = []
+    if not planning_json.is_file():
+        return items
+    data = json.loads(planning_json.read_text())
+    system = data.get("system", {})
+    mo = _model_options(planning_json)
+    rs = reserve_softness or {}
+    rv = reserve_vors or {}
+
+    # ── 1. Reserve requirement (reserve_zone) ───────────────────────────────
+    rsc_raw = mo.get("reserve_shortage_cost")
+    try:
+        rsc = float(rsc_raw) if rsc_raw is not None else None
+    except (TypeError, ValueError):
+        rsc = None
+    gtopt_reserve_soft = rsc is not None and rsc > 0.0
+    n_reserve_zones = len(system.get("reserve_zone_array", []))
+    demand_fail = mo.get("demand_fail_cost")
+    price_max = rs.get("price_max")
+    # PLEXOS softness: the ``Shortage`` OUTPUT being present, OR — when the input
+    # VoRS is available — the VoRS being the ``-1`` default sentinel or a
+    # positive explicit cost (both keep a soft ``Shortage`` variable).
+    plexos_soft_by_vors = any(
+        d.get("interpreted") in ("default_sentinel", "explicit_cost")
+        for d in rv.values()
+    )
+    plexos_reserve_soft = bool(rs.get("shortage_present", False)) or plexos_soft_by_vors
+    # Quote the actual penalty INPUT so B17 reports VoRS, not only the inferred
+    # Shortage output.  Empty when no XML was supplied → items omit these keys.
+    vors_payload: dict[str, Any] = {}
+    if rv:
+        vors_payload = {
+            "plexos_vors_distinct": sorted(
+                {round(float(d.get("vors", 0.0)), 4) for d in rv.values()}
+            ),
+            "plexos_vors_source": sorted(
+                {d["source_prop"] for d in rv.values() if d.get("source_prop")}
+            ),
+            "plexos_vors_interpreted": sorted(
+                {str(d.get("interpreted")) for d in rv.values()}
+            ),
+        }
+
+    if gtopt_reserve_soft:
+        # Soft in gtopt — matches the soft-PLEXOS treatment, no flag.
+        items.append(
+            {
+                "family": "reserve_requirement",
+                "kind": "soft_slack_set",
+                "field": "model_options.reserve_shortage_cost",
+                "value": round(rsc, 4) if rsc is not None else None,
+                "n_reserve_zones": n_reserve_zones,
+                "plexos_reserve_soft": plexos_reserve_soft,
+                "plexos_reserve_price_max": (
+                    round(float(price_max), 4) if price_max is not None else None
+                ),
+                **vors_payload,
+                "note": "soft reserve slack set — matches PLEXOS soft Shortage "
+                "treatment",
+            }
+        )
+    elif n_reserve_zones > 0 and plexos_reserve_soft:
+        # HARD in gtopt (unset/0) but SOFT in PLEXOS (Shortage present) — the
+        # exact class that was missed (reserve floor → forced-ON infeasibility).
+        suggested = round(float(price_max), 4) if price_max is not None else None
+        items.append(
+            {
+                "family": "reserve_requirement",
+                "kind": "reserve_requirement_hard_but_plexos_soft",
+                "priority": "HIGH",
+                "field": "model_options.reserve_shortage_cost",
+                "gtopt_value": rsc,  # None / 0 — the hard floor
+                "n_reserve_zones": n_reserve_zones,
+                "plexos_shortage_present": bool(rs.get("shortage_present", False)),
+                "plexos_reserve_price_max": suggested,
+                "suggested_reserve_shortage_cost": suggested,
+                "demand_fail_cost": demand_fail,
+                **vors_payload,
+                "note": "gtopt enforces the reserve requirement HARD (no "
+                "shortage slack) while PLEXOS models it SOFT (Shortage "
+                "property present); set model_options.reserve_shortage_cost "
+                ">= the PLEXOS reserve clearing-price max and below "
+                "demand_fail_cost (VoLL)",
+            }
+        )
+    elif n_reserve_zones > 0:
+        # Hard in gtopt, and no PLEXOS evidence of softness — informational.
+        items.append(
+            {
+                "family": "reserve_requirement",
+                "kind": "hard_floor_no_plexos_evidence",
+                "field": "model_options.reserve_shortage_cost",
+                "gtopt_value": rsc,
+                "n_reserve_zones": n_reserve_zones,
+                "plexos_reserve_soft": plexos_reserve_soft,
+                **vors_payload,
+                "note": "reserve requirement is HARD in gtopt; no PLEXOS "
+                "Shortage evidence in the cache to flag against",
+            }
+        )
+
+    # ── 2. Commitment min-stable level (gen ≥ pmin·u) ───────────────────────
+    # Soft slack = Generator.pmin_fcost.  Keeping the COMMITMENT pmin HARD is
+    # intentional, so this is INFORMATIONAL (never a HIGH flag): we report the
+    # count of committed gens with vs without pmin_fcost and the value(s).
+    committed_gens = _commitment_pmin_generators(planning_json)
+    if committed_gens:
+        gen_by_name = {
+            str(g.get("name")): g
+            for g in system.get("generator_array", [])
+            if g.get("name") is not None
+        }
+        with_fcost: list[float] = []
+        n_with = 0
+        n_without = 0
+        for gen in committed_gens:
+            g = gen_by_name.get(gen)
+            if g is None:
+                continue
+            peak = _field_peak(g.get("pmin_fcost"))
+            if peak is not None and peak > 0.0:
+                n_with += 1
+                with_fcost.append(peak)
+            else:
+                n_without += 1
+        items.append(
+            {
+                "family": "commitment_min_stable",
+                "kind": "pmin_fcost_report",
+                "field": "Generator.pmin_fcost",
+                "n_committed_gens": len(committed_gens),
+                "n_with_pmin_fcost": n_with,
+                "n_without_pmin_fcost": n_without,
+                "pmin_fcost_values": sorted({round(v, 4) for v in with_fcost}),
+                "note": "commitment min-stable pmin is kept HARD by design "
+                "(commit-gated); pmin_fcost softens it where set — "
+                "informational, not a mismatch",
+            }
+        )
+
+    # ── 3. Waterway forced flow (fmin > 0) ──────────────────────────────────
+    # Soft slack = Waterway.fmin_fcost.  Report which forced flows are soft vs
+    # hard and the cost value (Caudal_Eco_*, B_*, Filt_*).
+    forced: list[dict] = []
+    for w in system.get("waterway_array", []):
+        name = w.get("name")
+        if name is None:
+            continue
+        fmin_peak = _field_peak(w.get("fmin"))
+        if fmin_peak is None or fmin_peak <= 0.0:
+            continue
+        fcost_peak = _field_peak(w.get("fmin_fcost"))
+        is_soft = fcost_peak is not None and fcost_peak > 0.0
+        forced.append(
+            {
+                "name": str(name),
+                "fmin_peak": round(fmin_peak, 4),
+                "soft": is_soft,
+                "fmin_fcost": (
+                    round(fcost_peak, 4) if fcost_peak is not None and is_soft else None
+                ),
+            }
+        )
+    if forced:
+        n_soft = sum(1 for f in forced if f["soft"])
+        items.append(
+            {
+                "family": "waterway_forced_flow",
+                "kind": "fmin_fcost_report",
+                "field": "Waterway.fmin_fcost",
+                "n_forced_flows": len(forced),
+                "n_soft": n_soft,
+                "n_hard": len(forced) - n_soft,
+                "forced_flows": sorted(forced, key=lambda f: f["name"]),
+                "note": "forced river flows softened via fmin_fcost where set; "
+                "hard fmin can force water release that conflicts with a "
+                "water-short trajectory",
+            }
+        )
+
+    # ── 4. Context options (reported, never flagged) ────────────────────────
+    context: dict[str, Any] = {}
+    for key in ("hydro_spill_cost", "strict_storage_emin"):
+        if key in mo and mo[key] is not None:
+            context[key] = mo[key]
+    if context:
+        items.append(
+            {
+                "family": "context",
+                "kind": "context_options",
+                **context,
+                "note": "context options reported for soft/hard interpretation",
+            }
+        )
+
+    return items
+
+
+# ---------------------------------------------------------------------------
 # Hard-list loader
 # ---------------------------------------------------------------------------
 def load_hard_list(path: Path) -> set[str]:
@@ -1248,6 +2331,11 @@ class AuditInputs:
     # ``Gen_Rating.csv``, ...) enabling the B12 parameter-bounds check.  When
     # None the bounds check is skipped gracefully (B12 stays empty).
     plexos_input_dir: Path | None = None
+    # Optional PLEXOS model XML (``DBSEN_PRGDIARIO.xml``) enabling the B17
+    # reserve-VoRS read — lets B17 QUOTE the actual shortage-penalty INPUT
+    # instead of only inferring softness from the ``Shortage`` output.  When
+    # None the VoRS read is skipped (B17 falls back to the output inference).
+    plexos_xml: Path | None = None
 
 
 @dataclass
@@ -1842,14 +2930,55 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
             inputs.gtopt_json, inputs.plexos_input_dir
         ):
             buckets["B13_profile_collapse"].append(item)
-        # B14: reservoir storage-bound consistency (native emin/emax vs
-        # Hydro_Min/MaxVolume) — the bound class B12 (Gen/Lin only) never
-        # covered, so a collapsed reservoir cap (CANUTILLAR 12,331→10,570)
-        # was invisible to the audit.
+        # Legacy input-CSV variant of B14 (only fires when Hydro_Min/MaxVolume
+        # CSVs ship in the input dir — usually absent on CEN DATOS*.zip.xz
+        # bundles, where the sol-based B14 below is the real check).
         for item in build_b14_reservoir_bounds(
             inputs.gtopt_json, inputs.plexos_input_dir
         ):
             buckets["B14_reservoir_bounds_mismatch"].append(item)
+
+    # B14 (sol-based): reservoir emin/emax vs the PLEXOS SOLUTION Storage
+    # Min/Max/End Volume series — ALWAYS available from the constraint cache
+    # (unlike the input CSVs).  Detects the silent scalar-collapse of a
+    # time-varying PLEXOS bound and any End-Volume that lies outside gtopt's
+    # [emin, emax] band.  B15/B16 audit the recently-fixed Fuel.price and
+    # Turbine.production_factor profiles.
+    storages = _storage_series_from_cache(
+        inputs.plexos_cache_dir,
+        (
+            STORAGE_PROP_MAX_VOLUME,
+            STORAGE_PROP_MIN_VOLUME,
+            STORAGE_PROP_END_VOLUME,
+        ),
+    )
+    for item in build_b14_reservoir_bounds_sol(inputs.gtopt_json, storages):
+        buckets["B14_reservoir_bounds_mismatch"].append(item)
+
+    # B15: Fuel.price per-block profile.  The CEN sol does not report a
+    # per-period Fuel Price, so this falls back to the input Fuel_Price.csv
+    # (input-vs-emitted, marked per item) when no sol price is supplied.
+    for item in build_b15_fuel_price(inputs.gtopt_json, inputs.plexos_input_dir):
+        buckets["B15_fuel_price_mismatch"].append(item)
+
+    # B16: Turbine.production_factor / capacity (always input-vs-emitted —
+    # not a native sol property).  Skips gracefully when the bundle CSVs are
+    # absent.
+    for item in build_b16_turbine_pf(inputs.gtopt_json, inputs.plexos_input_dir):
+        buckets["B16_turbine_pf_mismatch"].append(item)
+
+    # B17: soft-slack coverage for the integer-coupled constraint families
+    # (reserve requirement / commitment min-stable / waterway forced flow).
+    # Reports whether gtopt uses a soft-slack cost or a hard floor and the
+    # cost VALUES, and emits the HIGH cross-check
+    # ``reserve_requirement_hard_but_plexos_soft`` when PLEXOS exposes the
+    # reserve ``Shortage`` property (soft) but gtopt's reserve_shortage_cost is
+    # unset/0 (hard).  The reserve softness is read from the same PLEXOS sol
+    # cache the rest of the audit uses.
+    reserve_softness = load_plexos_reserve_softness(inputs.plexos_cache_dir)
+    reserve_vors = load_plexos_reserve_vors(inputs.plexos_xml)
+    for item in build_b17_soft_slack(inputs.gtopt_json, reserve_softness, reserve_vors):
+        buckets["B17_soft_slack_coverage"].append(item)
 
     summary = {
         "n_plexos": len(plexos_names),
@@ -1866,6 +2995,13 @@ def run_audit(inputs: AuditInputs) -> AuditResult:
         "input_penalty_present": input_penalty_present,
         "bucket_counts": {k: len(v) for k, v in buckets.items()},
         "hard_list_total": len(hard_list),
+        # Count of B17 HIGH-priority soft/hard mismatches (the missed class:
+        # hard-in-gtopt-but-soft-in-PLEXOS).  Drives --strict alongside B2/B5.
+        "n_b17_high": sum(
+            1
+            for it in buckets.get("B17_soft_slack_coverage", ())
+            if it.get("priority") == "HIGH"
+        ),
     }
     return AuditResult(
         plexos_solution=plexos,
@@ -1912,6 +3048,15 @@ def _print_summary(result: AuditResult) -> None:
     print("buckets:")
     for k, n in sorted(s["bucket_counts"].items(), key=lambda kv: -kv[1]):
         print(f"  {k:40s} {n:>6d}")
+    # Surface the B17 HIGH soft/hard mismatches (the missed class) prominently.
+    for it in result.buckets.get("B17_soft_slack_coverage", ()):
+        if it.get("priority") == "HIGH":
+            print(
+                f"  [HIGH] {it.get('kind')} ({it.get('family')}): "
+                f"{it.get('field')} unset/0 vs PLEXOS soft; "
+                f"suggest reserve_shortage_cost >= "
+                f"{it.get('suggested_reserve_shortage_cost')}"
+            )
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -1955,6 +3100,14 @@ def make_parser() -> argparse.ArgumentParser:
         "...) enabling the B12 parameter-bounds check; skipped when omitted",
     )
     parser.add_argument(
+        "--plexos-xml",
+        type=Path,
+        default=None,
+        help="PLEXOS model XML (DBSEN_PRGDIARIO.xml) enabling the B17 reserve-VoRS "
+        "read — B17 then quotes the actual shortage-penalty INPUT instead of "
+        "only inferring softness from the Shortage output; skipped when omitted",
+    )
+    parser.add_argument(
         "--hard-list",
         type=Path,
         default=Path(__file__).parent / "data" / "cen_pcp_hard_ucs.txt",
@@ -1969,7 +3122,8 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero if B2 (RHS) or B5 (hard-soft) buckets are non-empty",
+        help="exit non-zero if B2 (RHS), B5 (hard-soft), or a B17 HIGH "
+        "(hard-in-gtopt-but-soft-in-PLEXOS reserve) flag is present",
     )
     return parser
 
@@ -2006,6 +3160,13 @@ def main(argv: list[str] | None = None) -> int:
             plexos_input_dir,
         )
         plexos_input_dir = None
+    plexos_xml = args.plexos_xml
+    if plexos_xml is not None and not plexos_xml.is_file():
+        logger.warning(
+            "--plexos-xml not a file (%s); skipping B17 reserve-VoRS read",
+            plexos_xml,
+        )
+        plexos_xml = None
     inputs = AuditInputs(
         plexos_cache_dir=args.plexos_cache,
         gtopt_pampl_dir=args.gtopt_dir,
@@ -2013,6 +3174,7 @@ def main(argv: list[str] | None = None) -> int:
         hard_list=args.hard_list if args.hard_list.is_file() else None,
         gtopt_lp=gtopt_lp,
         plexos_input_dir=plexos_input_dir,
+        plexos_xml=plexos_xml,
     )
     result = run_audit(inputs)
     _print_summary(result)
@@ -2023,9 +3185,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.strict:
         n_b2 = len(result.buckets.get("B2_rhs_mismatch", ()))
         n_b5 = len(result.buckets.get("B5_hard_in_plexos_soft_in_gtopt", ()))
-        if n_b2 or n_b5:
+        n_b17 = result.summary.get("n_b17_high", 0)
+        if n_b2 or n_b5 or n_b17:
             print(
-                f"\n[strict] B2={n_b2} B5={n_b5} — significant divergence detected",
+                f"\n[strict] B2={n_b2} B5={n_b5} B17_high={n_b17} "
+                "— significant divergence detected",
                 file=sys.stderr,
             )
             return 1

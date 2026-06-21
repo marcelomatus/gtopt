@@ -112,6 +112,17 @@ struct Waterway
   /// ``0.0``.  Accepts scalar, ``[stage][block]`` 2-D array, or a
   /// filename string referencing a Parquet/CSV schedule.
   OptTBRealFieldSched fmin {0.0};
+  /// Optional penalty cost [$/(m³/s)/h] that turns the ``fmin`` floor into
+  /// a SOFT constraint, mirroring ``Generator.pmin_fcost``.  When set (> 0)
+  /// and ``fmin > 0``, the hard ``flow ≥ fmin`` is relaxed to
+  /// ``flow + unserved ≥ fmin`` with a non-negative ``unserved`` slack
+  /// priced at ``fmin_fcost`` — so a forced river / ecological flow (e.g.
+  /// Caudal_Eco, a bypass minimum) can under-deliver at a penalty when the
+  /// upstream reservoir is water-short, instead of rendering the LP
+  /// infeasible.  Water still routes ``junction_a → junction_b``
+  /// (non-consumptive); only the floor becomes soft.  Unset keeps ``fmin``
+  /// hard.  Per-(stage, block) schedulable.
+  OptTBRealFieldSched fmin_fcost {};
   /// Maximum allowed water flow [m³/s] (per-stage × per-block).  When
   /// unset the LP treats the column as having no upper bound (+∞),
   /// same semantics as ``fmax = DblMax`` after the flatten-time clamp.

@@ -5,6 +5,7 @@
     "input_format": "parquet",
     "model_options": {
       "demand_fail_cost": 1000.0,
+      "reserve_shortage_cost": 999.0,
       "scale_objective": 1000.0,
       "use_kirchhoff": false,
       "use_single_bus": true

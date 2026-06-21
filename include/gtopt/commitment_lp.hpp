@@ -82,8 +82,12 @@ public:
 
 private:
   ElementIndex<GeneratorLP> generator_index_;
-  OptTRealSched startup_cost_;
-  OptTRealSched shutdown_cost_;
+  /// Per-(stage, block) startup / shutdown costs applied to the v / w
+  /// columns in the objective.  Back-compat: a scalar or per-stage JSON
+  /// value broadcasts to every block, reproducing the legacy per-stage
+  /// cost byte-for-byte.  Resolved block-by-block in ``add_to_lp``.
+  OptTBRealSched startup_cost_;
+  OptTBRealSched shutdown_cost_;
   /// Per-(stage, block) forced commitment schedule.  When set at a
   /// given block, the u column's bounds are pinned to that value
   /// (interpreted as 0 = off, 1 = on); blocks where the schedule has

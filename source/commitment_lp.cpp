@@ -104,10 +104,12 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
 
   // Resolve commitment parameters
   const auto noload = commitment().noload_cost.value_or(0.0);
-  const auto stage_startup_cost =
-      startup_cost_.optval(stage.uid()).value_or(0.0);
-  const auto stage_shutdown_cost =
-      shutdown_cost_.optval(stage.uid()).value_or(0.0);
+  // Startup / shutdown costs are now per-(stage, block) schedules
+  // (``OptTBRealSched``), resolved at the period's representative block
+  // inside the loop below (see ``v_cost`` / ``w_cost``).  A scalar or
+  // per-stage JSON input broadcasts to every block, so this reproduces
+  // the legacy per-stage cost byte-for-byte while letting a single-stage
+  // PLEXOS conversion carry a per-period Gen_StartCost profile.
   const auto initial_u = commitment().initial_status.value_or(0.0);
   // ``initial_power`` (≡ ``p_prev`` at the first block of the
   // planning horizon) defaults to 0.  When ``initial_u = 1`` and
@@ -337,8 +339,15 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // no-duration ``cost_factor`` (probability · discount) — present-valued
     // but face-value in magnitude.  Multiplying by ``rep_block.duration()``
     // (as ``block_ecost`` does) would inflate it by the block length.
+    // Resolve startup / shutdown cost at this period's representative
+    // block (a scalar/per-stage input broadcasts to the same value on
+    // every block — full back-compat with the legacy per-stage cost).
+    const auto block_startup_cost =
+        startup_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
+    const auto block_shutdown_cost =
+        shutdown_cost_.optval(stage.uid(), rep_buid).value_or(0.0);
     const auto v_cost = has_startup_tiers ? 0.0
-                                          : stage_startup_cost
+                                          : block_startup_cost
             * CostHelper::cost_factor(scenario.probability_factor(),
                                       stage.discount_factor());
     // Startup ``v`` is continuous-in-[0,1] always (not integer-declared)
@@ -362,7 +371,7 @@ bool CommitmentLP::add_to_lp(SystemContext& sc,
     // Shutdown, like startup, is a once-per-EVENT cost ($/stop), NOT a
     // per-hour power cost — use the no-duration ``cost_factor`` so it is
     // not inflated by the block length.
-    const auto w_cost = stage_shutdown_cost
+    const auto w_cost = block_shutdown_cost
         * CostHelper::cost_factor(scenario.probability_factor(),
                                   stage.discount_factor());
     // Shutdown ``w`` — same shape as startup; pin scale = 1.0.

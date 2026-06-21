@@ -21,6 +21,8 @@ namespace gtopt
 WaterwayLP::WaterwayLP(const Waterway& pwaterway, const InputContext& ic)
     : ObjectLP<Waterway>(pwaterway)
     , fmin(ic, Element::class_name, id(), std::move(waterway().fmin))
+    , fmin_fcost(
+          ic, Element::class_name, id(), std::move(waterway().fmin_fcost))
     , fmax(ic, Element::class_name, id(), std::move(waterway().fmax))
     , capacity(ic, Element::class_name, id(), std::move(waterway().capacity))
     , lossfactor(
@@ -78,6 +80,13 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     const auto [block_fmax, block_fmin] =
         sc.block_maxmin_at(stage, block, fmax, fmin, stage_capacity);
 
+    // Soft-`fmin`: when `fmin_fcost` is set (> 0) and there is a real floor
+    // (`block_fmin > 0`), relax the hard flow lower bound to 0 and enforce
+    // the floor via an `unserved` slack + `fmin_soft` row (added below).
+    const auto block_fmin_fcost = fmin_fcost.optval(stage.uid(), buid);
+    const bool soft_fmin =
+        block_fmin > 0.0 && block_fmin_fcost.value_or(0.0) > 0.0;
+
     // P1 LP-size: when both bounds are zero the flow variable is
     // fixed at zero — the LP column and the two `brow[...] = ...`
     // coefficient writes contribute nothing.  Skip the whole block
@@ -93,7 +102,7 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     //  adding flow variable
 
     const auto fc = lp.add_col({
-        .lowb = block_fmin,
+        .lowb = soft_fmin ? 0.0 : block_fmin,
         .uppb = block_fmax,
         .cost = stage_fcost
             ? CostHelper::block_ecost(scenario, stage, block, *stage_fcost)
@@ -112,6 +121,38 @@ bool WaterwayLP::add_to_lp(const SystemContext& sc,
     brow_a[fc] = -1.0;
     if (balance_rows_b != nullptr) {
       lp.row_at(balance_rows_b->at(buid))[fc] = 1.0 - stage_lossfactor;
+    }
+
+    // ── Soft-`fmin` floor ──────────────────────────────────────────────
+    // `flow + unserved ≥ fmin`, `unserved ≥ 0` priced at `fmin_fcost`
+    // (mirrors GeneratorLP's soft-pmin).  The flow still routes
+    // junction_a → junction_b above; this only relaxes the floor so a
+    // water-short forced / ecological flow under-delivers at a penalty
+    // instead of going infeasible.
+    if (soft_fmin) {
+      const auto uc = lp.add_col({
+          .lowb = 0.0,
+          .uppb = block_fmin,
+          .cost = CostHelper::block_ecost(
+              scenario, stage, block, block_fmin_fcost.value_or(0.0)),
+          .class_name = Element::class_name.full_name(),
+          .variable_name = FminUnservedName,
+          .variable_uid = uid(),
+          .context =
+              make_block_context(scenario.uid(), stage.uid(), block.uid()),
+      });
+      auto srow =
+          SparseRow {
+              .class_name = Element::class_name.full_name(),
+              .constraint_name = FminSoftName,
+              .variable_uid = uid(),
+              .context =
+                  make_block_context(scenario.uid(), stage.uid(), block.uid()),
+          }
+              .greater_equal(block_fmin);
+      srow[fc] = 1.0;
+      srow[uc] = 1.0;
+      [[maybe_unused]] const auto srow_idx = lp.add_row(std::move(srow));
     }
   }
 

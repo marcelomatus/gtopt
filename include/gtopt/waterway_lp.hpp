@@ -21,6 +21,10 @@ class WaterwayLP : public ObjectLP<Waterway>
 {
 public:
   static constexpr std::string_view FlowName {"flow"};
+  /// soft-`fmin` slack column ("unserved" forced flow) + its row, used when
+  /// `fmin_fcost` is set (mirrors GeneratorLP's UnservedName/PminSoftName).
+  static constexpr std::string_view FminUnservedName {"fmin_unserved"};
+  static constexpr std::string_view FminSoftName {"fmin_soft"};
 
   explicit WaterwayLP(const Waterway& pwaterway, const InputContext& ic);
 
@@ -104,6 +108,7 @@ public:
 
 private:
   OptTBRealSched fmin;
+  OptTBRealSched fmin_fcost;  // soft-`fmin` penalty ($/(m³/s)/h); empty ⇒ hard
   OptTBRealSched fmax;
   OptTRealSched capacity;
   OptTRealSched lossfactor;

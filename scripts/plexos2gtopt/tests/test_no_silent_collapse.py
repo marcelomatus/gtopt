@@ -259,6 +259,104 @@ def test_turbine_pf_is_scalar_not_per_block(tmp_path: Path) -> None:
     assert pf == pytest.approx(1.6)
 
 
+def test_start_shutdown_cost_emit_per_block_profile() -> None:
+    """A varying Gen_StartCost / Gen_ShutDownCost must now be carried as a
+    per-period profile on the CommitmentSpec AND emitted as a per-block
+    ``[[...]]`` matrix by ``build_commitment_array`` — no longer collapsed to
+    the period-1 scalar (the catalog showed Gen_StartCost varies for 210 units
+    and Gen_ShutDownCost for 181 units across the 14 CEN cases)."""
+    from plexos2gtopt.entities import CommitmentSpec
+    from plexos2gtopt.gtopt_writer import build_commitment_array
+
+    block_layout = tuple((h,) for h in range(1, 25))
+    su_series = tuple(_varying(1000.0, 5000.0))
+    sd_series = tuple(_varying(200.0, 800.0))
+    cmt = CommitmentSpec(
+        generator_name="THERM",
+        startup_cost=su_series[0],
+        shutdown_cost=sd_series[0],
+        startup_cost_profile=su_series,
+        shutdown_cost_profile=sd_series,
+    )
+
+    # The full per-period series must be carried on the spec (the parser's
+    # job — verified here as a structural invariant of the spec contract).
+    assert cmt.startup_cost_profile
+    assert len(set(cmt.startup_cost_profile)) > 1
+    assert max(cmt.startup_cost_profile) == pytest.approx(5000.0)
+    assert cmt.shutdown_cost_profile
+    assert len(set(cmt.shutdown_cost_profile)) > 1
+
+    # The writer must emit per-block matrices (not scalars).
+    entry = next(
+        e
+        for e in build_commitment_array((cmt,), block_layout=block_layout)
+        if e["generator"] == "THERM"
+    )
+    su = entry["startup_cost"]
+    assert _is_profile(su), (
+        "varying Gen_StartCost collapsed to a scalar in build_commitment_array "
+        "— the per-block profile was not emitted."
+    )
+    su_blocks = su[0]
+    assert len(set(su_blocks)) > 1
+    assert max(su_blocks) == pytest.approx(5000.0)
+
+    sd = entry["shutdown_cost"]
+    assert _is_profile(sd), (
+        "varying Gen_ShutDownCost collapsed to a scalar in "
+        "build_commitment_array — the per-block profile was not emitted."
+    )
+    sd_blocks = sd[0]
+    assert len(set(sd_blocks)) > 1
+    assert max(sd_blocks) == pytest.approx(800.0)
+
+
+def test_constant_start_cost_emits_scalar() -> None:
+    """Positive control: a CONSTANT Gen_StartCost stays a scalar (no needless
+    per-block profile) — back-compat with the legacy per-stage cost."""
+    from plexos2gtopt.entities import CommitmentSpec
+    from plexos2gtopt.gtopt_writer import build_commitment_array
+
+    block_layout = tuple((h,) for h in range(1, 25))
+    cmt = CommitmentSpec(
+        generator_name="THERM",
+        startup_cost=3000.0,
+        startup_cost_profile=(3000.0,) * 24,
+    )
+    entry = next(
+        e
+        for e in build_commitment_array((cmt,), block_layout=block_layout)
+        if e["generator"] == "THERM"
+    )
+    assert not _is_profile(entry["startup_cost"])  # constant ⇒ scalar suffices
+    assert entry["startup_cost"] == pytest.approx(3000.0)
+
+
+def test_single_period_start_cost_broadcasts_not_zero_padded() -> None:
+    """A monthly single-period start cost (``[v, 0, 0, …]`` after read with
+    ``fill_forward=False``) must fill-forward to the scalar — NOT emit a
+    ``[v, 0, 0, …]`` matrix that would make starting free in later blocks."""
+    from plexos2gtopt.entities import CommitmentSpec
+    from plexos2gtopt.gtopt_writer import build_commitment_array
+
+    block_layout = tuple((h,) for h in range(1, 25))
+    # Defined only at period 1, zero-padded thereafter.
+    cmt = CommitmentSpec(
+        generator_name="THERM",
+        startup_cost=4200.0,
+        startup_cost_profile=(4200.0,) + (0.0,) * 23,
+    )
+    entry = next(
+        e
+        for e in build_commitment_array((cmt,), block_layout=block_layout)
+        if e["generator"] == "THERM"
+    )
+    # Fill-forward ⇒ constant ⇒ scalar (not a [v, 0, 0, …] matrix).
+    assert not _is_profile(entry["startup_cost"])
+    assert entry["startup_cost"] == pytest.approx(4200.0)
+
+
 def test_constant_series_emits_no_profile(tmp_path: Path) -> None:
     """Positive control: a CONSTANT emin/emax series stays scalar (no
     needless per-block profile) and no warning fires for a flat fuel price."""
@@ -450,4 +548,4 @@ def test_no_reservoir_production_factor_without_head_data(tmp_path: Path) -> Non
     (tmp_path / "DBSEN_PRGDIARIO.xml").write_text(_TURBINE_XML)
     bundle = PlexosBundle(root=tmp_path, source=tmp_path, n_days=1)
     db = load_xml(bundle.xml_path)
-    assert extract_reservoir_production_factors(db, bundle) == ()
+    assert not extract_reservoir_production_factors(db, bundle)
