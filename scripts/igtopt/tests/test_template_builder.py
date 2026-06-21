@@ -530,6 +530,10 @@ class TestCascadeOptionKeys:
             # Elastic-filter knobs (also long-standing).
             "elastic_penalty",
             "elastic_mode",
+            # Chunked-aperture pass knobs (added to the C++ JSON binding;
+            # this expected set was stale and never updated for them).
+            "aperture_chunk_size",
+            "aperture_solve_mode",
         }
         assert expected == cpp_fields, (
             f"CascadeLevelMethod fields mismatch: expected {expected}, got {cpp_fields}"
