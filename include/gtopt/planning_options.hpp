@@ -14,12 +14,14 @@
  * {
  *   "options": {
  *     "method": "sddp",
- *     "demand_fail_cost": 1000,
- *     "use_kirchhoff": true,
- *     "scale_objective": 1000,
  *     "annual_discount_rate": 0.1,
  *     "output_format": "parquet",
  *     "input_directory": "input",
+ *     "model_options": {
+ *       "demand_fail_cost": 1000,
+ *       "use_kirchhoff": true,
+ *       "scale_objective": 1000
+ *     },
  *     "sddp_options": {
  *       "cut_sharing_mode": "expected",
  *       "cut_directory": "cuts",

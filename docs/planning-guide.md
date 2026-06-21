@@ -285,10 +285,21 @@ PLP shares cuts between its scenarios.
 | Category | Elements | Description |
 |----------|---------|-------------|
 | Electrical network | Bus, Generator, Demand, Line | Core grid model |
-| Time-varying profiles | GeneratorProfile, DemandProfile | Capacity-factor / load-shape scaling |
-| Energy storage | Battery, Converter | BESS modelling |
+| Time-varying profiles | GeneratorProfile, DemandProfile, CapacityProfile | Capacity-factor / load-shape scaling |
+| Energy storage | Battery, Converter | Battery energy storage (BESS) |
 | Reserve | ReserveZone, ReserveProvision | Spinning-reserve requirements |
-| Hydro cascade | Junction, Waterway, Flow, Reservoir, Filtration, Turbine | Hydrothermal systems |
+| Inertia | InertiaZone, InertiaProvision | System inertia requirements |
+| Hydro cascade | Junction, Waterway, Flow, Reservoir, ReservoirSeepage, ReservoirDischargeLimit, ReservoirProductionFactor, Turbine, Pump | Hydrothermal systems |
+| Water rights | FlowRight, VolumeRight | Flow and volume water rights |
+| Unit commitment | Commitment, SimpleCommitment | Three-bin UC with startup/shutdown tiers |
+| Fuels | Fuel | Fuel with price and combustion factors |
+| Emissions | Emission, EmissionZone, EmissionSource | Emission caps and carbon pricing |
+| Thermal carrier | ThermalNode, ThermalStorage | Heat/thermal energy balance |
+| Hydrogen carrier | HydrogenNode, HydrogenStorage | Hydrogen balance and storage |
+| Ammonia carrier | AmmoniaNode, AmmoniaStorage | Ammonia balance and storage |
+| Multi-carrier converters | CarrierConverter | Conversion between energy carriers |
+| LNG storage | LngTerminal | Liquefied natural gas terminals |
+| User constraints | UserParam, DecisionVariable, UserConstraint | User-defined LP constraints (PAMPL) |
 
 ---
 

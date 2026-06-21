@@ -288,10 +288,10 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `use_kirchhoff` | `true` | DC OPF with voltage angles |
-| `use_single_bus` | `false` | Multi-bus network |
-| `demand_fail_cost` | 1000 | $/MWh unserved load penalty |
-| `scale_objective` | 1000 | Divides obj coefficients for numerics |
+| `model_options.use_kirchhoff` | `true` | DC OPF with voltage angles |
+| `model_options.use_single_bus` | `false` | Multi-bus network |
+| `model_options.demand_fail_cost` | 1000 | $/MWh unserved load penalty |
+| `model_options.scale_objective` | 1000 | Divides obj coefficients for numerics |
 | `input_format` / `output_format` | `"parquet"` | I/O format |
 | `method` | `"monolithic"` | Planning method: `monolithic`, `sddp`, `cascade` |
 | `aperture_chunk_size` | `0` (auto = 1) | SDDP chunked aperture pass: K apertures solved serially per task on a shared LP clone (warm-start reuse). `0`/unset = auto (currently resolves to `1`, empirically fastest under the parallel-safe manual-clone path on juan/IPLP-scale workloads), `1` = legacy 1-task-per-aperture, `>1` = K per task, `-1` = fully serial per scene. Pairs with the **wettest → driest** sort applied to `Phase.apertures` by `plp2gtopt`. CLI: `--aperture-chunk-size`. |

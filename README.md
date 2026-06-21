@@ -52,6 +52,11 @@ This project includes comprehensive documentation for different use cases:
 * **Cost Optimization**: minimizes investment (CAPEX) and operational (OPEX) costs.
 * **System Modeling**: supports single-bus or multi-bus DC power flow (Kirchhoff laws).
 * **Unit Commitment**: tight three-bin (u,v,w) MIP formulation with startup tiers, piecewise heat rate, ramp constraints, min up/down time, and emission pricing.
+* **Multi-Carrier Energy**: thermal, hydrogen, and ammonia carrier nodes with storage and inter-carrier converters.
+* **Emission Framework**: per-generator CO₂ factors, system-wide carbon pricing (`emission_cost`), and per-stage emission caps with endogenous carbon prices.
+* **Water Rights**: flow-based and volume-based hydro water-right constraints.
+* **Inertia Requirements**: system inertia zones and provision links for frequency-stability constraints.
+* **User Constraints**: PAMPL-syntax user-defined LP constraints referencing any model variable via `UserParam`, `DecisionVariable`, and `UserConstraint`.
 * **Multiple Solvers**: monolithic LP, SDDP decomposition, and cascade multi-level hybrid SDDP with progressive LP refinement.
 * **Flexible I/O**: high-speed parsing and export to Parquet, CSV, and JSON.
 * **Scalability**: designed for large-scale grids with sparse matrix assembly.
@@ -62,18 +67,23 @@ This project includes comprehensive documentation for different use cases:
 Install all dependencies, build, and install `gtopt` system-wide:
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (Clang 21 is the preferred compiler)
 sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14 libboost-container-dev coinor-libcbc-dev ca-certificates lsb-release wget
-wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
-sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release  --codename --short).deb
+sudo apt-get install -y ccache libboost-container-dev coinor-libcbc-dev \
+  libspdlog-dev liblapack-dev libblas-dev liblz4-dev libzstd-dev \
+  ca-certificates lsb-release wget
+# Arrow / Parquet from Apache APT repository
+wget https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+sudo apt-get install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 sudo apt-get update
 sudo apt-get install -y -V libarrow-dev libparquet-dev
 
-# 2. Clone and build
+# 2. Clone and build (uses the all/ super-project, which builds library + binary + tests)
 git clone https://github.com/marcelomatus/gtopt.git
 cd gtopt
-CC=gcc-14 CXX=g++-14 cmake -S standalone -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S all -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake --build build -j$(nproc)
 
 # 3. Install system-wide
@@ -100,10 +110,10 @@ Common options:
 gtopt system_c0.json --set output_directory=results/
 
 # Single-bus mode (ignore network topology)
-gtopt system_c0.json --set use_single_bus=true
+gtopt system_c0.json --set model_options.use_single_bus=true
 
 # Enable DC power flow (Kirchhoff's laws)
-gtopt system_c0.json --set use_kirchhoff=true
+gtopt system_c0.json --set model_options.use_kirchhoff=true
 ```
 
 For complete command-line reference, advanced examples, and detailed usage instructions, see **[Usage Guide](docs/usage.md)**.

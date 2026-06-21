@@ -98,7 +98,10 @@ Multiple system files can be provided and will be merged.
 >
 > ```bash
 > gtopt case.json --set output_directory=results/
-> gtopt case.json --set use_single_bus=true
+> gtopt case.json --set model_options.use_single_bus=true
+> gtopt case.json --set model_options.use_kirchhoff=true
+> gtopt case.json --set model_options.demand_fail_cost=1000
+> gtopt case.json --set model_options.scale_objective=1000
 > gtopt case.json --set solver_options.algorithm=barrier
 > gtopt case.json --set solver_options.threads=4
 > gtopt case.json --set sddp_options.max_iterations=300
@@ -149,7 +152,6 @@ output-format       = parquet
 output-compression  = zstd
 sddp-max-iterations = 200
 sddp-convergence-tol = 1e-4
-use-single-bus      = false
 lp-debug            = false
 ```
 
@@ -167,13 +169,14 @@ All keys use kebab-case matching the CLI long flags (without `--`):
 | `sddp-max-iterations` | int | Maximum SDDP iterations |
 | `sddp-min-iterations` | int | Minimum SDDP iterations |
 | `sddp-convergence-tol` | float | SDDP convergence tolerance |
-| `use-single-bus` | bool | Single-bus mode |
 | `lp-debug` | bool | Save LP debug files |
-| `demand-fail-cost` | float | Penalty for unserved demand |
-| `scale-objective` | float | Objective scaling factor |
 | `method` | string | Planning method |
 | `input-directory` | string | Input data directory |
 | `output-directory` | string | Output directory |
+
+> **Deprecated config keys** (still accepted, emit a warning): `use-single-bus`,
+> `demand-fail-cost`, `scale-objective`. Migrate to using `--set` with the full
+> dot-notation path, e.g. `--set model_options.use_single_bus=true`.
 
 ### Precedence
 
@@ -211,10 +214,12 @@ Solver and I/O settings:
   "output_format": "csv",
   "input_format": "parquet",
   "input_directory": "system_c0",
-  "use_single_bus": false,
-  "use_kirchhoff": true,
-  "demand_fail_cost": 1000,
-  "scale_objective": 1000,
+  "model_options": {
+    "use_single_bus": false,
+    "use_kirchhoff": true,
+    "demand_fail_cost": 1000,
+    "scale_objective": 1000
+  },
   "lp_matrix_options": {
     "equilibration_method": "ruiz",
     "compute_stats": true
@@ -231,10 +236,10 @@ Solver and I/O settings:
 | `output_format` | string | Output format: `"csv"` or `"parquet"` |
 | `input_format` | string | Input data format: `"csv"` or `"parquet"` |
 | `input_directory` | string | Path to the data directory (relative to the JSON file) |
-| `use_single_bus` | bool | Ignore network topology |
-| `use_kirchhoff` | bool | Use DC power flow (Kirchhoff's laws) |
-| `demand_fail_cost` | float | Penalty cost for unserved demand ($/MWh) |
-| `scale_objective` | float | Objective function scaling factor |
+| `model_options.use_single_bus` | bool | Ignore network topology |
+| `model_options.use_kirchhoff` | bool | Use DC power flow (Kirchhoff's laws) |
+| `model_options.demand_fail_cost` | float | Penalty cost for unserved demand ($/MWh) |
+| `model_options.scale_objective` | float | Objective function scaling factor |
 | `log_directory` | string | Directory for log and error LP files (default: `"logs"`) |
 | `lp_debug` | bool | Save LP debug files to `log_directory` before solving (see below) |
 | `lp_fingerprint` | bool | Write LP structural fingerprint JSON to output directory (see [LP Fingerprint](lp-fingerprint.md)) |
@@ -385,10 +390,47 @@ Defines the physical power system components:
 
 | Component | Key Fields | Description |
 |-----------|-----------|-------------|
-| Bus | `uid`, `name` | Network node |
-| Generator | `uid`, `name`, `bus`, `gcost`, `capacity` | Generation unit with cost and capacity |
-| Demand | `uid`, `name`, `bus`, `lmax`, `capacity` | Load with optional expansion |
-| Line | `uid`, `name`, `bus_from`, `bus_to`, `capacity` | Transmission line (if multi-bus) |
+| `Bus` | `uid`, `name` | Electrical network node |
+| `Generator` | `uid`, `name`, `bus`, `gcost`, `capacity` | Generation unit with cost and capacity |
+| `Demand` | `uid`, `name`, `bus`, `lmax`, `capacity` | Load with optional expansion |
+| `Line` | `uid`, `name`, `bus_a`, `bus_b`, `reactance`, `tmax_ab`, `tmax_ba` | Transmission line (multi-bus) |
+| `GeneratorProfile` | `uid`, `name`, `generator`, `profile` | Time-varying capacity-factor profile |
+| `DemandProfile` | `uid`, `name`, `demand`, `profile` | Time-varying load-shape profile |
+| `CapacityProfile` | `uid`, `name`, `owner`, `owner_kind`, `profile` | Unified capacity-factor profile |
+| `Battery` | `uid`, `name`, `bus`, `emax`, `emin`, `pmax_charge`, `pmax_discharge` | Battery energy storage |
+| `Converter` | `uid`, `name`, `battery`, `generator`, `demand` | Battery ↔ generator/demand coupling |
+| `ReserveZone` | `uid`, `name`, `urreq`, `drreq` | Spinning-reserve requirement zone |
+| `ReserveProvision` | `uid`, `name`, `generator`, `zone`, `urmax` | Generator → reserve zone link |
+| `InertiaZone` | `uid`, `name`, `ireq` | System inertia requirement zone |
+| `InertiaProvision` | `uid`, `name`, `generator`, `zone` | Generator → inertia zone link |
+| `Junction` | `uid`, `name` | Hydraulic node in a cascade |
+| `Waterway` | `uid`, `name`, `junction_a`, `junction_b`, `fmax` | Water channel between junctions |
+| `Flow` | `uid`, `name`, `junction`, `flow` | Exogenous inflow or mandatory release |
+| `Reservoir` | `uid`, `name`, `junction`, `emin`, `emax`, `eini` | Water storage reservoir |
+| `ReservoirSeepage` | `uid`, `name`, `reservoir`, `waterway` | Seepage from waterway into reservoir |
+| `ReservoirDischargeLimit` | `uid`, `name`, `reservoir` | Volume-dependent discharge limit |
+| `ReservoirProductionFactor` | `uid`, `name`, `reservoir` | Volume-dependent turbine efficiency |
+| `Turbine` | `uid`, `name`, `waterway`, `generator` | Hydro turbine linking waterway to generator |
+| `Pump` | `uid`, `name`, `demand`, `waterway` | Hydro pump (demand → waterway) |
+| `FlowRight` | `uid`, `name` | Flow-based water right (m³/s) |
+| `VolumeRight` | `uid`, `name` | Volume-based water right (hm³) |
+| `Fuel` | `uid`, `name`, `price` | Fuel with combustion/emission factors |
+| `Emission` | `uid`, `name` | Pollutant entity (CO₂, SO₂, NOₓ, …) |
+| `EmissionZone` | `uid`, `name`, `emissions` | Emission cap/price zone |
+| `EmissionSource` | `uid`, `name`, `generator`, `zone`, `rate` | Generator → emission zone link |
+| `Commitment` | `uid`, `name`, `generator` | Unit commitment parameters (three-bin UC) |
+| `SimpleCommitment` | `uid`, `name`, `generator` | Simplified commitment constraints |
+| `ThermalNode` | `uid`, `name` | Carrier-tagged thermal balance node (MW_th) |
+| `ThermalStorage` | `uid`, `name`, `thermal_node` | Molten-salt / sensible-heat storage |
+| `HydrogenNode` | `uid`, `name` | Carrier-tagged hydrogen balance node (MWh_LHV) |
+| `HydrogenStorage` | `uid`, `name`, `hydrogen_node` | Salt cavern / LH₂ / LOHC storage |
+| `AmmoniaNode` | `uid`, `name` | Carrier-tagged ammonia balance node (MWh_LHV) |
+| `AmmoniaStorage` | `uid`, `name`, `ammonia_node` | Refrigerated NH₃ tank storage |
+| `CarrierConverter` | `uid`, `name`, `source_node`, `sink_node` | One-stage converter between carrier nodes |
+| `LngTerminal` | `uid`, `name` | LNG storage terminal |
+| `UserParam` | `uid`, `name`, `value` | Named parameter for user constraints |
+| `DecisionVariable` | `uid`, `name` | Free decision variable for user constraints |
+| `UserConstraint` | `uid`, `name` | User-defined LP constraint (PAMPL syntax) |
 
 - **`gcost`**: generation cost ($/MWh).
 - **`capacity`**: existing installed capacity (MW).
@@ -585,7 +627,7 @@ gtopt system_c0.json --lp-file model.lp --lp-only
 Ignore network topology and solve as a single-bus (copper-plate) system:
 
 ```bash
-gtopt system_c0.json --set use_single_bus=true
+gtopt system_c0.json --set model_options.use_single_bus=true
 ```
 
 ### Kirchhoff (DC power flow) mode
@@ -593,7 +635,7 @@ gtopt system_c0.json --set use_single_bus=true
 Enable DC power flow constraints for multi-bus systems:
 
 ```bash
-gtopt system_c0.json --set use_kirchhoff=true
+gtopt system_c0.json --set model_options.use_kirchhoff=true
 ```
 
 ### Merging multiple system files
@@ -699,16 +741,16 @@ An infeasible model means no feasible solution exists given the constraints.
 1. Check `output/Demand/fail_sol.csv` -- if all values are zero but the model
    is infeasible, the issue is likely in network constraints rather than
    generation adequacy.
-2. Set `demand_fail_cost` to a high value (e.g., 10000) to allow load
-   shedding.  If the model becomes feasible, the infeasibility was caused by
-   insufficient generation.
+2. Set `model_options.demand_fail_cost` to a high value (e.g., 10000) to allow
+   load shedding.  If the model becomes feasible, the infeasibility was caused
+   by insufficient generation.
 3. Enable LP debug files to inspect the LP formulation:
    ```json
    { "options": { "lp_debug": true, "log_directory": "logs" } }
    ```
-4. Try `use_single_bus: true` to eliminate network constraints.  If the model
-   becomes feasible, the issue is in the transmission network (missing lines,
-   insufficient capacity).
+4. Try `model_options.use_single_bus: true` to eliminate network constraints.
+   If the model becomes feasible, the issue is in the transmission network
+   (missing lines, insufficient capacity).
 5. For SDDP, check the `logs/` directory for `error_scene_*_phase_*.lp`
    files which indicate which scene/phase is infeasible.
 
@@ -719,15 +761,15 @@ An unbounded model is rare and typically indicates missing variable bounds.
 **Common causes:**
 
 - A generator with negative `gcost` and no `pmax` upper bound.
-- Missing bounds on voltage angle variables (`scale_theta` set to 0).
-- Incorrect `scale_objective` value (e.g., 0 or negative).
+- Missing bounds on voltage angle variables (`model_options.scale_theta` set to 0).
+- Incorrect `model_options.scale_objective` value (e.g., 0 or negative).
 
 **Diagnostic steps:**
 
 1. Enable `lp_debug: true` and inspect the LP file for variables with
    infinite bounds and negative objective coefficients.
 2. Verify that all generators have a finite `capacity` or `pmax`.
-3. Check that `scale_objective` and `scale_theta` are positive numbers.
+3. Check that `model_options.scale_objective` and `model_options.scale_theta` are positive numbers.
 
 ### Slow convergence (SDDP)
 

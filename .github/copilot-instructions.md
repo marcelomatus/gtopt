@@ -1017,7 +1017,7 @@ raises `ValueError` if the paired central is not a hydro type.
 | `plpmanbat.dat` | `BatEMin(IBat,IBind)`, `BatEMax(IBat,IBind)` | Battery `emin`/`emax` schedules (absolute energy values) |
 | `plpmaness.dat` | `Ess%Emin`, `Ess%Emax` | Battery `emin`/`emax` schedules |
 | `plpmaness.dat` | `Ess%DCMin`, `Ess%DCMax` | Generator `pmax` + Demand `lmax` schedules |
-| `plpfilemb.dat` | `FiltParam(PFiltPend)`, `FiltParam(PFiltConst)` | `Filtration.segments` (slope/constant LP coefficients updated via `FiltrationLP::update_lp`) |
+| `plpfilemb.dat` | `FiltParam(PFiltPend)`, `FiltParam(PFiltConst)` | `ReservoirSeepage.segments` (slope/constant LP coefficients updated via `ReservoirSeepageLP::update_lp`) |
 
 When maintenance is present, the battery_writer:
 - Writes `Battery/emin.parquet` and `Battery/emax.parquet` with per-block
@@ -1235,14 +1235,14 @@ Scenario (probability)
 
 | Option | Value | Meaning |
 |--------|-------|---------|
-| `use_kirchhoff` | `true` | Full DC power flow (OPF); voltage angle `θ` variables added |
-| `use_kirchhoff` | `false` | Transport model: line flows limited only by `tmax_ab/ba` |
-| `use_single_bus` | `true` | "Copper plate" – no transmission constraints at all |
-| `use_single_bus` | `false` | Multi-bus network model |
-| `use_line_losses` | `true` (default) | Model resistive line losses |
-| `demand_fail_cost` | e.g. 1000 | Value-of-lost-load penalty for unserved energy ($/MWh) |
-| `reserve_fail_cost` | e.g. 5000 | Penalty for unserved spinning-reserve requirement ($/MWh) |
-| `scale_objective` | e.g. 1000 | Divides all objective coefficients; improves solver numerics |
+| `model_options.use_kirchhoff` | `true` | Full DC power flow (OPF); voltage angle `θ` variables added |
+| `model_options.use_kirchhoff` | `false` | Transport model: line flows limited only by `tmax_ab/ba` |
+| `model_options.use_single_bus` | `true` | "Copper plate" – no transmission constraints at all |
+| `model_options.use_single_bus` | `false` | Multi-bus network model |
+| `model_options.line_losses_mode` | `"adaptive"` (default) | Resistive line-loss model; see `LineLossesMode` enum |
+| `model_options.demand_fail_cost` | e.g. 1000 | Value-of-lost-load penalty for unserved energy ($/MWh) |
+| `model_options.reserve_shortage_cost` | e.g. 5000 | Penalty for unserved spinning-reserve requirement ($/MWh) |
+| `model_options.scale_objective` | e.g. 1000 | Divides all objective coefficients; improves solver numerics |
 | `input_directory` | `"input"` (default) | Root directory for Parquet/CSV input files |
 | `input_format` | `"parquet"` (default) | Preferred input format; falls back to the other format |
 | `output_directory` | `"output"` (default) | Root directory for solution output files |
@@ -1295,19 +1295,44 @@ integer enables capacity expansion. The solver decides how many modules to build
 | `Bus` | Electrical node; reference bus has `θ = 0` |
 | `Generator` | Thermal/renewable/hydro unit; `gcost` in $/MWh |
 | `GeneratorProfile` | Time-varying capacity factor multiplier (0–1); used for solar/wind |
-| `Demand` | Fixed or flexible load; `lmax` can be inline array or Parquet file |
 | `DemandProfile` | Time-varying demand scaling |
+| `CapacityProfile` | Unified capacity-factor profile for any component |
+| `Demand` | Fixed or flexible load; `lmax` can be inline array or Parquet file |
 | `Line` | Transmission branch; `reactance` required for Kirchhoff mode |
 | `Battery` | Energy storage: charge/discharge efficiencies, SoC bounds |
 | `Converter` | Couples a `Battery` to a `Generator` (discharge) and `Demand` (charge) |
 | `ReserveZone` | Up/down spinning-reserve requirement |
 | `ReserveProvision` | Specifies which generator contributes to a reserve zone |
+| `InertiaZone` | System inertia requirement zone |
+| `InertiaProvision` | Generator → inertia zone link |
 | `Junction` | Hydraulic node in a cascaded hydro system |
 | `Waterway` | Water channel between junctions |
 | `Reservoir` | Storage lake; volume balance across blocks |
+| `ReservoirSeepage` | Piecewise-linear water seepage from a waterway into a reservoir |
+| `ReservoirDischargeLimit` | Volume-dependent discharge limit on a reservoir |
+| `ReservoirProductionFactor` | Volume-dependent turbine efficiency |
 | `Turbine` | Hydro turbine: links a waterway to a generator |
-| `Flow` | External inflow or evaporation at a junction |
-| `Filtration` | Water seepage from a waterway into a reservoir |
+| `Pump` | Hydro pump: links a demand to a waterway |
+| `Flow` | External inflow or mandatory release at a junction |
+| `FlowRight` | Flow-based water right (m³/s) |
+| `VolumeRight` | Volume-based water right (hm³) |
+| `Fuel` | Fuel with price and combustion/emission factors |
+| `Emission` | Pollutant entity (CO₂, SO₂, NOₓ, …) |
+| `EmissionZone` | Emission cap/carbon price zone |
+| `EmissionSource` | Generator → emission zone link |
+| `Commitment` | Unit commitment parameters (three-bin UC with startup tiers) |
+| `SimpleCommitment` | Simplified commitment constraints |
+| `ThermalNode` | Carrier-tagged thermal balance node (MW_th) |
+| `ThermalStorage` | Thermal energy storage |
+| `HydrogenNode` | Carrier-tagged hydrogen balance node (MWh_LHV) |
+| `HydrogenStorage` | Hydrogen storage (salt cavern, LH₂, LOHC) |
+| `AmmoniaNode` | Carrier-tagged ammonia balance node (MWh_LHV) |
+| `AmmoniaStorage` | Ammonia storage |
+| `CarrierConverter` | One-stage converter between two carrier nodes |
+| `LngTerminal` | LNG storage terminal |
+| `UserParam` | Named parameter for user constraints |
+| `DecisionVariable` | Free decision variable for user constraints |
+| `UserConstraint` | User-defined LP constraint (PAMPL syntax) |
 
 ---
 
@@ -1337,7 +1362,7 @@ validate the solver and provide regression baselines.
   2 demand buses (150 MW @ b3, 100 MW @ b4), 5 lines.
 - **Simulation**: 1 stage, 1 block, 1 scenario.
 - **Expected result**: G1 (cheaper) dispatches 250 MW, G2 idles. `obj_value=5`
-  (= 250 × 20 / `scale_objective=1000`). Status 0.
+  (= 250 × 20 / `model_options.scale_objective=1000`). Status 0.
 - **Network**: Illustrates how power routes through parallel paths (b1→b3 vs
   b1→b2→b3) under DC Kirchhoff constraints.
 - **Purpose**: Simplest multi-bus OPF; used in `test_ieee4b_ori_planning.cpp`.
@@ -1408,12 +1433,12 @@ After a successful run, the `output/` directory contains:
 
 | File path | Contents |
 |-----------|----------|
-| `output/solution.csv` | `obj_value` (total cost / `scale_objective`), `kappa` (iterations), `status` (0=optimal) |
+| `output/solution.csv` | `obj_value` (total cost / `model_options.scale_objective`), `kappa` (iterations), `status` (0=optimal) |
 | `output/Generator/generation_sol.csv` | Generator dispatch in MW per (scenario, stage, block) |
 | `output/Generator/generation_cost.csv` | Cost contribution per generator per (s, t, b) |
 | `output/Demand/load_sol.csv` | Served load in MW |
 | `output/Demand/fail_sol.csv` | Unserved load in MW (should be 0 for feasible cases) |
-| `output/Demand/fail_cost.csv` | Curtailment cost (fail_sol × demand_fail_cost) |
+| `output/Demand/fail_cost.csv` | Curtailment cost (fail_sol × model_options.demand_fail_cost) |
 | `output/Bus/balance_dual.csv` | Dual variable of the bus balance constraint = LMP ($/MWh) |
 | `output/Bus/theta_sol.csv` | Voltage angle θ in radians (Kirchhoff mode only) |
 | `output/Line/flowp_sol.csv` | Active power flow per line per (s, t, b) in MW |
@@ -1426,10 +1451,11 @@ After a successful run, the `output/` directory contains:
 - `balance_dual` gives the **Locational Marginal Price (LMP)** at each bus.
   In a lossless single-bus model all LMPs are equal to the marginal generator
   cost. When a line is congested, LMPs diverge between the two sides.
-- `fail_sol > 0` indicates load shedding – raise `demand_fail_cost` or check
-  that generation capacity plus expansion covers the demand.
-- The objective value in `solution.csv` is divided by `scale_objective` (set in
-  `options`). Multiply back to get the actual cost in the unit of `gcost × MWh`.
+- `fail_sol > 0` indicates load shedding – raise `model_options.demand_fail_cost`
+  or check that generation capacity plus expansion covers the demand.
+- The objective value in `solution.csv` is divided by `model_options.scale_objective`
+  (set in `options.model_options`). Multiply back to get the actual cost in the
+  unit of `gcost × MWh`.
 
 ---
 
@@ -1463,14 +1489,16 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
 1. **Start from `ieee_9b_ori`** when adding a new single-snapshot OPF test.
    It has the simplest structure and well-known analytical solutions.
 
-2. **Use `scale_objective: 1000`** for MW-scale problems to keep objective
-   coefficients in the range [0.001, 1000], which improves solver conditioning.
+2. **Use `model_options.scale_objective: 1000`** for MW-scale problems to keep
+   objective coefficients in the range [0.001, 1000], which improves solver
+   conditioning.
 
-3. **Set `demand_fail_cost` = 10× the most expensive generator cost** to avoid
-   load shedding while keeping the LP bounded.
+3. **Set `model_options.demand_fail_cost` = 10× the most expensive generator
+   cost** to avoid load shedding while keeping the LP bounded.
 
-4. **Validate with `use_single_bus: true` first** to check that total generation
-   capacity covers peak demand before introducing network constraints.
+4. **Validate with `model_options.use_single_bus: true` first** to check that
+   total generation capacity covers peak demand before introducing network
+   constraints.
 
 5. **Check `solution.csv` `status=0`** before inspecting any other output.
    Status 1 = infeasible, 2 = unbounded, 5 = LP not solved.
@@ -1507,12 +1535,12 @@ objects; calling `planning_lp.resolve()` assembles and solves the full LP.
 | **`expmod`** | Maximum modules the solver may build |
 | **`annual_capcost`** | Annualized investment cost per module ($/year) |
 | **`gcost`** | Variable generation cost ($/MWh) |
-| **`demand_fail_cost`** | Value-of-lost-load penalty for unserved energy ($/MWh); should exceed the most expensive generator cost |
-| **`scale_objective`** | Divides all objective coefficients to keep them in [0.001, 1000] range for solver numerical stability |
+| **`model_options.demand_fail_cost`** | Value-of-lost-load penalty for unserved energy ($/MWh); should exceed the most expensive generator cost |
+| **`model_options.scale_objective`** | Divides all objective coefficients to keep them in [0.001, 1000] range for solver numerical stability |
 | **`pmin` / `pmax`** | Minimum / maximum generator output (MW) |
 | **`tmax_ab` / `tmax_ba`** | Maximum power flow in each direction on a transmission line (MW) |
 | **`reactance`** | Line reactance (per-unit Ω); used with Kirchhoff constraints |
-| **Copper plate** | `use_single_bus=true` mode; no network constraints; total generation = total demand |
+| **Copper plate** | `model_options.use_single_bus=true` mode; no network constraints; total generation = total demand |
 | **flat_map** | `gtopt::flat_map` alias (backed by `boost::container::flat_map`; or `std::flat_map` in C++23 when available) — used instead of `std::map` for 10–27× faster iteration in LP assembly |
 | **`FieldSched<T>`** | `std::variant<T, std::vector<T>, FileSched>` — holds a scalar, an inline vector, or a filename pointing to an Arrow/Parquet table |
 | **`FileSched`** | `std::string` alias used as the filename arm of `FieldSched`; triggers Arrow I/O at construction time |
@@ -1536,7 +1564,7 @@ Understanding the ecosystem helps when designing features and writing tests.
 **What makes gtopt distinctive**:
 - High-performance C++26 LP assembly with `flat_map`-based sparse matrices
 - Native Parquet I/O (default) and CSV fallback for large time-series via Apache Arrow
-- Hydro cascade modeling (Junction/Waterway/Reservoir/Turbine/Flow/Filtration)
+- Hydro cascade modeling (Junction/Waterway/Reservoir/Turbine/Flow/ReservoirSeepage)
 - REST API (Next.js webservice) + browser GUI (Flask guiservice) out of the box
 - IEEE test cases embedded as in-memory JSON unit tests (no file I/O required)
 - Multi-stage, multi-scenario expansion with per-stage discount factors
