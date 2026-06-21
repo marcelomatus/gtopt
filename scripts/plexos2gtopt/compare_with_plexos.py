@@ -3445,6 +3445,62 @@ def _render_commitment_compare(
         )
 
 
+def _read_boundary_cut_coeffs(*dirs: str | Path | None) -> dict[str, float]:
+    """Per-reservoir ``|water value|`` from ``boundary_cuts.csv``.
+
+    The file has columns ``scene, rhs, <reservoir>...``; each reservoir
+    column holds that cut's slope (``-water_value``), so the magnitude is
+    the marginal value of stored water ($/storage-unit).  Searches each
+    candidate directory in order and returns the first hit's first data row
+    as ``{reservoir_name -> |coef|}``; empty dict when no file is found.
+    """
+    import csv  # local import — matches this module's lazy-csv convention
+
+    for d in dirs:
+        if d is None:
+            continue
+        path = Path(d) / "boundary_cuts.csv"
+        if not path.is_file():
+            continue
+        with path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            header = next(reader, None)
+            first = next(reader, None)
+        if not header or not first:
+            return {}
+        coeffs: dict[str, float] = {}
+        for col, val in zip(header, first):
+            if col in ("scene", "rhs"):
+                continue
+            try:
+                coeffs[col] = abs(float(val))
+            except (TypeError, ValueError):
+                continue
+        return coeffs
+    return {}
+
+
+def _reservoir_water_cost(
+    volumes: dict[str, dict[str, float]], coef: dict[str, float]
+) -> float:
+    """Operational cost of water drawn down over the horizon, on a basis
+    common to gtopt and PLEXOS (PLEXOS exposes only NET storage, not
+    per-block extraction):
+
+        sum_r  max(0, eini_r - efin_r) * |coef_r|
+
+    over the boundary-cut reservoirs -- net withdrawal x marginal water
+    value.  Refills (efin > eini) contribute zero; the same formula is
+    applied to each side's own eini/efin so the comparison is
+    apples-to-apples.
+    """
+    return sum(
+        max(0.0, vol.get("eini", 0.0) - vol.get("efin", 0.0)) * coef[name]
+        for name, vol in volumes.items()
+        if name in coef
+    )
+
+
 def _render_solution_compare(
     plexos_tot: dict[str, float],
     gtopt_tot: dict[str, float],
@@ -3602,6 +3658,16 @@ def _render_solution_compare(
     # them.  Sum gtopt's two to align with PLEXOS's single value.
     _cost_row("  Start & Shutdown $", p_startup, g_commit)
     _cost_row("TOTAL Operational $", p_total, g_total)
+
+    # Water cost (Σ net-drawdown × |boundary water value|) on the common
+    # net-storage basis — PLEXOS exposes only net storage, so this is the
+    # apples-to-apples water term.  Present only when boundary_cuts.csv was
+    # available (the caller stashes water_cost_usd into both totals dicts).
+    p_water = plexos_tot.get("water_cost_usd")
+    g_water = gtopt_tot.get("water_cost_usd")
+    if p_water is not None and g_water is not None:
+        _cost_row("  Water $ (Σ Δstorage×wv)", p_water, g_water)
+        _cost_row("TOTAL Operational + Water $", p_total + p_water, g_total + g_water)
 
     console.print(table)
     pid119_note = (
@@ -4696,6 +4762,24 @@ def main(argv: list[str] | None = None) -> int:
                         _compute_plexos_line_losses_analytic_mwh(
                             plexos_data.get("line", {}), case_dir
                         )
+                    )
+                # Water cost (Σ net-drawdown × |boundary water value|) on the
+                # common net-storage basis, when boundary_cuts.csv is found.
+                # The same formula is applied to each side's own eini/efin, so
+                # _render_solution_compare can add Water $ / Operational+Water $
+                # rows.  boundary_cuts.csv lives in the bundle dir (or the
+                # output's parent under the mip-loop layout).
+                _water_coef = _read_boundary_cut_coeffs(
+                    args.gtopt_bundle,
+                    Path(args.gtopt_output).parent if args.gtopt_output else None,
+                    case_dir,
+                )
+                if _water_coef:
+                    plexos_tot["water_cost_usd"] = _reservoir_water_cost(
+                        plexos_res, _water_coef
+                    )
+                    gtopt_tot["water_cost_usd"] = _reservoir_water_cost(
+                        gtopt_res, _water_coef
                     )
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
                 # Step 3b — problem size + total run time, PLEXOS vs gtopt.
