@@ -47,6 +47,7 @@ from .entities import (
     FuelSpec,
     GeneratorSpec,
     generator_has_fuel_cost,
+    generator_is_zero_pmax,
     JunctionSpec,
     LineSpec,
     NodeSpec,
@@ -3183,12 +3184,7 @@ def _zero_pmax_generator_names(
     CEN PCP) — see the MIP diagnosis 2026-06-21.  Marginal-neutral: no LP
     coefficient changes, dispatch / LMPs are identical.
     """
-    names: set[str] = set()
-    for gen in generators:
-        eff_pmax = max(gen.pmax_profile) if gen.pmax_profile else gen.pmax
-        if eff_pmax == 0.0 and not gen.pmax_segments:
-            names.add(gen.name)
-    return frozenset(names)
+    return frozenset(g.name for g in generators if generator_is_zero_pmax(g))
 
 
 def build_commitment_array(

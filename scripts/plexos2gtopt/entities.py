@@ -289,6 +289,24 @@ def generator_has_fuel_cost(gen: "GeneratorSpec") -> bool:
     )
 
 
+def generator_is_zero_pmax(gen: "GeneratorSpec") -> bool:
+    """True when *gen* can NEVER dispatch — ``pmax`` is 0 across the whole
+    horizon (scalar and profile) and there is no piecewise capacity.
+
+    Such a unit's commitment binaries (``u``/``v``/``w``) are phantom and its
+    ``Units Generating`` is identically 0, so BOTH the commitment writer
+    (:func:`plexos2gtopt.gtopt_writer._zero_pmax_generator_names`, which drops
+    the ``Commitment`` row) and the UC builder
+    (:func:`plexos2gtopt.parsers.extract_user_constraints`, which drops any
+    ``commitment("uc_<gen>").status`` term referencing it) must treat it
+    identically — keep this the single source of truth so the two cannot
+    drift and re-introduce a dangling-reference (the NEHUENCO_1-TG+TV_DIE
+    NorthSecurity regression of 2026-06-21).
+    """
+    eff_pmax = max(gen.pmax_profile) if gen.pmax_profile else gen.pmax
+    return eff_pmax == 0.0 and not gen.pmax_segments
+
+
 @dataclass(frozen=True)
 class LineSpec:
     """A transmission line (``t_class[Line]``)."""
