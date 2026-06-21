@@ -112,10 +112,12 @@ constexpr auto add_to_lp(auto& collections,
     // Passive parameter-carrier elements (Fuel, Emission Commit-1, …)
     // have no `add_to_lp` method by design — they exist in the
     // collection only so `SystemContext::element<T>(...)` can resolve
-    // them.  Skip them at compile time.  The `AddToLP` concept is the
-    // single source of truth for "this element type contributes LP
-    // rows / cols / coefficients".
-    if constexpr (!AddToLP<T>) {
+    // them.  Skip them at compile time.  The `HasAddToLp` capability
+    // concept is the single source of truth for "this element type
+    // contributes LP rows / cols / coefficients" — a discriminator, not
+    // an enforced interface (output-only / planning-level elements are
+    // skipped here and handled by their own pass).
+    if constexpr (!HasAddToLp<T>) {
       return true;
     } else if constexpr (std::is_same_v<T, BusLP>) {
       return !use_single_bus || system_context.system().is_single_bus(e.id())
@@ -1472,11 +1474,13 @@ void SystemLP::write_out()
                               [&oc](const auto& e)
                               {
                                 using T = std::decay_t<decltype(e)>;
-                                // Passive parameter carriers (e.g. `FuelLP`)
-                                // have no `add_to_output`; skip them at compile
-                                // time.  Matches the gating in `add_to_lp`
-                                // above.
-                                if constexpr (!AddToLP<T>) {
+                                // Skip at compile time any element without an
+                                // `add_to_output`; the `HasAddToOutput`
+                                // capability is the discriminator (mirrors the
+                                // `HasAddToLp` gating in `add_to_lp`).  This
+                                // also picks up output-only / planning-level
+                                // elements that have no per-block `add_to_lp`.
+                                if constexpr (!HasAddToOutput<T>) {
                                   return true;
                                 } else {
                                   return e.add_to_output(oc);

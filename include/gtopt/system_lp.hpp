@@ -86,16 +86,36 @@ class LinearInterface;
  * - add_to_output() method for result output
  */
 
+// Capability concepts — used to IDENTIFY which collections participate in
+// each pass (a discriminator), NOT to enforce a uniform interface.  An
+// element may provide any subset; the visitors dispatch on each capability
+// via `if constexpr (HasAddTo*<T>)`.  This lets data-only / passive
+// carriers omit the methods entirely (auto-skipped) and lets new element
+// kinds (e.g. the planning-level FutureCost) provide only what they need.
+
+/// Per-(scenario, stage, block) LP-build participation.
 template<typename T>
-concept AddToLP = requires(T obj,
-                           SystemContext& system_context,
-                           const ScenarioLP& scenario,
-                           const StageLP& stage,
-                           LinearProblem& lp,
-                           OutputContext& output_context) {
+concept HasAddToLp = requires(T obj,
+                              SystemContext& system_context,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              LinearProblem& lp) {
   { obj.add_to_lp(system_context, scenario, stage, lp) } -> std::same_as<bool>;
+};
+
+/// Solution-output participation.
+template<typename T>
+concept HasAddToOutput = requires(T obj, OutputContext& output_context) {
   { obj.add_to_output(output_context) } -> std::same_as<bool>;
 };
+
+/// Back-compat: the common active element provides both the per-block
+/// build and the output.  Retained so the `static_assert`s below keep
+/// their original meaning (a sanity check that an *intended-active*
+/// element really contributes); it is no longer a gate every collection
+/// must pass — the visitors key off the finer `HasAddTo*` capabilities.
+template<typename T>
+concept AddToLP = HasAddToLp<T> && HasAddToOutput<T>;
 
 // Verify all required types satisfy AddToLP concept
 static_assert(AddToLP<BusLP>);
