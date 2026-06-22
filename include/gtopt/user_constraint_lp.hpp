@@ -42,6 +42,10 @@
 namespace gtopt
 {
 
+class SceneLP;
+class PhaseLP;
+class BlockLP;
+
 /**
  * @brief LP element wrapping a single user-defined constraint.
  *
@@ -99,6 +103,29 @@ public:
                                const StageLP& stage,
                                LinearProblem& lp);
 
+  /// Planning-level build for `phase`/`global`-scoped constraints — one LP
+  /// row per (scene, phase) cell.  Dispatched by the planning pass
+  /// (`add_to_planning_lp`) AFTER the per-(scenario, stage) operational
+  /// sweep, so coarse rows can reference any column the stage sweep created.
+  /// `phase`-scope routes here; `global`-scope routes through
+  /// `add_to_global_lp` below.  Block/stage-scoped constraints do nothing
+  /// here (they are built in `add_to_lp`).  See `ConstraintScope`.
+  [[nodiscard]] bool add_to_phase_lp(const SystemContext& sc,
+                                     const SceneLP& scene,
+                                     const PhaseLP& phase,
+                                     LinearProblem& lp);
+
+  /// Planning-level build for `global`-scoped constraints — one un-indexed
+  /// LP row per (scene, phase) cell (the FCF α terminal-cut / annual-cap
+  /// shape).  Runs in the global sweep, which the planning pass executes
+  /// after the phase sweep so a global row can reference state columns the
+  /// phase sweep registered.  Block/stage/phase-scoped constraints do
+  /// nothing here.
+  [[nodiscard]] bool add_to_global_lp(const SystemContext& sc,
+                                      const SceneLP& scene,
+                                      const PhaseLP& phase,
+                                      LinearProblem& lp);
+
   /**
    * @brief Write dual (shadow-price) values for this constraint to output.
    *
@@ -112,6 +139,31 @@ public:
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
 private:
+  /// Shared builder for the COARSE-scope paths (`stage`/`phase`/`global`):
+  /// resolves the expression at the supplied representative
+  /// (scenario, stage, block), folds in the RHS override + soft slack,
+  /// stamps the row with @p row_ctx, adds it, and records it (+ any slack
+  /// cols) under the (scenario, stage) key keyed at @p block.  Returns true
+  /// always (a row with no resolved columns is silently skipped, matching
+  /// the per-block path).  `block`-scope does NOT use this — it has its own
+  /// per-block loop in `add_to_lp`.
+  [[nodiscard]] bool build_coarse_row(const SystemContext& sc,
+                                      const ScenarioLP& scenario,
+                                      const StageLP& stage,
+                                      const BlockLP& block,
+                                      const LpContext& row_ctx,
+                                      LinearProblem& lp);
+
+  /// Shared backend for `add_to_phase_lp` / `add_to_global_lp`: build ONE
+  /// `PhaseContext`-stamped LP row per (scene, phase) cell, anchored at the
+  /// cell's LAST in-domain stage / LAST in-domain block under the FIRST
+  /// in-domain scenario (the FCF terminal-cut shape).  Returns true even
+  /// when nothing is in-domain (no rows).
+  [[nodiscard]] bool build_phase_cell_row(const SystemContext& sc,
+                                          const SceneLP& scene,
+                                          const PhaseLP& phase,
+                                          LinearProblem& lp);
+
   /// Cached parsed expression (nullopt if expression was empty or invalid)
   std::optional<ConstraintExpr> m_expr_ {};
   /// How the LP dual should be scaled for output
@@ -120,7 +172,18 @@ private:
   /// Parsed once at construction; per-block conversion is applied inside
   /// the `add_to_lp` block loop when the constraint is soft.
   PenaltyClass m_penalty_class_ {PenaltyClass::Raw};
-  /// Per-(scenario, stage) row indices produced by add_to_lp
+  /// Time-granularity at which the constraint's LP rows are instantiated
+  /// (`block` default, `stage`, `phase`, `global`).  Parsed once at
+  /// construction from the underlying `UserConstraint::scope` field.
+  /// `Block`/`Stage` route through `add_to_lp`; `Phase`/`Global` route
+  /// through the planning passes (`add_to_phase_lp` / `add_to_global_lp`).
+  ConstraintScope m_scope_ {ConstraintScope::Block};
+  /// Per-(scenario, stage) row indices produced by add_to_lp.  For
+  /// `block`-scope each (scenario, stage) maps a per-block holder; for
+  /// `stage`-scope each (scenario, stage) maps a single-entry holder keyed
+  /// at the stage's first block.  For `phase`/`global`-scope the planning
+  /// passes store the single per-cell row here keyed at the cell's first
+  /// (scenario, stage, block) so `add_to_output` reads it uniformly.
   STBIndexHolder<RowIndex> m_rows_ {};
   /// Per-(scenario, stage) slack columns for soft constraints.
   /// Used by `LESS_EQUAL` / `GREATER_EQUAL` (single slack) and as the

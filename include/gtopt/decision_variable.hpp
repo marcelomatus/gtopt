@@ -92,6 +92,16 @@ struct DecisionVariable
   /// ``ConstraintScaleType``.
   OptName cost_type {};
 
+  /// Time-granularity at which this decision variable's LP column is
+  /// instantiated (``"block"`` default, ``"stage"``, ``"phase"``,
+  /// ``"global"``).  Parsed as ``ConstraintScope`` (shared with
+  /// ``UserConstraint``).  Coarser than the single-``block`` selector below:
+  /// ``stage`` → one column per (scenario, stage); ``phase`` / ``global`` →
+  /// one column per (scene, phase) cell (the global FCF α, annual knobs).
+  ///
+  /// Default unset ⇒ ``block`` (every legacy JSON round-trips unchanged).
+  OptName scope {};
+
   /// Optional single-block scope (block ``uid``).  When set, the LP
   /// creates the column ONLY on that block instead of one per block —
   /// used for end-of-horizon quantities like the FCF cost-to-go

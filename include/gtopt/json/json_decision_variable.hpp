@@ -33,6 +33,7 @@ struct json_data_contract<DecisionVariable>
                        json_number_null<"upper_bound", OptReal>,
                        json_number_null<"cost", OptReal>,
                        json_string_null<"cost_type", OptName>,
+                       json_string_null<"scope", OptName>,
                        json_number_null<"block", OptUid>,
                        json_number_null<"obj_constant", OptReal>>;
 
@@ -47,6 +48,7 @@ struct json_data_contract<DecisionVariable>
                                  dv.upper_bound,
                                  dv.cost,
                                  dv.cost_type,
+                                 dv.scope,
                                  dv.block,
                                  dv.obj_constant);
   }

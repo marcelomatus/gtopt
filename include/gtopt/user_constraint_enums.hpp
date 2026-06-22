@@ -114,4 +114,67 @@ inline constexpr auto penalty_class_entries =
   return std::span {penalty_class_entries};
 }
 
+// ─── ConstraintScope ────────────────────────────────────────────────────────
+
+/**
+ * @brief Time-granularity at which a `UserConstraint` row (or a
+ *        `DecisionVariable` column) is instantiated.
+ *
+ * AMPL's native semantics: the **index set on a declaration is the scope**.
+ * `scope` is the granularity reduction; it is ORTHOGONAL to the `for(...)`
+ * clause (which restricts *instances*, not granularity).
+ *
+ * | Enum   | Accepted strings | Rows / cols created                       |
+ * |--------|------------------|-------------------------------------------|
+ * | Block  | `"block"` (def.) | one per (scenario, stage, block) — today  |
+ * | Stage  | `"stage"`        | one per (scenario, stage)                 |
+ * | Phase  | `"phase"`        | one per (scene, phase) cell               |
+ * | Global | `"global"`       | one per (scene, phase) cell, un-indexed   |
+ *
+ * - **Block** — the default and the historical behaviour: one LP row per
+ *   block.  A constraint over per-block variables (`generator.generation`).
+ * - **Stage** — a single row per stage; per-block references inside the
+ *   expression must be wrapped in a `sum{b in stage}` time-aggregator
+ *   (piece-4 step 2) so the coarse row reaches the fine variables.  Built
+ *   in the per-(scenario, stage) operational pass.
+ * - **Phase** — a single row per (scene, phase) cell (all scenarios /
+ *   stages of the cell collapsed); built in the planning pass
+ *   (`add_to_phase_lp`).
+ * - **Global** — a single un-indexed row per cell — the FCF α terminal
+ *   cut / annual-cap shape; built in the planning pass
+ *   (`add_to_global_lp`).
+ *
+ * Phase and Global differ only by ORDERING / intent inside the planning
+ * pass (the phase sweep runs first so global rows can reference state
+ * columns the phase sweep registered), not by row count.
+ */
+enum class ConstraintScope : uint8_t
+{
+  Block = 0,  ///< Default — one row/col per (scenario, stage, block)
+  Stage,  ///< One row/col per (scenario, stage)
+  Phase,  ///< One row/col per (scene, phase) cell
+  Global,  ///< One un-indexed row/col per (scene, phase) cell
+};
+
+inline constexpr auto constraint_scope_entries =
+    std::to_array<EnumEntry<ConstraintScope>>({
+        {.name = "block", .value = ConstraintScope::Block},
+        {.name = "stage", .value = ConstraintScope::Stage},
+        {.name = "phase", .value = ConstraintScope::Phase},
+        {.name = "global", .value = ConstraintScope::Global},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(ConstraintScope /*tag*/) noexcept
+{
+  return std::span {constraint_scope_entries};
+}
+
+/// True iff @p scope routes through the planning passes
+/// (`add_to_phase_lp` / `add_to_global_lp`) rather than the per-block /
+/// per-stage operational `add_to_lp`.
+[[nodiscard]] constexpr bool scope_is_planning(ConstraintScope scope) noexcept
+{
+  return scope == ConstraintScope::Phase || scope == ConstraintScope::Global;
+}
+
 }  // namespace gtopt

@@ -40,6 +40,8 @@ auto context_type_name(const LpContext& context) -> std::string_view
           return "BlockExContext";
         } else if constexpr (std::same_as<T, ScenePhaseContext>) {
           return "ScenePhaseContext";
+        } else if constexpr (std::same_as<T, PhaseContext>) {
+          return "PhaseContext";
         } else if constexpr (std::same_as<T, IterationContext>) {
           return "IterationContext";
         } else if constexpr (std::same_as<T, ApertureContext>) {
