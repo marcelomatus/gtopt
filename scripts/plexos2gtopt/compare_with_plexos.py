@@ -3480,29 +3480,81 @@ def _read_boundary_cut_coeffs(*dirs: str | Path | None) -> dict[str, float]:
     return {}
 
 
+def _read_reservoir_emax(*dirs: str | Path | None) -> dict[str, float]:
+    """Per-reservoir ``emax`` (full-reservoir capacity) from the bundle JSON.
+
+    Used to rebase the future-cost cut to a brim-full system (see
+    :func:`_reservoir_water_cost`).  ``emax`` may be a scalar or a per-block
+    profile; the profile MAX is taken so the reference dominates any
+    end-of-horizon volume and the reported ``FCF'`` stays >= 0.  Each candidate
+    is searched for the PLEXOS-source bundle JSON (a ``*.json`` file is read
+    directly; a directory is globbed, skipping ``planning.json`` /
+    ``*.provenance.json``).  Empty dict when no reservoir_array is found.
+    """
+
+    def _emax_scalar(v: object) -> float | None:
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, list):
+            flat = [
+                float(x)
+                for row in v
+                for x in (row if isinstance(row, list) else [row])
+                if isinstance(x, (int, float))
+            ]
+            return max(flat) if flat else None
+        return None
+
+    for d in dirs:
+        if d is None:
+            continue
+        base = Path(d)
+        cands = [base] if base.suffix == ".json" else sorted(base.glob("*.json"))
+        for cand in cands:
+            if not cand.is_file():
+                continue
+            if cand.name == "planning.json" or cand.name.endswith(".provenance.json"):
+                continue
+            try:
+                reservoirs = json.loads(cand.read_text(encoding="utf-8"))["system"][
+                    "reservoir_array"
+                ]
+            except (json.JSONDecodeError, KeyError, OSError, TypeError):
+                continue
+            out: dict[str, float] = {}
+            for r in reservoirs:
+                e = _emax_scalar(r.get("emax"))
+                if e is not None:
+                    out[r["name"]] = e
+            if out:
+                return out
+    return {}
+
+
 def _reservoir_water_cost(
-    volumes: dict[str, dict[str, float]], coef: dict[str, float]
+    volumes: dict[str, dict[str, float]],
+    coef: dict[str, float],
+    emax: dict[str, float],
 ) -> float:
-    """Terminal water cost on a basis common to gtopt and PLEXOS (PLEXOS
-    exposes only NET storage, not per-block extraction):
+    """Future-cost term FCF' on a basis common to gtopt and PLEXOS, rebased to
+    a brim-full reservoir so it is always >= 0:
 
-        sum_r  (eini_r - efin_r) * |coef_r|
+        FCF' = sum_r  |coef_r| * (emax_r - efin_r)
 
-    over the boundary-cut reservoirs -- the SIGNED net change x the marginal
-    water value (the boundary-cut slope).  A draw-down (efin < eini) is a
-    positive cost (a valued asset was consumed); a REFILL (efin > eini) is a
-    NEGATIVE cost -- a credit for water banked at its FCF value.  This mirrors
-    the cost-to-go the LP itself optimises (`alpha = rhs + sum slope*vol_end`):
-    the same single cut both sides use, so the constant `rhs`/`c` intercept
-    cancels in the gtopt-vs-PLEXOS comparison and only the slope*vol_end term
-    matters.  Clamping refills to zero (the prior `max(0, ...)`) dropped the
-    stored-water credit entirely and made a hydro-banking gtopt run look more
-    expensive than it is.
+    over the boundary-cut reservoirs.  ``coef_r`` is the cut slope magnitude
+    (= |water value|, $/storage-unit) and ``efin_r`` each side's own solved
+    end-volume.  The cut is ``alpha = rhs + sum slope*vol_end`` with negative
+    slope, so shifting by the brim-full constant ``c = rhs + sum slope*emax``
+    gives ``FCF' = alpha - c = sum |slope|*(emax - vol_end) >= 0`` — the future
+    cost of the water not yet stored up to full.  ``c`` is identical on both
+    sides (same single cut, same emax), so it cancels in the gtopt-vs-PLEXOS
+    comparison; only each side's own ``efin`` differs.  Referencing emax (not
+    eini) keeps the term positive even when both sides REFILL above their start.
     """
     return sum(
-        (vol.get("eini", 0.0) - vol.get("efin", 0.0)) * coef[name]
+        coef[name] * (emax[name] - vol.get("efin", 0.0))
         for name, vol in volumes.items()
-        if name in coef
+        if name in coef and name in emax
     )
 
 
@@ -3664,15 +3716,16 @@ def _render_solution_compare(
     _cost_row("  Start & Shutdown $", p_startup, g_commit)
     _cost_row("TOTAL Operational $", p_total, g_total)
 
-    # Water cost (Σ net-drawdown × |boundary water value|) on the common
-    # net-storage basis — PLEXOS exposes only net storage, so this is the
-    # apples-to-apples water term.  Present only when boundary_cuts.csv was
-    # available (the caller stashes water_cost_usd into both totals dicts).
+    # Future-cost term FCF' = Σ |boundary slope|·(emax − efin) — the cost-to-go
+    # cut rebased to a brim-full reservoir, so it is always >= 0 and the ~$1 B
+    # constant intercept (identical on both sides) cancels in the comparison.
+    # Present only when boundary_cuts.csv was available (the caller stashes
+    # water_cost_usd into both totals dicts).
     p_water = plexos_tot.get("water_cost_usd")
     g_water = gtopt_tot.get("water_cost_usd")
     if p_water is not None and g_water is not None:
-        _cost_row("  Water $ (Σ Δstorage×wv)", p_water, g_water)
-        _cost_row("TOTAL Operational + Water $", p_total + p_water, g_total + g_water)
+        _cost_row("  FCF' $ (Σ wv×(emax−efin))", p_water, g_water)
+        _cost_row("TOTAL Operational + FCF' $", p_total + p_water, g_total + g_water)
 
     console.print(table)
     pid119_note = (
@@ -4768,23 +4821,26 @@ def main(argv: list[str] | None = None) -> int:
                             plexos_data.get("line", {}), case_dir
                         )
                     )
-                # Water cost (Σ net-drawdown × |boundary water value|) on the
-                # common net-storage basis, when boundary_cuts.csv is found.
-                # The same formula is applied to each side's own eini/efin, so
-                # _render_solution_compare can add Water $ / Operational+Water $
-                # rows.  boundary_cuts.csv lives in the bundle dir (or the
-                # output's parent under the mip-loop layout).
-                _water_coef = _read_boundary_cut_coeffs(
+                # Future-cost term FCF' = Σ |boundary slope|·(emax − efin),
+                # the cut rebased to a brim-full reservoir (always >= 0), when
+                # boundary_cuts.csv is found.  The same formula is applied to
+                # each side's own efin, so _render_solution_compare can add
+                # FCF $ / Operational+FCF $ rows.  boundary_cuts.csv (slopes)
+                # and the bundle JSON (emax) both live in the bundle dir, the
+                # output's parent (mip-loop layout), or the case dir.
+                _search_dirs = (
                     args.gtopt_bundle,
                     Path(args.gtopt_output).parent if args.gtopt_output else None,
                     case_dir,
                 )
-                if _water_coef:
+                _water_coef = _read_boundary_cut_coeffs(*_search_dirs)
+                _res_emax = _read_reservoir_emax(*_search_dirs)
+                if _water_coef and _res_emax:
                     plexos_tot["water_cost_usd"] = _reservoir_water_cost(
-                        plexos_res, _water_coef
+                        plexos_res, _water_coef, _res_emax
                     )
                     gtopt_tot["water_cost_usd"] = _reservoir_water_cost(
-                        gtopt_res, _water_coef
+                        gtopt_res, _water_coef, _res_emax
                     )
                 _render_solution_compare(plexos_tot, gtopt_tot, console)
                 # Step 3b — problem size + total run time, PLEXOS vs gtopt.
