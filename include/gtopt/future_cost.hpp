@@ -88,6 +88,18 @@ struct FutureCost
   /// `sddp_options.boundary_cuts_mean_shift`.
   OptBool mean_shift {};
 
+  /// When a SINGLE boundary cut is loaded for a scene, install it as the
+  /// equality `α + Σ wvᵣ·efinᵣ = FCF` with α freed (`set_col_low_raw(-inf)`)
+  /// — the continuous PLEXOS-style terminal value: α is pinned to
+  /// `FCF − Σ wvᵣ·efinᵣ` so every reservoir's terminal storage is priced at
+  /// `wvᵣ` on BOTH sides of the target.  Default (unset) = `true` = the
+  /// current behaviour.  Set `false` to keep the slack-able `≥` Benders
+  /// lower-bound form (α floored at the cut, never freed) even for a single
+  /// cut — e.g. for a faithful comparison against a user-authored `≥` FCF
+  /// cut.  With MANY cuts the `≥` max-envelope form is ALWAYS used regardless
+  /// of this flag (the value function is the max of its supporting cuts).
+  OptBool single_cut_equality {};
+
   /// Cross-scene cut sharing: `per_scene` (each scene keeps its own cut),
   /// `shared` (broadcast every cut onto every scene's terminal α), or
   /// `multicut` (N dedicated `varphi_s`, one per source scene, priced

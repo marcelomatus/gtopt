@@ -201,6 +201,35 @@ TEST_CASE("AmplFutureCost — schema round-trip of use_user_alpha")  // NOLINT
   CHECK_FALSE(def.user_alpha_uid.has_value());
 }
 
+// ─── 1b. Schema round-trip of single_cut_equality ──────────────────────────
+
+TEST_CASE(
+    "AmplFutureCost — schema round-trip of single_cut_equality")  // NOLINT
+{
+  // Explicit `false`: keep the slack-able `≥` form even for a single cut.
+  const auto off = daw::json::from_json<FutureCost>(
+      R"({ "uid": 1, "name": "bfcf", "cuts_file": "boundary_cuts.csv",
+           "single_cut_equality": false })");
+  CHECK(off.single_cut_equality.has_value());
+  CHECK_FALSE(off.single_cut_equality.value_or(true));
+
+  // Round-trip preserves the explicit false.
+  const auto round = daw::json::from_json<FutureCost>(daw::json::to_json(off));
+  CHECK(round.single_cut_equality.has_value());
+  CHECK_FALSE(round.single_cut_equality.value_or(true));
+
+  // Explicit `true`.
+  const auto on = daw::json::from_json<FutureCost>(
+      R"({ "uid": 2, "name": "bfcf", "single_cut_equality": true })");
+  CHECK(on.single_cut_equality.value_or(false));
+
+  // Unset ⇒ the legacy single-cut equality behaviour (value_or(true)).
+  const auto def = daw::json::from_json<FutureCost>(
+      R"({ "uid": 3, "name": "bfcf", "cuts_file": "boundary_cuts.csv" })");
+  CHECK_FALSE(def.single_cut_equality.has_value());
+  CHECK(def.single_cut_equality.value_or(true));  // default = current behaviour
+}
+
 // ─── 2. GOLD-STANDARD EQUIVALENCE: user α vs boundary-cut FCF ───────────────
 
 TEST_CASE(  // NOLINT
@@ -360,16 +389,18 @@ TEST_CASE(  // NOLINT
 // converges — self-consistently (LB ≤ UB) — to the INDEPENDENTLY-DERIVED
 // analytic optimum of the deterministic-equivalent multi-stage problem.
 //
-// Why an analytic oracle (not a boundary-cut cross-run): the built-in
-// `boundary_cuts.csv` path is NOT a faithful oracle here — it applies three
-// transformations the user-α path deliberately does not (single-cut `≥`→`=`
-// equality conversion; the `mean_shift` α-rebase; and `apply_alpha_floor`'s
-// projection of the cut onto the worst-case state box, which has no off-switch
-// and over-tightens the LB).  The user-α path takes the `bound_user_alpha`
-// branch instead.  So the two are architecturally distinct formulations whose
-// converged bounds need not coincide; the rigorous, non-circular invariant is
-// convergence to the true optimum, which is hand-derivable on this tiny
-// fixture.
+// Why an analytic oracle here: the built-in `boundary_cuts.csv` path, AS
+// CONFIGURED BY DEFAULT, applies transformations the user-α path deliberately
+// does not — the single-cut `≥`→`=` + free-α terminal-value conversion (a
+// DELIBERATE, correct, and now CONFIGURABLE form, only ever for a single cut;
+// many cuts always keep `≥`), the `mean_shift` α-rebase, and
+// `apply_alpha_floor`'s projection of the cut onto the worst-case state box.
+// Under those defaults the two are different formulations whose bounds need not
+// coincide, so the analytic optimum is the rigorous, non-circular invariant.
+// (Set `FutureCost.single_cut_equality = false` and `mean_shift = false` and
+// the single-cut boundary path BECOMES the same `≥` formulation as this user-α
+// cut — see test 8, the direct faithful-oracle cross-run that asserts the
+// converged bounds match.)
 //
 // Cut design (W, R chosen for a UNIQUE, non-degenerate, binding optimum):
 //   * W = 90 $/dam³ is STRICTLY above the hydro−thermal differential
@@ -479,4 +510,246 @@ TEST_CASE(  // NOLINT
   //     convergence_tol yet tight enough to catch any encoding error > ~$340.
   CHECK(lb == doctest::Approx(kAnalytic).epsilon(1e-3));
   CHECK(ub == doctest::Approx(kAnalytic).epsilon(1e-3));
+}
+
+// ─── 7. FutureCost.single_cut_equality — `=`+free-α vs slack-able `≥` ───────
+//
+// A lone boundary cut is, by default, installed as the EQUALITY
+// `α + Σ wvᵣ·efinᵣ = FCF` with α freed below — the continuous PLEXOS-style
+// terminal value (α pinned to `FCF − Σ wvᵣ·efinᵣ`, so a reservoir saved ABOVE
+// the FCF break-even earns a NEGATIVE α future-cost credit).  Setting
+// `single_cut_equality = false` keeps the slack-able `≥` Benders lower-bound
+// form (α floored at the cut, NOT freed), so that credit is capped at the cut
+// floor and never goes negative.
+//
+// The fixture uses a single cut `α ≥ FCF − wv·s_rsv1` (CSV coef = −wv) with a
+// small `FCF` and a large `wv`, so the optimal policy (which conserves water
+// to its emax corner) drives `FCF − wv·s` strictly negative.  Then:
+//   * `single_cut_equality = true`  (default): α = FCF − wv·s  < 0  ⇒ the
+//     converged LB picks up the negative future-cost credit (LOWER bound).
+//   * `single_cut_equality = false`         : α floored, never freed ⇒ the
+//     credit is capped, both bounds converge to the higher `≥` value.
+// The two converge to STRICTLY different lower bounds — the cleanest single
+// observable that the flag is wired and toggles the `≥`→`=`+free-α conversion.
+namespace amplfcf_test  // NOLINT
+{
+namespace  // NOLINT
+{
+struct SddpBounds
+{
+  double lb {};
+  double ub {};
+};
+
+/// Run a single-boundary-cut SDDP solve on the 3-phase hydro fixture with the
+/// given `single_cut_equality` element setting (`nullopt` = unset = default).
+[[nodiscard]] auto solve_single_cut_bounds(const std::string& cuts_file,
+                                           std::optional<bool> single_cut_eq)
+    -> SddpBounds
+{
+  auto planning = make_3phase_hydro_planning();
+  planning.options.method = MethodType::sddp;
+  FutureCost fc {
+      .uid = Uid {1},
+      .name = "bfcf",
+      .cuts_file = OptName {cuts_file},
+      .mode = std::optional<BoundaryCutsMode> {BoundaryCutsMode::combined},
+  };
+  if (single_cut_eq.has_value()) {
+    fc.single_cut_equality = OptBool {*single_cut_eq};
+  }
+  planning.system.future_cost_array.push_back(fc);
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 8;
+  opts.convergence_tol = 1e-6;
+  opts.enable_api = false;
+  opts.boundary_cuts_file = cuts_file;
+  opts.boundary_cuts_mode = BoundaryCutsMode::combined;
+  opts.boundary_cuts_mean_shift = false;  // isolate the `=`/`≥` effect
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+  return {results->back().lower_bound, results->back().upper_bound};
+}
+}  // namespace
+}  // namespace amplfcf_test
+
+TEST_CASE(  // NOLINT
+    "FutureCost.single_cut_equality — false keeps `≥`, default/true installs "
+    "`=`")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  const auto cuts_file =
+      (std::filesystem::temp_directory_path() / "gtopt_test_single_cut_eq.csv")
+          .string();
+  {
+    // α ≥ FCF − wv·s_rsv1 (CSV coef carries gᵢ where row is α ≥ rhs + gᵢ·s).
+    // FCF = 1000 (small), wv = 90 (large) ⇒ at the conserved emax corner the
+    // intercept goes strongly negative, so the `=`+free-α path lets α < 0.
+    std::ofstream ofs(cuts_file);
+    ofs << "iteration,scene,rhs,rsv1\n";
+    ofs << "1,1,1000.0,-90.0\n";
+  }
+
+  const auto def = solve_single_cut_bounds(cuts_file, std::nullopt);  // default
+  const auto eq = solve_single_cut_bounds(cuts_file, true);  // explicit true
+  const auto ge = solve_single_cut_bounds(cuts_file, false);  // explicit false
+  std::filesystem::remove(cuts_file);
+
+  CAPTURE(def.lb);
+  CAPTURE(def.ub);
+  CAPTURE(eq.lb);
+  CAPTURE(eq.ub);
+  CAPTURE(ge.lb);
+  CAPTURE(ge.ub);
+
+  // (1) NO REGRESSION: unset default == explicit true, byte-for-byte.
+  CHECK(def.lb == doctest::Approx(eq.lb));
+  CHECK(def.ub == doctest::Approx(eq.ub));
+
+  // (2) The flag TOGGLES the formulation: the `≥` (false) lower bound is
+  //     STRICTLY ABOVE the `=`+free-α (true) lower bound — the equality lets
+  //     α go negative (a future-cost credit), the `≥` floors it.
+  CHECK(ge.lb > eq.lb + 1.0);
+
+  // (3) The `≥` form converges (LB == UB) — α is floored at the cut, not freed,
+  //     so the master and the simulated policy agree on the cost-to-go.
+  CHECK(ge.ub == doctest::Approx(ge.lb).epsilon(1e-4));
+
+  // (4) Both finite, positive.
+  CHECK(std::isfinite(eq.lb));
+  CHECK(std::isfinite(ge.lb));
+  CHECK(eq.lb > 0.0);
+}
+
+// ─── 8. Faithful oracle — single `≥` boundary cut == user-authored `≥` cut ──
+//
+// With `single_cut_equality = false` the single-cut boundary path keeps the
+// SAME `≥` formulation the user authors with a `state`/`link` α
+// `DecisionVariable` + a terminal `≥` `UserConstraint` (test 6 / "2c").  The
+// two are therefore the SAME formulation, so they must converge to the SAME
+// LB/UB.  This is the direct cross-run faithful oracle (the test-6 analytic
+// optimum stays the independent third check).
+//
+// Boundary cut `α + W·efin ≥ R` ⇔ `α ≥ R − W·efin` ⇒ CSV coef = −W, rhs = R,
+// matching the user cut `user_alpha + W·reservoir('rsv1').efin ≥ R`.
+TEST_CASE(  // NOLINT
+    "FutureCost.single_cut_equality=false — single boundary `≥` cut is a "
+    "faithful oracle for the user-authored `≥` FCF (2c)")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  constexpr double kW = 90.0;  // $/dam³ — same as the 2c user cut
+  constexpr double kR = 45000.0;  // = W·emax — same as the 2c user cut
+  constexpr double kAnalytic = 338850.0;  // 2c hand-derived optimum
+  constexpr Uid kUaUid {4244};
+
+  // Common SDDP options for both runs (mirror the 2c test exactly).
+  const auto make_opts = []
+  {
+    SDDPOptions o;
+    o.max_iterations = 20;
+    o.convergence_tol = 1e-4;
+    o.convergence_mode = ConvergenceMode::gap_only;
+    o.stationary_tol = 0.0;
+    o.cut_sharing = CutSharingMode::none;
+    o.aperture_chunk_size = -1;
+    o.enable_api = false;
+    return o;
+  };
+
+  // ── (A) boundary-cut side: single `≥` cut, single_cut_equality=false ──
+  double bdr_lb = 0.0;
+  double bdr_ub = 0.0;
+  {
+    const auto cuts_file = (std::filesystem::temp_directory_path()
+                            / "gtopt_test_faithful_oracle.csv")
+                               .string();
+    {
+      std::ofstream ofs(cuts_file);
+      ofs << "iteration,scene,rhs,rsv1\n";
+      ofs << "1,1," << kR << "," << (-kW) << "\n";  // α ≥ kR − kW·efin
+    }
+    auto planning = make_3phase_hydro_planning();
+    planning.options.method = MethodType::sddp;
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "bfcf",
+        .cuts_file = OptName {cuts_file},
+        .single_cut_equality = OptBool {false},  // faithful `≥` form
+        .mode = std::optional<BoundaryCutsMode> {BoundaryCutsMode::combined},
+    });
+    PlanningLP planning_lp(std::move(planning));
+    auto opts = make_opts();
+    opts.boundary_cuts_file = cuts_file;
+    opts.boundary_cuts_mode = BoundaryCutsMode::combined;
+    opts.boundary_cuts_mean_shift = false;
+    SDDPMethod sddp(planning_lp, opts);
+    const auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    bdr_lb = results->back().lower_bound;
+    bdr_ub = results->back().upper_bound;
+    std::filesystem::remove(cuts_file);
+  }
+
+  // ── (B) user-α side: the 2c formulation (terminal `≥` UserConstraint) ──
+  double usr_lb = 0.0;
+  double usr_ub = 0.0;
+  {
+    auto planning = make_3phase_hydro_planning();
+    planning.options.method = MethodType::sddp;
+    planning.system.decision_variable_array.push_back(DecisionVariable {
+        .uid = kUaUid,
+        .name = "user_alpha",
+        .lower_bound = OptReal {-1.0e9},
+        .cost = OptReal {1.0},
+        .cost_type = OptName {"raw"},
+        .scope = OptName {"global"},
+        .state = OptBool {true},
+        .link = OptBool {true},
+    });
+    planning.system.user_constraint_array.push_back(UserConstraint {
+        .uid = Uid {4245},
+        .name = "fcf_cut",
+        .expression = Name {std::format(
+            "decision_variable('user_alpha').value + "
+            "{}*reservoir('rsv1').efin >= {}, for(stage in {{3}})",
+            kW,
+            kR)},
+        .constraint_type = OptName {"raw"},
+        .scope = OptName {"global"},
+    });
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "ufcf",
+        .use_user_alpha = OptBool {true},
+        .user_alpha_uid = OptUid {kUaUid},
+    });
+    PlanningLP planning_lp(std::move(planning));
+    SDDPMethod sddp(planning_lp, make_opts());
+    const auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    usr_lb = results->back().lower_bound;
+    usr_ub = results->back().upper_bound;
+  }
+
+  CAPTURE(bdr_lb);
+  CAPTURE(bdr_ub);
+  CAPTURE(usr_lb);
+  CAPTURE(usr_ub);
+
+  // The `≥` boundary cut and the user-authored `≥` cut are the SAME
+  // formulation ⇒ their converged bounds coincide (faithful oracle) and both
+  // hit the independently hand-derived 2c analytic optimum.
+  CHECK(bdr_lb == doctest::Approx(usr_lb).epsilon(1e-3));
+  CHECK(bdr_ub == doctest::Approx(usr_ub).epsilon(1e-3));
+  CHECK(bdr_lb == doctest::Approx(kAnalytic).epsilon(1e-3));
+  CHECK(usr_lb == doctest::Approx(kAnalytic).epsilon(1e-3));
 }

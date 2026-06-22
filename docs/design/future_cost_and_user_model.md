@@ -431,13 +431,26 @@ for(stage in {3})` + `use_user_alpha` converges (gap_only, stationary off) to
 LB == UB == $338850 — the INDEPENDENTLY hand-derived deterministic-equivalent
 optimum (terminal efin forced to the unique emax=500 corner; thermal 6730 MWh ·
 $50 + hydro 470 MWh · $5 + α=0).  The backward log shows `links=1/1` and a
-non-trivial α propagated phase-to-phase.  An analytic oracle is used rather than
-a `boundary_cuts.csv` cross-run because the boundary-cut path applies
-transformations the user-α path deliberately does not (single-cut `≥`→`=`
-equality, `mean_shift` rebase, and `apply_alpha_floor`'s worst-case-box
-projection that has no off-switch) — so the two are architecturally distinct
-formulations whose bounds need not coincide; convergence to the true optimum is
-the rigorous, non-circular invariant.
+non-trivial α propagated phase-to-phase.  The analytic optimum is the primary
+oracle because the `boundary_cuts.csv` path, AS CONFIGURED BY DEFAULT, applies
+transformations the user-α path deliberately does not: the single-cut `≥`→`=`
++ free-α conversion (a DELIBERATE, correct, and CONFIGURABLE terminal-value
+form — only ever for a single cut; many cuts always keep the `≥` max-envelope
+Benders form — toggled by `FutureCost.single_cut_equality`, default `true` =
+the equality), the `mean_shift` α-rebase, and `apply_alpha_floor`'s
+worst-case-box projection.  Under those defaults the two are different
+formulations whose bounds need not coincide; convergence to the true optimum
+is the rigorous, non-circular invariant.
+
+**Faithful boundary-cut oracle (`test_ampl_future_cost.cpp`, test 8):** set
+`FutureCost.single_cut_equality = false` (keep the slack-able `≥` form even
+for a single cut) and `mean_shift = false`, and a single boundary cut
+`α + 90·efin ≥ 45000` is the SAME `≥` formulation as the user-authored
+terminal `≥` `UserConstraint` above — a direct cross-run asserts both converge
+to the identical LB == UB == $338850.  So the single-cut `≥`→`=` is not a
+defect but a configurable terminal-value choice: `single_cut_equality = true`
+(default) gives the continuous PLEXOS-style equality terminal value;
+`= false` gives the faithful slack-able `≥` Benders lower bound.
 
 **DEFERRED — Increment C (aperture).**  The equivalence test sets
 `aperture_chunk_size = -1` (aperture disabled).  The aperture backward pass
