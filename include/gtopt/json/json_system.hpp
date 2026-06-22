@@ -54,6 +54,7 @@
 #include <gtopt/json/json_thermal_storage.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/json/json_user_model.hpp>
 #include <gtopt/json/json_user_param.hpp>
 #include <gtopt/json/json_volume_right.hpp>
 #include <gtopt/json/json_waterway.hpp>
@@ -152,6 +153,7 @@ struct json_data_contract<System>
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
+      json_array_null<"user_model_array", Array<UserModel>, UserModel>,
       json_string_null<"user_constraint_file", OptName>,
       json_array_null<"user_constraint_files", std::vector<Name>, std::string>>;
 
@@ -204,6 +206,7 @@ struct json_data_contract<System>
                                  system.future_cost_array,
                                  system.plant_array,
                                  system.user_constraint_array,
+                                 system.user_model_array,
                                  system.user_constraint_file,
                                  system.user_constraint_files);
   }

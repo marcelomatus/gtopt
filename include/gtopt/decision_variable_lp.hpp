@@ -57,6 +57,16 @@ public:
     return value_cols.at({scenario.uid(), stage.uid()});
   }
 
+  /// Read-only access to the full per-(scenario, stage) per-block column map
+  /// populated by `add_to_lp`.  Additive accessor used by `UserModelLP` to
+  /// re-emit a bundled variable's `:sol` / `:cost` under the model's own
+  /// `output/UserModel/<tag>/...` namespace instead of `DecisionVariable/`.
+  [[nodiscard]] constexpr const STBIndexHolder<ColIndex>& value_cols_holder()
+      const noexcept
+  {
+    return value_cols;
+  }
+
 private:
   /// Per-(scenario, stage) per-block column index map; populated by
   /// :meth:`add_to_lp` and read by :meth:`add_to_output` to emit the

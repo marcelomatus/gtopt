@@ -175,6 +175,41 @@ auxiliary cols/rows that aren't first-class elements today.
 - Also gains `HasAddToPlanning` for **global/per-phase** user constructs
   (see piece 4), e.g. a user-supplied FCF.
 
+**STATUS: COMPLETE (2026-06-22).**  `UserModel` (schema +
+`json_user_model.hpp`) bundles a `tag`, a `variable_array`
+(`Array<DecisionVariable>`) and a `constraint_array`
+(`Array<UserConstraint>`) into one element.  `UserModelLP` REUSES the
+existing machinery rather than forking it: it holds one internal
+`DecisionVariableLP` per declared var and one internal `UserConstraintLP`
+per declared constraint, and drives their `add_to_lp` /
+`add_to_phase_lp` / `add_to_global_lp` verbatim — so the shared
+expr resolver, the `add_ampl_variable` routing, the `silent_flatten_pass()`
+gate (no double-register on SDDP rebuild), the soft-slack folding, the
+scope routing (`block|stage|phase|global`) and the aux-col lowering are
+all the SAME code paths as the standalone elements.  `add_to_output` does
+NOT delegate (that would file under `DecisionVariable/` / `UserConstraint/`);
+instead it reads each delegate's col/row holders through new ADDITIVE
+read-only getters and emits them under `output/UserModel/<tag>/<name>_{sol,
+cost,dual,slack}` via the standard `OutputContext` calls.  Wired into
+`collections_t` after `UserConstraintLP` (before `FutureCostLP`), with
+`static_assert(HasAddToLp && HasAddToOutput && HasAddToPlanning<UserModelLP>)`
+and `lp_type_index_v` ordering asserts.  Tests:
+`test_user_model.cpp` (schema round-trip; one-var-one-constraint build;
+output capture under the tag; global-scope single-row no-collision; aux-col
+policy).  `UserConstraint` / `DecisionVariable` are UNCHANGED (irrigation
+keeps working).
+
+**Aux-col policy (P1) — DECIDED.**  `abs(x)` / `min` / `max` lowering in
+`user_constraint_lp.cpp` creates `add_aux_col` columns (`abs_aux` /
+`min_aux` / `max_aux`) that are NOT registered in the AMPL variable
+registry and have no stable user-facing name.  `UserModel` captures ONLY
+the NAMED user cols (`DecisionVariable.value`) and NAMED rows
+(`UserConstraint.constraint` + its slacks); the aux cols/rows are treated
+as **internal / non-captured** LP-implementation detail (the simplest
+correct policy — they have no tag-name to file under, and their physical
+content is fully recoverable from the named row's dual).  This decision is
+also stated in a comment in `source/user_model_lp.cpp`.
+
 ### 4. AMPL indexing-set scope + `sum` aggregation
 
 Adopt AMPL's native semantics (this is core AMPL, not an extension):

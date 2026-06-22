@@ -71,6 +71,7 @@
 #include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
+#include <gtopt/user_model_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
@@ -219,6 +220,22 @@ static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<DecisionVariableLP>);
 static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
+
+// UserModelLP is the generic AMPL-capture element (piece 3): it bundles user
+// vars (cols) + user constraints (rows) into one element and re-emits the
+// named ones under output/UserModel/<tag>/...  It participates in the
+// operational build (AddToLP) for block/stage-scoped declarations AND the
+// planning passes (HasAddToPlanning) for phase/global-scoped ones, and it
+// captures its outputs (HasAddToOutput).
+static_assert(AddToLP<UserModelLP>);
+static_assert(HasAddToLp<UserModelLP>);
+static_assert(HasAddToOutput<UserModelLP>);
+static_assert(HasAddToPlanning<UserModelLP>);
+// Ordering: UserModelLP reuses the same resolver/registry as
+// UserConstraintLP and may reference reservoir/AMPL terminal columns, so it
+// sits AFTER UserConstraintLP in the type list (before the planning-only
+// FutureCostLP).
+static_assert(lp_type_index_v<UserModelLP> > lp_type_index_v<UserConstraintLP>);
 
 // FutureCostLP is a planning-level element: GLOBAL-scope build + output, with
 // NO per-(scenario, stage) add_to_lp.  It satisfies HasAddToPlanning +
@@ -413,6 +430,7 @@ public:
                                    Collection<DecisionVariableLP>,
                                    Collection<PlantLP>,
                                    Collection<UserConstraintLP>,
+                                   Collection<UserModelLP>,
                                    Collection<FutureCostLP>>;
 
   /// @return The full collections tuple.

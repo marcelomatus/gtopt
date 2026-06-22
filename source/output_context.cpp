@@ -737,8 +737,13 @@ auto create_tables(std::string_view fmt,
           cname_dir / (fname_stem + ".parquet") / scene_part / phase_part;
       fpath = dir_to_create / "part";
     } else {
-      dir_to_create = cname_dir;
       fpath = cname_dir / (fname_stem + csv_shard_suffix);
+      // A field-name stem may itself contain a path separator (e.g. a
+      // `UserModel` capture filed under `<tag>/<name>`), so create the
+      // shard's PARENT rather than just `cname_dir`.  With a plain stem
+      // `parent_path()` IS `cname_dir`, so existing single-level outputs are
+      // unaffected.
+      dir_to_create = fpath.parent_path();
     }
 
     std::error_code ec;

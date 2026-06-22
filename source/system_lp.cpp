@@ -727,6 +727,13 @@ void create_collections(const auto& system_context,
   std::get<Collection<UserConstraintLP>>(colls) =
       make_collection<UserConstraintLP>(ic, sys.user_constraint_array);
 
+  // UserModelLP (generic AMPL capture, piece 3) sits after UserConstraintLP:
+  // it reuses the same resolver/registry and may reference any column built
+  // above.  Its internal DecisionVariableLP / UserConstraintLP delegates run
+  // the standard build paths.
+  std::get<Collection<UserModelLP>>(colls) =
+      make_collection<UserModelLP>(ic, sys.user_model_array);
+
   // FutureCostLP (planning-only) is populated last so its α cut can reference
   // the reservoir + AMPL terminal state columns built above.  It contributes
   // nothing to the operational stage pass (no add_to_lp); the planning pass
@@ -807,6 +814,26 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<WaterwayLP>(sim, sys.waterway_array);
   register_element_names<LngTerminalLP>(sim, sys.lng_terminal_array);
   register_element_names<PlantLP>(sim, sys.plant_array);
+
+  // UserModel bundles vars/constraints; register each sub-declaration under
+  // the SAME AMPL class as its standalone counterpart so expressions resolve
+  // `decision_variable("X")` / `user_constraint("Y")` uniformly whether the
+  // declaration is standalone or bundled inside a UserModel.  The UserModel
+  // element itself is not an AMPL-referenceable class (it has no LP attribute).
+  {
+    constexpr auto dv_class =
+        DecisionVariableLP::Element::class_name.snake_case();
+    constexpr auto uc_class =
+        UserConstraintLP::Element::class_name.snake_case();
+    for (const auto& um : sys.user_model_array) {
+      for (const auto& dv : um.variable_array) {
+        sim.register_ampl_element(dv_class, dv.name, dv.uid);
+      }
+      for (const auto& uc : um.constraint_array) {
+        sim.register_ampl_element(uc_class, uc.name, uc.uid);
+      }
+    }
+  }
 
   // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
   // level under "seepage", not the snake-case of its class name

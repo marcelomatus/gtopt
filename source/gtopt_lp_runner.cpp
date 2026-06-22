@@ -211,6 +211,7 @@ void log_pre_solve_stats(
   log_count_if("flow_rights", sys.flow_right_array.size());
   log_count_if("volume_rights", sys.volume_right_array.size());
   log_count_if("user_constraints", sys.user_constraint_array.size());
+  log_count_if("user_models", sys.user_model_array.size());
   log_count_if("user_params", sys.user_param_array.size());
   spdlog::info("=== Simulation ===");
   log_count("blocks", sim.block_array.size());

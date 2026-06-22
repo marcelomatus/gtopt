@@ -138,6 +138,39 @@ public:
    */
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
+  // ── Additive read-only accessors (used by UserModelLP) ──────────────────
+  // UserModelLP drives an internal UserConstraintLP per bundled constraint
+  // and re-emits its rows/slacks under `output/UserModel/<tag>/...` instead
+  // of `UserConstraint/`.  These getters expose the LP-build state read by
+  // `add_to_output` WITHOUT changing any standalone behaviour.
+
+  /// Per-(scenario, stage) row indices produced by the build path.
+  [[nodiscard]] constexpr const STBIndexHolder<RowIndex>& rows_holder()
+      const noexcept
+  {
+    return m_rows_;
+  }
+
+  /// Per-(scenario, stage) soft-constraint slack columns (`slack`/`slack_pos`).
+  [[nodiscard]] constexpr const STBIndexHolder<ColIndex>& slack_cols_holder()
+      const noexcept
+  {
+    return m_slack_cols_;
+  }
+
+  /// Per-(scenario, stage) negative-deviation slack columns (`slack_neg`).
+  [[nodiscard]] constexpr const STBIndexHolder<ColIndex>&
+  slack_neg_cols_holder() const noexcept
+  {
+    return m_slack_neg_cols_;
+  }
+
+  /// Dual-output scaling parsed from `constraint_type`.
+  [[nodiscard]] constexpr ConstraintScaleType scale_type() const noexcept
+  {
+    return m_scale_type_;
+  }
+
 private:
   /// Shared builder for the COARSE-scope paths (`stage`/`phase`/`global`):
   /// resolves the expression at the supplied representative

@@ -1265,8 +1265,11 @@ auto PlanningLP::create_systems(System& system,
   // Enable per-cell AMPL variable registration when user constraints
   // exist (or any future consumer that calls find_ampl_col).  Without
   // user constraints, the map stays empty and add_ampl_variable is a
-  // no-op — saving allocation/hashing overhead.
-  if (!system.user_constraint_array.empty()) {
+  // no-op — saving allocation/hashing overhead.  UserModel bundles
+  // (piece 3) carry their own vars + constraints that reference / register
+  // AMPL columns, so they enable the registry too.
+  if (!system.user_constraint_array.empty() || !system.user_model_array.empty())
+  {
     simulation.set_need_ampl_variables(/*v=*/true);
   }
 
