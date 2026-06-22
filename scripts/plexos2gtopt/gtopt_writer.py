@@ -2354,8 +2354,13 @@ def build_reservoir_array(
             # volume can reach, e.g. 10-05 ELTORO).  Priced by the resolver:
             # the cut OVERWRITE (boundary-cut lower-bound water value) when
             # present, else the auto ``ANCHOR × cascade_lost_pf`` estimate.
-            # ``never_drain`` reservoirs keep their hard ``efin`` floor with
-            # NO soft price (the sentinel forbids buying out of it).
+            # ``never_drain`` (ELTORO) is a SEPARATE concern handled below: it
+            # disables only the drain/spill column and does NOT touch the
+            # ``efin`` soft price.  ELTORO therefore keeps its OWN boundary-cut
+            # water value here.  Gating it out previously left ELTORO un-priced,
+            # so ``apply_default_water_fail`` stamped the GLOBAL MAX onto it
+            # (= L_Maule's value, since CIPRESES is excluded from the max) —
+            # over-pricing ELTORO's terminal water with another reservoir's cut.
             #
             # ``soft_storage_bounds`` is the global hard/soft toggle shared
             # with plp2gtopt: when it is False, ``efin`` (the hard floor)
@@ -2365,7 +2370,6 @@ def build_reservoir_array(
                 soft_storage_bounds
                 and water_value_resolver is not None
                 and water_value_resolver.anchor > 0.0
-                and not res.never_drain
             ):
                 num = (reservoir_numbers or {}).get(res.name)
                 lost_pf = (

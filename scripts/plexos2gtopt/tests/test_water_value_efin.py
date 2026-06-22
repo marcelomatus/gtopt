@@ -244,8 +244,11 @@ def test_reservoir_water_value_factor_scales_cut() -> None:
     assert out[0]["efin_cost"] == 500.0
 
 
-def test_never_drain_reservoir_gets_no_efin_cost() -> None:
-    """``never_drain`` (ELTORO) keeps a HARD efin floor with NO soft price."""
+def test_never_drain_only_disables_drain() -> None:
+    """``never_drain`` (ELTORO) changes EXACTLY ONE thing: the drain/spill
+    column is disabled (``spillway_capacity = 0``).  It does NOT alter ``efin``
+    pricing — the reservoir is priced like any other (here the anchor estimate,
+    since no boundary cut is supplied)."""
     reservoirs = (
         ReservoirSpec(
             object_id=1,
@@ -274,7 +277,58 @@ def test_never_drain_reservoir_gets_no_efin_cost() -> None:
         reservoir_numbers=numbers,
     )
     assert out[0]["efin"] == 11000.0
-    assert "efin_cost" not in out[0]
+    # the ONLY effect of never_drain: the spill/drain column is disabled.
+    assert out[0]["spillway_capacity"] == 0.0
+    # efin is priced exactly like any reservoir — never_drain must NOT suppress it.
+    assert out[0].get("efin_cost", 0.0) > 0.0
+
+
+def test_never_drain_reservoir_uses_own_cut_not_default_max() -> None:
+    """Regression (2026-06-21): a never_drain head with its OWN boundary cut is
+    priced at its OWN water value — NOT another reservoir's (the global
+    default-fill max).  ELTORO was previously gated out of the resolver, then
+    ``apply_default_water_fail`` stamped L_Maule's (higher) value onto it."""
+    reservoirs = (
+        ReservoirSpec(
+            object_id=1,
+            name="ELTORO",
+            emax=20000.0,
+            eini=18000.0,
+            efin=18183.0,
+            never_drain=True,
+        ),
+        ReservoirSpec(
+            object_id=2, name="L_Maule", emax=10000.0, eini=9000.0, efin=8910.0
+        ),
+    )
+    turbines = (
+        TurbineSpec(
+            generator_name="ELTORO_gen", reservoir_name="ELTORO", production_factor=2.0
+        ),
+        TurbineSpec(
+            generator_name="L_Maule_gen",
+            reservoir_name="L_Maule",
+            production_factor=2.0,
+        ),
+    )
+    # ELTORO's OWN water value is LOWER than L_Maule's (the global max).
+    boundary_cut = BoundaryCutSpec(
+        fcf=1.0e6, slopes={"ELTORO": 6734.39, "L_Maule": 7472.69}
+    )
+    resolver, numbers = build_water_value_resolver(
+        reservoirs=reservoirs,
+        turbines=turbines,
+        generator_entries=_gens(30.0),
+        demand_entries=_demands(500.0),
+        boundary_cut=boundary_cut,
+    )
+    out = build_reservoir_array(
+        reservoirs, water_value_resolver=resolver, reservoir_numbers=numbers
+    )
+    apply_default_water_fail(out)
+    by = {r["name"]: r for r in out}
+    assert by["ELTORO"]["efin_cost"] == 6734.39  # its OWN cut, not L_Maule's
+    assert by["L_Maule"]["efin_cost"] == 7472.69
 
 
 def test_cascade_stops_at_next_reservoir_own_pf_fallback() -> None:
