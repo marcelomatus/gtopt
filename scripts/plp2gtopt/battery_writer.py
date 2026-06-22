@@ -178,8 +178,11 @@ class BatteryWriter(BaseWriter):
                 emax = item["emax"]
                 dcmax = item["dcmax"]
                 mloss = item["mloss"]
-                # pmax_discharge: dcmax from ESS, or central pmax
+                # pmax_discharge: dcmax from ESS, or central pmax.
+                # Expansion batteries may have pmax=0 — fall back to emax.
                 pmax_discharge = dcmax if dcmax > 0 else central.get("pmax", 0.0)
+                if pmax_discharge == 0.0 and emax > 0.0:
+                    pmax_discharge = emax
                 pmax_charge = pmax_discharge
 
                 man = man_parser.get_item_by_name(name) if man_parser else None
@@ -245,6 +248,13 @@ class BatteryWriter(BaseWriter):
                 nc = injections[0]["fpc"] if injections else _DEFAULT_FPC
                 nd = item.get("fpd", _DEFAULT_FPD)
                 pmax_discharge = central.get("pmax", 0.0)
+                # Expansion batteries have pmax=0 in plpcnfce.dat — the
+                # actual power limit comes from plpmance on the source
+                # generator.  Use emax as the structural upper bound so
+                # that gtopt's LP-reduction does not elide the battery
+                # (the per-block profile constrains actual dispatch).
+                if pmax_discharge == 0.0 and emax > 0.0:
+                    pmax_discharge = emax
                 pmax_charge = pmax_discharge
 
                 man = man_parser.get_item_by_name(name) if man_parser else None

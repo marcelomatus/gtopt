@@ -52,19 +52,26 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
   auto&& blocks = stage.blocks();
 
-  auto&& generator = sc.element<GeneratorLP>(generator_sid());
-  // Tolerant lookup: the synthetic discharge generator may have
-  // P1-elided blocks (zero discharge envelope); a missing block has no
-  // column to couple, so the conversion / capacity rows are skipped
-  // below rather than throwing on ``.at``.
-  auto&& gen_cols = generator.lookup_generation_cols(scenario, stage);
+  // Tolerant element lookups: for expansion batteries with pmax=0
+  // (active only in future stages), the synthetic generator, demand,
+  // or battery LP elements may be absent or have no columns for this
+  // (scenario, stage).  Skip the converter entirely in that case —
+  // there is nothing to couple.
+  const GeneratorLP* gen_ptr = nullptr;
+  const DemandLP* dem_ptr = nullptr;
+  const BatteryLP* bat_ptr = nullptr;
+  try {
+    gen_ptr = &sc.element<GeneratorLP>(generator_sid());
+    dem_ptr = &sc.element<DemandLP>(demand_sid());
+    bat_ptr = &sc.element<BatteryLP>(battery_sid());
+  } catch (const std::exception&) {
+    return true;  // element not in LP — skip silently
+  }
 
-  auto&& demand = sc.element<DemandLP>(demand_sid());
-  auto&& demand_cols = demand.load_cols_at(scenario, stage);
-
-  auto&& battery = sc.element<BatteryLP>(battery_sid());
-  auto&& finp_cols = battery.finp_cols_at(scenario, stage);
-  auto&& fout_cols = battery.fout_cols_at(scenario, stage);
+  auto&& gen_cols = gen_ptr->lookup_generation_cols(scenario, stage);
+  auto&& demand_cols = dem_ptr->load_cols_at(scenario, stage);
+  auto&& finp_cols = bat_ptr->finp_cols_at(scenario, stage);
+  auto&& fout_cols = bat_ptr->fout_cols_at(scenario, stage);
 
   BIndexHolder<RowIndex> grows;
   BIndexHolder<RowIndex> drows;
@@ -83,7 +90,11 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
     // has a 0 dual (it never bound), the natural zero.
     const auto gcol_it = gen_cols.find(buid);
     const auto dcol_it = demand_cols.find(buid);
-    if (gcol_it == gen_cols.end() || dcol_it == demand_cols.end()) {
+    const auto fout_it = fout_cols.find(buid);
+    const auto finp_it = finp_cols.find(buid);
+    if (gcol_it == gen_cols.end() || dcol_it == demand_cols.end()
+        || fout_it == fout_cols.end() || finp_it == finp_cols.end())
+    {
       continue;
     }
 
@@ -99,7 +110,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
               .context = block_context,
           }
               .equal(0);
-      const auto ocol = fout_cols.at(buid);
+      const auto ocol = fout_it->second;
 
       grow[ocol] = -stage_conversion_rate;
       grow[gcol] = +1;
@@ -108,7 +119,7 @@ bool ConverterLP::add_to_lp(SystemContext& sc,
 
     const auto dcol = dcol_it->second;
     {
-      const auto icol = finp_cols.at(buid);
+      const auto icol = finp_it->second;
       auto drow =
           SparseRow {
               .class_name = Element::class_name.full_name(),
