@@ -12,8 +12,12 @@ stage loop; inert until an element provides the hooks); **piece 2A** —
 **piece 2 C/D** — α output (COMPLETE, see below); **piece 3** — `UserModel`
 element (COMPLETE, see §3); **piece 4** — AMPL indexing-set scope + `sum{}`
 time-aggregation (COMPLETE, see §4); **piece 5 step 1** — AMPL `state`-variable
-bridge (COMPLETE, see §5).  **Pending:** piece 5 step 2 — `AmplFutureCost`
-(user-authored α + cuts feeding a `FutureCost` instance; see §5 "Deferred").
+bridge (COMPLETE, see §5); **piece 5 step 2a** — static user-overridable FCF
+(`use_user_alpha` / `user_alpha_uid` + built-in-α suppression + guards +
+output, COMPLETE, see §5); **piece 5 step 2b** — `FutureCost` boundary config
+consolidation (COMPLETE, see §5).  **Deferred:** piece 5 step 2c — dynamic
+`AmplFutureCost` / SDDP cross-phase recourse (the backward pass is hardwired to
+the built-in α; see §5 "DEFERRED — step 2c").
 
 ### Piece 2 D — RE-SCOPED to "α output only" (decided 2026-06-21)
 
@@ -310,17 +314,95 @@ errors; registration under `UserStateVar` in every phase (never under
 none); SDDP solve converges with the user state var present + coupled
 (`links=2/2` in the backward log).
 
-**DEFERRED — step 2 (`AmplFutureCost`).**  The user-authored global α
-DecisionVariable + global `UserConstraint` cuts feeding a `FutureCost`
-instance (reusing `register_alpha_variables` verbatim + rebase, with a
-mutual-exclusion runtime check vs the built-in `boundary_cuts.csv` FCF) is
-NOT yet implemented.  Step 1 is the high-value, load-bearing increment (the
-state-var bridge) and is verified standalone; step 2 builds on it and is
-tracked as the remaining piece-5 work.  The state machinery it needs is
-exactly what step 1 exposes — a user α is just a `global` `state` cost
-DecisionVariable, and user cuts are `global` `UserConstraint`s over it; the
-remaining work is wiring those onto the `FutureCost` α-registration / rebase
-path and the both-active guard.
+**STATUS — step 2a (static user-overridable FCF): COMPLETE (2026-06-22).**
+A `FutureCost` element can now carry `use_user_alpha: true` + `user_alpha_uid`
+(typed `Uid`), sourcing the cost-to-go from a user-authored α
+`DecisionVariable` + `UserConstraint` cuts instead of the built-in
+boundary-cut α (schema + JSON round-trip in `future_cost.hpp` /
+`json_future_cost.hpp`).
+
+- **Built-in-α suppression.**  `register_alpha_variables` gained a trailing
+  `register_as_state_variable = true` param (default = byte-for-byte legacy).
+  When `false` the α column is still ADDED to each LP (layout / aperture
+  mirroring unchanged) but priced `0` and NOT registered as a
+  `StateVariable`, so `find_alpha_state_var` returns null and the cut router /
+  `apply_alpha_floor` / `bound_alpha` never touch it — the built-in α is
+  inert (pinned `lowb = uppb = 0`).
+  `SDDPMethod::initialize_alpha_variables` passes `!has_active_use_user_alpha`.
+  The `register_alpha_variables` BODY is otherwise untouched (the call is
+  gated / parameterised, not re-inlined).
+- **Runtime guards** in `SDDPMethod::initialize_solver`, all returning
+  `std::unexpected` (NOT throw): (1) `use_user_alpha` + `boundary_cuts_file`
+  are mutually exclusive; (2) `user_alpha_uid` is required AND must match a
+  `DecisionVariable` with `cost != 0` (an unpriced α leaves the master
+  unbounded below in the future-cost dimension); (3) `use_user_alpha` skips
+  the whole boundary-cut load block (`m_scene_alpha_offsets_` stays zero);
+  `use_user_alpha && mean_shift` ⇒ WARN ignored.
+- **Element reads are compress-safe.**  `active_future_cost(planning_lp)` /
+  `has_active_use_user_alpha` read the `FutureCost` straight from the System
+  INPUT data (`future_cost_array`), NOT the LP collection — the SDDP default
+  `low_memory = compress` drops the planning-only `FutureCostLP` collection
+  (it has no `update_lp`), leaving `elements<FutureCostLP>()` empty while the
+  input array is intact.  Same for the user-α-cost guard
+  (`decision_variable_array`).
+- **Output.**  `FutureCostLP::add_to_output` emits the user α (located by
+  `user_alpha_uid`) as `FutureCost/alpha` under `use_user_alpha`.
+
+**Pricing convention (proven, not hand-waved).**  The built-in α is priced
+`1/N` (= 1.0 for the single-scene single-α layout) on a column scaled by
+`scale_alpha`, contributing the realised cost-to-go in $.  The equivalent
+user α must carry the SAME physical 1:1 weight: a `DecisionVariable` with
+`cost = 1.0`, `cost_type = "raw"` (face value — NO probability / discount /
+duration weighting), free below (cost-to-go may be negative).  A coef-0
+boundary cut `α ≥ rhs` and the user cut
+`decision_variable('user_alpha').value >= rhs` then BOTH add `rhs` once to the
+objective.  Gold-standard equivalence test (`test_ampl_future_cost.cpp`): a
+single-phase monolithic case solved twice (boundary cut vs user α + cut)
+gives the SAME objective — `baseline 2850 + rhs 15250 = 18100` on both sides,
+within `1e-3`.  Plus: schema round-trip, the mutual-exclusion
+`std::unexpected`, the cost==0 `std::unexpected`.
+
+**STATUS — step 2b (boundary config consolidation): COMPLETE (2026-06-22).**
+`SDDPBoundaryConfig` + `boundary_config(const FutureCost&)` map the element's
+authored boundary fields (`cuts_file`, `scale_alpha`, `mean_shift`, `sharing`,
+`mode`) onto the resolved `SDDPOptions` boundary fields.
+`SDDPMethod::initialize_solver` applies the override early (before the
+scale_alpha auto-derivation + the boundary-cut load), gated on the element
+having EXPLICITLY set each field — read-site only, byte-for-byte unchanged
+when there is no `FutureCost` element or it leaves a field unset.  Test:
+element `mean_shift=false` beats `SDDPOptions.boundary_cuts_mean_shift=true`
+(`scene_alpha_offset == 0`); `test_sddp_boundary_cuts_mean_shift` stays green.
+
+**DEFERRED — step 2c (dynamic AmplFutureCost / SDDP cross-phase recourse).**
+The dynamic user-α recourse — where the user α is a cross-phase `state`/`link`
+column whose value function is refined by the SDDP backward pass in EVERY
+phase — is NOT implemented, and is deferred with this precise reason:
+
+> The SDDP backward pass is hardwired to the BUILT-IN α column.
+> `SDDPMethod::backward_pass_single_phase` (`sddp_method_iteration.cpp:547`)
+> resolves `src_alpha_col` via `find_alpha_state_var` (the built-in
+> `sddp_alpha_lp_class` α) and `build_benders_cut_physical` puts the
+> cut's `+1` coefficient on it.  Under `use_user_alpha` the built-in α is
+> suppressed, so `src_alpha_col = unknown_index` → the very first optimality
+> cut indexes out of bounds in `LinearInterface::add_row` (verified SIGABRT,
+> `stl_vector.h:1282`).  Worse, `collect_state_variable_links`
+> (`sddp_method_alpha.cpp:641`) skips ONLY the built-in α class from
+> `outgoing_links`, so a user α registered as a generic `UserStateVar` state
+> var is (wrongly) treated as a FORWARD state with elastic slacks — it is the
+> cost-to-go ESTIMATOR (backward), not a forward stock.
+
+Making 2c converge therefore requires the backward pass to TARGET the user α
+as `src_alpha_col` and to treat the `UserStateVar` α like the engine α
+(skip it from `outgoing_links`, route cuts onto it, mirror it on the aperture
+system) — a substantial, risky change to load-bearing SDDP code that cannot
+be made surgical/incremental while keeping every gate green.  Per the agreed
+"a verified 2a+2b beats a shaky 2c" guidance it is deferred.  The 2c
+front-door (`ampl_future_cost` flag + the forward-pass UB-estimator fallback
+to the user α) is straightforward; the blocker is the backward-pass α
+hardwiring above.  **`use_user_alpha` is therefore safe ONLY where the SDDP
+backward pass does not cut over the suppressed α** — i.e. the monolithic
+method (one LP, no backward pass) and single-phase models; the 2a guards +
+the equivalence proof are scoped accordingly.
 
 ## Capability matrix
 
