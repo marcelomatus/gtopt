@@ -348,3 +348,135 @@ TEST_CASE(  // NOLINT
 
   std::filesystem::remove(cuts_file);
 }
+
+// ─── 6. AmplFutureCost 2c — DYNAMIC multi-phase SDDP recourse over a user α ──
+//
+// The proof that a USER-authored α is a correct SDDP backward-pass recourse
+// column: build the 3-phase hydro fixture with a user-authored global
+// `state`/`link` α `DecisionVariable` (cost 1.0 raw, free below) + a TERMINAL
+// `UserConstraint`
+//   `user_alpha + W·reservoir('rsv1').efin ≥ R,  for(stage in {3})`
+// + `FutureCost{use_user_alpha=true}`, run SDDP, and assert the user-α policy
+// converges — self-consistently (LB ≤ UB) — to the INDEPENDENTLY-DERIVED
+// analytic optimum of the deterministic-equivalent multi-stage problem.
+//
+// Why an analytic oracle (not a boundary-cut cross-run): the built-in
+// `boundary_cuts.csv` path is NOT a faithful oracle here — it applies three
+// transformations the user-α path deliberately does not (single-cut `≥`→`=`
+// equality conversion; the `mean_shift` α-rebase; and `apply_alpha_floor`'s
+// projection of the cut onto the worst-case state box, which has no off-switch
+// and over-tightens the LB).  The user-α path takes the `bound_user_alpha`
+// branch instead.  So the two are architecturally distinct formulations whose
+// converged bounds need not coincide; the rigorous, non-circular invariant is
+// convergence to the true optimum, which is hand-derivable on this tiny
+// fixture.
+//
+// Cut design (W, R chosen for a UNIQUE, non-degenerate, binding optimum):
+//   * W = 90 $/dam³ is STRICTLY above the hydro−thermal differential
+//     ($50 − $5 = $45/dam³), so every saved dam³ is worth $45 more in the cut
+//     than the foregone dispatch it costs → the LP drives terminal storage to
+//     its UNIQUE upper corner (emax = 500).  W = 45 (= the differential) would
+//     leave terminal efin DEGENERATE (a flat objective face over [0, 500]).
+//   * R = W·emax = 90·500 = 45000 makes α = R − W·efin = 0 at the optimum, so
+//     UB == LB (gap → 0) at the unique corner.
+//
+// Analytic optimum (first-principles arithmetic on the fixture parameters):
+//   terminal efin = 500 (forced) ⇒ net storage +250 over the 3-phase horizon.
+//   water dispatched = eini(250) + 3·inflow(240) − efin(500) = 470 dam³ hydro.
+//   demand = 100 MW · 72 h = 7200 MWh.
+//   thermal = (7200 − 470) MWh · $50 = $336500;  hydro = 470 · $5 = $2350.
+//   terminal α = max(0, 45000 − 90·500) = 0.
+//   ⇒ optimum = $338850.
+//
+// The reservoir terminal column is the AMPL `efin` variable
+// (`StorageLP::EfinName`).  The `for(stage in {3})` clause restricts the user
+// cut to the terminal phase (rep_stage uid = 3); a `global` UserConstraint
+// otherwise fires at EVERY phase, adding intermediate-phase floors the FCF
+// must not impose.
+TEST_CASE(  // NOLINT
+    "AmplFutureCost 2c — user α drives SDDP recourse to the analytic optimum")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  constexpr double kW =
+      90.0;  // $/dam³ — STRICTLY > differential → unique corner
+  constexpr double kR = 45000.0;  // = W·emax → unique efin = 500, α = 0
+  constexpr double kAnalytic = 338850.0;  // hand-derived deterministic optimum
+  constexpr Uid kUaUid {4244};
+
+  auto planning = make_3phase_hydro_planning();
+  planning.options.method = MethodType::sddp;
+  // Global state/link α DecisionVariable, priced cost = 1.0 raw, free below.
+  planning.system.decision_variable_array.push_back(DecisionVariable {
+      .uid = kUaUid,
+      .name = "user_alpha",
+      .lower_bound = OptReal {-1.0e9},
+      .cost = OptReal {1.0},
+      .cost_type = OptName {"raw"},
+      .scope = OptName {"global"},
+      .state = OptBool {true},
+      .link = OptBool {true},
+  });
+  // Terminal cut: user_alpha + W·efin ≥ R, restricted to the terminal stage
+  // (uid 3) so it installs ONLY on the last phase.
+  planning.system.user_constraint_array.push_back(UserConstraint {
+      .uid = Uid {4245},
+      .name = "fcf_cut",
+      .expression = Name {std::format(
+          "decision_variable('user_alpha').value + {}*reservoir('rsv1').efin "
+          ">= {}, for(stage in {{3}})",
+          kW,
+          kR)},
+      .constraint_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+  planning.system.future_cost_array.push_back(FutureCost {
+      .uid = Uid {1},
+      .name = "ufcf",
+      .use_user_alpha = OptBool {true},
+      .user_alpha_uid = OptUid {kUaUid},
+  });
+
+  PlanningLP planning_lp(std::move(planning));
+  SDDPOptions opts;
+  // gap_only + stationary OFF so the forward policy is driven to the unique
+  // deterministic optimum (no early ΔUB stationary stop).  20 iters is ample
+  // for this 3-phase fixture (gap closes within ~5).
+  opts.max_iterations = 20;
+  opts.convergence_tol = 1e-4;
+  opts.convergence_mode = ConvergenceMode::gap_only;
+  opts.stationary_tol = 0.0;
+  opts.cut_sharing = CutSharingMode::none;
+  opts.aperture_chunk_size = -1;  // aperture disabled (increment A scope)
+  opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const double lb = results->back().lower_bound;
+  const double ub = results->back().upper_bound;
+  const double gap = results->back().gap;
+  CAPTURE(lb);
+  CAPTURE(ub);
+  CAPTURE(gap);
+  CAPTURE(kAnalytic);
+
+  // (1) SDDP bound consistency: no LB overshoot (gap ≥ −fp-noise), UB ≥ LB.
+  CHECK(gap >= -1e-6);
+  CHECK(ub >= lb - 1e-6);
+
+  // (2) Non-trivial bounds — a stuck user-α bootstrap pin would leave LB ≈ 0.
+  CHECK(std::isfinite(lb));
+  CHECK(std::isfinite(ub));
+  CHECK(lb > 1000.0);
+
+  // (3) Convergence to the TRUE multi-stage optimum.  This proves the user α
+  //     is a correct SDDP recourse column — the value function it carries
+  //     reproduces the deterministic-equivalent optimum, not merely a
+  //     self-consistent-but-wrong fixed point.  1e-3 relative is 10× the
+  //     convergence_tol yet tight enough to catch any encoding error > ~$340.
+  CHECK(lb == doctest::Approx(kAnalytic).epsilon(1e-3));
+  CHECK(ub == doctest::Approx(kAnalytic).epsilon(1e-3));
+}
