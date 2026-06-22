@@ -8,8 +8,12 @@ concepts (`HasAddToLp`/`HasAddToOutput` split + the new
 stage loop; inert until an element provides the hooks); **piece 2A** —
 `FutureCostLP` + `json_future_cost.hpp` wired end-to-end (inert), in
 `collections_t` after `UserConstraintLP`; **piece 2B** — sharpened the
-`mean_shift` bound-consistency safety net (`test_sddp_boundary_cuts_mean_shift`).
-**Pending:** piece 2 C/D (α output), pieces 3–5.
+`mean_shift` bound-consistency safety net (`test_sddp_boundary_cuts_mean_shift`);
+**piece 2 C/D** — α output (COMPLETE, see below); **piece 3** — `UserModel`
+element (COMPLETE, see §3); **piece 4** — AMPL indexing-set scope + `sum{}`
+time-aggregation (COMPLETE, see §4); **piece 5 step 1** — AMPL `state`-variable
+bridge (COMPLETE, see §5).  **Pending:** piece 5 step 2 — `AmplFutureCost`
+(user-authored α + cuts feeding a `FutureCost` instance; see §5 "Deferred").
 
 ### Piece 2 D — RE-SCOPED to "α output only" (decided 2026-06-21)
 
@@ -262,6 +266,61 @@ This makes the AMPL layer a full **multi-stage stochastic** modelling
 surface: per-block operating constraints (piece 4), coarse-scope
 budgets/agreements (piece 4), and now cross-stage **state + recourse**
 (piece 5) — all author-able without C++.
+
+**STATUS — step 1 (AMPL `state`-variable bridge): COMPLETE (2026-06-22).**
+`DecisionVariable` gained `state: true` + `link: true` (schema +
+`json_decision_variable.hpp`).  `DecisionVariableLP` now honours `scope`:
+`block` (legacy per-block) and `stage` (one col per (scenario, stage)) build
+in the operational `add_to_lp`; `phase` / `global` build ONE column per
+(scene, phase) cell in the NEW planning passes
+(`DecisionVariableLP::add_to_phase_lp` / `add_to_global_lp`, wired into the
+piece-1 `add_to_planning_lp` driver).  When `state: true`, the coarse cell
+column is registered as a cross-phase `StateVariable` via
+`SystemContext::add_state_col` and (`link: true`) deferred-linked to the
+previous phase's same-variable column via `defer_state_link` — so it RIDES
+the existing generic backward pass (`sim.state_variables(scene,phase)`),
+coupled across phases and present in every optimality / feasibility cut, with
+NO engine change.  The bridge **fixes the typing no-op**: previously
+`state: true` did nothing; now it produces a real `StateVariable`.
+
+Guards (all enforced + tested):
+- `state: true` WITHOUT `link` ⇒ hard error at construction (guard 2).
+- `state: true` with `block` scope ⇒ hard error (guard 3) — a state var has
+  no single end-of-phase value to propagate.
+- the `StateVariable::Key::class_name` uses a DEDICATED prefix
+  (`DecisionVariableLP::StateClassName = "UserStateVar"`), distinct from the
+  element's own `DecisionVariable` class AND from engine state (reservoir
+  `efin`, the built-in α `sddp_alpha_lp_class`), so its identity round-trips
+  through cut I/O without colliding (guard 4).
+- `var_scale = 1.0` on the user state column (guard 6 — plain LP column, no
+  semantic scale).
+- ADDITIVE: the legacy block/stage `DecisionVariable` build is byte-for-byte
+  unchanged; the built-in boundary-cut FCF / reservoir efin / α paths are
+  untouched (pieces 2/4 tests stay green).
+
+`UserModelLP` now drives its bundled variables' planning passes (variables
+before constraints in `add_to_phase_lp` / `add_to_global_lp`, mirroring the
+standalone collection order) so a bundled `state` var + a `global`
+`UserConstraint` over it builds in the right order — the foundation for
+`AmplFutureCost`.
+
+Tests: `test/source/test_ampl_state.cpp` — schema round-trip; both guard
+errors; registration under `UserStateVar` in every phase (never under
+`DecisionVariable`); cross-phase dependent-variable links (last phase has
+none); SDDP solve converges with the user state var present + coupled
+(`links=2/2` in the backward log).
+
+**DEFERRED — step 2 (`AmplFutureCost`).**  The user-authored global α
+DecisionVariable + global `UserConstraint` cuts feeding a `FutureCost`
+instance (reusing `register_alpha_variables` verbatim + rebase, with a
+mutual-exclusion runtime check vs the built-in `boundary_cuts.csv` FCF) is
+NOT yet implemented.  Step 1 is the high-value, load-bearing increment (the
+state-var bridge) and is verified standalone; step 2 builds on it and is
+tracked as the remaining piece-5 work.  The state machinery it needs is
+exactly what step 1 exposes — a user α is just a `global` `state` cost
+DecisionVariable, and user cuts are `global` `UserConstraint`s over it; the
+remaining work is wiring those onto the `FutureCost` α-registration / rebase
+path and the both-active guard.
 
 ## Capability matrix
 

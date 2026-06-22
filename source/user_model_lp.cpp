@@ -104,16 +104,23 @@ bool UserModelLP::add_to_lp(const SystemContext& sc,
   return true;
 }
 
-bool UserModelLP::add_to_phase_lp(const SystemContext& sc,
+bool UserModelLP::add_to_phase_lp(SystemContext& sc,
                                   const SceneLP& scene,
                                   const PhaseLP& phase,
                                   LinearProblem& lp)
 {
-  // DecisionVariableLP is purely per-(scenario, stage) today (no planning
-  // hooks), so only the constraints have phase/global passes.  Variables
-  // declared with a coarse `scope` still build their column in `add_to_lp`
-  // (the DecisionVariableLP scope field controls the per-block fan-out, not a
-  // planning pass) — matching standalone behaviour exactly.
+  // Variables FIRST so a phase/global-scoped constraint that references a
+  // phase/global-scoped (e.g. `state`) variable resolves the column the
+  // variable just registered — reproducing the standalone collection order
+  // (DecisionVariableLP → UserConstraintLP) inside the planning pass.  A
+  // coarse `phase`-scope variable (incl. an AMPL `state` α) builds its single
+  // (scene, phase) column here; block/stage-scoped variables already built in
+  // `add_to_lp` and no-op here.
+  for (auto& dv : m_variables_) {
+    if (!dv.add_to_phase_lp(sc, scene, phase, lp)) {
+      return false;
+    }
+  }
   for (auto& uc : m_constraints_) {
     if (!uc.add_to_phase_lp(sc, scene, phase, lp)) {
       return false;
@@ -122,11 +129,16 @@ bool UserModelLP::add_to_phase_lp(const SystemContext& sc,
   return true;
 }
 
-bool UserModelLP::add_to_global_lp(const SystemContext& sc,
+bool UserModelLP::add_to_global_lp(SystemContext& sc,
                                    const SceneLP& scene,
                                    const PhaseLP& phase,
                                    LinearProblem& lp)
 {
+  for (auto& dv : m_variables_) {
+    if (!dv.add_to_global_lp(sc, scene, phase, lp)) {
+      return false;
+    }
+  }
   for (auto& uc : m_constraints_) {
     if (!uc.add_to_global_lp(sc, scene, phase, lp)) {
       return false;

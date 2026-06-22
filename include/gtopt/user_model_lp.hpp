@@ -75,15 +75,18 @@ public:
                                LinearProblem& lp);
 
   /// Planning-level phase-scope build (one row/col per (scene, phase) cell)
-  /// for any bundled var/constraint declared with `scope: phase`.
-  [[nodiscard]] bool add_to_phase_lp(const SystemContext& sc,
+  /// for any bundled var/constraint declared with `scope: phase`.  Non-const
+  /// `SystemContext&` because a bundled `state` variable registers a
+  /// cross-phase `StateVariable` (a non-const registry mutation).
+  [[nodiscard]] bool add_to_phase_lp(SystemContext& sc,
                                      const SceneLP& scene,
                                      const PhaseLP& phase,
                                      LinearProblem& lp);
 
   /// Planning-level global-scope build (one un-indexed row/col per cell) for
-  /// any bundled var/constraint declared with `scope: global`.
-  [[nodiscard]] bool add_to_global_lp(const SystemContext& sc,
+  /// any bundled var/constraint declared with `scope: global`.  Non-const
+  /// `SystemContext&` for the same state-registration reason.
+  [[nodiscard]] bool add_to_global_lp(SystemContext& sc,
                                       const SceneLP& scene,
                                       const PhaseLP& phase,
                                       LinearProblem& lp);

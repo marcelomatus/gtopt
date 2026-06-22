@@ -218,6 +218,13 @@ static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<DecisionVariableLP>);
+// DecisionVariableLP also participates in the planning passes (piece 4/5):
+// `phase` / `global`-scoped columns (incl. the AMPL `state` α) are built once
+// per (scene, phase) cell via add_to_phase_lp / add_to_global_lp.  It keeps
+// the operational AddToLP for block/stage scope (every legacy bundle).
+static_assert(HasAddToPhaseLp<DecisionVariableLP>);
+static_assert(HasAddToGlobalLp<DecisionVariableLP>);
+static_assert(HasAddToPlanning<DecisionVariableLP>);
 static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
 

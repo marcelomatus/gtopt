@@ -111,6 +111,30 @@ struct DecisionVariable
   /// column set is created.
   OptUid block {};
 
+  /// AMPL **state variable** flag (piece 5).  When ``true`` this column is
+  /// registered as a cross-phase ``StateVariable`` (via
+  /// ``SystemContext::add_state_col``) so the SDDP backward pass couples it
+  /// across phases and includes it in every optimality / feasibility cut —
+  /// the same machinery the reservoir ``efin`` and the built-in FCF α use,
+  /// exposed to the AMPL author.  A state variable MUST be coarse-scoped
+  /// (``scope`` = ``stage`` / ``phase`` / ``global``) — one column per
+  /// (scene, phase) cell — NEVER per ``block`` (a per-block column has no
+  /// single end-of-phase value to propagate).  It also REQUIRES ``link``:
+  /// see below.  Default unset ⇒ ``false`` (a plain free column).
+  OptBool state {};
+
+  /// Cross-phase **link** flag for a ``state`` variable (piece 5).  When
+  /// ``true``, this phase's column is linked to the SAME variable's column
+  /// in the PREVIOUS phase (this phase's start value = previous phase's end
+  /// value), via ``SystemContext::defer_state_link``.  The previous-phase
+  /// ``StateVariable::Key`` is synthesized from this variable's own identity
+  /// (uid + ``value`` col + a dedicated user-state ``class_name`` prefix) so
+  /// it round-trips through cut I/O without colliding with engine state
+  /// (reservoir efin, built-in α).  ``state: true`` WITHOUT ``link`` is a
+  /// hard error at build time — an un-linked state variable would silently
+  /// decouple the phases.  Ignored when ``state`` is unset / ``false``.
+  OptBool link {};
+
   /// Optional objective constant for a mean-shifted (rebased) variable.
   /// When the variable is α-rebased as ``value = value' + obj_constant``
   /// (the LP column holds ``value'``), the objective loses the constant
