@@ -3483,19 +3483,24 @@ def _read_boundary_cut_coeffs(*dirs: str | Path | None) -> dict[str, float]:
 def _reservoir_water_cost(
     volumes: dict[str, dict[str, float]], coef: dict[str, float]
 ) -> float:
-    """Operational cost of water drawn down over the horizon, on a basis
-    common to gtopt and PLEXOS (PLEXOS exposes only NET storage, not
-    per-block extraction):
+    """Terminal water cost on a basis common to gtopt and PLEXOS (PLEXOS
+    exposes only NET storage, not per-block extraction):
 
-        sum_r  max(0, eini_r - efin_r) * |coef_r|
+        sum_r  (eini_r - efin_r) * |coef_r|
 
-    over the boundary-cut reservoirs -- net withdrawal x marginal water
-    value.  Refills (efin > eini) contribute zero; the same formula is
-    applied to each side's own eini/efin so the comparison is
-    apples-to-apples.
+    over the boundary-cut reservoirs -- the SIGNED net change x the marginal
+    water value (the boundary-cut slope).  A draw-down (efin < eini) is a
+    positive cost (a valued asset was consumed); a REFILL (efin > eini) is a
+    NEGATIVE cost -- a credit for water banked at its FCF value.  This mirrors
+    the cost-to-go the LP itself optimises (`alpha = rhs + sum slope*vol_end`):
+    the same single cut both sides use, so the constant `rhs`/`c` intercept
+    cancels in the gtopt-vs-PLEXOS comparison and only the slope*vol_end term
+    matters.  Clamping refills to zero (the prior `max(0, ...)`) dropped the
+    stored-water credit entirely and made a hydro-banking gtopt run look more
+    expensive than it is.
     """
     return sum(
-        max(0.0, vol.get("eini", 0.0) - vol.get("efin", 0.0)) * coef[name]
+        (vol.get("eini", 0.0) - vol.get("efin", 0.0)) * coef[name]
         for name, vol in volumes.items()
         if name in coef
     )

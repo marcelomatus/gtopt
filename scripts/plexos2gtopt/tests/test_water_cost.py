@@ -3,9 +3,11 @@
 The compare tool now reports a Water $ + Operational+Water $ line, computed on
 a basis common to gtopt and PLEXOS (PLEXOS exposes only net storage):
 
-    water_$ = Σ_r max(0, eini_r - efin_r) · |boundary_coef_r|
+    water_$ = Σ_r (eini_r - efin_r) · |boundary_coef_r|     # SIGNED
 
-These tests pin the two helpers behind that line.
+A draw-down is a positive cost; a refill is a negative cost (a credit for
+water banked at its FCF value).  These tests pin the two helpers behind that
+line.
 """
 
 from __future__ import annotations
@@ -18,15 +20,16 @@ from plexos2gtopt.compare_with_plexos import (
 )
 
 
-def test_reservoir_water_cost_net_drawdown() -> None:
-    """Only net drawdown (eini > efin) over boundary-cut reservoirs is charged."""
+def test_reservoir_water_cost_signed_net_change() -> None:
+    """SIGNED net change over boundary-cut reservoirs: draw-down is a cost,
+    a refill is a credit (the stored-water FCF value must not be clamped)."""
     coef = {"ELTORO": 10.0, "RALCO": 5.0}
     vols = {
-        "ELTORO": {"eini": 100.0, "efin": 80.0},  # drawdown 20 -> 200
-        "RALCO": {"eini": 50.0, "efin": 60.0},  # refill -> 0 (no credit)
+        "ELTORO": {"eini": 100.0, "efin": 80.0},  # drawdown 20 -> +200
+        "RALCO": {"eini": 50.0, "efin": 60.0},  # refill 10 -> -50 (credit)
         "NOTINCUT": {"eini": 99.0, "efin": 0.0},  # not in coef -> skipped
     }
-    assert _reservoir_water_cost(vols, coef) == 200.0
+    assert _reservoir_water_cost(vols, coef) == 150.0  # 200 - 50
 
 
 def test_reservoir_water_cost_empty_coef() -> None:
