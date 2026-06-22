@@ -3677,6 +3677,24 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 len(solution_efin),
             )
 
+    # PLEXOS prices controlled spill on each reservoir's ``Vert_<name>``
+    # spillway waterway via its ``Max Flow Penalty`` ($/(m³/s)/h), NOT the
+    # Storage ``Spill Penalty`` (shipped at 0).  CEN PCP: 3.60 for most
+    # reservoirs, 360 for CIPRESES.  The gas ``Vert_*_GNL_INF`` arcs (penalty
+    # 7200, source = an LNG accounting artifact, not a hydro reservoir) and the
+    # PLEXOS ``-1`` deactivated-feature sentinel are excluded.  Keyed by the
+    # source reservoir name (the part after the ``Vert_`` prefix).
+    vert_spill_penalty: dict[str, float] = {}
+    for _w in db.objects_of_class("Waterway"):
+        if not _w.name.startswith("Vert_"):
+            continue
+        _src = _w.name[len("Vert_") :]
+        if _src.endswith("_GNL_INF"):
+            continue
+        _pen = db.static_property("Waterway", _w.object_id, "Max Flow Penalty")
+        if _pen is not None and float(_pen) > 0.0:
+            vert_spill_penalty[_src] = float(_pen)
+
     out: list[ReservoirSpec] = []
     skipped_lng = 0
     for storage in db.objects_of_class("Storage"):
@@ -3920,6 +3938,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 water_value=water_value_gwh,
                 never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
+                spill_flow_penalty=vert_spill_penalty.get(name, 0.0),
                 emin_profile=emin_profile,
                 emax_profile=emax_profile,
             )

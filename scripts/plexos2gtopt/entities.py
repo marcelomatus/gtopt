@@ -491,13 +491,18 @@ class ReservoirSpec:
     eini: float = 0.0
     efin: float = 0.0
     water_value: float = 0.0
-    # True when PLEXOS shipped the 1e+30 "never drain" sentinel on
-    # `Water Value`.  The writer must then emit `efin = eini` as a HARD
-    # `vol_end >= eini` constraint and skip `efin_cost` entirely (the
-    # soft-slack path would let the LP buy out of the sentinel at the
-    # clamped price, which is exactly what the sentinel forbids).
+    # True for the Laja cascade head (ELTORO).  Its ONLY effect: the writer
+    # sets `spillway_capacity = 0` so water can leave only through turbines,
+    # never spilled.  It does NOT touch `efin` pricing — the efin_cost is
+    # resolved like any reservoir (own boundary-cut water value).
     never_drain: bool = False
+    # PLEXOS Storage `Spill Penalty` ($/MWh) — 0 across all CEN PCP reservoirs.
     spill_penalty_per_mwh: float = 0.0
+    # PLEXOS `Vert_<name>` spillway `Max Flow Penalty` ($/(m³/s)/h) — the real
+    # per-reservoir controlled-spill cost (CEN PCP: 3.60 for most reservoirs,
+    # 360 for CIPRESES; the gas `Vert_*_GNL_INF` arcs are excluded).  Used
+    # DIRECTLY as `spillway_cost` (no $/MWh productibility conversion).
+    spill_flow_penalty: float = 0.0
     # Optional per-block emin/emax profiles (length = n_blocks).  When
     # set, the writer emits the inline ``[[per-block]]`` matrix instead
     # of the scalar ``emin`` / ``emax`` fields.  Used by PLEXOS-style

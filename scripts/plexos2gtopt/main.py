@@ -506,9 +506,10 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     # Global hard/soft reservoir-floor toggle shared with plp2gtopt.  When
-    # soft (the default) each reservoir's ``efin`` floor is priced via the
-    # C++ ``Reservoir.efin_cost`` slack; ``--no-soft-storage-bounds`` makes
-    # every ``vol_end >= efin`` a HARD constraint instead.
+    # soft (the default) each reservoir's ``efin`` floor is priced in Python
+    # (``WaterValueResolver`` → ``Reservoir.efin_cost``);
+    # ``--no-soft-storage-bounds`` makes every ``vol_end >= efin`` a HARD
+    # constraint instead.
     add_soft_storage_bounds_argument(parser)
     parser.add_argument(
         "--nseg-losses",

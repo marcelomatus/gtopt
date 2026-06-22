@@ -2400,6 +2400,17 @@ def build_reservoir_array(
             # and pin ``spillway_capacity = 0`` as a guard so any drain that
             # a spill mode would otherwise activate is bounded to zero.
             entry["spillway_capacity"] = 0.0
+        elif res.spill_flow_penalty > 0.0:
+            # PLEXOS prices controlled spill on the ``Vert_<name>`` spillway
+            # waterway's ``Max Flow Penalty`` ($/(m³/s)/h) — the real CEN PCP
+            # spill cost (3.60 most reservoirs, 360 CIPRESES).  Use it DIRECTLY
+            # as ``spillway_cost`` (already in flow units; no $/MWh × fp_med
+            # conversion).  NOTE: a positive spill cost makes the reservoir's
+            # marginal water value go slightly negative in any block where it
+            # spills — accepted as PLEXOS-faithful (the value is tiny vs the
+            # ~1000s $/CMD water values and breaks the spill-vs-keep degeneracy
+            # toward NOT wasting water).
+            entry["spillway_cost"] = res.spill_flow_penalty
         elif res.spill_penalty_per_mwh > 0.0:
             # PLEXOS ships an explicit per-storage ``Spill Penalty`` — honour
             # it (overrides the flat 1000 default).  gtopt ``spillway_cost``
