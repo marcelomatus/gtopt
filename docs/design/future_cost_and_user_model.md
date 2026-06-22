@@ -5,8 +5,36 @@ Status: design agreed (2026-06-21).  **Landed:** schema
 concepts (`HasAddToLp`/`HasAddToOutput` split + the new
 `HasAddToPhaseLp`/`HasAddToGlobalLp`/`HasAddToPlanning`) and the
 `add_to_planning_lp` driver pass (run once per (scene, phase) cell after the
-stage loop; inert until an element provides the hooks).  **Pending:** pieces
-2–5 (FutureCostLP, UserModel, AMPL scope/`sum{}`, AMPL state vars).
+stage loop; inert until an element provides the hooks); **piece 2A** —
+`FutureCostLP` + `json_future_cost.hpp` wired end-to-end (inert), in
+`collections_t` after `UserConstraintLP`; **piece 2B** — sharpened the
+`mean_shift` bound-consistency safety net (`test_sddp_boundary_cuts_mean_shift`).
+**Pending:** piece 2 C/D (α output), pieces 3–5.
+
+### Piece 2 D — RE-SCOPED to "α output only" (decided 2026-06-21)
+
+The doc's original "move `register_alpha_variables` + cut-load + rebase into
+`add_to_global_lp`" does **not** fit: `add_to_global_lp` is per-(scene,phase)
+cell at LP-build time, but `register_alpha_variables` is per-scene
+(`PlanningLP`, all phases) at solve-time, and the cut-load must run after
+`save_base_numrows()`.  So D is re-scoped to OUTPUT ONLY — the proven
+α/cut/rebase machinery stays put; `FutureCostLP` just saves α to the solution.
+
+**α-output finding + plan (C1–C3, ready to implement):**
+- α is a **scene-phase-context** column (one per `(scene, phase)`, cost `1/N`),
+  registered in the state-var registry — `register_alpha_variables`
+  (`sddp_method_alpha.cpp:115-145`), located via
+  `find_alpha_state_var(sim, scene, phase)->col()`.  It is NOT block-context, so
+  it can't reuse `DecisionVariableLP::add_to_output` directly.
+- **C1** `future_cost_lp.{hpp,cpp}`: store the solved α + c̄ per cell;
+  `add_to_output` emits `FutureCost/{alpha,rebase,approx_fcf=α+c̄}` as VALUES via
+  `OutputContext::add_col_sol_values` (raw doubles, `output_context.hpp:178`) at
+  the terminal block — sidesteps the scene-phase-column output path.
+- **C2** `sddp_method.cpp`: a post-solve per-cell hook reads
+  `li.get_col_sol()[alpha_col]` (`find_alpha_state_var`) + `scene_alpha_offset`
+  and sets them on that cell's `FutureCostLP` (read-only w.r.t. the LP).
+- **C3** verify: piece-2B (`mean_shift`) bounds unchanged + new test asserts
+  `FutureCost/{alpha,rebase}` appear in an SDDP solution.
 
 ## Motivation
 
