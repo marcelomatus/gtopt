@@ -98,6 +98,7 @@ TEST_CASE(  // NOLINT
   // ── Phase 3: solve with shift ON (system under test) ─────────
   double on_lb = 0.0;
   double on_ub = 0.0;
+  double on_c_bar = 0.0;
   {
     auto planning = make_3phase_hydro_planning();
     planning.options.method = MethodType::sddp;
@@ -117,6 +118,7 @@ TEST_CASE(  // NOLINT
     REQUIRE_FALSE(results->empty());
     on_ub = results->back().upper_bound;
     on_lb = results->back().lower_bound;
+    on_c_bar = sddp.scene_alpha_offset(SceneIndex {0});
     REQUIRE(std::isfinite(on_ub));
     REQUIRE(std::isfinite(on_lb));
   }
@@ -151,6 +153,15 @@ TEST_CASE(  // NOLINT
   // picks up the c̄ × cost_factor offset (the off-side UB does not,
   // since `scene_alpha_offset = 0` when the shift is disabled).
   CHECK(on_ub >= off_ub);
+
+  // Sharp reconciliation — the cleanest tripwire for the piece-2 FutureCostLP
+  // migration: the on-side UB is exactly the off-side UB plus the per-scene c̄
+  // the shift folds into the objective, and c̄ for this single coef-0 cut
+  // equals phys_rhs at any state.  A migration that drops / double-applies the
+  // obj_constant or the scene_alpha_offset trips one of these.
+  CAPTURE(on_c_bar);
+  CHECK(on_c_bar == doctest::Approx(phys_rhs).epsilon(1e-3));
+  CHECK(on_ub == doctest::Approx(off_ub + on_c_bar).epsilon(1e-3));
 
   std::filesystem::remove(cuts_file);
 }
