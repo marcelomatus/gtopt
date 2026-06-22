@@ -29,10 +29,18 @@ cell at LP-build time, but `register_alpha_variables` is per-scene
 - **C1** `future_cost_lp.{hpp,cpp}`: store the solved α + c̄ per cell;
   `add_to_output` emits `FutureCost/{alpha,rebase,approx_fcf=α+c̄}` as VALUES via
   `OutputContext::add_col_sol_values` (raw doubles, `output_context.hpp:178`) at
-  the terminal block — sidesteps the scene-phase-column output path.
-- **C2** `sddp_method.cpp`: a post-solve per-cell hook reads
-  `li.get_col_sol()[alpha_col]` (`find_alpha_state_var`) + `scene_alpha_offset`
-  and sets them on that cell's `FutureCostLP` (read-only w.r.t. the LP).
+  the terminal block — sidesteps the scene-phase-column output path.  **REQUIRED
+  (2026-06-21): save BOTH layouts — the single α AND, under multicut, every
+  per-source-scene `varphi_s` (N columns, uid `sddp_alpha_uid + s`).  Store them
+  keyed by source scene and emit each (`FutureCost/alpha` for the single layout,
+  `FutureCost/varphi_<s>` / `alpha_<s>` for the multicut layout), never just
+  `varphi_0`.**
+- **C2** `sddp_method.cpp`: a post-solve per-cell hook reads `scene_alpha_offset`
+  + the α value(s): `li.get_col_sol()[alpha_col]` for the single α, OR — under
+  multicut — loops `s = 0..N-1` via
+  `find_alpha_state_var(sim, scene, phase, source_scene_s)`
+  (`sddp_types.hpp:1123`) reading every `varphi_s`; sets them all (+ c̄) on that
+  cell's `FutureCostLP` (read-only w.r.t. the LP).
 - **C3** verify: piece-2B (`mean_shift`) bounds unchanged + new test asserts
   `FutureCost/{alpha,rebase}` appear in an SDDP solution.
 
