@@ -98,6 +98,51 @@ class TestGTOptWriterWithRealParser:
         assert "generator_array" in result["system"]
         assert len(result["system"]["generator_array"]) > 0
 
+    def test_to_json_sddp_system_has_future_cost_array(self, tmp_path):
+        """End-to-end: an SDDP planning's system carries the FutureCost
+        element that activates the C++ α-output, and it survives the full
+        to_json assembly (non-empty array, never pruned)."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["method"] = "sddp"
+        result = writer.to_json(opts)
+        assert result["options"]["method"] == "sddp"
+        assert result["system"]["future_cost_array"] == [
+            {"uid": 1, "name": "fcf"},
+        ]
+
+    def test_to_json_monolithic_system_has_no_future_cost_array(self, tmp_path):
+        """End-to-end: a monolithic planning's system must NOT carry a
+        FutureCost element (SDDP-specific α-output)."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["method"] = "mono"
+        result = writer.to_json(opts)
+        assert result["options"]["method"] == "monolithic"
+        assert "future_cost_array" not in result["system"]
+
+    def test_write_sddp_future_cost_array_survives_serialization(self, tmp_path):
+        """The FutureCost element survives strip_internal_keys / sanitize_inf
+        and lands in the written JSON file as the bare {uid, name} element."""
+
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["method"] = "sddp"
+        writer.write(opts)
+        with open(opts["output_file"], encoding="utf-8") as f:
+            written = json.load(f)
+        assert written["system"]["future_cost_array"] == [
+            {"uid": 1, "name": "fcf"},
+        ]
+
     def test_write_creates_valid_json_file(self, tmp_path):
         """write() creates a JSON file that can be re-parsed."""
 
@@ -286,6 +331,27 @@ class TestGTOptWriterProcessMethods:
         assert "lp_reduction" not in opts["model_options"]
         assert "aperture_solve_mode" not in opts["sddp_options"]
         assert "forward_solver_options" not in opts["sddp_options"]
+
+    def test_process_options_sddp_emits_future_cost_array(self):
+        """SDDP / cascade emit the minimal FutureCost element that activates
+        the C++ α-output (FutureCostLP::add_to_output self-finds the
+        cost-to-go from the SDDP cut registries)."""
+        for method in ("sddp", "cascade", "cascade-reduced"):
+            writer = GTOptWriter(MagicMock())
+            writer.process_options({"output_dir": "out", "method": method})
+            fca = writer.planning["system"].get("future_cost_array")
+            assert fca == [{"uid": 1, "name": "fcf"}], method
+            # Only the bare {uid, name} — the self-finding α-output needs
+            # nothing else; the cuts_file / scale_alpha / mean_shift /
+            # sharing / mode / valuation fields stay omitted.
+            assert set(fca[0].keys()) == {"uid", "name"}, method
+
+    def test_process_options_monolithic_skips_future_cost_array(self):
+        """Monolithic must NOT emit a FutureCost element — the SDDP α-output
+        is SDDP-specific; monolithic α is handled separately on the C++ side."""
+        writer = GTOptWriter(MagicMock())
+        writer.process_options({"output_dir": "out", "method": "monolithic"})
+        assert "future_cost_array" not in writer.planning["system"]
 
     def test_process_options_iterative_fast_path_overridable(self):
         """Source-conf model_options / sddp_options override the fast-path."""
