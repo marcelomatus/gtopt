@@ -25,8 +25,6 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
-#include <gtopt/future_cost_lp.hpp>
-#include <gtopt/index_holder.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -290,79 +288,21 @@ auto SDDPMethod::validate_inputs() const -> std::optional<Error>
 
 void SDDPMethod::populate_future_cost_output()
 {
-  // Copy each cell's α column handle(s) + the per-scene rebase constant c̄ onto
-  // its FutureCostLP at the terminal block, so FutureCostLP::add_to_output
-  // surfaces FutureCost/{alpha|alpha_<s>, rebase}.  Called at the END of
-  // solve() (the SDDP iterations would otherwise reset the per-cell
-  // FutureCostLP).  The α machinery (register_alpha_variables + boundary-cut
-  // load + rebase) is untouched; this is read-only w.r.t. the LP (no
-  // bound/row/col change → SDDP bounds unaffected).  No-op when the model
-  // carries no FutureCost element.
-  auto& fc_sim = planning_lp().simulation();
-  const auto fc_nphases = static_cast<Index>(fc_sim.phases().size());
-  bool found_fc = false;
-  for (const auto fc_si : iota_range<SceneIndex>(0, fc_sim.scene_count())) {
-    const double c_bar = scene_alpha_offset(fc_si);
-    for (const auto fc_pi : iota_range<PhaseIndex>(0, fc_nphases)) {
-      auto& fc_sys = planning_lp().system(fc_si, fc_pi);
-      auto&& fcs = fc_sys.elements<FutureCostLP>();
-      if (fcs.empty()) {
-        continue;
-      }
-      found_fc = true;
-      const auto acols = alpha_cols_on_cell(fc_sim, fc_si, fc_pi);
-      const auto& fc_stages = fc_sys.phase().stages();
-      if (acols.empty() || fc_stages.empty()) {
-        continue;
-      }
-      const auto& fc_last_stage = fc_stages.back();
-      const auto& fc_blocks = fc_last_stage.blocks();
-      if (fc_blocks.empty()) {
-        continue;
-      }
-      const auto fc_last_block = fc_blocks.back().uid();
-      const bool fc_multi = acols.size() > 1;
-
-      // One stream per α column; multicut → "alpha_<s>" in source-scene order
-      // (alpha_cols_on_cell returns varphi_0..N-1 in that order).
-      std::vector<FutureCostLP::AlphaStream> fc_streams;
-      fc_streams.reserve(acols.size());
-      for (std::size_t s = 0; s < acols.size(); ++s) {
-        FutureCostLP::AlphaStream st;
-        st.name = fc_multi ? ("alpha_" + std::to_string(s))
-                           : std::string(FutureCostLP::AlphaName);
-        for (const auto& fc_scenario : fc_sys.scene().scenarios()) {
-          st.cols[std::tuple {fc_scenario.uid(), fc_last_stage.uid()}]
-                 [fc_last_block] = acols[s].first;
-        }
-        fc_streams.push_back(std::move(st));
-      }
-
-      STBIndexHolder<double> fc_rebase;
-      if (c_bar != 0.0) {
-        for (const auto& fc_scenario : fc_sys.scene().scenarios()) {
-          fc_rebase[std::tuple {fc_scenario.uid(), fc_last_stage.uid()}]
-                   [fc_last_block] = c_bar;
-        }
-      }
-
-      for (auto& fc : fcs) {
-        fc.set_alpha_output(fc_streams, fc_rebase);
-      }
-    }
+  // Publish the per-scene α-rebase constants c̄ onto the persistent
+  // SimulationLP so `FutureCostLP::add_to_output` can SELF-FIND them at write
+  // time (the α columns themselves are read straight from the persistent
+  // state-variable registry via `alpha_cols_on_cell`).  Called at the END of
+  // solve(), sync + async.  Read-only w.r.t. the LP (no bound/row/col change →
+  // SDDP bounds unaffected).  Works under ALL low_memory modes: the simulation
+  // outlives the per-cell LP rebuild that `write_out` performs under compress,
+  // unlike the former per-cell FutureCostLP stash.
+  auto& sim = planning_lp().simulation();
+  StrongIndexVector<SceneIndex, double> offsets(
+      static_cast<std::size_t>(sim.scene_count()), 0.0);
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    offsets[si] = scene_alpha_offset(si);
   }
-
-  // Non-silent constraint: under low_memory != off the per-cell FutureCostLP is
-  // rebuilt for write_out, dropping the handles installed above, so the
-  // FutureCost/alpha streams are not written.  Warn rather than fail silently;
-  // compress support (a per-cell apply in the simulation-pass write) is a
-  // documented follow-up.  Set low_memory=off to capture α today.
-  if (found_fc && m_options_.low_memory_mode != LowMemoryMode::off) {
-    SPDLOG_WARN(
-        "FutureCost: α-output requires low_memory=off; under {} the "
-        "FutureCost/alpha streams are NOT written to the solution.",
-        enum_name(m_options_.low_memory_mode));
-  }
+  sim.set_alpha_offsets(std::move(offsets));
 }
 
 auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
@@ -792,9 +732,11 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
-  // FutureCost α-output is populated at the END of solve() — after the SDDP
-  // iterations, which otherwise reset the per-cell FutureCostLP — by
-  // populate_future_cost_output().
+  // FutureCost α-output is enabled at the END of solve() by
+  // populate_future_cost_output(), which publishes the per-scene rebase
+  // offsets onto the persistent SimulationLP.  FutureCostLP::add_to_output
+  // then SELF-FINDS its α columns + rebase at write time, so the output works
+  // under ALL low_memory modes.
 
   // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
   // The "named" hot-start path was retired in 2026-05; internal cuts
