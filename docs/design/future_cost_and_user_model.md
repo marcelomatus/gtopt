@@ -20,7 +20,20 @@ cell at LP-build time, but `register_alpha_variables` is per-scene
 `save_base_numrows()`.  So D is re-scoped to OUTPUT ONLY — the proven
 α/cut/rebase machinery stays put; `FutureCostLP` just saves α to the solution.
 
-**α-output finding + plan (C1–C3, ready to implement):**
+**STATUS: IMPLEMENTED (2026-06-21).**  Saves the single α (`alpha`) + every
+multicut `varphi_s` (as `alpha_<s>`, source-scene order) + the per-scene rebase
+c̄ (`rebase`) to the solution — `add_col_sol` for the α columns (read at write
+time) + `add_col_sol_values` for c̄, at each cell's terminal block.  Population
+is `SDDPMethod::populate_future_cost_output()`, called at the END of `solve()`
+(both sync + async returns) — NOT in `initialize_solver` (the iterations reset
+the per-cell FutureCostLP).  `FutureCostLP` gained a no-op `update_lp` to stay
+resident.  Tests: `test_future_cost_alpha_output.cpp` (α saved) + piece-2B
+mean_shift bounds unchanged.  **CONSTRAINT:** needs `low_memory = off`.  Under
+`compress` the per-cell FutureCostLP is rebuilt for write_out, dropping the
+installed handles; a one-time WARN fires (non-silent).  Compress support — a
+per-cell apply in the simulation-pass write path — is the documented follow-up.
+
+**α-output as-built notes (C1–C3):**
 - α is a **scene-phase-context** column (one per `(scene, phase)`, cost `1/N`),
   registered in the state-var registry — `register_alpha_variables`
   (`sddp_method_alpha.cpp:115-145`), located via

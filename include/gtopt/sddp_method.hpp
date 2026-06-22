@@ -848,6 +848,13 @@ private:
   /// Called once (guarded by m_initialized_).
   [[nodiscard]] auto initialize_solver() -> std::expected<void, Error>;
 
+  /// Copy the solved α column handle(s) + per-scene rebase constant c̄ onto each
+  /// cell's FutureCostLP so its output surfaces FutureCost/{alpha, rebase}.
+  /// Called at the END of solve() (after the iterations, which otherwise reset
+  /// the per-cell FutureCostLP).  Read-only w.r.t. the LP.  No-op without a
+  /// FutureCost element.
+  void populate_future_cost_output();
+
   /// Reset live-query atomics to their start-of-solve values.
   void reset_live_state() noexcept;
 
