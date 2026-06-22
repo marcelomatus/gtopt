@@ -19,12 +19,17 @@
 #include <cstddef>
 #include <string>
 #include <tuple>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/future_cost_lp.hpp>
 #include <gtopt/index_holder.hpp>
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/phase_lp.hpp>
+#include <gtopt/planning_lp.hpp>
 #include <gtopt/scene_lp.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -59,7 +64,27 @@ bool FutureCostLP::add_to_output(OutputContext& out) const
   // α columns registered on this (scene, phase) cell, in source-scene order:
   // single layout → 1 entry; multicut → N varphi_s.  Empty when α was never
   // registered (e.g. last phase pinned, or no SDDP α at all) → nothing to do.
-  const auto acols = alpha_cols_on_cell(sim, scene.index(), phase.index());
+  std::vector<std::pair<ColIndex, Uid>> acols;
+  if (future_cost().use_user_alpha.value_or(false)) {
+    // User-overridable FCF (piece 5 step 2a): the built-in α is inert (not a
+    // state var), so locate the user-authored α DecisionVariable (a `global`
+    // `state`/`link` column under the dedicated `UserStateVar` class) by uid on
+    // this cell and emit IT as `FutureCost/alpha`.  One column → single layout.
+    if (const auto ua_uid = future_cost().user_alpha_uid; ua_uid.has_value()) {
+      for (const auto& [key, svar] :
+           sim.state_variables(scene.index(), phase.index()))
+      {
+        if (key.uid == *ua_uid
+            && key.class_name == DecisionVariableLP::StateClassName)
+        {
+          acols.emplace_back(svar.col(), *ua_uid);
+          break;
+        }
+      }
+    }
+  } else {
+    acols = alpha_cols_on_cell(sim, scene.index(), phase.index());
+  }
   if (acols.empty()) {
     return true;
   }
@@ -103,6 +128,43 @@ bool FutureCostLP::add_to_output(OutputContext& out) const
   }
 
   return true;
+}
+
+const FutureCost* active_future_cost(const PlanningLP& planning_lp)
+{
+  const auto& sim = planning_lp.simulation();
+  if (sim.scene_count() <= 0 || sim.phases().empty()) {
+    return nullptr;
+  }
+  // Read the FutureCost element straight from the System input data
+  // (`future_cost_array`), NOT the LP collection: under the SDDP default
+  // `low_memory = compress`, `clear_disposable_collections` drops the
+  // planning-only FutureCostLP collection (it has no `update_lp`), leaving
+  // `elements<FutureCostLP>()` empty even though the input array is intact.
+  // The System is replicated across every cell, so (scene 0, phase 0) is
+  // authoritative.
+  const auto& sys = planning_lp.system(SceneIndex {0}, PhaseIndex {0}).system();
+  for (const auto& fc : sys.future_cost_array) {
+    // Active unless the `active` field is an explicit scalar `False`.  The
+    // FutureCost element is global (no per-stage schedule in practice), so a
+    // scalar is the only meaningful form; any vector/file schedule is treated
+    // as active (presence == on).
+    if (fc.active.has_value()) {
+      if (const auto* scalar = std::get_if<IntBool>(&*fc.active);
+          scalar != nullptr && *scalar == False)
+      {
+        continue;  // explicitly deactivated
+      }
+    }
+    return &fc;
+  }
+  return nullptr;
+}
+
+bool has_active_use_user_alpha(const PlanningLP& planning_lp)
+{
+  const auto* fc = active_future_cost(planning_lp);
+  return fc != nullptr && fc->use_user_alpha.value_or(false);
 }
 
 }  // namespace gtopt

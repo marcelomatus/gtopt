@@ -105,6 +105,26 @@ struct FutureCost
   /// named state variables.  Typed enum.  Was
   /// `simulation.boundary_cuts_valuation`.
   std::optional<BoundaryCutSoftCost> valuation {};
+
+  /// User-overridable FCF (piece 5 step 2a).  When `true`, the FCF cost-to-go
+  /// α is NOT the built-in `varphi_s` column priced `1/N`; instead the modeller
+  /// authors a global `state`/`link` `DecisionVariable` (the user α, with
+  /// `cost = 1.0`, `cost_type = "raw"`) plus global `UserConstraint` cut row(s)
+  /// over it, and points `user_alpha_uid` at that variable.  The built-in α
+  /// column is then registered INERT (pinned `lowb = uppb = 0`, `cost = 0`) so
+  /// it neither prices nor floors anything — the user's recourse fully replaces
+  /// the boundary-cut FCF.  Mutually exclusive with `cuts_file`
+  /// (`boundary_cuts_file`): supplying both is a runtime error.  Default unset
+  /// ⇒ `false` (the byte-for-byte legacy boundary-cut path).
+  OptBool use_user_alpha {};
+
+  /// UID of the user-authored α `DecisionVariable` (piece 5 step 2a).  Required
+  /// when `use_user_alpha` is `true`: identifies the global `state`/`link`
+  /// column that holds the cost-to-go so `add_to_output` can emit it as
+  /// `FutureCost/alpha` and the forward-pass UB estimator can subtract its
+  /// realised value.  Typed `Uid` (not a name) so it resolves through the
+  /// state-variable registry without a string lookup.
+  OptUid user_alpha_uid {};
 };
 
 }  // namespace gtopt

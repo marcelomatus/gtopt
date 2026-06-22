@@ -56,11 +56,18 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   auto& phase_states = m_scene_phase_states_[scene_index];
   phase_states.resize(planning_lp().simulation().phases().size());
 
+  // User-overridable FCF (piece 5 step 2a): when an active FutureCost element
+  // carries `use_user_alpha`, the built-in α is registered INERT (cost 0, not a
+  // state variable) so the user-authored α + cuts replace it.  The legacy
+  // boundary-cut path leaves `suppress = false` → byte-for-byte unchanged.
+  const bool suppress = gtopt::has_active_use_user_alpha(planning_lp());
+
   gtopt::register_alpha_variables(planning_lp(),
                                   scene_index,
                                   m_options_.scale_alpha,
                                   m_options_.cut_sharing,
-                                  m_options_.boundary_cut_sharing);
+                                  m_options_.boundary_cut_sharing,
+                                  /*register_as_state_variable=*/!suppress);
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -75,7 +82,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha,
                               CutSharingMode cut_sharing,
-                              BoundaryCutSharingMode boundary_cut_sharing)
+                              BoundaryCutSharingMode boundary_cut_sharing,
+                              bool register_as_state_variable)
 {
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
@@ -104,7 +112,12 @@ void register_alpha_variables(PlanningLP& planning_lp,
                                      SystemKind kind,
                                      std::size_t n_alpha)
   {
-    const double unit_cost = 1.0 / static_cast<double>(n_alpha);
+    // When the built-in α is suppressed (user-overridable FCF), the column is
+    // still added (so the LP column layout / aperture mirroring is unchanged)
+    // but priced at 0 — it is inert (pinned `lowb = uppb = 0`, never priced,
+    // never floored, never cut).  The user's α + cuts drive the FCF instead.
+    const double unit_cost =
+        register_as_state_variable ? 1.0 / static_cast<double>(n_alpha) : 0.0;
     for (std::size_t s = 0; s < n_alpha; ++s) {
       const auto alpha_uid =
           static_cast<Uid>(sddp_alpha_uid + static_cast<Uid>(s));
@@ -127,22 +140,29 @@ void register_alpha_variables(PlanningLP& planning_lp,
               make_scene_phase_context(sim.uid_of(scene_index), phase_uid),
       };
       const auto alpha_col = li.add_col(alpha_sparse);
-      std::ignore = sim.add_state_variable(
-          StateVariable::Key {
-              .uid = alpha_uid,
-              .col_name = sddp_alpha_col_name,
-              .class_name = sddp_alpha_lp_class,
-              .lp_key =
-                  {
-                      .scene_index = scene_index,
-                      .phase_index = pi,
-                      .kind = kind,
-                  },
-          },
-          alpha_col,
-          0.0,  // scost: no elastic penalty on alpha
-          scale_alpha,  // var_scale: same as SparseCol.scale
-          alpha_sparse.context);
+      // When the built-in α is suppressed (user-overridable FCF), do NOT
+      // register it as a state variable: `find_alpha_state_var` then returns
+      // null, so `alpha_cols_on_cell` / `bound_alpha` / the cut router never
+      // touch this column.  It stays pinned at `lowb = uppb = 0` with cost 0 —
+      // fully inert — and the user-authored α drives the FCF instead.
+      if (register_as_state_variable) {
+        std::ignore = sim.add_state_variable(
+            StateVariable::Key {
+                .uid = alpha_uid,
+                .col_name = sddp_alpha_col_name,
+                .class_name = sddp_alpha_lp_class,
+                .lp_key =
+                    {
+                        .scene_index = scene_index,
+                        .phase_index = pi,
+                        .kind = kind,
+                    },
+            },
+            alpha_col,
+            0.0,  // scost: no elastic penalty on alpha
+            scale_alpha,  // var_scale: same as SparseCol.scale
+            alpha_sparse.context);
+      }
     }
   };
 

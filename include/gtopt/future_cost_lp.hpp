@@ -28,6 +28,7 @@ class SceneLP;
 class PhaseLP;
 class LinearProblem;
 class OutputContext;
+class PlanningLP;
 
 using FutureCostLPSId = ObjectSingleId<class FutureCostLP>;
 
@@ -74,5 +75,21 @@ public:
   /// reconstructs the un-rebased FCF.
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 };
+
+/// Pointer to the first ACTIVE `FutureCost` element in @p planning_lp, or
+/// `nullptr` when there is none.  Reads the element straight from the System
+/// INPUT data (`future_cost_array`) of the representative `(scene 0, phase 0)`
+/// cell — NOT the LP collection, which the SDDP default `low_memory = compress`
+/// drops for planning-only elements.  Used by the SDDP method to source the
+/// user-α uid + the consolidated boundary config (steps 2a/2b).
+[[nodiscard]] const FutureCost* active_future_cost(
+    const PlanningLP& planning_lp);
+
+/// Whether the active `FutureCost` element in @p planning_lp has
+/// `use_user_alpha = true` (piece 5 step 2a) — the user-overridable FCF flag
+/// that suppresses the built-in α (`register_alpha_variables` runs with
+/// `register_as_state_variable = false`).  Returns `false` when there is no
+/// active FutureCost element (the legacy boundary-cut / no-FCF paths).
+[[nodiscard]] bool has_active_use_user_alpha(const PlanningLP& planning_lp);
 
 }  // namespace gtopt

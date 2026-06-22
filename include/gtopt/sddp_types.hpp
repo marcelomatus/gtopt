@@ -1204,12 +1204,22 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 /// exposed here so isolated callers (tests, direct cut-loader
 /// harnesses) can establish the same precondition without standing
 /// up a full `SDDPMethod`.
+/// @param register_as_state_variable  When `true` (default) each α column is
+///        registered in the simulation `StateVariable` map (the byte-for-byte
+///        legacy behaviour, drives cut routing + the forward-pass UB
+///        estimator).  When `false` (a user-overridable FCF —
+///        `FutureCost::use_user_alpha`), the α columns are still ADDED to each
+///        LP but with `cost = 0` and are NOT registered as state variables, so
+///        the built-in α is inert (pinned `lowb = uppb = 0`, never priced,
+///        never floored, never cut) and the user-authored α + cuts fully
+///        replace it.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha,
                               CutSharingMode cut_sharing = CutSharingMode::none,
                               BoundaryCutSharingMode boundary_cut_sharing =
-                                  BoundaryCutSharingMode::per_scene);
+                                  BoundaryCutSharingMode::per_scene,
+                              bool register_as_state_variable = true);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case

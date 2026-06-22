@@ -39,7 +39,9 @@ struct FutureCostConstructor
                                       OptBool mean_shift,
                                       OptName sharing_str,
                                       OptName mode_str,
-                                      OptName valuation_str) const
+                                      OptName valuation_str,
+                                      OptBool use_user_alpha,
+                                      OptUid user_alpha_uid) const
   {
     FutureCost fc {
         .uid = uid,
@@ -49,6 +51,8 @@ struct FutureCostConstructor
         .cuts_file = std::move(cuts_file),
         .scale_alpha = scale_alpha,
         .mean_shift = mean_shift,
+        .use_user_alpha = use_user_alpha,
+        .user_alpha_uid = user_alpha_uid,
     };
     if (sharing_str) {
       fc.sharing =
@@ -80,7 +84,9 @@ struct json_data_contract<FutureCost>
                        json_bool_null<"mean_shift", OptBool>,
                        json_string_null<"sharing", OptName>,
                        json_string_null<"mode", OptName>,
-                       json_string_null<"valuation", OptName>>;
+                       json_string_null<"valuation", OptName>,
+                       json_bool_null<"use_user_alpha", OptBool>,
+                       json_number_null<"user_alpha_uid", OptUid>>;
 
   static auto to_json_data(FutureCost const& fc)
   {
@@ -93,7 +99,9 @@ struct json_data_contract<FutureCost>
                            fc.mean_shift,
                            detail::enum_to_opt_name(fc.sharing),
                            detail::enum_to_opt_name(fc.mode),
-                           detail::enum_to_opt_name(fc.valuation));
+                           detail::enum_to_opt_name(fc.valuation),
+                           fc.use_user_alpha,
+                           fc.user_alpha_uid);
   }
 };
 
