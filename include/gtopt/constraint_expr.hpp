@@ -97,7 +97,8 @@
  *
  * term         := [coeff '*'] element_ref
  *              |  [coeff '*'] state_ref
- *              |  [coeff '*'] sum_expr
+ *              |  [coeff '*'] sum_expr        // ELEMENT aggregation, see below
+ *              |  [coeff '*'] time_agg_expr   // TIME aggregation, see below
  *              |  ['-'] number
  *
  * coeff        := number
@@ -124,6 +125,27 @@
  *              |  'sum' '(' element_type '(' 'all' [ ',' 'type' '=' string ]
  * ')'
  *                 '.' attribute ')'
+ *
+ * ─── TWO `sum` SPELLINGS (read carefully — they are DIFFERENT operators) ───
+ *
+ *   ELEMENT aggregation:  sum( type(ids).attr )           — uses PARENTHESES
+ *     Sums one attribute over a SET OF ELEMENTS of one type, all evaluated
+ *     at the SAME ambient (scenario, stage, block).  AST: `SumElementRef`.
+ *     Example:  sum(generator(all).generation) <= 300
+ *
+ *   TIME aggregation:     sum{ idx in window } inner_expr  — uses BRACES
+ *     Sums an inner linear expression over TIME (the blocks of the named
+ *     window), letting a coarse-scope (`stage`/`phase`/`global`) row reach
+ *     per-block variables.  AST: `TimeAggRef`.  Over RATE variables (flow
+ *     [m³/s]) the energy form MUST carry the per-block duration weight —
+ *     spell it `sum{b in stage} dur[b] * waterway('w').flow` (the `dur[b]`
+ *     prefix sets `weight = duration`).  `daily_sum` is the special case
+ *     `sum{b in day}` (count) / `sum{b in day} dur[b]*…` (energy).
+ *
+ * time_agg_expr := 'sum' '{' IDENT 'in' time_window '}'
+ *                  [ 'dur' '[' IDENT ']' '*' ] inner_expr
+ *
+ * time_window  := 'stage' | 'day'
  *
  * string_list  := string (',' string)*
  *
@@ -261,6 +283,44 @@ struct SumElementRef
   std::vector<SumPredicate> filters {};  ///< F4 filter predicates (AND)
   std::string attribute {};  ///< LP attribute to aggregate
 };
+
+/// Time window iterated by a `sum{...}` time-aggregator (piece-4 step 2).
+enum class TimeWindow : std::uint8_t
+{
+  Stage,  ///< all blocks of the representative stage
+  Day,  ///< blocks within each 24 h day (the `daily_sum` window)
+};
+
+/// Per-block weight applied to each term inside a `sum{...}` time-agg.
+///
+/// `dur[b]` weighting is LOAD-BEARING for RATE variables (flow [m³/s]):
+/// `Σ_b Δt_b · flow_b` is energy [m³], `Σ_b flow_b` is meaningless.  See
+/// `feedback_stage_avg_flows`.  `Count` (unweighted) is the right choice
+/// for per-day event counts (e.g. `Σ startups ≤ N`), matching unweighted
+/// `daily_sum`.
+enum class TimeAggWeight : std::uint8_t
+{
+  Count,  ///< unweighted: Σ_b col_b (per-day / per-stage count)
+  Duration,  ///< Δt-weighted: Σ_b Δt_b · col_b (energy)
+};
+
+/// @brief `sum{idx in window} [dur[idx] *] inner_expr` — TIME aggregation.
+///
+/// A NEW operator distinct from element `sum(...)` (`SumElementRef`): this
+/// aggregates an inner linear expression over the BLOCKS of `window`,
+/// letting a coarse-scope (`stage`/`phase`/`global`) constraint row reach
+/// per-block variables.  The resolver iterates the window's blocks,
+/// re-resolving `inner` at each block (with that block as the ambient
+/// block) and adding `weight_b · inner_b` into the outer row.
+///
+/// Spelling `sum{b in stage} dur[b] * waterway('w').flow` sets
+/// `weight = Duration` (the `dur[b]` prefix); plain `sum{b in stage} ...`
+/// is `weight = Count`.
+///
+/// Body is defined AFTER `ConstraintTerm` (it holds a
+/// `std::vector<ConstraintTerm>`); `ConstraintTerm` references it via
+/// `std::shared_ptr<const TimeAggRef>` (forward-declared below).
+struct TimeAggRef;
 
 /**
  * @brief Specifies a set of index values for a time dimension
@@ -435,6 +495,8 @@ struct ConstraintTerm
       minmax_expr {};  ///< `min`/`max` wrapper (F7)
   std::shared_ptr<const IfExpr>
       if_expr {};  ///< `if ... then ... else ...` (F8)
+  std::shared_ptr<const TimeAggRef>
+      time_agg {};  ///< `sum{idx in window} ...` TIME aggregation (piece-4)
 
   /// Optional **per-block coefficient profile** (F9).
   ///
@@ -541,6 +603,19 @@ struct IfExpr
   std::vector<IfCondAtom> cond {};  ///< Conjunction (AND) of atoms
   std::vector<ConstraintTerm> then_branch {};
   std::vector<ConstraintTerm> else_branch {};
+};
+
+/// @brief `sum{idx in window} [dur[idx] *] inner_expr` — TIME aggregation.
+///
+/// See the forward declaration above for the full semantics.  Defined here
+/// (after `ConstraintTerm`) because it owns a `std::vector<ConstraintTerm>`;
+/// `ConstraintTerm::time_agg` holds it via `std::shared_ptr<const …>`.
+struct TimeAggRef
+{
+  std::string index_name {};  ///< bound block index (e.g. "b")
+  TimeWindow window {TimeWindow::Stage};
+  TimeAggWeight weight {TimeAggWeight::Count};
+  std::vector<ConstraintTerm> inner {};  ///< inner linear expression
 };
 
 /**

@@ -561,6 +561,97 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
       continue;
     }
 
+    if (term.time_agg) {
+      // ── `sum{idx in window} [dur[idx]*] inner` — TIME aggregation ─────────
+      // Iterate the window's blocks and re-resolve the inner expression at
+      // each block, accumulating `coef · weight_b · inner_b` into the row.
+      // DISTINCT from element `sum(...)` (handled above): that sums elements
+      // at ONE block; this sums over TIME.  Over RATE vars the `Duration`
+      // weight applies Δt_b so the time-sum is energy (feedback_stage_avg).
+      const auto& agg = *term.time_agg;
+      const std::size_t before = row.size();
+
+      // Collect the window's blocks (chronological), each paired with its
+      // 0-based ordinal within the stage so the inner expression's per-block
+      // `coeff_profile` (F9) still indexes consistently.
+      std::vector<std::pair<const BlockLP*, std::size_t>> window_blocks;
+      {
+        const auto& blocks = ctx.stage.blocks();
+        if (agg.window == TimeWindow::Stage) {
+          for (const auto& [ord, blk] : enumerate(blocks)) {
+            window_blocks.emplace_back(&blk, ord);
+          }
+        } else {
+          // Day: the 24 h day (cumulative-duration window) that CONTAINS the
+          // ambient block `ctx.block` — mirrors `daily_sum`'s boundary logic
+          // so `sum{b in day}` subsumes it.  Walk the stage accumulating
+          // hours; a day ends when cumulative duration crosses 24 h (or at
+          // the last block).  Emit the day that holds `ctx.block`.
+          constexpr double kDayHours = 24.0;
+          double day_hours = 0.0;
+          std::vector<std::pair<const BlockLP*, std::size_t>> cur_day;
+          bool found = false;
+          for (const auto& [ord, blk] : enumerate(blocks)) {
+            cur_day.emplace_back(&blk, ord);
+            if (blk.uid() == ctx.block.uid()) {
+              found = true;
+            }
+            day_hours += blk.duration();
+            const bool boundary = day_hours >= kDayHours - 1e-9;
+            const bool is_last = (ord + 1 == blocks.size());
+            if (boundary || is_last) {
+              if (found) {
+                window_blocks = std::move(cur_day);
+                break;
+              }
+              cur_day.clear();
+              day_hours = 0.0;
+            }
+          }
+        }
+      }
+
+      for (const auto& [blk_ptr, ord] : window_blocks) {
+        const double weight =
+            (agg.weight == TimeAggWeight::Duration) ? blk_ptr->duration() : 1.0;
+        LowerCtx inner_ctx {
+            .sc = ctx.sc,
+            .scenario = ctx.scenario,
+            .stage = ctx.stage,
+            .block = *blk_ptr,
+            .param_map = ctx.param_map,
+            .uc = ctx.uc,
+            .ctype = ctx.ctype,
+            .is_debug = ctx.is_debug,
+            .is_strict = ctx.is_strict,
+            .lp = ctx.lp,
+            .block_ordinal = ord,
+            .aux_counter = ctx.aux_counter,
+        };
+        const auto inner_res =
+            build_row_from_terms(inner_ctx, agg.inner, coef * weight, row);
+        ctx.aux_counter = inner_ctx.aux_counter;
+        if (inner_res.has_vars) {
+          out.has_vars = true;
+        }
+        // Per-block param/offset shifts inside the inner expression fold onto
+        // the RHS with the same per-block weight as the LHS terms.
+        out.param_shift += weight * inner_res.param_shift;
+      }
+      if (ctx.is_debug) {
+        spdlog::info(
+            "  user_constraint '{}': time-agg sum{{{} in {}}} resolved {} "
+            "columns over {} block(s) (weight={})",
+            ctx.uc.name,
+            agg.index_name,
+            agg.window == TimeWindow::Stage ? "stage" : "day",
+            row.size() - before,
+            window_blocks.size(),
+            agg.weight == TimeAggWeight::Duration ? "duration" : "count");
+      }
+      continue;
+    }
+
     if (term.param_name) {
       // Bind the parameter name to a local up front so subsequent uses
       // never re-dereference the optional (keeps the optional-access

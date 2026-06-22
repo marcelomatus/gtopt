@@ -198,6 +198,12 @@ private:
     [[nodiscard]] std::vector<ConstraintTerm> parse_coeff_profile();
     [[nodiscard]] ElementRef parse_element_ref(std::string type_name);
     [[nodiscard]] ConstraintTerm parse_sum_expr();
+    /// Parse `sum{ idx in window } [dur[idx] *] inner_expr` (piece-4 step 2):
+    /// the TIME-aggregation operator, DISTINCT from element `sum(...)`.
+    /// Called when the current token is `sum` AND the next is `{`.  Returns
+    /// a single `ConstraintTerm` whose `time_agg` holds the inner expression,
+    /// window, and per-block weight.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_time_agg_expr();
     /// Parse `abs(linear_expr)` (F5).  Called when the current token is
     /// the `abs` identifier.  Rejects nested `abs(abs(...))`.
     [[nodiscard]] std::vector<ConstraintTerm> parse_abs_expr();
