@@ -87,16 +87,16 @@ public:
    * @brief Gets the flow variables for a specific scenario and stage
    * @return Reference to the flow variables
    */
-  [[nodiscard]] constexpr auto&& finp_cols_at(const ScenarioLP& scenario,
-                                              const StageLP& stage) const
+  [[nodiscard]] const auto& finp_cols_at(const ScenarioLP& scenario,
+                                         const StageLP& stage) const
   {
-    return finp_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(finp_cols, scenario, stage);
   }
 
-  [[nodiscard]] constexpr auto&& fout_cols_at(const ScenarioLP& scenario,
-                                              const StageLP& stage) const
+  [[nodiscard]] const auto& fout_cols_at(const ScenarioLP& scenario,
+                                         const StageLP& stage) const
   {
-    return fout_cols.at({scenario.uid(), stage.uid()});
+    return find_or_empty_inner(fout_cols, scenario, stage);
   }
 
   /// @name Parameter accessors for user constraint resolution
