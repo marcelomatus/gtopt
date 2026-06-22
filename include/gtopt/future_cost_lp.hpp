@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include <gtopt/future_cost.hpp>
@@ -75,6 +77,28 @@ public:
   /// reconstructs the un-rebased FCF.
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 };
+
+/// Consolidated boundary-cut / FCF configuration sourced from a `FutureCost`
+/// element (piece 5 step 2b).  Each field is an `std::optional`: SET only when
+/// the element explicitly authors it, so the SDDP/monolithic method can
+/// OVERRIDE the corresponding `SDDPOptions` field iff present (element wins)
+/// and otherwise leave `m_options_` untouched (backward-compatible — zero
+/// numerical change when there is no FutureCost element or it leaves a field
+/// unset).
+struct SDDPBoundaryConfig
+{
+  std::optional<std::string> cuts_file {};
+  std::optional<double> scale_alpha {};
+  std::optional<bool> mean_shift {};
+  std::optional<BoundaryCutSharingMode> sharing {};
+  std::optional<BoundaryCutsMode> mode {};
+};
+
+/// Build the consolidated boundary config from a `FutureCost` element — the
+/// single read-site mapping from the element's authored fields onto the
+/// resolved `SDDPOptions` boundary fields.  Unset element fields stay `nullopt`
+/// so the caller leaves the option untouched.
+[[nodiscard]] SDDPBoundaryConfig boundary_config(const FutureCost& fc);
 
 /// Pointer to the first ACTIVE `FutureCost` element in @p planning_lp, or
 /// `nullptr` when there is none.  Reads the element straight from the System

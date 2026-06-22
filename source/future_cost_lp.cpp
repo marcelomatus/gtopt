@@ -130,6 +130,20 @@ bool FutureCostLP::add_to_output(OutputContext& out) const
   return true;
 }
 
+SDDPBoundaryConfig boundary_config(const FutureCost& fc)
+{
+  // The element fields are already `std::optional` of the same value types as
+  // the config, so copy the optionals directly (an unset element field stays
+  // `nullopt` → the caller leaves the corresponding `m_options_` field).
+  return SDDPBoundaryConfig {
+      .cuts_file = fc.cuts_file,
+      .scale_alpha = fc.scale_alpha,
+      .mean_shift = fc.mean_shift,
+      .sharing = fc.sharing,
+      .mode = fc.mode,
+  };
+}
+
 const FutureCost* active_future_cost(const PlanningLP& planning_lp)
 {
   const auto& sim = planning_lp.simulation();

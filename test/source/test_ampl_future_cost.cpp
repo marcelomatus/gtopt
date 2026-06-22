@@ -302,3 +302,49 @@ TEST_CASE(
     CHECK(results.error().code == ErrorCode::InvalidInput);
   }
 }
+
+// ─── 5. Config consolidation (step 2b): element beats SDDPOptions ──────────
+
+TEST_CASE(  // NOLINT
+    "AmplFutureCost — FutureCost.mean_shift=false beats SDDPOptions=true")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  // A boundary cut on the 3-phase fixture; a FutureCost element authors the
+  // boundary fields (cuts_file + mean_shift=false).  SDDPOptions requests
+  // mean_shift=true.  Element wins ⇒ no rebase ⇒ scene_alpha_offset == 0
+  // (the byte-for-byte mean_shift-OFF behaviour).
+  const auto cuts_file =
+      (std::filesystem::temp_directory_path() / "gtopt_test_amplfcf_2b.csv")
+          .string();
+  {
+    std::ofstream ofs(cuts_file);
+    ofs << "iteration,scene,rhs,rsv1\n1,1,1000.0,2.0\n";
+  }
+
+  auto planning = make_3phase_hydro_planning();
+  planning.options.method = MethodType::sddp;
+  planning.system.future_cost_array.push_back(FutureCost {
+      .uid = Uid {1},
+      .name = "bfcf",
+      .cuts_file = OptName {cuts_file},
+      .mean_shift = OptBool {false},  // element OVERRIDES the option below
+      .mode = std::optional<BoundaryCutsMode> {BoundaryCutsMode::combined},
+  });
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 1;
+  opts.convergence_tol = 1e-6;
+  opts.enable_api = false;
+  opts.boundary_cuts_mean_shift = true;  // option says ON; element says OFF
+
+  SDDPMethod sddp(planning_lp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // mean_shift OFF (element won) ⇒ no per-scene rebase offset.
+  CHECK(sddp.scene_alpha_offset(SceneIndex {0}) == 0.0);
+
+  std::filesystem::remove(cuts_file);
+}

@@ -498,6 +498,36 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         .string();
   };
 
+  // ── FutureCost element config consolidation (piece 5 step 2b) ──────────
+  // When an active FutureCost element authors boundary-cut fields, they win
+  // over the equivalent SDDPOptions fields (the element is the single source of
+  // truth).  Read-site only — each override is gated on the element having
+  // EXPLICITLY set the field, so when there is no FutureCost element (or it
+  // leaves a field unset) `m_options_` is byte-for-byte unchanged (backward-
+  // compatible — `test_sddp_boundary_cuts_mean_shift` stays green).  Skipped
+  // entirely under `use_user_alpha` (the user α replaces boundary cuts, handled
+  // separately below).
+  if (const auto* fc = active_future_cost(planning_lp());
+      fc != nullptr && !fc->use_user_alpha.value_or(false))
+  {
+    const auto cfg = boundary_config(*fc);
+    if (cfg.cuts_file.has_value()) {
+      m_options_.boundary_cuts_file = *cfg.cuts_file;
+    }
+    if (cfg.scale_alpha.has_value()) {
+      m_options_.scale_alpha = *cfg.scale_alpha;
+    }
+    if (cfg.mean_shift.has_value()) {
+      m_options_.boundary_cuts_mean_shift = *cfg.mean_shift;
+    }
+    if (cfg.sharing.has_value()) {
+      m_options_.boundary_cut_sharing = *cfg.sharing;
+    }
+    if (cfg.mode.has_value()) {
+      m_options_.boundary_cuts_mode = *cfg.mode;
+    }
+  }
+
   // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
   // master optimum so that the LP-space α coefficient lands O(1)
   // after the cut row's α-pivot equilibration (see
