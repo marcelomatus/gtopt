@@ -115,6 +115,11 @@ struct StoredCut
   double rhs {};  ///< Right-hand side (lower bound)
   double scale {1.0};  ///< Row scale (physical → LP), mirrors SparseRow::scale
   RowIndex row {};  ///< LP row index where this cut was added
+  /// Pivot column for ``compose_physical`` normalization.  Preserves
+  /// the alpha-column normalization used when the cut was first built,
+  /// so that shared cuts replayed into other scenes use the same
+  /// floating-point rounding as local cuts.
+  ColIndex pivot_col {unknown_index};
   /// Coefficient pairs: (column_index, coefficient)
   std::vector<std::pair<ColIndex, double>> coefficients {};
 
