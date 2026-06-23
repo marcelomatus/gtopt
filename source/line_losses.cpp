@@ -1170,9 +1170,19 @@ BlockResult add_piecewise_shared(const LossConfig& config,
   const double loss_block_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
+  // Cap the loss variable at the physical maximum: R × fmax² / V².
+  // Without this, the LP relaxation can push loss beyond the quadratic
+  // envelope — the piecewise tangent/secant constraints are outer
+  // approximations that do not prevent over-estimation when the solver
+  // benefits from absorbing power (loss acts as a free energy sink
+  // under split/sender allocation).
+  const double loss_ub =
+      (config.resistance > 0.0 && config.V2 > 0.0 && effective_fmax > 0.0)
+      ? config.resistance * effective_fmax * effective_fmax / config.V2
+      : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
-      .uppb = LinearProblem::DblMax,
+      .uppb = loss_ub,
       .cost = loss_block_cost,
       .class_name = Line::class_name.full_name(),
       .variable_name = LineLP::LosspName,
@@ -1369,9 +1379,14 @@ DirResult add_direction(const LossConfig& config,
   const double loss_block_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
+  // Cap loss at the physical maximum for this direction: R × fmax² / V².
+  const double dir_loss_ub =
+      (config.resistance > 0.0 && config.V2 > 0.0 && block_tmax > 0.0)
+      ? config.resistance * block_tmax * block_tmax / config.V2
+      : LinearProblem::DblMax;
   const auto loss_col = lp.add_col({
       .lowb = 0,
-      .uppb = LinearProblem::DblMax,
+      .uppb = dir_loss_ub,
       .cost = loss_block_cost,
       .class_name = Line::class_name.full_name(),
       .variable_name = labels.loss,
