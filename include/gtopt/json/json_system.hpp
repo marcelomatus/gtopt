@@ -30,6 +30,7 @@
 #include <gtopt/json/json_flow.hpp>
 #include <gtopt/json/json_flow_right.hpp>
 #include <gtopt/json/json_fuel.hpp>
+#include <gtopt/json/json_future_cost.hpp>
 #include <gtopt/json/json_generator.hpp>
 #include <gtopt/json/json_generator_profile.hpp>
 #include <gtopt/json/json_hydrogen_node.hpp>
@@ -53,6 +54,7 @@
 #include <gtopt/json/json_thermal_storage.hpp>
 #include <gtopt/json/json_turbine.hpp>
 #include <gtopt/json/json_user_constraint.hpp>
+#include <gtopt/json/json_user_model.hpp>
 #include <gtopt/json/json_user_param.hpp>
 #include <gtopt/json/json_volume_right.hpp>
 #include <gtopt/json/json_waterway.hpp>
@@ -146,10 +148,12 @@ struct json_data_contract<System>
       json_array_null<"decision_variable_array",
                       Array<DecisionVariable>,
                       DecisionVariable>,
+      json_array_null<"future_cost_array", Array<FutureCost>, FutureCost>,
       json_array_null<"plant_array", Array<Plant>, Plant>,
       json_array_null<"user_constraint_array",
                       Array<UserConstraint>,
                       UserConstraint>,
+      json_array_null<"user_model_array", Array<UserModel>, UserModel>,
       json_string_null<"user_constraint_file", OptName>,
       json_array_null<"user_constraint_files", std::vector<Name>, std::string>>;
 
@@ -199,8 +203,10 @@ struct json_data_contract<System>
                                  system.volume_right_array,
                                  system.user_param_array,
                                  system.decision_variable_array,
+                                 system.future_cost_array,
                                  system.plant_array,
                                  system.user_constraint_array,
+                                 system.user_model_array,
                                  system.user_constraint_file,
                                  system.user_constraint_files);
   }

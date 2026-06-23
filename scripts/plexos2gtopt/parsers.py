@@ -40,6 +40,7 @@ from .entities import (
     FuelSpec,
     GeneratorSpec,
     JunctionSpec,
+    generator_is_zero_pmax,
     LineSpec,
     NodeSpec,
     PlantSpec,
@@ -3676,6 +3677,24 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 len(solution_efin),
             )
 
+    # PLEXOS prices controlled spill on each reservoir's ``Vert_<name>``
+    # spillway waterway via its ``Max Flow Penalty`` ($/(m³/s)/h), NOT the
+    # Storage ``Spill Penalty`` (shipped at 0).  CEN PCP: 3.60 for most
+    # reservoirs, 360 for CIPRESES.  The gas ``Vert_*_GNL_INF`` arcs (penalty
+    # 7200, source = an LNG accounting artifact, not a hydro reservoir) and the
+    # PLEXOS ``-1`` deactivated-feature sentinel are excluded.  Keyed by the
+    # source reservoir name (the part after the ``Vert_`` prefix).
+    vert_spill_penalty: dict[str, float] = {}
+    for _w in db.objects_of_class("Waterway"):
+        if not _w.name.startswith("Vert_"):
+            continue
+        _src = _w.name[len("Vert_") :]
+        if _src.endswith("_GNL_INF"):
+            continue
+        _pen = db.static_property("Waterway", _w.object_id, "Max Flow Penalty")
+        if _pen is not None and float(_pen) > 0.0:
+            vert_spill_penalty[_src] = float(_pen)
+
     out: list[ReservoirSpec] = []
     skipped_lng = 0
     for storage in db.objects_of_class("Storage"):
@@ -3919,6 +3938,7 @@ def extract_reservoirs(db: PlexosDb, bundle: PlexosBundle) -> tuple[ReservoirSpe
                 water_value=water_value_gwh,
                 never_drain=never_drain,
                 spill_penalty_per_mwh=spill_penalty,
+                spill_flow_penalty=vert_spill_penalty.get(name, 0.0),
                 emin_profile=emin_profile,
                 emax_profile=emax_profile,
             )
@@ -7951,7 +7971,7 @@ def _tighten_decision_variable_bigm(
     return tuple(out)
 
 
-def extract_user_constraints(
+def extract_user_constraints(  # pylint: disable=too-many-arguments
     db: PlexosDb,
     _bundle: PlexosBundle,
     *,
@@ -7961,6 +7981,7 @@ def extract_user_constraints(
     pmax_profiles_by_gen: dict[str, tuple[float, ...]] | None = None,
     shadow_lines_all_off: frozenset[str] | None = None,
     always_on_gens: frozenset[str] | None = None,
+    offline_commit_gens: frozenset[str] | None = None,
     unusable_provisions: frozenset[str] | None = None,
     stats_out: dict[str, int] | None = None,
     lax_refs: bool = False,
@@ -8685,6 +8706,35 @@ def extract_user_constraints(
             )
             for parent_name, coeff in per_constr.get(constr.object_id, ()):
                 ref_name = name_tmpl.format(name=parent_name)
+                # pmax=0 phantom commitment: a generator whose ``pmax`` is 0
+                # across the whole horizon can NEVER be committed or generate,
+                # so the writer drops its ``Commitment`` row
+                # (``_zero_pmax_generator_names``) and PLEXOS reports its
+                # ``Units Generating`` as identically 0.  Any
+                # ``commitment("uc_<gen>").status`` / ``.startup`` /
+                # ``.shutdown`` term therefore contributes ``coeff × 0 = 0`` —
+                # drop it (no RHS shift; the unit is always OFF, the mirror
+                # image of the always-on renewable absorb-into-RHS case below).
+                # Without this the term survives as a dangling reference to the
+                # dropped commitment and gtopt's strict UC resolver aborts the
+                # whole solve (NorthSecurity → uc_NEHUENCO_1-TG+TV_DIE, the
+                # 2026-06-21 regression).  Shares the predicate with the writer
+                # via ``generator_is_zero_pmax`` so the two cannot drift.
+                if (
+                    parent_class == "Generator"
+                    and gtopt_class == "commitment"
+                    and offline_commit_gens is not None
+                    and parent_name in offline_commit_gens
+                ):
+                    logger.debug(
+                        "constraint %s: dropping commitment.%s for pmax=0 "
+                        "phantom '%s' (commitment dropped; status≡0, term "
+                        "contributes 0)",
+                        constr.name,
+                        accessor,
+                        parent_name,
+                    )
+                    continue
                 # The term is unresolvable when EITHER the underlying
                 # PLEXOS parent object was not emitted (``allowed_parent``)
                 # OR the synthesized gtopt element name was not emitted
@@ -11322,6 +11372,15 @@ def extract_case(
     # valid Commitment reference (used by the Battery ``Reserve Units``
     # → ``forward_to_battery_gen_commit`` rewrite).
     battery_gen_names = frozenset(f"{b.name}_gen" for b in case.batteries)
+    # Generators whose ``pmax`` is 0 across the whole horizon: the writer
+    # drops their ``Commitment`` row (``_zero_pmax_generator_names``), so
+    # their ``uc_<gen>`` commitment names must NOT appear in the allow-list
+    # below, and any UC ``commitment(...).status`` term referencing them is
+    # dropped in the builder (status≡0).  Single source of truth shared with
+    # the writer via ``generator_is_zero_pmax`` so they cannot drift.
+    offline_commit_gens = frozenset(
+        g.name for g in case.generators if generator_is_zero_pmax(g)
+    )
     emitted_names: dict[str, frozenset[str]] = {
         "Generator": frozenset(g.name for g in case.generators).union(
             battery_gen_names
@@ -11340,7 +11399,9 @@ def extract_case(
         # ``commitment("uc_<bat>_gen").status``, so these names MUST be
         # recognised as valid references.
         "Commitment": frozenset(
-            f"uc_{c.generator_name}" for c in case.commitments
+            f"uc_{c.generator_name}"
+            for c in case.commitments
+            if c.generator_name not in offline_commit_gens
         ).union(f"uc_{b.name}_gen" for b in case.batteries),
         # ReserveProvision allow-list carries the ACTUAL emitted
         # provision name (``p.name``) so that zone-suffixed SSCC BESS
@@ -11415,6 +11476,7 @@ def extract_case(
         pmax_profiles_by_gen=pmax_profiles_by_gen,
         shadow_lines_all_off=frozenset(shadow_lines_all_off),
         always_on_gens=always_on_gens,
+        offline_commit_gens=offline_commit_gens,
         unusable_provisions=unusable_provisions,
         stats_out=uc_stats_raw,
         lax_refs=lax_uc_refs,

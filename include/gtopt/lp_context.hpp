@@ -69,6 +69,21 @@ using BlockExContext = std::tuple<ScenarioUid, StageUid, BlockUid, int>;
 /// Tuple: (scene_uid, phase_uid)
 using ScenePhaseContext = std::tuple<SceneUid, PhaseUid>;
 
+/// Planning-level (coarse-scope) context for `phase`/`global`-scoped
+/// AMPL constructs (UserConstraint / DecisionVariable / FutureCost) built
+/// ONCE per (scene, phase) cell by the planning pass.  Distinct from
+/// `ScenePhaseContext`: it carries an extra `Uid` discriminator (the
+/// element's own uid) so several `global`-scoped rows in the same cell
+/// receive distinct, labelable identities and never collide in
+/// `LinearProblem::add_row`'s metadata-based duplicate detector — a plain
+/// `std::monostate` would (`add_row` skips dedup entirely for monostate
+/// rows).  The variable_uid in the row metadata also carries the element
+/// uid, so the discriminator here is belt-and-suspenders: it guarantees a
+/// unique LABEL string even when two different element classes happen to
+/// share a uid.
+/// Tuple: (scene_uid, phase_uid, element_uid)
+using PhaseContext = std::tuple<SceneUid, PhaseUid, Uid>;
+
 /// SDDP cut context with iteration UID and extra index (cut offset).
 /// Tuple: (scene_uid, phase_uid, iteration_uid, extra).
 /// All three positional identifiers are UIDs (1-based, matching the
@@ -88,7 +103,14 @@ using LpContext = std::variant<std::monostate,
                                BlockExContext,
                                ScenePhaseContext,
                                IterationContext,
-                               ApertureContext>;
+                               ApertureContext,
+                               // Appended last so the stable on-disk tag
+                               // table in cascade_progress.cpp (which keys
+                               // off `std::variant::index()`) stays valid:
+                               // existing alternatives keep their indices,
+                               // PhaseContext gets the next free tag.  Never
+                               // reorder — only append.
+                               PhaseContext>;
 
 // -- Context factory functions ------------------------------------------------
 //
@@ -127,6 +149,15 @@ using LpContext = std::variant<std::monostate,
     -> ScenePhaseContext
 {
   return ScenePhaseContext {scene_uid, phase_uid};
+}
+
+/// Build a planning-level (phase/global-scope) context from the cell's
+/// (scene, phase) UIDs and the owning element's uid (the discriminator).
+[[nodiscard]] constexpr auto make_phase_context(SceneUid scene_uid,
+                                                PhaseUid phase_uid,
+                                                Uid element_uid) -> PhaseContext
+{
+  return PhaseContext {scene_uid, phase_uid, element_uid};
 }
 
 /// Build an SDDP scene/phase context from an already-converted

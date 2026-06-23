@@ -1336,6 +1336,26 @@ class GTOptWriter(
 
         self.planning["options"] = planning_opts
 
+        # FutureCost α-output activation (SDDP / cascade only).  The C++
+        # SDDP α-output (FutureCost/{alpha, alpha_<s>, rebase} written by
+        # ``FutureCostLP::add_to_output``) activates ONLY when the System
+        # JSON carries a ``future_cost_array`` entry: a minimal
+        # ``{uid, name}`` element makes the engine create a
+        # ``FutureCostLP`` per (scene, phase) cell that self-finds and
+        # emits the realised cost-to-go α from the SDDP cut registries.
+        # Without the element the α is built but never serialised.
+        #
+        # Gated on the SDDP/cascade fast-path methods (the same set the
+        # boundary-cuts plumbing targets) — monolithic α is handled
+        # separately on the C++ side, so we never emit it there.  Only the
+        # bare ``{uid, name}`` is needed; the cuts_file / scale_alpha /
+        # mean_shift / sharing / mode / valuation fields are inert for the
+        # self-finding α-output and intentionally omitted.
+        if method in FAST_PATH_METHODS:
+            self.planning["system"]["future_cost_array"] = [
+                {"uid": 1, "name": "fcf"},
+            ]
+
         # Set annual_discount_rate on the simulation section.
         self.planning["simulation"]["annual_discount_rate"] = discount_rate
 

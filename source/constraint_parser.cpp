@@ -577,7 +577,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     {
       return t.element.has_value() || t.sum_ref.has_value()
           || t.param_name.has_value() || t.abs_expr || t.minmax_expr
-          || t.if_expr || t.coeff_profile.has_value();
+          || t.if_expr || t.time_agg || t.coeff_profile.has_value();
     };
 
     // Extract lower bound from lhs_terms
@@ -632,7 +632,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
     {
       return t.element.has_value() || t.sum_ref.has_value()
           || t.param_name.has_value() || t.abs_expr || t.minmax_expr
-          || t.if_expr || t.coeff_profile.has_value();
+          || t.if_expr || t.time_agg || t.coeff_profile.has_value();
     };
 
     // LHS terms stay as-is
@@ -666,7 +666,7 @@ ConstraintExpr ConstraintParser::Parser::parse_constraint()
   for (const auto& t : result.terms) {
     if (t.coeff_profile
         && !(t.element || t.sum_ref || t.param_name || t.abs_expr
-             || t.minmax_expr || t.if_expr))
+             || t.minmax_expr || t.if_expr || t.time_agg))
     {
       error_at_current(
           "a per-block coefficient profile must multiply a variable term",
@@ -710,7 +710,7 @@ std::optional<double> extract_constant(
   double acc = 0.0;
   for (const auto& t : terms) {
     if (t.element || t.sum_ref || t.param_name || t.abs_expr || t.minmax_expr
-        || t.if_expr || t.coeff_profile)
+        || t.if_expr || t.time_agg || t.coeff_profile)
     {
       return std::nullopt;
     }
@@ -733,7 +733,7 @@ std::optional<std::vector<double>> extract_profile(
   }
   const auto& t = terms.front();
   if (t.element || t.sum_ref || t.param_name || t.abs_expr || t.minmax_expr
-      || t.if_expr || !t.coeff_profile)
+      || t.if_expr || t.time_agg || !t.coeff_profile)
   {
     return std::nullopt;
   }
@@ -968,8 +968,14 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     return parse_coeff_profile();
   }
 
-  // sum(...) aggregation
+  // `sum` — TWO distinct operators selected by the following bracket:
+  //   sum{ idx in window } ...   → TIME aggregation  (LBRACE) → TimeAggRef
+  //   sum( type(ids).attr )      → ELEMENT aggregation (LPAREN) → SumElementRef
+  // See constraint_expr.hpp's grammar block for the full distinction.
   if (m_current_.type == TokenType::IDENT && m_current_.value == "sum") {
+    if (m_lexer_.peek().type == TokenType::LBRACE) {
+      return parse_time_agg_expr();
+    }
     return {
         parse_sum_expr(),
     };
@@ -1229,6 +1235,106 @@ ConstraintTerm ConstraintParser::Parser::parse_sum_expr()
   term.coefficient = 1.0;
   term.sum_ref = std::move(sum_ref);
   return term;
+}
+
+std::vector<ConstraintTerm> ConstraintParser::Parser::parse_time_agg_expr()
+{
+  // Current token is `sum`; the next is `{` (checked by the caller).
+  //   sum{ idx in window } [dur[idx] *] inner_expr
+  const auto sum_col = m_current_.start_pos;
+  advance();  // consume `sum`
+  expect(TokenType::LBRACE, "use `sum{ idx in stage|day } ...`");
+
+  // Bound index name (e.g. `b`).
+  if (m_current_.type != TokenType::IDENT) {
+    error_at_current(
+        std::format(
+            "expected an index name after `sum{{`, got '{}'",
+            m_current_.value.empty() ? "end of input" : m_current_.value),
+        "use `sum{ b in stage } ...`");
+  }
+  TimeAggRef agg;
+  agg.index_name = std::move(m_current_.value);
+  advance();
+
+  // `in`
+  if (m_current_.type != TokenType::IDENT || m_current_.value != "in") {
+    error_at_current(std::format("expected `in` after the index name, got '{}'",
+                                 m_current_.value.empty() ? "end of input"
+                                                          : m_current_.value),
+                     "use `sum{ b in stage } ...`");
+  }
+  advance();
+
+  // Time window: `stage` | `day`.
+  if (m_current_.type != TokenType::IDENT) {
+    error_at_current(
+        std::format(
+            "expected a time window (`stage` or `day`), got '{}'",
+            m_current_.value.empty() ? "end of input" : m_current_.value),
+        "valid windows: stage, day");
+  }
+  if (m_current_.value == "stage") {
+    agg.window = TimeWindow::Stage;
+  } else if (m_current_.value == "day") {
+    agg.window = TimeWindow::Day;
+  } else {
+    error_at_current(std::format("unknown time window '{}'", m_current_.value),
+                     "valid windows: stage, day");
+  }
+  advance();
+
+  expect(TokenType::RBRACE, "close the index set with '}'");
+
+  // Optional `dur[idx] *` prefix → duration (Δt) weighting (energy form).
+  // Required for RATE variables (flow [m³/s]) so the time-sum is energy.
+  if (m_current_.type == TokenType::IDENT && m_current_.value == "dur") {
+    advance();
+    expect(TokenType::LBRACKET, "use `dur[<index>] * ...`");
+    if (m_current_.type != TokenType::IDENT) {
+      error_at_current(
+          std::format(
+              "expected the bound index inside `dur[...]`, got '{}'",
+              m_current_.value.empty() ? "end of input" : m_current_.value),
+          std::format("use `dur[{}]`", agg.index_name));
+    }
+    if (m_current_.value != agg.index_name) {
+      error_at_current(
+          std::format("`dur[{}]` does not match the bound index `{}`",
+                      m_current_.value,
+                      agg.index_name),
+          std::format("use `dur[{}]`", agg.index_name));
+    }
+    advance();
+    expect(TokenType::RBRACKET, "close `dur[` with ']'");
+    expect(TokenType::STAR, "`dur[idx]` must multiply the inner expression");
+    agg.weight = TimeAggWeight::Duration;
+  }
+
+  // Inner linear expression — aggregated over the window's blocks.
+  agg.inner = parse_mul_expr();
+  if (agg.inner.empty()) {
+    error_at(sum_col,
+             "empty inner expression in `sum{...}`",
+             "supply a linear expression, e.g. `sum{b in stage} "
+             "generator('g').generation`");
+  }
+  // A time-agg over a pure constant carries no LP columns — reject so the
+  // author doesn't silently get a constant masquerading as an aggregation.
+  if (extract_constant(agg.inner)) {
+    error_at(sum_col,
+             "`sum{...}` over a constant has no variables to aggregate",
+             "the inner expression must reference a per-block variable");
+  }
+
+  ConstraintTerm term;
+  term.coefficient = 1.0;
+  term.time_agg =
+      std::make_shared<const TimeAggRef>(TimeAggRef {std::move(agg)});
+  term.column = sum_col + 1;
+  return {
+      std::move(term),
+  };
 }
 
 void ConstraintParser::Parser::parse_sum_predicates(SumElementRef& sum_ref)

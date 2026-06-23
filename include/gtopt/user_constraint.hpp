@@ -158,6 +158,25 @@ struct UserConstraint
   /// MinProvision) follows in independent steps.
   OptConstraintDirective directive {};
 
+  /// Time-granularity at which this constraint's LP rows are instantiated
+  /// (``"block"`` default, ``"stage"``, ``"phase"``, ``"global"``).  Parsed
+  /// as ``ConstraintScope``.  ORTHOGONAL to the ``for(...)`` clause: ``scope``
+  /// reduces granularity (one row per stage / per cell), the ``for(...)``
+  /// clause restricts which instances are emitted.
+  ///
+  /// - ``block`` (default): one LP row per (scenario, stage, block) — the
+  ///   historical behaviour; per-block element references resolve directly.
+  /// - ``stage``: one LP row per (scenario, stage).  Per-block references
+  ///   inside the expression must be wrapped in a ``sum{b in stage}``
+  ///   time-aggregator so the coarse row reaches the per-block columns.
+  ///   Built in the per-(scenario, stage) operational pass.
+  /// - ``phase`` / ``global``: one LP row per (scene, phase) cell, built in
+  ///   the planning pass (``add_to_phase_lp`` / ``add_to_global_lp``) — the
+  ///   FCF α terminal cut / annual-cap shape.
+  ///
+  /// Default unset ⇒ ``block`` (every legacy JSON round-trips unchanged).
+  OptName scope {};
+
   /// User-controlled name for the auto-created slack column on soft
   /// constraints (overrides the LP-internal default ``"slack"``).
   ///

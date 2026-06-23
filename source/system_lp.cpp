@@ -112,10 +112,12 @@ constexpr auto add_to_lp(auto& collections,
     // Passive parameter-carrier elements (Fuel, Emission Commit-1, …)
     // have no `add_to_lp` method by design — they exist in the
     // collection only so `SystemContext::element<T>(...)` can resolve
-    // them.  Skip them at compile time.  The `AddToLP` concept is the
-    // single source of truth for "this element type contributes LP
-    // rows / cols / coefficients".
-    if constexpr (!AddToLP<T>) {
+    // them.  Skip them at compile time.  The `HasAddToLp` capability
+    // concept is the single source of truth for "this element type
+    // contributes LP rows / cols / coefficients" — a discriminator, not
+    // an enforced interface (output-only / planning-level elements are
+    // skipped here and handled by their own pass).
+    if constexpr (!HasAddToLp<T>) {
       return true;
     } else if constexpr (std::is_same_v<T, BusLP>) {
       return !use_single_bus || system_context.system().is_single_bus(e.id())
@@ -182,6 +184,51 @@ constexpr auto add_to_lp(auto& collections,
   }
 
   return count;
+}
+
+/// @brief Planning-level (coarse-scope) build passes for one (scene, phase)
+/// cell.  Runs once, AFTER the per-(scenario, stage) `add_to_lp` loop.
+///
+/// Two ordered sweeps over all collections:
+///   1. phase scope  — recourse / per-phase state variables (piece 5);
+///   2. global scope — the FutureCost α terminal cut + annual caps (piece 2),
+/// so the global sweep can reference state columns the phase sweep just
+/// registered.  Each element is dispatched via `if constexpr (HasAddTo*Lp<T>)`;
+/// passive / per-block-only elements are skipped at compile time.  No current
+/// element provides either method, so both sweeps are inert no-ops until
+/// `FutureCostLP` / `UserModelLP` land — the `[[maybe_unused]]` markers keep
+/// `-Werror` happy while every `if constexpr` branch is the (discarded) `else`.
+///
+/// @return total participating-element count across both sweeps.
+constexpr auto add_to_planning_lp(
+    auto& collections,
+    [[maybe_unused]] SystemContext& system_context,
+    [[maybe_unused]] const SceneLP& scene,
+    [[maybe_unused]] const PhaseLP& phase,
+    [[maybe_unused]] LinearProblem& lp)
+{
+  auto phase_visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+    if constexpr (HasAddToPhaseLp<T>) {
+      return e.add_to_phase_lp(system_context, scene, phase, lp);
+    } else {
+      return true;
+    }
+  };
+  auto global_visitor = [&](auto& e) -> bool
+  {
+    using T = std::decay_t<decltype(e)>;
+    if constexpr (HasAddToGlobalLp<T>) {
+      return e.add_to_global_lp(system_context, scene, phase, lp);
+    } else {
+      return true;
+    }
+  };
+
+  const auto phase_count = visit_elements(collections, phase_visitor);
+  const auto global_count = visit_elements(collections, global_visitor);
+  return phase_count + global_count;
 }
 
 /// @brief Pin orphaned theta variables in disconnected bus islands.
@@ -463,6 +510,12 @@ constexpr auto flatten_from_collections(auto& collections,
     }
   }
 
+  // Planning-level passes — coarse-scope constructs built ONCE per
+  // (scene, phase) cell, after the per-(scenario, stage) operational build.
+  // Inert until FutureCost (piece 2) / AMPL state vars (piece 5) provide the
+  // `add_to_phase_lp` / `add_to_global_lp` hooks.  See add_to_planning_lp.
+  add_to_planning_lp(collections, system_context, scene, phase, lp);
+
   // Compute LP fingerprint before flattening (structured metadata is still
   // available in the raw cols/rows vectors).  Skipped unless the user
   // requested fingerprint output (--lp-fingerprint).
@@ -669,10 +722,25 @@ void create_collections(const auto& system_context,
   std::get<Collection<PlantLP>>(colls) =
       make_collection<PlantLP>(ic, sys.plant_array);
 
-  // UserConstraintLP is placed LAST so that user-constraint rows are added to
-  // the LP after all other elements whose columns they reference.
+  // UserConstraintLP is the last OPERATIONAL collection so user-constraint rows
+  // are added after all other elements whose columns they reference.
   std::get<Collection<UserConstraintLP>>(colls) =
       make_collection<UserConstraintLP>(ic, sys.user_constraint_array);
+
+  // UserModelLP (generic AMPL capture, piece 3) sits after UserConstraintLP:
+  // it reuses the same resolver/registry and may reference any column built
+  // above.  Its internal DecisionVariableLP / UserConstraintLP delegates run
+  // the standard build paths.
+  std::get<Collection<UserModelLP>>(colls) =
+      make_collection<UserModelLP>(ic, sys.user_model_array);
+
+  // FutureCostLP (planning-only) is populated last so its α cut can reference
+  // the reservoir + AMPL terminal state columns built above.  It contributes
+  // nothing to the operational stage pass (no add_to_lp); the planning pass
+  // (`add_to_planning_lp`) dispatches its `add_to_global_lp` after the stage
+  // loop.
+  std::get<Collection<FutureCostLP>>(colls) =
+      make_collection<FutureCostLP>(ic, sys.future_cost_array);
 
 #ifdef GTOPT_EXTRA
   std::get<Collection<EmissionZoneLP>>(colls) =
@@ -746,6 +814,26 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_element_names<WaterwayLP>(sim, sys.waterway_array);
   register_element_names<LngTerminalLP>(sim, sys.lng_terminal_array);
   register_element_names<PlantLP>(sim, sys.plant_array);
+
+  // UserModel bundles vars/constraints; register each sub-declaration under
+  // the SAME AMPL class as its standalone counterpart so expressions resolve
+  // `decision_variable("X")` / `user_constraint("Y")` uniformly whether the
+  // declaration is standalone or bundled inside a UserModel.  The UserModel
+  // element itself is not an AMPL-referenceable class (it has no LP attribute).
+  {
+    constexpr auto dv_class =
+        DecisionVariableLP::Element::class_name.snake_case();
+    constexpr auto uc_class =
+        UserConstraintLP::Element::class_name.snake_case();
+    for (const auto& um : sys.user_model_array) {
+      for (const auto& dv : um.variable_array) {
+        sim.register_ampl_element(dv_class, dv.name, dv.uid);
+      }
+      for (const auto& uc : um.constraint_array) {
+        sim.register_ampl_element(uc_class, uc.name, uc.uid);
+      }
+    }
+  }
 
   // Intentional exception: ReservoirSeepageLP is exposed at the AMPL
   // level under "seepage", not the snake-case of its class name
@@ -1472,11 +1560,13 @@ void SystemLP::write_out()
                               [&oc](const auto& e)
                               {
                                 using T = std::decay_t<decltype(e)>;
-                                // Passive parameter carriers (e.g. `FuelLP`)
-                                // have no `add_to_output`; skip them at compile
-                                // time.  Matches the gating in `add_to_lp`
-                                // above.
-                                if constexpr (!AddToLP<T>) {
+                                // Skip at compile time any element without an
+                                // `add_to_output`; the `HasAddToOutput`
+                                // capability is the discriminator (mirrors the
+                                // `HasAddToLp` gating in `add_to_lp`).  This
+                                // also picks up output-only / planning-level
+                                // elements that have no per-block `add_to_lp`.
+                                if constexpr (!HasAddToOutput<T>) {
                                   return true;
                                 } else {
                                   return e.add_to_output(oc);

@@ -92,6 +92,16 @@ struct DecisionVariable
   /// ``ConstraintScaleType``.
   OptName cost_type {};
 
+  /// Time-granularity at which this decision variable's LP column is
+  /// instantiated (``"block"`` default, ``"stage"``, ``"phase"``,
+  /// ``"global"``).  Parsed as ``ConstraintScope`` (shared with
+  /// ``UserConstraint``).  Coarser than the single-``block`` selector below:
+  /// ``stage`` → one column per (scenario, stage); ``phase`` / ``global`` →
+  /// one column per (scene, phase) cell (the global FCF α, annual knobs).
+  ///
+  /// Default unset ⇒ ``block`` (every legacy JSON round-trips unchanged).
+  OptName scope {};
+
   /// Optional single-block scope (block ``uid``).  When set, the LP
   /// creates the column ONLY on that block instead of one per block —
   /// used for end-of-horizon quantities like the FCF cost-to-go
@@ -100,6 +110,30 @@ struct DecisionVariable
   /// objective).  When unset, the default per-(scenario, stage, block)
   /// column set is created.
   OptUid block {};
+
+  /// AMPL **state variable** flag (piece 5).  When ``true`` this column is
+  /// registered as a cross-phase ``StateVariable`` (via
+  /// ``SystemContext::add_state_col``) so the SDDP backward pass couples it
+  /// across phases and includes it in every optimality / feasibility cut —
+  /// the same machinery the reservoir ``efin`` and the built-in FCF α use,
+  /// exposed to the AMPL author.  A state variable MUST be coarse-scoped
+  /// (``scope`` = ``stage`` / ``phase`` / ``global``) — one column per
+  /// (scene, phase) cell — NEVER per ``block`` (a per-block column has no
+  /// single end-of-phase value to propagate).  It also REQUIRES ``link``:
+  /// see below.  Default unset ⇒ ``false`` (a plain free column).
+  OptBool state {};
+
+  /// Cross-phase **link** flag for a ``state`` variable (piece 5).  When
+  /// ``true``, this phase's column is linked to the SAME variable's column
+  /// in the PREVIOUS phase (this phase's start value = previous phase's end
+  /// value), via ``SystemContext::defer_state_link``.  The previous-phase
+  /// ``StateVariable::Key`` is synthesized from this variable's own identity
+  /// (uid + ``value`` col + a dedicated user-state ``class_name`` prefix) so
+  /// it round-trips through cut I/O without colliding with engine state
+  /// (reservoir efin, built-in α).  ``state: true`` WITHOUT ``link`` is a
+  /// hard error at build time — an un-linked state variable would silently
+  /// decouple the phases.  Ignored when ``state`` is unset / ``false``.
+  OptBool link {};
 
   /// Optional objective constant for a mean-shifted (rebased) variable.
   /// When the variable is α-rebased as ``value = value' + obj_constant``

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <format>
 #include <map>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -94,6 +96,39 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
           },
   });
   return svar ? &svar->get() : nullptr;
+}
+
+const StateVariable* find_user_alpha_state_var(const SimulationLP& sim,
+                                               SceneIndex scene_index,
+                                               PhaseIndex phase_index,
+                                               Uid user_alpha_uid,
+                                               SystemKind kind) noexcept
+{
+  // The user α is the AMPL `state`/`link` DecisionVariable registered under the
+  // DEDICATED state class (`DecisionVariableLP::StateClassName` =
+  // "UserStateVar", col_name = ValueName = "value") with `uid ==
+  // user_alpha_uid`.  Distinct from the built-in α (`sddp_alpha_lp_class`), so
+  // the two never collide.
+  //
+  // Unlike `find_alpha_state_var` (whose key carries the default `unknown`
+  // scenario/stage uids, matching how the built-in α is registered), the user α
+  // was registered with CONCRETE `scenario_uid` / `stage_uid` (via
+  // `StateVariable::key(scenario, rep_stage, ...)` in
+  // `DecisionVariableLP::build_cell_col`).  Those uids are not known here, so a
+  // direct keyed `state_variable(Key)` lookup would miss.  Scan the cell's
+  // (scene, phase, kind) map and match on the stable triple
+  // `(class_name, uid, col_name)` instead — exactly one entry per cell.
+  for (const auto& [key, svar] :
+       sim.state_variables(scene_index, phase_index, kind))
+  {
+    if (key.class_name == DecisionVariableLP::StateClassName
+        && key.uid == user_alpha_uid
+        && key.col_name == DecisionVariableLP::ValueName)
+    {
+      return &svar;
+    }
+  }
+  return nullptr;
 }
 
 std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
@@ -284,6 +319,25 @@ auto SDDPMethod::validate_inputs() const -> std::optional<Error>
     };
   }
   return std::nullopt;
+}
+
+void SDDPMethod::populate_future_cost_output()
+{
+  // Publish the per-scene α-rebase constants c̄ onto the persistent
+  // SimulationLP so `FutureCostLP::add_to_output` can SELF-FIND them at write
+  // time (the α columns themselves are read straight from the persistent
+  // state-variable registry via `alpha_cols_on_cell`).  Called at the END of
+  // solve(), sync + async.  Read-only w.r.t. the LP (no bound/row/col change →
+  // SDDP bounds unaffected).  Works under ALL low_memory modes: the simulation
+  // outlives the per-cell LP rebuild that `write_out` performs under compress,
+  // unlike the former per-cell FutureCostLP stash.
+  auto& sim = planning_lp().simulation();
+  StrongIndexVector<SceneIndex, double> offsets(
+      static_cast<std::size_t>(sim.scene_count()), 0.0);
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    offsets[si] = scene_alpha_offset(si);
+  }
+  sim.set_alpha_offsets(std::move(offsets));
 }
 
 auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
@@ -477,6 +531,36 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
             / p)
         .string();
   };
+
+  // ── FutureCost element config consolidation (piece 5 step 2b) ──────────
+  // When an active FutureCost element authors boundary-cut fields, they win
+  // over the equivalent SDDPOptions fields (the element is the single source of
+  // truth).  Read-site only — each override is gated on the element having
+  // EXPLICITLY set the field, so when there is no FutureCost element (or it
+  // leaves a field unset) `m_options_` is byte-for-byte unchanged (backward-
+  // compatible — `test_sddp_boundary_cuts_mean_shift` stays green).  Skipped
+  // entirely under `use_user_alpha` (the user α replaces boundary cuts, handled
+  // separately below).
+  if (const auto* fc = active_future_cost(planning_lp());
+      fc != nullptr && !fc->use_user_alpha.value_or(false))
+  {
+    const auto cfg = boundary_config(*fc);
+    if (cfg.cuts_file.has_value()) {
+      m_options_.boundary_cuts_file = *cfg.cuts_file;
+    }
+    if (cfg.scale_alpha.has_value()) {
+      m_options_.scale_alpha = *cfg.scale_alpha;
+    }
+    if (cfg.mean_shift.has_value()) {
+      m_options_.boundary_cuts_mean_shift = *cfg.mean_shift;
+    }
+    if (cfg.sharing.has_value()) {
+      m_options_.boundary_cut_sharing = *cfg.sharing;
+    }
+    if (cfg.mode.has_value()) {
+      m_options_.boundary_cuts_mode = *cfg.mode;
+    }
+  }
 
   // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
   // master optimum so that the LP-space α coefficient lands O(1)
@@ -679,14 +763,124 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     m_iteration_offset_ = std::max(m_iteration_offset_, *hint);
   }
 
-  // ── Load boundary cuts (future-cost function for last phase) ──────────
-  // Boundary cuts are part of the problem specification (analogous to
-  // PLP's "planos de embalse"), NOT recovery state.  They do NOT
-  // affect the iteration offset — the solver always starts from
-  // iteration 0 (or from the recovery offset if recovery cuts exist).
-  // Missing file with a non-empty config path = WARN (silent skip used
-  // to mask common "cwd ≠ case dir" mistakes).
-  if (!m_options_.boundary_cuts_file.empty()) {
+  // ── User-overridable FCF (piece 5 step 2a) ────────────────────────────
+  // When an active FutureCost element carries `use_user_alpha`, the modeller's
+  // global `state`/`link` α DecisionVariable + global UserConstraint cut row(s)
+  // replace the built-in boundary-cut FCF.  The built-in α was already
+  // registered INERT (cost 0, not a state var) in `initialize_alpha_variables`.
+  // Here we (1) reject the both-active combination, (2) check the user α exists
+  // and is priced, (3) skip the boundary-cut load entirely (the user's
+  // UserConstraint cuts already built the recourse during the LP-build pass).
+  if (const auto* fc = active_future_cost(planning_lp());
+      fc != nullptr && fc->use_user_alpha.value_or(false))
+  {
+    // (1) Mutual exclusion vs the built-in boundary-cut FCF.
+    if (!m_options_.boundary_cuts_file.empty()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': use_user_alpha and boundary_cuts_file are "
+              "mutually exclusive — the user-authored α + cuts replace the "
+              "boundary-cut FCF, so supplying both is ambiguous",
+              fc->name),
+      });
+    }
+
+    // (2) The user α DecisionVariable must exist AND be priced (cost != 0):
+    //     a zero-cost α is never minimised, so the FCF has no objective weight
+    //     and the master is effectively unbounded below in the future-cost
+    //     dimension.  `user_alpha_uid` is REQUIRED.
+    const auto ua_uid = fc->user_alpha_uid;
+    if (!ua_uid.has_value()) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': use_user_alpha requires user_alpha_uid (the "
+              "uid of the global state/link α DecisionVariable)",
+              fc->name),
+      });
+    }
+    // Read the user α DecisionVariable's cost from the System INPUT data (not
+    // the LP collection, which compress mode drops for planning-only elements).
+    double user_alpha_cost = 0.0;
+    bool found_user_alpha = false;
+    {
+      const auto& sys0 =
+          planning_lp().system(SceneIndex {0}, PhaseIndex {0}).system();
+      for (const auto& dv : sys0.decision_variable_array) {
+        if (dv.uid == *ua_uid) {
+          found_user_alpha = true;
+          user_alpha_cost = dv.cost.value_or(0.0);
+          break;
+        }
+      }
+    }
+    if (!found_user_alpha) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': user_alpha_uid={} does not match any "
+              "DecisionVariable",
+              fc->name,
+              static_cast<std::uint64_t>(*ua_uid)),
+      });
+    }
+    if (user_alpha_cost == 0.0) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': the user α DecisionVariable (uid={}) has "
+              "cost == 0 — an unpriced cost-to-go leaves the master unbounded "
+              "below in the future-cost dimension; set a positive cost (1.0 "
+              "for the canonical 1:1 FCF weight)",
+              fc->name,
+              static_cast<std::uint64_t>(*ua_uid)),
+      });
+    }
+
+    // (3) `use_user_alpha && multicut` is rejected (piece 5 step 2c, increment
+    //     A scope).  The user α is a SINGLE column priced `cost`, whereas
+    //     `CutSharingMode::multicut` expects N dedicated `varphi_s` α columns
+    //     (one per source scene) to route per-scenario cuts onto.  The
+    //     user-α backward dispatch puts every scene's cut on the same single
+    //     user-α column, so multicut routing has no `varphi_s` to target.
+    //     Multicut support over a user α is DEFERRED (increment D).
+    if (m_options_.cut_sharing == CutSharingMode::multicut) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': use_user_alpha is incompatible with "
+              "cut_sharing=multicut — the user α is a single column, not N "
+              "per-scene varphi_s columns.  Use cut_sharing=none (multicut "
+              "support over a user α is deferred)",
+              fc->name),
+      });
+    }
+
+    // (4) `use_user_alpha && mean_shift` → mean_shift is meaningless (no
+    //     boundary cuts to rebase); warn it is ignored.
+    if (fc->mean_shift.value_or(false) || m_options_.boundary_cuts_mean_shift) {
+      SPDLOG_WARN(
+          "FutureCost '{}': mean_shift is ignored under use_user_alpha (there "
+          "are no boundary cuts to rebase)",
+          fc->name);
+    }
+
+    SPDLOG_INFO(
+        "SDDP: use_user_alpha active (FutureCost '{}', user α uid={}, cost={}) "
+        "— skipping boundary-cut load; built-in α is inert",
+        fc->name,
+        static_cast<std::uint64_t>(*ua_uid),
+        user_alpha_cost);
+    // m_scene_alpha_offsets_ stays zero (no rebase under user α).
+  } else if (!m_options_.boundary_cuts_file.empty()) {
+    // ── Load boundary cuts (future-cost function for last phase) ──────────
+    // Boundary cuts are part of the problem specification (analogous to
+    // PLP's "planos de embalse"), NOT recovery state.  They do NOT
+    // affect the iteration offset — the solver always starts from
+    // iteration 0 (or from the recovery offset if recovery cuts exist).
+    // Missing file with a non-empty config path = WARN (silent skip used
+    // to mask common "cwd ≠ case dir" mistakes).
     const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
     if (std::filesystem::exists(bc_path)) {
       auto result = load_boundary_cuts(bc_path);
@@ -712,6 +906,12 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
           bc_path);
     }
   }
+
+  // FutureCost α-output is enabled at the END of solve() by
+  // populate_future_cost_output(), which publishes the per-scene rebase
+  // offsets onto the persistent SimulationLP.  FutureCostLP::add_to_output
+  // then SELF-FINDS its α columns + rebase at write time, so the output works
+  // under ALL low_memory modes.
 
   // ── One-line hot-start summary so cold-vs-warm is visible at a glance ──
   // The "named" hot-start path was retired in 2026-05; internal cuts

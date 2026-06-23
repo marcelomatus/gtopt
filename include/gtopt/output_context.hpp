@@ -134,6 +134,16 @@ public:
 
   [[nodiscard]] auto&& options() const noexcept { return sc.get().options(); }
 
+  /// Borrow the owning `SystemContext` so output sites can reach the
+  /// persistent registries (e.g. `simulation()`, `system()`) that survive
+  /// per-cell LP rebuilds under `low_memory = compress`.  Used by
+  /// `FutureCostLP::add_to_output` to SELF-FIND its α columns + rebase offset
+  /// at write time rather than relying on a per-cell stash.
+  [[nodiscard]] const SystemContext& system_context() const noexcept
+  {
+    return sc.get();
+  }
+
   /// Physical primal value at the given LP column.  Equivalent to
   /// `linear_interface().get_col_sol()[col]` but reads from the
   /// already-cached `col_sol_span` so callers in `add_to_output`

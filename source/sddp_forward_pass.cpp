@@ -19,6 +19,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -824,11 +825,31 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // costs, so row duals are never needed here.
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
-      const auto sa = m_options_.scale_alpha;
-      const auto* alpha_svar = find_alpha_state_var(
-          planning_lp().simulation(), scene_index, phase_index);
-      const auto alpha_val =
-          (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
+      // Strip the future-cost α from the realised opex so the UB sums only
+      // stage costs.  Default path: the built-in α's raw col_sol × scale_alpha
+      // (var_scale = scale_alpha).  Under `use_user_alpha` (piece 5 step 2c)
+      // the built-in α is suppressed (null here → alpha_val would be 0,
+      // inflating the UB by the cost-to-go); instead read the USER α's
+      // col_sol() directly — its `var_scale = 1` so the raw LP value is already
+      // physical, with NO `× scale_alpha`.  Compress-safe element read; default
+      // path unchanged.
+      double alpha_val = 0.0;
+      if (const auto* fc = gtopt::active_future_cost(planning_lp());
+          fc != nullptr && fc->use_user_alpha.value_or(false)
+          && fc->user_alpha_uid.has_value())
+      {
+        const auto* ua_svar =
+            find_user_alpha_state_var(planning_lp().simulation(),
+                                      scene_index,
+                                      phase_index,
+                                      *fc->user_alpha_uid);
+        alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
+      } else {
+        const auto sa = m_options_.scale_alpha;
+        const auto* alpha_svar = find_alpha_state_var(
+            planning_lp().simulation(), scene_index, phase_index);
+        alpha_val = (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
+      }
       state.forward_objective = obj_physical - alpha_val;
 
       // Convergence indicators: read the (sparse) slack column values

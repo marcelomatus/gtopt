@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from gtopt_config import (
     add_color_argument,
@@ -30,9 +29,6 @@ from gtopt_shared.cli_flags import (
     add_use_single_bus_argument,
     add_write_out_argument,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 # ---------------------------------------------------------------------------

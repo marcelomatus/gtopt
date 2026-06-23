@@ -41,6 +41,7 @@
 #include <gtopt/flow.hpp>
 #include <gtopt/flow_right.hpp>
 #include <gtopt/fuel.hpp>
+#include <gtopt/future_cost.hpp>
 #include <gtopt/generator.hpp>
 #include <gtopt/generator_profile.hpp>
 #include <gtopt/hydrogen_node.hpp>
@@ -64,6 +65,7 @@
 #include <gtopt/thermal_storage.hpp>
 #include <gtopt/turbine.hpp>
 #include <gtopt/user_constraint.hpp>
+#include <gtopt/user_model.hpp>
 #include <gtopt/user_param.hpp>
 #include <gtopt/utils.hpp>
 #include <gtopt/volume_right.hpp>
@@ -231,6 +233,8 @@ struct System
       decision_variable_array {};  ///< Free continuous decision vars referenced
                                    ///< by user constraints (PLEXOS DV maps
                                    ///< here)
+  Array<FutureCost>
+      future_cost_array {};  ///< Cost-to-go (FCF / α) planning elements
   Array<Plant>
       plant_array {};  ///< Plant primitive: groups generator config variants
                        ///< (combined-cycle TGA/TGB/TV, fuel-band families)
@@ -238,6 +242,10 @@ struct System
                        ///< natively (replaces PlantCap_* / *_Uniq UCs)
   Array<UserConstraint>
       user_constraint_array {};  ///< User-defined LP constraints
+  Array<UserModel>
+      user_model_array {};  ///< Self-contained AMPL model fragments (bundled
+                            ///< user vars + constraints, captured to
+                            ///< output/UserModel/<tag>/...)
   OptName
       user_constraint_file {};  ///< External JSON/PAMPL file with constraints
   std::vector<Name>

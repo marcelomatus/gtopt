@@ -53,8 +53,9 @@ constexpr std::size_t kCtxBlockEx = 3;
 constexpr std::size_t kCtxScenePhase = 4;
 constexpr std::size_t kCtxIteration = 5;
 constexpr std::size_t kCtxAperture = 6;
+constexpr std::size_t kCtxPhase = 7;
 
-static_assert(std::variant_size_v<LpContext> == 7,
+static_assert(std::variant_size_v<LpContext> == 8,
               "LpContext alternative count changed — update tag table");
 
 /// Encode `LpContext` to a fixed-width int array: [tag, v0, v1, v2, v3].
@@ -135,6 +136,12 @@ static_assert(std::variant_size_v<LpContext> == 7,
           make_uid<Phase>(static_cast<uid_t>(a[2])),
           make_uid<Scenario>(static_cast<uid_t>(a[3])),
           static_cast<int>(a[4]),
+      };
+    case kCtxPhase:
+      return PhaseContext {
+          make_uid<Scene>(static_cast<uid_t>(a[1])),
+          make_uid<Phase>(static_cast<uid_t>(a[2])),
+          Uid {static_cast<uid_t>(a[3])},
       };
     default:
       SPDLOG_WARN(

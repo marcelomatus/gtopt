@@ -320,7 +320,7 @@ class HydroMixin:
             options["_aflce_emitted_uids"] = emitted
 
     def process_junctions(self, options):
-        """Process generator profile data to include block and stage information."""
+        """Build and merge the hydro junction / waterway / reservoir topology."""
         centrals = self.parser.parsed_data.get("central_parser", None)
         stages = self.parser.parsed_data.get("stage_parser", None)
         aflces = self.parser.parsed_data.get("aflce_parser", None)

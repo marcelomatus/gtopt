@@ -20,7 +20,9 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_enums.hpp>
+#include <gtopt/scene_lp.hpp>
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/system_context.hpp>
 #include <gtopt/system_lp.hpp>
@@ -559,6 +561,97 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
       continue;
     }
 
+    if (term.time_agg) {
+      // ── `sum{idx in window} [dur[idx]*] inner` — TIME aggregation ─────────
+      // Iterate the window's blocks and re-resolve the inner expression at
+      // each block, accumulating `coef · weight_b · inner_b` into the row.
+      // DISTINCT from element `sum(...)` (handled above): that sums elements
+      // at ONE block; this sums over TIME.  Over RATE vars the `Duration`
+      // weight applies Δt_b so the time-sum is energy (feedback_stage_avg).
+      const auto& agg = *term.time_agg;
+      const std::size_t before = row.size();
+
+      // Collect the window's blocks (chronological), each paired with its
+      // 0-based ordinal within the stage so the inner expression's per-block
+      // `coeff_profile` (F9) still indexes consistently.
+      std::vector<std::pair<const BlockLP*, std::size_t>> window_blocks;
+      {
+        const auto& blocks = ctx.stage.blocks();
+        if (agg.window == TimeWindow::Stage) {
+          for (const auto& [ord, blk] : enumerate(blocks)) {
+            window_blocks.emplace_back(&blk, ord);
+          }
+        } else {
+          // Day: the 24 h day (cumulative-duration window) that CONTAINS the
+          // ambient block `ctx.block` — mirrors `daily_sum`'s boundary logic
+          // so `sum{b in day}` subsumes it.  Walk the stage accumulating
+          // hours; a day ends when cumulative duration crosses 24 h (or at
+          // the last block).  Emit the day that holds `ctx.block`.
+          constexpr double kDayHours = 24.0;
+          double day_hours = 0.0;
+          std::vector<std::pair<const BlockLP*, std::size_t>> cur_day;
+          bool found = false;
+          for (const auto& [ord, blk] : enumerate(blocks)) {
+            cur_day.emplace_back(&blk, ord);
+            if (blk.uid() == ctx.block.uid()) {
+              found = true;
+            }
+            day_hours += blk.duration();
+            const bool boundary = day_hours >= kDayHours - 1e-9;
+            const bool is_last = (ord + 1 == blocks.size());
+            if (boundary || is_last) {
+              if (found) {
+                window_blocks = std::move(cur_day);
+                break;
+              }
+              cur_day.clear();
+              day_hours = 0.0;
+            }
+          }
+        }
+      }
+
+      for (const auto& [blk_ptr, ord] : window_blocks) {
+        const double weight =
+            (agg.weight == TimeAggWeight::Duration) ? blk_ptr->duration() : 1.0;
+        LowerCtx inner_ctx {
+            .sc = ctx.sc,
+            .scenario = ctx.scenario,
+            .stage = ctx.stage,
+            .block = *blk_ptr,
+            .param_map = ctx.param_map,
+            .uc = ctx.uc,
+            .ctype = ctx.ctype,
+            .is_debug = ctx.is_debug,
+            .is_strict = ctx.is_strict,
+            .lp = ctx.lp,
+            .block_ordinal = ord,
+            .aux_counter = ctx.aux_counter,
+        };
+        const auto inner_res =
+            build_row_from_terms(inner_ctx, agg.inner, coef * weight, row);
+        ctx.aux_counter = inner_ctx.aux_counter;
+        if (inner_res.has_vars) {
+          out.has_vars = true;
+        }
+        // Per-block param/offset shifts inside the inner expression fold onto
+        // the RHS with the same per-block weight as the LHS terms.
+        out.param_shift += weight * inner_res.param_shift;
+      }
+      if (ctx.is_debug) {
+        spdlog::info(
+            "  user_constraint '{}': time-agg sum{{{} in {}}} resolved {} "
+            "columns over {} block(s) (weight={})",
+            ctx.uc.name,
+            agg.index_name,
+            agg.window == TimeWindow::Stage ? "stage" : "day",
+            row.size() - before,
+            window_blocks.size(),
+            agg.weight == TimeAggWeight::Duration ? "duration" : "count");
+      }
+      continue;
+    }
+
     if (term.param_name) {
       // Bind the parameter name to a local up front so subsequent uses
       // never re-dereference the optional (keeps the optional-access
@@ -822,6 +915,23 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     m_penalty_class_ = *parsed;
   }
 
+  // Parse the time-granularity `scope` at construction so the build path can
+  // dispatch on a plain enum.  Unset ⇒ Block (legacy behaviour).  An
+  // unrecognised value is a hard error (same fail-fast policy as
+  // `penalty_class`) — a silent fallback to Block would quietly turn a
+  // coarse-scope constraint into a per-block one.
+  if (uc.scope.has_value() && !uc.scope->empty()) {
+    const auto parsed = enum_from_name<ConstraintScope>(*uc.scope);
+    if (!parsed.has_value()) {
+      throw std::runtime_error(
+          std::format("user_constraint '{}': unknown scope '{}' — "
+                      "valid values are: block, stage, phase, global",
+                      uc.name,
+                      *uc.scope));
+    }
+    m_scope_ = *parsed;
+  }
+
   if (!uc.expression.empty()) {
     try {
       m_expr_ = ConstraintParser::parse(uc.name, uc.expression);
@@ -873,6 +983,14 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
     return true;
   }
 
+  // Phase/global-scoped constraints are built ONCE per (scene, phase) cell by
+  // the planning passes (`add_to_phase_lp` / `add_to_global_lp`), NOT in this
+  // per-(scenario, stage) operational sweep.  Skip them here so they are not
+  // double-emitted.
+  if (scope_is_planning(m_scope_)) {
+    return true;
+  }
+
   if (!is_active(stage)) {
     return true;
   }
@@ -889,6 +1007,25 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   }
 
   const auto& uc = user_constraint();
+
+  // Stage-scope: emit ONE LP row per (scenario, stage), keyed at the
+  // stage's first in-domain block, instead of one row per block.  Per-block
+  // references inside the expression resolve at that representative block;
+  // a stage-level constraint typically references stage-level attributes
+  // (eini/efin/capainst) — which share the same LP column across all
+  // blocks — or wraps per-block variables in a `sum{b in stage}`
+  // time-aggregator (piece-4 step 2).  Built here in the operational sweep
+  // (not the planning pass) because it is still per-(scenario, stage).
+  if (m_scope_ == ConstraintScope::Stage) {
+    for (const auto& block : stage.blocks()) {
+      if (!in_range(domain.blocks, block.uid())) {
+        continue;
+      }
+      const auto row_ctx = make_stage_context(scenario.uid(), stage.uid());
+      return build_coarse_row(sc, scenario, stage, block, row_ctx, lp);
+    }
+    return true;  // no in-domain block in this stage
+  }
 
   // Build param map for named parameter resolution
   const auto param_map = build_param_map(sc.system().system());
@@ -1401,6 +1538,265 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
   }
 
   return true;
+}
+
+bool UserConstraintLP::build_coarse_row(const SystemContext& sc,
+                                        const ScenarioLP& scenario,
+                                        const StageLP& stage,
+                                        const BlockLP& block,
+                                        const LpContext& row_ctx,
+                                        LinearProblem& lp)
+{
+  // Shared builder for the COARSE-scope paths (`stage`/`phase`/`global`).
+  // It resolves the (already domain-checked) expression at the supplied
+  // representative (scenario, stage, block), folds in the RHS override and
+  // an optional soft slack, stamps the row with @p row_ctx (so a `stage`
+  // row carries `StageContext` and a `phase`/`global` row carries
+  // `PhaseContext` — never colliding with per-block rows nor with each
+  // other in `LinearProblem::add_row`'s metadata dedup), and records it
+  // under the (scenario, stage) key at @p block so `add_to_output` reads it
+  // uniformly with the per-block path.  Per-block element references inside
+  // the expression resolve at the representative block; per-block variables
+  // that must be time-aggregated are wrapped in a `sum{...}` time-aggregator
+  // (piece-4 step 2).
+  if (!m_expr_.has_value()) {
+    return true;
+  }
+  const auto& expr = *m_expr_;
+  const auto& uc = user_constraint();
+
+  const auto param_map = build_param_map(sc.system().system());
+  const auto mode = sc.options().constraint_mode();
+  const bool is_debug = (mode == ConstraintMode::debug);
+  const bool is_strict = (mode == ConstraintMode::strict || is_debug);
+
+  const auto penalty = uc.directive.has_value()
+      ? uc.directive->effective_penalty(uc.penalty).value_or(0.0)
+      : uc.penalty.value_or(0.0);
+  const bool is_soft = penalty > 0.0;
+  if (is_soft && expr.constraint_type == ConstraintType::RANGE) {
+    throw std::runtime_error(
+        std::format("user_constraint '{}': `penalty` is not supported on RANGE "
+                    "(`lower <= expr <= upper`) constraints — split into two "
+                    "one-sided constraints instead",
+                    uc.name));
+  }
+  const bool soft_needs_neg =
+      is_soft && expr.constraint_type == ConstraintType::EQUAL;
+
+  const std::string_view slack_col_name =
+      m_slack_label_.empty() ? SlackName : std::string_view {m_slack_label_};
+  const std::string_view slack_pos_col_name = m_slack_pos_label_.empty()
+      ? SlackPosName
+      : std::string_view {m_slack_pos_label_};
+  const std::string_view slack_neg_col_name = m_slack_neg_label_.empty()
+      ? SlackNegName
+      : std::string_view {m_slack_neg_label_};
+
+  SparseRow row;
+  row.class_name = uc.name;
+  row.constraint_name = ConstraintName;
+  row.variable_uid = uid();
+  row.context = row_ctx;
+
+  LowerCtx lctx {
+      .sc = sc,
+      .scenario = scenario,
+      .stage = stage,
+      .block = block,
+      .param_map = param_map,
+      .uc = uc,
+      .ctype = expr.constraint_type,
+      .is_debug = is_debug,
+      .is_strict = is_strict,
+      .lp = lp,
+      .block_ordinal = 0,
+  };
+
+  const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);
+  if (!build_res.has_vars) {
+    SPDLOG_DEBUG(
+        "user_constraint '{}': no LP columns resolved for coarse-scope row "
+        "(rep block {}) — skipping",
+        uc.name,
+        block.uid());
+    return true;
+  }
+
+  // Move parameter terms to the RHS, honouring the per-(stage, block)
+  // override at the representative block when present.
+  auto adjusted_expr = expr;
+  if (m_rhs_.has_value()) {
+    if (const auto rhs_override = m_rhs_.optval(stage.uid(), block.uid())) {
+      adjusted_expr.rhs = *rhs_override;
+      if (adjusted_expr.lower_bound) {
+        *adjusted_expr.lower_bound = *rhs_override;
+      }
+      if (adjusted_expr.upper_bound) {
+        *adjusted_expr.upper_bound = *rhs_override;
+      }
+    }
+  }
+  adjusted_expr.rhs -= build_res.param_shift;
+  if (adjusted_expr.lower_bound) {
+    *adjusted_expr.lower_bound -= build_res.param_shift;
+  }
+  if (adjusted_expr.upper_bound) {
+    *adjusted_expr.upper_bound -= build_res.param_shift;
+  }
+
+  BIndexHolder<ColIndex> block_slack_cols;
+  BIndexHolder<ColIndex> block_slack_neg_cols;
+
+  if (is_soft) {
+    const auto block_penalty =
+        resolve_block_soft_penalty(penalty, m_penalty_class_, block.duration());
+    const auto block_ctx =
+        make_block_context(scenario.uid(), stage.uid(), block.uid());
+    const auto slack_col = lp.add_col(SparseCol {
+        .cost = block_penalty,
+        .class_name = Element::class_name.full_name(),
+        .variable_name = soft_needs_neg ? slack_pos_col_name : slack_col_name,
+        .variable_uid = uid(),
+        .context = block_ctx,
+    });
+    double pos_coeff = 0.0;
+    switch (expr.constraint_type) {
+      case ConstraintType::LESS_EQUAL:
+        pos_coeff = -1.0;
+        break;
+      case ConstraintType::GREATER_EQUAL:
+      case ConstraintType::EQUAL:
+        pos_coeff = +1.0;
+        break;
+      case ConstraintType::RANGE:
+        break;  // rejected above
+    }
+    row.cmap[slack_col] = pos_coeff;
+    block_slack_cols[block.uid()] = slack_col;
+
+    if (soft_needs_neg) {
+      const auto slack_neg_col = lp.add_col(SparseCol {
+          .cost = block_penalty,
+          .class_name = Element::class_name.full_name(),
+          .variable_name = slack_neg_col_name,
+          .variable_uid = uid(),
+          .context = block_ctx,
+      });
+      row.cmap[slack_neg_col] = -1.0;
+      block_slack_neg_cols[block.uid()] = slack_neg_col;
+    }
+  }
+
+  apply_constraint_bounds(row, adjusted_expr);
+  const auto row_idx = lp.add_row(std::move(row));
+
+  BIndexHolder<RowIndex> block_rows;
+  block_rows[block.uid()] = row_idx;
+  m_rows_[{scenario.uid(), stage.uid()}] = std::move(block_rows);
+
+  if (is_soft && !block_slack_cols.empty()) {
+    static constexpr auto ampl_name = Element::class_name.snake_case();
+    const auto st_key = std::tuple {scenario.uid(), stage.uid()};
+    sc.add_ampl_variable(ampl_name,
+                         uid(),
+                         soft_needs_neg ? SlackPosName : SlackName,
+                         scenario,
+                         stage,
+                         block_slack_cols);
+    m_slack_cols_[st_key] = std::move(block_slack_cols);
+    if (soft_needs_neg && !block_slack_neg_cols.empty()) {
+      sc.add_ampl_variable(ampl_name,
+                           uid(),
+                           SlackNegName,
+                           scenario,
+                           stage,
+                           block_slack_neg_cols);
+      m_slack_neg_cols_[st_key] = std::move(block_slack_neg_cols);
+    }
+  }
+
+  return true;
+}
+
+bool UserConstraintLP::add_to_phase_lp(const SystemContext& sc,
+                                       const SceneLP& scene,
+                                       const PhaseLP& phase,
+                                       LinearProblem& lp)
+{
+  // Only `phase`-scope is built here; `global` routes through
+  // `add_to_global_lp`.  Everything else (block/stage) was already built in
+  // the per-(scenario, stage) operational sweep (`add_to_lp`).
+  if (m_scope_ != ConstraintScope::Phase) {
+    return true;
+  }
+  return build_phase_cell_row(sc, scene, phase, lp);
+}
+
+bool UserConstraintLP::add_to_global_lp(const SystemContext& sc,
+                                        const SceneLP& scene,
+                                        const PhaseLP& phase,
+                                        LinearProblem& lp)
+{
+  // Only `global`-scope is built here.  Runs in the global sweep, which the
+  // planning pass executes after the phase sweep so a global row can
+  // reference state columns the phase sweep registered.
+  if (m_scope_ != ConstraintScope::Global) {
+    return true;
+  }
+  return build_phase_cell_row(sc, scene, phase, lp);
+}
+
+bool UserConstraintLP::build_phase_cell_row(const SystemContext& sc,
+                                            const SceneLP& scene,
+                                            const PhaseLP& phase,
+                                            LinearProblem& lp)
+{
+  // Planning-level (phase/global) rows carry a `PhaseContext` stamped with
+  // the cell's (scene, phase) UIDs plus this element's own uid as the
+  // discriminator, so distinct global rows in the same cell never collide in
+  // `LinearProblem::add_row`'s metadata dedup.
+  const LpContext row_ctx = make_phase_context(scene.uid(), phase.uid(), uid());
+  // Build ONE LP row per (scene, phase) cell for `phase`/`global`-scoped
+  // constraints.  The representative point is the cell's LAST stage / LAST
+  // block under the FIRST in-domain scenario — matching the FCF terminal-cut
+  // shape (a single row anchored at the end of the horizon on a scalar
+  // quantity).  Per-block references resolve at that terminal block; coarse
+  // rows over per-block variables wrap them in `sum{...}` (piece-4 step 2).
+  if (!m_expr_.has_value()) {
+    return true;
+  }
+  const auto& expr = *m_expr_;
+  const auto& domain = expr.domain;
+
+  const auto& stages = phase.stages();
+  if (stages.empty()) {
+    return true;
+  }
+  // Last in-domain stage with at least one in-domain block.
+  for (const auto& stage : std::ranges::reverse_view(stages)) {
+    if (!is_active(stage) || !in_range(domain.stages, stage.uid())) {
+      continue;
+    }
+    const BlockLP* rep_block = nullptr;
+    for (const auto& block : std::ranges::reverse_view(stage.blocks())) {
+      if (in_range(domain.blocks, block.uid())) {
+        rep_block = &block;
+        break;
+      }
+    }
+    if (rep_block == nullptr) {
+      continue;
+    }
+    for (const auto& scenario : scene.scenarios()) {
+      if (!in_range(domain.scenarios, scenario.uid())) {
+        continue;
+      }
+      // One row for the whole cell: first in-domain scenario wins.
+      return build_coarse_row(sc, scenario, stage, *rep_block, row_ctx, lp);
+    }
+  }
+  return true;  // nothing in-domain in this cell
 }
 
 bool UserConstraintLP::add_to_output(OutputContext& out) const

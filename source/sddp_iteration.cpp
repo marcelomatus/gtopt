@@ -1201,6 +1201,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
     m_iteration_offset_ = next(results.back().iteration_index);
   }
 
+  // Surface α / varphi_s + the rebase constant c̄ on any FutureCost element so
+  // they are written to the solution.  Done after the iterations (which reset
+  // the per-cell FutureCostLP); read-only w.r.t. the LP.
+  populate_future_cost_output();
+
   return results;
 }
 
@@ -2406,6 +2411,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
       tail_elapsed_ms(t_after_cuts, t_after_monitor),
       tail_elapsed_ms(t_after_monitor, t_after_drain),
       tail_elapsed_ms(t_after_drain, t_after_reset));
+
+  // Surface α / varphi_s + the rebase constant c̄ on any FutureCost element so
+  // they are written to the solution (async path); read-only w.r.t. the LP.
+  populate_future_cost_output();
 
   return results;
 }

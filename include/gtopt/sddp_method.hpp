@@ -848,6 +848,15 @@ private:
   /// Called once (guarded by m_initialized_).
   [[nodiscard]] auto initialize_solver() -> std::expected<void, Error>;
 
+  /// Publish the per-scene α-rebase constants c̄ onto the persistent
+  /// SimulationLP (`set_alpha_offsets`) so `FutureCostLP::add_to_output` can
+  /// SELF-FIND them — and its α columns, via the persistent state-variable
+  /// registry — at write time.  Called at the END of solve(), sync + async.
+  /// Read-only w.r.t. the LP.  Because the simulation outlives the per-cell LP
+  /// rebuild that `write_out` performs under compress, the FutureCost α-output
+  /// works under ALL low_memory modes.
+  void populate_future_cost_output();
+
   /// Reset live-query atomics to their start-of-solve values.
   void reset_live_state() noexcept;
 

@@ -47,6 +47,7 @@ from .entities import (
     FuelSpec,
     GeneratorSpec,
     generator_has_fuel_cost,
+    generator_is_zero_pmax,
     JunctionSpec,
     LineSpec,
     NodeSpec,
@@ -2353,8 +2354,13 @@ def build_reservoir_array(
             # volume can reach, e.g. 10-05 ELTORO).  Priced by the resolver:
             # the cut OVERWRITE (boundary-cut lower-bound water value) when
             # present, else the auto ``ANCHOR × cascade_lost_pf`` estimate.
-            # ``never_drain`` reservoirs keep their hard ``efin`` floor with
-            # NO soft price (the sentinel forbids buying out of it).
+            # ``never_drain`` (ELTORO) is a SEPARATE concern handled below: it
+            # disables only the drain/spill column and does NOT touch the
+            # ``efin`` soft price.  ELTORO therefore keeps its OWN boundary-cut
+            # water value here.  Gating it out previously left ELTORO un-priced,
+            # so ``apply_default_water_fail`` stamped the GLOBAL MAX onto it
+            # (= L_Maule's value, since CIPRESES is excluded from the max) —
+            # over-pricing ELTORO's terminal water with another reservoir's cut.
             #
             # ``soft_storage_bounds`` is the global hard/soft toggle shared
             # with plp2gtopt: when it is False, ``efin`` (the hard floor)
@@ -2364,7 +2370,6 @@ def build_reservoir_array(
                 soft_storage_bounds
                 and water_value_resolver is not None
                 and water_value_resolver.anchor > 0.0
-                and not res.never_drain
             ):
                 num = (reservoir_numbers or {}).get(res.name)
                 lost_pf = (
@@ -2395,6 +2400,17 @@ def build_reservoir_array(
             # and pin ``spillway_capacity = 0`` as a guard so any drain that
             # a spill mode would otherwise activate is bounded to zero.
             entry["spillway_capacity"] = 0.0
+        elif res.spill_flow_penalty > 0.0:
+            # PLEXOS prices controlled spill on the ``Vert_<name>`` spillway
+            # waterway's ``Max Flow Penalty`` ($/(m³/s)/h) — the real CEN PCP
+            # spill cost (3.60 most reservoirs, 360 CIPRESES).  Use it DIRECTLY
+            # as ``spillway_cost`` (already in flow units; no $/MWh × fp_med
+            # conversion).  NOTE: a positive spill cost makes the reservoir's
+            # marginal water value go slightly negative in any block where it
+            # spills — accepted as PLEXOS-faithful (the value is tiny vs the
+            # ~1000s $/CMD water values and breaks the spill-vs-keep degeneracy
+            # toward NOT wasting water).
+            entry["spillway_cost"] = res.spill_flow_penalty
         elif res.spill_penalty_per_mwh > 0.0:
             # PLEXOS ships an explicit per-storage ``Spill Penalty`` — honour
             # it (overrides the flat 1000 default).  gtopt ``spillway_cost``
@@ -3183,12 +3199,7 @@ def _zero_pmax_generator_names(
     CEN PCP) — see the MIP diagnosis 2026-06-21.  Marginal-neutral: no LP
     coefficient changes, dispatch / LMPs are identical.
     """
-    names: set[str] = set()
-    for gen in generators:
-        eff_pmax = max(gen.pmax_profile) if gen.pmax_profile else gen.pmax
-        if eff_pmax == 0.0 and not gen.pmax_segments:
-            names.add(gen.name)
-    return frozenset(names)
+    return frozenset(g.name for g in generators if generator_is_zero_pmax(g))
 
 
 def build_commitment_array(

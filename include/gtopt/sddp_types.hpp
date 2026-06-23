@@ -1127,6 +1127,23 @@ struct SDDPIterationResult
     SceneIndex source_scene,
     SystemKind kind = SystemKind::forward) noexcept;
 
+/// Look up the USER-authored α (future-cost) state variable for the dynamic
+/// `AmplFutureCost` recourse (piece 5 step 2c).  Unlike `find_alpha_state_var`
+/// (which is keyed on the built-in `sddp_alpha_lp_class`), this resolves the
+/// user's global `state`/`link` `DecisionVariable` registered under
+/// `DecisionVariableLP::StateClassName` ("UserStateVar") with `key.uid ==
+/// user_alpha_uid`.  Returns `nullptr` when no such state variable exists on
+/// `(scene_index, phase_index, kind)`.  A separate function — NOT an overload —
+/// because the built-in overloads are class-keyed; keeping the intent explicit
+/// avoids ambiguity at the call sites that must dispatch on
+/// `has_active_use_user_alpha`.
+[[nodiscard]] const StateVariable* find_user_alpha_state_var(
+    const SimulationLP& sim,
+    SceneIndex scene_index,
+    PhaseIndex phase_index,
+    Uid user_alpha_uid,
+    SystemKind kind = SystemKind::forward) noexcept;
+
 /// Enumerate every α (future-cost) column registered on
 /// `(scene_index, phase_index, kind)`, in source-scene order, as
 /// `(col, uid)` pairs.  Single-α modes yield exactly one entry (uid
@@ -1173,6 +1190,40 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
                          const SparseRow& cut,
                          SystemKind kind = SystemKind::forward);
 
+/// Release the bootstrap pin (`lowb = uppb = 0`) on the USER-authored α
+/// (dynamic `AmplFutureCost`, piece 5 step 2c) at `(scene, phase)`.  Locates
+/// the user α via `find_user_alpha_state_var` and frees its column to
+/// `[-∞, +∞]` on the live backend, mirroring the change into the
+/// compress-replay channel so a `release_backend` + `ensure_backend` cycle
+/// preserves the freed bounds.  No-op when the user α is not registered on the
+/// cell.  The user α is a single column (NOT N `varphi_s`), so this is the
+/// `bound_alpha` analogue for the user-overridable FCF — it does NOT compute a
+/// cut-derived floor (the user's own `UserConstraint` cuts already bound it).
+void bound_user_alpha(PlanningLP& planning_lp,
+                      SceneIndex scene_index,
+                      PhaseIndex phase_index,
+                      Uid user_alpha_uid,
+                      SystemKind kind = SystemKind::forward);
+
+/// Set the RAW `(lowb, uppb)` bounds on column @p col at `(scene, phase)` AND
+/// record the change into the compress-replay channel, so a `release_backend` +
+/// `ensure_backend` cycle (`LowMemoryMode::compress`) preserves the bounds.
+/// Used by the user-α bootstrap pin / release (piece 5 step 2c) — a dedicated
+/// helper rather than `bound_alpha` (which is keyed on the built-in α class and
+/// computes a cut-derived floor).  `±DblMax` is accepted as the "unbounded"
+/// sentinel (mapped to the solver's infinity via `normalize_bound`).  The
+/// replay record is established by `LinearInterface::set_col_*_raw`, which
+/// write the pending-col-bounds channel (keyed by column index) whenever the
+/// interface is not mid-replay and not a throwaway clone.  No-op when @p col is
+/// out of range or the cell's system is absent.
+void record_col_bounds_dynamic(PlanningLP& planning_lp,
+                               SceneIndex scene_index,
+                               PhaseIndex phase_index,
+                               ColIndex col,
+                               double lowb,
+                               double uppb,
+                               SystemKind kind = SystemKind::forward) noexcept;
+
 /// Install an SDDP cut (feasibility or optimality) on the LP backend
 /// at `(scene, phase)`.  Single unified entry point for every cut
 /// install site:
@@ -1204,12 +1255,22 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
 /// exposed here so isolated callers (tests, direct cut-loader
 /// harnesses) can establish the same precondition without standing
 /// up a full `SDDPMethod`.
+/// @param register_as_state_variable  When `true` (default) each α column is
+///        registered in the simulation `StateVariable` map (the byte-for-byte
+///        legacy behaviour, drives cut routing + the forward-pass UB
+///        estimator).  When `false` (a user-overridable FCF —
+///        `FutureCost::use_user_alpha`), the α columns are still ADDED to each
+///        LP but with `cost = 0` and are NOT registered as state variables, so
+///        the built-in α is inert (pinned `lowb = uppb = 0`, never priced,
+///        never floored, never cut) and the user-authored α + cuts fully
+///        replace it.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha,
                               CutSharingMode cut_sharing = CutSharingMode::none,
                               BoundaryCutSharingMode boundary_cut_sharing =
-                                  BoundaryCutSharingMode::per_scene);
+                                  BoundaryCutSharingMode::per_scene,
+                              bool register_as_state_variable = true);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case

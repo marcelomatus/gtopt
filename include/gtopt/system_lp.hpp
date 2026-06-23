@@ -35,6 +35,7 @@
 #include <gtopt/flow_lp.hpp>
 #include <gtopt/flow_right_lp.hpp>
 #include <gtopt/fuel_lp.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/generator_lp.hpp>
 #include <gtopt/generator_profile_lp.hpp>
 #include <gtopt/hydrogen_node_lp.hpp>
@@ -70,6 +71,7 @@
 #include <gtopt/thermal_storage_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/user_constraint_lp.hpp>
+#include <gtopt/user_model_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
@@ -86,16 +88,83 @@ class LinearInterface;
  * - add_to_output() method for result output
  */
 
+// Capability concepts — used to IDENTIFY which collections participate in
+// each pass (a discriminator), NOT to enforce a uniform interface.  An
+// element may provide any subset; the visitors dispatch on each capability
+// via `if constexpr (HasAddTo*<T>)`.  This lets data-only / passive
+// carriers omit the methods entirely (auto-skipped) and lets new element
+// kinds (e.g. the planning-level FutureCost) provide only what they need.
+
+/// Per-(scenario, stage, block) LP-build participation.
 template<typename T>
-concept AddToLP = requires(T obj,
-                           SystemContext& system_context,
-                           const ScenarioLP& scenario,
-                           const StageLP& stage,
-                           LinearProblem& lp,
-                           OutputContext& output_context) {
+concept HasAddToLp = requires(T obj,
+                              SystemContext& system_context,
+                              const ScenarioLP& scenario,
+                              const StageLP& stage,
+                              LinearProblem& lp) {
   { obj.add_to_lp(system_context, scenario, stage, lp) } -> std::same_as<bool>;
+};
+
+/// Solution-output participation.
+template<typename T>
+concept HasAddToOutput = requires(T obj, OutputContext& output_context) {
   { obj.add_to_output(output_context) } -> std::same_as<bool>;
 };
+
+/// Back-compat: the common active element provides both the per-block
+/// build and the output.  Retained so the `static_assert`s below keep
+/// their original meaning (a sanity check that an *intended-active*
+/// element really contributes); it is no longer a gate every collection
+/// must pass — the visitors key off the finer `HasAddTo*` capabilities.
+template<typename T>
+concept AddToLP = HasAddToLp<T> && HasAddToOutput<T>;
+
+// ── Planning-level (coarse-scope) capabilities ────────────────────────────
+//
+// The per-(scenario, stage) `add_to_lp` pass above is the operational build.
+// Some constructs are coarser than a stage: they instantiate ONCE per
+// (scene, phase) cell — recourse / per-phase state variables, and the
+// terminal FutureCost α cut + annual caps.  Rather than fake these with
+// per-block AMPL special cases, an element advertises a planning capability
+// and is dispatched by the planning pass (`add_to_planning_lp`, run after the
+// stage loop).  See docs/design/future_cost_and_user_model.md (pieces 2, 5).
+//
+// Both signatures take the cell's (scene, phase) and the LP; "phase" vs
+// "global" differ by ORDERING and intent, not arguments — the phase sweep
+// runs first so global-scope objects (the FutureCost α cut) can reference the
+// state columns the phase sweep registered.  No current element provides
+// either; the passes are inert no-ops until FutureCostLP / UserModelLP land.
+
+/// Per-(scene, phase) recourse / state-variable LP-build participation.
+template<typename T>
+concept HasAddToPhaseLp = requires(T obj,
+                                   SystemContext& system_context,
+                                   const SceneLP& scene,
+                                   const PhaseLP& phase,
+                                   LinearProblem& lp) {
+  {
+    obj.add_to_phase_lp(system_context, scene, phase, lp)
+  } -> std::same_as<bool>;
+};
+
+/// Global (un-indexed) planning-level LP-build participation — one
+/// row/col for the whole cell LP (the FutureCost α terminal cut, annual caps).
+template<typename T>
+concept HasAddToGlobalLp = requires(T obj,
+                                    SystemContext& system_context,
+                                    const SceneLP& scene,
+                                    const PhaseLP& phase,
+                                    LinearProblem& lp) {
+  {
+    obj.add_to_global_lp(system_context, scene, phase, lp)
+  } -> std::same_as<bool>;
+};
+
+/// Planning-level participation in either coarse scope — the discriminator
+/// for the planning passes and the capability `FutureCostLP` / `UserModelLP`
+/// will advertise.  An element may provide phase-scope, global-scope, or both.
+template<typename T>
+concept HasAddToPlanning = HasAddToPhaseLp<T> || HasAddToGlobalLp<T>;
 
 // Verify all required types satisfy AddToLP concept
 static_assert(AddToLP<BusLP>);
@@ -149,8 +218,47 @@ static_assert(AddToLP<FlowRightLP>);
 static_assert(AddToLP<VolumeRightLP>);
 static_assert(AddToLP<LngTerminalLP>);
 static_assert(AddToLP<DecisionVariableLP>);
+// DecisionVariableLP also participates in the planning passes (piece 4/5):
+// `phase` / `global`-scoped columns (incl. the AMPL `state` α) are built once
+// per (scene, phase) cell via add_to_phase_lp / add_to_global_lp.  It keeps
+// the operational AddToLP for block/stage scope (every legacy bundle).
+static_assert(HasAddToPhaseLp<DecisionVariableLP>);
+static_assert(HasAddToGlobalLp<DecisionVariableLP>);
+static_assert(HasAddToPlanning<DecisionVariableLP>);
 static_assert(AddToLP<PlantLP>);
 static_assert(AddToLP<UserConstraintLP>);
+
+// UserModelLP is the generic AMPL-capture element (piece 3): it bundles user
+// vars (cols) + user constraints (rows) into one element and re-emits the
+// named ones under output/UserModel/<tag>/...  It participates in the
+// operational build (AddToLP) for block/stage-scoped declarations AND the
+// planning passes (HasAddToPlanning) for phase/global-scoped ones, and it
+// captures its outputs (HasAddToOutput).
+static_assert(AddToLP<UserModelLP>);
+static_assert(HasAddToLp<UserModelLP>);
+static_assert(HasAddToOutput<UserModelLP>);
+static_assert(HasAddToPlanning<UserModelLP>);
+// Ordering: UserModelLP reuses the same resolver/registry as
+// UserConstraintLP and may reference reservoir/AMPL terminal columns, so it
+// sits AFTER UserConstraintLP in the type list (before the planning-only
+// FutureCostLP).
+static_assert(lp_type_index_v<UserModelLP> > lp_type_index_v<UserConstraintLP>);
+
+// FutureCostLP is a planning-level element: GLOBAL-scope build + output, with
+// NO per-(scenario, stage) add_to_lp.  It satisfies HasAddToPlanning +
+// HasAddToOutput but NOT the operational AddToLP — the planning pass
+// (`add_to_planning_lp`) dispatches it, not the per-block visitor.
+static_assert(HasAddToGlobalLp<FutureCostLP>);
+static_assert(HasAddToPlanning<FutureCostLP>);
+static_assert(HasAddToOutput<FutureCostLP>);
+static_assert(!HasAddToLp<FutureCostLP>);
+// Ordering: the α cut references reservoir + AMPL terminal state columns, so
+// FutureCostLP must sit after ReservoirLP and UserConstraintLP in the type
+// list (the planning pass runs after the whole stage loop, but pin the index
+// order too).
+static_assert(lp_type_index_v<FutureCostLP> > lp_type_index_v<ReservoirLP>);
+static_assert(
+    lp_type_index_v<FutureCostLP> > lp_type_index_v<UserConstraintLP>);
 
 /**
  * @concept HasUpdateLP
@@ -274,8 +382,11 @@ public:
   }
 
   /// Tuple of collections for all LP component types.
-  /// `UserConstraintLP` is placed LAST so that user-constraint rows are
-  /// added to the LP after all other elements whose columns they reference.
+  /// `UserConstraintLP` is the last OPERATIONAL collection so user-constraint
+  /// rows are added after every element whose columns they reference.
+  /// `FutureCostLP` follows it — planning-only (no per-(scenario, stage)
+  /// `add_to_lp`), built by the separate `add_to_planning_lp` pass after the
+  /// stage loop, so it never participates in the operational build order.
   // NOTE: this tuple ordering governs the LP-construction order via
   // `visit_elements`.  ConverterLP intentionally runs AFTER
   // CommitmentLP / SimpleCommitmentLP so that the battery's
@@ -325,7 +436,9 @@ public:
                                    Collection<LngTerminalLP>,
                                    Collection<DecisionVariableLP>,
                                    Collection<PlantLP>,
-                                   Collection<UserConstraintLP>>;
+                                   Collection<UserConstraintLP>,
+                                   Collection<UserModelLP>,
+                                   Collection<FutureCostLP>>;
 
   /// @return The full collections tuple.
   ///

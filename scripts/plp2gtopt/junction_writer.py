@@ -538,10 +538,6 @@ class JunctionWriter(BaseWriter):
             self._cenfi_seepage_source_centrals = frozenset(
                 str(entry["name"]) for entry in self.cenfi_parser.seepages
             )
-        # Number of vrebemb centrals whose ``_ver`` waterway was redirected
-        # to a synthetic ``<name>_ocean`` drain by ``--vrebemb-as-sink``.
-        # Reported via ``_logger.info`` at the end of ``to_json_array``.
-        self._vrebemb_as_sink_count: int = 0
         self._waterway_counter = 0
         self._ocean_junction_counter = 0
         # Counter for terminal turbine centrals (bus > 0, ser_hid = 0,
@@ -754,8 +750,6 @@ class JunctionWriter(BaseWriter):
         self._skipped_isolated = []
         # Reset PLP no-limit sentinel counter for this conversion run.
         self._plp_no_limit_count = 0
-        # Reset vrebemb-as-sink counter for this conversion run.
-        self._vrebemb_as_sink_count = 0
         # Reset built-in Turbine waterway counter for this run.
         self._builtin_turbine_waterway_count = 0
         # Reset dead-zero waterway suppression counter for this run.
@@ -868,13 +862,6 @@ class JunctionWriter(BaseWriter):
                 "waterway bounds — improves LP scaling.",
                 self._plp_no_limit_count,
                 _PLP_NO_LIMIT_SENTINEL,
-            )
-
-        if self._vrebemb_as_sink and self._vrebemb_as_sink_count > 0:
-            _logger.info(
-                "--vrebemb-as-sink: routed %d vrebemb-listed centrals' "
-                "_ver to synthetic ocean drain (fcost dropped)",
-                self._vrebemb_as_sink_count,
             )
 
         if self._builtin_turbine_waterway_count > 0:
@@ -1954,8 +1941,6 @@ class JunctionWriter(BaseWriter):
             # exclusively via the ``variable_scales`` option in the planning
             # options section (written by GTOptWriter.process_variable_scales).
             # Do NOT emit energy_scale or energy_scale_mode on the reservoir.
-            reservoir_scale_mode = self.options.get("reservoir_scale_mode", "auto")
-            _ = reservoir_scale_mode  # retained for potential future use
 
             # Small / independent reservoirs (PLP ``Hid_Indep='T'``)
             # do not carry state across stages — they are run-of-
@@ -2235,7 +2220,7 @@ class JunctionWriter(BaseWriter):
         # ``WaterValueResolver.efin_cost_for`` OVERWRITES it with the cut
         # lower-bound water value (see ``_build_cut_water_values``).  The
         # overwrite is now done here in Python (the legacy C++
-        # ``apply_boundary_cut_soft_costs`` pass is retired): no-cut
+        # ``apply_boundary_cut_soft_costs`` pass was retired): no-cut
         # reservoirs keep the EPF estimate, cut reservoirs use the
         # SDDP-revealed marginal water value.
         efin = reservoir.get("efin")

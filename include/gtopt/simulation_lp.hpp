@@ -442,6 +442,34 @@ public:
     return (it != map.end()) ? result_t {it->second} : result_t {};
   }
 
+  // ── Per-scene α-rebase offsets (persist across cell rebuilds) ────────────
+  //
+  // The SDDP method computes one mean-shift offset c̄ per scene during
+  // boundary-cut load (`m_scene_alpha_offsets_`).  At the end of the solve it
+  // copies that vector here via `set_alpha_offsets`, so that
+  // `FutureCostLP::add_to_output` can SELF-FIND the rebase constant at write
+  // time.  The simulation outlives every per-cell LP rebuild (it is not a
+  // disposable per-(scene, phase) collection), so this survives the
+  // `low_memory = compress` rebuild that drops a per-cell stash.  Zero-filled
+  // (empty) until the SDDP method publishes the offsets; `alpha_offset` then
+  // returns 0 for any scene index.
+
+  /// Publish the per-scene α-rebase offsets (copied from the SDDP method's
+  /// `m_scene_alpha_offsets_`).  Read-only afterwards.
+  void set_alpha_offsets(StrongIndexVector<SceneIndex, double> offsets)
+  {
+    m_alpha_offsets_ = std::move(offsets);
+  }
+
+  /// Per-scene α-rebase offset c̄ ($).  Returns 0 when the scene index is out
+  /// of range or no offsets were published (mean-shift disabled / no cuts).
+  [[nodiscard]] double alpha_offset(SceneIndex si) const noexcept
+  {
+    return static_cast<std::size_t>(si) < m_alpha_offsets_.size()
+        ? m_alpha_offsets_[si]
+        : 0.0;
+  }
+
   // ── (scenario, stage) → (scene, phase) factored lookup ──────────────────
   //
   // Scenes partition scenarios and phases partition stages, so the
@@ -1318,6 +1346,11 @@ private:
   // synchronization is needed at lookup time.
   flat_map<ScenarioUid, SceneIndex> m_scene_of_scenario_;
   flat_map<StageUid, PhaseIndex> m_phase_of_stage_;
+
+  // Per-scene α-rebase offset c̄, published by the SDDP method at end of
+  // solve via `set_alpha_offsets` and read by `FutureCostLP::add_to_output`.
+  // Empty until published; see `alpha_offset` for the out-of-range guard.
+  StrongIndexVector<SceneIndex, double> m_alpha_offsets_ {};
 
   // When true, add_ampl_variable() populates the per-cell variable
   // maps.  When false (default), it is a no-op — the maps stay empty,

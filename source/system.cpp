@@ -880,6 +880,7 @@ void System::merge(System&& sys)
   gtopt::merge(decision_variable_array, std::move(sys.decision_variable_array));
   gtopt::merge(plant_array, std::move(sys.plant_array));
   gtopt::merge(user_constraint_array, std::move(sys.user_constraint_array));
+  gtopt::merge(user_model_array, std::move(sys.user_model_array));
 
   if (sys.user_constraint_file.has_value()) {
     user_constraint_file = std::move(sys.user_constraint_file);

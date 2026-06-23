@@ -16,7 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from plexos2gtopt.entities import UserConstraintSpec
+from plexos2gtopt.entities import (
+    GeneratorSpec,
+    UserConstraintSpec,
+    generator_is_zero_pmax,
+)
 from plexos2gtopt.gtopt_writer import (
     build_user_constraint_array,
     filter_user_constraints,
@@ -465,6 +469,95 @@ def test_extract_user_constraints_always_on_renewable_rhs_shift(
         always_on_gens=frozenset({"G1", "G2"}),
     )
     assert len(out) >= 1, "non-commitment constraints still emit"
+
+
+# Injected into _UC_XML to add a ``Units Generating Coefficient`` (→
+# ``commitment("uc_G1").status``) on G1 — the shape that regressed on
+# 2026-06-21 (NorthSecurity → uc_NEHUENCO_1-TG+TV_DIE) when the writer dropped
+# the pmax=0 phantom's Commitment but the UC builder still emitted the term.
+_PHANTOM_FRAGMENT = """\
+  <t_object><object_id>103</object_id><class_id>70</class_id><name>UC_SEC</name></t_object>
+  <t_property><property_id>396</property_id><collection_id>32</collection_id><name>Units Generating Coefficient</name></t_property>
+  <t_membership><membership_id>700004</membership_id><collection_id>700</collection_id><parent_object_id>1</parent_object_id><child_object_id>103</child_object_id></t_membership>
+  <t_membership><membership_id>32004</membership_id><collection_id>32</collection_id><parent_object_id>20</parent_object_id><child_object_id>103</child_object_id></t_membership>
+  <t_data><data_id>10010</data_id><membership_id>700004</membership_id><property_id>4369</property_id><value>1</value></t_data>
+  <t_data><data_id>10011</data_id><membership_id>700004</membership_id><property_id>4384</property_id><value>1</value></t_data>
+  <t_data><data_id>20010</data_id><membership_id>32004</membership_id><property_id>396</property_id><value>1.0</value></t_data>
+"""
+
+
+def _build_phantom_bundle(tmp_path: Path) -> tuple[PlexosBundle, Path]:
+    """`_build_bundle` plus a Units Generating Coefficient on G1 (UC_SEC)."""
+    xml_path = tmp_path / "DBSEN_PRGDIARIO.xml"
+    xml_path.write_text(
+        _UC_XML.replace("</MasterDataSet>", _PHANTOM_FRAGMENT + "</MasterDataSet>")
+    )
+    return PlexosBundle(root=tmp_path, source=tmp_path), xml_path
+
+
+def test_generator_is_zero_pmax_predicate() -> None:
+    """Single source of truth shared by the writer's phantom-commitment drop
+    (``_zero_pmax_generator_names``) and the UC term drop
+    (``offline_commit_gens``).  Guard against the two drifting."""
+
+    def g(**kw: object) -> GeneratorSpec:
+        return GeneratorSpec(object_id=0, name="g", bus_name="b_a", **kw)  # type: ignore[arg-type]
+
+    assert generator_is_zero_pmax(g(pmax=0.0)) is True
+    assert generator_is_zero_pmax(g(pmax=0.0, pmax_profile=(0.0, 0.0, 0.0))) is True
+    assert generator_is_zero_pmax(g(pmax=100.0)) is False
+    # a nonzero anywhere in the profile means it CAN dispatch
+    assert generator_is_zero_pmax(g(pmax=0.0, pmax_profile=(0.0, 5.0))) is False
+    # piecewise capacity overrides a 0 scalar pmax
+    assert generator_is_zero_pmax(g(pmax=0.0, pmax_segments=(10.0,))) is False
+
+
+def test_uc_units_generating_on_phantom_commitment_is_dropped(
+    tmp_path: Path,
+) -> None:
+    """Regression (2026-06-21): a ``Units Generating Coefficient`` on a pmax=0
+    phantom whose ``Commitment`` the writer drops must NOT survive as a
+    dangling ``commitment("uc_G1").status`` reference.  With G1 in
+    ``offline_commit_gens`` the term is dropped (status≡0) and the convert
+    succeeds — no ``commitment(...)`` term reaches the LP."""
+    bundle, xml_path = _build_phantom_bundle(tmp_path)
+    db = load_xml(xml_path)
+    allow = {
+        "Generator": frozenset({"G1", "G2"}),
+        "Line": frozenset({"L1"}),
+        "Battery": frozenset({"B1"}),
+        "Commitment": frozenset(),  # G1's commitment dropped (pmax=0 phantom)
+    }
+    out = extract_user_constraints(
+        db,
+        bundle,
+        emitted_names=allow,
+        offline_commit_gens=frozenset({"G1"}),
+    )
+    joined = "".join(c.expression for c in out)
+    assert "commitment(" not in joined, "phantom commitment.status must be dropped"
+    # the non-commitment constraints (CORRIDOR_LE / HARD_EQ) still emit
+    assert any(c.name == "CORRIDOR_LE" for c in out)
+
+
+def test_uc_units_generating_on_phantom_without_guard_fails_hard(
+    tmp_path: Path,
+) -> None:
+    """Contrast: without ``offline_commit_gens`` (and the commitment absent
+    from the allow-list) the same term is an unresolved reference → fail hard.
+    Proves the guard is what prevents the dangling reference, not a silent
+    drop of any unknown commitment."""
+    bundle, xml_path = _build_phantom_bundle(tmp_path)
+    db = load_xml(xml_path)
+    allow = {
+        "Generator": frozenset({"G1", "G2"}),
+        "Line": frozenset({"L1"}),
+        "Battery": frozenset({"B1"}),
+        "Commitment": frozenset(),
+    }
+    with pytest.raises(UnresolvedConstraintReferenceError) as excinfo:
+        extract_user_constraints(db, bundle, emitted_names=allow)
+    assert 'commitment("uc_G1").status' in str(excinfo.value)
 
 
 def test_extract_user_constraints_shadow_line_unset_still_fails_hard(
