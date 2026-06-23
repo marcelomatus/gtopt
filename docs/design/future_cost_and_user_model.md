@@ -15,9 +15,11 @@ time-aggregation (COMPLETE, see §4); **piece 5 step 1** — AMPL `state`-variab
 bridge (COMPLETE, see §5); **piece 5 step 2a** — static user-overridable FCF
 (`use_user_alpha` / `user_alpha_uid` + built-in-α suppression + guards +
 output, COMPLETE, see §5); **piece 5 step 2b** — `FutureCost` boundary config
-consolidation (COMPLETE, see §5).  **Deferred:** piece 5 step 2c — dynamic
-`AmplFutureCost` / SDDP cross-phase recourse (the backward pass is hardwired to
-the built-in α; see §5 "DEFERRED — step 2c").
+consolidation (COMPLETE, see §5); **piece 5 step 2c Increment A** — dynamic
+`AmplFutureCost` / SDDP cross-phase recourse over a user α (single-cut, single +
+multi scene, NO aperture; COMPLETE, see §5 "STATUS — step 2c Increment A").
+**Deferred:** step 2c Increment C (aperture) + Increment D (multicut, rejected
+at init).
 
 ### Piece 2 D — RE-SCOPED to "α output only" (decided 2026-06-21)
 
@@ -373,36 +375,97 @@ when there is no `FutureCost` element or it leaves a field unset.  Test:
 element `mean_shift=false` beats `SDDPOptions.boundary_cuts_mean_shift=true`
 (`scene_alpha_offset == 0`); `test_sddp_boundary_cuts_mean_shift` stays green.
 
-**DEFERRED — step 2c (dynamic AmplFutureCost / SDDP cross-phase recourse).**
-The dynamic user-α recourse — where the user α is a cross-phase `state`/`link`
-column whose value function is refined by the SDDP backward pass in EVERY
-phase — is NOT implemented, and is deferred with this precise reason:
+**STATUS — step 2c Increment A (dynamic AmplFutureCost / SDDP cross-phase
+recourse): COMPLETE (2026-06-22) — single-cut, single + multi scene, NO
+aperture.**  The user α is now a first-class SDDP backward-pass recourse column:
+the modeller authors a global `state`/`link` α `DecisionVariable` (cost 1.0
+raw, free below) + global `UserConstraint` cuts over it, and the SDDP backward
+pass refines its value function in every phase exactly as it does the built-in
+α.  Every edit is gated on `has_active_use_user_alpha(planning_lp())`
+(compress-safe — reads the System INPUT `future_cost_array`), so the default
+path is **byte-for-byte unchanged** (all `ieee_*`/`c0`/`juan` cases have no
+`FutureCost`; `test_sddp_boundary_cuts_mean_shift` has one but leaves
+`use_user_alpha` unset → guard false).
 
-> The SDDP backward pass is hardwired to the BUILT-IN α column.
-> `SDDPMethod::backward_pass_single_phase` (`sddp_method_iteration.cpp:547`)
-> resolves `src_alpha_col` via `find_alpha_state_var` (the built-in
-> `sddp_alpha_lp_class` α) and `build_benders_cut_physical` puts the
-> cut's `+1` coefficient on it.  Under `use_user_alpha` the built-in α is
-> suppressed, so `src_alpha_col = unknown_index` → the very first optimality
-> cut indexes out of bounds in `LinearInterface::add_row` (verified SIGABRT,
-> `stl_vector.h:1282`).  Worse, `collect_state_variable_links`
-> (`sddp_method_alpha.cpp:641`) skips ONLY the built-in α class from
-> `outgoing_links`, so a user α registered as a generic `UserStateVar` state
-> var is (wrongly) treated as a FORWARD state with elastic slacks — it is the
-> cost-to-go ESTIMATOR (backward), not a forward stock.
+As-built (six surgical edits, each gated false on the default path):
 
-Making 2c converge therefore requires the backward pass to TARGET the user α
-as `src_alpha_col` and to treat the `UserStateVar` α like the engine α
-(skip it from `outgoing_links`, route cuts onto it, mirror it on the aperture
-system) — a substantial, risky change to load-bearing SDDP code that cannot
-be made surgical/incremental while keeping every gate green.  Per the agreed
-"a verified 2a+2b beats a shaky 2c" guidance it is deferred.  The 2c
-front-door (`ampl_future_cost` flag + the forward-pass UB-estimator fallback
-to the user α) is straightforward; the blocker is the backward-pass α
-hardwiring above.  **`use_user_alpha` is therefore safe ONLY where the SDDP
-backward pass does not cut over the suppressed α** — i.e. the monolithic
-method (one LP, no backward pass) and single-phase models; the 2a guards +
-the equivalence proof are scoped accordingly.
+- **`find_user_alpha_state_var`** (`sddp_method.cpp`): resolves the user α
+  (class `DecisionVariableLP::StateClassName` = "UserStateVar", col_name
+  "value", `uid == user_alpha_uid`) by scanning the cell's
+  `(scene, phase, kind)` state-variable map — NOT a keyed lookup, because the
+  user α was registered with concrete scenario/stage uids the SDDP layer does
+  not know (whereas the built-in α uses the default `unknown` uids).
+- **`collect_state_variable_links`** (`sddp_method_alpha.cpp`): skips the
+  active user α from `outgoing_links` (it is the cost-to-go ESTIMATOR, not a
+  forward stock — must not get elastic slacks), mirroring the built-in-α skip.
+  Only the *active* user α is skipped; any other `UserStateVar` forward state
+  still enters `outgoing_links` (verified: `test_ampl_state` "SDDP solve
+  converges" keeps `links=2/2`).
+- **Bootstrap pin** (`initialize_alpha_variables`): the user α is pinned
+  `[0, 0]` on every NON-terminal phase (so the priced free-below α can't drive
+  the iter-0 master unbounded), and RELEASED on the TERMINAL phase — its
+  bounding `UserConstraint` is a structural row present from LP-build time, so
+  freeing it there is the exact analogue of `load_boundary_cuts` releasing the
+  terminal built-in α at load time.  Recorded into the compress-replay channel
+  via `record_col_bounds_dynamic` (`set_col_*_raw` → pending-col-bounds, keyed
+  by column index, replayed by `apply_post_load_replay`).
+- **`bound_user_alpha` / `bound_alpha_for_cut` extension**
+  (`sddp_method_alpha.cpp`): when the user α is active, a backward optimality
+  cut that references it releases its pin on the previous phase (the user α is a
+  single column — NOT N `varphi_s`; no cut-derived floor projection, the user's
+  own cuts bound it).
+- **Backward-pass dispatch** (`sddp_method_iteration.cpp`): `src_alpha_svar`
+  resolves to the user α via `find_user_alpha_state_var` when active, so the
+  Benders cut's `+1` lands on the user α column — removes the iter-0 SIGABRT.
+- **Forward-pass UB estimator** (`sddp_forward_pass.cpp`): strips the user α's
+  `col_sol()` directly (var_scale = 1 → raw is already physical, NO
+  `× scale_alpha`) so the realised UB excludes the cost-to-go consistently with
+  the built-in path.
+- **Multicut guard** (`initialize_solver`): `use_user_alpha && cut_sharing ==
+  multicut` → `std::unexpected` (the user α is one column, not N `varphi_s`).
+
+**Proof (`test_ampl_future_cost.cpp`, "AmplFutureCost 2c — user α drives SDDP
+recourse to the analytic optimum"):** a 3-phase hydro fixture with a user α +
+terminal `UserConstraint` `user_alpha + 90·reservoir('rsv1').efin ≥ 45000,
+for(stage in {3})` + `use_user_alpha` converges (gap_only, stationary off) to
+LB == UB == $338850 — the INDEPENDENTLY hand-derived deterministic-equivalent
+optimum (terminal efin forced to the unique emax=500 corner; thermal 6730 MWh ·
+$50 + hydro 470 MWh · $5 + α=0).  The backward log shows `links=1/1` and a
+non-trivial α propagated phase-to-phase.  The analytic optimum is the primary
+oracle because the `boundary_cuts.csv` path, AS CONFIGURED BY DEFAULT, applies
+transformations the user-α path deliberately does not: the single-cut `≥`→`=`
++ free-α conversion (a DELIBERATE, correct, and CONFIGURABLE terminal-value
+form — only ever for a single cut; many cuts always keep the `≥` max-envelope
+Benders form — toggled by `FutureCost.single_cut_equality`, default `true` =
+the equality), the `mean_shift` α-rebase, and `apply_alpha_floor`'s
+worst-case-box projection.  Under those defaults the two are different
+formulations whose bounds need not coincide; convergence to the true optimum
+is the rigorous, non-circular invariant.
+
+**Faithful boundary-cut oracle (`test_ampl_future_cost.cpp`, test 8):** set
+`FutureCost.single_cut_equality = false` (keep the slack-able `≥` form even
+for a single cut) and `mean_shift = false`, and a single boundary cut
+`α + 90·efin ≥ 45000` is the SAME `≥` formulation as the user-authored
+terminal `≥` `UserConstraint` above — a direct cross-run asserts both converge
+to the identical LB == UB == $338850.  So the single-cut `≥`→`=` is not a
+defect but a configurable terminal-value choice: `single_cut_equality = true`
+(default) gives the continuous PLEXOS-style equality terminal value;
+`= false` gives the faithful slack-able `≥` Benders lower bound.
+
+**DEFERRED — Increment C (aperture).**  The equivalence test sets
+`aperture_chunk_size = -1` (aperture disabled).  The aperture backward pass
+clones the phase LP into a parallel `aperture` `SystemKind` registry and
+installs cuts there too (`add_cut_row`'s dual-install block); mirroring the user
+α onto the aperture system + dual-installing user-α cuts is not wired.  The
+backward dispatch + `bound_alpha_for_cut` helpers already take a `SystemKind`
+argument, so the extension is mechanical but untested — deferred until a fixture
+exercises it.
+
+**DEFERRED — Increment D (multicut).**  Rejected at `initialize_solver` with
+`std::unexpected`.  `CutSharingMode::multicut` expects N dedicated `varphi_s` α
+columns (one per source scene) to route per-scenario cuts onto; the user α is a
+single priced column.  Supporting it would require N user-α columns (or a
+broadcast scheme), which is a larger design change — deferred.
 
 ## Capability matrix
 

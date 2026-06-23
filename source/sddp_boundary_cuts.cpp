@@ -20,6 +20,7 @@
 #include <gtopt/as_label.hpp>
 #include <gtopt/cost_helper.hpp>
 #include <gtopt/fmap.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/sddp_cut_io.hpp>
@@ -874,6 +875,18 @@ using namespace gtopt::detail;
     // there is one canonical sequence of "release → add → record" that
     // every cut on α follows.  The N≈1k per-cut calls at startup are
     // dwarfed by even one SDDP iteration's solve time.
+    //
+    // FutureCost.single_cut_equality (default true): when a scene has
+    // exactly ONE boundary cut, install it as the EQUALITY ``α + Σ
+    // wvᵣ·efinᵣ = FCF`` with α freed (the continuous PLEXOS-style terminal
+    // value).  When the active FutureCost element sets it ``false`` the lone
+    // cut stays the slack-able ``≥`` Benders lower-bound form (α NOT freed)
+    // — used for a faithful comparison against a user-authored ``≥`` cut.
+    // No FutureCost element / unset ⇒ ``value_or(true)`` ⇒ legacy behaviour.
+    const auto* fc = gtopt::active_future_cost(planning_lp);
+    const bool single_cut_equality_opt =
+        (fc == nullptr) || fc->single_cut_equality.value_or(true);
+
     for (auto&& [si, cuts] : enumerate<SceneIndex>(scene_cuts)) {
       if (cuts.empty()) {
         continue;
@@ -888,10 +901,10 @@ using namespace gtopt::detail;
       // both sides of the target — matching how PLEXOS applies its single
       // MT water value.  With MANY cuts (a piecewise-linear future cost)
       // we keep the ``≥`` Benders form (the value function is the max of
-      // its supporting cuts).
-      const bool single_cut = cuts.size() == 1;
+      // its supporting cuts) regardless of single_cut_equality.
+      const bool as_equality = (cuts.size() == 1) && single_cut_equality_opt;
       for (auto& cut : cuts) {
-        if (single_cut) {
+        if (as_equality) {
           cut.uppb = cut.lowb;  // ``≥``  →  ``=``
         }
         (void)gtopt::add_cut_row(planning_lp,
@@ -901,7 +914,7 @@ using namespace gtopt::detail;
                                  cut,
                                  options.cut_coeff_eps);
       }
-      if (single_cut) {
+      if (as_equality) {
         // Free α (override the cut-derived floor `bound_alpha_for_cut`
         // installs) so the equality is feasible when Σ wvᵣ·efinᵣ > FCF —
         // α must be able to go negative for the reward to keep applying as

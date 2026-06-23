@@ -37,6 +37,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/coordinator_pool.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -544,14 +545,30 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // `IColx = NCol - NSimul + ISimul` source-scenario indexing.  For the
   // single-α modes `source_scene = scene_index` collapses to offset 0,
   // reproducing the legacy lookup.
-  const auto* src_alpha_svar =
-      (m_options_.cut_sharing == CutSharingMode::multicut)
-      ? find_alpha_state_var(planning_lp().simulation(),
-                             scene_index,
-                             prev_phase_index,
-                             /*source_scene=*/scene_index)
-      : find_alpha_state_var(
-            planning_lp().simulation(), scene_index, prev_phase_index);
+  // User-overridable FCF (piece 5 step 2c): under `use_user_alpha` the built-in
+  // α is suppressed (inert, not a state variable), so the Benders cut's `+1`
+  // coefficient must land on the USER α column at `prev_phase_index` — the
+  // dynamic recourse column the master prices.  Resolve it via
+  // `find_user_alpha_state_var`.  Else: the literal original (multicut → own
+  // `varphi_S`, single-α → offset-0 lookup).  Default path byte-for-byte
+  // unchanged.
+  const StateVariable* src_alpha_svar = nullptr;
+  if (const auto* fc = gtopt::active_future_cost(planning_lp()); fc != nullptr
+      && fc->use_user_alpha.value_or(false) && fc->user_alpha_uid.has_value())
+  {
+    src_alpha_svar = find_user_alpha_state_var(planning_lp().simulation(),
+                                               scene_index,
+                                               prev_phase_index,
+                                               *fc->user_alpha_uid);
+  } else {
+    src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
+        ? find_alpha_state_var(planning_lp().simulation(),
+                               scene_index,
+                               prev_phase_index,
+                               /*source_scene=*/scene_index)
+        : find_alpha_state_var(
+              planning_lp().simulation(), scene_index, prev_phase_index);
+  }
   const auto src_alpha_col = (src_alpha_svar != nullptr)
       ? src_alpha_svar->col()
       : ColIndex {unknown_index};

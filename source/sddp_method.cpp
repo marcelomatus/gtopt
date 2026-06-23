@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/decision_variable_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -95,6 +96,39 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
           },
   });
   return svar ? &svar->get() : nullptr;
+}
+
+const StateVariable* find_user_alpha_state_var(const SimulationLP& sim,
+                                               SceneIndex scene_index,
+                                               PhaseIndex phase_index,
+                                               Uid user_alpha_uid,
+                                               SystemKind kind) noexcept
+{
+  // The user α is the AMPL `state`/`link` DecisionVariable registered under the
+  // DEDICATED state class (`DecisionVariableLP::StateClassName` =
+  // "UserStateVar", col_name = ValueName = "value") with `uid ==
+  // user_alpha_uid`.  Distinct from the built-in α (`sddp_alpha_lp_class`), so
+  // the two never collide.
+  //
+  // Unlike `find_alpha_state_var` (whose key carries the default `unknown`
+  // scenario/stage uids, matching how the built-in α is registered), the user α
+  // was registered with CONCRETE `scenario_uid` / `stage_uid` (via
+  // `StateVariable::key(scenario, rep_stage, ...)` in
+  // `DecisionVariableLP::build_cell_col`).  Those uids are not known here, so a
+  // direct keyed `state_variable(Key)` lookup would miss.  Scan the cell's
+  // (scene, phase, kind) map and match on the stable triple
+  // `(class_name, uid, col_name)` instead — exactly one entry per cell.
+  for (const auto& [key, svar] :
+       sim.state_variables(scene_index, phase_index, kind))
+  {
+    if (key.class_name == DecisionVariableLP::StateClassName
+        && key.uid == user_alpha_uid
+        && key.col_name == DecisionVariableLP::ValueName)
+    {
+      return &svar;
+    }
+  }
+  return nullptr;
 }
 
 std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
@@ -804,7 +838,26 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       });
     }
 
-    // (3) `use_user_alpha && mean_shift` → mean_shift is meaningless (no
+    // (3) `use_user_alpha && multicut` is rejected (piece 5 step 2c, increment
+    //     A scope).  The user α is a SINGLE column priced `cost`, whereas
+    //     `CutSharingMode::multicut` expects N dedicated `varphi_s` α columns
+    //     (one per source scene) to route per-scenario cuts onto.  The
+    //     user-α backward dispatch puts every scene's cut on the same single
+    //     user-α column, so multicut routing has no `varphi_s` to target.
+    //     Multicut support over a user α is DEFERRED (increment D).
+    if (m_options_.cut_sharing == CutSharingMode::multicut) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::format(
+              "FutureCost '{}': use_user_alpha is incompatible with "
+              "cut_sharing=multicut — the user α is a single column, not N "
+              "per-scene varphi_s columns.  Use cut_sharing=none (multicut "
+              "support over a user α is deferred)",
+              fc->name),
+      });
+    }
+
+    // (4) `use_user_alpha && mean_shift` → mean_shift is meaningless (no
     //     boundary cuts to rebase); warn it is ignored.
     if (fc->mean_shift.value_or(false) || m_options_.boundary_cuts_mean_shift) {
       SPDLOG_WARN(

@@ -28,6 +28,8 @@
 #include <vector>
 
 #include <gtopt/as_label.hpp>
+#include <gtopt/decision_variable_lp.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_debug_writer.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -68,6 +70,62 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
                                   m_options_.cut_sharing,
                                   m_options_.boundary_cut_sharing,
                                   /*register_as_state_variable=*/!suppress);
+
+  // Bootstrap pin for the USER α (dynamic AmplFutureCost, piece 5 step 2c).
+  // The built-in α is pinned `lowb = uppb = 0` until a cut frees it (see
+  // `register_alpha_on`); the user α — built by `DecisionVariableLP` with its
+  // authored bounds (e.g. `[-1e9, +∞]`) — has no such pin, so the iter-0 LP
+  // (no cuts yet) would let the priced (`cost > 0`) free-below α drive the
+  // master unbounded below in the future-cost dimension.  Mirror the built-in
+  // bootstrap: pin the user α to `[0, 0]` on every NON-terminal phase here,
+  // then `bound_user_alpha` releases each when the first backward cut
+  // referencing it is installed.  Gated on `suppress` (== use_user_alpha), so
+  // the default path is byte-for-byte unchanged.  The pin is recorded into the
+  // compress-replay channel via `record_col_bounds_dynamic` so a
+  // `release_backend` + `ensure_backend` cycle preserves it.
+  //
+  // The TERMINAL phase is the exception: its user α is bounded from below by
+  // the modeller's terminal `UserConstraint` (a STRUCTURAL row present from
+  // LP-build time, e.g. `user_alpha + Σ wv·efin ≥ R`), plus the reservoirs'
+  // physical `emax` bounds — exactly the analogue of how `load_boundary_cuts`
+  // releases the terminal built-in α at load time (the cut, not the pin, bounds
+  // α_T).  So release the terminal user α here unconditionally — leaving it
+  // pinned would freeze `user_α_T = 0`, force the post-horizon value onto
+  // dispatch/efin instead, and inflate the realised opex in the forward UB
+  // estimator (it would strip 0 instead of the true negative cost-to-go).
+  if (suppress) {
+    if (const auto* fc = gtopt::active_future_cost(planning_lp());
+        fc != nullptr && fc->user_alpha_uid.has_value())
+    {
+      const auto ua_uid = *fc->user_alpha_uid;
+      const auto& sim = planning_lp().simulation();
+      const auto last_pi = sim.last_phase_index();
+      for (const auto phase_index :
+           iota_range<PhaseIndex>(0, sim.phase_count()))
+      {
+        const auto* ua_svar =
+            find_user_alpha_state_var(sim, scene_index, phase_index, ua_uid);
+        if (ua_svar == nullptr) {
+          continue;  // user α not registered on this cell (e.g. inactive stage)
+        }
+        if (phase_index == last_pi) {
+          // Terminal phase: free the user α so the terminal UserConstraint —
+          // not the bootstrap pin — bounds α_T (it may go negative, capturing
+          // the post-horizon surplus value).  Symmetric with the boundary-cut
+          // path (`bound_alpha` after load) so the realised UB matches.
+          gtopt::bound_user_alpha(
+              planning_lp(), scene_index, phase_index, ua_uid);
+        } else {
+          gtopt::record_col_bounds_dynamic(planning_lp(),
+                                           scene_index,
+                                           phase_index,
+                                           ua_svar->col(),
+                                           0.0,
+                                           0.0);
+        }
+      }
+    }
+  }
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
@@ -251,6 +309,68 @@ void bound_alpha(PlanningLP& planning_lp,
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Sets raw col bounds on the live backend AND records them into the
+// compress-replay channel.  `set_col_low_raw` / `set_col_upp_raw` route through
+// `set_col_bounds_raw`, which (when not mid-replay and not a throwaway clone)
+// writes the pending-col-bounds map keyed by column index — that map is
+// replayed by `apply_post_load_replay` after every `ensure_backend`, so the
+// bounds survive a `LowMemoryMode::compress` release/reload cycle.  No-op when
+// the cell's system is absent or `col` is out of range.
+void record_col_bounds_dynamic(PlanningLP& planning_lp,
+                               SceneIndex scene_index,
+                               PhaseIndex phase_index,
+                               ColIndex col,
+                               double lowb,
+                               double uppb,
+                               SystemKind kind) noexcept
+{
+  SystemLP* sys_ptr = (kind == SystemKind::aperture)
+      ? planning_lp.aperture_system(scene_index, phase_index)
+      : &planning_lp.system(scene_index, phase_index);
+  if (sys_ptr == nullptr || col == ColIndex {unknown_index}) {
+    return;
+  }
+  auto& sys = *sys_ptr;
+  sys.ensure_lp_built();
+  auto& li = sys.linear_interface();
+  if (col >= li.numcols_as_index()) {
+    return;
+  }
+  // `±DblMax` passes through `normalize_bound` to the solver's infinity; finite
+  // values are written raw (the user α has `var_scale = 1`, so raw ==
+  // physical).
+  li.set_col_low_raw(col, lowb);
+  li.set_col_upp_raw(col, uppb);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// Release the user α's bootstrap pin (piece 5 step 2c).  The user α is a single
+// column (NOT N `varphi_s`) priced `cost > 0`; once its first user cut is
+// installed, free it to `[-∞, +∞]` so the cut — not the bootstrap pin — bounds
+// the cost-to-go.  The user's own `UserConstraint` cuts provide the floor, so
+// (unlike the built-in `bound_alpha`) no cut-derived floor projection is
+// needed.
+void bound_user_alpha(PlanningLP& planning_lp,
+                      SceneIndex scene_index,
+                      PhaseIndex phase_index,
+                      Uid user_alpha_uid,
+                      SystemKind kind)
+{
+  const auto* ua_svar = find_user_alpha_state_var(
+      planning_lp.simulation(), scene_index, phase_index, user_alpha_uid, kind);
+  if (ua_svar == nullptr) {
+    return;  // user α not registered on this cell — nothing to release.
+  }
+  record_col_bounds_dynamic(planning_lp,
+                            scene_index,
+                            phase_index,
+                            ua_svar->col(),
+                            -LinearProblem::DblMax,
+                            LinearProblem::DblMax,
+                            kind);
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
 // Consolidates the "only release α for cuts that actually reference α"
 // gate used by every optimality-cut install site.  Prevents an
 // optimality cut whose α coefficient was filtered at save time (e.g.
@@ -264,6 +384,28 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
                          SystemKind kind)
 {
   const auto& sim = planning_lp.simulation();
+
+  // User-overridable FCF (piece 5 step 2c): when the user α is active, the
+  // cut's future-cost column is the USER α, not the (suppressed, inert)
+  // built-in α. Release the user α's bootstrap pin iff this cut references it.
+  // Compress-safe element read.  Default path (no FutureCost / use_user_alpha
+  // unset) skips this block entirely → byte-for-byte unchanged.
+  if (const auto* fc = gtopt::active_future_cost(planning_lp); fc != nullptr
+      && fc->use_user_alpha.value_or(false) && fc->user_alpha_uid.has_value())
+  {
+    const auto ua_uid = *fc->user_alpha_uid;
+    const auto* ua_svar =
+        find_user_alpha_state_var(sim, scene_index, phase_index, ua_uid, kind);
+    if (ua_svar != nullptr && cut.cmap.contains(ua_svar->col())) {
+      bound_user_alpha(planning_lp, scene_index, phase_index, ua_uid, kind);
+    }
+    // The built-in α is inert under use_user_alpha (never registered as a state
+    // variable, pinned at 0); fall through is harmless (alpha_cols is empty),
+    // but returning early keeps the intent explicit and avoids the no-op floor
+    // scan.
+    return;
+  }
+
   // Fire iff the cut references ANY future-cost column on this cell.
   // Single-α modes register only `varphi_0`; under multicut a scenario-s
   // backward cut references its own `varphi_s`.  `bound_alpha` →
@@ -618,6 +760,22 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
 
   auto& phase_states = m_scene_phase_states_[scene_index];
 
+  // User-overridable FCF (piece 5 step 2c): when an active FutureCost element
+  // carries `use_user_alpha`, the user-authored α `DecisionVariable` is the
+  // backward-pass cost-to-go ESTIMATOR (the dynamic recourse column), NOT a
+  // forward stock.  Like the built-in α it must be excluded from
+  // `outgoing_links`, because the elastic filter relaxes each link's dependent
+  // column with slacks — which would corrupt the α value function.  Resolve its
+  // uid once; the false/empty path is byte-for-byte unchanged (a genuine
+  // `UserStateVar` forward state — one that is NOT the active α — still enters
+  // `outgoing_links` and shows up in the backward `links=N/M` count).
+  std::optional<Uid> user_alpha_uid_opt;
+  if (const auto* fc = gtopt::active_future_cost(planning_lp());
+      fc != nullptr && fc->use_user_alpha.value_or(false))
+  {
+    user_alpha_uid_opt = fc->user_alpha_uid;
+  }
+
   for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
     // The last phase produces no outgoing state-variable links to a
     // next phase (there is no next phase), so there is nothing to
@@ -659,6 +817,20 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
       // so value-compare works against either another LPClassName
       // or (via implicit conversion) a string_view.
       if (key.class_name == sddp_alpha_lp_class) {
+        continue;
+      }
+
+      // Skip the USER α (dynamic AmplFutureCost, piece 5 step 2c) for the same
+      // reason as the built-in α above: it is the cost-to-go estimator the
+      // backward pass cuts over, NOT a forward stock with elastic slacks.  Only
+      // the ACTIVE user α (matching uid + the dedicated `UserStateVar` class)
+      // is skipped — any other `UserStateVar` forward state still enters
+      // `outgoing_links`.  Guard false when `use_user_alpha` is unset → default
+      // path unchanged.
+      if (user_alpha_uid_opt
+          && key.class_name == DecisionVariableLP::StateClassName
+          && key.uid == *user_alpha_uid_opt)
+      {
         continue;
       }
 
