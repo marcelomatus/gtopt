@@ -956,6 +956,38 @@ UserConstraintLP::UserConstraintLP(const UserConstraint& uc, InputContext& ic)
     }
   }
 
+  // ── G11 no-silent-collapse guard ──────────────────────────────────────────
+  // A coarse scope (`stage`/`phase`/`global`) builds ONE representative LP row
+  // (see `build_coarse_row`), so a `sum{...}` time-aggregation window FINER
+  // than the scope only ever aggregates the representative sub-unit and
+  // SILENTLY drops the rest (e.g. `stage` scope + `sum{b in day}` keeps just
+  // the rep block's day, dropping every other day in the stage).  Reject the
+  // lossy combination outright rather than emit a quietly-wrong LP.  Scanned
+  // here at construction (after both `m_scope_` and `m_expr_` are parsed)
+  // because the parsed AST is available and the throw surfaces before any LP
+  // row is built.  `block`-scope never triggers this — it builds one row per
+  // block, so no window is finer (see `scope_granularity`).
+  if (m_expr_.has_value() && m_scope_ != ConstraintScope::Block) {
+    if (const auto finest = expr_finest_time_window(*m_expr_);
+        finest.has_value() && time_window_finer_than_scope(*finest, m_scope_))
+    {
+      throw std::runtime_error(std::format(
+          "user_constraint '{}': time-aggregation window '{}' is FINER than "
+          "the '{}' scope, which builds a single representative row — the "
+          "window would aggregate only the representative {} and SILENTLY "
+          "drop the rest (no-silent-collapse). "
+          "Fix: for a per-{} budget use block scope with `daily_sum` "
+          "(or `sum{{b in day}}`); to aggregate the whole scope use a "
+          "window that matches it (e.g. `scope=\"stage\"` with "
+          "`sum{{b in stage}}`).",
+          uc.name,
+          time_window_name(*finest),
+          scope_name(m_scope_),
+          time_window_name(*finest),
+          time_window_name(*finest)));
+    }
+  }
+
   // Resolve the user-supplied slack column label (the AMPL-style
   // ``var slack_<NAME>;`` declaration in PAMPL, or an explicit JSON
   // ``slack_name`` field).  Stable storage on the LP instance lets us

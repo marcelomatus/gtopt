@@ -19,6 +19,7 @@
  * duplicate detector (the `PhaseContext` discriminator's job).
  */
 
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -618,47 +619,104 @@ TEST_CASE(
   CHECK(timeagg == doctest::Approx(daily));
 }
 
-// ─── [G11] BUG: `sum{b in day}` under STAGE scope silently drops mid-stage
-//             days.  Registered SKIPPED so the suite stays green while pinning
-//             the defect with evidence.  REMOVE the skip once fixed.
+// ─── [G11] FIXED: a time-agg window FINER than a coarse scope is REJECTED.
 //
-// `make_2day_json` is a single 4-block stage spanning TWO 24-h days
-// (day0={b1,b2}, day1={b3,b4}).  A STAGE-scoped constraint emits exactly ONE
-// row per (scenario, stage), built at the stage's FIRST in-domain block
-// (`UserConstraintLP::add_to_lp` → `build_coarse_row(..., block=first)`).  The
-// `day`-window resolver (`build_row_from_terms`) then selects the day window
-// that CONTAINS that ambient block — i.e. day0 ONLY — and day1's blocks never
-// enter the row.  So a stage-scoped `sum{b in day} dur[b]*gen <= 1000` budgets
-// day0 alone and leaves day1 unconstrained.
+// A coarse scope (`stage`/`phase`/`global`) builds exactly ONE representative
+// LP row (`UserConstraintLP::build_coarse_row`), so a `sum{...}` window finer
+// than the scope would aggregate only the representative sub-unit and SILENTLY
+// drop the rest.  The historical bug: `make_2day_json` is a single 4-block
+// stage spanning TWO 24-h days (day0={b1,b2}, day1={b3,b4}); a STAGE-scoped
+// `sum{b in day} dur[b]*gen <= 1000` budgeted day0 ALONE and left day1
+// unconstrained — measured obj 1 417 000 vs the correct daily_sum golden
+// 2 810 000.
 //
-// EVIDENCE (measured):
-//   * daily_sum golden (both days @1000 MWh)        = 2 810 000
-//   * stage + sum{b in day}   (BUGGY: day0 only)    = 1 417 000
-//       day0: 1000 MWh served (5000) + 1400 MWh fail (1.4M) = 1 405 000
-//       day1: UNCONSTRAINED → all 2400 MWh served (12 000)
-//       → 1 405 000 + 12 000 = 1 417 000  (day1 dropped)
-//   * stage + sum{b in stage} (whole-stage budget)  = 3 805 000
+// The decided fix is NO-SILENT-COLLAPSE: ERROR on the lossy combination at
+// `UserConstraintLP` construction.  This case proves the throw fires; the
+// "OK cases still build" case below proves the non-lossy combinations and the
+// untouched block-scope daily_sum / `sum{b in day}` golden path stay green.
 //
-// CORRECT behaviour: a stage-scoped `sum{b in day}` should emit ONE row PER
-// day window within the stage (subsuming `daily_sum`), giving the 2 810 000
-// golden — OR the parser should reject a `day` window under a coarse scope
-// whose stage spans multiple days (no-silent-collapse).  Today it does
-// neither.
+// The full lossy CLASS that must throw:
+//   scope=stage  + day window     → ERROR (day finer than stage)
+//   scope=phase  + day window     → ERROR
+//   scope=phase  + stage window   → ERROR (stage finer than phase)
+//   scope=global + day window     → ERROR
+//   scope=global + stage window   → ERROR
+// The non-lossy combinations that must NOT throw:
+//   scope=stage  + stage window   → OK (window == scope: whole-stage budget)
+//   scope=block  + ANY window     → OK (per-block path is never coarse)
+
+namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+/// Build (and resolve) the 2-day model with @p uc spliced in; return true
+/// iff construction/resolve throws `std::runtime_error` (the G11 guard).
+[[nodiscard]] auto build_2day_throws(std::string_view uc) -> bool
+{
+  try {
+    Planning base;
+    base.merge(parse_planning_json(make_2day_json(uc)));
+    PlanningLP planning_lp(std::move(base));
+    (void)planning_lp.resolve();
+  } catch (const std::runtime_error&) {
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
+}  // namespace ucscope_test
+
 TEST_CASE(
-    "UserConstraint sum{b in day} STAGE scope drops mid-stage days [FIXME]"
-    * doctest::skip())  // NOLINT
+    "UserConstraint day-window under coarse scope is rejected "
+    "(no silent day-drop)")  // NOLINT
 {
   using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
 
-  const double daily = solve_2day_obj(R"({
-      "uid": 1, "name": "uc", "daily_sum": true, "constraint_type": "energy",
-      "expression": "generator('g1').generation <= 1000" })");
-  const double stage_day = solve_2day_obj(R"({
-      "uid": 1, "name": "uc", "scope": "stage", "constraint_type": "energy",
-      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })");
+  // The exact historical defect: stage scope + `sum{b in day}` dropped day1.
+  // Now the construction must throw rather than under-budget.
+  CHECK_THROWS_AS(  // NOLINT
+      static_cast<void>(solve_2day_obj(R"({
+        "uid": 1, "name": "uc", "scope": "stage", "constraint_type": "energy",
+        "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })")),
+      std::runtime_error);
+}
 
-  // The correct objective is the daily_sum golden (both days budgeted).  Today
-  // the stage+day form drops day1, so it under-budgets to 1 417 000 instead —
-  // this CHECK FAILS until the bug is fixed, which is why the case is skipped.
-  CHECK(stage_day == doctest::Approx(daily));
+TEST_CASE(
+    "UserConstraint time-agg finer-than-scope — full lossy class errors")  // NOLINT
+{
+  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+
+  // ── Lossy combinations: every one must ERROR (no silent sub-unit drop). ──
+  // scope=stage + day window
+  CHECK(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "stage", "constraint_type": "energy",
+      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })"));
+  // scope=phase + day window
+  CHECK(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "phase", "constraint_type": "energy",
+      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })"));
+  // scope=phase + stage window (stage finer than phase)
+  CHECK(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "phase", "constraint_type": "energy",
+      "expression": "sum{b in stage} dur[b] * generator('g1').generation <= 1000" })"));
+  // scope=global + day window
+  CHECK(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "global", "constraint_type": "energy",
+      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })"));
+  // scope=global + stage window
+  CHECK(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "global", "constraint_type": "energy",
+      "expression": "sum{b in stage} dur[b] * generator('g1').generation <= 1000" })"));
+
+  // ── Non-lossy combinations: these must NOT throw. ──
+  // scope=stage + stage window — window matches the scope (whole-stage budget).
+  CHECK_FALSE(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "stage", "constraint_type": "energy",
+      "expression": "sum{b in stage} dur[b] * generator('g1').generation <= 9999999" })"));
+  // scope=block + day window — per-block path is never coarse (daily_sum form).
+  CHECK_FALSE(build_2day_throws(R"({
+      "uid": 1, "name": "uc", "scope": "block", "constraint_type": "energy",
+      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })"));
 }

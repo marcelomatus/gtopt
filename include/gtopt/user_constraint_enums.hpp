@@ -9,7 +9,9 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
+#include <gtopt/constraint_expr.hpp>
 #include <gtopt/enum_option.hpp>
 
 namespace gtopt
@@ -175,6 +177,66 @@ inline constexpr auto constraint_scope_entries =
 [[nodiscard]] constexpr bool scope_is_planning(ConstraintScope scope) noexcept
 {
   return scope == ConstraintScope::Phase || scope == ConstraintScope::Global;
+}
+
+// ── G11 no-silent-collapse guard ────────────────────────────────────────────
+//
+// A coarse scope builds ONE representative LP row, so a `sum{...}` time-agg
+// window FINER than the scope silently aggregates only the representative
+// sub-unit (and drops the rest).  To detect that, COARSE scopes share the
+// same granularity scale as `TimeWindow`, with SMALLER == FINER:
+//
+//   TimeWindow::Day (0) < TimeWindow::Stage (1) | ConstraintScope::Stage (1)
+//     < ConstraintScope::Phase (2) < ConstraintScope::Global (3)
+//
+// `ConstraintScope::Block` is the per-block path: it builds one row per block
+// so NO window can be finer than it → it never triggers the guard (sentinel
+// rank below every window).
+
+/// Granularity rank of a COARSE scope on the shared TimeWindow scale
+/// (SMALLER is FINER).  `Block` returns a sentinel `-1` (finer than every
+/// window) so the per-block path is never flagged as lossy.
+[[nodiscard]] constexpr int scope_granularity(ConstraintScope scope) noexcept
+{
+  switch (scope) {
+    case ConstraintScope::Block:
+      return -1;  // per-block path: never coarser than any window
+    case ConstraintScope::Stage:
+      return 1;  // == TimeWindow::Stage
+    case ConstraintScope::Phase:
+      return 2;
+    case ConstraintScope::Global:
+      return 3;
+  }
+  return -1;  // unreachable (switch is exhaustive)
+}
+
+/// True iff a `sum{...}` over @p window, evaluated under a constraint of
+/// @p scope, is LOSSY — i.e. the window is FINER than the scope, so the
+/// single representative row built at coarse scope aggregates only the
+/// representative sub-unit and silently drops the rest.  `Block` scope is
+/// never lossy (one row per block).
+[[nodiscard]] constexpr bool time_window_finer_than_scope(
+    TimeWindow window, ConstraintScope scope) noexcept
+{
+  return time_window_granularity(window) < scope_granularity(scope);
+}
+
+/// Human-readable spelling of a `ConstraintScope` for diagnostics.
+[[nodiscard]] constexpr std::string_view scope_name(
+    ConstraintScope scope) noexcept
+{
+  switch (scope) {
+    case ConstraintScope::Block:
+      return "block";
+    case ConstraintScope::Stage:
+      return "stage";
+    case ConstraintScope::Phase:
+      return "phase";
+    case ConstraintScope::Global:
+      return "global";
+  }
+  return "?";  // unreachable
 }
 
 }  // namespace gtopt

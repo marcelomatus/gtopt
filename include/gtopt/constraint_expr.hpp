@@ -640,4 +640,100 @@ struct ConstraintExpr
   ConstraintDomain domain {};  ///< Index domain specification
 };
 
+// ── Time-window granularity (G11 no-silent-collapse guard) ──────────────────
+//
+// A coarse-scope constraint (`stage`/`phase`/`global`) builds ONE
+// representative LP row, so a `sum{...}` time-aggregation window FINER than
+// the scope silently aggregates only the representative sub-unit and drops
+// the rest (e.g. `stage` scope + `day` window keeps only the rep block's
+// day → mid-stage days vanish).  These helpers let the LP layer detect that
+// lossy combination and reject it instead of producing a wrong LP.
+//
+// Granularity rank — SMALLER is FINER.  `Day` (0) is finer than `Stage` (1).
+[[nodiscard]] constexpr int time_window_granularity(TimeWindow window) noexcept
+{
+  switch (window) {
+    case TimeWindow::Day:
+      return 0;
+    case TimeWindow::Stage:
+      return 1;
+  }
+  return 1;  // unreachable (switch is exhaustive)
+}
+
+// Human-readable spelling of a `TimeWindow` for diagnostics.
+[[nodiscard]] constexpr std::string_view time_window_name(
+    TimeWindow window) noexcept
+{
+  switch (window) {
+    case TimeWindow::Day:
+      return "day";
+    case TimeWindow::Stage:
+      return "stage";
+  }
+  return "?";  // unreachable
+}
+
+namespace detail
+{
+
+// Recursively scan @p terms for the FINEST `TimeAggRef` window present,
+// folding the running minimum (finest) into @p best.  Returns the finest
+// window found across this term list and every nested wrapper
+// (abs/min/max/if branches and nested time-aggregations).  `std::nullopt`
+// means the (sub)expression contains no time-aggregation at all.
+//
+// Declared here and defined after the wrapper bodies so it can recurse into
+// `AbsExpr` / `MinMaxExpr` / `IfExpr` / `TimeAggRef`, all of which own a
+// `std::vector<ConstraintTerm>`.
+[[nodiscard]] std::optional<TimeWindow> finest_time_window_in_terms(
+    const std::vector<ConstraintTerm>& terms,
+    std::optional<TimeWindow> best = std::nullopt) noexcept;
+
+inline std::optional<TimeWindow> finest_time_window_in_terms(
+    const std::vector<ConstraintTerm>& terms,
+    std::optional<TimeWindow> best) noexcept
+{
+  const auto fold = [&best](TimeWindow w)
+  {
+    if (!best.has_value()
+        || time_window_granularity(w) < time_window_granularity(*best))
+    {
+      best = w;
+    }
+  };
+
+  for (const auto& t : terms) {
+    if (t.time_agg) {
+      fold(t.time_agg->window);
+      best = finest_time_window_in_terms(t.time_agg->inner, best);
+    }
+    if (t.abs_expr) {
+      best = finest_time_window_in_terms(t.abs_expr->inner, best);
+    }
+    if (t.minmax_expr) {
+      for (const auto& arg : t.minmax_expr->args) {
+        best = finest_time_window_in_terms(arg, best);
+      }
+    }
+    if (t.if_expr) {
+      best = finest_time_window_in_terms(t.if_expr->then_branch, best);
+      best = finest_time_window_in_terms(t.if_expr->else_branch, best);
+    }
+  }
+  return best;
+}
+
+}  // namespace detail
+
+// Finest `TimeWindow` used anywhere in @p expr (across all wrappers /
+// nested aggregations), or `std::nullopt` when the expression contains no
+// `sum{...}` time-aggregation.  Used by the LP layer to compare against the
+// constraint scope and reject lossy fine-window-under-coarse-scope combos.
+[[nodiscard]] inline std::optional<TimeWindow> expr_finest_time_window(
+    const ConstraintExpr& expr) noexcept
+{
+  return detail::finest_time_window_in_terms(expr.terms);
+}
+
 }  // namespace gtopt
