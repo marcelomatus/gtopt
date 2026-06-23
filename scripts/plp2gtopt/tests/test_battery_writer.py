@@ -81,8 +81,10 @@ def test_battery_array_from_cenbat(tmp_path):
     assert b["capacity"] == pytest.approx(200.0)  # emax directly
     # Unified fields (no maintenance → bus/pmax present)
     assert b["bus"] == 1
-    assert b["pmax_discharge"] == pytest.approx(0.0)  # no central_parser → 0
-    assert b["pmax_charge"] == pytest.approx(0.0)
+    # No central_parser → central pmax 0; expansion-battery fallback uses emax
+    # as the structural pmax so LP-reduction does not elide the battery.
+    assert b["pmax_discharge"] == pytest.approx(200.0)  # emax fallback
+    assert b["pmax_charge"] == pytest.approx(200.0)
     assert b["discharge_cost"] == pytest.approx(0.0)
 
 
