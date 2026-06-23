@@ -190,6 +190,9 @@ void register_alpha_variables(PlanningLP& planning_lp,
               unit_cost,  // physical cost: α is in $ — 1/N average under
                           // multicut; scaling handled by emit_col_to_backend
           .is_state = true,
+          .pin_scale = true,  // exempt α from Ruiz equilibration so all
+                              // scenes share the same scale — prevents
+                              // cut coefficient divergence under compress
           .scale = scale_alpha,
           .class_name = sddp_alpha_class_name,
           .variable_name = sddp_alpha_col_name,
