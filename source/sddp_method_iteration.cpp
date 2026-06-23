@@ -553,13 +553,9 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // `varphi_S`, single-α → offset-0 lookup).  Default path byte-for-byte
   // unchanged.
   const StateVariable* src_alpha_svar = nullptr;
-  if (const auto* fc = gtopt::active_future_cost(planning_lp()); fc != nullptr
-      && fc->use_user_alpha.value_or(false) && fc->user_alpha_uid.has_value())
-  {
-    src_alpha_svar = find_user_alpha_state_var(planning_lp().simulation(),
-                                               scene_index,
-                                               prev_phase_index,
-                                               *fc->user_alpha_uid);
+  if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
+    src_alpha_svar = find_user_alpha_state_var(
+        planning_lp().simulation(), scene_index, prev_phase_index, *ua_uid);
   } else {
     src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
         ? find_alpha_state_var(planning_lp().simulation(),

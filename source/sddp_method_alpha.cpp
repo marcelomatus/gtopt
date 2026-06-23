@@ -94,17 +94,14 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   // dispatch/efin instead, and inflate the realised opex in the forward UB
   // estimator (it would strip 0 instead of the true negative cost-to-go).
   if (suppress) {
-    if (const auto* fc = gtopt::active_future_cost(planning_lp());
-        fc != nullptr && fc->user_alpha_uid.has_value())
-    {
-      const auto ua_uid = *fc->user_alpha_uid;
+    if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
       const auto& sim = planning_lp().simulation();
       const auto last_pi = sim.last_phase_index();
       for (const auto phase_index :
            iota_range<PhaseIndex>(0, sim.phase_count()))
       {
         const auto* ua_svar =
-            find_user_alpha_state_var(sim, scene_index, phase_index, ua_uid);
+            find_user_alpha_state_var(sim, scene_index, phase_index, *ua_uid);
         if (ua_svar == nullptr) {
           continue;  // user α not registered on this cell (e.g. inactive stage)
         }
@@ -114,7 +111,7 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
           // the post-horizon surplus value).  Symmetric with the boundary-cut
           // path (`bound_alpha` after load) so the realised UB matches.
           gtopt::bound_user_alpha(
-              planning_lp(), scene_index, phase_index, ua_uid);
+              planning_lp(), scene_index, phase_index, *ua_uid);
         } else {
           gtopt::record_col_bounds_dynamic(planning_lp(),
                                            scene_index,
@@ -390,14 +387,11 @@ void bound_alpha_for_cut(PlanningLP& planning_lp,
   // built-in α. Release the user α's bootstrap pin iff this cut references it.
   // Compress-safe element read.  Default path (no FutureCost / use_user_alpha
   // unset) skips this block entirely → byte-for-byte unchanged.
-  if (const auto* fc = gtopt::active_future_cost(planning_lp); fc != nullptr
-      && fc->use_user_alpha.value_or(false) && fc->user_alpha_uid.has_value())
-  {
-    const auto ua_uid = *fc->user_alpha_uid;
+  if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp)) {
     const auto* ua_svar =
-        find_user_alpha_state_var(sim, scene_index, phase_index, ua_uid, kind);
+        find_user_alpha_state_var(sim, scene_index, phase_index, *ua_uid, kind);
     if (ua_svar != nullptr && cut.cmap.contains(ua_svar->col())) {
-      bound_user_alpha(planning_lp, scene_index, phase_index, ua_uid, kind);
+      bound_user_alpha(planning_lp, scene_index, phase_index, *ua_uid, kind);
     }
     // The built-in α is inert under use_user_alpha (never registered as a state
     // variable, pinned at 0); fall through is harmless (alpha_cols is empty),
@@ -769,12 +763,8 @@ void SDDPMethod::collect_state_variable_links(SceneIndex scene_index)
   // uid once; the false/empty path is byte-for-byte unchanged (a genuine
   // `UserStateVar` forward state — one that is NOT the active α — still enters
   // `outgoing_links` and shows up in the backward `links=N/M` count).
-  std::optional<Uid> user_alpha_uid_opt;
-  if (const auto* fc = gtopt::active_future_cost(planning_lp());
-      fc != nullptr && fc->use_user_alpha.value_or(false))
-  {
-    user_alpha_uid_opt = fc->user_alpha_uid;
-  }
+  const std::optional<Uid> user_alpha_uid_opt =
+      gtopt::active_user_alpha_uid(planning_lp());
 
   for (auto&& [phase_index, _ph] : enumerate<PhaseIndex>(phases)) {
     // The last phase produces no outgoing state-variable links to a

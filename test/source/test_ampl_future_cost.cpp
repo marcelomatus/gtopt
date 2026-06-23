@@ -42,6 +42,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/decision_variable.hpp>
 #include <gtopt/future_cost.hpp>
+#include <gtopt/future_cost_lp.hpp>
 #include <gtopt/json/json_future_cost.hpp>
 #include <gtopt/monolithic_method.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -752,4 +753,157 @@ TEST_CASE(  // NOLINT
   CHECK(bdr_ub == doctest::Approx(usr_ub).epsilon(1e-3));
   CHECK(bdr_lb == doctest::Approx(kAnalytic).epsilon(1e-3));
   CHECK(usr_lb == doctest::Approx(kAnalytic).epsilon(1e-3));
+}
+
+// ─── 9. active_user_alpha_uid helper — the DRY'd user-α guard ───────────────
+//
+// `active_user_alpha_uid(PlanningLP&)` is the single source of truth for the
+// "user α is the FCF recourse column" guard used across the SDDP backward /
+// forward / alpha passes (it replaced the 3-condition guard duplicated at 5
+// sites).  It returns the user α uid ONLY when an ACTIVE FutureCost element has
+// BOTH `use_user_alpha = true` AND `user_alpha_uid` set; nullopt otherwise.
+// This pins each precondition independently so a future change to any one of
+// them is caught here, not only in the (slow) end-to-end SDDP tests.
+TEST_CASE("active_user_alpha_uid — guard preconditions")  // NOLINT
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  SUBCASE("nullopt when there is no FutureCost element")
+  {
+    PlanningLP planning_lp(make_monolithic_planning());  // no future_cost_array
+    CHECK_FALSE(active_user_alpha_uid(planning_lp).has_value());
+  }
+
+  SUBCASE("nullopt when use_user_alpha is unset (legacy boundary-cut FCF)")
+  {
+    auto planning = make_monolithic_planning();
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "bfcf",
+        .cuts_file = OptName {"boundary_cuts.csv"},
+        // use_user_alpha unset, user_alpha_uid set → still nullopt (the flag
+        // gates the helper, not the uid presence).
+        .user_alpha_uid = OptUid {kUserAlphaUid},
+    });
+    PlanningLP planning_lp(std::move(planning));
+    CHECK_FALSE(active_user_alpha_uid(planning_lp).has_value());
+  }
+
+  SUBCASE("nullopt when use_user_alpha is explicit false")
+  {
+    auto planning = make_monolithic_planning();
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "bfcf",
+        .use_user_alpha = OptBool {false},
+        .user_alpha_uid = OptUid {kUserAlphaUid},
+    });
+    PlanningLP planning_lp(std::move(planning));
+    CHECK_FALSE(active_user_alpha_uid(planning_lp).has_value());
+  }
+
+  SUBCASE("nullopt when use_user_alpha=true but user_alpha_uid unset")
+  {
+    auto planning = make_monolithic_planning();
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "ufcf",
+        .use_user_alpha = OptBool {true},
+        // user_alpha_uid deliberately omitted.
+    });
+    PlanningLP planning_lp(std::move(planning));
+    CHECK_FALSE(active_user_alpha_uid(planning_lp).has_value());
+  }
+
+  SUBCASE("returns the uid when both use_user_alpha and user_alpha_uid set")
+  {
+    PlanningLP planning_lp(make_user_alpha_planning(1000.0));
+    const auto ua = active_user_alpha_uid(planning_lp);
+    REQUIRE(ua.has_value());
+    CHECK(*ua == kUserAlphaUid);
+  }
+
+  SUBCASE("nullopt when the FutureCost element is explicitly deactivated")
+  {
+    // An explicit scalar `active = false` deactivates the element, so even with
+    // both flags set the helper returns nullopt (no ACTIVE FutureCost).
+    auto planning = make_monolithic_planning();
+    planning.system.future_cost_array.push_back(FutureCost {
+        .uid = Uid {1},
+        .name = "ufcf",
+        .active = Active {IntBool {False}},
+        .use_user_alpha = OptBool {true},
+        .user_alpha_uid = OptUid {kUserAlphaUid},
+    });
+    PlanningLP planning_lp(std::move(planning));
+    CHECK_FALSE(active_user_alpha_uid(planning_lp).has_value());
+  }
+}
+
+// ─── 10. use_user_alpha without user_alpha_uid — hard error ─────────────────
+//
+// The init-time guard requires `user_alpha_uid` whenever `use_user_alpha` is
+// set: without it there is no column to price the FCF onto.  Sibling of test 3
+// (mutual exclusion) / test 4 (cost==0) — the other two `std::unexpected`
+// branches of the same validation block.
+TEST_CASE(  // NOLINT
+    "AmplFutureCost — use_user_alpha without user_alpha_uid is std::unexpected")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2phase_linear_planning();
+  planning.options.method = MethodType::sddp;
+  planning.system.future_cost_array.push_back(FutureCost {
+      .uid = Uid {1},
+      .name = "ufcf",
+      .use_user_alpha = OptBool {true},
+      // user_alpha_uid deliberately omitted → REQUIRED-field error.
+  });
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 1;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  CHECK_FALSE(results.has_value());
+  if (!results.has_value()) {
+    CHECK(results.error().code == ErrorCode::InvalidInput);
+  }
+}
+
+// ─── 11. user_alpha_uid that matches no DecisionVariable — hard error ───────
+//
+// The init-time guard reads the user α DecisionVariable's cost from the System
+// input data; a uid that resolves to no DecisionVariable is a hard error (the
+// "does not match any DecisionVariable" branch — distinct from the cost==0
+// branch, which fires only AFTER the DV is found).
+TEST_CASE(  // NOLINT
+    "AmplFutureCost — user_alpha_uid matching no DecisionVariable is "
+    "std::unexpected")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  auto planning = make_2phase_linear_planning();
+  planning.options.method = MethodType::sddp;
+  // NO DecisionVariable with this uid is added → dangling reference.
+  planning.system.future_cost_array.push_back(FutureCost {
+      .uid = Uid {1},
+      .name = "ufcf",
+      .use_user_alpha = OptBool {true},
+      .user_alpha_uid = OptUid {Uid {999999}},
+  });
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 1;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  CHECK_FALSE(results.has_value());
+  if (!results.has_value()) {
+    CHECK(results.error().code == ErrorCode::InvalidInput);
+  }
 }

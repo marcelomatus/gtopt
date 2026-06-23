@@ -181,4 +181,17 @@ bool has_active_use_user_alpha(const PlanningLP& planning_lp)
   return fc != nullptr && fc->use_user_alpha.value_or(false);
 }
 
+std::optional<Uid> active_user_alpha_uid(const PlanningLP& planning_lp) noexcept
+{
+  const auto* fc = active_future_cost(planning_lp);
+  if (fc != nullptr && fc->use_user_alpha.value_or(false)
+      && fc->user_alpha_uid.has_value())
+  {
+    // Return the optional directly (already engaged here) rather than
+    // dereferencing + re-wrapping — same value, no redundant round-trip.
+    return fc->user_alpha_uid;
+  }
+  return std::nullopt;
+}
+
 }  // namespace gtopt

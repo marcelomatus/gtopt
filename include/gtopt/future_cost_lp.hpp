@@ -116,4 +116,11 @@ struct SDDPBoundaryConfig
 /// active FutureCost element (the legacy boundary-cut / no-FCF paths).
 [[nodiscard]] bool has_active_use_user_alpha(const PlanningLP& planning_lp);
 
+/// The active user-α column's uid when a FutureCost element has
+/// use_user_alpha=true AND a user_alpha_uid set; std::nullopt otherwise.
+/// Single source of truth for the "user α is the FCF recourse column"
+/// guard used across the SDDP backward/forward/alpha passes.
+[[nodiscard]] std::optional<Uid> active_user_alpha_uid(
+    const PlanningLP& planning_lp) noexcept;
+
 }  // namespace gtopt

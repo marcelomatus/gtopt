@@ -834,15 +834,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // physical, with NO `× scale_alpha`.  Compress-safe element read; default
       // path unchanged.
       double alpha_val = 0.0;
-      if (const auto* fc = gtopt::active_future_cost(planning_lp());
-          fc != nullptr && fc->use_user_alpha.value_or(false)
-          && fc->user_alpha_uid.has_value())
-      {
-        const auto* ua_svar =
-            find_user_alpha_state_var(planning_lp().simulation(),
-                                      scene_index,
-                                      phase_index,
-                                      *fc->user_alpha_uid);
+      if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
+        const auto* ua_svar = find_user_alpha_state_var(
+            planning_lp().simulation(), scene_index, phase_index, *ua_uid);
         alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
       } else {
         const auto sa = m_options_.scale_alpha;
