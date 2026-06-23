@@ -85,6 +85,7 @@ void SceneCutStore::store(const SparseRow& cut,
       .rhs = cut.lowb,
       .scale = cut.scale,
       .row = row,
+      .pivot_col = cut.pivot_col,
   };
   stored.coefficients.reserve(cut.cmap.size());
   for (const auto& [col, coeff] : cut.cmap) {
@@ -496,6 +497,7 @@ void SDDPCutManager::apply_cut_sharing_for_iteration(
         .lowb = sc.rhs,
         .uppb = LinearProblem::DblMax,
         .scale = sc.scale,
+        .pivot_col = sc.pivot_col,
         .variable_uid = sc.phase_uid,
         .context = make_iteration_context(
             sc.scene_uid, sc.phase_uid, uid_of(iteration_index), extra),
