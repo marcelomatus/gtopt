@@ -255,6 +255,150 @@ TEST_CASE("UserConstraint scope — coarse scope solves correctly")  // NOLINT
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// [G10] multi-scene phase/global scope — no cross-scene dedup-collapse
+// ══════════════════════════════════════════════════════════════════════════
+//
+// `phase`/`global` scoped constraints emit ONE row per (scene, phase) cell.
+// The worry is the metadata-based duplicate detector in
+// `LinearProblem::add_row`: two DIFFERENT scenes building the SAME phase-scope
+// row could collide if the row's identity does not discriminate on scene.  The
+// `PhaseContext` (scene_uid, phase_uid, element_uid) discriminator prevents
+// that — here we BUILD a 2-scene, 2-phase model and assert EACH scene's cell
+// carries its OWN phase/global row (so the second scene's row is not silently
+// dropped).
+
+namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+{
+
+// clang-format off
+
+/// A 2-scene × 2-phase single-bus model: 2 stages (one per phase), 2
+/// scenarios each folded into its own scene.  `uc_block` varies the scope.
+auto make_2scene_2phase_json(std::string_view uc_block) -> std::string
+{
+  return std::format(
+      R"(
+  {{
+    "options": {{
+      "annual_discount_rate": 0.0, "output_format": "csv",
+      "output_compression": "uncompressed",
+      "model_options": {{ "use_single_bus": true, "demand_fail_cost": 1000,
+                          "scale_objective": 1 }}
+    }},
+    "simulation": {{
+      "block_array": [
+        {{ "uid": 1, "duration": 8 }}, {{ "uid": 2, "duration": 8 }},
+        {{ "uid": 3, "duration": 8 }}, {{ "uid": 4, "duration": 8 }}
+      ],
+      "stage_array": [
+        {{ "uid": 1, "first_block": 0, "count_block": 2, "active": 1 }},
+        {{ "uid": 2, "first_block": 2, "count_block": 2, "active": 1 }}
+      ],
+      "phase_array": [
+        {{ "uid": 1, "first_stage": 0, "count_stage": 1 }},
+        {{ "uid": 2, "first_stage": 1, "count_stage": 1 }}
+      ],
+      "scenario_array": [
+        {{ "uid": 1, "probability_factor": 0.5 }},
+        {{ "uid": 2, "probability_factor": 0.5 }}
+      ],
+      "scene_array": [
+        {{ "uid": 1, "name": "s1", "active": 1, "first_scenario": 0,
+           "count_scenario": 1 }},
+        {{ "uid": 2, "name": "s2", "active": 1, "first_scenario": 1,
+           "count_scenario": 1 }}
+      ]
+    }},
+    "system": {{
+      "name": "uc_multiscene_test",
+      "bus_array": [ {{ "uid": 1, "name": "b1" }} ],
+      "generator_array": [
+        {{ "uid": 1, "name": "g1", "bus": "b1", "pmin": 0, "pmax": 200,
+           "gcost": 5, "capacity": 200 }}
+      ],
+      "demand_array": [
+        {{ "uid": 1, "name": "d1", "bus": "b1", "capacity": 100.0 }}
+      ],
+      "user_constraint_array": [ {} ]
+    }}
+  }})",
+      uc_block);
+}
+
+// clang-format on
+
+/// Resolve the 2-scene 2-phase model and return the row count of cell
+/// (scene, phase).
+[[nodiscard]] auto solve_cell_numrows(std::string_view uc_block,
+                                      SceneIndex scene,
+                                      PhaseIndex phase) -> Index
+{
+  Planning base;
+  base.merge(parse_planning_json(make_2scene_2phase_json(uc_block)));
+  PlanningLP planning_lp(std::move(base));
+  auto result = planning_lp.resolve();
+  REQUIRE(result.has_value());
+  auto&& systems = planning_lp.systems();
+  REQUIRE(systems.size() >= 2);  // 2 scenes
+  REQUIRE(systems[scene].size() >= 2);  // 2 phases
+  return systems[scene][phase].linear_interface().get_numrows();
+}
+
+}  // namespace
+}  // namespace ucscope_test
+
+TEST_CASE(
+    "UserConstraint scope — multi-scene phase/global rows do not collapse")  // NOLINT
+{
+  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+
+  constexpr auto expr = R"("expression": "generator('g1').generation <= 150")";
+
+  // Baseline: a far-from-binding NOOP at each scope — establishes the per-cell
+  // row floor WITHOUT the constraint of interest contributing a meaningful
+  // delta.  We instead compare block vs phase/global directly per cell.
+  const auto blk_s0p0 = solve_cell_numrows(
+      std::format(R"({{ "uid": 1, "name": "uc", "scope": "block", {} }})",
+                  expr),
+      SceneIndex {0},
+      PhaseIndex {0});
+  const auto ph_s0p0 = solve_cell_numrows(
+      std::format(R"({{ "uid": 1, "name": "uc", "scope": "phase", {} }})",
+                  expr),
+      SceneIndex {0},
+      PhaseIndex {0});
+  const auto ph_s1p0 = solve_cell_numrows(
+      std::format(R"({{ "uid": 1, "name": "uc", "scope": "phase", {} }})",
+                  expr),
+      SceneIndex {1},
+      PhaseIndex {0});
+  const auto gl_s0p0 = solve_cell_numrows(
+      std::format(R"({{ "uid": 1, "name": "uc", "scope": "global", {} }})",
+                  expr),
+      SceneIndex {0},
+      PhaseIndex {0});
+  const auto gl_s1p0 = solve_cell_numrows(
+      std::format(R"({{ "uid": 1, "name": "uc", "scope": "global", {} }})",
+                  expr),
+      SceneIndex {1},
+      PhaseIndex {0});
+
+  // Each phase has 2 blocks, so a block-scoped constraint adds 2 rows per cell;
+  // phase/global scope collapses that to exactly 1 row per cell → blk − 1.
+  CHECK(ph_s0p0 == blk_s0p0 - 1);
+  CHECK(gl_s0p0 == blk_s0p0 - 1);
+
+  // The discriminating check: scene 1's cell ALSO carries its own phase/global
+  // row (same count as scene 0's cell) — the second scene's row is NOT dropped
+  // by the metadata dedup detector.  Summed across the 2 scenes that is 2
+  // phase-scope rows / 2 global-scope rows for phase 0.
+  CHECK(ph_s1p0 == ph_s0p0);
+  CHECK(gl_s1p0 == gl_s0p0);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // `sum{...}` TIME aggregation (piece-4 step 2) — distinct from element `sum()`
 // ══════════════════════════════════════════════════════════════════════════
 //
@@ -472,4 +616,49 @@ TEST_CASE(
       "uid": 1, "name": "uc", "scope": "block", "constraint_type": "energy",
       "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })");
   CHECK(timeagg == doctest::Approx(daily));
+}
+
+// ─── [G11] BUG: `sum{b in day}` under STAGE scope silently drops mid-stage
+//             days.  Registered SKIPPED so the suite stays green while pinning
+//             the defect with evidence.  REMOVE the skip once fixed.
+//
+// `make_2day_json` is a single 4-block stage spanning TWO 24-h days
+// (day0={b1,b2}, day1={b3,b4}).  A STAGE-scoped constraint emits exactly ONE
+// row per (scenario, stage), built at the stage's FIRST in-domain block
+// (`UserConstraintLP::add_to_lp` → `build_coarse_row(..., block=first)`).  The
+// `day`-window resolver (`build_row_from_terms`) then selects the day window
+// that CONTAINS that ambient block — i.e. day0 ONLY — and day1's blocks never
+// enter the row.  So a stage-scoped `sum{b in day} dur[b]*gen <= 1000` budgets
+// day0 alone and leaves day1 unconstrained.
+//
+// EVIDENCE (measured):
+//   * daily_sum golden (both days @1000 MWh)        = 2 810 000
+//   * stage + sum{b in day}   (BUGGY: day0 only)    = 1 417 000
+//       day0: 1000 MWh served (5000) + 1400 MWh fail (1.4M) = 1 405 000
+//       day1: UNCONSTRAINED → all 2400 MWh served (12 000)
+//       → 1 405 000 + 12 000 = 1 417 000  (day1 dropped)
+//   * stage + sum{b in stage} (whole-stage budget)  = 3 805 000
+//
+// CORRECT behaviour: a stage-scoped `sum{b in day}` should emit ONE row PER
+// day window within the stage (subsuming `daily_sum`), giving the 2 810 000
+// golden — OR the parser should reject a `day` window under a coarse scope
+// whose stage spans multiple days (no-silent-collapse).  Today it does
+// neither.
+TEST_CASE(
+    "UserConstraint sum{b in day} STAGE scope drops mid-stage days [FIXME]"
+    * doctest::skip())  // NOLINT
+{
+  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+
+  const double daily = solve_2day_obj(R"({
+      "uid": 1, "name": "uc", "daily_sum": true, "constraint_type": "energy",
+      "expression": "generator('g1').generation <= 1000" })");
+  const double stage_day = solve_2day_obj(R"({
+      "uid": 1, "name": "uc", "scope": "stage", "constraint_type": "energy",
+      "expression": "sum{b in day} dur[b] * generator('g1').generation <= 1000" })");
+
+  // The correct objective is the daily_sum golden (both days budgeted).  Today
+  // the stage+day form drops day1, so it under-budgets to 1 417 000 instead —
+  // this CHECK FAILS until the bug is fixed, which is why the case is skipped.
+  CHECK(stage_day == doctest::Approx(daily));
 }

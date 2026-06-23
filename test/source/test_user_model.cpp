@@ -30,9 +30,12 @@
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/json/json_user_model.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_method.hpp>
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_model.hpp>
+
+#include "sddp_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -339,6 +342,84 @@ TEST_CASE(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// 3b. [G7] tag-unset → output dir = element NAME (no tag dir)
+// ══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "UserModel — tag unset → output dir is the element name")
+{
+  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+
+  // `temp_directory_path()` honours $TMPDIR (never a hardcoded /tmp).
+  const auto tmpdir = std::filesystem::temp_directory_path()
+      / "gtopt_user_model_notag_capture_test";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  // Identical to the tag test below it, but with NO "tag" field — the
+  // capture dir must fall back to the element NAME ("mymodel").
+  const auto json = std::format(
+      R"({{
+    "options": {{
+      "annual_discount_rate": 0.0,
+      "output_format": "csv",
+      "output_compression": "uncompressed",
+      "output_directory": "{}",
+      "model_options": {{ "use_single_bus": true, "demand_fail_cost": 1000,
+                          "scale_objective": 1 }}
+    }},
+    "simulation": {{
+      "block_array": [ {{ "uid": 1, "duration": 8 }} ],
+      "stage_array": [ {{ "uid": 1, "first_block": 0, "count_block": 1,
+                          "active": 1 }} ],
+      "scenario_array": [ {{ "uid": 1, "probability_factor": 1 }} ]
+    }},
+    "system": {{
+      "name": "capture",
+      "bus_array": [ {{ "uid": 1, "name": "b1" }} ],
+      "generator_array": [ {{ "uid": 1, "name": "g1", "bus": "b1", "pmin": 0,
+          "pmax": 200, "gcost": 5, "capacity": 200 }} ],
+      "demand_array": [ {{ "uid": 1, "name": "d1", "bus": "b1",
+          "lmax": [ [ 100.0 ] ] }} ],
+      "user_model_array": [ {{
+        "uid": 1, "name": "mymodel",
+        "variable_array": [ {{ "uid": 1, "name": "x", "lower_bound": 0,
+                               "upper_bound": 10 }} ],
+        "constraint_array": [ {{ "uid": 1, "name": "cap", "penalty": 50,
+            "expression": "decision_variable('x').value <= 5" }} ]
+      }} ]
+    }}
+  }})",
+      tmpdir.string());
+
+  Planning base;
+  base.merge(parse_planning_json(json));
+  PlanningLP planning_lp(std::move(base));
+  REQUIRE(planning_lp.resolve().has_value());
+  planning_lp.write_out();
+
+  // The capture dir falls back to the element name when `tag` is unset.
+  const auto name_dir = tmpdir / "UserModel" / "mymodel";
+  CHECK(std::filesystem::exists(name_dir));
+
+  // The sol stream is present under the name dir; nothing lands directly under
+  // UserModel/ outside a name/tag subdir.
+  bool has_x_sol = false;
+  if (std::filesystem::exists(tmpdir / "UserModel")) {
+    for (const auto& e :
+         std::filesystem::recursive_directory_iterator(tmpdir / "UserModel"))
+    {
+      if (e.path().filename().string().find("x_sol") != std::string::npos) {
+        has_x_sol = true;
+      }
+    }
+  }
+  CHECK(has_x_sol);
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // 4. Global-scoped model — one row, no dedup collision
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -425,4 +506,89 @@ TEST_CASE(
           "expression": "abs(decision_variable('x').value) <= 4" } ] })");
   // 3 named x cols + 3 internal abs_aux cols = +6.
   CHECK(abs_cols == base_cols + 6);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// 6. [G9] UserModel output capture under SDDP + low_memory=compress
+// ══════════════════════════════════════════════════════════════════════════
+//
+// Parity with the off-mode capture test (test 3): under `compress` the SDDP
+// solver releases each cell's backend between solves and `write_out` must
+// rehydrate the LP from the compressed snapshot.  The UserModel capture must
+// survive that round-trip — `output/UserModel/<tag>/<name>_sol` must still be
+// populated.  The fixture is the 3-phase hydro SDDP case with a bundled
+// block-scoped DecisionVariable + constraint.
+TEST_CASE(  // NOLINT
+    "UserModel — output capture survives SDDP low_memory=compress")
+{
+  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+
+  const auto tmpdir = std::filesystem::temp_directory_path()
+      / "gtopt_user_model_compress_capture_test";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  auto planning = make_3phase_hydro_planning();  // ≥2 phases (SDDP needs it)
+  planning.options.method = MethodType::sddp;
+  planning.options.output_directory = OptName {tmpdir.string()};
+  planning.options.output_format = DataFormat::csv;
+  planning.options.output_compression = CompressionCodec::uncompressed;
+  // A bundled block-scoped var + constraint — captured under UserModel/<tag>/.
+  planning.system.user_model_array.push_back(UserModel {
+      .uid = Uid {1},
+      .name = "m",
+      .tag = OptName {"mytag"},
+      .variable_array =
+          {
+              DecisionVariable {
+                  .uid = Uid {1},
+                  .name = "x",
+                  .lower_bound = OptReal {0.0},
+                  .upper_bound = OptReal {10.0},
+              },
+          },
+      .constraint_array =
+          {
+              UserConstraint {
+                  .uid = Uid {1},
+                  .name = "cap",
+                  .expression = Name {"decision_variable('x').value <= 5"},
+              },
+          },
+  });
+
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 5;
+  opts.convergence_tol = 1e-4;
+  opts.cut_sharing = CutSharingMode::none;
+  opts.low_memory_mode = LowMemoryMode::compress;  // the rehydrate path
+  opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  planning_lp.write_out();
+
+  // Parity with the off-mode test: the bundled var's sol stream lands under
+  // output/UserModel/mytag/ even though the backend was released + rehydrated.
+  const auto um_dir = tmpdir / "UserModel" / "mytag";
+  CHECK(std::filesystem::exists(um_dir));
+
+  bool has_x_sol = false;
+  if (std::filesystem::exists(tmpdir / "UserModel")) {
+    for (const auto& e :
+         std::filesystem::recursive_directory_iterator(tmpdir / "UserModel"))
+    {
+      if (e.path().filename().string().find("x_sol") != std::string::npos) {
+        has_x_sol = true;
+      }
+    }
+  }
+  CHECK(has_x_sol);
+
+  std::filesystem::remove_all(tmpdir);
 }

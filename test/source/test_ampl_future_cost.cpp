@@ -510,6 +510,11 @@ TEST_CASE(  // NOLINT
   //     self-consistent-but-wrong fixed point.  1e-3 relative is 10× the
   //     convergence_tol yet tight enough to catch any encoding error > ~$340.
   CHECK(lb == doctest::Approx(kAnalytic).epsilon(1e-3));
+  // (4) [G4] The forward UB-estimator STRIPS the user-α value: at the unique
+  //     optimum the cut design pins α = 0, so a correctly-stripped UB lands at
+  //     kAnalytic.  A UB that double-counted the α value function (or failed to
+  //     strip it) would land well above kAnalytic.  1e-3 here is even tighter
+  //     than the 5e-3 the coverage audit asked for.
   CHECK(ub == doctest::Approx(kAnalytic).epsilon(1e-3));
 }
 
@@ -906,4 +911,232 @@ TEST_CASE(  // NOLINT
   if (!results.has_value()) {
     CHECK(results.error().code == ErrorCode::InvalidInput);
   }
+}
+
+// ─── 12. [G1] use_user_alpha + cut_sharing=multicut — hard error ────────────
+//
+// The user α is a SINGLE column priced `cost`, whereas `CutSharingMode::
+// multicut` expects N dedicated `varphi_s` α columns (one per source scene) to
+// route per-scenario cuts onto.  The init-time guard rejects the combination
+// (multicut support over a user α is deferred); the error message must name
+// `multicut` so the operator knows which option to drop.
+TEST_CASE(  // NOLINT
+    "AmplFutureCost — use_user_alpha + cut_sharing=multicut is std::unexpected")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  PlanningLP planning_lp(make_user_alpha_sddp_planning(1000.0, 1.0));
+  SDDPOptions opts;
+  opts.max_iterations = 1;
+  opts.enable_api = false;
+  opts.cut_sharing = CutSharingMode::multicut;  // incompatible with user α
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  CHECK_FALSE(results.has_value());
+  if (!results.has_value()) {
+    CHECK(results.error().code == ErrorCode::InvalidInput);
+    // The message must name the offending option so the diagnostic is
+    // actionable.
+    CHECK(results.error().message.find("multicut") != std::string::npos);
+  }
+}
+
+// ─── 13. [G5] user α is NOT elastically zeroed (skipped from outgoing_links) ─
+//
+// The active user α is excluded from `outgoing_links` in the backward pass
+// (`collect_outgoing_links`): the elastic filter relaxes each link's dependent
+// column with penalised slacks, and were the user α treated as a forward state
+// it would receive those slacks → its cost-to-go value function would be zeroed
+// → the converged LB would free-fall to ≈ 0.  `outgoing_links` is private, so
+// this asserts the BEHAVIORAL proxy: a multi-iteration run on the analytic 2c
+// fixture converges to a non-trivial, self-consistent (gap ≥ −fp-noise) LB.  A
+// non-trivial LB proves the user-α skip is in place (a stuck/zeroed α would
+// leave LB ≈ 0).  This is the focused, value-agnostic regression guard
+// complementing test 6's exact-optimum convergence assertion.
+TEST_CASE(  // NOLINT
+    "AmplFutureCost — user α is not elastically zeroed (non-trivial LB)")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  constexpr double kW = 90.0;
+  constexpr double kR = 45000.0;
+  constexpr Uid kUaUid {4244};
+
+  auto planning = make_3phase_hydro_planning();
+  planning.options.method = MethodType::sddp;
+  planning.system.decision_variable_array.push_back(DecisionVariable {
+      .uid = kUaUid,
+      .name = "user_alpha",
+      .lower_bound = OptReal {-1.0e9},
+      .cost = OptReal {1.0},
+      .cost_type = OptName {"raw"},
+      .scope = OptName {"global"},
+      .state = OptBool {true},
+      .link = OptBool {true},
+  });
+  planning.system.user_constraint_array.push_back(UserConstraint {
+      .uid = Uid {4245},
+      .name = "fcf_cut",
+      .expression = Name {std::format(
+          "decision_variable('user_alpha').value + {}*reservoir('rsv1').efin "
+          ">= {}, for(stage in {{3}})",
+          kW,
+          kR)},
+      .constraint_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+  planning.system.future_cost_array.push_back(FutureCost {
+      .uid = Uid {1},
+      .name = "ufcf",
+      .use_user_alpha = OptBool {true},
+      .user_alpha_uid = OptUid {kUaUid},
+  });
+
+  PlanningLP planning_lp(std::move(planning));
+  SDDPOptions opts;
+  opts.max_iterations = 4;  // ≥ 2 iterations exercises the cut/forward loop
+  opts.convergence_tol = 1e-4;
+  opts.convergence_mode = ConvergenceMode::gap_only;
+  opts.stationary_tol = 0.0;
+  opts.cut_sharing = CutSharingMode::none;
+  opts.aperture_chunk_size = -1;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(planning_lp, opts);
+  const auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE(results->size() >= 2);  // ran ≥ 2 iterations
+
+  const double lb = results->back().lower_bound;
+  const double gap = results->back().gap;
+  CAPTURE(lb);
+  CAPTURE(gap);
+
+  // No LB overshoot (self-consistent) AND a non-trivial LB — proof the user α
+  // survived the elastic-filter outgoing-link skip rather than being zeroed.
+  CHECK(gap >= -1e-6);
+  CHECK(lb > 100.0);
+}
+
+// ─── 14. [G6] DecisionVariable.obj_constant on a global-scope column ─────────
+//
+// `obj_constant` is the α-rebase restitution: the LP adds `cost · obj_constant`
+// back via `LinearProblem::add_obj_constant`, which `get_obj_value()` folds
+// into the reported objective.  On a GLOBAL-scope column the planning-pass
+// builder (`build_cell_col`) applies it once per cell.  A global DV pinned to
+// `value = 0` by a `≥ 0` cut contributes only the constant, so the solved
+// objective equals the baseline plus `obj_constant`.
+TEST_CASE(  // NOLINT
+    "DecisionVariable — obj_constant on a global-scope column adds the "
+    "constant")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  const double baseline =
+      solve_monolithic_obj(make_monolithic_planning(), /*boundary=*/"");
+  REQUIRE(std::isfinite(baseline));
+
+  auto planning = make_monolithic_planning();
+  // Global DV: cost 1.0 raw + obj_constant 500.0.  obj_constant set ⇒ the
+  // column defaults free below; the cut below pins value = 0, so the column's
+  // objective contribution is purely `cost · obj_constant = 1.0 · 500.0`.
+  planning.system.decision_variable_array.push_back(DecisionVariable {
+      .uid = Uid {7001},
+      .name = "dv_oc",
+      .cost = OptReal {1.0},
+      .cost_type = OptName {"raw"},
+      .scope = OptName {"global"},
+      .obj_constant = OptReal {500.0},
+  });
+  planning.system.user_constraint_array.push_back(UserConstraint {
+      .uid = Uid {7002},
+      .name = "force_zero",
+      .expression = Name {"decision_variable('dv_oc').value >= 0"},
+      .constraint_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+
+  const double obj = solve_monolithic_obj(std::move(planning), /*boundary=*/"");
+  REQUIRE(std::isfinite(obj));
+  CAPTURE(baseline);
+  CAPTURE(obj);
+  CHECK(obj == doctest::Approx(baseline + 500.0).epsilon(1e-6));
+}
+
+// ─── 15. [G8] DecisionVariable cost_type="power" on a global-scope column ────
+//
+// On a global cell column `cost_type="power"` has no single block, so
+// `build_cell_col` folds the cost with the energy factor (probability ×
+// discount, NO duration).  A SINGLE scenario's `probability_factor` is always
+// renormalized to 1.0 (sum-to-one), so to expose the fold we instead use a
+// non-unit per-stage `discount_factor = 0.5`: then `energy_factor = prob(1.0) ×
+// discount(0.5) = 0.5`, and a `cost = 10.0` power column forced to `value >= 1`
+// contributes `10.0 · 0.5 = 5.0`.  A RAW column (which ignores the factor)
+// contributes the full `10.0` — the power-vs-raw delta proves the fold.
+TEST_CASE(  // NOLINT
+    "DecisionVariable — cost_type=power on a global column folds prob×discount")
+{
+  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+
+  // A planning whose single (terminal) stage carries discount_factor = 0.5.
+  const auto make_discounted = []
+  {
+    auto p = make_monolithic_planning();
+    p.simulation.stage_array.front().discount_factor = OptReal {0.5};
+    return p;
+  };
+
+  const double baseline =
+      solve_monolithic_obj(make_discounted(), /*boundary=*/"");
+  REQUIRE(std::isfinite(baseline));
+
+  // power column: cost 10.0, cost_type "power" → col_cost = 10.0 × 0.5 = 5.0.
+  auto planning = make_discounted();
+  planning.system.decision_variable_array.push_back(DecisionVariable {
+      .uid = Uid {8001},
+      .name = "dv_pow",
+      .cost = OptReal {10.0},
+      .cost_type = OptName {"power"},
+      .scope = OptName {"global"},
+  });
+  planning.system.user_constraint_array.push_back(UserConstraint {
+      .uid = Uid {8002},
+      .name = "force_one",
+      .expression = Name {"decision_variable('dv_pow').value >= 1.0"},
+      .constraint_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+  const double obj = solve_monolithic_obj(std::move(planning), /*boundary=*/"");
+  REQUIRE(std::isfinite(obj));
+
+  // raw column (same cost, same RHS): col_cost = 10.0 verbatim, NO discount
+  // fold — the discriminating control proving the power fold actually applied.
+  auto raw_planning = make_discounted();
+  raw_planning.system.decision_variable_array.push_back(DecisionVariable {
+      .uid = Uid {8001},
+      .name = "dv_raw",
+      .cost = OptReal {10.0},
+      .cost_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+  raw_planning.system.user_constraint_array.push_back(UserConstraint {
+      .uid = Uid {8002},
+      .name = "force_one",
+      .expression = Name {"decision_variable('dv_raw').value >= 1.0"},
+      .constraint_type = OptName {"raw"},
+      .scope = OptName {"global"},
+  });
+  const double raw_obj =
+      solve_monolithic_obj(std::move(raw_planning), /*boundary=*/"");
+  REQUIRE(std::isfinite(raw_obj));
+
+  CAPTURE(baseline);
+  CAPTURE(obj);
+  CAPTURE(raw_obj);
+
+  // power column adds cost × discount(0.5) = 5.0.
+  CHECK(obj == doctest::Approx(baseline + 5.0).epsilon(1e-6));
+  // raw column adds the full cost = 10.0 (no fold) — the fold is real.
+  CHECK(raw_obj == doctest::Approx(baseline + 10.0).epsilon(1e-6));
 }
