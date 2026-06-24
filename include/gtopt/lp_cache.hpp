@@ -216,9 +216,12 @@ public:
     m_col_cost_.shrink_to_fit();
   }
 
-  /// Drop ALL three vectors and clear the optimality flag.  Used by
-  /// `reconstruct_backend()` and `release_backend()` paths that
-  /// fully invalidate the cached solve.
+  /// Drop every cached solution + column-bound vector (col_sol,
+  /// col_cost, row_dual, col_low, col_upp) and clear the optimality
+  /// flag.  Used by `reconstruct_backend()` and `release_backend()`
+  /// paths that fully invalidate the cached solve.  The col-bound
+  /// vectors are evicted through `clear_col_bounds_cache()` so the
+  /// eviction policy lives in exactly one place.
   void clear_all_solution_vectors() noexcept
   {
     m_col_sol_.clear();
@@ -227,10 +230,7 @@ public:
     m_col_cost_.shrink_to_fit();
     m_row_dual_.clear();
     m_row_dual_.shrink_to_fit();
-    m_col_low_.clear();
-    m_col_low_.shrink_to_fit();
-    m_col_upp_.clear();
-    m_col_upp_.shrink_to_fit();
+    clear_col_bounds_cache();
   }
 
   /// Drop only the column-bound cache vectors (col_low + col_upp).

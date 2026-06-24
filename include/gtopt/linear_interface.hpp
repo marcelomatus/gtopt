@@ -410,6 +410,19 @@ public:
   {
     return m_cache_.row_dual().size();
   }
+  /// Size of the cached column lower/upper-bound vectors.  Non-zero only
+  /// after a compress-mode solve snapshots the live backend bounds;
+  /// `reconstruct_backend()` evicts them (see `clear_col_bounds_cache`),
+  /// so this is 0 immediately after a reconstruct.  Lets tests observe
+  /// the col-bound cache lifecycle without a presolve-dependent value.
+  [[nodiscard]] std::size_t cached_col_low_size() const noexcept
+  {
+    return m_cache_.col_low().size();
+  }
+  [[nodiscard]] std::size_t cached_col_upp_size() const noexcept
+  {
+    return m_cache_.col_upp().size();
+  }
 
   /// Diagnostic resident-byte breakdown for the memory-accounting pass.
   /// Read-only; sums the retainers this interface holds between solves.
@@ -1938,7 +1951,9 @@ public:
    */
   constexpr void set_validation_options(LpValidationOptions opts) noexcept
   {
-    m_validation_options_ = std::move(opts);
+    // LpValidationOptions is trivially copyable — std::move would be a
+    // no-op (flagged by hicpp/performance-move-const-arg).
+    m_validation_options_ = opts;
   }
 
   /**

@@ -352,6 +352,50 @@ TEST_CASE("LpCache clear_all_solution_vectors")  // NOLINT
   CHECK(cache.is_optimal());
 }
 
+// ── clear_col_bounds_cache evicts ONLY the column-bound vectors ───────────
+TEST_CASE("LpCache clear_col_bounds_cache evicts only col bounds")  // NOLINT
+{
+  // Backs the ab46e0d1a fix: `reconstruct_backend()` must evict the
+  // stale post-solve column-bound snapshot (which may hold presolve-
+  // tightened finite values for a structurally unbounded column) while
+  // leaving the primal/dual solution vectors untouched.  This locks the
+  // method's surface deterministically; the LinearInterface-level
+  // reconstruct test exercises the call site.
+  LpCache cache;
+  auto sol = cache.col_sol_buffer(2);
+  sol[0] = 1.0;
+  sol[1] = 2.0;
+  auto cost = cache.col_cost_buffer(2);
+  cost[0] = 3.0;
+  cost[1] = 4.0;
+  auto dual = cache.row_dual_buffer(1);
+  dual[0] = 5.0;
+  auto lo = cache.col_low_buffer(2);
+  lo[0] = 3.0;
+  lo[1] = 3.0;
+  auto up = cache.col_upp_buffer(2);
+  up[0] = 8.0;
+  up[1] = 8.0;
+  REQUIRE(cache.col_low().size() == 2);
+  REQUIRE(cache.col_upp().size() == 2);
+
+  cache.clear_col_bounds_cache();
+
+  // Column-bound caches are gone …
+  CHECK(cache.col_low().empty());
+  CHECK(cache.col_upp().empty());
+  // … but the solution / cost / dual vectors are preserved (they are
+  // gated separately on `is_optimal()`).
+  CHECK(cache.col_sol().size() == 2);
+  CHECK(cache.col_cost().size() == 2);
+  CHECK(cache.row_dual().size() == 1);
+
+  // Idempotent: a second clear on already-empty bounds is a no-op.
+  cache.clear_col_bounds_cache();
+  CHECK(cache.col_low().empty());
+  CHECK(cache.col_upp().empty());
+}
+
 }  // namespace
 
 // NOLINTEND(google-global-names-in-headers)

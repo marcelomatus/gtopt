@@ -4752,6 +4752,88 @@ TEST_CASE(  // NOLINT
   CHECK(li.cached_col_sol_size() == 0);  // still empty after read
 }
 
+TEST_CASE(
+    "LinearInterface — compress: reconstruct evicts stale presolve-tightened "
+    "col-bound cache (ab46e0d1a)")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+  // Regression for ab46e0d1a.  Under LowMemoryMode::compress,
+  // `populate_solution_cache_post_solve()` snapshots the solver's live
+  // column bounds — which for a structurally UNBOUNDED column may carry
+  // presolve-tightened FINITE values — into the LI cache, where the
+  // cache-first `get_col_low_raw()` / `get_col_upp_raw()` serve them.
+  // The `ReplayGuard` in `apply_post_load_replay` suppresses cache
+  // invalidation, so without the explicit `clear_col_bounds_cache()` in
+  // `reconstruct_backend()` those stale finite bounds survive the
+  // reconstruct cycle and a structurally unbounded column reads back as
+  // bounded — the asymmetry that collapsed `apply_alpha_floor` and drove
+  // the SDDP UB negative at cascade transitions under 2+ scenarios.  The
+  // invariant locked here: after reconstruct, a free column reads back as
+  // ±infinity (its structural snapshot bound), NOT a stale finite value.
+  //
+  //   min x   s.t.   3 <= x <= 8,   x free [-inf, +inf]
+  // A singleton row lets presolve propagate finite bounds onto x's
+  // column; the structural snapshot keeps x free.
+  LinearProblem lp;
+  const auto cx = lp.add_col(SparseCol {
+      .lowb = -LinearProblem::DblMax,
+      .uppb = LinearProblem::DblMax,
+      .cost = 1.0,
+  });
+  const auto r = lp.add_row(SparseRow {
+      .lowb = 3.0,
+      .uppb = 8.0,
+  });
+  lp.set_coeff(r, cx, 1.0);
+  auto flat = lp.flatten({});
+
+  LinearInterface li;
+  li.load_flat(flat);
+  li.save_base_numrows();
+
+  // Structural bounds: x is unbounded on both sides.
+  const double inf0 = li.infinity();
+  REQUIRE(li.get_col_low_raw()[cx] <= -inf0 * 0.5);
+  REQUIRE(li.get_col_upp_raw()[cx] >= inf0 * 0.5);
+
+  auto initial = li.initial_solve(SolverOptions {.log_level = 0});
+  REQUIRE(initial.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Wire compress + snapshot, then resolve so the post-solve cache
+  // captures the live column bounds.
+  li.set_low_memory(LowMemoryMode::compress);
+  li.save_snapshot(FlatLinearProblem {flat});
+  auto solve = li.resolve(SolverOptions {.log_level = 0});
+  REQUIRE(solve.has_value());
+  REQUIRE(li.is_optimal());
+
+  // Release snapshots the live backend's column bounds into the LI
+  // cache, where the cache-first raw getters would serve them.
+  li.release_backend();
+  REQUIRE(li.is_backend_released());
+  REQUIRE(li.cached_col_low_size() == 1);  // col-bound cache populated
+  REQUIRE(li.cached_col_upp_size() == 1);
+
+  // Reconstruct must EVICT that cache via `clear_col_bounds_cache()` so
+  // the cache-first getters fall through to the freshly reloaded
+  // structural bounds.  This is the deterministic guard: pre-fix the
+  // cache survived the `apply_post_load_replay` cycle (its `ReplayGuard`
+  // suppresses invalidation), leaving stale — possibly presolve-
+  // tightened — bounds that made `apply_alpha_floor` mis-classify a
+  // structurally unbounded column as bounded.
+  li.reconstruct_backend();
+  CHECK(li.cached_col_low_size() == 0);  // evicted (fails pre-fix)
+  CHECK(li.cached_col_upp_size() == 0);
+
+  // And the structural snapshot bounds are what the getters now report:
+  // the free column reads back as ±infinity, not a stale finite value.
+  const double inf = li.infinity();
+  CHECK(li.get_col_low_raw()[cx] <= -inf * 0.5);  // still unbounded below
+  CHECK(li.get_col_upp_raw()[cx] >= inf * 0.5);  // still unbounded above
+}
+
 // NOLINTEND(misc-const-correctness)
 // NOLINTEND(readability-qualified-auto)
 // NOLINTEND(readability-trailing-comma)
