@@ -422,6 +422,54 @@ TEST_CASE("LinearInterface - relax_integers flips MIP columns to continuous")
   }
 }
 
+TEST_CASE("LinearInterface - restore_integers round-trips relax_integers")
+{
+  using namespace gtopt;
+
+  // Exercises the mip-start relax→restore path (mip_start.cpp): snapshot
+  // the integer columns, relax to a continuous LP, then re-impose
+  // integrality on exactly the snapshotted columns.  Pure model
+  // manipulation (no solve) so it needs no MIP solver.
+  LinearInterface interface;
+  const auto cont_var =
+      interface.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
+  const auto int_var = interface.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
+  const auto bin_var = interface.add_col(SparseCol {.uppb = 1.0, .cost = 1.0});
+  interface.set_continuous(cont_var);
+  interface.set_integer(int_var);
+  interface.set_binary(bin_var);
+
+  // Snapshot integer columns BEFORE relaxing (relaxation hides them) —
+  // mirrors `apply_mip_start`'s int_cols capture.
+  std::vector<int> int_cols;
+  for (int i = 0; i < static_cast<int>(interface.get_numcols()); ++i) {
+    if (interface.is_integer(ColIndex {i})) {
+      int_cols.push_back(i);
+    }
+  }
+  REQUIRE(int_cols.size() == 2);
+
+  REQUIRE(interface.relax_integers() == 2);
+  REQUIRE(interface.is_continuous(int_var));
+  REQUIRE(interface.is_continuous(bin_var));
+
+  const auto restored = interface.restore_integers(int_cols);
+  CHECK(restored == 2);
+  CHECK(interface.is_integer(int_var));
+  CHECK(interface.is_integer(bin_var));
+  // The originally-continuous column is left continuous.
+  CHECK(interface.is_continuous(cont_var));
+
+  SUBCASE("empty span restores nothing")
+  {
+    interface.relax_integers();
+    const auto none = interface.restore_integers(std::span<const int> {});
+    CHECK(none == 0);
+    CHECK(interface.is_continuous(int_var));
+    CHECK(interface.is_continuous(bin_var));
+  }
+}
+
 TEST_CASE("LinearInterface - relax_integers on a pure LP is a no-op")
 {
   using namespace gtopt;

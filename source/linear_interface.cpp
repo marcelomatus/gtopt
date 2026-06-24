@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -3377,17 +3378,13 @@ std::optional<std::vector<std::string>> LinearInterface::diagnose_infeasibility(
     if (!entry.starts_with(prefix)) {
       continue;
     }
-    long idx = 0;
-    bool ok = entry.size() > prefix.size();
-    for (std::size_t k = prefix.size(); k < entry.size(); ++k) {
-      const char ch = entry[k];
-      if (ch < '0' || ch > '9') {
-        ok = false;
-        break;
-      }
-      idx = (idx * 10) + (ch - '0');
-    }
-    if (!ok) {
+    // Parse the "row_<N>" numeric suffix; skip anything that isn't a
+    // clean all-digits index (std::from_chars rejects junk + overflow).
+    const auto digits = std::string_view {entry}.substr(prefix.size());
+    int idx = 0;
+    const auto [ptr, ec] =
+        std::from_chars(digits.data(), digits.data() + digits.size(), idx);
+    if (ec != std::errc {} || ptr != digits.data() + digits.size()) {
       continue;
     }
     if (const auto* lbl = row_label_at(RowIndex {static_cast<Index>(idx)});

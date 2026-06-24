@@ -1496,15 +1496,29 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
 
 int CplexSolverBackend::restore_integers(std::span<const int> integer_cols)
 {
-  // Inverse of relax_all_integers()'s CPXchgprobtype(LP): flipping the problem
-  // type back to MILP/MIQP restores every column's saved ctype in a single
-  // call — far cheaper than per-column CPXchgctype over ~10⁵ columns.
+  // Inverse of relax_all_integers()'s CPXchgprobtype(LP).  That relaxation
+  // resets EVERY column's ctype to CPX_CONTINUOUS, so the problem-type flip
+  // alone does NOT bring integrality back — flipping to MILP/MIQP leaves all
+  // columns continuous (is_integer() reads CPX_CONTINUOUS, and a subsequent
+  // solve would ignore integrality).  Re-impose CPX_INTEGER on the
+  // caller-snapshotted columns in one bulk CPXchgctype call (still O(1)
+  // CPLEX round-trips, not per-column).  Binary columns are restored as
+  // CPX_INTEGER; their [0,1] bounds already encode binariness.
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_LP) {
     CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MILP);
   } else if (cplex_type == CPXPROB_QP) {
     CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MIQP);
   }
+  if (integer_cols.empty()) {
+    return 0;
+  }
+  const std::vector<char> ctypes(integer_cols.size(), CPX_INTEGER);
+  CPXchgctype(m_env_lp_.env(),
+              m_env_lp_.lp(),
+              static_cast<int>(integer_cols.size()),
+              integer_cols.data(),
+              ctypes.data());
   return static_cast<int>(integer_cols.size());
 }
 
