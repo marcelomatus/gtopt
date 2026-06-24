@@ -41,20 +41,26 @@ CPLEX Parameter File Version 22.1.1.0
 #      dispatch-irrelevant for the PLEXOS comparison.  1 % typically
 #      lands an incumbent + closes the gap in well under a minute.
 #
-#   4. CPXPARAM_MIP_Limits_CutPasses = 3
+#   4. CPXPARAM_MIP_Limits_CutPasses = 1   (LOWERED from 3 on 2026-06-23)
 #      CPXPARAM_MIP_Strategy_RINSHeur = 50
 #      CPXPARAM_MIP_Strategy_HeuristicEffort = 0.30   (added 2026-06-21)
 #      On 04-12/04-22 the MIP spent ~3,449 s in root cut rounds (bound
 #      +0.009 %) then ground a 142 % gap over 2,790 B&C nodes because the
 #      first incumbent (+1.96 M) sat far from the root LP (−0.82 M).
-#      Capping cut passes at 3, running RINS every 50 nodes, and raising
+#      Capping cut passes, running RINS every 50 nodes, and raising
 #      heuristic effort 6× (default 0.05) find a good incumbent early so the
-#      gap closes fast.  Pure search-strategy params — NO LP coefficient or
-#      scaling change ⇒ LMPs, water values and reduced costs are unaffected.
+#      gap closes fast.  A 2 h-per-trial `tools tune` on 2025-10-19 (started
+#      from this prm, 2026-06-23) picked `CutPasses = 1` (`less_cuts`) as the
+#      single best knob: 595 s vs 738 s default (−19 %).  Every trial that
+#      dropped cuts/Gomory/heuristics entirely fell into the +1.71 M garbage
+#      incumbent and timed out — confirming cuts+heuristics are the only
+#      escape from the cliff, so we keep one cut pass, not zero.  Pure
+#      search-strategy params — NO LP coefficient or scaling change ⇒ LMPs,
+#      water values and reduced costs are unaffected.
 # ---------------------------------------------------------------------
 CPXPARAM_MIP_Cuts_Gomory                        1
 CPXPARAM_LPMethod                               4
 CPXPARAM_MIP_Tolerances_MIPGap                  0.01
-CPXPARAM_MIP_Limits_CutPasses                   3
+CPXPARAM_MIP_Limits_CutPasses                   1
 CPXPARAM_MIP_Strategy_RINSHeur                  50
 CPXPARAM_MIP_Strategy_HeuristicEffort           0.30
