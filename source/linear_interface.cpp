@@ -469,6 +469,20 @@ void LinearInterface::reconstruct_backend()
   // `is_proven_optimal()` returns false until the next resolve.
   // Tell `is_optimal()` / `get_col_sol_raw()` to consult the cache.
   m_cache_.mark_solution_fresh(/*v=*/false);
+  // Evict stale column-bound snapshots from the previous solve cycle.
+  // Under compress, `populate_solution_cache_post_solve()` captures the
+  // LP solver's internal column bounds after every forward/backward solve
+  // (including any presolve-tightened finite values) into `m_col_low_` /
+  // `m_col_upp_`.  The `ReplayGuard` inside `apply_post_load_replay`
+  // suppresses `invalidate_cached_optimal_on_mutation()`, so those stale
+  // snapshots would otherwise survive the replay cycle and be returned
+  // by `get_col_low_raw()` / `get_col_upp_raw()` — causing
+  // `apply_alpha_floor`'s `is_pos_inf` / `is_neg_inf` checks to
+  // mis-classify a structurally unbounded state-variable column as
+  // bounded, which drives the alpha floor deeply negative and collapses
+  // the SDDP upper bound (observed: UB goes negative under 2+ scenarios
+  // at cascade level transitions with low_memory_mode=compress).
+  m_cache_.clear_col_bounds_cache();
 
   // 1. Reload the base structural LP
   load_flat(m_snapshot_holder_.snapshot().flat_lp);

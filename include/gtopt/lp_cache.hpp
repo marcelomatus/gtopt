@@ -233,6 +233,33 @@ public:
     m_col_upp_.shrink_to_fit();
   }
 
+  /// Drop only the column-bound cache vectors (col_low + col_upp).
+  ///
+  /// Called from `reconstruct_backend()` to prevent stale forward-pass
+  /// solver bounds (which may reflect internal presolve tightening) from
+  /// being served by `get_col_low_raw()` / `get_col_upp_raw()` during the
+  /// subsequent backward-pass `apply_alpha_floor` infinity checks.  Under
+  /// `LowMemoryMode::compress`, `populate_solution_cache_post_solve()`
+  /// snapshots solver-internal column bounds after every solve — including
+  /// any presolve-tightened finite values — into these vectors.  Without
+  /// this clear, the stale values survive the `apply_post_load_replay`
+  /// cycle (the `ReplayGuard` suppresses `invalidate_cached_optimal_on_
+  /// mutation()` during replay), causing `is_pos_inf` / `is_neg_inf` to
+  /// mis-classify a state-variable column as bounded when it should be
+  /// structurally unbounded, which makes the alpha floor formula compute
+  /// a deeply negative floor and drives UB negative under 2+ scenarios.
+  /// The primal/dual solution vectors (col_sol, col_cost, row_dual) are
+  /// intentionally left intact: they are gated on `is_optimal()` (cleared
+  /// by `mark_solution_fresh(false)` in `reconstruct_backend()`) so no
+  /// consumer reads them after reconstruction without a fresh solve.
+  void clear_col_bounds_cache() noexcept
+  {
+    m_col_low_.clear();
+    m_col_low_.shrink_to_fit();
+    m_col_upp_.clear();
+    m_col_upp_.shrink_to_fit();
+  }
+
   // ── Diagnostic ──────────────────────────────────────────────────────────
 
   /// **C6** — total bytes held by the cached vectors.  Used by
