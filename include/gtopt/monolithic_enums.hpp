@@ -42,4 +42,82 @@ inline constexpr auto solve_mode_entries = std::to_array<EnumEntry<SolveMode>>({
   return std::span {solve_mode_entries};
 }
 
+// --- MipStartMethod ---------------------------------------------------------
+
+/**
+ * @brief Strategy used to compute an initial MIP solution (warm incumbent)
+ *        injected into the solver before branch-and-cut.
+ *
+ * The monolithic MIP exhibits an "incumbent cliff": the solver's node-0
+ * heuristic finds a costly integer-feasible point (soft slacks make every
+ * commitment feasible) while the root LP bound is near-optimal, so the gap
+ * sits high for thousands of nodes.  Supplying a good starting commitment
+ * bypasses the cliff.  Generators are pluggable and storage-safe (whole
+ * horizon, no time chunking).
+ *
+ * - `none` (default): no MIP-start is computed; legacy behaviour.
+ * - `lp_round`: solve the LP relaxation, round the integer columns, and feed
+ *   the rounded vector as the start.
+ * - `relax_fix`: as `lp_round`, then pin every binary at once and solve one
+ *   full-horizon economic-dispatch LP, injecting the validated dispatch.
+ *   Storage-safe — the whole horizon is fixed simultaneously.
+ */
+enum class MipStartMethod : uint8_t
+{
+  none = 0,  ///< No initial MIP solution (default)
+  lp_round = 1,  ///< Round the LP relaxation
+  relax_fix = 2,  ///< Fix all binaries + full-horizon ED-LP
+};
+
+inline constexpr auto mip_start_method_entries =
+    std::to_array<EnumEntry<MipStartMethod>>({
+        {.name = "none", .value = MipStartMethod::none},
+        {.name = "lp_round", .value = MipStartMethod::lp_round},
+        {.name = "relax_fix", .value = MipStartMethod::relax_fix},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(MipStartMethod /*tag*/) noexcept
+{
+  return std::span {mip_start_method_entries};
+}
+
+// --- RelaxInfeasibleAction ---------------------------------------------------
+
+/**
+ * @brief What to do when the initial LP relaxation is infeasible.
+ *
+ * The MIP-start pipeline solves the LP relaxation first (stage A).  If that
+ * relaxation is itself infeasible, the MIP cannot have a feasible solution
+ * either, and this selects the response.
+ *
+ * - `stop` (default): report the infeasibility and abort the solve.
+ * - `warn`: log a warning and proceed to the MIP solve anyway (let the
+ *   solver's own infeasibility handling / soft slacks take over).
+ * - `feasopt`: run the backend's infeasibility diagnostic (CPLEX FeasOpt /
+ *   conflict refiner) to identify the minimal conflicting constraints, print
+ *   them, then abort.
+ */
+enum class RelaxInfeasibleAction : uint8_t
+{
+  stop = 0,  ///< Report and abort (default)
+  warn = 1,  ///< Warn and proceed to the MIP solve
+  feasopt = 2,  ///< Diagnose the conflict, then abort
+};
+
+inline constexpr auto relax_infeasible_action_entries =
+    std::to_array<EnumEntry<RelaxInfeasibleAction>>({
+        {.name = "stop", .value = RelaxInfeasibleAction::stop},
+        {.name = "warn", .value = RelaxInfeasibleAction::warn},
+        {.name = "feasopt", .value = RelaxInfeasibleAction::feasopt},
+        {.name = "diagnose",
+         .value = RelaxInfeasibleAction::feasopt,
+         .is_alias = true},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(
+    RelaxInfeasibleAction /*tag*/) noexcept
+{
+  return std::span {relax_infeasible_action_entries};
+}
+
 }  // namespace gtopt

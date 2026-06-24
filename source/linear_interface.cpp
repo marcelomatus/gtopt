@@ -3070,6 +3070,12 @@ Index LinearInterface::relax_integers()
   return Index {m_backend_->relax_all_integers()};
 }
 
+Index LinearInterface::restore_integers(const std::span<const int> integer_cols)
+{
+  ensure_backend();
+  return Index {m_backend_->restore_integers(integer_cols)};
+}
+
 bool LinearInterface::has_integer_cols() const
 {
   // `is_integer` reads the live backend flags; trigger a reconstruct
@@ -3331,6 +3337,52 @@ void LinearInterface::set_row_dual(const std::span<const double> dual)
   if (dual.data() != nullptr) {
     m_backend_->set_row_price(dual.data());
   }
+}
+
+bool LinearInterface::set_mip_start(const std::span<const double> col_values,
+                                    const MipStartEffort effort)
+{
+  ensure_backend();
+  return m_backend_->set_mip_start(col_values, effort);
+}
+
+std::optional<std::vector<std::string>> LinearInterface::diagnose_infeasibility(
+    const int max_items)
+{
+  ensure_backend();
+  auto raw = m_backend_->diagnose_infeasibility(max_items);
+  if (!raw) {
+    return raw;
+  }
+  // The backend reports a generic "row_<N>" when the solver holds no row
+  // names; enrich each with this interface's own row label (class /
+  // constraint name) so the conflict is human-readable (e.g. a Commitment
+  // min-down-time row).
+  constexpr std::string_view prefix {"row_"};
+  for (auto& entry : *raw) {
+    if (!entry.starts_with(prefix)) {
+      continue;
+    }
+    long idx = 0;
+    bool ok = entry.size() > prefix.size();
+    for (std::size_t k = prefix.size(); k < entry.size(); ++k) {
+      const char ch = entry[k];
+      if (ch < '0' || ch > '9') {
+        ok = false;
+        break;
+      }
+      idx = (idx * 10) + (ch - '0');
+    }
+    if (!ok) {
+      continue;
+    }
+    if (const auto* lbl = row_label_at(RowIndex {static_cast<Index>(idx)});
+        lbl != nullptr && !lbl->constraint_name.empty())
+    {
+      entry += std::format(" [{}:{}]", lbl->class_name, lbl->constraint_name);
+    }
+  }
+  return raw;
 }
 
 }  // namespace gtopt

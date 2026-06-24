@@ -37,7 +37,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 11;
+inline constexpr int k_solver_abi_version = 12;
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -287,6 +287,28 @@ public:
     return relaxed;
   }
 
+  /// Re-mark the given columns as integer, undoing a prior
+  /// `relax_all_integers()`.  The inverse operation: callers that relaxed
+  /// every integer to solve an LP relaxation in place (MIP-start pipeline)
+  /// use this to restore integrality before the real MIP solve.
+  ///
+  /// `integer_cols` is the snapshot of column indices that were integer
+  /// BEFORE relaxation (relaxation hides integrality, so the snapshot must be
+  /// taken first).  Default fallback re-calls `set_integer` per column.
+  /// Plugins SHOULD override when the native API offers a one-call restore —
+  /// CPLEX flips the problem type back to MILP/MIQP, which restores every
+  /// column's saved ctype in a single call (the ~10⁵-column per-call loop is
+  /// otherwise a real cost on PLEXOS-scale UC MIPs).
+  ///
+  /// @return Number of columns restored to integer.
+  virtual int restore_integers(std::span<const int> integer_cols)
+  {
+    for (const int c : integer_cols) {
+      set_integer(c);
+    }
+    return static_cast<int>(integer_cols.size());
+  }
+
   /// Fix every integer column to its incumbent (MIP-optimal) value and
   /// re-solve as an LP to recover row duals / reduced costs, warm-started
   /// where the backend supports it.  Called right after a MIP `resolve()`
@@ -488,6 +510,57 @@ public:
 
   virtual void set_col_solution(const double* sol) = 0;
   virtual void set_row_price(const double* price) = 0;
+
+  /// Inject a starting integer (MIP-start / warm incumbent) solution.
+  ///
+  /// Unlike `set_col_solution` (an LP-basis/primal warm start that branch-and-
+  /// cut discards), this installs a *named MIP start* the solver seeds B&C
+  /// with — the mechanism that lets a good external commitment bypass a
+  /// solver's costly node-0 heuristic incumbent.
+  ///
+  /// `col_values` is a DENSE vector in RAW LP column space (length ==
+  /// `get_num_cols()`), the inverse of `col_solution()` — callers building it
+  /// from a LinearInterface MUST use the raw (un-descaled) solution accessor.
+  /// `effort` selects how hard the backend validates / completes / repairs the
+  /// start (see `MipStartEffort`).
+  ///
+  /// Backend support:
+  ///   * CPLEX   — `CPXaddmipstarts` with the matching `CPX_MIPSTART_*` level.
+  ///   * Gurobi / MindOpt / HiGHS — their native dense `Start` / `col_value`
+  ///     attribute (effort is best-effort or ignored).
+  ///   * OSI/CBC, cuOpt — not wired; default below.
+  ///
+  /// Default implementation is a benign no-op returning `false` (LP-only or
+  /// unsupporting backends): a missing MIP start is a skipped optimisation,
+  /// not an error (contrast `add_sos2`, which is load-time-fatal).
+  ///
+  /// @param col_values Dense raw-space column values (size == num cols).
+  /// @param effort     Backend validation/completion effort for the start.
+  /// @return `true` if the backend accepted/installed the start, else `false`.
+  virtual bool set_mip_start(std::span<const double> /*col_values*/,
+                             MipStartEffort /*effort*/)
+  {
+    return false;
+  }
+
+  // ---- infeasibility diagnosis ----
+
+  /// Diagnose why the current problem is infeasible, returning a human-readable
+  /// list of the conflicting constraints (a minimal infeasible subsystem).
+  /// Used by the MIP-start relaxation pre-pass when the LP relaxation comes
+  /// back infeasible and the user requested `feasopt` diagnosis.
+  ///
+  /// Backends: CPLEX overrides via the conflict refiner (`CPXrefineconflict` +
+  /// `CPXgetconflict`).  Others return `std::nullopt` (diagnosis unsupported);
+  /// the caller then reports only that the relaxation is infeasible.
+  ///
+  /// @param max_items Cap on the number of constraint labels returned.
+  /// @return Conflicting constraint labels, or `std::nullopt` if unsupported.
+  virtual std::optional<std::vector<std::string>> diagnose_infeasibility(
+      int /*max_items*/)
+  {
+    return std::nullopt;
+  }
 
   // ---- solve ----
 

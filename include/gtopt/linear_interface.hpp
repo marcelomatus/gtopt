@@ -2028,6 +2028,14 @@ public:
    */
   Index relax_integers();
 
+  /// Re-mark the given columns as integer, undoing a prior `relax_integers()`.
+  /// `integer_cols` must be the snapshot of indices that were integer BEFORE
+  /// the relaxation (taken first, since relaxation hides integrality).
+  /// Delegates to `SolverBackend::restore_integers` (a single problem-type
+  /// flip on CPLEX, a per-column loop otherwise).
+  /// @return Number of columns restored to integer.
+  Index restore_integers(std::span<const int> integer_cols);
+
   /**
    * @brief Outcome of `fix_integers_and_resolve`.
    *
@@ -2726,6 +2734,21 @@ public:
 
   void set_col_sol(std::span<const double> sol);
   void set_row_dual(std::span<const double> dual);
+
+  /// Inject a starting integer (MIP-start / warm incumbent) solution into the
+  /// backend.  `col_values` is a dense RAW-space vector (size `get_numcols()`)
+  /// — build it from `get_col_sol_raw()`, never the descaled `get_col_sol()`.
+  /// Delegates to `SolverBackend::set_mip_start`; returns the backend's accept
+  /// flag (`false` on LP-only / unsupporting backends — a benign skip).
+  [[nodiscard]] bool set_mip_start(std::span<const double> col_values,
+                                   MipStartEffort effort);
+
+  /// Diagnose the current problem's infeasibility, returning conflicting
+  /// constraint labels (a minimal infeasible subsystem) or `std::nullopt` when
+  /// the backend cannot diagnose.  Delegates to
+  /// `SolverBackend::diagnose_infeasibility`.
+  [[nodiscard]] std::optional<std::vector<std::string>> diagnose_infeasibility(
+      int max_items = 50);
 
   void set_log_file(std::string_view plog_file);
   [[nodiscard]] constexpr const auto& get_log_file() const

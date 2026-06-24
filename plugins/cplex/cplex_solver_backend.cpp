@@ -1439,6 +1439,150 @@ void CplexSolverBackend::set_row_price(const double* price)
                nullptr);  // dj
 }
 
+bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
+                                       MipStartEffort effort)
+{
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  if (col_values.empty() || static_cast<int>(col_values.size()) != ncols) {
+    return false;
+  }
+
+  // Map the gtopt effort enum onto CPLEX's CPX_MIPSTART_* effort level.
+  int effortlevel = CPX_MIPSTART_CHECKFEAS;
+  switch (effort) {
+    case MipStartEffort::check_feasibility:
+      effortlevel = CPX_MIPSTART_CHECKFEAS;
+      break;
+    case MipStartEffort::solve_fixed:
+      effortlevel = CPX_MIPSTART_SOLVEFIXED;
+      break;
+    case MipStartEffort::solve_mip:
+      effortlevel = CPX_MIPSTART_SOLVEMIP;
+      break;
+    case MipStartEffort::repair:
+      effortlevel = CPX_MIPSTART_REPAIR;
+      break;
+    case MipStartEffort::no_check:
+      effortlevel = CPX_MIPSTART_NOCHECK;
+      break;
+  }
+
+  // One dense MIP start over all columns: indices 0..ncols-1, beg = {0}.
+  std::vector<int> indices(static_cast<std::size_t>(ncols));
+  std::iota(indices.begin(), indices.end(), 0);
+  const int beg = 0;
+
+  const int rc = CPXaddmipstarts(m_env_lp_.env(),
+                                 m_env_lp_.lp(),
+                                 1,  // mcnt: one start set
+                                 ncols,  // nzcnt
+                                 &beg,  // beg
+                                 indices.data(),
+                                 col_values.data(),
+                                 &effortlevel,
+                                 nullptr);  // mipstartname
+  if (rc != 0) {
+    std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
+    CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
+    throw std::runtime_error(
+        std::format("CplexSolverBackend::set_mip_start CPXaddmipstarts "
+                    "failed (rc={}, ncols={}): {}",
+                    rc,
+                    ncols,
+                    err_buf.data()));
+  }
+  return true;
+}
+
+int CplexSolverBackend::restore_integers(std::span<const int> integer_cols)
+{
+  // Inverse of relax_all_integers()'s CPXchgprobtype(LP): flipping the problem
+  // type back to MILP/MIQP restores every column's saved ctype in a single
+  // call — far cheaper than per-column CPXchgctype over ~10⁵ columns.
+  const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
+  if (cplex_type == CPXPROB_LP) {
+    CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MILP);
+  } else if (cplex_type == CPXPROB_QP) {
+    CPXchgprobtype(m_env_lp_.env(), m_env_lp_.lp(), CPXPROB_MIQP);
+  }
+  return static_cast<int>(integer_cols.size());
+}
+
+std::optional<std::vector<std::string>>
+CplexSolverBackend::diagnose_infeasibility(int max_items)
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+
+  const int nrows = CPXgetnumrows(env, lp);
+  const int ncols = CPXgetnumcols(env, lp);
+  if (nrows <= 0) {
+    return std::nullopt;
+  }
+
+  // Refine the conflict: CPLEX computes a minimal infeasible subsystem (IIS)
+  // of the current (infeasible) problem.  Non-zero rc ⇒ refiner unavailable
+  // for this problem; report "unsupported" rather than throwing.
+  int confnumrows = 0;
+  int confnumcols = 0;
+  if (CPXrefineconflict(env, lp, &confnumrows, &confnumcols) != 0) {
+    return std::nullopt;
+  }
+
+  // Retrieve which rows / cols are members of the conflict.
+  int confstat = 0;
+  int outrows = 0;
+  int outcols = 0;
+  std::vector<int> rowind(static_cast<std::size_t>(std::max(nrows, 1)));
+  std::vector<int> rowbdstat(static_cast<std::size_t>(std::max(nrows, 1)));
+  std::vector<int> colind(static_cast<std::size_t>(std::max(ncols, 1)));
+  std::vector<int> colbdstat(static_cast<std::size_t>(std::max(ncols, 1)));
+  if (CPXgetconflict(env,
+                     lp,
+                     &confstat,
+                     rowind.data(),
+                     rowbdstat.data(),
+                     &outrows,
+                     colind.data(),
+                     colbdstat.data(),
+                     &outcols)
+      != 0)
+  {
+    return std::nullopt;
+  }
+
+  // Resolve a single row's name (or a synthetic "row_<i>" fallback).
+  const auto row_name = [&](int i) -> std::string
+  {
+    std::array<char, 256> store {};
+    char* nameptr = nullptr;
+    int surplus = 0;
+    const int rc = CPXgetrowname(env,
+                                 lp,
+                                 &nameptr,
+                                 store.data(),
+                                 static_cast<int>(store.size()),
+                                 &surplus,
+                                 i,
+                                 i);
+    if (rc == 0 && nameptr != nullptr) {
+      return std::string {nameptr};
+    }
+    return std::format("row_{}", i);
+  };
+
+  std::vector<std::string> conflicts;
+  const int cap = (max_items > 0) ? max_items : outrows;
+  conflicts.reserve(static_cast<std::size_t>(std::min(outrows, cap)));
+  for (int k = 0; k < outrows && static_cast<int>(conflicts.size()) < cap; ++k)
+  {
+    if (rowbdstat[static_cast<std::size_t>(k)] == CPX_CONFLICT_MEMBER) {
+      conflicts.push_back(row_name(rowind[static_cast<std::size_t>(k)]));
+    }
+  }
+  return conflicts;
+}
+
 void CplexSolverBackend::initial_solve()
 {
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());

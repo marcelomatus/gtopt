@@ -425,6 +425,17 @@ template<typename T>
        "MindOpt MAX_TIME, CLP setMaximumSeconds.  Callers should check "
        "`is_optimal()` after solve to detect timeouts.")
       //
+      ("mip-start",
+       po::value<std::string>(),
+       "Initial-MIP-solution (warm-start) generator: none (default), "
+       "lp_round (round the LP relaxation), relax_fix.  Solves the LP "
+       "relaxation first and injects a starting integer solution so the "
+       "solver bypasses its costly node-0 heuristic incumbent.  Shorthand "
+       "for --set monolithic_options.mip_start.method=<method>.  The other "
+       "controls (effort, on_infeasible=stop|warn|feasopt, relax_check, "
+       "report_saturated, round_threshold, relax_solver_options.*) are set "
+       "via --set monolithic_options.mip_start.<field>=<value>.")
+      //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
       // Each flag below emits a deprecation warning via `warn_deprecated_cli`
@@ -925,6 +936,18 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.solver_options.time_limit = opts.time_limit;
   }
 
+  if (opts.mip_start.has_value()) {
+    // CLI shortcut → monolithic_options.mip_start.method.  The remaining
+    // MIP-start controls stay reachable via `--set
+    // monolithic_options.mip_start.<field>=…`.
+    auto& mip_start = planning.options.monolithic_options.mip_start;
+    if (!mip_start.has_value()) {
+      mip_start.emplace();
+    }
+    mip_start->method =
+        require_enum<MipStartMethod>("mip-start", *opts.mip_start);
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -1172,6 +1195,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .time_limit = get_opt<double>(vm, "time-limit"),
+      .mip_start = get_opt<std::string>(vm, "mip-start"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},

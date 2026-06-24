@@ -31,6 +31,7 @@
 #include <gtopt/lp_fingerprint.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/memory_compress.hpp>
+#include <gtopt/mip_start.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -1734,6 +1735,58 @@ auto SystemLP::write_lp(const std::string& filename) const
 std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
 {
   auto& li = linear_interface();
+
+  // ── Initial-MIP-solution (warm-start) pipeline ────────────────────────
+  //
+  // Before the MIP solve, optionally solve the LP relaxation (diagnosing
+  // feasibility) and inject a starting integer solution so the solver
+  // bypasses its costly node-0 heuristic incumbent (the "incumbent cliff").
+  // Gated so pure-LP solves and runs that don't enable the feature pay
+  // nothing; `apply_mip_start` itself no-ops when there are no integer cols.
+  if (const auto mip_start_opts = options().mip_start_options();
+      mip_start_opts.method.value_or(MipStartMethod::none)
+          != MipStartMethod::none
+      || mip_start_opts.relax_check.value_or(false))
+  {
+    // Build per-(scenario, commitment) min-up/down run-length info so the
+    // generator can repair a rounded commitment that violates run-lengths.
+    // One entry per unit WITH a min-up or min-down limit; status columns in
+    // chronological (stage, block) order with the matching block durations.
+    std::vector<CommitmentRunInfo> commitments;
+    for (const auto& scenario : scene().scenarios()) {
+      for (const auto& comm : elements<CommitmentLP>()) {
+        const double min_up = comm.commitment().min_up_time.value_or(0.0);
+        const double min_down = comm.commitment().min_down_time.value_or(0.0);
+        if (min_up <= 0.0 && min_down <= 0.0) {
+          continue;
+        }
+        CommitmentRunInfo info {.min_up_hours = min_up,
+                                .min_down_hours = min_down};
+        for (const auto& stage : phase().stages()) {
+          const auto* ucols = comm.find_status_cols(scenario, stage);
+          if (ucols == nullptr) {
+            continue;
+          }
+          for (const auto& blk : stage.blocks()) {
+            const auto it = ucols->find(blk.uid());
+            if (it != ucols->end()) {
+              info.status_cols.push_back(static_cast<int>(it->second));
+              info.durations.push_back(blk.duration());
+            }
+          }
+        }
+        if (info.status_cols.size() >= 2) {
+          commitments.push_back(std::move(info));
+        }
+      }
+    }
+
+    auto ms = apply_mip_start(li, solver_options, mip_start_opts, commitments);
+    if (!ms) {
+      return std::unexpected(std::move(ms.error()));
+    }
+  }
+
   auto result = li.resolve(solver_options);
   if (!result) {
     return result;

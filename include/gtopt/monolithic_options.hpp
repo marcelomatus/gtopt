@@ -16,6 +16,78 @@
 namespace gtopt
 {
 
+// ─── MipStartOptions struct ─────────────────────────────────────────────────
+
+/**
+ * @brief Initial-MIP-solution (warm-start) configuration.
+ *
+ * Two independently-toggleable stages run before the monolithic MIP solve:
+ *
+ *   A. **Relaxation analysis** — solve the LP relaxation (under its own
+ *      `relax_solver_options`), check feasibility, and (optionally) report the
+ *      saturated / binding constraints.  On infeasibility, `on_infeasible`
+ *      selects stop / warn / feasopt-diagnose.
+ *   B. **Integer injection** — when `method != none`, compute a starting
+ *      integer solution from the relaxation and inject it as a backend MIP
+ *      start with the given `effort`.
+ *
+ * Stage A runs whenever `method != none` (the generator needs the relaxation)
+ * or `relax_check` is explicitly true (diagnosis-only, no injection).  All
+ * fields optional; defaults applied at the consume site.
+ */
+struct MipStartOptions
+{
+  // ── Stage B: integer-solution generator & injection ───────────────────────
+  /** @brief Generator strategy: none (default), lp_round, relax_fix */
+  std::optional<MipStartMethod> method {};
+  /** @brief Threshold for rounding a relaxed binary up to 1 (default 0.5) */
+  OptReal round_threshold {};
+  /** @brief Backend effort for the injected start (default `repair` — the
+   * rounded+repaired commitment is near-feasible but usually still nicks a few
+   * Pmin/UC/reserve rows, so the solver's repair heuristic mends them and lands
+   * the optimum at the root; `check_feasibility` only accepts an
+   * already-feasible start). */
+  std::optional<MipStartEffort> effort {};
+  /** @brief Optional path to an externally-computed start (file generators) */
+  OptName file {};
+
+  // ── Stage A: relaxation analysis & diagnosis ──────────────────────────────
+  /** @brief Run the LP-relaxation feasibility analysis even when
+   * `method == none` (diagnosis-only).  When `method != none` the relaxation
+   * is solved regardless. Default false. */
+  OptBool relax_check {};
+  /** @brief Policy when the LP relaxation is infeasible: stop (default),
+   * warn, or feasopt (diagnose then stop). */
+  std::optional<RelaxInfeasibleAction> on_infeasible {};
+  /** @brief Print the saturated / binding constraints (nonzero dual) from the
+   * LP relaxation. Default false. */
+  OptBool report_saturated {};
+  /** @brief Solver options (algorithm, params, time limit, …) applied to the
+   * LP-relaxation solve only — overlaid on the monolithic solver options so
+   * the relaxation can use a different algorithm than the MIP. */
+  std::optional<SolverOptions> relax_solver_options {};
+
+  void merge(MipStartOptions&& opts)
+  {
+    merge_opt(method, opts.method);
+    merge_opt(round_threshold, opts.round_threshold);
+    merge_opt(effort, opts.effort);
+    merge_opt(file, std::move(opts.file));
+    merge_opt(relax_check, opts.relax_check);
+    merge_opt(on_infeasible, opts.on_infeasible);
+    merge_opt(report_saturated, opts.report_saturated);
+    if (opts.relax_solver_options.has_value()) {
+      if (relax_solver_options.has_value()) {
+        relax_solver_options->merge(*opts.relax_solver_options);
+      } else {
+        relax_solver_options = opts.relax_solver_options;
+      }
+    }
+
+    auto _ = std::move(opts);
+  }
+};
+
 // ─── MonolithicOptions struct ───────────────────────────────────────────────
 
 /**
@@ -58,6 +130,15 @@ struct MonolithicOptions
    */
   std::optional<SolverOptions> solver_options {};
 
+  // ── Initial-MIP-solution (warm-start) options ──────────────────────────────
+  /** @brief Optional initial-MIP-solution generator configuration.
+   *
+   * When `method` is set to something other than `none`, the monolithic
+   * solver computes a starting integer solution and injects it into the
+   * backend before branch-and-cut (see `MipStartOptions`).
+   */
+  std::optional<MipStartOptions> mip_start {};
+
   void merge(MonolithicOptions&& opts)
   {
     merge_opt(solve_mode, opts.solve_mode);
@@ -65,6 +146,13 @@ struct MonolithicOptions
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
+    if (opts.mip_start.has_value()) {
+      if (mip_start.has_value()) {
+        mip_start->merge(std::move(*opts.mip_start));
+      } else {
+        mip_start = std::move(opts.mip_start);
+      }
+    }
     if (opts.solver_options.has_value()) {
       if (solver_options.has_value()) {
         solver_options->merge(*opts.solver_options);

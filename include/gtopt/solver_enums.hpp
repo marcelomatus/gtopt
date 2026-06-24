@@ -150,6 +150,53 @@ inline constexpr auto solver_scaling_entries =
   return std::span {solver_scaling_entries};
 }
 
+// --- MipStartEffort ----------------------------------------------------------
+
+/**
+ * @brief Effort level applied to an injected MIP-start (warm incumbent).
+ *
+ * Controls how hard the backend works to validate / complete / repair a
+ * supplied starting integer solution before branch-and-cut.  Mirrors the
+ * CPLEX `CPX_MIPSTART_*` effort levels; other backends map it as closely
+ * as their native start API allows (or ignore it).
+ *
+ * - `check_feasibility` (default): the backend tests the start and keeps it
+ *   only if it is feasible — a discarded start costs nothing, so this is the
+ *   zero-risk default.  CPLEX: `CPX_MIPSTART_CHECKFEAS`.
+ * - `solve_fixed`: fix the supplied integer values and solve the residual LP
+ *   (the dispatch) to complete the start.  CPLEX: `CPX_MIPSTART_SOLVEFIXED`.
+ * - `solve_mip`: solve a bounded sub-MIP around the start.  CPLEX:
+ *   `CPX_MIPSTART_SOLVEMIP`.
+ * - `repair`: run the backend's start-repair heuristic on a slightly
+ *   infeasible start.  CPLEX: `CPX_MIPSTART_REPAIR`.
+ * - `no_check`: trust the start verbatim (fastest, unsafe).  CPLEX:
+ *   `CPX_MIPSTART_NOCHECK`.
+ */
+enum class MipStartEffort : uint8_t
+{
+  check_feasibility = 0,  ///< Test feasibility, keep only if feasible (default)
+  solve_fixed = 1,  ///< Fix integers, solve the residual dispatch LP
+  solve_mip = 2,  ///< Solve a bounded sub-MIP around the start
+  repair = 3,  ///< Repair a slightly-infeasible start
+  no_check = 4,  ///< Trust the start verbatim (fastest, unsafe)
+};
+
+inline constexpr auto mip_start_effort_entries =
+    std::to_array<EnumEntry<MipStartEffort>>({
+        {.name = "check_feasibility",
+         .value = MipStartEffort::check_feasibility},
+        {.name = "solve_fixed", .value = MipStartEffort::solve_fixed},
+        {.name = "solve_mip", .value = MipStartEffort::solve_mip},
+        {.name = "repair", .value = MipStartEffort::repair},
+        {.name = "no_check", .value = MipStartEffort::no_check},
+    });
+
+/// ADL customization point for NamedEnum concept
+[[nodiscard]] constexpr auto enum_entries(MipStartEffort /*tag*/) noexcept
+{
+  return std::span {mip_start_effort_entries};
+}
+
 }  // namespace gtopt
 
 // Specialize std::formatter for LPAlgo using its canonical name
@@ -180,6 +227,15 @@ struct formatter<gtopt::SolverScaling> : formatter<string_view>
   auto format(gtopt::SolverScaling scaling, FormatContext& ctx) const
   {
     return formatter<string_view>::format(gtopt::enum_name(scaling), ctx);
+  }
+};
+template<>
+struct formatter<gtopt::MipStartEffort> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::MipStartEffort effort, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(effort), ctx);
   }
 };
 }  // namespace std

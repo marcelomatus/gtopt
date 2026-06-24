@@ -1065,6 +1065,14 @@ public:
     return m_options_.monolithic_options.boundary_max_iterations.value_or(0);
   }
 
+  /// Initial-MIP-solution (warm-start) options for the monolithic solver.
+  /// Returns the configured `MipStartOptions` or a default (all-unset, i.e.
+  /// the feature off) when none was supplied.
+  [[nodiscard]] auto mip_start_options() const -> MipStartOptions
+  {
+    return m_options_.monolithic_options.mip_start.value_or(MipStartOptions {});
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr MethodType default_method_type = MethodType::monolithic;
