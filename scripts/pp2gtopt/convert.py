@@ -316,15 +316,11 @@ def _default_cascade_options() -> dict[str, Any]:
 
     Levels mirror the plp2gtopt defaults so behaviour is consistent:
     uninodal (single-bus) → transport (lines, no Kirchhoff/losses) →
-    full network (Kirchhoff enabled).  Each transition inherits state
-    targets and Benders cuts from the previous level.
+    full network (Kirchhoff enabled).  Each transition inherits the
+    Benders optimality cuts from the previous level.
     """
     transition: dict[str, Any] = {
-        "inherit_targets": -1,
         "inherit_optimality_cuts": -1,
-        "target_rtol": 0.05,
-        "target_min_atol": 1.0,
-        "target_penalty": 500.0,
     }
     return {
         "level_array": [

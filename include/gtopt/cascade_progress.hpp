@@ -12,19 +12,13 @@
  * `<output_dir>/cascade_progress.json` atomically (write tmp + rename).
  * On `--recover`, the cascade reads it back, identifies the first level
  * whose status is not `done`, and skips earlier levels (loading their
- * persisted state_targets + cuts files instead of re-solving).
- *
- * State-target persistence (one file per completed level) lives in the
- * same translation unit because the LpContext variant requires custom
- * tagged serialization that does not fit cleanly into `daw_json_link`'s
- * contract-based contracts.
+ * persisted cuts files instead of re-solving).
  */
 #pragma once
 
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <span>
 #include <string>
 #include <vector>
 
@@ -33,8 +27,6 @@
 
 namespace gtopt
 {
-
-struct StateTarget;  // defined in cascade_method.hpp
 
 /// Lifecycle of a single cascade level across runs.
 enum class CascadeLevelStatus : std::uint8_t
@@ -57,8 +49,6 @@ struct CascadeProgressLevel
   Index global_iter_after {-1};
   /// Path to this level's cuts parquet (resolved by the cascade method).
   std::string cuts_file;
-  /// Path to this level's state-targets JSON sidecar (this file).
-  std::string state_targets_file;
 };
 
 /// Top-level checkpoint payload.
@@ -84,16 +74,5 @@ struct CascadeProgress
 [[nodiscard]] auto save_cascade_progress(const CascadeProgress& progress,
                                          const std::filesystem::path& path)
     -> std::expected<void, Error>;
-
-/// Persist the state-variable targets handed off from one cascade level
-/// to the next.  Round-trips every field of `StateTarget`, including the
-/// `LpContext` variant (tagged by alternative).
-[[nodiscard]] auto save_state_targets(std::span<const StateTarget> targets,
-                                      const std::filesystem::path& path)
-    -> std::expected<void, Error>;
-
-/// Inverse of `save_state_targets`.
-[[nodiscard]] auto load_state_targets(const std::filesystem::path& path)
-    -> std::expected<std::vector<StateTarget>, Error>;
 
 }  // namespace gtopt

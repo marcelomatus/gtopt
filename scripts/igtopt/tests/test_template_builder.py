@@ -480,19 +480,12 @@ class TestCascadeOptionKeys:
         block = match.group()
         cpp_fields = set(re.findall(r'json_\w+<"(\w+)"', block))
         expected = {
+            # The elastic state-target transition feature
+            # (``inherit_targets``, ``target_rtol``, ``target_min_atol``,
+            # ``target_penalty``) and the ``optimality_dual_threshold``
+            # cut-activity filter were removed; the only surviving
+            # transition knob is the optimality-cut inheritance flag.
             "inherit_optimality_cuts",
-            "inherit_targets",
-            "target_rtol",
-            "target_min_atol",
-            "target_penalty",
-            # ``optimality_dual_threshold`` removed 2026-05-15
-            # alongside the entire ``update_stored_cut_duals``
-            # machinery — the cut-activity signal it gated was
-            # structurally wrong (read from the main cell's LP
-            # post-add-without-resolve, never the apertures that
-            # exercise the cut), and the filter was the only
-            # consumer.  See the commit that removed it for the
-            # full rationale.
         }
         assert expected == cpp_fields, (
             f"CascadeTransition fields mismatch: expected {expected}, got {cpp_fields}"

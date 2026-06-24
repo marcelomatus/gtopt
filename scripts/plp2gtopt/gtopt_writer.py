@@ -476,13 +476,12 @@ class GTOptWriter(
         and the levels exit cleanly once the realised cost stops
         moving.
 
-        Each level inherits state-variable targets and **all**
-        optimality cuts from previous levels via elastic constraints
-        (``inherit_targets = -1, inherit_optimality_cuts = -1``).  The
-        cut store therefore accumulates across the cascade: L1 sees
-        L0's cuts, L2 sees L0 + L1, L3 sees L0 + L1 + L2.  Preserves
-        the tightest available value-function envelope at every level
-        — at the cost of a larger master LP at the tail.
+        Each level inherits **all** optimality cuts from previous
+        levels (``inherit_optimality_cuts = -1``).  The cut store
+        therefore accumulates across the cascade: L1 sees L0's cuts,
+        L2 sees L0 + L1, L3 sees L0 + L1 + L2.  Preserves the tightest
+        available value-function envelope at every level — at the cost
+        of a larger master LP at the tail.
 
         ``Phase.apertures`` is emitted by
         :func:`aperture_writer.build_phase_apertures` in **wettest →
@@ -522,11 +521,7 @@ class GTOptWriter(
 
         # ── Inter-level transition (see docstring §4) ──────────────────
         transition = {
-            "inherit_targets": -1,
             "inherit_optimality_cuts": -1,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500.0,
         }
 
         # ── Per-level SDDP options (see docstring §§2, 3) ──────────────
@@ -824,11 +819,7 @@ class GTOptWriter(
         }
 
         transition = {
-            "inherit_targets": -1,
             "inherit_optimality_cuts": -1,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500.0,
         }
 
         # Aperture inference: ONA = max apertures referenced by any phase

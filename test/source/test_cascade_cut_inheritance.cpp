@@ -72,9 +72,6 @@ TEST_CASE("CascadeTransition JSON: inherit_optimality_cuts=-1 is parsed")
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  // Other transition fields should remain absent.
-  CHECK_FALSE(tr.inherit_targets.has_value());
-  CHECK_FALSE(tr.target_rtol.has_value());
 }
 
 TEST_CASE("CascadeTransition JSON: missing field -> nullopt (NOT zero)")
@@ -84,15 +81,11 @@ TEST_CASE("CascadeTransition JSON: missing field -> nullopt (NOT zero)")
   // would be a binding that defaults to OptInt{0} (still has_value),
   // which interacts oddly with the cascade's "0 = do not inherit" rule
   // — currently equivalent, but the test pins the distinction.
-  const std::string_view json_data = R"({
-    "inherit_targets": -1
-  })";
+  const std::string_view json_data = R"({})";
 
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
 
   CHECK_FALSE(tr.inherit_optimality_cuts.has_value());
-  REQUIRE(tr.inherit_targets.has_value());
-  CHECK(*tr.inherit_targets == -1);
 }
 
 TEST_CASE(
@@ -116,7 +109,6 @@ TEST_CASE(
                   .transition =
                       CascadeTransition {
                           .inherit_optimality_cuts = OptInt {-1},
-                          .inherit_targets = OptInt {-1},
                       },
               },
           },
@@ -130,8 +122,6 @@ TEST_CASE(
   REQUIRE(rt.level_array[1].transition.has_value());
   REQUIRE(rt.level_array[1].transition->inherit_optimality_cuts.has_value());
   CHECK(*rt.level_array[1].transition->inherit_optimality_cuts == -1);
-  REQUIRE(rt.level_array[1].transition->inherit_targets.has_value());
-  CHECK(*rt.level_array[1].transition->inherit_targets == -1);
 }
 
 // ───────────────────────────────────────────────────────────────────────────

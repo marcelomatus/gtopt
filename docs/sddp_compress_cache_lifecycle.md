@@ -123,7 +123,7 @@ likely source of the residual divergence.
 | State | Recomputed where | Risk |
 |-------|------------------|------|
 | Coefficient updates by `update_lp_for_phase` (turbine_conversion, seepage segment, discharge_limit) | `update_lp_for_phase(phase_index)` is called explicitly in `backward_pass_single_phase` line 463 before resolve | **HIGH** — these reads `physical_eini` cross-phase; if compress's prev_li returns a different value than off's live prev_li, coefficients diverge |
-| Row bound mutations (`set_row_low/upp_raw`/`set_rhs_raw`) | NOT replayed.  Caller must re-issue every reconstruct. | **MEDIUM** — verify all SDDP row mutations are inside an "always re-issued" callback (cascade elastic targets are, per the `m_dynamic_rows_` mechanism; SDDP fcut elastic relaxations may not be) |
+| Row bound mutations (`set_row_low/upp_raw`/`set_rhs_raw`) | NOT replayed.  Caller must re-issue every reconstruct. | **MEDIUM** — verify all SDDP row mutations are inside an "always re-issued" callback (SDDP fcut elastic relaxations may not be) |
 | `set_obj_coeffs_raw` | NOT replayed.  Caller responsibility. | **LOW** — only used at structural build before snapshot |
 
 ### LIKELY DIVERGENCE SOURCE — equilibration scales drift

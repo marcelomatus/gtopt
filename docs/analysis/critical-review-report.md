@@ -465,16 +465,15 @@ The cascade method is a **novel engineering synthesis** of established technique
 
 1. **Hierarchical decomposition** with progressive model refinement
 2. **SDDP** as per-level solver
-3. **Elastic target constraints** for regularization
-4. **Name-based cut/state transfer** across structurally different LPs
-5. **Cut forgetting** with configurable inheritance policies
+3. **Name-based cut transfer** across structurally different LPs
+4. **Cut forgetting** with configurable inheritance policies
 
 **Novel aspects:**
 - Configurable multi-level SDDP with heterogeneous LP formulations per level
   (e.g., Level 0: copper-plate, Level 1: transport, Level 2: Kirchhoff)
-- Name-based state target transfer with elastic penalties and tolerance bands
-- Explicit cut inheritance policies (`inherit_optimality_cuts`,
-  `inherit_targets`) with configurable lifetimes
+- Name-based optimality-cut transfer across LP structures
+- Explicit cut inheritance policy (`inherit_optimality_cuts`)
+  with a configurable lifetime
 - Global iteration budget distributed across levels
 
 No published algorithm combines all of these.

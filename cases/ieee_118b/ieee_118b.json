@@ -22,11 +22,7 @@
             "use_line_losses": false
           },
           "transition": {
-            "inherit_targets": -1,
-            "inherit_optimality_cuts": -1,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500.0
+            "inherit_optimality_cuts": -1
           }
         },
         {
@@ -37,11 +33,7 @@
             "use_kirchhoff": true
           },
           "transition": {
-            "inherit_targets": -1,
-            "inherit_optimality_cuts": -1,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500.0
+            "inherit_optimality_cuts": -1
           }
         }
       ]

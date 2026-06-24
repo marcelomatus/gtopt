@@ -28,27 +28,10 @@ struct CascadeTransition
   ///   - N > 0:       inherit but forget after N training iterations,
   ///                  then re-solve with only self-generated cuts
   OptInt inherit_optimality_cuts {};
-  /// Add elastic state variable target constraints from previous
-  /// solution.  Same semantics as inherit_optimality_cuts:
-  ///   - absent or 0: do not inherit
-  ///   - -1:          inherit and keep forever
-  ///   - N > 0:       inherit but remove target constraints after N
-  ///                  training iterations
-  OptInt inherit_targets {};
-  /// Relative tolerance for target band.  Default: 0.05 (5%).
-  OptReal target_rtol {};
-  /// Minimum absolute tolerance for target band.  Default: 1.0.
-  OptReal target_min_atol {};
-  /// Elastic penalty cost per unit violation of target.  Default: 500.
-  OptReal target_penalty {};
 
   void merge(const CascadeTransition& opts)
   {
     merge_opt(inherit_optimality_cuts, opts.inherit_optimality_cuts);
-    merge_opt(inherit_targets, opts.inherit_targets);
-    merge_opt(target_rtol, opts.target_rtol);
-    merge_opt(target_min_atol, opts.target_min_atol);
-    merge_opt(target_penalty, opts.target_penalty);
   }
 };
 

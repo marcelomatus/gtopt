@@ -10,8 +10,7 @@
  *
  * Where existing coverage sits:
  *   • `test_cascade_progress.cpp` — pure JSON round-trip + atomic-write
- *     for `CascadeProgress` and `state_targets`.  Does NOT actually run
- *     the cascade.
+ *     for `CascadeProgress`.  Does NOT actually run the cascade.
  *
  * What this file adds (the missing scope):
  *   • Run the cascade end-to-end to a real `cuts_output_file` so the
@@ -134,10 +133,6 @@ auto make_two_level_cascade() -> CascadeOptions
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
               },
       },
   };
@@ -210,19 +205,6 @@ TEST_CASE("Cascade first run writes cascade_progress.json sidecar")  // NOLINT
     CHECK(loaded->levels[1].status == CascadeLevelStatus::done);
   }
 
-  SUBCASE("intermediate level persisted its state_targets.json sidecar")
-  {
-    auto loaded = load_cascade_progress(progress_path);
-    REQUIRE(loaded.has_value());
-    REQUIRE(loaded->levels.size() == 2);
-    // L0 is intermediate → must have produced state_targets for L1's
-    // elastic-target transition.  The file path is recorded in the
-    // checkpoint and the file itself must exist on disk.
-    const auto& st_path = loaded->levels[0].state_targets_file;
-    CHECK_FALSE(st_path.empty());
-    CHECK(std::filesystem::exists(st_path));
-  }
-
   SUBCASE("no leftover .tmp from the atomic rename")
   {
     CHECK_FALSE(std::filesystem::exists(progress_path.string() + ".tmp"));
@@ -258,8 +240,8 @@ TEST_CASE(  // NOLINT
   const auto cuts_file = (scratch.path / "sddp_cuts.parquet").string();
   const auto progress_path = scratch.path / "cascade_progress.json";
 
-  // ── First run: complete both levels naturally so cuts +
-  //    state_targets are on disk for the resume to consume. ──
+  // ── First run: complete both levels naturally so cuts are on disk
+  //    for the resume to consume. ──
   {
     auto planning = make_3phase_2bus_hydro_planning();
     PlanningLP plp(std::move(planning));
@@ -280,13 +262,6 @@ TEST_CASE(  // NOLINT
     REQUIRE(checkpoint->levels.size() == 2);
     CHECK(checkpoint->levels[0].status == CascadeLevelStatus::done);
     CHECK(checkpoint->levels[1].status == CascadeLevelStatus::done);
-
-    // L0's state_targets sidecar must be on disk — needed by the
-    // synthetic-SIGKILL case below where L1 is demoted back to
-    // `in_progress` and the resume reloads it.
-    const auto& st_path = checkpoint->levels[0].state_targets_file;
-    CHECK_FALSE(st_path.empty());
-    CHECK(std::filesystem::exists(st_path));
   }
 
   // ── Case 1: all-done resume against the first run's sidecar. ──
@@ -356,9 +331,9 @@ TEST_CASE(  // NOLINT
   const auto cuts_file = (scratch.path / "sddp_cuts.parquet").string();
   const auto progress_path = scratch.path / "cascade_progress.json";
 
-  // First cascade populates cuts + state_targets and a checkpoint with
-  // every level marked `done` (post-2026-05-20 contract — the final
-  // level's flush now runs before the convergence `break`).
+  // First cascade populates cuts and a checkpoint with every level
+  // marked `done` (post-2026-05-20 contract — the final level's flush
+  // now runs before the convergence `break`).
   {
     auto planning = make_3phase_2bus_hydro_planning();
     PlanningLP plp(std::move(planning));

@@ -1597,7 +1597,7 @@ algorithm that progressively refines the LP formulation and solver strategy
 across a variable number of levels.  It accelerates convergence by starting
 with a simplified network model (e.g. single bus, no Kirchhoff) and
 gradually adding complexity, transferring solution information between
-levels via cuts and target constraints.
+levels via optimality cuts.
 
 ### 10.1 Multi-Level Architecture
 
@@ -1615,7 +1615,7 @@ The cascade solver executes a sequence of **levels** defined in the
   `min_iterations`, `apertures`, `convergence_tol`).  Absent fields
   inherit from the global `sddp_options`.
 - **`transition`** — how to receive information from the previous level
-  (cut inheritance, target constraints).
+  (optimality-cut inheritance).
 
 **LP rebuild rule**: when `model_options` is present (even if all its
 fields match the previous level), the LP is rebuilt from scratch.  When
@@ -1623,7 +1623,7 @@ absent, the previous level's LP and solver state are reused, allowing a
 level to change only solver parameters (e.g. enable apertures) without
 the cost of LP reconstruction.
 
-**Named transfer**: cuts and target constraints use LP **column names**
+**Named transfer**: optimality cuts use LP **column names**
 (e.g. `Reservoir1_efin`) for cross-LP resolution.  This allows cuts
 generated with one LP structure (e.g. single-bus) to be applied to a
 different LP structure (e.g. multi-bus with Kirchhoff), as long as the
@@ -1640,8 +1640,8 @@ When `cascade_options.level_array` is empty (or omitted), a built-in
 | Level | Name | LP | Solver | Transition |
 |-------|------|----|--------|------------|
 | 0 | `uninodal_benders` | Single bus, no Kirchhoff, no losses | Benders only (no apertures) | -- |
-| 1 | `transport_benders` | Multi-bus, no Kirchhoff, no losses | Benders only | Target constraints from level 0 |
-| 2 | `transport_sddp` | Reuses level 1 LP | SDDP with apertures | Target constraints from level 1 |
+| 1 | `transport_benders` | Multi-bus, no Kirchhoff, no losses | Benders only | Inherits optimality cuts from level 0 |
+| 2 | `transport_sddp` | Reuses level 1 LP | SDDP with apertures | Inherits optimality cuts from level 1 |
 | 3 | `full_sddp` | Kirchhoff + line losses | SDDP with apertures | Inherits optimality + feasibility cuts |
 
 This default progression moves from a fast coarse approximation to the
@@ -1691,28 +1691,9 @@ Level 0 has no transition (it is the starting point).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `inherit_optimality_cuts` | bool | `false` | Carry forward Benders optimality cuts |
-| `inherit_targets` | bool | `false` | Add elastic target constraints from previous solution |
-| `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of \|v\|) |
-| `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
-| `target_penalty` | real | 500 | Elastic penalty per unit target violation |
 | `optimality_dual_threshold` | real | 0.0 | Min \|dual\| for cut transfer (0 = all) |
 
-### 10.4 Target Constraints
-
-Target constraints are LP rows (not column bound changes) that constrain
-state variables near the previous level's solution trajectory.  They use
-an elastic formulation with a penalty cost, avoiding hard infeasibility
-while guiding the optimizer:
-
-$$v_{\text{prev}} - \text{atol} \le v \le v_{\text{prev}} + \text{atol}$$
-
-where $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|, \text{min\_atol})$.  Violations beyond the tolerance band incur a cost
-of `target_penalty` per unit.
-
-Target rows are named `cascade_target_s{scene}_p{phase}_c{col}` for
-easy identification in LP debug output.
-
-### 10.5 Configuration Example
+### 10.4 Configuration Example
 
 Cascade options are set in their own `cascade_options` sub-object in the
 JSON configuration (not inside `sddp_options`).  The global
@@ -1756,11 +1737,7 @@ JSON configuration (not inside `sddp_options`).  The global
             "convergence_tol": 0.001
           },
           "transition": {
-            "inherit_optimality_cuts": true,
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
+            "inherit_optimality_cuts": true
           }
         }
       ]
@@ -1800,7 +1777,7 @@ to change solver parameters (e.g. enable apertures) without rebuilding:
             "apertures": [1, 2, 3]
           },
           "transition": {
-            "inherit_targets": true
+            "inherit_optimality_cuts": true
           }
         }
       ]
@@ -1825,7 +1802,7 @@ it to an empty array):
 }
 ```
 
-### 10.6 Iteration Budget
+### 10.5 Iteration Budget
 
 Each level has its own `max_iterations` budget (from its `sddp_options`
 or from the global `sddp_options` default).  The global

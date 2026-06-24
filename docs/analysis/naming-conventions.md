@@ -2788,9 +2788,6 @@ PLEXOS handles it via `Multi-Horizon` linkage.
 | gtopt | PLEXOS | PSR SDDP | PLP |
 |-------|--------|----------|-----|
 | `inherit_optimality_cuts` | `Inherit Cuts` (Multi-Horizon) | `HerdarCortes` | — |
-| `inherit_targets` | `Inherit Targets` | `HerdarMetas` | — |
-| `target_rtol` / `target_min_atol` | `Target Tolerance` | `TolMetas` | — |
-| `target_penalty` | `Target Penalty` | `PenalidadeMetas` | — |
 | `CascadeLevel.system_file` | (per-level Model file) | (per-level case path) | — |
 | `CascadeLevel.level_array` | `Multi-Horizon levels` | `NiveisCascata` | — |
 | (per-level overrides of SDDP options) | Multi-Horizon per-step overrides | per-Fase override | — |
@@ -3028,9 +3025,7 @@ clarifying:
 
 | gtopt canonical | Category | Recommendation |
 |-----------------|----------|----------------|
-| `inherit_optimality_cuts` / `inherit_targets` | ✅ Keep | — Self-documenting. |
-| `target_rtol` / `target_min_atol` | 🤔 Weak | (extend to `target_relative_tolerance` / `target_min_absolute_tolerance` for consistency with the broader rename in §11.4). |
-| `target_penalty` | ✅ Keep | — Standard. |
+| `inherit_optimality_cuts` | ✅ Keep | — Self-documenting. |
 | `level_array` | (covered by §6.1 Tier 1) | → `levels` (drop `_array`). |
 
 ### 11.6 Solver Options (`solver_options`)

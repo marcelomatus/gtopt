@@ -140,249 +140,6 @@ auto CascadePlanningMethod::clone_planning_with_overrides(
   return copy;
 }
 
-// ─── Collect state variable targets ─────────────────────────────────────────
-
-auto CascadePlanningMethod::collect_state_targets(const SDDPMethod& solver,
-                                                  const PlanningLP& planning_lp)
-    -> std::vector<StateTarget>
-{
-  std::vector<StateTarget> targets;
-
-  // Pre-count state variables for capacity reservation.
-  size_t total_sv = 0;
-  for (auto&& [si, _sc] :
-       enumerate<SceneIndex>(planning_lp.simulation().scenes()))
-  {
-    for (auto&& [pi, _ph] :
-         enumerate<PhaseIndex>(planning_lp.simulation().phases()))
-    {
-      total_sv += planning_lp.simulation().state_variables(si, pi).size();
-    }
-  }
-  targets.reserve(total_sv);
-
-  for (auto&& [scene, _sc] :
-       enumerate<SceneIndex>(planning_lp.simulation().scenes()))
-  {
-    const auto& scene_states = solver.phase_states(scene);
-    for (auto&& [phase, _ph] :
-         enumerate<PhaseIndex>(planning_lp.simulation().phases()))
-    {
-      const auto& state = scene_states[phase];
-      const auto& sv_map =
-          planning_lp.simulation().state_variables(scene, phase);
-
-      // Each outgoing link carries a source_col; we match it to the
-      // registered state variable.  The per-solve col value is read from
-      // `StateVariable::col_sol()` — which `capture_state_variable_values`
-      // populates in SDDPMethod after every forward solve.
-      for (const auto& [key, svar] : sv_map) {
-        const auto col = svar.col();
-
-        // Only collect variables that are outgoing links (state transfer)
-        const bool is_outgoing = std::ranges::any_of(
-            state.outgoing_links,
-            [col](const auto& link) { return link.source_col == col; });
-        if (!is_outgoing) {
-          continue;
-        }
-
-        // PHYSICAL space target.  `svar.col_sol()` is the source phase's
-        // LP-raw value (`physical / var_scale_source`).  The cascade row
-        // installed below uses `set_col_low` / `set_col_upp` semantics:
-        // the row coefficient `1.0` on the target's dependent column
-        // gets multiplied by `col_scale_target` inside
-        // `LinearInterface::add_row` (post-flatten cut-phase compose),
-        // so the row reads in PHYSICAL space — therefore the bound
-        // `target_value ± atol` must also be physical.  Reading via
-        // `col_sol_physical()` (= `col_sol() × var_scale_source`) is
-        // scale-agnostic and matches the
-        // `propagate_trial_values(span, target_li)` overload's
-        // physical-bound-pin convention used elsewhere in the SDDP
-        // pipeline (benders_cut.cpp:90-94).
-        targets.push_back({
-            .class_name = std::string(key.class_name),
-            .col_name = std::string(key.col_name),
-            .uid = key.uid,
-            .context = svar.context(),
-            .scene_index = scene,
-            .phase_index = phase,
-            .target_value = svar.col_sol_physical(),
-            .var_scale = svar.var_scale(),
-        });
-      }
-    }
-  }
-
-  SPDLOG_INFO("Cascade: collected {} state variable targets", targets.size());
-  return targets;
-}
-
-// ─── Add elastic target constraints ─────────────────────────────────────────
-
-void CascadePlanningMethod::add_elastic_targets(
-    PlanningLP& planning_lp,
-    const std::vector<StateTarget>& targets,
-    const CascadeTransition& transition)
-{
-  const double rtol = transition.target_rtol.value_or(0.05);
-  const double min_atol = transition.target_min_atol.value_or(1.0);
-  const double penalty = transition.target_penalty.value_or(500.0);
-
-  int added = 0;
-  int skipped = 0;
-
-  // Per-cell accumulator: collect every target's slack pair + row
-  // before installing.  Same shape as the SDDP cut loaders (commit
-  // 08f0202a / 1e9b6a9c) — saves O(N) backend round-trips per
-  // cascade transition by issuing one bulk `add_cols` (slacks) and
-  // one bulk `add_rows` (target rows) per (scene, phase) cell.
-  //
-  // The metadata-based duplicate detector keys columns on
-  // `(class, variable, uid, context)`; the per-target `(t.uid,
-  // t.context)` pair already disambiguates `tgt_sup` / `tgt_sdn`
-  // across targets, so no further keying is needed here.
-  using CellKey = std::pair<SceneIndex, PhaseIndex>;
-  struct PendingTarget
-  {
-    Uid uid {unknown_uid};  ///< target identity (carries through to row label)
-    LpContext context {};  ///< target context (idem)
-    ColIndex resolved_col {unknown_index};  ///< target's state-var column
-    double lowb {0.0};
-    double uppb {0.0};
-  };
-  flat_map<CellKey, std::vector<PendingTarget>> accum;
-
-  for (const auto& t : targets) {
-    // Look up by structured key (class_name, col_name, uid) in the
-    // target level's state variable map — no LP name strings needed.
-    const auto& sv_map =
-        planning_lp.simulation().state_variables(t.scene_index, t.phase_index);
-
-    // Find the matching state variable by (class_name, col_name, uid).
-    // The key may differ in scenario_uid/stage_uid between levels, so
-    // match only the stable identity fields.
-    ColIndex resolved_col {unknown_index};
-    for (const auto& [key, svar] : sv_map) {
-      if (key.class_name == t.class_name && key.col_name == t.col_name
-          && key.uid == t.uid)
-      {
-        resolved_col = svar.col();
-        break;
-      }
-    }
-
-    if (resolved_col == ColIndex {unknown_index}) {
-      ++skipped;
-      SPDLOG_DEBUG(
-          "Cascade: target not found in next level "
-          "(class={}, var={}, uid={})",
-          t.class_name,
-          t.col_name,
-          t.uid);
-      continue;
-    }
-
-    const double atol = std::max(rtol * std::abs(t.target_value), min_atol);
-    accum[std::make_pair(t.scene_index, t.phase_index)].push_back(
-        PendingTarget {
-            .uid = t.uid,
-            .context = t.context,
-            .resolved_col = resolved_col,
-            .lowb = t.target_value - atol,
-            .uppb = t.target_value + atol,
-        });
-  }
-
-  // Per-cell bulk install.  `auto&&` because `gtopt::flat_map`
-  // (std::flat_map under GCC 15) yields a proxy `pair<key&, value&>`.
-  for (auto&& [cell_key, pendings] : accum) {
-    if (pendings.empty()) {
-      continue;
-    }
-    const auto [scene_index, phase_index] = cell_key;
-    auto& li = planning_lp.system(scene_index, phase_index).linear_interface();
-
-    // Step 1: bulk-add 2N slack columns (sup / sdn pair per target).
-    // The metadata-based duplicate detector (`f21641f9`) uses
-    // `(class, variable, uid, context)` as the dedup key; the
-    // per-target `(p.uid, p.context)` already disambiguates each
-    // `tgt_sup` / `tgt_sdn` slack across targets.
-    std::vector<SparseCol> slack_cols;
-    slack_cols.reserve(pendings.size() * 2);
-    for (const auto& p : pendings) {
-      slack_cols.push_back(SparseCol {
-          .uppb = DblMax,
-          .cost = penalty,
-          .class_name = cascade_class_name,
-          .variable_name = "tgt_sup",
-          .variable_uid = p.uid,
-          .context = p.context,
-      });
-      slack_cols.push_back(SparseCol {
-          .uppb = DblMax,
-          .cost = penalty,
-          .class_name = cascade_class_name,
-          .variable_name = "tgt_sdn",
-          .variable_uid = p.uid,
-          .context = p.context,
-      });
-    }
-    const auto first_slack_col = li.get_numcols();
-    (void)li.add_cols(slack_cols);  // NOLINT
-
-    // Mirror the slacks into the persistent `m_dynamic_cols_` registry
-    // so `apply_post_load_replay` re-adds them on every
-    // `release_backend()` → `reconstruct_backend()` cycle under
-    // low-memory compress mode (commit a2b5a4fb).  The slacks are
-    // added AFTER the initial `defer_initial_load` snapshot, so
-    // without this mirror they would be dropped on the first reload.
-    for (const auto& col : slack_cols) {
-      li.record_dynamic_col(col);
-    }
-
-    // Step 2: build target rows referencing the freshly-allocated
-    // slack column indices, then bulk add_rows + record each row
-    // in the persistent dynamic-rows registry (same replay rationale).
-    //
-    // Constraint per target: `x − s⁺ + s⁻ ∈ [target − atol, target + atol]`.
-    std::vector<SparseRow> rows;
-    rows.reserve(pendings.size());
-    for (size_t i = 0; i < pendings.size(); ++i) {
-      const auto& p = pendings[i];
-      const auto sup_col = ColIndex {first_slack_col + static_cast<int>(2 * i)};
-      const auto sdn_col =
-          ColIndex {first_slack_col + static_cast<int>(2 * i) + 1};
-
-      SparseRow row;
-      row.class_name = cascade_class_name;
-      row.constraint_name = cascade_target_constraint_name;
-      row.variable_uid = p.uid;
-      row.context = p.context;
-      row.lowb = p.lowb;
-      row.uppb = p.uppb;
-      row[p.resolved_col] = 1.0;
-      row[sup_col] = -1.0;
-      row[sdn_col] = 1.0;
-      rows.push_back(std::move(row));
-    }
-    li.add_rows(rows);
-    for (const auto& row : rows) {
-      li.record_dynamic_row(row);
-    }
-    added += static_cast<int>(pendings.size());
-  }
-
-  SPDLOG_INFO(
-      "Cascade: added {} elastic target constraints "
-      "(skipped {} unresolved, rtol={}, min_atol={}, penalty={})",
-      added,
-      skipped,
-      rtol,
-      min_atol,
-      penalty);
-}
-
 // ─── Clear all cuts ─────────────────────────────────────────────────────────
 
 void CascadePlanningMethod::clear_all_cuts(PlanningLP& planning_lp,
@@ -421,7 +178,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 {
   PlanningLP* current_lp = nullptr;
   std::unique_ptr<SDDPMethod> current_solver;
-  std::vector<StateTarget> prev_targets;
   ModelOptions prev_effective_model = m_cascade_opts_.model_options;
 
   // Global iteration budget: cascade sddp_options.max_iterations applies
@@ -461,8 +217,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   // tracks which levels have finished.  When a previous run died mid-
   // cascade, `--recover` (= `recovery_mode != none`) loads this file,
   // identifies the first non-done level, and skips earlier ones by
-  // reusing their persisted cuts + state_targets — no LP rebuild for the
-  // completed prefix.
+  // reusing their persisted cuts — no LP rebuild for the completed prefix.
   const std::filesystem::path progress_path = [&]() -> std::filesystem::path
   {
     if (m_base_opts_.cuts_output_file.empty()) {
@@ -485,7 +240,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   }
 
   std::size_t resume_idx = 0;
-  std::vector<StateTarget> resumed_prev_targets;
   std::string resume_inherited_cuts_file;  // → m_prev_cuts_file_
   const bool recovery_enabled =
       m_base_opts_.recovery_mode != RecoveryMode::none;
@@ -507,7 +261,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
           slot.iters = lp.iters;
           slot.global_iter_after = lp.global_iter_after;
           slot.cuts_file = lp.cuts_file;
-          slot.state_targets_file = lp.state_targets_file;
         }
       }
       // First ACTIVE level that isn't `done`.  Inactive levels are
@@ -518,8 +271,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       // the loop below exits without doing any work.
       //
       // `last_done_idx` walks alongside: it's the most recent active+done
-      // level whose state_targets/cuts_file we should feed into the
-      // resume level's transition.
+      // level whose cuts_file we should feed into the resume level's
+      // transition.
       resume_idx = progress.levels.size();
       std::size_t last_done_idx = progress.levels.size();
       for (std::size_t i = 0; i < progress.levels.size(); ++i) {
@@ -540,19 +293,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
         const auto& last_done = progress.levels[last_done_idx];
         if (last_done.global_iter_after >= 0) {
           global_iter_index = IterationIndex {last_done.global_iter_after};
-        }
-        if (!last_done.state_targets_file.empty()
-            && std::filesystem::exists(last_done.state_targets_file))
-        {
-          auto targets = load_state_targets(last_done.state_targets_file);
-          if (targets.has_value()) {
-            resumed_prev_targets = std::move(*targets);
-          } else {
-            SPDLOG_WARN(
-                "Cascade --recover: could not load state_targets '{}': {}",
-                last_done.state_targets_file,
-                targets.error().message);
-          }
         }
         if (!last_done.cuts_file.empty()
             && std::filesystem::exists(last_done.cuts_file))
@@ -607,34 +347,12 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
   std::vector<SDDPMethod::PriorIterBounds> carry_bounds {};
 
   // Seed the per-level transition state from the recovered checkpoint so
-  // the first resumed level (resume_idx) sees the same `prev_targets` /
-  // `m_prev_cuts_file_` it would have seen in the original run.  No-op
-  // when resume_idx == 0 (cold start).
-  if (!resumed_prev_targets.empty()) {
-    prev_targets = std::move(resumed_prev_targets);
-  }
+  // the first resumed level (resume_idx) sees the same `m_prev_cuts_file_`
+  // it would have seen in the original run.  No-op when resume_idx == 0
+  // (cold start).
   if (!resume_inherited_cuts_file.empty()) {
     m_prev_cuts_file_ = std::move(resume_inherited_cuts_file);
   }
-
-  // Resolve the per-level subdirectory used for state_targets.json.
-  // Mirrors the path layout chosen for `level_opts.cuts_output_file`
-  // further down: intermediate levels write to `<base_dir>/<level_name>/`,
-  // the final level keeps `<base_dir>/` (back-compat).  Returns "" when
-  // no `cuts_output_file` is configured.
-  const auto state_targets_file_for = [&](std::size_t idx) -> std::string
-  {
-    if (m_base_opts_.cuts_output_file.empty()) {
-      return {};
-    }
-    const auto base_dir =
-        std::filesystem::path(m_base_opts_.cuts_output_file).parent_path();
-    const auto sub_name =
-        m_cascade_opts_.level_array[idx].name.value_or(as_label("level", idx));
-    const bool is_last = (idx == m_cascade_opts_.level_array.size() - 1);
-    const auto level_dir = is_last ? base_dir : base_dir / sub_name;
-    return (level_dir / "state_targets.json").string();
-  };
 
   for (std::size_t level_idx = 0;
        level_idx < m_cascade_opts_.level_array.size();
@@ -644,10 +362,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     const auto level_name = level.name.value_or(as_label("level", level_idx));
 
     // ── 0a. Skip already-completed level on --recover ──
-    // Cuts + state_targets were persisted by the previous run.  We rely
-    // on the disk artifacts for the transition into the resume level:
-    // `prev_targets` was already seeded above; cut inheritance points at
-    // the most recent done level's cuts file via `m_prev_cuts_file_`.
+    // Cuts were persisted by the previous run.  We rely on the disk
+    // artifacts for the transition into the resume level: cut inheritance
+    // points at the most recent done level's cuts file via
+    // `m_prev_cuts_file_`.
     if (level_idx < resume_idx) {
       SPDLOG_INFO(
           "Cascade [{}]: skipping (already complete in checkpoint, "
@@ -671,8 +389,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
     // ── 1. Build LP for each level ──
     // Intermediate/final levels always build a fresh LP to ensure clean
-    // state (no leftover target constraints or alpha variables from
-    // previous levels).  The first level reuses the caller-supplied
+    // state (no leftover alpha variables from previous levels).  The
+    // first level reuses the caller-supplied
     // PlanningLP when the caller's options already cover the level-0
     // effective model — the caller pre-merges cascade level-0 overrides in
     // build_solve_and_output(), so the initial LP is normally compatible.
@@ -724,14 +442,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       SPDLOG_INFO("Cascade [{}]: built new PlanningLP", level_name);
     }
 
-    // ── 2. Apply elastic target constraints (before solver creation) ──
-    if (level.transition && level_idx > 0) {
-      const auto& trans = *level.transition;
-      if (trans.inherit_targets.value_or(0) != 0 && !prev_targets.empty()) {
-        add_elastic_targets(*current_lp, prev_targets, trans);
-      }
-    }
-
     // ── 3. Build SDDPOptions and create solver ──
     auto level_opts =
         build_level_sddp_opts(level.sddp_options, remaining_budget);
@@ -763,8 +473,7 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
 
     // Skip the post-training simulation pass at every non-final-active
     // level: the sim pass at an intermediate level produces NOTHING
-    // the cascade subsequently consumes — state-variable targets are
-    // read from the last training forward pass, optimality cuts come
+    // the cascade subsequently consumes — optimality cuts come
     // from the training backward passes, and the per-cell write_out
     // output (the sim pass's only persistent side-effect) would be
     // overwritten by the next level's sim pass anyway (per-element
@@ -811,8 +520,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     // even before the level marks itself done).
     if (progress_enabled) {
       progress.levels[level_idx].cuts_file = level_opts.cuts_output_file;
-      progress.levels[level_idx].state_targets_file =
-          state_targets_file_for(level_idx);
       progress.levels[level_idx].status = CascadeLevelStatus::in_progress;
       if (auto save = save_cascade_progress(progress, progress_path);
           !save.has_value())
@@ -1119,8 +826,8 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     });
 
     // Mark this level as `done` in the checkpoint.  The actual flush to
-    // disk happens further below — AFTER state_targets are persisted —
-    // so a SIGKILL between the two writes leaves the checkpoint behind
+    // disk happens further below — AFTER cuts are persisted — so a
+    // SIGKILL between the two writes leaves the checkpoint behind
     // the disk state (recovery redoes a few iters), never ahead of it.
     if (progress_enabled) {
       auto& pslot = progress.levels[level_idx];
@@ -1212,28 +919,6 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     if (level_idx + 1 < m_cascade_opts_.level_array.size()
         && has_active_successor)
     {
-      prev_targets = collect_state_targets(*current_solver, *current_lp);
-
-      // Persist state_targets atomically so a `--recover` after this point
-      // can skip this level: load the targets from disk and re-enter the
-      // cascade at the successor level.  Must happen BEFORE the progress
-      // file's `done` flush — see the ordering invariant at the top of
-      // `solve()`.
-      if (progress_enabled) {
-        const auto st_path = state_targets_file_for(level_idx);
-        if (!st_path.empty()) {
-          auto save_res = save_state_targets(prev_targets, st_path);
-          if (save_res.has_value()) {
-            progress.levels[level_idx].state_targets_file = st_path;
-          } else {
-            SPDLOG_WARN("Cascade [{}]: could not save state_targets '{}': {}",
-                        level_name,
-                        st_path,
-                        save_res.error().message);
-          }
-        }
-      }
-
       // Pre-filter and serialize cuts to disk while the current LP is
       // still alive.  Doing this here (not at next-level start) lets us
       // drop the solver + owned LP before level N+1 allocates a new LP,
@@ -1455,10 +1140,10 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       }
     }
 
-    // Flush progress AFTER cuts + state_targets have been written.  Order
-    // matters: a SIGKILL between (cuts/state_targets) and this rename
-    // leaves the checkpoint trailing the disk state — recovery redoes a
-    // few iters, never resumes past missing data.
+    // Flush progress AFTER cuts have been written.  Order matters: a
+    // SIGKILL between the cuts write and this rename leaves the
+    // checkpoint trailing the disk state — recovery redoes a few iters,
+    // never resumes past missing data.
     if (progress_enabled) {
       if (auto save = save_cascade_progress(progress, progress_path);
           !save.has_value())

@@ -42,7 +42,7 @@ flowchart TD
         L1["Level 1: Full Network LP<br/>(e.g. Kirchhoff + losses)"]
         L2["Level 2: Refined<br/>(reuse LP, inherit cuts)"]
 
-        L0 -->|"state targets"| L1
+        L0 -->|"optimality cuts"| L1
         L1 -->|"Benders cuts"| L2
     end
 
@@ -71,7 +71,7 @@ the `cascade_options.level_array` array.  Each level specifies:
 - **Solver parameters** (`sddp_options`): iteration limits, apertures,
   convergence tolerance.
 - **Transition rules** (`transition`): how to receive information from
-  the previous level (cuts, targets).
+  the previous level (optimality cuts).
 
 ### 2.2 LP Rebuild vs Reuse
 
@@ -100,7 +100,7 @@ global iteration budget.
 
 ### 2.4 Named Transfer
 
-Cuts and target constraints use LP **column names** (e.g.
+Cuts use LP **column names** (e.g.
 `Reservoir1_efin`) for cross-LP resolution.  When a level rebuilds the
 LP with a different formulation, the column indices may change (e.g.
 single-bus LP has no theta columns, but multi-bus LP does).  Named
@@ -113,12 +113,11 @@ for a level.
 
 ---
 
-## 3. Transfer Mechanisms
+## 3. Transfer Mechanism
 
-The cascade solver supports two transfer mechanisms between levels:
-**cut inheritance** and **target inheritance**.  Both are controlled
-via the `transition` sub-object on each level (except level 0, which
-has no predecessor).
+The cascade solver transfers **optimality cuts** between levels.  This
+is controlled via the `transition` sub-object on each level (except
+level 0, which has no predecessor).
 
 ### 3.1 Cut Inheritance
 
@@ -156,73 +155,29 @@ The 6-phase test case (`"Cascade 2-level with cut inheritance only
 (6-phase)"`) demonstrates that level 1 converges in strictly fewer
 iterations than level 0, and both levels reach the same optimal value.
 
-### 3.2 Target Inheritance
+### 3.2 Multi-Level Cut Cascade
 
-When `inherit_targets` is set to `true`, the solver extracts state
-variable values (reservoir volumes, battery SoC) from the previous
-level's forward-pass solution and adds **elastic penalty constraints**
-to the new LP.
-
-For each state variable with value $v_{\text{prev}}$:
-
-$$v_{\text{prev}} - \text{atol} \le v + s^- - s^+ \le v_{\text{prev}} + \text{atol}$$
-
-where:
-
-- $\text{atol} = \max(\text{rtol} \cdot |v_{\text{prev}}|, \text{min\_atol})$
-- $s^+$ and $s^-$ are elastic slack variables with cost
-  `target_penalty` per unit
-
-The target constraints guide the optimizer towards the previous level's
-solution trajectory without creating hard infeasibility.  The penalty
-cost ensures violations are penalized but allowed.
-
-**Target collection**: for each (scene, phase) pair, the solver
-iterates over all outgoing state variable links, reads the forward-pass
-column solution, and records the column name and target value.  Only
-columns with LP names are collected; unnamed columns are skipped with
-a debug log.
-
-**Target injection**: for each collected target, the solver looks up
-the column name in the new LP's column-name map.  If found, it adds
-two slack columns (`tgt_sup_<name>`, `tgt_sdn_<name>`) and one
-constraint row (`cascade_target_<name>`).  Unresolved names are
-skipped.
-
-**Example: 6-phase system with target inheritance**
-
-```text
-Level 0 [training]:      up to 15 iters, converges
-Level 1 [with_targets]:  elastic targets guide forward pass,
-                         converges in <= level 0 iters
-```
-
-The 6-phase test case (`"Cascade 2-level with target inheritance only
-(6-phase)"`) confirms that level 1 converges in at most as many
-iterations as level 0, reaching the same optimal value.
-
-### 3.3 Combined Transfer (Cuts + Targets)
-
-A 3-level cascade can combine both mechanisms:
+A 3-level cascade can chain cut inheritance through progressively
+refined LP formulations:
 
 ```text
 Level 0 [benders]:  uninodal, fast convergence, rough solution
-Level 1 [guided]:   full network + targets from level 0
+Level 1 [guided]:   full network, fresh LP from scratch
 Level 2 [refined]:  same LP as level 1, inherits cuts -> faster
 ```
 
-The test case `"Cascade 3-level with targets then cuts (6-phase)"` uses
-this pattern:
+A representative pattern:
 
 - Level 0 runs uninodal Benders (`use_single_bus=true`) for fast
   convergence.
-- Level 1 builds a full network LP (`use_kirchhoff=true`) and inherits
-  targets from level 0 to guide the forward pass.
+- Level 1 builds a full network LP (`use_kirchhoff=true`) from scratch;
+  the uninodal cuts are not transferred because the LP structure
+  changed.
 - Level 2 reuses level 1's LP (no `model_options`) and inherits
-  optimality + feasibility cuts, converging faster than level 1.
+  optimality cuts, converging faster than level 1.
 
-The test verifies that all three levels reach the same optimal value,
-and that level 2 converges in fewer iterations than level 1.
+All three levels reach the same optimal value, and level 2 converges
+in fewer iterations than level 1.
 
 ---
 
@@ -292,10 +247,6 @@ plain SDDP solver.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `inherit_optimality_cuts` | int | `0` | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_targets` | int | `0` | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
-| `target_rtol` | real | 0.05 | Relative tolerance for target band (5% of abs(v)) |
-| `target_min_atol` | real | 1.0 | Minimum absolute tolerance for target band |
-| `target_penalty` | real | 500 | Elastic penalty per unit target violation |
 | `optimality_dual_threshold` | real | 0.0 | Min abs(dual) for cut transfer (0 = all) |
 
 #### Cut Forgetting Semantics
@@ -400,68 +351,10 @@ scratch; level 1 inherits those cuts and converges faster.
   lower bound approximation.
 - Both levels reach the same optimal value.
 
-### 5.2 Target Inheritance (2-Level)
+### 5.2 Multi-Level Cut Cascade (3-Level)
 
-Level 0 solves a simplified model; level 1 uses the state variable
-trajectory as elastic targets.
-
-```json
-{
-  "options": {
-    "method": "cascade",
-    "sddp_options": {
-      "max_iterations": 30,
-      "convergence_tol": 0.01
-    },
-    "cascade_options": {
-      "level_array": [
-        {
-          "name": "training",
-          "model_options": {
-            "use_single_bus": false,
-            "use_kirchhoff": true
-          },
-          "sddp_options": {
-            "max_iterations": 15,
-            "apertures": []
-          }
-        },
-        {
-          "name": "with_targets",
-          "model_options": {
-            "use_single_bus": false,
-            "use_kirchhoff": true
-          },
-          "sddp_options": {
-            "max_iterations": 20,
-            "apertures": []
-          },
-          "transition": {
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**What happens:**
-
-- Level 0 converges and produces a solution trajectory (reservoir
-  volumes, battery SoC at each phase boundary).
-- Level 1 builds a fresh LP, adds elastic target constraints that
-  penalize deviations from level 0's trajectory, and solves.  The
-  targets guide the forward pass, producing trial values closer to
-  the optimal and reducing the iterations needed for cut convergence.
-
-### 5.3 Combined 3-Level (Targets + Cuts)
-
-A full cascade from uninodal Benders through full network with targets
-to refined convergence with inherited cuts.
+A full cascade from uninodal Benders through full network to refined
+convergence with inherited cuts.
 
 ```json
 {
@@ -494,12 +387,6 @@ to refined convergence with inherited cuts.
             "max_iterations": 20,
             "apertures": [],
             "convergence_tol": 0.01
-          },
-          "transition": {
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
           }
         },
         {
@@ -522,21 +409,19 @@ to refined convergence with inherited cuts.
 **What happens:**
 
 1. **Level 0 (benders)**: uninodal Benders converges quickly, producing
-   a rough solution trajectory and cuts for the simplified LP.
-2. **Level 1 (guided)**: builds a full network LP (Kirchhoff enabled),
-   inherits target constraints from level 0's state variable values.
-   The targets guide the forward pass without inheriting cuts (since
-   the LP structure changed, the uninodal cuts would not be useful).
+   a rough solution and cuts for the simplified LP.
+2. **Level 1 (guided)**: builds a full network LP (Kirchhoff enabled)
+   from scratch without inheriting cuts (since the LP structure changed,
+   the uninodal cuts would not be useful).
 3. **Level 2 (refined)**: reuses level 1's LP (no `model_options`),
-   inherits all optimality + feasibility cuts from level 1.  Converges
-   faster than level 1 because the cuts provide a warm-started lower
-   bound.
+   inherits all optimality cuts from level 1.  Converges faster than
+   level 1 because the cuts provide a warm-started lower bound.
 
 Note that level 2 omits `model_options`, so it reuses level 1's LP
 and solver state.  This avoids rebuilding the LP and preserves the
 solver's internal basis.
 
-### 5.4 LP Reuse (Benders -> SDDP)
+### 5.3 LP Reuse (Benders -> SDDP)
 
 A 2-level cascade where the second level reuses the LP but switches
 from Benders to SDDP with apertures:
@@ -569,7 +454,7 @@ from Benders to SDDP with apertures:
             "apertures": [1, 2, 3]
           },
           "transition": {
-            "inherit_targets": true
+            "inherit_optimality_cuts": -1
           }
         }
       ]
@@ -639,7 +524,7 @@ new `PlanningLP`.  The new LP is owned by the cascade solver via
 
 LP names are automatically enabled (`use_lp_names >= 1`) for all
 cascade-built LPs, even if the user's configuration does not request
-them.  This is required for named cut/target transfer.
+them.  This is required for named cut transfer.
 
 ### 7.3 Iteration Budget
 
@@ -696,10 +581,10 @@ flowchart TD
     Conv -->|Yes| Last{"Is ℓ the<br/>last level?"}
     Conv -->|No| Budget{"Global budget<br/>exhausted?"}
     Last -->|Yes| Done([Return: converged])
-    Last -->|No| Next["ℓ = ℓ + 1<br/>Transfer cuts/targets"]
+    Last -->|No| Next["ℓ = ℓ + 1<br/>Transfer cuts"]
     Next --> Solve
     Budget -->|Yes| Stop([Return: non-converged])
-    Budget -->|No| Next2["ℓ = ℓ + 1<br/>Transfer cuts/targets"]
+    Budget -->|No| Next2["ℓ = ℓ + 1<br/>Transfer cuts"]
     Next2 --> Solve
 ```
 

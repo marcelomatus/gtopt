@@ -2666,8 +2666,8 @@ Each level defines:
   constraints, line losses, scaling (via `model_options`)
 - **Solver parameters** $\Theta_\ell$: iteration limits, apertures,
   convergence tolerance (via `sddp_options`)
-- **Transition rules** $\mathcal{T}_\ell$: cut inheritance, target
-  inheritance, dual thresholds (via `transition`)
+- **Transition rules** $\mathcal{T}_\ell$: cut inheritance and dual
+  thresholds (via `transition`)
 
 At each level, the cascade solver internally runs an SDDP solver (§6.6)
 with the specified LP and parameters.
@@ -2696,27 +2696,6 @@ variable in a single-bus LP) are skipped.
 the inherited cuts are kept for at most $N$ training iterations, then
 discarded.  The solver re-solves with only self-generated cuts for the
 remaining iteration budget.
-
-#### Target Inheritance (Elastic Constraints)
-
-When level $\ell$ inherits targets from level $\ell{-}1$, state variable
-values (reservoir volumes, battery SoC) from the previous level's
-forward-pass solution are used as **elastic penalty constraints**:
-
-$$
-v_{\ell{-}1} - \delta \;\le\; v + s^- - s^+ \;\le\; v_{\ell{-}1} + \delta
-\qquad s^+, s^- \ge 0
-$$
-
-where:
-- $v_{\ell{-}1}$ = state variable value from previous level's solution
-- $\delta = \max(\rho \cdot |v_{\ell{-}1}|, \;\delta_{\min})$
-- $\rho$ = `target_rtol` (default 0.05 = 5%)
-- $\delta_{\min}$ = `target_min_atol` (default 1.0)
-- $s^+, s^-$ have objective cost `target_penalty` (default 500) per unit
-
-The target constraints guide the optimizer towards the previous level's
-solution trajectory without creating hard infeasibility.
 
 #### Iteration Budget
 
@@ -2751,7 +2730,7 @@ level is active.
 ```
 Pattern 1: Uninodal → Full Network (2 levels)
   Level 0: use_single_bus=true, Benders (no apertures), fast convergence
-  Level 1: use_kirchhoff=true, SDDP with apertures, inherits targets
+  Level 1: use_kirchhoff=true, SDDP with apertures, inherits cuts
 
 Pattern 2: Training → Refinement (2 levels, same LP)
   Level 0: N iterations, generate cuts
@@ -2759,7 +2738,7 @@ Pattern 2: Training → Refinement (2 levels, same LP)
 
 Pattern 3: Progressive (3 levels)
   Level 0: uninodal Benders → rough trajectory
-  Level 1: full network + targets from L0 → guided convergence
+  Level 1: full network + cuts from L0 → guided convergence
   Level 2: reuse L1's LP + inherit cuts from L1 → fast final refinement
 ```
 
@@ -2999,8 +2978,7 @@ mathematical symbols used in this formulation.
 - **[Monolithic Solver](../methods/monolithic.md)** — Default solver
   description, boundary cuts, and equivalence with SDDP.
 - **[Cascade Solver](../methods/cascade.md)** — Multi-level hybrid SDDP
-  solver with cut inheritance, target inheritance, and progressive
-  LP refinement.
+  solver with cut inheritance and progressive LP refinement.
 
 ---
 

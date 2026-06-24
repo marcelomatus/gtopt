@@ -20,44 +20,26 @@ TEST_CASE("CascadeTransition - Default construction")
   const CascadeTransition tr {};
 
   CHECK_FALSE(tr.inherit_optimality_cuts.has_value());
-  CHECK_FALSE(tr.inherit_targets.has_value());
-  CHECK_FALSE(tr.target_rtol.has_value());
-  CHECK_FALSE(tr.target_min_atol.has_value());
-  CHECK_FALSE(tr.target_penalty.has_value());
 }
 
 TEST_CASE("CascadeTransition - Construction with all fields")
 {
   const CascadeTransition tr {
       .inherit_optimality_cuts = -1,
-      .inherit_targets = 10,
-      .target_rtol = 0.05,
-      .target_min_atol = 1.0,
-      .target_penalty = 500.0,
   };
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_targets.has_value());
-  CHECK(*tr.inherit_targets == 10);
-  REQUIRE(tr.target_rtol.has_value());
-  CHECK(*tr.target_rtol == doctest::Approx(0.05));
-  REQUIRE(tr.target_min_atol.has_value());
-  CHECK(*tr.target_min_atol == doctest::Approx(1.0));
-  REQUIRE(tr.target_penalty.has_value());
-  CHECK(*tr.target_penalty == doctest::Approx(500.0));
 }
 
 TEST_CASE("CascadeTransition - Merge (overlay wins)")
 {
   CascadeTransition base {
       .inherit_optimality_cuts = -1,
-      .target_rtol = 0.05,
   };
 
   const CascadeTransition overlay {
       .inherit_optimality_cuts = 10,
-      .target_penalty = 1000.0,
   };
 
   base.merge(overlay);
@@ -65,16 +47,20 @@ TEST_CASE("CascadeTransition - Merge (overlay wins)")
   // Overlay wins: set fields overwrite base
   REQUIRE(base.inherit_optimality_cuts.has_value());
   CHECK(*base.inherit_optimality_cuts == 10);
-  REQUIRE(base.target_rtol.has_value());
-  CHECK(*base.target_rtol == doctest::Approx(0.05));
+}
 
-  // New from overlay
-  REQUIRE(base.target_penalty.has_value());
-  CHECK(*base.target_penalty == doctest::Approx(1000.0));
+TEST_CASE("CascadeTransition - Merge keeps base when overlay unset")
+{
+  CascadeTransition base {
+      .inherit_optimality_cuts = -1,
+  };
 
-  // Still unset
-  CHECK_FALSE(base.inherit_targets.has_value());
-  CHECK_FALSE(base.target_min_atol.has_value());
+  const CascadeTransition overlay {};
+
+  base.merge(overlay);
+
+  REQUIRE(base.inherit_optimality_cuts.has_value());
+  CHECK(*base.inherit_optimality_cuts == -1);
 }
 
 // ── CascadeLevelMethod ──────────────────────────────────────────────────────
@@ -465,7 +451,6 @@ TEST_CASE("CascadeLevel - Construction with all fields")
       .transition =
           CascadeTransition {
               .inherit_optimality_cuts = -1,
-              .target_rtol = 0.1,
           },
   };
 
@@ -535,7 +520,6 @@ TEST_CASE("CascadeOptions - Construction with levels")
                   .transition =
                       CascadeTransition {
                           .inherit_optimality_cuts = -1,
-                          .target_rtol = 0.05,
                       },
               },
           },
@@ -721,14 +705,14 @@ TEST_CASE("CascadeLevel - merge adopts nested struct when base lacks one")
   CascadeLevel overlay {
       .transition =
           CascadeTransition {
-              .target_rtol = 0.05,
+              .inherit_optimality_cuts = -1,
           },
   };
   base.merge(std::move(overlay));
 
   REQUIRE(base.transition.has_value());
-  REQUIRE(base.transition->target_rtol.has_value());
-  CHECK(*base.transition->target_rtol == doctest::Approx(0.05));
+  REQUIRE(base.transition->inherit_optimality_cuts.has_value());
+  CHECK(*base.transition->inherit_optimality_cuts == -1);
 }
 
 TEST_CASE("CascadeOptions - same-size level_array is merged element-wise")

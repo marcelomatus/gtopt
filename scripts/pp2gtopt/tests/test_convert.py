@@ -496,13 +496,13 @@ class TestConvertSolverType:
             "full_network",
         ]
 
-    def test_cascade_levels_inherit_targets_and_cuts(self, ieee30b_json):
-        """Transitions on level 2 and 3 inherit state targets + Benders cuts."""
+    def test_cascade_levels_inherit_cuts(self, ieee30b_json):
+        """Transitions on level 2 and 3 inherit Benders cuts."""
         levels = ieee30b_json["options"]["cascade_options"]["level_array"]
         for lv in levels[1:]:
             tr = lv["transition"]
-            assert tr["inherit_targets"] == -1
             assert tr["inherit_optimality_cuts"] == -1
+            assert "inherit_targets" not in tr
 
     def test_sddp_omits_cascade_options(self, tmp_path):
         out = tmp_path / "sddp.json"

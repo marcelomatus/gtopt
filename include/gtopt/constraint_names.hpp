@@ -57,10 +57,6 @@ namespace gtopt
 /// Top-level system-wide constraint rows (e.g. emission cap).
 inline constexpr std::string_view system_class_name = "System";
 
-/// Cascade-method coordinator rows (state-target equality with elastic
-/// slack).
-inline constexpr std::string_view cascade_class_name = "Cascade";
-
 /// SDDP-method coordinator rows / columns (e.g. α future-cost
 /// variables).  Used in row labels where no per-element data-struct
 /// `class_name` applies.
@@ -97,9 +93,6 @@ inline constexpr std::string_view loss_lambda_flow_constraint_name =
 
 /// Kirchhoff Voltage Law cycle constraint (Σ X·P = 0 around a loop).
 inline constexpr std::string_view kirchhoff_cycle_constraint_name = "cycle";
-
-/// Cascade-target / state-link constraint.
-inline constexpr std::string_view cascade_target_constraint_name = "target";
 
 /// Storage / reservoir end-of-horizon closure constraint.
 /// Renamed from the legacy `"eclose"` for clarity.

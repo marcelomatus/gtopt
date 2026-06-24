@@ -927,10 +927,10 @@ def test_hydro_4b_cascade_conversion(tmp_path):
     assert levels[2]["sddp_options"]["max_iterations"] == 60
     assert levels[3]["sddp_options"]["max_iterations"] == 60
 
-    # Transitions on levels 1, 2, 3 inherit targets + optimality cuts
-    assert levels[1]["transition"]["inherit_targets"] == -1
-    assert levels[2]["transition"]["inherit_targets"] == -1
-    assert levels[3]["transition"]["inherit_targets"] == -1
+    # Transitions on levels 1, 2, 3 inherit optimality cuts
+    assert levels[1]["transition"]["inherit_optimality_cuts"] == -1
+    assert levels[2]["transition"]["inherit_optimality_cuts"] == -1
+    assert levels[3]["transition"]["inherit_optimality_cuts"] == -1
 
     # SDDP structure: 3 scenarios → 3 scenes, 3 stages → 3 phases
     sim = data["simulation"]

@@ -26,19 +26,11 @@ template<>
 struct json_data_contract<CascadeTransition>
 {
   using type =
-      json_member_list<json_number_null<"inherit_optimality_cuts", OptInt>,
-                       json_number_null<"inherit_targets", OptInt>,
-                       json_number_null<"target_rtol", OptReal>,
-                       json_number_null<"target_min_atol", OptReal>,
-                       json_number_null<"target_penalty", OptReal>>;
+      json_member_list<json_number_null<"inherit_optimality_cuts", OptInt>>;
 
   constexpr static auto to_json_data(CascadeTransition const& opt)
   {
-    return std::forward_as_tuple(opt.inherit_optimality_cuts,
-                                 opt.inherit_targets,
-                                 opt.target_rtol,
-                                 opt.target_min_atol,
-                                 opt.target_penalty);
+    return std::forward_as_tuple(opt.inherit_optimality_cuts);
   }
 };
 

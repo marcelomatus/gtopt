@@ -348,48 +348,6 @@ def test_fix_cascade_level_negative_convergence_tol(tmp_path: Path):
     )
 
 
-def test_fix_cascade_level_negative_target_rtol(tmp_path: Path):
-    """Negative transition.target_rtol is fixed to 0.05."""
-    p = _write_plan(
-        tmp_path / "plan.json",
-        {"cascade_options": {"levels": [{"transition": {"target_rtol": -0.1}}]}},
-    )
-    result = sanitize_json(p)
-    data = json.loads(result.read_text())
-    assert (
-        data["options"]["cascade_options"]["levels"][0]["transition"]["target_rtol"]
-        == 0.05
-    )
-
-
-def test_fix_cascade_level_negative_target_min_atol(tmp_path: Path):
-    """Negative transition.target_min_atol is fixed to 1.0."""
-    p = _write_plan(
-        tmp_path / "plan.json",
-        {"cascade_options": {"levels": [{"transition": {"target_min_atol": -2.0}}]}},
-    )
-    result = sanitize_json(p)
-    data = json.loads(result.read_text())
-    assert (
-        data["options"]["cascade_options"]["levels"][0]["transition"]["target_min_atol"]
-        == 1.0
-    )
-
-
-def test_fix_cascade_level_negative_target_penalty(tmp_path: Path):
-    """Negative transition.target_penalty is fixed to 500.0."""
-    p = _write_plan(
-        tmp_path / "plan.json",
-        {"cascade_options": {"levels": [{"transition": {"target_penalty": -100}}]}},
-    )
-    result = sanitize_json(p)
-    data = json.loads(result.read_text())
-    assert (
-        data["options"]["cascade_options"]["levels"][0]["transition"]["target_penalty"]
-        == 500.0
-    )
-
-
 def test_fix_cascade_level_negative_num_apertures(tmp_path: Path):
     """Negative solver.num_apertures is fixed to 0."""
     p = _write_plan(
@@ -414,9 +372,6 @@ def test_valid_cascade_levels_pass_through(tmp_path: Path):
         },
         "transition": {
             "inherit_optimality_cuts": False,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500.0,
         },
     }
     p = _write_plan(
@@ -427,8 +382,7 @@ def test_valid_cascade_levels_pass_through(tmp_path: Path):
     data = json.loads(result.read_text())
     out_level = data["options"]["cascade_options"]["levels"][0]
     assert out_level["sddp_options"]["max_iterations"] == 20
-    assert out_level["transition"]["target_rtol"] == 0.05
-    assert out_level["transition"]["target_penalty"] == 500.0
+    assert out_level["transition"]["inherit_optimality_cuts"] is False
 
 
 def test_cascade_multiple_levels_validated(tmp_path: Path):
@@ -575,8 +529,6 @@ def test_cascade_new_structure_full_level(tmp_path: Path):
         },
         "transition": {
             "inherit_optimality_cuts": True,
-            "inherit_targets": False,
-            "target_penalty": 500.0,
             "optimality_dual_threshold": 0.0,
         },
     }
@@ -589,7 +541,7 @@ def test_cascade_new_structure_full_level(tmp_path: Path):
     out = data["options"]["cascade_options"]["levels"][0]
     assert out["sddp_options"]["max_iterations"] == 20
     assert out["model_options"]["use_kirchhoff"] is False
-    assert out["transition"]["target_penalty"] == 500.0
+    assert out["transition"]["inherit_optimality_cuts"] is True
     assert out["transition"]["optimality_dual_threshold"] == 0.0
 
 

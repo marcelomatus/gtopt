@@ -1661,8 +1661,8 @@ a hydro generator, a thermal generator, and a reservoir, decomposed into
 **Level 0 (uninodal Benders)**: solves a copper-plate model quickly, producing
 a rough solution trajectory for reservoir volumes.
 
-**Level 1 (full SDDP with targets)**: builds the full LP and inherits elastic
-target constraints from the Level 0 reservoir volumes, guiding the forward pass.
+**Level 1 (full SDDP with inherited cuts)**: builds the full LP and inherits the
+Benders optimality cuts accumulated at Level 0, warm-starting the lower bound.
 
 ```json
 {
@@ -1699,10 +1699,7 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
             "convergence_tol": 0.001
           },
           "transition": {
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
+            "inherit_optimality_cuts": -1
           }
         }
       ]
@@ -1729,16 +1726,16 @@ target constraints from the Level 0 reservoir volumes, guiding the forward pass.
 │  → Converges quickly (single bus, no Kirchhoff)     │
 │  → Extracts reservoir/battery state trajectories    │
 └──────────────────────┬──────────────────────────────┘
-                       │ targets (elastic constraints)
+                       │ optimality cuts
                        ↓
 ┌─────────────────────────────────────────────────────┐
 │  Level 1: full_sddp                                 │
 │  ┌──────────┐  ┌──────────┐       ┌──────────┐     │
 │  │ Phase 1   │→ │ Phase 2   │→ … → │ Phase T   │    │
-│  │ + targets │  │ + targets │      │ + targets │    │
+│  │ + cuts    │  │ + cuts    │      │ + cuts    │    │
 │  └──────────┘  └──────────┘       └──────────┘     │
 │                                                     │
-│  → Guided by Level 0 state trajectory               │
+│  → Warm-started by Level 0 optimality cuts          │
 │  → Converges in fewer iterations than from scratch  │
 └─────────────────────────────────────────────────────┘
 ```
@@ -1759,7 +1756,7 @@ stationary-gap criterion is enabled):
 ...
 [info] SDDP iter 8: gap=0.002000 gap_change=0.800000 cuts=24 [CONVERGED]
 [info] ═══ Cascade level 1: full_sddp ═══
-[info] Injecting 9 elastic targets from previous level
+[info] Inheriting 9 optimality cuts from previous level
 [info] SDDP iter 1: gap=0.016000 gap_change=1.000000 cuts=3
 ...
 [info] SDDP iter 5: gap=0.000300 gap_change=0.005000 cuts=15 [CONVERGED]
@@ -1808,10 +1805,7 @@ the solver strategy:
             "apertures": []
           },
           "transition": {
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
+            "inherit_optimality_cuts": -1
           }
         },
         {
@@ -1834,9 +1828,9 @@ the solver strategy:
 ```text
 Level 0 (benders_uninodal)           Level 1 (guided_full_network)     Level 2 (refined_with_cuts)
 ┌──────────────────────┐             ┌──────────────────────┐          ┌──────────────────────┐
-│ Single-bus Benders    │   targets   │ Full network SDDP    │  cuts    │ Same LP, inherits    │
+│ Single-bus Benders    │   cuts      │ Full network SDDP    │  cuts    │ Same LP, inherits    │
 │ • Fast convergence    │───────────→ │ • Kirchhoff enabled  │────────→ │ • Warm-started LB    │
-│ • Rough trajectory    │             │ • Guided by L0 state │          │ • Fewer iterations   │
+│ • Rough trajectory    │             │ • Warm-start by L0   │          │ • Fewer iterations   │
 │ • Generates base cuts │             │ • Better cuts        │          │ • Final convergence  │
 └──────────────────────┘             └──────────────────────┘          └──────────────────────┘
 ```
@@ -1887,7 +1881,7 @@ after the solve completes.
 - **[SDDP Method](methods/sddp.md)** — SDDP solver: convergence
   theory, cut sharing, elastic filter, monitoring API
 - **[Cascade Method](methods/cascade.md)** — Cascade solver:
-  multi-level hybrid SDDP with cut and target inheritance
+  multi-level hybrid SDDP with optimality-cut inheritance
 - **[Monolithic Method](methods/monolithic.md)** — Default monolithic
   solver, boundary cuts, and sequential mode
 - `scripts/gtopt_field_extractor.py` — Auto-generate field-reference tables

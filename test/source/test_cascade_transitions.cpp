@@ -89,72 +89,6 @@ TEST_CASE("Cascade level aperture semantics")  // NOLINT
   }
 }
 
-// ─── Multi-level with transitions ──────────────────────────────────────────
-
-TEST_CASE("Cascade 2-level with target inheritance")  // NOLINT
-{
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-
-  auto planning = make_3phase_hydro_planning();
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions base;
-  base.max_iterations = 20;
-  base.convergence_tol = 0.01;
-  base.apertures = std::vector<Uid> {};
-
-  CascadeOptions cascade;
-  cascade.level_array = {
-      CascadeLevel {
-          .name = OptName {"benders"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {3},
-                  .apertures = Array<Uid> {},
-              },
-      },
-      CascadeLevel {
-          .name = OptName {"sddp_with_targets"},
-          .model_options =
-              ModelOptions {
-                  .use_single_bus = OptBool {true},
-              },
-          .sddp_options =
-              CascadeLevelMethod {
-                  .max_iterations = OptInt {5},
-                  .apertures = Array<Uid> {},
-              },
-          .transition =
-              CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.10},
-                  .target_min_atol = OptReal {1.0},
-                  .target_penalty = OptReal {500.0},
-              },
-      },
-  };
-
-  CascadePlanningMethod solver(std::move(base), std::move(cascade));
-  const SolverOptions lp_opts;
-  auto result = solver.solve(planning_lp, lp_opts);
-
-  SUBCASE("solve succeeds")
-  {
-    REQUIRE(result.has_value());
-  }
-
-  SUBCASE("results from both levels")
-  {
-    // 2 levels: (up to 3 + 1 final fwd) + (up to 5 + 1 final fwd) = 10
-    CHECK(solver.all_results().size() >= 2);
-    CHECK(solver.all_results().size() <= 10);
-  }
-}
-
 // ─── Multi-level with cut inheritance ──────────────────────────────────────
 
 TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
@@ -293,10 +227,7 @@ TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
               },
           .transition =
               CascadeTransition {
-                  .inherit_targets = OptInt {-1},
-                  .target_rtol = OptReal {0.05},
-                  .target_min_atol = OptReal {0.5},
-                  .target_penalty = OptReal {300.0},
+                  .inherit_optimality_cuts = OptInt {-1},
               },
       },
       CascadeLevel {
@@ -313,8 +244,6 @@ TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_penalty = OptReal {200.0},
               },
       },
   };
@@ -371,8 +300,6 @@ TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
           .transition =
               CascadeTransition {
                   .inherit_optimality_cuts = OptInt {-1},
-                  .inherit_targets = OptInt {-1},
-                  .target_penalty = OptReal {500.0},
               },
       },
   };

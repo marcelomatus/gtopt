@@ -860,8 +860,8 @@ TEST_CASE(
   li.save_base_numrows();
   const auto base_nrows = li.base_numrows();
 
-  // Add a structural row AFTER the snapshot was taken, simulating the
-  // cascade `add_elastic_targets` path.  Constraint: x2 >= 3 (binding —
+  // Add a structural row AFTER the snapshot was taken, simulating a
+  // dynamic structural row added post-snapshot.  Constraint: x2 >= 3 (binding —
   // baseline optimum was x1=5, x2=0).  Auto-record is intentionally
   // limited to `add_col(SparseCol)` (cols are unambiguously structural
   // post-init); rows are ambiguous (cuts also use add_row + their own
@@ -893,7 +893,7 @@ TEST_CASE(
     "LinearInterface — cascade pattern: dynamic_col + dynamic_row "
     "registered together survive reconstruct")  // NOLINT
 {
-  // End-to-end shape of the cascade `add_elastic_targets` call: add 2
+  // End-to-end shape of a dynamic structural-row + slack-col add: add 2
   // slack columns + 1 elastic constraint row that references both, then
   // release_backend / reconstruct_backend in compress mode and verify
   // the LP solves identically afterwards.  Reproduces the exact pattern
@@ -911,8 +911,8 @@ TEST_CASE(
   li.save_base_numrows();
   const auto base_nrows = li.base_numrows();
 
-  // 2 slack columns + elastic constraint row (same shape cascade uses
-  // for tgt_sup / tgt_sdn).  `add_col(SparseCol)` auto-records into
+  // 2 slack columns + elastic constraint row (the generic
+  // dynamic-structural shape).  `add_col(SparseCol)` auto-records into
   // `m_dynamic_cols_`; rows still need an explicit
   // `record_dynamic_row` because `add_row(SparseRow)` is also used by
   // cut callers (who route through `record_cut_row` instead).

@@ -42,10 +42,7 @@ TEST_CASE("Cascade 3-level uninodal-transport-full on 2-bus hydro")  // NOLINT
   sddp_opts.apertures = std::vector<Uid> {};
 
   const CascadeTransition target_transition {
-      .inherit_targets = OptInt {-1},
-      .target_rtol = OptReal {0.05},
-      .target_min_atol = OptReal {1.0},
-      .target_penalty = OptReal {500.0},
+      .inherit_optimality_cuts = OptInt {-1},
   };
 
   CascadeOptions cascade_opts;
@@ -167,10 +164,7 @@ TEST_CASE("Cascade 3-level on 6-phase 2-bus hydro system")  // NOLINT
   sddp_opts.apertures = std::vector<Uid> {};
 
   const CascadeTransition target_transition {
-      .inherit_targets = OptInt {-1},
-      .target_rtol = OptReal {0.05},
-      .target_min_atol = OptReal {1.0},
-      .target_penalty = OptReal {500.0},
+      .inherit_optimality_cuts = OptInt {-1},
   };
 
   CascadeOptions cascade_opts;
@@ -361,10 +355,6 @@ TEST_CASE(  // NOLINT
 
     const CascadeTransition inherit_all {
         .inherit_optimality_cuts = OptInt {-1},
-        .inherit_targets = OptInt {-1},
-        .target_rtol = OptReal {0.05},
-        .target_min_atol = OptReal {1.0},
-        .target_penalty = OptReal {500.0},
     };
 
     CascadeOptions cascade;

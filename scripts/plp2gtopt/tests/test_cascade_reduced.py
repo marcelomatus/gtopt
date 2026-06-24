@@ -232,7 +232,7 @@ def test_l1_and_l2_carry_transition_with_inherit_cuts() -> None:
     for lvl in levels[1:]:
         tr = lvl["transition"]
         assert tr["inherit_optimality_cuts"] == -1
-        assert tr["inherit_targets"] == -1
+        assert "inherit_targets" not in tr
 
 
 # ─── Path stem comes from output_file ─────────────────────────────────────

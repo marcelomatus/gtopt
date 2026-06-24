@@ -36,31 +36,6 @@
 namespace gtopt
 {
 
-// ─── State variable target ──────────────────────────────────────────────────
-
-/// State variable target for cross-LP transfer (using structured key).
-/// Matches by (class_name, col_name, uid) — no LP name strings needed.
-struct StateTarget
-{
-  std::string class_name {};  ///< Element class (e.g. "Reservoir")
-  std::string col_name {};  ///< Variable name (e.g. "efin")
-  Uid uid {unknown_uid};  ///< Element UID
-  LpContext context {};  ///< LP hierarchy context
-  SceneIndex scene_index {};
-  PhaseIndex phase_index {};
-  double target_value {};  ///< Physical-space value from previous level's
-                           ///< forward pass (= `col_sol_physical()`).
-                           ///< Used directly as a row bound by
-                           ///< `add_elastic_targets`, where the row's
-                           ///< unit coefficient on the dependent column
-                           ///< is post-flatten composed with
-                           ///< `col_scale_target` so the row reads in
-                           ///< physical space.
-  double var_scale {1.0};  ///< Physical-to-LP scale of the source
-                           ///< variable (informational; bound math uses
-                           ///< the physical `target_value` directly).
-};
-
 // ─── Per-level statistics ────────────────────────────────────────────────────
 
 /// Statistics collected for each cascade level after solving.
@@ -145,16 +120,6 @@ private:
   /// Clone Planning data with model option overrides applied.
   [[nodiscard]] static auto clone_planning_with_overrides(
       const Planning& source, const ModelOptions& model_opts) -> Planning;
-
-  /// Collect state variable targets from a solved level.
-  [[nodiscard]] static auto collect_state_targets(const SDDPMethod& solver,
-                                                  const PlanningLP& planning_lp)
-      -> std::vector<StateTarget>;
-
-  /// Add elastic target constraints to a PlanningLP using state targets.
-  static void add_elastic_targets(PlanningLP& planning_lp,
-                                  const std::vector<StateTarget>& targets,
-                                  const CascadeTransition& transition);
 
   /// Clear all cut rows (>= base_nrows) from every (scene, phase) LP.
   static void clear_all_cuts(PlanningLP& planning_lp, const SDDPMethod& solver);

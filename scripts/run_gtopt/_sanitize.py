@@ -333,30 +333,6 @@ def _validate_cascade_options(cascade: dict, messages: list[str]) -> None:
         # ── transition sub-object ──
         transition = level.get("transition", {})
         if isinstance(transition, dict):
-            target_rtol = transition.get("target_rtol")
-            if target_rtol is not None and target_rtol < 0:
-                messages.append(
-                    f"FIX: cascade level[{i}] transition.target_rtol must be >= 0, "
-                    "setting to 0.05"
-                )
-                transition["target_rtol"] = 0.05
-
-            target_atol = transition.get("target_min_atol")
-            if target_atol is not None and target_atol < 0:
-                messages.append(
-                    f"FIX: cascade level[{i}] transition.target_min_atol must be >= 0, "
-                    "setting to 1.0"
-                )
-                transition["target_min_atol"] = 1.0
-
-            target_penalty = transition.get("target_penalty")
-            if target_penalty is not None and target_penalty < 0:
-                messages.append(
-                    f"FIX: cascade level[{i}] transition.target_penalty must be >= 0, "
-                    "setting to 500.0"
-                )
-                transition["target_penalty"] = 500.0
-
             opt_dual_thr = transition.get("optimality_dual_threshold")
             if opt_dual_thr is not None and opt_dual_thr < 0:
                 messages.append(

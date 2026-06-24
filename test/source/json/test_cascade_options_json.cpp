@@ -19,42 +19,25 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("CascadeTransition JSON - Full deserialization")
 {
   const std::string_view json_data = R"({
-    "inherit_optimality_cuts": -1,
-    "inherit_targets": 10,
-    "target_rtol": 0.05,
-    "target_min_atol": 1.0,
-    "target_penalty": 500.0
+    "inherit_optimality_cuts": -1
   })";
 
   const auto tr = daw::json::from_json<CascadeTransition>(json_data);
 
   REQUIRE(tr.inherit_optimality_cuts.has_value());
   CHECK(*tr.inherit_optimality_cuts == -1);
-  REQUIRE(tr.inherit_targets.has_value());
-  CHECK(*tr.inherit_targets == 10);
-  REQUIRE(tr.target_rtol.has_value());
-  CHECK(*tr.target_rtol == doctest::Approx(0.05));
-  REQUIRE(tr.target_min_atol.has_value());
-  CHECK(*tr.target_min_atol == doctest::Approx(1.0));
-  REQUIRE(tr.target_penalty.has_value());
-  CHECK(*tr.target_penalty == doctest::Approx(500.0));
 }
 
 TEST_CASE("CascadeTransition JSON - Round-trip")
 {
   const CascadeTransition original {
       .inherit_optimality_cuts = -1,
-      .target_rtol = 0.1,
-      .target_penalty = 1000.0,
   };
 
   const auto json = daw::json::to_json(original);
   const auto rt = daw::json::from_json<CascadeTransition>(json);
 
   CHECK(rt.inherit_optimality_cuts == original.inherit_optimality_cuts);
-  CHECK(rt.target_rtol == original.target_rtol);
-  CHECK(rt.target_penalty == original.target_penalty);
-  CHECK_FALSE(rt.inherit_targets.has_value());
 }
 
 // ── CascadeLevelMethod JSON ─────────────────────────────────────────────────
@@ -125,8 +108,7 @@ TEST_CASE("CascadeLevel JSON - Full deserialization")
       "convergence_tol": 1e-3
     },
     "transition": {
-      "inherit_optimality_cuts": -1,
-      "target_rtol": 0.1
+      "inherit_optimality_cuts": -1
     }
   })";
 
@@ -197,8 +179,7 @@ TEST_CASE("CascadeOptions JSON - Full deserialization with levels")
         "model_options": { "use_single_bus": false },
         "sddp_options": { "max_iterations": 100 },
         "transition": {
-          "inherit_optimality_cuts": -1,
-          "target_rtol": 0.05
+          "inherit_optimality_cuts": -1
         }
       }
     ]
@@ -220,7 +201,6 @@ TEST_CASE("CascadeOptions JSON - Full deserialization with levels")
   CHECK(*opts.level_array[1].model_options->use_single_bus == false);
   REQUIRE(opts.level_array[1].transition.has_value());
   CHECK(*opts.level_array[1].transition->inherit_optimality_cuts == -1);
-  CHECK(*opts.level_array[1].transition->target_rtol == doctest::Approx(0.05));
 }
 
 TEST_CASE("CascadeOptions JSON - Empty level_array")

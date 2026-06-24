@@ -212,11 +212,8 @@ def check_cascade_levels(planning: dict[str, Any]) -> list[Finding]:
     Validates:
     - Each level has a ``name``.
     - Level 0 should not have a ``transition`` (nothing to inherit from).
-    - ``transition.target_penalty`` > 0 when ``inherit_targets`` is true.
-    - ``transition.target_rtol`` in (0, 1] when present.
     - ``sddp_options.max_iterations`` >= 0 in each level.
     - ``sddp_options.convergence_tol`` in (0, 1) when present.
-    - Warn if both ``inherit_optimality_cuts`` and ``inherit_targets`` are true.
     """
     findings: list[Finding] = []
     opts = planning.get("options", {})
@@ -253,53 +250,6 @@ def check_cascade_levels(planning: dict[str, Any]) -> list[Finding]:
                     ),
                 )
             )
-
-        if transition is not None:
-            inherit_targets = transition.get("inherit_targets", False)
-            inherit_cuts = transition.get("inherit_optimality_cuts", False)
-
-            # target_penalty should be > 0 when inherit_targets is true
-            target_penalty = transition.get("target_penalty")
-            if inherit_targets and target_penalty is not None and target_penalty <= 0:
-                findings.append(
-                    Finding(
-                        check_id="cascade_levels",
-                        severity=Severity.WARNING,
-                        message=(
-                            f"Cascade level '{label}': "
-                            f"target_penalty={target_penalty} should be "
-                            f"> 0 when inherit_targets is true"
-                        ),
-                    )
-                )
-
-            # target_rtol should be in (0, 1] when present
-            target_rtol = transition.get("target_rtol")
-            if target_rtol is not None and (target_rtol <= 0 or target_rtol > 1):
-                findings.append(
-                    Finding(
-                        check_id="cascade_levels",
-                        severity=Severity.CRITICAL,
-                        message=(
-                            f"Cascade level '{label}': "
-                            f"target_rtol={target_rtol} must be in (0, 1]"
-                        ),
-                    )
-                )
-
-            # Warn if both inherit_optimality_cuts and inherit_targets
-            if inherit_cuts and inherit_targets:
-                findings.append(
-                    Finding(
-                        check_id="cascade_levels",
-                        severity=Severity.NOTE,
-                        message=(
-                            f"Cascade level '{label}': both "
-                            f"inherit_optimality_cuts and inherit_targets "
-                            f"are true (unusual but valid)"
-                        ),
-                    )
-                )
 
         # sddp_options validation within each level
         sddp = level.get("sddp_options")

@@ -395,10 +395,6 @@ forgetting semantics and the two-phase solve behavior.
 | Field                        | Type    | Default | Description |
 |------------------------------|---------|---------|-------------|
 | `inherit_optimality_cuts`    | integer | `0`     | `0` = do not inherit; `-1` = inherit and keep forever; `N > 0` = inherit, then forget after N training iterations |
-| `inherit_targets`            | integer | `0`     | `0` = no targets; `-1` = inherit forever; `N > 0` = inherit with forgetting |
-| `target_rtol`                | number  | `0.05`  | Relative tolerance for target band (fraction of abs(v)) |
-| `target_min_atol`            | number  | `1.0`   | Minimum absolute tolerance for target band |
-| `target_penalty`             | number  | `500`   | Elastic penalty cost per unit target violation |
 | `optimality_dual_threshold`  | number  | `0.0`   | Minimum abs(dual) threshold for transferring cuts. Cuts with abs(dual) below this are skipped. 0 = transfer all |
 
 **SDDP example:**
@@ -460,10 +456,7 @@ forgetting semantics and the two-phase solve behavior.
             "apertures": [1, 2, 3]
           },
           "transition": {
-            "inherit_targets": true,
-            "target_rtol": 0.05,
-            "target_min_atol": 1.0,
-            "target_penalty": 500
+            "inherit_optimality_cuts": true
           }
         },
         {
