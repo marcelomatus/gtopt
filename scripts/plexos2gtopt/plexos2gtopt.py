@@ -482,6 +482,16 @@ def convert_plexos_bundle(options: dict[str, Any]) -> int:
                 )
                 mono["boundary_cuts_file"] = cut_file
 
+        # Seed the monolithic UC solve with a starting commitment (the
+        # ``lp_round`` MIP-start) so it bypasses the "incumbent cliff": CPLEX's
+        # node-0 heuristic otherwise lands a garbage incumbent and grinds a
+        # ~140 % gap for thousands of nodes (or times out on the hard weeks),
+        # while the root LP bound is already near-optimal.  ``effort`` defaults
+        # to ``repair`` in gtopt; disable per-run with
+        # ``--set monolithic_options.mip_start.method=none``.
+        mono = planning.setdefault("options", {}).setdefault("monolithic_options", {})
+        mono.setdefault("mip_start", {})["method"] = "lp_round"
+
         # Move user constraints into modular per-family ``.pampl`` files
         # (loaded via ``system.user_constraint_files``).  Constraints with
         # a per-block ``rhs`` profile stay inline in the JSON.
