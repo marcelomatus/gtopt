@@ -28,10 +28,12 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -78,6 +80,33 @@ struct AmplVariableKey
 
   [[nodiscard]] friend auto operator<=>(
       const AmplVariableKey&, const AmplVariableKey&) noexcept = default;
+};
+
+/// Hasher for `AmplVariableKey` so the registry can use an
+/// `unordered_map`.  The registry is built incrementally — one
+/// `insert_or_assign` per (element, attribute, scenario, stage) during
+/// every element's `add_to_lp` — which on a CEN-scale SDDP case is
+/// hundreds of thousands of insertions.  A sorted `flat_map` made each
+/// of those an O(N) tail-shift of the large `AmplVariable` values
+/// (O(N²) overall, ~70 % of the solve on the profiled case); a hash map
+/// keeps insertion O(1) amortised with no element moves (the values are
+/// node-stable, which also keeps any `find_ampl_cols` span valid).  All
+/// key components are individually hashable (`Uid`/`Index` are integral;
+/// the `*Uid` strong types carry `strong::hashable`).
+struct AmplVariableKeyHash
+{
+  [[nodiscard]] std::size_t operator()(
+      const AmplVariableKey& key) const noexcept
+  {
+    std::size_t seed = std::hash<std::string_view> {}(key.class_name);
+    const auto mix = [&seed](std::size_t value) noexcept
+    { seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U); };
+    mix(std::hash<Uid> {}(key.element_uid));
+    mix(std::hash<std::string_view> {}(key.attribute));
+    mix(std::hash<ScenarioUid> {}(key.scenario_uid));
+    mix(std::hash<StageUid> {}(key.stage_uid));
+    return seed;
+  }
 };
 
 /// Registry value: one of three shapes for the registered attribute —
@@ -228,7 +257,8 @@ struct AmplVariable
 using AmplElementNameKey = std::pair<std::string_view, std::string_view>;
 
 /// Variable registry: (class_name, uid, attribute, scenario, stage) -> cols.
-using AmplVariableMap = flat_map<AmplVariableKey, AmplVariable>;
+using AmplVariableMap =
+    std::unordered_map<AmplVariableKey, AmplVariable, AmplVariableKeyHash>;
 
 /// Name registry: (class_name, name) -> element uid.
 using AmplElementNameMap = flat_map<AmplElementNameKey, Uid>;
