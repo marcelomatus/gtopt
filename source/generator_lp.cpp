@@ -522,13 +522,9 @@ bool GeneratorLP::add_to_lp(SystemContext& sc,
   }
   if (!ucols.empty()) {
     unserved_cols[st_key] = std::move(ucols);
-    // Register the PAMPL-visible `unserved` slack columns.
-    sc.add_ampl_variable(ampl_name,
-                         guid,
-                         UnservedName,
-                         scenario,
-                         stage,
-                         unserved_cols.at(st_key));
+    // `unserved` is the soft-pmin shortfall slack — an internal LP column
+    // (kept for output and the pmin_soft row) with no user-constraint use
+    // case, so it is NOT registered as an AMPL attribute.
   }
 
   // `capainst` is registered centrally by CapacityBase::add_to_lp.

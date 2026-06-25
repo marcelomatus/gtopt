@@ -854,30 +854,10 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
 
   // `line.flow` is registered DIRECTLY by `LineLP::add_to_lp` as a signed
   // weighted sum of the underlying flowp/flown(/flows) columns, so it
-  // needs no class-level compound here (and flowp/flown are no longer
-  // registered as AMPL attributes for the compound to reference).
-  {
-    constexpr auto line_class = Line::class_name.snake_case();
-    // Class-level compound: `line.loss = +lossp + lossn`.  Mirrors
-    // the unified `Line/loss_sol.parquet` output stream (which is
-    // `LP(lossp) + LP(lossn)` per cell — total dissipated energy
-    // regardless of direction).  Under the arbitrage-free PWL modes
-    // at most one of the two legs is populated per block; the compound
-    // resolves correctly either way because the leg whose attribute
-    // isn't registered on this (uid, block) silently contributes 0.
-    sim.add_ampl_compound(line_class,
-                          LineLP::LossName,
-                          {
-                              AmplCompoundLeg {
-                                  .coefficient = +1.0,
-                                  .source_attribute = LineLP::LosspName,
-                              },
-                              AmplCompoundLeg {
-                                  .coefficient = +1.0,
-                                  .source_attribute = LineLP::LossnName,
-                              },
-                          });
-  }
+  // needs no class-level compound here.  `line.loss` (the +lossp +lossn
+  // aggregate) and the lossp/lossn legs are no longer exposed as AMPL
+  // attributes — they have no user-constraint use case — so the former
+  // loss compound is gone too.
 
   // Class-level compound: `converter.flow = +discharge − charge`.
   // Mirrors `line.flow`: positive when the converter discharges the

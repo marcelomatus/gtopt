@@ -573,27 +573,15 @@ bool LineLP::add_to_lp(SystemContext& sc,
   // ── Register PAMPL-visible columns ────────────────────────────────
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
   //
-  // Only `line.flow`, `line.loss` and the overload slacks are exposed to
-  // user constraints.  The per-direction `flowp` / `flown` / `flows`
-  // columns are internal LP decompositions (two-variable flow split,
-  // piecewise-direct segments, or the tangent-signed single column) and
-  // are NOT registered as AMPL attributes — `flow` below folds them into
-  // one signed weighted sum.
+  // `line.flow` is the ONLY AMPL-exposed line attribute.  The
+  // per-direction flow columns (`flowp` / `flown` / `flows`), the loss
+  // legs (`lossp` / `lossn`) and the overload slacks (`overloadp` /
+  // `overloadn`) are internal LP decompositions with no user-constraint
+  // use case and are NOT registered as AMPL attributes — they remain real
+  // LP columns (used for KVL/loss rows and output), just not addressable
+  // from PAMPL.  `flow` below folds the signed flow columns into one
+  // weighted sum.
   //
-  // `register_if_present` registers a single-col / sum-of-cols holder
-  // under `attribute`, ADL-picking the `add_ampl_variable` overload by
-  // `it->second`'s value type.  Look up via `.find()` and silently no-op
-  // when the outer (s,t) key is absent — equivalent to "no LP cols here".
-  const auto register_if_present =
-      [&](std::string_view attribute, const auto& cols)
-  {
-    const auto it = cols.find(st_key);
-    if (it == cols.end() || it->second.empty()) {
-      return;
-    }
-    sc.add_ampl_variable(
-        ampl_name, uid(), attribute, scenario, stage, it->second);
-  };
   // ── line.flow — the ONLY AMPL-exposed flow attribute ──────────────
   // The signed physical flow, registered DIRECTLY as a weighted sum of
   // the underlying direction columns instead of as a resolve-time
@@ -629,11 +617,6 @@ bool LineLP::add_to_lp(SystemContext& sc,
     sc.add_ampl_variable(
         ampl_name, uid(), FlowName, scenario, stage, flow_weighted);
   }
-
-  register_if_present(LosspName, lossp_cols);
-  register_if_present(LossnName, lossn_cols);
-  register_if_present(OverloadpName, overloadp_cols);
-  register_if_present(OverloadnName, overloadn_cols);
 
   return true;
 }
