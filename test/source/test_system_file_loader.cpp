@@ -21,6 +21,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/system_file_loader.hpp>
+#include <unistd.h>  // getpid
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -41,8 +42,14 @@ namespace
 
 [[nodiscard]] std::filesystem::path sfl_make_unique_dir(std::string_view tag)
 {
+  // PID-qualify so the dir is genuinely unique per process — distinct tags
+  // already avoid collisions WITHIN one ctest run, but without the pid two
+  // concurrent runs of the suite (CI shards, a developer re-running) would
+  // share `gtopt_sfl_<tag>` and the remove_all() below could delete the
+  // other run's files mid-test.
   auto dir = sfl_tmp_base()
-      / std::filesystem::path(std::string("gtopt_sfl_") + std::string(tag));
+      / std::filesystem::path(std::string("gtopt_sfl_") + std::string(tag) + "_"
+                              + std::to_string(::getpid()));
   std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir);
   return dir;

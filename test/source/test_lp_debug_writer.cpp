@@ -88,7 +88,9 @@ TEST_CASE("LpDebugWriter with non-empty directory is active")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
-  const LpDebugWriter writer("/tmp/lp_dbg_active_test");
+  const LpDebugWriter writer(
+      (std::filesystem::temp_directory_path() / "gtopt_lp_dbg_active_test")
+          .string());
   CHECK(writer.is_active());
 }
 

@@ -3221,8 +3221,10 @@ inline auto read_efin_row_dual(PlanningLP& planning_lp,
     const int my_idx = dump_idx.fetch_add(1);
     if (my_idx < 4 && reservoir_index == 0) {
       const char* solver = std::getenv("GTOPT_SOLVER");
-      const std::string fname = std::format(
-          "/tmp/efin_lp_{}_{}", solver ? solver : "default", my_idx);
+      const std::string fname =
+          (std::filesystem::temp_directory_path()
+           / std::format("efin_lp_{}_{}", solver ? solver : "default", my_idx))
+              .string();
       [[maybe_unused]] auto write_result = li.write_lp(fname);
       spdlog::info(
           "DIAG: wrote LP dump to {}.lp (numrows={} numcols={} "
