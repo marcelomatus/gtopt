@@ -12,9 +12,13 @@
  * validated separately by the benchmark on a real cliff case.
  */
 
+#include <array>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/json/json_monolithic_options.hpp>
+#include <gtopt/linear_interface.hpp>
 #include <gtopt/mip_start.hpp>
 #include <gtopt/monolithic_enums.hpp>
 #include <gtopt/solver_enums.hpp>
@@ -126,6 +130,172 @@ TEST_CASE("make_mip_start_generator factory")  // NOLINT
   {
     CHECK(make_mip_start_generator(MipStartMethod::none) == nullptr);
   }
+}
+
+// ── Generator behaviour (solved-relaxation → rounded start) ───────────────
+//
+// These exercise the actual algorithm in `LpRoundMipStart` /
+// `RelaxFixMipStart` (and the internal `round_with_threshold` /
+// `repair_run_lengths` helpers) through the public `generate()` surface.
+// A tiny LP is built directly on a LinearInterface, solved as a
+// continuous relaxation with known column values, then handed to the
+// generator.  `int_cols` are the columns to round (kept continuous here;
+// the generator only needs their indices).  Any LP solver suffices — no
+// MIP solver required.
+
+// Pin column `col` to the constant `v` with an equality row, so the
+// relaxation has a deterministic value at that column.
+namespace
+{
+void pin_col(LinearInterface& li, ColIndex col, double v)
+{
+  const auto r = li.add_row(SparseRow {.lowb = v, .uppb = v});
+  li.set_coeff(r, col, 1.0);
+}
+}  // namespace
+
+TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
+{
+  LinearInterface li;
+  // cols 0,1 are the "integer" columns to round; col 2 is a pure
+  // continuous column the generator must leave untouched.
+  const auto x0 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto x1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto cc = li.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 0.0});
+  pin_col(li, x0, 0.7);
+  pin_col(li, x1, 0.2);
+  pin_col(li, cc, 3.0);
+  REQUIRE(li.get_numcols() == 3);
+  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
+  REQUIRE(li.is_optimal());
+
+  const std::array<int, 2> int_cols {0, 1};
+  const SolverOptions relax_opts {.log_level = 0};
+  auto gen = make_mip_start_generator(MipStartMethod::lp_round);
+  REQUIRE(gen != nullptr);
+
+  SUBCASE("threshold 0.5 — 0.7 rounds up, 0.2 rounds down")
+  {
+    MipStartOptions opts;
+    opts.round_threshold = 0.5;
+    MipStartContext ctx {.li = li,
+                         .relax_opts = relax_opts,
+                         .int_cols = int_cols,
+                         .opts = opts,
+                         .commitments = {}};
+    const auto start = gen->generate(ctx);
+    REQUIRE(start.has_value());
+    REQUIRE(start->size() == 3);
+    CHECK((*start)[0] == doctest::Approx(1.0));  // 0.7 → 1
+    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
+    CHECK((*start)[2] == doctest::Approx(3.0));  // continuous, untouched
+  }
+
+  SUBCASE("threshold 0.8 — 0.7 now rounds down")
+  {
+    MipStartOptions opts;
+    opts.round_threshold = 0.8;
+    MipStartContext ctx {.li = li,
+                         .relax_opts = relax_opts,
+                         .int_cols = int_cols,
+                         .opts = opts,
+                         .commitments = {}};
+    const auto start = gen->generate(ctx);
+    REQUIRE(start.has_value());
+    CHECK((*start)[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
+    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
+  }
+}
+
+TEST_CASE(
+    "MipStart lp_round repairs min-up/down run-length violations")  // NOLINT
+{
+  // Four unit-status columns rounding to on,on,off,on with min_down=2h and
+  // 1h blocks: the single 1h OFF period is shorter than min_down, so the
+  // greedy repair suppresses the off→on transition, extending the OFF run —
+  // i.e. the last column is flipped 1→0.
+  LinearInterface li;
+  const auto s0 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  const auto s1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  const auto s2 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  const auto s3 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  pin_col(li, s0, 0.9);  // → 1
+  pin_col(li, s1, 0.9);  // → 1
+  pin_col(li, s2, 0.1);  // → 0
+  pin_col(li, s3, 0.9);  // → 1 (repaired to 0)
+  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
+  REQUIRE(li.is_optimal());
+
+  const std::array<int, 4> int_cols {0, 1, 2, 3};
+  const std::array<CommitmentRunInfo, 1> commitments {CommitmentRunInfo {
+      .min_up_hours = 1.0,
+      .min_down_hours = 2.0,
+      .status_cols = {0, 1, 2, 3},
+      .durations = {1.0, 1.0, 1.0, 1.0},
+  }};
+  MipStartOptions opts;
+  opts.round_threshold = 0.5;
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = li,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = commitments};
+
+  auto gen = make_mip_start_generator(MipStartMethod::lp_round);
+  const auto start = gen->generate(ctx);
+  REQUIRE(start.has_value());
+  CHECK((*start)[0] == doctest::Approx(1.0));
+  CHECK((*start)[1] == doctest::Approx(1.0));
+  CHECK((*start)[2] == doctest::Approx(0.0));
+  CHECK((*start)[3] == doctest::Approx(0.0));  // min-down repair flipped 1→0
+}
+
+TEST_CASE(
+    "MipStart relax_fix re-solves dependent columns from the pinned "
+    "commitment")  // NOLINT
+{
+  // c = 5·x ; x ≥ 0.6 ; minimise x ⇒ relaxation x = 0.6, c = 3.0.
+  // relax_fix rounds x → 1, pins it, and re-solves ⇒ c = 5.0 (NOT the
+  // relaxation's 3.0).  This is the distinguishing behaviour vs lp_round,
+  // which would leave c at 3.0.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  const auto cc =
+      li.add_col(SparseCol {.lowb = 0.0, .uppb = 10.0, .cost = 0.0});
+  // c - 5x = 0
+  const auto rbal = li.add_row(SparseRow {.lowb = 0.0, .uppb = 0.0});
+  li.set_coeff(rbal, cc, 1.0);
+  li.set_coeff(rbal, x, -5.0);
+  // x >= 0.6
+  const auto rlo =
+      li.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
+  li.set_coeff(rlo, x, 1.0);
+  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
+  REQUIRE(li.is_optimal());
+  // Relaxation: x = 0.6, c = 3.0.
+  REQUIRE(li.get_col_sol_raw()[0] == doctest::Approx(0.6));
+  REQUIRE(li.get_col_sol_raw()[1] == doctest::Approx(3.0));
+
+  const std::array<int, 1> int_cols {0};
+  MipStartOptions opts;
+  opts.round_threshold = 0.5;
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = li,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = {}};
+
+  auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
+  REQUIRE(gen != nullptr);
+  const auto start = gen->generate(ctx);
+  REQUIRE(start.has_value());
+  CHECK((*start)[0] == doctest::Approx(1.0));  // x rounded + pinned
+  CHECK((*start)[1] == doctest::Approx(5.0));  // c recomputed = 5·1
+  // Original (relaxed) bounds restored on the integer column.
+  CHECK(li.get_col_low_raw()[0] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[0] == doctest::Approx(1.0));
 }
 
 }  // namespace mip_start_test
