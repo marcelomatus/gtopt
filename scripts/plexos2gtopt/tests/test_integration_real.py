@@ -88,24 +88,6 @@ _xfail_unresolved_uc = pytest.mark.xfail(
     strict=True,
 )
 
-# Stale-binary failure: ``gtopt --lp-only`` rejects newer JSON keys
-# (``tmax_normal_ba`` / ``loss_envelope`` introduced after the cached
-# binary was built — see ``project_uc_plexos_parity`` memory).  This
-# is a build-side stale-artifact issue, NOT a converter regression;
-# the JSON itself is well-formed and the converter test suite still
-# pins its shape.  Remove this xfail once the binary is rebuilt against
-# the current schema.
-_xfail_stale_gtopt_binary = pytest.mark.xfail(
-    REAL_BUNDLE.is_file(),
-    reason=(
-        "gtopt binary on $PATH is stale relative to the JSON schema "
-        "(rejects tmax_normal_ba / loss_envelope keys); rebuild gtopt "
-        "to clear"
-    ),
-    raises=AssertionError,
-    strict=False,
-)
-
 
 @_skip_if_missing
 def test_real_bundle_locate_and_extract() -> None:
@@ -598,7 +580,6 @@ def test_real_bundle_reservoir_extraction_box_and_drain(tmp_path: Path) -> None:
 
 @_skip_if_missing
 @_skip_if_no_gtopt
-@_xfail_stale_gtopt_binary
 def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:
     """`gtopt --lp-only` accepts the single-bus planning end-to-end."""
     out_file = tmp_path / "single_bus.json"
@@ -629,7 +610,6 @@ def test_real_bundle_single_bus_solves(tmp_path: Path) -> None:
 
 @_skip_if_missing
 @_skip_if_no_gtopt
-@_xfail_stale_gtopt_binary
 def test_real_bundle_dc_opf_solves(tmp_path: Path) -> None:
     """`gtopt --lp-only` accepts the DC-OPF (multi-bus, Kirchhoff) planning."""
     out_file = tmp_path / "dc_opf.json"
