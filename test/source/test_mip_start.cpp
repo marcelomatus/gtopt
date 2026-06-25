@@ -22,6 +22,7 @@
 #include <gtopt/mip_start.hpp>
 #include <gtopt/monolithic_enums.hpp>
 #include <gtopt/solver_enums.hpp>
+#include <gtopt/solver_registry.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -296,6 +297,108 @@ TEST_CASE(
   // Original (relaxed) bounds restored on the integer column.
   CHECK(li.get_col_low_raw()[0] == doctest::Approx(0.0));
   CHECK(li.get_col_upp_raw()[0] == doctest::Approx(1.0));
+}
+
+// ── apply_mip_start orchestrator ──────────────────────────────────────────
+
+TEST_CASE("apply_mip_start: feature off is a no-op report")  // NOLINT
+{
+  // method=none + relax_check=false → returns immediately, nothing solved.
+  LinearInterface li;
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  MipStartOptions opts;  // method unset (none), relax_check unset (false)
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK_FALSE(rep->relaxation_solved);
+  CHECK_FALSE(rep->relaxation_feasible);
+  CHECK_FALSE(rep->injected);
+  CHECK(rep->source.empty());
+}
+
+TEST_CASE("apply_mip_start: pure LP (no integer cols) skips before solving")
+// NOLINT
+{
+  // relax_check requested, but there are no integer columns → returns
+  // before stage A (relaxation_solved stays false).  No solver needed.
+  LinearInterface li;
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 1.0});
+  MipStartOptions opts;
+  opts.relax_check = true;  // diagnosis requested
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK_FALSE(rep->relaxation_solved);  // bailed at the empty int_cols guard
+  CHECK_FALSE(rep->injected);
+}
+
+TEST_CASE("apply_mip_start: lp_round injects on a feasible MIP relaxation")
+// NOLINT
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // Integer x in [0,1] with x >= 0.6, minimise x → relaxation x = 0.6
+  // (feasible, obj 0.6).  Orchestrator: relax → solve → lp_round → restore
+  // integrality → inject.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  MipStartOptions opts;
+  opts.method = MipStartMethod::lp_round;
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK(rep->relaxation_solved);
+  CHECK(rep->relaxation_feasible);
+  REQUIRE(rep->relax_obj.has_value());
+  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->source == "lp_round");  // a start was produced
+  // Integrality is re-established before returning (restore_integers) —
+  // also guards the CPLEX restore_integers fix in the orchestrator path.
+  CHECK(li.is_integer(x));
+}
+
+TEST_CASE(
+    "apply_mip_start: infeasible relaxation with on_infeasible=stop errors")
+// NOLINT
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // Integer x in [0,1] but x >= 2 → relaxation infeasible.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 2.0, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  SUBCASE("on_infeasible=stop → Error (caller must not proceed)")
+  {
+    MipStartOptions opts;
+    opts.method = MipStartMethod::lp_round;
+    opts.on_infeasible = RelaxInfeasibleAction::stop;
+    const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+    CHECK_FALSE(rep.has_value());  // propagated as an Error
+  }
+
+  SUBCASE("on_infeasible=warn → report, no error, nothing injected")
+  {
+    MipStartOptions opts;
+    opts.method = MipStartMethod::lp_round;
+    opts.on_infeasible = RelaxInfeasibleAction::warn;
+    const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+    REQUIRE(rep.has_value());
+    CHECK(rep->relaxation_solved);
+    CHECK_FALSE(rep->relaxation_feasible);
+    CHECK_FALSE(rep->injected);
+    // Integrality restored even on the infeasible path.
+    CHECK(li.is_integer(x));
+  }
 }
 
 }  // namespace mip_start_test
