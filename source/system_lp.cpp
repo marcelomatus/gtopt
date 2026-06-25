@@ -852,23 +852,12 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
   register_ampl_param_dispatchers(sim);
   register_ampl_iterator_dispatchers(sim);
 
-  // Class-level compound: `line.flow = +flowp − flown`.
-  // Registered once globally; the resolver expands it per-(uid, block).
+  // `line.flow` is registered DIRECTLY by `LineLP::add_to_lp` as a signed
+  // weighted sum of the underlying flowp/flown(/flows) columns, so it
+  // needs no class-level compound here (and flowp/flown are no longer
+  // registered as AMPL attributes for the compound to reference).
   {
     constexpr auto line_class = Line::class_name.snake_case();
-    sim.add_ampl_compound(line_class,
-                          LineLP::FlowName,
-                          {
-                              AmplCompoundLeg {
-                                  .coefficient = +1.0,
-                                  .source_attribute = LineLP::FlowpName,
-                              },
-                              AmplCompoundLeg {
-                                  .coefficient = -1.0,
-                                  .source_attribute = LineLP::FlownName,
-                              },
-                          });
-
     // Class-level compound: `line.loss = +lossp + lossn`.  Mirrors
     // the unified `Line/loss_sol.parquet` output stream (which is
     // `LP(lossp) + LP(lossn)` per cell — total dissipated energy

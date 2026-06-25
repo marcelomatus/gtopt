@@ -572,35 +572,18 @@ bool LineLP::add_to_lp(SystemContext& sc,
 
   // ── Register PAMPL-visible columns ────────────────────────────────
   // `capainst` is registered centrally by CapacityBase::add_to_lp.
-  // The `line.flow` compound (+1·flowp − 1·flown) is registered once
-  // per SimulationLP by `system_lp.cpp::register_all_ampl_element_names`
-  // (called via std::call_once from the SystemLP constructor).
   //
-  // Under `piecewise_direct` line-loss mode there is NO aggregator
-  // LP column for `flowp` / `flown` — both decompose into K segment
-  // cols stamped directly into the bus rows.  To keep `line.flow`
-  // AMPL-resolvable without paying the cost of materialising
-  // aggregator cols, the segment-col holders are registered as
-  // **sum-of-cols** AMPL attributes (see
-  // `AmplVariable::block_cols_sum`).  The resolver then expands
-  // `flow = +flowp − flown` to `+Σ flowp_seg_k − Σ flown_seg_k`
-  // by stamping each segment col with the leg coefficient.
-  // Per-direction registration is independent so a half-direction
-  // line (e.g., tmax_ba = 0) registers only its non-empty side.
-  // The conditional-insert pattern above means `cols.at(st_key)`
-  // would throw on the (s,t) keys we skipped.  Look up via
-  // `.find()` and silently no-op when the outer key is absent —
-  // semantically equivalent to "no LP cols for this (s,t)".
-  // Generic registration: picks the matching `add_ampl_variable`
-  // overload by ADL on `it->second`'s value type.
-  //   * `BIndexHolder<ColIndex>`               → single-col path
-  //     (`flowp_cols`, `flown_cols`, `lossp_cols`, `lossn_cols`).
-  //   * `BIndexHolder<std::vector<ColIndex>>`  → sum-of-cols path
-  //     used by `piecewise_direct`'s virtual aggregator.
-  // Aggregator-mode lines leave `flowp_seg_cols` / `flown_seg_cols`
-  // empty, and `piecewise_direct` lines leave the single-col
-  // `flowp_cols` / `flown_cols` empty — so each line registers
-  // exactly one shape, never both.
+  // Only `line.flow`, `line.loss` and the overload slacks are exposed to
+  // user constraints.  The per-direction `flowp` / `flown` / `flows`
+  // columns are internal LP decompositions (two-variable flow split,
+  // piecewise-direct segments, or the tangent-signed single column) and
+  // are NOT registered as AMPL attributes — `flow` below folds them into
+  // one signed weighted sum.
+  //
+  // `register_if_present` registers a single-col / sum-of-cols holder
+  // under `attribute`, ADL-picking the `add_ampl_variable` overload by
+  // `it->second`'s value type.  Look up via `.find()` and silently no-op
+  // when the outer (s,t) key is absent — equivalent to "no LP cols here".
   const auto register_if_present =
       [&](std::string_view attribute, const auto& cols)
   {
@@ -611,29 +594,46 @@ bool LineLP::add_to_lp(SystemContext& sc,
     sc.add_ampl_variable(
         ampl_name, uid(), attribute, scenario, stage, it->second);
   };
-  register_if_present(FlowpName, flowp_cols);
-  register_if_present(FlownName, flown_cols);
-  register_if_present(FlowsName, flows_cols);
-  // ``tangent_signed_flow`` mode: register the signed column under both
-  // ``flows`` (its native attribute) AND ``flow`` (the compound name
-  // used by AMPL/PAMPL user constraints).  The latter direct
-  // registration shadows the class-level compound ``+flowp − flown``
-  // for these lines so ``line("X").flow`` resolves to the signed
-  // column with coefficient +1, matching the physical sign convention.
-  register_if_present(FlowName, flows_cols);
+  // ── line.flow — the ONLY AMPL-exposed flow attribute ──────────────
+  // The signed physical flow, registered DIRECTLY as a weighted sum of
+  // the underlying direction columns instead of as a resolve-time
+  // compound: +flowp − flown (single-col), +Σflowp_seg − Σflown_seg
+  // (piecewise_direct), or +flows (tangent_signed_flow).  flowp / flown
+  // / flows are internal LP decompositions and are NOT exposed to user
+  // constraints — `line("X").flow` is the only addressable flow.  This
+  // single weighted-sum entry replaces the former three per-direction
+  // registrations plus the class-level `flow = +flowp − flown` compound.
+  BIndexHolder<std::vector<std::pair<ColIndex, double>>> flow_weighted;
+  const auto accumulate_flow = [&](const auto& cols, double sign)
+  {
+    const auto it = cols.find(st_key);
+    if (it == cols.end()) {
+      return;
+    }
+    for (const auto& [buid, held] : it->second) {
+      if constexpr (std::is_same_v<std::decay_t<decltype(held)>, ColIndex>) {
+        flow_weighted[buid].emplace_back(held, sign);
+      } else {  // BIndexHolder<std::vector<ColIndex>> — piecewise_direct
+        for (const auto& col : held) {
+          flow_weighted[buid].emplace_back(col, sign);
+        }
+      }
+    }
+  };
+  accumulate_flow(flowp_cols, +1.0);
+  accumulate_flow(flown_cols, -1.0);
+  accumulate_flow(flowp_seg_cols, +1.0);
+  accumulate_flow(flown_seg_cols, -1.0);
+  accumulate_flow(flows_cols, +1.0);
+  if (!flow_weighted.empty()) {
+    sc.add_ampl_variable(
+        ampl_name, uid(), FlowName, scenario, stage, flow_weighted);
+  }
+
   register_if_present(LosspName, lossp_cols);
   register_if_present(LossnName, lossn_cols);
   register_if_present(OverloadpName, overloadp_cols);
   register_if_present(OverloadnName, overloadn_cols);
-
-  // `piecewise_direct` virtual aggregator: when the direct-mode seg
-  // holders are populated, single-col ``flowp_cols`` / ``flown_cols``
-  // are empty (the above registrations no-op) and we register the seg
-  // vectors instead — ``register_if_present`` picks the
-  // sum-of-cols ``add_ampl_variable`` overload via ADL on the value
-  // type (``BIndexHolder<std::vector<ColIndex>>``).
-  register_if_present(FlowpName, flowp_seg_cols);
-  register_if_present(FlownName, flown_seg_cols);
 
   return true;
 }

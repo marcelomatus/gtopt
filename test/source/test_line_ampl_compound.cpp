@@ -1,28 +1,33 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 /// @file test_line_ampl_compound.cpp
-/// @brief Unit tests for the `line.flow` AMPL compound across loss
+/// @brief Unit tests for the `line.flow` AMPL attribute across loss
 ///        modes and for missing-variable behaviour (direct refs to
-///        `line.flown` in lossless mode and `bus.theta` in single-bus
-///        mode).
+///        `line.flown` and `bus.theta`).
+///
+/// `line.flow` is the ONLY AMPL-addressable flow attribute.  It is
+/// registered DIRECTLY by `LineLP::add_to_lp` as a signed weighted sum
+/// of the underlying LP columns — `+flowp − flown` (single-col mode),
+/// `+Σflowp_seg − Σflown_seg` (piecewise_direct), or `+flows`
+/// (tangent_signed_flow).  In the `none` loss mode only the signed
+/// `flowp` column exists (in `[-tmax_ba, +tmax_ab]`) so the weighted sum
+/// carries a single `+flowp` leg.  The per-direction `flowp`/`flown`/
+/// `flows` columns are internal LP decompositions and are NOT registered
+/// as AMPL attributes.
 ///
 /// Two distinct resolver code paths are exercised:
 ///
-/// 1. **Compound** — `line.flow = +flowp − flown` is a class-level
-///    recipe registered once by `SystemLP`.  For lossy modes both
-///    legs resolve to non-negative LP columns; for the `none` mode
-///    only `flowp` exists (signed, in `[-tmax_ba, +tmax_ab]`) and
-///    `flown` is absent.  `resolve_col_to_row` silently skips missing
-///    legs so the compound still evaluates to `flow = flowp`.
+/// 1. **`line.flow`** — resolves to the signed weighted sum above and
+///    stamps each underlying column with its leg coefficient.
 ///
-/// 2. **Bare attribute** — a direct reference like `line.flown` or
-///    `bus.theta` is NOT a compound.  When the attribute has no LP
-///    column and the default strict `constraint_mode` is active,
-///    `user_constraint_lp.cpp:327` throws a `std::runtime_error`.
-///    This guard catches author errors (typos, inactive elements,
-///    single-bus mode accidentally used with DC-OPF refs) that would
-///    otherwise silently drop the term and leave the constraint
-///    vacuously satisfied.
+/// 2. **Bare unregistered/suppressed attribute** — a direct reference
+///    like `line.flown` (no longer an AMPL attribute) or `bus.theta`
+///    (mode-suppressed).  Under the default strict `constraint_mode`,
+///    an unknown attribute on an active class throws a
+///    `std::runtime_error` (`user_constraint_lp.cpp:327`); a
+///    mode-suppressed class/attribute is silently dropped.  This guard
+///    catches author errors (typos, inactive elements, single-bus mode
+///    accidentally used with DC-OPF refs).
 
 #include <string_view>
 
@@ -243,9 +248,9 @@ TEST_CASE(
 
   SUBCASE("user_constraint row has flowp as its only non-zero coefficient")
   {
-    // Compound expands to +1·flowp − 1·flown; the flown leg silently
-    // drops because no `flown` column exists, so the row contains a
-    // single +1 entry on flowp.
+    // `flow` is the weighted sum +1·flowp − 1·flown; the flown leg is
+    // absent in lossless mode (no flown column), so the row contains a
+    // single +1 entry on the signed flowp column.
     const auto fp = find_col(lp, "line_flowp_");
     const auto uc_row = find_row(lp, "uc_flow_bound_constraint_");
     CHECK(lp.get_coeff(uc_row, fp) == doctest::Approx(+1.0));
@@ -308,15 +313,13 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "LineLP AMPL — lossless: direct `flown` reference throws in strict mode")
 {
-  // A user constraint that references `line('l1_2').flown` directly
-  // (not via the compound) in lossless mode.  No `flown` column
-  // exists, so the default strict `constraint_mode` rejects the
-  // reference at build time — this is the intentional guard against
-  // silent-skip failure modes (user_constraint_lp.cpp:327).
-  //
-  // The compound `line.flow` path (tested above) is the one that
-  // silently skips missing legs; a bare `flown` reference is not a
-  // compound and must error.
+  // A user constraint that references `line('l1_2').flown` directly.
+  // `flown` is no longer a registered AMPL attribute (only `line.flow`
+  // is exposed), so on an active line class the default strict
+  // `constraint_mode` rejects the unknown attribute at build time —
+  // the intentional guard against silent-skip failure modes
+  // (user_constraint_lp.cpp:327).  Only `line.flow` is addressable; it
+  // folds the flowp/flown columns into one signed weighted sum.
   Array<UserConstraint> ucs = {
       {
           .uid = Uid {1},
