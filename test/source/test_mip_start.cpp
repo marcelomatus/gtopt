@@ -401,4 +401,172 @@ TEST_CASE(
   }
 }
 
+TEST_CASE(  // NOLINT
+    "apply_mip_start: infeasible relaxation with on_infeasible=feasopt errors")
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // Integer x in [0,1] but x >= 2 → relaxation infeasible.  The `feasopt`
+  // policy runs `diagnose_infeasibility()` (CPLEX conflict refiner) for the
+  // log, then — like `stop` — propagates the infeasibility as an Error so the
+  // caller must NOT proceed to the MIP solve.  If the only solver lacks a
+  // conflict refiner the diagnose is a no-op but the Error is still returned,
+  // which is the assertion.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 2.0, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  MipStartOptions opts;
+  opts.method = MipStartMethod::lp_round;
+  opts.on_infeasible = RelaxInfeasibleAction::feasopt;
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  CHECK_FALSE(rep.has_value());  // feasopt diagnoses then propagates an Error
+  // Integrality is restored before the Error is returned.
+  CHECK(li.is_integer(x));
+}
+
+TEST_CASE(  // NOLINT
+    "MipStart relax_fix returns nullopt when the pinned commitment is "
+    "infeasible")
+{
+  // Force the conflict to surface only AFTER pinning the rounded binary:
+  //   x in [0,1], row 0.6 <= x <= 0.6  ⇒ relaxation x = 0.6 (FEASIBLE).
+  // round_with_threshold(0.6, 0.5) = floor(0.6 + 0.5) = 1 ⇒ x rounds to 1.
+  // Pinning x = 1 violates the upper bound of the row (x <= 0.6), so the
+  // re-solved economic-dispatch LP is INFEASIBLE and `generate` must return
+  // std::nullopt — the signal that a feasibility repair pass is needed.
+  // (RelaxFixMipStart lives in an anonymous namespace; reached via the
+  // factory exactly as in the relax_fix re-solve test above.)
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  const auto rbox = li.add_row(SparseRow {.lowb = 0.6, .uppb = 0.6});
+  li.set_coeff(rbox, x, 1.0);
+  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
+  REQUIRE(li.is_optimal());
+  // Relaxation pins x to exactly 0.6 (feasible) — verify before rounding.
+  REQUIRE(li.get_col_sol_raw()[0] == doctest::Approx(0.6));
+
+  const std::array<int, 1> int_cols {0};
+  MipStartOptions opts;
+  opts.round_threshold = 0.5;
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = li,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = {}};
+
+  auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
+  REQUIRE(gen != nullptr);
+  const auto start = gen->generate(ctx);
+  CHECK_FALSE(start.has_value());  // pinned x=1 violates x<=0.6 → infeasible
+  // Original bounds restored on the (still-relaxed) column after the failure.
+  CHECK(li.get_col_low_raw()[0] == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[0] == doctest::Approx(1.0));
+}
+
+TEST_CASE(  // NOLINT
+    "apply_mip_start: report_saturated on a feasible binding relaxation")
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // Integer x in [0,1], x >= 0.6, minimise x → relaxation x = 0.6 with the
+  // x>=0.6 row BINDING (nonzero dual), so report_saturated has a row to log.
+  // method=none + relax_check=true → diagnosis-only (no injection).
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  MipStartOptions opts;
+  opts.method = MipStartMethod::none;
+  opts.relax_check = true;
+  opts.report_saturated = true;
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK(rep->relaxation_solved);
+  CHECK(rep->relaxation_feasible);
+  REQUIRE(rep->relax_obj.has_value());
+  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK_FALSE(rep->injected);  // diagnosis-only run
+  // Integrality restored after the diagnosis-only run.
+  CHECK(li.is_integer(x));
+}
+
+TEST_CASE(  // NOLINT
+    "apply_mip_start: relax_check-only with an integer column restores "
+    "integrality")
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // method=none + relax_check=true, with a real integer column and a feasible
+  // relaxation: stage A solves the relaxation and reports feasibility, but no
+  // start is generated (injected stays false) and integrality is restored.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 0.4, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  MipStartOptions opts;
+  opts.method = MipStartMethod::none;
+  opts.relax_check = true;
+  const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK(rep->relaxation_solved);
+  CHECK(rep->relaxation_feasible);
+  REQUIRE(rep->relax_obj.has_value());
+  CHECK(rep->relax_obj.value() == doctest::Approx(0.4));
+  CHECK_FALSE(rep->injected);  // none method → nothing injected
+  CHECK(li.is_integer(x));  // integrality re-established before return
+}
+
+TEST_CASE(  // NOLINT
+    "apply_mip_start: relax_solver_options overlay still solves the "
+    "relaxation")
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  // The relaxation solve overlays `opts.relax_solver_options` on top of the
+  // base options — pick a distinct algorithm (primal simplex) and assert the
+  // relaxation still solves feasibly with the configured method.
+  LinearInterface li;
+  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
+  li.set_integer(x);
+  const auto r = li.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
+  li.set_coeff(r, x, 1.0);
+
+  MipStartOptions opts;
+  opts.method = MipStartMethod::lp_round;
+  SolverOptions relax_overlay {.log_level = 0};
+  relax_overlay.algorithm = LPAlgo::primal;  // distinct from the base default
+  opts.relax_solver_options = relax_overlay;
+  // Base options use the dual algorithm; the overlay must take effect for the
+  // relaxation without breaking the solve.
+  const auto rep = apply_mip_start(
+      li, SolverOptions {.algorithm = LPAlgo::dual, .log_level = 0}, opts);
+  REQUIRE(rep.has_value());
+  CHECK(rep->relaxation_solved);
+  CHECK(rep->relaxation_feasible);
+  REQUIRE(rep->relax_obj.has_value());
+  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->source == "lp_round");
+  CHECK(li.is_integer(x));
+}
+
 }  // namespace mip_start_test
