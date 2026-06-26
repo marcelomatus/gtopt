@@ -507,25 +507,14 @@ auto solve_apertures_for_phase(
           }
           bool clone_has_basis = false;
 
-          // Cross-iteration seed (aperture_seed_basis): install the previous
-          // iteration's first-aperture basis so THIS chunk's first solve is a
-          // dual warm start instead of a cold barrier.  Bound-only inflow /
-          // incoming-state deltas plus appended cut rows keep the seed
-          // dual-feasible; `set_basis` reconciles the row-count growth.
-          // `seeded_first` flags the single solve that benefits in `cold`
-          // mode (in `warm` mode the within-chunk chain takes over after).
-          // If `set_basis` rejects the seed (dimension mismatch the reconcile
-          // can't bridge, basis-less backend) it returns false and the first
-          // solve falls back to cold — and the cold-solved basis is what gets
-          // captured below, so the slot self-heals for the next iteration.
-          bool seeded_first = false;
-          if (effective_seed != nullptr && clone.set_basis(*effective_seed)) {
-            clone_has_basis = true;
-            seeded_first = true;
-          }
-
-          // Marks the chunk's first actual solve — the cold anchor under the
-          // coordinated seed scheme (barrier+crossover) when not seeded.
+          // Marks the chunk's first actual solve.  The cross-iteration seed
+          // (`set_basis`) and the cold anchor are applied to this first solve
+          // ONLY — see the in-loop block below.  `set_basis` is deliberately
+          // deferred to AFTER `update_aperture` + `relax_integers` so that
+          // neither the inflow-bound write nor a MILP→LP `CPXchgprobtype`
+          // (which discards a basis) can wipe the copied seed before it is
+          // used.  On a pure-LP `relax_integers` is a no-op, but doing it in
+          // this order keeps the seed robust when the clone carries integers.
           bool first_solve_pending = true;
 
           // Instrumentation: split solve wall-time into the cold seed and
@@ -680,25 +669,43 @@ auto solve_apertures_for_phase(
             // chunk-shared clones (cheap noop after the first
             // aperture).
             clone.relax_integers();
-            // Warm-start the re-solve when the clone already holds a basis:
-            // the within-chunk chain (`warm` mode), or the cross-iteration
-            // seed on this chunk's first solve (`seeded_first`, any vertex
-            // mode).  `seeded_first` is one-shot so `cold` mode keeps every
-            // subsequent aperture an independent cold solve.
+
+            // Cross-iteration seed (aperture_seed_basis) — applied to the
+            // chunk's FIRST solve only, and crucially AFTER `relax_integers`
+            // so a MILP→LP `CPXchgprobtype` cannot discard the copied basis
+            // (and after `update_aperture`, since bound writes preserve a
+            // basis but must not race the copy).  Installs the previous
+            // iteration's first-aperture basis (reconciled to the current row
+            // count — appended cut rows become basic slack) so this solve is a
+            // dual warm start.  If `set_basis` is rejected (basis-less backend
+            // / unbridgeable mismatch) the solve falls back to the cold anchor
+            // and self-heals on capture below.
+            bool seeded_first = false;
+            if (first_solve_pending && effective_seed != nullptr
+                && clone.set_basis(*effective_seed))
+            {
+              clone_has_basis = true;
+              seeded_first = true;
+            }
+
+            // Warm-start when the clone holds a basis: the within-chunk chain
+            // (`warm` mode) or the cross-iteration seed just installed.
             const bool use_warm = clone_has_basis
                 && (aperture_solve_mode == ApertureSolveMode::warm
                     || seeded_first);
-            seeded_first = false;
-            // Method selection: warm dual off a basis when one is resident;
-            // else the barrier+crossover cold anchor for the chunk's first
-            // (no-basis) solve under the coordinated seed scheme; else the
-            // plain cold method (the .prm's, e.g. dual).
+            // Cold anchor: the chunk's first (no-basis) solve under the
+            // coordinated seed scheme uses barrier+crossover for a canonical
+            // vertex; else the plain cold method (the .prm's, e.g. dual).
             const bool cold_anchor =
                 !use_warm && capture_basis && first_solve_pending;
             first_solve_pending = false;
-            const SolverOptions& solve_opts = use_warm ? warm_opts
-                : cold_anchor                          ? cold_opts
-                                                       : aperture_opts;
+            const SolverOptions* solve_opts_ptr = &aperture_opts;
+            if (use_warm) {
+              solve_opts_ptr = &warm_opts;
+            } else if (cold_anchor) {
+              solve_opts_ptr = &cold_opts;
+            }
+            const SolverOptions& solve_opts = *solve_opts_ptr;
             const auto solve_t0 = std::chrono::steady_clock::now();
             [[maybe_unused]] auto solve_result = clone.resolve(solve_opts);
             const auto solve_s =
