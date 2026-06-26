@@ -13,6 +13,7 @@
 #pragma once
 
 #include <optional>
+#include <unordered_map>
 
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_row.hpp>
@@ -26,6 +27,25 @@ class StageLP;
 class BlockLP;
 struct ElementRef;
 struct SumElementRef;
+struct AmplVariable;
+
+/// Memoised resolution of an element reference's *constant* parts — the
+/// element-id parse, the name→uid lookup, and the AMPL-variable find —
+/// keyed by the `ElementRef`'s address.  All three are constant per
+/// (class, id, attribute) within a single `UserConstraintLP::add_to_lp`
+/// (fixed scenario, stage), so the resolver computes them once and reuses
+/// them across the block loop — mirroring how each element's `add_to_lp`
+/// resolves its constant data before iterating blocks.  Only the stable
+/// top-level term refs are cached (their address lives for the whole
+/// constraint build); transient compound-leg refs bypass the cache.
+struct ElementRefResolution
+{
+  std::optional<Uid> uid {};
+  bool element_id_was_name {false};
+  const AmplVariable* var {nullptr};  ///< direct registration, or nullptr
+};
+using AmplResolveCache =
+    std::unordered_map<const ElementRef*, ElementRefResolution>;
 
 /// A resolved LP column together with its physical-to-LP scale factor
 /// and an optional additive offset.
@@ -127,14 +147,16 @@ struct ResolveColResult
  *                   emitted entry contributes `base_coeff * leg_coeff`.
  * @return `{emitted, offset_shift}` — see `ResolveColResult`.
  */
-[[nodiscard]] ResolveColResult resolve_col_to_row(const SystemContext& sc,
-                                                  const ScenarioLP& scenario,
-                                                  const StageLP& stage,
-                                                  const BlockLP& block,
-                                                  const ElementRef& ref,
-                                                  double base_coeff,
-                                                  SparseRow& row,
-                                                  const LinearProblem& lp);
+[[nodiscard]] ResolveColResult resolve_col_to_row(
+    const SystemContext& sc,
+    const ScenarioLP& scenario,
+    const StageLP& stage,
+    const BlockLP& block,
+    const ElementRef& ref,
+    double base_coeff,
+    SparseRow& row,
+    const LinearProblem& lp,
+    AmplResolveCache* resolve_cache = nullptr);
 
 /**
  * @brief Try to look up a data parameter value for one element reference.

@@ -169,6 +169,12 @@ struct LowerCtx
   /// aux row, which shares everything but the row contents with the
   /// first.
   int aux_counter {0};
+  /// Per-constraint memoisation of the constant parts of element-reference
+  /// resolution (id parse, name→uid, AMPL-variable find), keyed by the
+  /// `ElementRef` address.  Owned by `add_to_lp` / `build_coarse_row` and
+  /// shared across the block loop so each term resolves once, not per block.
+  /// Null in contexts with no cache (the resolver then resolves fresh).
+  AmplResolveCache* resolve_cache {nullptr};
 };
 // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 
@@ -429,7 +435,8 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
                                           *term.element,
                                           coef,
                                           row,
-                                          ctx.lp);
+                                          ctx.lp,
+                                          ctx.resolve_cache);
       if (res.emitted) {
         out.has_vars = true;
         // Fold any AMPL offset (Option C demand: load = col + lmax)
@@ -627,6 +634,7 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
             .lp = ctx.lp,
             .block_ordinal = ord,
             .aux_counter = ctx.aux_counter,
+            .resolve_cache = ctx.resolve_cache,
         };
         const auto inner_res =
             build_row_from_terms(inner_ctx, agg.inner, coef * weight, row);
@@ -1040,6 +1048,13 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
 
   const auto& uc = user_constraint();
 
+  // Per-constraint resolve cache: resolve each term's constant parts (id
+  // parse, name→uid lookup, AMPL-variable find) ONCE and reuse them across
+  // the per-block builds below — all constant per (class, id, attribute)
+  // for this fixed (scenario, stage).  Threaded into every LowerCtx so the
+  // resolver memoises by ElementRef address (see element_column_resolver).
+  AmplResolveCache resolve_cache;
+
   // Stage-scope: emit ONE LP row per (scenario, stage), keyed at the
   // stage's first in-domain block, instead of one row per block.  Per-block
   // references inside the expression resolve at that representative block;
@@ -1215,6 +1230,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
           .is_strict = is_strict,
           .lp = lp,
           .block_ordinal = this_ordinal,
+          .resolve_cache = &resolve_cache,
       };
       const auto build_res =
           build_row_from_terms(lctx, expr.terms, 1.0, block_row);
@@ -1411,6 +1427,7 @@ bool UserConstraintLP::add_to_lp(const SystemContext& sc,
         .is_strict = is_strict,
         .lp = lp,
         .block_ordinal = this_ordinal,
+        .resolve_cache = &resolve_cache,
     };
 
     const auto build_res = build_row_from_terms(lctx, expr.terms, 1.0, row);

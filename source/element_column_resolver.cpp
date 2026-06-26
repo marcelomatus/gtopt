@@ -232,6 +232,55 @@ namespace
 /// shift onto the row's RHS via the existing `param_shift` accumulator.
 namespace
 {
+/// Resolve the *constant* parts of an element reference — the element-id
+/// parse, the name→uid lookup, and the AMPL-variable find.  Constant per
+/// (class, id, attribute) for a fixed (scenario, stage); see
+/// `ElementRefResolution`.
+[[nodiscard]] ElementRefResolution resolve_element_ref(const SystemContext& sc,
+                                                       const ElementRef& ref,
+                                                       ScenarioUid scenario_uid,
+                                                       StageUid stage_uid)
+{
+  ElementRefResolution r;
+  const auto single_id = parse_element_id(ref.element_id);
+  r.element_id_was_name = std::holds_alternative<Name>(single_id);
+  if (std::holds_alternative<Uid>(single_id)) {
+    r.uid = std::get<Uid>(single_id);
+  } else if (r.element_id_was_name) {
+    r.uid =
+        sc.lookup_ampl_element_uid(ref.element_type, std::get<Name>(single_id));
+  }
+  if (r.uid) {
+    r.var = sc.find_ampl_variable(
+        ref.element_type, *r.uid, ref.attribute, scenario_uid, stage_uid);
+  }
+  return r;
+}
+
+/// Memoised resolution: return the cached `ElementRefResolution` for
+/// `ref` (keyed by address) or compute-and-cache it.  Only the stable
+/// top-level term refs are cached; with `cache == nullptr` (non-constraint
+/// callers and transient compound-leg refs) it resolves into `scratch`.
+[[nodiscard]] const ElementRefResolution& cached_resolve_element_ref(
+    AmplResolveCache* cache,
+    ElementRefResolution& scratch,
+    const SystemContext& sc,
+    const ElementRef& ref,
+    ScenarioUid scenario_uid,
+    StageUid stage_uid)
+{
+  if (cache != nullptr) {
+    if (const auto it = cache->find(&ref); it != cache->end()) {
+      return it->second;
+    }
+    return cache
+        ->emplace(&ref, resolve_element_ref(sc, ref, scenario_uid, stage_uid))
+        .first->second;
+  }
+  scratch = resolve_element_ref(sc, ref, scenario_uid, stage_uid);
+  return scratch;
+}
+
 [[nodiscard]] ResolveColResult stamp_ref(const SystemContext& sc,
                                          const ScenarioLP& scenario,
                                          const StageLP& stage,
@@ -239,7 +288,8 @@ namespace
                                          const ElementRef& ref,
                                          double coef,
                                          SparseRow& row,
-                                         const LinearProblem& lp)
+                                         const LinearProblem& lp,
+                                         AmplResolveCache* resolve_cache)
 {
   // Resolve element_id (uid|name) once; multi-col path needs the uid.
   // Also remember whether the element_id was supplied as a NAME (which
@@ -249,19 +299,18 @@ namespace
   // leniency below: a bare integer like ``generator(999)`` must NOT be
   // treated as a known element just because some other generator
   // registers the requested attribute.
-  const auto single_id = parse_element_id(ref.element_id);
-  const bool element_id_was_name = std::holds_alternative<Name>(single_id);
-  const auto uid_opt = [&]() -> std::optional<Uid>
-  {
-    if (std::holds_alternative<Uid>(single_id)) {
-      return std::get<Uid>(single_id);
-    }
-    if (std::holds_alternative<Name>(single_id)) {
-      return sc.lookup_ampl_element_uid(ref.element_type,
-                                        std::get<Name>(single_id));
-    }
-    return std::nullopt;
-  }();
+  // Resolve the id-parse, name→uid lookup and AMPL-variable find ONCE per
+  // ElementRef and reuse across the constraint's block loop — all three are
+  // constant per (class, id, attribute) for the fixed (scenario, stage), so
+  // this collapses the previous per-(term, block) re-parse + two hash
+  // lookups (parse_element_id / lookup_ampl_element_uid / find_ampl_variable)
+  // into one resolve per term.  Compound legs below pass a null cache (their
+  // ElementRef is a transient stack temporary) and always resolve fresh.
+  ElementRefResolution scratch;
+  const auto& res = cached_resolve_element_ref(
+      resolve_cache, scratch, sc, ref, scenario.uid(), stage.uid());
+  const auto& uid_opt = res.uid;
+  const bool element_id_was_name = res.element_id_was_name;
 
   // ``element_known`` flips to true when the reference is a *defined*
   // silent-0 case rather than a typo / unsupported reference.  Two
@@ -327,18 +376,12 @@ namespace
   };
 
   if (uid_opt) {
-    // ONE registry lookup for this (class, uid, attribute, scenario,
-    // stage), then read every per-block shape directly off the entry.
-    // Replaces the former four separate `find_ampl_*` calls (weighted /
-    // sum / single col / offset), each of which re-hashed the same key —
-    // this stamps per (term, block) and is the hot path on
-    // user-constraint-heavy cases (CEN PLEXOS, irrigation).
-    if (const auto* var = sc.find_ampl_variable(ref.element_type,
-                                                *uid_opt,
-                                                ref.attribute,
-                                                scenario.uid(),
-                                                stage.uid()))
-    {
+    // Read every per-block shape directly off the cached registry entry
+    // (`res.var`, resolved once above) — weighted-sum / sum / single col +
+    // offset — instead of a separate hash+find per shape per block.  This
+    // is the hot path on user-constraint-heavy cases (CEN PLEXOS,
+    // irrigation): one registry resolve per term, then pure per-block reads.
+    if (const auto* var = res.var) {
       const auto buid = block.uid();
       // (a) Weighted sum-of-cols.  Used by `FuelLP` for
       // ``fuel("X").offtake = Σ heat_rate_g · dur · gen_g`` and by
@@ -404,7 +447,8 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                                     const ElementRef& ref,
                                     double base_coeff,
                                     SparseRow& row,
-                                    const LinearProblem& lp)
+                                    const LinearProblem& lp,
+                                    AmplResolveCache* resolve_cache)
 {
   // 1. Direct single-attribute path FIRST — the common case (generation,
   //    line.flow, demand.load, converter.charge/discharge, …).  When the
@@ -416,7 +460,8 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
   //    remaining compound is ``converter.flow``, and a converter registers
   //    ``charge`` / ``discharge`` directly, never ``flow`` (so the two
   //    paths never both emit and precedence is immaterial).
-  auto direct = stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
+  auto direct = stamp_ref(
+      sc, scenario, stage, block, ref, base_coeff, row, lp, resolve_cache);
   if (direct.emitted) {
     return direct;
   }
@@ -432,6 +477,9 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
+      // Legs use a NULL cache: `leg_ref` is a transient stack temporary,
+      // so caching it by address would be unsafe; compounds are rare
+      // (only converter.flow) so this resolves fresh per (leg, block).
       const auto leg_res = stamp_ref(sc,
                                      scenario,
                                      stage,
@@ -439,7 +487,8 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                                      leg_ref,
                                      base_coeff * leg.coefficient,
                                      row,
-                                     lp);
+                                     lp,
+                                     nullptr);
       if (leg_res.emitted) {
         out.emitted = true;
         out.offset_shift += leg_res.offset_shift;
