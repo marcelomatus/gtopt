@@ -382,6 +382,53 @@ TEST_CASE("clear_flat_lp_vectors removes numeric vectors")
   CHECK(flp.name == "tiny_test");
 }
 
+// Regression guard for the `vec = {}` trap: assigning an empty
+// initializer_list clears a vector's SIZE but keeps its CAPACITY, so the
+// "freed" numeric arrays stayed resident alongside the lz4 buffer (~half the
+// compress-mode flat-LP RSS).  `empty()` is true either way — only
+// `capacity() == 0` proves the buffer was actually returned to the allocator.
+TEST_CASE(
+    "compress_flat_lp / clear_flat_lp_vectors release CAPACITY")  // NOLINT
+{
+  const auto check_all_freed = [](const FlatLinearProblem& flp)
+  {
+    CHECK(flp.matbeg.capacity() == 0);
+    CHECK(flp.matind.capacity() == 0);
+    CHECK(flp.matval.capacity() == 0);
+    CHECK(flp.collb.capacity() == 0);
+    CHECK(flp.colub.capacity() == 0);
+    CHECK(flp.objval.capacity() == 0);
+    CHECK(flp.rowlb.capacity() == 0);
+    CHECK(flp.rowub.capacity() == 0);
+    CHECK(flp.colint.capacity() == 0);
+    CHECK(flp.col_scales.capacity() == 0);
+    CHECK(flp.row_scales.capacity() == 0);
+  };
+
+  SUBCASE("compress_flat_lp frees the source numeric vectors")
+  {
+    auto flp = make_realistic_flp();
+    REQUIRE(flp.matval.capacity() > 0);  // precondition: real buffers exist
+    REQUIRE(flp.matind.capacity() > 0);
+
+    const auto buf = compress_flat_lp(flp, CompressionCodec::lz4);
+    REQUIRE_FALSE(buf.empty());
+
+    check_all_freed(flp);
+  }
+
+  SUBCASE("clear_flat_lp_vectors frees the numeric vectors")
+  {
+    auto flp = make_realistic_flp();
+    REQUIRE(flp.matval.capacity() > 0);
+    REQUIRE(flp.matind.capacity() > 0);
+
+    clear_flat_lp_vectors(flp);
+
+    check_all_freed(flp);
+  }
+}
+
 TEST_CASE("compress_flat_lp — snappy codec if available")
 {
   if (!is_codec_available(CompressionCodec::snappy)) {

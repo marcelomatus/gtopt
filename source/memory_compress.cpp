@@ -16,6 +16,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/memory_compress.hpp>
@@ -516,18 +517,25 @@ CompressedBuffer compress_flat_lp(FlatLinearProblem& flp,
   result.flp_col_scales_size = flp.col_scales.size();
   result.flp_row_scales_size = flp.row_scales.size();
 
-  // Free the large numeric vectors (metadata is preserved)
-  flp.matbeg = {};
-  flp.matind = {};
-  flp.colint = {};
-  flp.matval = {};
-  flp.collb = {};
-  flp.colub = {};
-  flp.objval = {};
-  flp.rowlb = {};
-  flp.rowub = {};
-  flp.col_scales = {};
-  flp.row_scales = {};
+  // Free the large numeric vectors (metadata is preserved).  NB: `v = {}`
+  // assigns an empty initializer_list and KEEPS the vector's capacity — the
+  // buffer is NOT returned to the allocator.  This silently leaked ~half the
+  // compress-mode flat-LP resident: each cell held BOTH the lz4 buffer AND its
+  // still-allocated source arrays (~1.28 GiB on the 2y case).  swap-with-empty
+  // actually releases the memory; `decompress_flat_lp` re-`resize`s on demand.
+  const auto release = [](auto& v) noexcept
+  { std::remove_cvref_t<decltype(v)> {}.swap(v); };
+  release(flp.matbeg);
+  release(flp.matind);
+  release(flp.colint);
+  release(flp.matval);
+  release(flp.collb);
+  release(flp.colub);
+  release(flp.objval);
+  release(flp.rowlb);
+  release(flp.rowub);
+  release(flp.col_scales);
+  release(flp.row_scales);
 
   return result;
 }
@@ -597,17 +605,21 @@ void decompress_flat_lp(FlatLinearProblem& flp, const CompressedBuffer& buf)
 
 void clear_flat_lp_vectors(FlatLinearProblem& flp)
 {
-  flp.matbeg = {};
-  flp.matind = {};
-  flp.colint = {};
-  flp.matval = {};
-  flp.collb = {};
-  flp.colub = {};
-  flp.objval = {};
-  flp.rowlb = {};
-  flp.rowub = {};
-  flp.col_scales = {};
-  flp.row_scales = {};
+  // swap-with-empty to actually RELEASE capacity — `v = {}` keeps the buffer
+  // allocated (see the note in `compress_flat_lp`).
+  const auto release = [](auto& v) noexcept
+  { std::remove_cvref_t<decltype(v)> {}.swap(v); };
+  release(flp.matbeg);
+  release(flp.matind);
+  release(flp.colint);
+  release(flp.matval);
+  release(flp.collb);
+  release(flp.colub);
+  release(flp.objval);
+  release(flp.rowlb);
+  release(flp.rowub);
+  release(flp.col_scales);
+  release(flp.row_scales);
   // NOTE: name vectors (colnm, rownm, colmp, rowmp) are NOT cleared here
   // because they are not part of the compressed buffer and cannot be
   // restored during decompression.  They must survive across
