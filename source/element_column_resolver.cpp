@@ -327,45 +327,60 @@ namespace
   };
 
   if (uid_opt) {
-    // Try the WEIGHTED multi-col path first.  Used by `FuelLP` to
-    // expose ``fuel("X").offtake = Σ heat_rate_g · dur · gen_g`` as a
-    // weighted sum-of-cols (each leg carries its own coefficient).
-    // The unweighted ``block_cols_sum`` path below is the
-    // ``piecewise_direct`` line-loss case where every leg has weight 1.
-    const auto weighted_cols = sc.find_ampl_weighted_cols(ref.element_type,
-                                                          *uid_opt,
-                                                          ref.attribute,
-                                                          scenario.uid(),
-                                                          stage.uid(),
-                                                          block.uid());
-    if (!weighted_cols.empty()) {
-      for (const auto& [col, weight] : weighted_cols) {
-        row[col] += coef * weight;
+    // ONE registry lookup for this (class, uid, attribute, scenario,
+    // stage), then read every per-block shape directly off the entry.
+    // Replaces the former four separate `find_ampl_*` calls (weighted /
+    // sum / single col / offset), each of which re-hashed the same key —
+    // this stamps per (term, block) and is the hot path on
+    // user-constraint-heavy cases (CEN PLEXOS, irrigation).
+    if (const auto* var = sc.find_ampl_variable(ref.element_type,
+                                                *uid_opt,
+                                                ref.attribute,
+                                                scenario.uid(),
+                                                stage.uid()))
+    {
+      const auto buid = block.uid();
+      // (a) Weighted sum-of-cols.  Used by `FuelLP` for
+      // ``fuel("X").offtake = Σ heat_rate_g · dur · gen_g`` and by
+      // `LineLP` for the signed ``line.flow = +flowp − flown``; each leg
+      // carries its own coefficient.
+      if (const auto weighted = var->weighted_cols_at(buid); !weighted.empty())
+      {
+        for (const auto& [col, weight] : weighted) {
+          row[col] += coef * weight;
+        }
+        return {.emitted = true, .offset_shift = 0.0, .element_known = true};
       }
-      return {.emitted = true, .offset_shift = 0.0, .element_known = true};
-    }
-    // Try multi-col (unweighted sum-of-cols).  When registered, the
-    // aggregator is virtual and the attribute expands to a sum of LP
-    // cols — stamp each with the leg coefficient.  Sum-of-cols
-    // registrations never carry offsets in current code; if they ever
-    // do, they'd be a per-leg shift summed here.
-    const auto cols = sc.find_ampl_cols(ref.element_type,
-                                        *uid_opt,
-                                        ref.attribute,
-                                        scenario.uid(),
-                                        stage.uid(),
-                                        block.uid());
-    if (!cols.empty()) {
-      for (const auto& col : cols) {
-        row[col] += coef;
+      // (b) Unweighted sum-of-cols (virtual aggregator, e.g.
+      // ``piecewise_direct`` segments) — every leg has weight 1.  These
+      // registrations never carry offsets in current code.
+      if (const auto cols = var->cols_at(buid); !cols.empty()) {
+        for (const auto& col : cols) {
+          row[col] += coef;
+        }
+        return {.emitted = true, .offset_shift = 0.0, .element_known = true};
       }
-      return {.emitted = true, .offset_shift = 0.0, .element_known = true};
+      // (c) Single col (the common case) + optional Option-C offset; the
+      // caller folds `coef × offset` onto the row RHS via param_shift.
+      if (const auto col = var->col_at(buid)) {
+        row[*col] += coef;
+        return {
+            .emitted = true,
+            .offset_shift = coef * var->offset_at(buid),
+            .element_known = true,
+        };
+      }
+      // Registered for this (class, uid, attribute) here but no column
+      // for THIS block (e.g. per-block pmax=0): a defined silent-zero —
+      // the element is known so the term legitimately contributes 0.
+      return {.emitted = false, .offset_shift = 0.0, .element_known = true};
     }
   }
 
-  // Fall back to the single-col path (uses the lp scale + optional
-  // offset).  When the column has a non-zero offset, the caller folds
-  // `coef × offset` onto the row's RHS (existing param_shift machinery).
+  // `ref.attribute` is not directly registered under this key: `_prev`
+  // chronological refs (a normalised attribute on the previous block) and
+  // lazily-created `bus.theta` columns are resolved by the bespoke
+  // single-col path.
   if (auto resolved = resolve_single_col(sc, scenario, stage, block, ref, lp)) {
     row[resolved->col] += coef;
     return {

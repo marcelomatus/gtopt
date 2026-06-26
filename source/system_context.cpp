@@ -265,6 +265,22 @@ SystemContext::find_ampl_weighted_cols(std::string_view class_name,
                                               block_uid);
 }
 
+const AmplVariable* SystemContext::find_ampl_variable(
+    std::string_view class_name,
+    Uid element_uid,
+    std::string_view attribute,
+    ScenarioUid scenario_uid,
+    StageUid stage_uid) const
+{
+  return simulation().find_ampl_variable(system().scene().index(),
+                                         system().phase().index(),
+                                         class_name,
+                                         element_uid,
+                                         attribute,
+                                         scenario_uid,
+                                         stage_uid);
+}
+
 void SystemContext::register_ampl_element_metadata(
     std::string_view class_name,
     Uid element_uid,

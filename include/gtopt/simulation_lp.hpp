@@ -892,6 +892,34 @@ public:
     return it->second.weighted_cols_at(block_uid);
   }
 
+  /// Look up a registered AMPL variable by its full key (no block).
+  /// Returns a pointer to the registry entry (node-stable while the
+  /// registry lives — the resolver only uses it within the same build,
+  /// before `release_ampl_cell`), or `nullptr` when unregistered.  Lets
+  /// the user-constraint resolver hash the key ONCE per (term, block) and
+  /// then read every per-block shape (`col_at` / `cols_at` /
+  /// `weighted_cols_at` / `offset_at`) directly off the entry, instead of
+  /// repeating the hash+find for each of those four lookups.
+  [[nodiscard]] const AmplVariable* find_ampl_variable(
+      SceneIndex scene_index,
+      PhaseIndex phase_index,
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid) const
+  {
+    const auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    const auto it = cell.variables.find(AmplVariableKey {
+        .class_name = class_name,
+        .element_uid = element_uid,
+        .attribute = attribute,
+        .scenario_uid = scenario_uid,
+        .stage_uid = stage_uid,
+    });
+    return it == cell.variables.end() ? nullptr : &it->second;
+  }
+
   /// Is the (class, element_uid, attribute) triple registered as an LP
   /// variable somewhere — any (scene, phase, scenario, stage)?  Used by
   /// the user-constraint resolver to distinguish "attribute is real

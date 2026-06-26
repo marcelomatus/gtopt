@@ -641,6 +641,18 @@ public:
                           StageUid stage_uid,
                           BlockUid block_uid) const;
 
+  /// Look up a registered AMPL variable by key (no block).  Returns a
+  /// node-stable pointer to the registry entry, or `nullptr` when
+  /// unregistered.  The resolver uses this to hash the key ONCE per
+  /// (term, block) and then read every per-block shape (col_at /
+  /// cols_at / weighted_cols_at / offset_at) directly off the entry.
+  [[nodiscard]] const AmplVariable* find_ampl_variable(
+      std::string_view class_name,
+      Uid element_uid,
+      std::string_view attribute,
+      ScenarioUid scenario_uid,
+      StageUid stage_uid) const;
+
   /// Resolve an element name to its Uid within a class.
   [[nodiscard]] std::optional<Uid> lookup_ampl_element_uid(
       std::string_view class_name, std::string_view element_name) const
