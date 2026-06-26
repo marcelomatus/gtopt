@@ -86,6 +86,15 @@ void LinearInterface::generate_labels_from_maps(
                                   target,
                                   &std::pair<ColIndex, SparseColLabel>::first);
       if (it == m_post_clone_col_metas_.end()) {
+        // Labels intentionally dropped (low-memory build without name
+        // output): the entire frozen label vector is empty.  Emit a generic
+        // positional name instead of throwing — only `write_lp` / dumps
+        // consume these, and a generic name is acceptable there.
+        if (flatten_col_count() == 0) {
+          cin[ci] = std::format("c{}", i);
+          col_names[i] = cin[ci];
+          continue;
+        }
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: col {} has no "
             "entry in m_col_labels_meta_ (frozen size {}) / "
@@ -153,6 +162,13 @@ void LinearInterface::generate_labels_from_maps(
                                   target,
                                   &std::pair<RowIndex, SparseRowLabel>::first);
       if (it == m_post_clone_row_metas_.end()) {
+        // Labels intentionally dropped (low-memory build without name
+        // output) — generic positional name rather than throw (see col side).
+        if (flatten_row_count() == 0) {
+          rin[ri] = std::format("r{}", i);
+          row_names[i] = rin[ri];
+          continue;
+        }
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: row {} has no "
             "entry in m_row_labels_meta_ (frozen size {}) / "

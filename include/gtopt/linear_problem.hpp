@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <format>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -32,6 +33,27 @@
 
 namespace gtopt
 {
+
+/**
+ * @struct FlatLpMeta
+ * @brief Scene-invariant label metadata, bundled behind a `shared_ptr`.
+ *
+ * `col_labels_meta` / `row_labels_meta` carry the structural
+ * `(class_name, variable/constraint_name, uid, context)` tuples that
+ * `LabelMaker` needs to synthesise human-readable labels on demand.  They
+ * depend only on the LP *structure* (which columns/rows exist), never on the
+ * per-scenario numeric values, so all `(scene)` cells of a phase with an
+ * identical structural fingerprint can share **one** copy.  In compress mode
+ * these are the dominant resident cost (the name strings), preserved
+ * uncompressed by `compress_flat_lp`; sharing them across a phase's scenes is
+ * the point of `PlanningLP`'s cross-scene dedup.  Held via
+ * `shared_ptr<const FlatLpMeta>` so the bundle is immutable once built.
+ */
+struct FlatLpMeta
+{
+  std::vector<SparseColLabel> col_labels_meta;
+  std::vector<SparseRowLabel> row_labels_meta;
+};
 
 /**
  * @struct FlatLinearProblem
@@ -122,8 +144,29 @@ struct FlatLinearProblem
   /// at `load_flat` time so `write_lp` can produce real gtopt names
   /// even when `colnm` / `rownm` are empty (flatten ran without
   /// `col_with_names` / `row_with_names`).
-  std::vector<SparseColLabel> col_labels_meta;
-  std::vector<SparseRowLabel> row_labels_meta;
+  ///
+  /// Held behind a `shared_ptr<const FlatLpMeta>` (see `FlatLpMeta`) so a
+  /// phase's scenes can share one immutable copy.  Null on a default-
+  /// constructed `FlatLinearProblem`; always set by `flatten()`.  Read
+  /// through the `col_labels_meta()` / `row_labels_meta()` accessors,
+  /// which fall back to an empty vector when the bundle is absent.
+  std::shared_ptr<const FlatLpMeta> label_meta;
+
+  /// Accessor for the shared column labels (empty when `label_meta` null).
+  [[nodiscard]] const std::vector<SparseColLabel>& col_labels_meta()
+      const noexcept
+  {
+    static const std::vector<SparseColLabel> kEmpty;
+    return label_meta ? label_meta->col_labels_meta : kEmpty;
+  }
+
+  /// Accessor for the shared row labels (empty when `label_meta` null).
+  [[nodiscard]] const std::vector<SparseRowLabel>& row_labels_meta()
+      const noexcept
+  {
+    static const std::vector<SparseRowLabel> kEmpty;
+    return label_meta ? label_meta->row_labels_meta : kEmpty;
+  }
 
   /// Per-column / per-row objective time-basis, captured from
   /// `SparseCol::cost_scale_type` / `SparseRow::cost_scale_type` at

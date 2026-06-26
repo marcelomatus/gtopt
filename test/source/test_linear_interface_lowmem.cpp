@@ -2821,13 +2821,18 @@ TEST_CASE(  // NOLINT
   auto flat = lp.flatten({});
 
   REQUIRE(flat.ncols == 2);
-  REQUIRE(flat.col_labels_meta.size() == 2);
+  REQUIRE(flat.col_labels_meta().size() == 2);
 
   // Truncate the label metadata so it lags behind ncols.  The flat LP
   // is otherwise structurally valid — the backend will load 2 cols,
-  // but `generate_labels_from_maps` has no entry for col 1.
-  flat.col_labels_meta.pop_back();
-  REQUIRE(flat.col_labels_meta.size() == 1);
+  // but `generate_labels_from_maps` has no entry for col 1.  Rebuild the
+  // shared label bundle with one fewer column entry.
+  {
+    auto truncated = *flat.label_meta;
+    truncated.col_labels_meta.pop_back();
+    flat.label_meta = std::make_shared<const FlatLpMeta>(std::move(truncated));
+  }
+  REQUIRE(flat.col_labels_meta().size() == 1);
 
   LinearInterface li;
   li.load_flat(flat);
@@ -2879,15 +2884,61 @@ TEST_CASE(  // NOLINT
   auto flat = lp.flatten({});
 
   REQUIRE(flat.nrows == 2);
-  REQUIRE(flat.row_labels_meta.size() == 2);
+  REQUIRE(flat.row_labels_meta().size() == 2);
 
-  flat.row_labels_meta.pop_back();
-  REQUIRE(flat.row_labels_meta.size() == 1);
+  {
+    auto truncated = *flat.label_meta;
+    truncated.row_labels_meta.pop_back();
+    flat.label_meta = std::make_shared<const FlatLpMeta>(std::move(truncated));
+  }
+  REQUIRE(flat.row_labels_meta().size() == 1);
 
   LinearInterface li;
   li.load_flat(flat);
 
   CHECK_THROWS_AS(li.materialize_labels(), std::logic_error);
+}
+
+// Regression guard for the compress-mode label-drop: when the FlatLpMeta
+// bundle is dropped entirely (`label_meta = nullptr`, as
+// `create_linear_interface` does when names aren't requested),
+// `generate_labels_from_maps` must fall back to generic `c{i}` / `r{i}` names
+// instead of throwing.  Parquet output is unaffected (it recovers values
+// through the collection index maps); only LP-file / failed-solve dumps use
+// these labels and a generic name is acceptable there.
+TEST_CASE("LinearInterface — fully-dropped label_meta falls back, no throw")
+{  // NOLINT
+  LinearProblem lp;
+  const auto c0 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 1.0,
+      .class_name = "Gen",
+      .variable_name = "p",
+      .variable_uid = Uid {1},
+  });
+  const auto r0 = lp.add_row({
+      .lowb = 0.0,
+      .uppb = SparseRow::DblMax,
+      .class_name = "Bus",
+      .constraint_name = "balance",
+      .variable_uid = Uid {2},
+  });
+  lp.set_coeff(r0, c0, 1.0);
+  auto flat = lp.flatten({});
+  REQUIRE(flat.col_labels_meta().size() == 1);
+  REQUIRE(flat.row_labels_meta().size() == 1);
+
+  // Drop the whole bundle, exactly as the compress-mode label-drop does.
+  flat.label_meta = nullptr;
+  CHECK(flat.col_labels_meta().empty());
+  CHECK(flat.row_labels_meta().empty());
+
+  LinearInterface li;
+  li.load_flat(flat);
+
+  // Must NOT throw — generic positional names are synthesised instead.
+  CHECK_NOTHROW(li.materialize_labels());
 }
 
 // Regression: under `LowMemoryMode::compress` the cell rebuild path
@@ -3667,8 +3718,8 @@ TEST_CASE(  // NOLINT
   opts.col_with_names = true;
   opts.row_with_names = true;
   auto flat = lp.flatten(opts);
-  REQUIRE(flat.col_labels_meta.size() == 2);
-  REQUIRE(flat.row_labels_meta.size() == 1);
+  REQUIRE(flat.col_labels_meta().size() == 2);
+  REQUIRE(flat.row_labels_meta().size() == 1);
 
   LinearInterface li;
   li.load_flat(flat);

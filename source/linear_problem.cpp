@@ -1022,8 +1022,14 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .rownm = std::move(rownm),
       .colmp = std::move(colmp),
       .rowmp = std::move(rowmp),
-      .col_labels_meta = std::move(col_labels_meta),
-      .row_labels_meta = std::move(row_labels_meta),
+      // Bundle the scene-invariant label vectors behind a shared_ptr so a
+      // phase's scenes can later share one copy (PlanningLP cross-scene
+      // dedup).  make_shared once per flatten — negligible vs the label
+      // strings it wraps.
+      .label_meta = std::make_shared<const FlatLpMeta>(FlatLpMeta {
+          .col_labels_meta = std::move(col_labels_meta),
+          .row_labels_meta = std::move(row_labels_meta),
+      }),
       .col_cost_scale_types = std::move(col_cost_scale_types),
       .row_cost_scale_types = std::move(row_cost_scale_types),
       .name = pname,  // always copy (trivially small, enables multiple flatten)

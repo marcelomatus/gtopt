@@ -586,6 +586,17 @@ constexpr auto create_linear_interface(auto& collections,
   if (flat_opts.low_memory_mode != LowMemoryMode::off) {
     li.set_low_memory(flat_opts.low_memory_mode,
                       select_codec(flat_opts.memory_codec));
+    // Drop the LP-file-name label metadata under low-memory mode when names
+    // were not requested.  `col/row_labels_meta` exist only to synthesise
+    // human-readable names for `write_lp` / failed-solve dumps; parquet
+    // output uses the element-keyed collection index maps, NOT these labels.
+    // On the 2y / juan-scale cases they are ~1.3 GiB resident.  When dropped,
+    // `generate_labels_from_maps` falls back to generic `c{i}` / `r{i}` names.
+    // Off mode is untouched (labels always kept) — no regression; pass
+    // `--lp-file` / `--lp-debug` (→ col_with_names) to keep real names.
+    if (!flat_opts.col_with_names && !flat_opts.row_with_names) {
+      flat_lp.label_meta = nullptr;
+    }
     li.defer_initial_load(std::move(flat_lp));
     // Eagerly compress the snapshot at build time under
     // ``compress`` so the build phase steady-state memory is the
@@ -1741,8 +1752,10 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
         if (min_up <= 0.0 && min_down <= 0.0) {
           continue;
         }
-        CommitmentRunInfo info {.min_up_hours = min_up,
-                                .min_down_hours = min_down};
+        CommitmentRunInfo info {
+            .min_up_hours = min_up,
+            .min_down_hours = min_down,
+        };
         for (const auto& stage : phase().stages()) {
           const auto* ucols = comm.find_status_cols(scenario, stage);
           if (ucols == nullptr) {

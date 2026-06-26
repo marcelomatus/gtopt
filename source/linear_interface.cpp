@@ -1174,8 +1174,8 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // them from
   // `m_dynamic_cols_` / `m_active_cuts_` immediately after load_flat
   // returns.
-  detach_for_write(m_col_labels_meta_) = flat_lp.col_labels_meta;
-  detach_for_write(m_row_labels_meta_) = flat_lp.row_labels_meta;
+  detach_for_write(m_col_labels_meta_) = flat_lp.col_labels_meta();
+  detach_for_write(m_row_labels_meta_) = flat_lp.row_labels_meta();
   m_post_flatten_col_labels_meta_.clear();
   m_post_flatten_row_labels_meta_.clear();
   m_post_flatten_col_meta_index_.clear();
