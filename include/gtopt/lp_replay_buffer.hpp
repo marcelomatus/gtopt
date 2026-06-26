@@ -74,6 +74,7 @@
 #include <map>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -130,6 +131,13 @@ public:
   [[nodiscard]] auto active_cuts_size() const noexcept -> std::size_t
   {
     return m_active_cuts_.size();
+  }
+  /// Allocated capacity of the active-cut buffer.  Exposed so tests can
+  /// assert that `clear()` actually RELEASES the buffer (size alone cannot
+  /// distinguish a freed vector from a cleared-but-still-allocated one).
+  [[nodiscard]] auto active_cuts_capacity() const noexcept -> std::size_t
+  {
+    return m_active_cuts_.capacity();
   }
   [[nodiscard]] auto dynamic_cols_size() const noexcept -> std::size_t
   {
@@ -406,12 +414,18 @@ public:
   // that `clear()` is only invoked on a non-replaying buffer).
   void clear() noexcept
   {
-    m_dynamic_cols_ = {};
-    m_dynamic_rows_ = {};
-    m_active_cuts_ = {};
-    m_pending_col_bounds_ = {};
-    m_pending_coeffs_ = {};
-    m_pending_rhs_ = {};
+    // swap-with-empty to actually RELEASE container capacity.  `vec = {}`
+    // assigns an empty initializer_list and KEEPS the vector's buffer
+    // allocated — it would NOT free the "hundreds of MB" the doc promises
+    // (m_active_cuts_ is reserved to tens of thousands of boundary-cut rows).
+    const auto release = [](auto& c) noexcept
+    { std::remove_cvref_t<decltype(c)> {}.swap(c); };
+    release(m_dynamic_cols_);
+    release(m_dynamic_rows_);
+    release(m_active_cuts_);
+    release(m_pending_col_bounds_);
+    release(m_pending_coeffs_);
+    release(m_pending_rhs_);
   }
 
   // ── Replay flag (R6) + RAII guard ───────────────────────────────────────

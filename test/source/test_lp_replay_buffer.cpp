@@ -254,6 +254,22 @@ TEST_CASE("LpReplayBuffer reserve_active_cuts is a no-op size-wise")
   CHECK(buf.active_cuts().empty());
 }
 
+// Regression guard for the `vec = {}` trap: clear() documents that it frees
+// the underlying container capacity ("hundreds of MB per cell" of cut rows on
+// the recovery hot-start path), but `m_active_cuts_ = {}` only cleared size
+// while keeping the buffer.  Only `capacity() == 0` proves it was released.
+TEST_CASE("LpReplayBuffer clear() RELEASES active-cut capacity")  // NOLINT
+{
+  LpReplayBuffer buf {};
+  buf.reserve_active_cuts(1024);
+  REQUIRE(buf.active_cuts_capacity() >= 1024);  // real buffer allocated
+
+  buf.clear();
+
+  CHECK(buf.active_cuts_size() == 0);
+  CHECK(buf.active_cuts_capacity() == 0);  // freed, not merely cleared
+}
+
 }  // namespace
 
 // NOLINTEND(google-global-names-in-headers)
