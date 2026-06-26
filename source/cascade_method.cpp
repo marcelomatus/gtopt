@@ -98,6 +98,8 @@ auto CascadePlanningMethod::build_level_sddp_opts(
     }
     opts.aperture_chunk_size =
         level_solver->aperture_chunk_size.value_or(opts.aperture_chunk_size);
+    opts.aperture_seed_basis =
+        level_solver->aperture_seed_basis.value_or(opts.aperture_seed_basis);
     opts.min_iterations =
         level_solver->min_iterations.value_or(opts.min_iterations);
     opts.convergence_tol =

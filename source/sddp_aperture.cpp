@@ -237,9 +237,25 @@ auto solve_apertures_for_phase(
     int chunk_size,
     SDDPWorkPool* pool_for_slot_release,
     std::span<const StateVarLink> cut_links,
-    ApertureSolveMode aperture_solve_mode) -> std::optional<SparseRow>
+    ApertureSolveMode aperture_solve_mode,
+    const Basis* seed_basis,
+    Basis* captured_basis_out) -> std::optional<SparseRow>
 {
   const auto& phase_li = sys.linear_interface();
+
+  // Cross-iteration first-aperture warm start (aperture_seed_basis).  Only
+  // composes with the vertex-cut modes — `reduced_cost` reads the cut from
+  // the interior point and has no basis to seed or capture.
+  const bool seed_enabled =
+      aperture_solve_mode != ApertureSolveMode::reduced_cost;
+  const Basis* const effective_seed =
+      (seed_enabled && seed_basis != nullptr && !seed_basis->empty())
+      ? seed_basis
+      : nullptr;
+  const bool capture_basis = seed_enabled && captured_basis_out != nullptr;
+  // Written only by the first chunk's task, read only after every future has
+  // joined (happens-before via the future) — no synchronisation needed.
+  std::optional<Basis> captured_first_basis;
 
   // Apply aperture timeout to solver options if configured.
   // Crossover policy (see `ApertureSolveMode`):
@@ -400,9 +416,14 @@ auto solve_apertures_for_phase(
   //      input order.
   std::vector<std::future<ApertureChunkResult>> futures;
   futures.reserve(chunks.size());
-  for (const auto chunk : chunks) {
+  for (std::size_t chunk_idx = 0; chunk_idx < chunks.size(); ++chunk_idx) {
+    const auto chunk = chunks[chunk_idx];
+    // Only the first chunk (which owns the cell's first aperture) captures
+    // the basis to persist for next iteration's seed.
+    const bool do_capture = capture_basis && chunk_idx == 0;
     futures.push_back(submit_fn(
-        [&, chunk, clone_mutex, use_manual_clone]() -> ApertureChunkResult
+        [&, chunk, clone_mutex, use_manual_clone, do_capture]()
+            -> ApertureChunkResult
         {
           const auto chunk_start = std::chrono::steady_clock::now();
           const auto task_tid = std::this_thread::get_id();
@@ -470,7 +491,42 @@ auto solve_apertures_for_phase(
           // efficiently, whereas primal would restart from a primal-infeasible
           // point.  Use dual for the warm re-solve.
           warm_opts.algorithm = LPAlgo::dual;
+
+          // Coordinated-seed cold anchor: when the seed scheme is active, the
+          // FIRST aperture (no resident basis — iteration 1) solves barrier +
+          // primal-crossover instead of the .prm's cold method.  This lands on
+          // a deterministic vertex basis fast (vs a ~13k-iteration cold dual
+          // simplex), and that canonical basis anchors every subsequent dual
+          // warm start (the within-chunk chain and next iterations' seeds).
+          // `force_barrier_crossover` overrides any .prm-pinned LPMethod.
+          SolverOptions cold_opts = aperture_opts;
+          if (capture_basis) {
+            cold_opts.algorithm = LPAlgo::barrier;
+            cold_opts.crossover = true;
+            cold_opts.force_barrier_crossover = true;
+          }
           bool clone_has_basis = false;
+
+          // Cross-iteration seed (aperture_seed_basis): install the previous
+          // iteration's first-aperture basis so THIS chunk's first solve is a
+          // dual warm start instead of a cold barrier.  Bound-only inflow /
+          // incoming-state deltas plus appended cut rows keep the seed
+          // dual-feasible; `set_basis` reconciles the row-count growth.
+          // `seeded_first` flags the single solve that benefits in `cold`
+          // mode (in `warm` mode the within-chunk chain takes over after).
+          // If `set_basis` rejects the seed (dimension mismatch the reconcile
+          // can't bridge, basis-less backend) it returns false and the first
+          // solve falls back to cold — and the cold-solved basis is what gets
+          // captured below, so the slot self-heals for the next iteration.
+          bool seeded_first = false;
+          if (effective_seed != nullptr && clone.set_basis(*effective_seed)) {
+            clone_has_basis = true;
+            seeded_first = true;
+          }
+
+          // Marks the chunk's first actual solve — the cold anchor under the
+          // coordinated seed scheme (barrier+crossover) when not seeded.
+          bool first_solve_pending = true;
 
           // Instrumentation: split solve wall-time into the cold seed and
           // the warm re-solves so the speedup is observable in the logs.
@@ -624,13 +680,27 @@ auto solve_apertures_for_phase(
             // chunk-shared clones (cheap noop after the first
             // aperture).
             clone.relax_integers();
-            // Warm-start the re-solve once the shared clone already holds
-            // an optimal basis from a previous aperture in this chunk.
-            const bool use_warm = aperture_solve_mode == ApertureSolveMode::warm
-                && clone_has_basis;
+            // Warm-start the re-solve when the clone already holds a basis:
+            // the within-chunk chain (`warm` mode), or the cross-iteration
+            // seed on this chunk's first solve (`seeded_first`, any vertex
+            // mode).  `seeded_first` is one-shot so `cold` mode keeps every
+            // subsequent aperture an independent cold solve.
+            const bool use_warm = clone_has_basis
+                && (aperture_solve_mode == ApertureSolveMode::warm
+                    || seeded_first);
+            seeded_first = false;
+            // Method selection: warm dual off a basis when one is resident;
+            // else the barrier+crossover cold anchor for the chunk's first
+            // (no-basis) solve under the coordinated seed scheme; else the
+            // plain cold method (the .prm's, e.g. dual).
+            const bool cold_anchor =
+                !use_warm && capture_basis && first_solve_pending;
+            first_solve_pending = false;
+            const SolverOptions& solve_opts = use_warm ? warm_opts
+                : cold_anchor                          ? cold_opts
+                                                       : aperture_opts;
             const auto solve_t0 = std::chrono::steady_clock::now();
-            [[maybe_unused]] auto solve_result =
-                clone.resolve(use_warm ? warm_opts : aperture_opts);
+            [[maybe_unused]] auto solve_result = clone.resolve(solve_opts);
             const auto solve_s =
                 std::chrono::duration<double>(std::chrono::steady_clock::now()
                                               - solve_t0)
@@ -648,6 +718,18 @@ auto solve_apertures_for_phase(
             // the warm re-solves), so the next aperture can warm-start.
             if (feasible) {
               clone_has_basis = true;
+            }
+            // Capture THIS cell's first-aperture basis (first chunk only)
+            // for next iteration's seed.  Right after the first solve, before
+            // `update_aperture` overwrites the bounds for the next aperture.
+            // `(n_cold + n_warm) == 1` is the first ACTUAL solve in the chunk;
+            // chunk 0's first entry can never be a duplicate-memo skip (the
+            // memo is empty on entry), and `partition_apertures` keeps chunk 0
+            // first in wettest→driest order, so this is the cell's
+            // representative (wettest) aperture by construction.
+            if (do_capture && feasible
+                && (n_cold_solves + n_warm_solves) == 1) {
+              captured_first_basis = clone.get_basis();
             }
             if (!feasible) {
               const auto status = clone.get_status();
@@ -822,6 +904,13 @@ auto solve_apertures_for_phase(
         }
       }
     }
+  }
+
+  // Persist this iteration's first-aperture basis for next iteration's seed.
+  // Every chunk future has joined above, so the capturing write (first chunk's
+  // worker) happens-before this read — no extra synchronisation needed.
+  if (captured_basis_out != nullptr && captured_first_basis.has_value()) {
+    *captured_basis_out = std::move(*captured_first_basis);
   }
 
   // Log summary — ONE line per (iter, scene, phase) at INFO so it

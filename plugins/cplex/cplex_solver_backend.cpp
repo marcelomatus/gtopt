@@ -297,6 +297,13 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   // the basis resident on this problem object after a column-bound change.
   if (opts.advanced_basis) {
     apply_cplex_warmstart(env, opts);
+  } else if (opts.force_barrier_crossover) {
+    // Cold-canonical anchor (no basis to warm-start): force barrier + primal
+    // crossover AFTER the .prm so it wins over a pinned LPMethod (e.g. the
+    // bundled cplex.prm forces dual simplex).  Produces a deterministic vertex
+    // basis fast — the SDDP coordinated-seed scheme's first-aperture solve.
+    CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
+    CPXsetintparam(env, CPX_PARAM_BARCROSSALG, CPX_ALG_PRIMAL);
   }
 }
 
@@ -1520,6 +1527,95 @@ int CplexSolverBackend::restore_integers(std::span<const int> integer_cols)
               integer_cols.data(),
               ctypes.data());
   return static_cast<int>(integer_cols.size());
+}
+
+namespace
+{
+/// Map a CPLEX cstat/rstat code to the solver-agnostic BasisStatus.
+[[nodiscard]] BasisStatus from_cplex_status(int cstat) noexcept
+{
+  switch (cstat) {
+    case CPX_BASIC:
+      return BasisStatus::basic;
+    case CPX_AT_UPPER:
+      return BasisStatus::at_upper;
+    case CPX_FREE_SUPER:
+      return BasisStatus::free;
+    case CPX_AT_LOWER:
+    default:
+      return BasisStatus::at_lower;
+  }
+}
+
+/// Map a solver-agnostic BasisStatus to the CPLEX cstat/rstat code.
+[[nodiscard]] int to_cplex_status(BasisStatus status) noexcept
+{
+  switch (status) {
+    case BasisStatus::basic:
+      return CPX_BASIC;
+    case BasisStatus::at_upper:
+      return CPX_AT_UPPER;
+    case BasisStatus::free:
+      return CPX_FREE_SUPER;
+    case BasisStatus::at_lower:
+      return CPX_AT_LOWER;
+  }
+  return CPX_AT_LOWER;
+}
+}  // namespace
+
+std::optional<Basis> CplexSolverBackend::get_basis() const
+{
+  const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
+  const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
+  if (ncols <= 0) {
+    return std::nullopt;
+  }
+  std::vector<int> cstat(static_cast<std::size_t>(ncols));
+  std::vector<int> rstat(static_cast<std::size_t>(nrows));
+  // Nonzero status (e.g. CPXERR_NO_BASIS) → the LP carries no basis (interior
+  // point without crossover, or never solved) → report "none".
+  if (CPXgetbase(m_env_lp_.env(), m_env_lp_.lp(), cstat.data(), rstat.data())
+      != 0)
+  {
+    return std::nullopt;
+  }
+  Basis basis;
+  basis.col_status.resize(static_cast<std::size_t>(ncols));
+  basis.row_status.resize(static_cast<std::size_t>(nrows));
+  for (std::size_t i = 0; i < basis.col_status.size(); ++i) {
+    basis.col_status[i] = from_cplex_status(cstat[i]);
+  }
+  for (std::size_t i = 0; i < basis.row_status.size(); ++i) {
+    basis.row_status[i] = from_cplex_status(rstat[i]);
+  }
+  return basis;
+}
+
+bool CplexSolverBackend::set_basis(const Basis& basis)
+{
+  const auto ncols =
+      static_cast<std::size_t>(CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp()));
+  const auto nrows =
+      static_cast<std::size_t>(CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp()));
+  // The LinearInterface reconciles dimensions before calling; a mismatch here
+  // means a misuse (raw backend caller) — reject rather than guess.
+  if (basis.col_status.size() != ncols || basis.row_status.size() != nrows) {
+    return false;
+  }
+  std::vector<int> cstat(ncols);
+  std::vector<int> rstat(nrows);
+  for (std::size_t i = 0; i < ncols; ++i) {
+    cstat[i] = to_cplex_status(basis.col_status[i]);
+  }
+  for (std::size_t i = 0; i < nrows; ++i) {
+    rstat[i] = to_cplex_status(basis.row_status[i]);
+  }
+  // Installs the advanced start; the next CPXlpopt honours it when
+  // CPX_PARAM_ADVIND=1 (SolverOptions::advanced_basis).
+  return CPXcopybase(
+             m_env_lp_.env(), m_env_lp_.lp(), cstat.data(), rstat.data())
+      == 0;
 }
 
 std::optional<std::vector<std::string>>

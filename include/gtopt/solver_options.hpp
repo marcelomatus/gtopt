@@ -197,6 +197,25 @@ struct SolverOptions
    */
   bool advanced_basis {false};
 
+  /** @brief Force barrier + primal-crossover for this solve, overriding any
+   *  `.prm`-pinned `LPMethod`.  Internal (not JSON-exposed): set in-code on a
+   *  local options copy by the SDDP aperture pass for the cold-canonical
+   *  first-aperture solve (no resident basis) under the coordinated
+   *  `aperture_seed_basis` scheme — a fast cold solve that lands on a
+   *  deterministic vertex basis to anchor the subsequent dual warm starts.
+   *
+   *  Backend mapping (applied AFTER the `.prm`, like `advanced_basis`):
+   *  - CPLEX: `CPX_PARAM_LPMETHOD = barrier` + `CPX_PARAM_BARCROSSALG =
+   * primal`.
+   *  - HiGHS: `solver = ipm` + `run_crossover = on`.
+   *  - Others: ignored (the prm/default method stands — still correct).
+   *
+   *  Mutually exclusive with `advanced_basis` (a cold solve has no basis to
+   *  advance from); if both are set, `advanced_basis` wins (warm beats cold).
+   *  Default: false.
+   */
+  bool force_barrier_crossover {false};
+
   /** @brief Path to a backend-native parameter file applied before the
    *  fields above (so the typed gtopt fields keep priority on conflict).
    *
@@ -302,6 +321,16 @@ struct SolverOptions
       // 2026-05-15 as `CPXPARAM_Barrier_Crossover 1` in every one
       // of 4 K cplex_*.log files including pure forward passes.
       crossover = user.crossover;
+    }
+    // Cold-canonical flag (default false): only the explicit "user wants ON"
+    // case overrides the base, mirroring the bool sentinels above.  Without
+    // this the aperture pass's force_barrier_crossover request was silently
+    // dropped during overlay.  (advanced_basis is intentionally NOT overlaid
+    // here — the warm path already works via the .prm's ADVIND=1 + the resident
+    // basis, and overlaying it would reroute through apply_cplex_warmstart and
+    // change the tuned warm method.)
+    if (user.force_barrier_crossover) {
+      force_barrier_crossover = user.force_barrier_crossover;
     }
     if (user.log_level != 0) {
       log_level = user.log_level;

@@ -33,6 +33,7 @@
 
 #include <gtopt/aperture.hpp>
 #include <gtopt/aperture_data_cache.hpp>
+#include <gtopt/basis.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/label_maker.hpp>
@@ -488,7 +489,18 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     /// re-solve (`SolverOptions::advanced_basis`; chunk_size > 1 only).
     /// `reduced_cost`: cold barrier without crossover, cut from
     /// interior-point reduced costs.  See `ApertureSolveMode`.
-    ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost)
-    -> std::optional<SparseRow>;
+    ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost,
+    /// Cross-iteration first-aperture warm-start seed (optional).
+    ///   - `seed_basis` (in): the previous iteration's first-aperture basis
+    ///     for this cell, or `nullptr`/empty to disable seeding.  Each
+    ///     chunk's first solve is dual-warm-started from it (reconciled to
+    ///     the current dimensions).  Read-only during parallel execution.
+    ///   - `captured_basis_out` (out): when non-null, the basis of THIS
+    ///     iteration's first aperture (first chunk) is written here after the
+    ///     chunk futures join, for the caller to persist into the cell slot.
+    /// Only honoured for `cold`/`warm` modes (vertex cuts); `reduced_cost`
+    /// has no basis to capture.  Both default off (legacy cold first solve).
+    const Basis* seed_basis = nullptr,
+    Basis* captured_basis_out = nullptr) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

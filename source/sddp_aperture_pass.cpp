@@ -602,6 +602,17 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                        m_options_.num_apertures,
                        m_options_.aperture_selection_mode);
 
+  // Cross-iteration first-aperture basis seed (aperture_seed_basis).  The
+  // seed pointer is read-only during the parallel chunk solves; the captured
+  // basis is written back into this cell's slot after they join.
+  auto& warm_basis_slot = phase_states[phase_index].aperture_warm_basis;
+  const bool seed_on = m_options_.aperture_seed_basis
+      && m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
+  const Basis* const seed_ptr =
+      (seed_on && !warm_basis_slot.empty()) ? &warm_basis_slot : nullptr;
+  Basis captured_basis;
+  Basis* const capture_ptr = seed_on ? &captured_basis : nullptr;
+
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
       phase_index,
@@ -630,7 +641,13 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.aperture_chunk_size,
       /*pool_for_slot_release=*/nullptr,
       aperture_cut_links,
-      m_options_.aperture_solve_mode);
+      m_options_.aperture_solve_mode,
+      seed_ptr,
+      capture_ptr);
+
+  if (capture_ptr != nullptr && !captured_basis.empty()) {
+    warm_basis_slot = std::move(captured_basis);
+  }
 
   const auto& target_state = phase_states[phase_index];
   cuts_added += install_aperture_backward_cut(scene_index,
@@ -868,6 +885,16 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                          m_options_.num_apertures,
                          m_options_.aperture_selection_mode);
 
+    // Cross-iteration first-aperture basis seed (same rationale as the sync
+    // path in `backward_pass_aperture_phase_impl`).
+    auto& warm_basis_slot = phase_states[phase_index].aperture_warm_basis;
+    const bool seed_on = m_options_.aperture_seed_basis
+        && m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
+    const Basis* const seed_ptr =
+        (seed_on && !warm_basis_slot.empty()) ? &warm_basis_slot : nullptr;
+    Basis captured_basis;
+    Basis* const capture_ptr = seed_on ? &captured_basis : nullptr;
+
     auto expected_cut = solve_apertures_for_phase(
         scene_index,
         phase_index,
@@ -896,7 +923,13 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         m_options_.aperture_chunk_size,
         exec_pool,
         aperture_cut_links,
-        m_options_.aperture_solve_mode);
+        m_options_.aperture_solve_mode,
+        seed_ptr,
+        capture_ptr);
+
+    if (capture_ptr != nullptr && !captured_basis.empty()) {
+      warm_basis_slot = std::move(captured_basis);
+    }
 
     if (!expected_cut.has_value()) {
       infeasible_phases.push_back(uid_of(phase_index));

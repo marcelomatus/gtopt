@@ -24,6 +24,7 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/basis.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -542,6 +543,39 @@ public:
   {
     return false;
   }
+
+  // ---- simplex basis (advanced warm start) ----
+
+  /// Capture the current simplex basis (column + row statuses).
+  ///
+  /// Returns `std::nullopt` when no basis is available — the LP was not
+  /// solved by simplex/crossover (a bare interior point has no basis), or
+  /// the backend is basis-less (cuOpt PDLP).  On success the result has
+  /// `col_status.size() == get_num_cols()` and
+  /// `row_status.size() == get_num_rows()`.
+  ///
+  /// Default: unsupported (`nullopt`).  A basis is an `(n+m)` status vector
+  /// — no matrix data, no solution values.
+  [[nodiscard]] virtual std::optional<Basis> get_basis() const
+  {
+    return std::nullopt;
+  }
+
+  /// Install a simplex basis as an advanced start for the next solve.
+  ///
+  /// PRECONDITION: `basis` is sized to the CURRENT problem
+  /// (`col_status.size() == get_num_cols()`,
+  /// `row_status.size() == get_num_rows()`).  `LinearInterface::set_basis`
+  /// reconciles a basis captured from a related LP (cuts appended rows)
+  /// to these dimensions via `reconcile_basis` before calling here, so the
+  /// backend only maps statuses to native and installs them; a size
+  /// mismatch is rejected (returns `false`) rather than guessed.
+  ///
+  /// Pairs with `SolverOptions::advanced_basis` (→ CPLEX `ADVIND=1`) and
+  /// `LPAlgo::dual` so dual simplex resumes from the seed.
+  ///
+  /// Default: unsupported (`false`) — a benign skip, like `set_mip_start`.
+  virtual bool set_basis(const Basis& /*basis*/) { return false; }
 
   // ---- infeasibility diagnosis ----
 

@@ -37,6 +37,7 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/basis.hpp>
 #include <gtopt/benders_cut.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/lp_class_name.hpp>
@@ -776,6 +777,12 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
   ApertureSolveMode aperture_solve_mode {ApertureSolveMode::reduced_cost};
 
+  /// Seed each iteration's first backward aperture from the previous
+  /// iteration's first-aperture basis (dual warm start).  Orthogonal to
+  /// `aperture_solve_mode`; only acts when the mode is `cold`/`warm`.
+  /// Default false.  See `sddp_options.hpp::aperture_seed_basis`.
+  bool aperture_seed_basis {false};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass
@@ -1395,6 +1402,11 @@ struct PhaseStateInfo
   /// call `build_benders_cut_physical` without re-querying the
   /// original LP.
   double forward_full_obj_physical {0.0};
+  /// Cross-iteration warm-start seed: the simplex basis captured from this
+  /// cell's FIRST backward aperture last iteration.  Empty until first
+  /// captured; only populated/consumed when `aperture_seed_basis` is on.
+  /// One per `(scene, phase)` cell — `O(cells)` memory, not per-aperture.
+  Basis aperture_warm_basis {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

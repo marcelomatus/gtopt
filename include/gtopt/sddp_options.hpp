@@ -340,6 +340,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<ApertureSolveMode> aperture_solve_mode {};
 
+  /** @brief Seed each iteration's first backward aperture from the previous
+   *         iteration's first-aperture simplex basis (dual warm start).
+   *
+   * Orthogonal to `aperture_solve_mode`; only acts when the mode is `cold`
+   * or `warm` (vertex cuts).  One basis per `(scene, phase)` cell is kept
+   * across iterations (PhaseStateInfo) — `O(cells)` memory, not
+   * `O(cells × apertures)`.  Same realization each iteration (the first
+   * aperture), so the only delta is the incoming state (bound-only) plus
+   * appended cut rows; the captured basis is an exact dual-simplex seed and
+   * the gap shrinks as the policy converges.  The within-chunk resident
+   * basis carries the remaining apertures (`aperture_chunk_size > 1`).
+   *
+   * Default: `nullopt` → `false` (every first aperture solves cold, the
+   * legacy behaviour).
+   */
+  OptBool aperture_seed_basis {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
@@ -750,6 +767,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
+    merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);

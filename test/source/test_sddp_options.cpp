@@ -459,4 +459,30 @@ TEST_CASE("SddpOptions - aperture_solve_mode merge")
   }
 }
 
+// Regression guard: `aperture_seed_basis` was added to the struct + JSON
+// contract but omitted from `merge()`, so option resolution silently dropped
+// it to nullopt and the feature never engaged.  Every field-by-field copy
+// function (here `merge`, and `SolverOptions::overlay` for the cold-canonical
+// flag) must carry each new field.
+TEST_CASE("SddpOptions - aperture_seed_basis merge")  // NOLINT
+{
+  SUBCASE("overlay wins when set")
+  {
+    SddpOptions base {};
+    SddpOptions overlay {.aperture_seed_basis = true};
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_seed_basis.has_value());
+    CHECK(*base.aperture_seed_basis);
+  }
+
+  SUBCASE("base kept when overlay absent")
+  {
+    SddpOptions base {.aperture_seed_basis = true};
+    SddpOptions overlay {};
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_seed_basis.has_value());
+    CHECK(*base.aperture_seed_basis);
+  }
+}
+
 // NOLINTEND(bugprone-unchecked-optional-access)

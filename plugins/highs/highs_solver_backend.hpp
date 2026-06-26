@@ -139,6 +139,10 @@ public:
   void set_col_solution(const double* sol) override;
   void set_row_price(const double* price) override;
 
+  // ---- simplex basis (advanced warm start) ----
+  [[nodiscard]] std::optional<Basis> get_basis() const override;
+  bool set_basis(const Basis& basis) override;
+
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;

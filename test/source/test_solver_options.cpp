@@ -401,6 +401,35 @@ TEST_CASE(  // NOLINT
   }
 }
 
+TEST_CASE("SolverOptions - overlay carries force_barrier_crossover")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  // Regression: `resolve()` builds the effective options via
+  // `optimal_options().overlay(user)`, rebuilt field-by-field.
+  // `force_barrier_crossover` (the SDDP cold-canonical aperture flag) was
+  // omitted from overlay(), so the aperture pass's request was silently
+  // dropped and the first aperture never switched to barrier+crossover.
+  SUBCASE("user-on overrides base-off")
+  {
+    SolverOptions base {};
+    REQUIRE_FALSE(base.force_barrier_crossover);
+    SolverOptions user {};
+    user.force_barrier_crossover = true;
+    base.overlay(user);
+    CHECK(base.force_barrier_crossover);
+  }
+
+  SUBCASE("user-off (sentinel) leaves base untouched")
+  {
+    SolverOptions base {};
+    base.force_barrier_crossover = true;
+    const SolverOptions user {};  // user off (default)
+    base.overlay(user);
+    CHECK(base.force_barrier_crossover);
+  }
+}
+
 TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP merge: method-specific overrides global")
 {

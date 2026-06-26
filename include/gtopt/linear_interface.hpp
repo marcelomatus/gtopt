@@ -2750,6 +2750,26 @@ public:
   void set_col_sol(std::span<const double> sol);
   void set_row_dual(std::span<const double> dual);
 
+  /// Capture the current simplex basis (column + row statuses), or
+  /// `std::nullopt` when the live backend has none — no simplex/crossover
+  /// solve has produced one (a bare interior point), the backend is
+  /// basis-less, or the backend has been released (a snapshot cannot
+  /// reconstruct a basis).  Delegates to `SolverBackend::get_basis`.
+  ///
+  /// Status-only, so no scaling is involved (a variable being basic is
+  /// scale-invariant) — unlike `get_col_sol`, this is a verbatim pass-through.
+  [[nodiscard]] std::optional<Basis> get_basis() const;
+
+  /// Install `basis` as an advanced (dual/primal simplex) start for the next
+  /// `resolve`.  The basis may have been captured from a *related* LP (the
+  /// SDDP case: cuts appended rows since capture); this reconciles it to the
+  /// current dimensions via `reconcile_basis` (appended rows → basic slack,
+  /// appended cols → nonbasic at lower, surplus → truncated) before handing
+  /// an exact-sized basis to the backend.  Combine with
+  /// `SolverOptions::advanced_basis = true` and `algorithm = LPAlgo::dual`.
+  /// Returns `false` if the backend cannot accept a basis (a benign skip).
+  bool set_basis(Basis basis);
+
   /// Inject a starting integer (MIP-start / warm incumbent) solution into the
   /// backend.  `col_values` is a dense RAW-space vector (size `get_numcols()`)
   /// — build it from `get_col_sol_raw()`, never the descaled `get_col_sol()`.

@@ -726,7 +726,9 @@ TEST_CASE(  // NOLINT
     return planning;
   };
 
-  auto run_at = [&](int chunk_size, bool warm_start = false) -> double
+  auto run_at = [&](int chunk_size,
+                    bool warm_start = false,
+                    bool seed_basis = false) -> double
   {
     auto planning = build_planning();
     PlanningLP plp(std::move(planning));
@@ -744,6 +746,7 @@ TEST_CASE(  // NOLINT
     sddp_opts.aperture_chunk_size = chunk_size;
     sddp_opts.aperture_solve_mode =
         warm_start ? ApertureSolveMode::warm : ApertureSolveMode::cold;
+    sddp_opts.aperture_seed_basis = seed_basis;
     SDDPMethod sddp(plp, sddp_opts);
     auto results = sddp.solve();
     REQUIRE(results.has_value());
@@ -771,6 +774,21 @@ TEST_CASE(  // NOLINT
   // flag is a no-op and this run is identical to the cold one.
   const double ub_k4_warm = run_at(4, /*warm_start=*/true);
   CHECK(ub_k4_warm == doctest::Approx(ub_k1).epsilon(1e-3));
+
+  // Cross-iteration first-aperture basis seed (aperture_seed_basis).  From
+  // iteration 2 on, each cell's first aperture dual-warm-starts off the
+  // basis captured last iteration (reconciled across the cut row appended
+  // since).  Same matrix, bound-only inflow/state deltas → the seed only
+  // swaps the LP *algorithm*, never the value function.  So the UB must
+  // match the cold reference within tolerance, at both K=1 (only the first
+  // aperture per cell seeds) and K=4 (seed feeds the within-chunk chain).
+  // No-op on backends without get/set_basis (e.g. OSI/CLP) — identical run.
+  const double ub_k1_seed =
+      run_at(1, /*warm_start=*/false, /*seed_basis=*/true);
+  CHECK(ub_k1_seed == doctest::Approx(ub_k1).epsilon(1e-3));
+  const double ub_k4_warm_seed =
+      run_at(4, /*warm_start=*/true, /*seed_basis=*/true);
+  CHECK(ub_k4_warm_seed == doctest::Approx(ub_k1).epsilon(1e-3));
 }
 
 // ─── Unit tests for free utility functions ─────────────────────────────────

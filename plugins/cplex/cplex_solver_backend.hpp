@@ -211,6 +211,10 @@ public:
                      MipStartEffort effort) override;
   int restore_integers(std::span<const int> integer_cols) override;
 
+  // ---- simplex basis (advanced warm start) ----
+  [[nodiscard]] std::optional<Basis> get_basis() const override;
+  bool set_basis(const Basis& basis) override;
+
   // ---- infeasibility diagnosis ----
   std::optional<std::vector<std::string>> diagnose_infeasibility(
       int max_items) override;

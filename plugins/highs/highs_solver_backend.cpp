@@ -168,6 +168,12 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
         highs.readOptions(sibling.string());
       }
     }
+  } else if (opts.force_barrier_crossover) {
+    // Cold-canonical anchor (no basis): force interior point + crossover so
+    // the solve lands on a deterministic vertex basis (the SDDP
+    // coordinated-seed first-aperture solve).  Mirrors the CPLEX plugin.
+    highs.setOptionValue("solver", "ipm");
+    highs.setOptionValue("run_crossover", "on");
   }
 
   // Never enable console output here — logging is managed by the
@@ -653,6 +659,81 @@ void HighsSolverBackend::set_row_price(const double* price)
           + nrows);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   solution.dual_valid = true;
   m_highs_->setSolution(solution);
+}
+
+namespace
+{
+/// Map a HiGHS basis status to the solver-agnostic BasisStatus.
+[[nodiscard]] BasisStatus from_highs_status(HighsBasisStatus status) noexcept
+{
+  switch (status) {
+    case HighsBasisStatus::kBasic:
+      return BasisStatus::basic;
+    case HighsBasisStatus::kUpper:
+      return BasisStatus::at_upper;
+    case HighsBasisStatus::kZero:
+    case HighsBasisStatus::kNonbasic:
+      return BasisStatus::free;
+    case HighsBasisStatus::kLower:
+    default:
+      return BasisStatus::at_lower;
+  }
+}
+
+/// Map a solver-agnostic BasisStatus to a HiGHS basis status.
+[[nodiscard]] HighsBasisStatus to_highs_status(BasisStatus status) noexcept
+{
+  switch (status) {
+    case BasisStatus::basic:
+      return HighsBasisStatus::kBasic;
+    case BasisStatus::at_upper:
+      return HighsBasisStatus::kUpper;
+    case BasisStatus::free:
+      return HighsBasisStatus::kNonbasic;
+    case BasisStatus::at_lower:
+      return HighsBasisStatus::kLower;
+  }
+  return HighsBasisStatus::kLower;
+}
+}  // namespace
+
+std::optional<Basis> HighsSolverBackend::get_basis() const
+{
+  const auto& hbasis = m_highs_->getBasis();
+  if (!hbasis.valid) {
+    return std::nullopt;
+  }
+  Basis basis;
+  basis.col_status.reserve(hbasis.col_status.size());
+  for (const auto status : hbasis.col_status) {
+    basis.col_status.push_back(from_highs_status(status));
+  }
+  basis.row_status.reserve(hbasis.row_status.size());
+  for (const auto status : hbasis.row_status) {
+    basis.row_status.push_back(from_highs_status(status));
+  }
+  return basis;
+}
+
+bool HighsSolverBackend::set_basis(const Basis& basis)
+{
+  const auto ncols = static_cast<std::size_t>(m_highs_->getNumCol());
+  const auto nrows = static_cast<std::size_t>(m_highs_->getNumRow());
+  // The LinearInterface reconciles dimensions before calling.
+  if (basis.col_status.size() != ncols || basis.row_status.size() != nrows) {
+    return false;
+  }
+  HighsBasis hbasis;
+  hbasis.valid = true;
+  hbasis.col_status.reserve(ncols);
+  for (const auto status : basis.col_status) {
+    hbasis.col_status.push_back(to_highs_status(status));
+  }
+  hbasis.row_status.reserve(nrows);
+  for (const auto status : basis.row_status) {
+    hbasis.row_status.push_back(to_highs_status(status));
+  }
+  return m_highs_->setBasis(hbasis) == HighsStatus::kOk;
 }
 
 void HighsSolverBackend::initial_solve()

@@ -1009,6 +1009,14 @@ public:
     return m_options_.sddp_options.aperture_use_manual_clone.value_or(true);
   }
 
+  /// Whether to seed each iteration's first backward aperture from the
+  /// previous iteration's first-aperture basis (dual warm start).  Default
+  /// false — only meaningful with `aperture_solve_mode` cold/warm.
+  [[nodiscard]] constexpr auto sddp_aperture_seed_basis() const
+  {
+    return m_options_.sddp_options.aperture_seed_basis.value_or(false);
+  }
+
   /// Resolved per-task aperture chunk size (sentinel-encoded).
   ///
   ///   *  0 → auto (compute_auto_aperture_chunk_size at SDDPMethod setup).

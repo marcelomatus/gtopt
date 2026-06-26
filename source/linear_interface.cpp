@@ -3361,6 +3361,31 @@ bool LinearInterface::set_mip_start(const std::span<const double> col_values,
   return m_backend_->set_mip_start(col_values, effort);
 }
 
+std::optional<Basis> LinearInterface::get_basis() const
+{
+  // A basis only exists on a live, simplex/crossover-solved backend.  After
+  // release_backend() the snapshot holds primal/dual vectors but no basis, so
+  // there is nothing to reconstruct — report "none" rather than rebuild.
+  if (m_backend_ == nullptr) {
+    return std::nullopt;
+  }
+  return m_backend_->get_basis();
+}
+
+bool LinearInterface::set_basis(Basis basis)
+{
+  if (basis.empty()) {
+    return false;
+  }
+  ensure_backend();
+  // Reconcile a basis captured from a related LP (cuts may have appended
+  // rows since) to the current dimensions before the backend installs it.
+  reconcile_basis(basis,
+                  static_cast<std::size_t>(get_numcols()),
+                  static_cast<std::size_t>(get_numrows()));
+  return m_backend_->set_basis(basis);
+}
+
 std::optional<std::vector<std::string>> LinearInterface::diagnose_infeasibility(
     const int max_items)
 {
