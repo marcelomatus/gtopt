@@ -532,6 +532,18 @@ constexpr auto flatten_from_collections(auto& collections,
   cell_flat_opts.flatten_phase_uid = phase.uid();
 
   auto flat_lp = lp.flatten(cell_flat_opts);
+
+  // The per-cell AMPL variable/metadata registry is only read to resolve
+  // user constraints during the build above; it is never read after
+  // flatten.  When the production solve path requests it
+  // (`release_ampl_after_flatten`), free it now so user-constraint-heavy
+  // cases (CEN PLEXOS, irrigation) don't carry the registry — hundreds of
+  // MB at CEN scale — as dead weight through the solve.  Left off for the
+  // direct PlanningLP/SystemLP APIs so white-box tests can inspect it.
+  if (flat_opts.release_ampl_after_flatten) {
+    system_context.simulation().release_ampl_cell(scene.index(), phase.index());
+  }
+
   return std::tuple {std::move(flat_lp), std::move(fingerprint), label_maker};
 }
 

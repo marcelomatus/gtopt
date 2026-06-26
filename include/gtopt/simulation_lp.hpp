@@ -589,6 +589,26 @@ public:
     return m_need_ampl_variables_;
   }
 
+  /// Release the per-(scene, phase) AMPL variable + metadata maps once the
+  /// cell's LP has been flattened.  Gated by
+  /// `LpMatrixOptions::release_ampl_after_flatten` (set on the production
+  /// solve path) so direct PlanningLP/SystemLP tests that inspect the
+  /// registry post-build keep it.  The maps are only read to resolve user
+  /// constraints during the build and never after `flatten`, so on
+  /// user-constraint-heavy cases (CEN PLEXOS, irrigation) this reclaims the
+  /// registry's memory — hundreds of MB at CEN scale — for the solve.
+  /// Move-assigning fresh empty maps (rather than `clear()`) returns the
+  /// node storage to the allocator.  Safe from the owning build thread:
+  /// each cell touches only its own `[scene][phase]` slot, and a later
+  /// rebuild re-populates it via `add_ampl_variable`.
+  void release_ampl_cell(SceneIndex scene_index,
+                         PhaseIndex phase_index) noexcept
+  {
+    auto& cell = m_ampl_lp_cells_[scene_index][phase_index];
+    cell.variables = AmplVariableMap {};
+    cell.metadata = AmplElementMetadataMap {};
+  }
+
   /// Register a per-block variable map (e.g., generator.generation).
   /// No-op when `need_ampl_variables()` is false.
   void add_ampl_variable(SceneIndex scene_index,

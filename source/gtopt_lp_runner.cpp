@@ -567,6 +567,13 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
   auto flat_opts = make_lp_matrix_options(
       enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);
 
+  // Production solve path: the AMPL variable registry is only needed to
+  // resolve user constraints during the build, so release each cell's
+  // registry right after flatten to reclaim its memory (hundreds of MB at
+  // CEN scale) for the solve.  The direct PlanningLP/SystemLP test APIs
+  // leave this off so they can inspect the registry post-build.
+  flat_opts.release_ampl_after_flatten = true;
+
   if (do_stats) {
     log_pre_solve_stats(opts.planning_files, planning);
   }

@@ -91,6 +91,19 @@ struct LpMatrixOptions
   /// cells.  Default false.
   bool skip_matrix_build {false};
 
+  /// Release each cell's AMPL variable + metadata registry immediately
+  /// after `flatten()`.  That registry exists only to resolve user
+  /// constraints during the build (`find_ampl_col` / `collect_sum_cols`)
+  /// and is never read afterwards, so freeing it reclaims memory —
+  /// hundreds of MB at CEN scale — for the rest of the solve.  INTERNAL
+  /// build-control flag (like `skip_matrix_build`), deliberately NOT
+  /// JSON-bound: the production solve path
+  /// (`gtopt_lp_runner::prepare_matrix_options`) turns it on, while the
+  /// direct `PlanningLP` / `SystemLP` APIs leave it `false` so white-box
+  /// tests can still inspect the registry via `find_ampl_col` after
+  /// building.  Default false.
+  bool release_ampl_after_flatten {false};
+
   /** @brief LP coefficient ratio threshold for numerical conditioning
    * diagnostics.  When the global max/min |coefficient| ratio exceeds this
    * value, a per-scene/phase breakdown is printed.  (default: 1e7) */
