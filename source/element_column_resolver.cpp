@@ -406,10 +406,29 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                                     SparseRow& row,
                                     const LinearProblem& lp)
 {
-  // 1. Compound path: class-level recipe of (coefficient, source_attribute).
+  // 1. Direct single-attribute path FIRST — the common case (generation,
+  //    line.flow, demand.load, converter.charge/discharge, …).  When the
+  //    attribute is directly registered this returns immediately and the
+  //    class-level compound-map probe below is skipped: that probe runs
+  //    once per (term, block) and is pure overhead for ~every directly-
+  //    registered attribute.  Safe to try first because no attribute is
+  //    BOTH a compound recipe and a direct registration — the only
+  //    remaining compound is ``converter.flow``, and a converter registers
+  //    ``charge`` / ``discharge`` directly, never ``flow`` (so the two
+  //    paths never both emit and precedence is immaterial).
+  auto direct = stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
+  if (direct.emitted) {
+    return direct;
+  }
+
+  // 2. Compound path — class-level recipe of (coefficient,
+  //    source_attribute), reached only when the attribute resolved to no
+  //    direct column.  Expand each leg and stamp it.  A single known leg
+  //    suffices to mark the compound element as known.
   if (const auto* legs = sc.find_ampl_compound(ref.element_type, ref.attribute))
   {
     ResolveColResult out;
+    out.element_known = direct.element_known;
     for (const auto& leg : *legs) {
       ElementRef leg_ref = ref;
       leg_ref.attribute = std::string {leg.source_attribute};
@@ -425,37 +444,17 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
         out.emitted = true;
         out.offset_shift += leg_res.offset_shift;
       }
-      // A single known leg suffices to mark the compound element as
-      // known — different legs may resolve to different attributes
-      // (e.g., line.flow → flowp − flown) and the registry hit on
-      // EITHER leg means the element is real, even if a particular
-      // (scenario, stage, block) has no column for it.
       if (leg_res.element_known) {
         out.element_known = true;
       }
     }
-    if (out.emitted) {
-      return out;
-    }
-    // Fall through to the single-attribute path when NO leg emitted.
-    // Handles per-line direct overrides of a compound attribute — e.g.
-    // ``line.flow`` resolves to ``+flowp − flown`` by default, but the
-    // ``tangent_signed_flow`` line-loss mode registers a signed
-    // ``flow`` column directly on the line, which the single-attribute
-    // lookup below picks up.  When the single-attribute path also
-    // misses, fall back to ``out`` so ``element_known`` carries the
-    // class-level registration.
-    auto direct =
-        stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
-    if (direct.emitted) {
-      direct.element_known = direct.element_known || out.element_known;
-      return direct;
-    }
     return out;
   }
 
-  // 2. Single attribute path (handles both single-col and multi-col).
-  return stamp_ref(sc, scenario, stage, block, ref, base_coeff, row, lp);
+  // 3. Neither a direct column nor a compound recipe: return the direct
+  //    result (not emitted), which carries `element_known` for the
+  //    caller's strict / silent-zero decision.
+  return direct;
 }
 
 // ── Per-element parameter resolution ────────────────────────────────────────
