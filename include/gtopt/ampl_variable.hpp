@@ -29,6 +29,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -138,41 +139,39 @@ struct AmplVariable
   /// Per-block column map for this (scenario, stage).  Empty when this
   /// entry represents a stage-level variable (see `stage_col`) or a
   /// per-block sum-of-cols (see `block_cols_sum`).
-  BIndexHolder<ColIndex> block_cols;
+  BIndexHolder<ColIndex> block_cols {};
 
   /// Stage-level column: same value for every block in the stage.
   /// Only meaningful when `block_cols` and `block_cols_sum` are empty.
   ColIndex stage_col {unknown_index};
 
-  /// Per-block sum-of-cols.  When this map has an entry for a block,
-  /// the attribute resolves to the **sum** of those columns (each
-  /// stamped with the leg coefficient by the resolver).  Used for
-  /// virtual aggregators like `line.flowp = Σ flowp_seg_k` in
-  /// `piecewise_direct` line-loss mode — no LP col is created for the
-  /// aggregator, the existing segment cols are summed at resolution
-  /// time.  Empty in the common single-col case.
-  BIndexHolder<std::vector<ColIndex>> block_cols_sum;
+  /// Rarely-populated alternative registration shapes, grouped behind a
+  /// single `unique_ptr` so the common single-col (`block_cols`) and
+  /// stage-col entries stay small.  At CEN/SDDP scale the registry holds
+  /// 10^5+ `AmplVariable`s; carrying three otherwise-empty flat_map headers
+  /// (~144 B) inline on every entry was pure overhead, so they live here
+  /// and are allocated only when one is actually used — line.flow / fuel
+  /// offtake → `block_cols_weighted_sum`; piecewise sum → `block_cols_sum`;
+  /// Option-C demand shift → `block_offsets`.  `extras == nullptr` is the
+  /// common case (single-col / stage-col entries).
+  struct Extras
+  {
+    /// Per-block sum-of-cols.  The attribute resolves to `Σ cols` per
+    /// block (each col stamped with the leg coefficient by the resolver).
+    BIndexHolder<std::vector<ColIndex>> block_cols_sum {};
 
-  /// Per-block weighted sum-of-cols: same shape as `block_cols_sum`
-  /// but each entry carries its own coefficient.  Resolves to
-  /// `Σ_k w_k · col_k` at user-constraint resolution time — the
-  /// resolver stamps `row[col_k] += base_coef · w_k` per leg.  Used
-  /// by `FuelLP::add_to_lp` to expose
-  /// `fuel("X").offtake = Σ_g heat_rate_g · dur_b · generation_g[b]`
-  /// without creating an aggregator LP column or binding row (the
-  /// pre-substitution form held an LP `Y_f[b]` column plus an equality
-  /// row `Y_f[b] − Σ hr·dur·gen = 0`, both of which are now elided).
-  /// Empty in every other registration shape.
-  BIndexHolder<std::vector<std::pair<ColIndex, double>>>
-      block_cols_weighted_sum;
+    /// Per-block weighted sum-of-cols: `Σ_k w_k · col_k` per block.
+    /// Resolver stamps `row[col_k] += base_coef · w_k`.  Used by
+    /// `line.flow` (`+flowp − flown`) and `fuel("X").offtake`.
+    BIndexHolder<std::vector<std::pair<ColIndex, double>>>
+        block_cols_weighted_sum {};
 
-  /// Optional per-block additive offset (Option C demand substitution
-  /// and similar shifted-variable encodings).  When set, the AMPL
-  /// resolver reports `physical_value = LP_value × scale + offset(b)`
-  /// — and the user-constraint row builder folds the offset into the
-  /// row's RHS via the existing `param_shift` accumulator.  Empty when
-  /// no shift is registered (the common case).
-  BIndexHolder<double> block_offsets;
+    /// Optional per-block additive offset (Option C demand substitution):
+    /// `physical_value = LP_value × scale + offset(b)`; the resolver folds
+    /// the offset onto the row's RHS via `param_shift`.
+    BIndexHolder<double> block_offsets {};
+  };
+  std::unique_ptr<Extras> extras {};
 
   /// Regular LP column or state-backed column.  Default is Regular;
   /// state-backed entries will be set by the Phase 2
@@ -200,11 +199,11 @@ struct AmplVariable
   /// variable encoding (Option C demand-fail).
   [[nodiscard]] double offset_at(BlockUid block_uid) const noexcept
   {
-    if (block_offsets.empty()) {
+    if (!extras || extras->block_offsets.empty()) {
       return 0.0;
     }
-    if (const auto it = block_offsets.find(block_uid);
-        it != block_offsets.end())
+    if (const auto it = extras->block_offsets.find(block_uid);
+        it != extras->block_offsets.end())
     {
       return it->second;
     }
@@ -218,11 +217,11 @@ struct AmplVariable
   [[nodiscard]] std::span<const ColIndex> cols_at(
       BlockUid block_uid) const noexcept
   {
-    if (block_cols_sum.empty()) {
+    if (!extras || extras->block_cols_sum.empty()) {
       return {};
     }
-    const auto it = block_cols_sum.find(block_uid);
-    if (it == block_cols_sum.end()) {
+    const auto it = extras->block_cols_sum.find(block_uid);
+    if (it == extras->block_cols_sum.end()) {
       return {};
     }
     return std::span<const ColIndex> {it->second};
@@ -235,11 +234,11 @@ struct AmplVariable
   [[nodiscard]] std::span<const std::pair<ColIndex, double>> weighted_cols_at(
       BlockUid block_uid) const noexcept
   {
-    if (block_cols_weighted_sum.empty()) {
+    if (!extras || extras->block_cols_weighted_sum.empty()) {
       return {};
     }
-    const auto it = block_cols_weighted_sum.find(block_uid);
-    if (it == block_cols_weighted_sum.end()) {
+    const auto it = extras->block_cols_weighted_sum.find(block_uid);
+    if (it == extras->block_cols_weighted_sum.end()) {
       return {};
     }
     return std::span<const std::pair<ColIndex, double>> {it->second};

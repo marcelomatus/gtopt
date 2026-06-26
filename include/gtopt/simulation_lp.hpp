@@ -613,10 +613,6 @@ public:
         },
         AmplVariable {
             .block_cols = block_cols,
-            .stage_col = ColIndex {unknown_index},
-            .block_cols_sum = {},
-            .block_cols_weighted_sum = {},
-            .block_offsets = {},
         });
   }
 
@@ -649,10 +645,8 @@ public:
         },
         AmplVariable {
             .block_cols = block_cols,
-            .stage_col = ColIndex {unknown_index},
-            .block_cols_sum = {},
-            .block_cols_weighted_sum = {},
-            .block_offsets = block_offsets,
+            .extras = std::make_unique<AmplVariable::Extras>(
+                AmplVariable::Extras {.block_offsets = block_offsets}),
         });
   }
 
@@ -679,11 +673,7 @@ public:
             .stage_uid = stage_uid,
         },
         AmplVariable {
-            .block_cols = {},
             .stage_col = stage_col,
-            .block_cols_sum = {},
-            .block_cols_weighted_sum = {},
-            .block_offsets = {},
         });
   }
 
@@ -721,11 +711,8 @@ public:
             .stage_uid = stage_uid,
         },
         AmplVariable {
-            .block_cols = {},
-            .stage_col = ColIndex {unknown_index},
-            .block_cols_sum = block_cols_sum,
-            .block_cols_weighted_sum = {},
-            .block_offsets = {},
+            .extras = std::make_unique<AmplVariable::Extras>(
+                AmplVariable::Extras {.block_cols_sum = block_cols_sum}),
         });
   }
 
@@ -762,11 +749,9 @@ public:
             .stage_uid = stage_uid,
         },
         AmplVariable {
-            .block_cols = {},
-            .stage_col = ColIndex {unknown_index},
-            .block_cols_sum = {},
-            .block_cols_weighted_sum = block_cols_weighted_sum,
-            .block_offsets = {},
+            .extras =
+                std::make_unique<AmplVariable::Extras>(AmplVariable::Extras {
+                    .block_cols_weighted_sum = block_cols_weighted_sum}),
         });
   }
 
