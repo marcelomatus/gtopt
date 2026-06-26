@@ -23,7 +23,11 @@
 
 #pragma once
 
+#include <cstdint>
 #include <span>
+#include <vector>
+
+#include <gtopt/lp_matrix_enums.hpp>  // FastSqrtMethod
 
 namespace gtopt
 {
@@ -76,5 +80,50 @@ namespace gtopt
     double& rowlb,
     double& rowub,
     double infinity) noexcept;
+
+// ── Bulk whole-matrix equilibration (build-time `flatten`) ──────────────────
+//
+// These operate on the flattened CSC matrix in one shot during
+// `LinearProblem::flatten()`.  The index spans are `FlatLinearProblem::
+// index_t` (== int32_t); using the concrete type here keeps this header
+// free of the heavyweight `linear_problem.hpp` include (a mismatch would
+// fail to compile at the call site).
+
+/// Bulk row-max equilibration: scale every row of the CSC matrix so its
+/// largest `|coefficient|` becomes 1.  Returns the per-row scale factors
+/// (`max|coeff|` per row, or 1.0 for empty rows).
+[[nodiscard]] std::vector<double> apply_row_max_equilibration(
+    std::span<const std::int32_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    double infinity);
+
+/// Bulk Ruiz geometric-mean iterative equilibration: alternately
+/// normalises rows and columns by `1/sqrt(infinity-norm)` until the worst
+/// deviation from 1 drops below `tolerance`, or `max_iterations` rounds
+/// are done.  Updates `matval`, the row/col bounds, the objective and
+/// `col_scales` in place; returns the cumulative per-row scale.  `colpin`
+/// lists columns exempt from rescaling (integer ∪ pin_scale).
+///
+/// `max_iterations` / `tolerance` are plumbed from
+/// `LpMatrixOptions::ruiz_max_iterations` / `ruiz_tolerance` so the
+/// iterative cost can be tuned (notably in SDDP/cascade, where the whole
+/// system LP is rebuilt — and re-equilibrated — at every level).
+[[nodiscard]] std::vector<double> apply_ruiz_scaling(
+    std::span<const std::int32_t> matbeg,
+    std::span<const std::int32_t> matind,
+    std::span<double> matval,
+    std::span<double> rowlb,
+    std::span<double> rowub,
+    std::span<double> collb,
+    std::span<double> colub,
+    std::span<double> objval,
+    std::span<double> col_scales,
+    std::span<const std::int32_t> colpin,
+    double infinity,
+    FastSqrtMethod sqrt_method,
+    int max_iterations,
+    double tolerance);
 
 }  // namespace gtopt

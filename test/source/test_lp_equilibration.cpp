@@ -6,12 +6,16 @@
  * @copyright BSD-3-Clause
  */
 
+#include <cmath>
+#include <cstdint>
 #include <limits>
+#include <utility>
 #include <vector>
 
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_equilibration.hpp>
+#include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/sparse_row.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
@@ -327,4 +331,185 @@ TEST_CASE("add_row — col_scales compose before row_max")
   CHECK(li.get_coeff_raw(idx, c1) == doctest::Approx(-1.0));
   CHECK(li.get_row_low_raw()[idx] == doctest::Approx(100.0 / 30.0));
   CHECK(li.get_row_scale(idx) == doctest::Approx(30.0));
+}
+
+// ─── apply_row_max_equilibration (bulk, whole-matrix) ────────────────────
+
+TEST_CASE("apply_row_max_equilibration normalizes each row's max to 1")
+{
+  // CSC: 2 cols × 2 rows.
+  //   col0 = {row0:10, row1:100}, col1 = {row0:5, row1:2}
+  // Row maxima: row0 = max(10,5) = 10; row1 = max(100,2) = 100.
+  const std::vector<std::int32_t> matind {0, 1, 0, 1};
+  std::vector<double> matval {10.0, 100.0, 5.0, 2.0};
+  std::vector<double> rowlb {-kInfinity, 50.0};
+  std::vector<double> rowub {20.0, 300.0};
+
+  const auto scales =
+      apply_row_max_equilibration(matind, matval, rowlb, rowub, kInfinity);
+
+  REQUIRE(scales.size() == 2);
+  CHECK(scales[0] == doctest::Approx(10.0));  // returned = max-abs per row
+  CHECK(scales[1] == doctest::Approx(100.0));
+  CHECK(matval[0] == doctest::Approx(1.0));  // 10/10
+  CHECK(matval[1] == doctest::Approx(1.0));  // 100/100
+  CHECK(matval[2] == doctest::Approx(0.5));  // 5/10
+  CHECK(matval[3] == doctest::Approx(0.02));  // 2/100
+  CHECK(rowlb[0] == -kInfinity);  // ±infinity preserved
+  CHECK(rowlb[1] == doctest::Approx(0.5));  // 50/100
+  CHECK(rowub[0] == doctest::Approx(2.0));  // 20/10
+  CHECK(rowub[1] == doctest::Approx(3.0));  // 300/100
+}
+
+// ─── apply_ruiz_scaling (bulk, whole-matrix iterative) ───────────────────
+
+TEST_CASE("apply_ruiz_scaling equilibrates a diagonal imbalance in one pass")
+{
+  // Diagonal CSC: col0 = {row0:1e6}, col1 = {row1:4}.  Each row and each
+  // column has a single entry, so one Ruiz pass drives every coefficient
+  // to exactly 1 (row_factor·col_factor = 1/√n · 1/√n = 1/n).
+  const std::vector<std::int32_t> matbeg {0, 1, 2};
+  const std::vector<std::int32_t> matind {0, 1};
+  std::vector<double> matval {1.0e6, 4.0};
+  std::vector<double> rowlb {-kInfinity, -kInfinity};
+  std::vector<double> rowub {kInfinity, kInfinity};
+  std::vector<double> collb {-kInfinity, -kInfinity};
+  std::vector<double> colub {kInfinity, kInfinity};
+  std::vector<double> objval {1.0, 1.0};
+  std::vector<double> col_scales {1.0, 1.0};
+  const std::vector<std::int32_t> colpin {};
+
+  const auto row_scales = apply_ruiz_scaling(matbeg,
+                                             matind,
+                                             matval,
+                                             rowlb,
+                                             rowub,
+                                             collb,
+                                             colub,
+                                             objval,
+                                             col_scales,
+                                             colpin,
+                                             kInfinity,
+                                             FastSqrtMethod::std_sqrt,
+                                             10,
+                                             1e-3);
+
+  CHECK(matval[0] == doctest::Approx(1.0));
+  CHECK(matval[1] == doctest::Approx(1.0));
+  // cum_row_scales = √(row infinity-norm) = {√1e6, √4} = {1000, 2}.
+  REQUIRE(row_scales.size() == 2);
+  CHECK(row_scales[0] == doctest::Approx(1000.0));
+  CHECK(row_scales[1] == doctest::Approx(2.0));
+  // objval and col_scales fold col_factor = 1/√norm = {1e-3, 0.5}.
+  CHECK(objval[0] == doctest::Approx(1.0e-3));
+  CHECK(objval[1] == doctest::Approx(0.5));
+  CHECK(col_scales[0] == doctest::Approx(1.0e-3));
+  CHECK(col_scales[1] == doctest::Approx(0.5));
+}
+
+TEST_CASE("apply_ruiz_scaling max_iterations/tolerance knobs gate the work")
+{
+  // Coupled CSC needing many passes: col0 = {row0:100, row1:100},
+  // col1 = {row0:1, row1:1}.  After one pass col1's entries sit at 0.1
+  // and creep toward 1 only over further iterations — so the iteration
+  // cap is observable in the result.
+  const std::vector<std::int32_t> matbeg {0, 2, 4};
+  const std::vector<std::int32_t> matind {0, 1, 0, 1};
+  const std::vector<double> orig {100.0, 100.0, 1.0, 1.0};
+
+  auto run = [&](int max_it, double tol, std::vector<double> mv)
+  {
+    std::vector<double> rowlb(2, -kInfinity);
+    std::vector<double> rowub(2, kInfinity);
+    std::vector<double> collb(2, -kInfinity);
+    std::vector<double> colub(2, kInfinity);
+    std::vector<double> objval(2, 1.0);
+    std::vector<double> col_scales(2, 1.0);
+    const std::vector<std::int32_t> colpin {};
+    auto scales = apply_ruiz_scaling(matbeg,
+                                     matind,
+                                     mv,
+                                     rowlb,
+                                     rowub,
+                                     collb,
+                                     colub,
+                                     objval,
+                                     col_scales,
+                                     colpin,
+                                     kInfinity,
+                                     FastSqrtMethod::std_sqrt,
+                                     max_it,
+                                     tol);
+    return std::pair {mv, scales};
+  };
+
+  SUBCASE("max_iterations = 0 is a no-op")
+  {
+    auto [mv, scales] = run(0, 1e-3, orig);
+    CHECK(mv == orig);  // matrix untouched
+    CHECK(scales[0] == doctest::Approx(1.0));  // identity row scales
+    CHECK(scales[1] == doctest::Approx(1.0));
+  }
+
+  SUBCASE("one pass leaves col1 entries at 0.1")
+  {
+    auto [mv, scales] = run(1, 1e-3, orig);
+    CHECK(mv[2] == doctest::Approx(0.1));  // 1 · (1/√100) · (1/√1)
+    CHECK(mv[3] == doctest::Approx(0.1));
+  }
+
+  SUBCASE("more iterations equilibrate col1 closer to 1")
+  {
+    auto [mv1, s1] = run(1, 1e-3, orig);
+    auto [mv8, s8] = run(8, 1e-3, orig);
+    // Eight passes drive col1 nearer to 1 than a single pass.
+    CHECK(std::abs(mv8[2] - 1.0) < std::abs(mv1[2] - 1.0));
+  }
+
+  SUBCASE("huge tolerance short-circuits before any scaling")
+  {
+    // First norm pass sees deviation 99 < 1e30 → break before applying.
+    auto [mv, scales] = run(10, 1e30, orig);
+    CHECK(mv == orig);
+    CHECK(scales[0] == doctest::Approx(1.0));
+    CHECK(scales[1] == doctest::Approx(1.0));
+  }
+}
+
+TEST_CASE("apply_ruiz_scaling leaves colpin columns unscaled")
+{
+  // Same coupled matrix, but pin col1: its entries must stay at 0.1
+  // (column factor forced to 1.0) however many passes run, and its
+  // col_scale must remain 1.0.
+  const std::vector<std::int32_t> matbeg {0, 2, 4};
+  const std::vector<std::int32_t> matind {0, 1, 0, 1};
+  std::vector<double> matval {100.0, 100.0, 1.0, 1.0};
+  std::vector<double> rowlb(2, -kInfinity);
+  std::vector<double> rowub(2, kInfinity);
+  std::vector<double> collb(2, -kInfinity);
+  std::vector<double> colub(2, kInfinity);
+  std::vector<double> objval(2, 1.0);
+  std::vector<double> col_scales {1.0, 1.0};
+  const std::vector<std::int32_t> colpin {1};  // pin column 1
+
+  const auto row_scales = apply_ruiz_scaling(matbeg,
+                                             matind,
+                                             matval,
+                                             rowlb,
+                                             rowub,
+                                             collb,
+                                             colub,
+                                             objval,
+                                             col_scales,
+                                             colpin,
+                                             kInfinity,
+                                             FastSqrtMethod::std_sqrt,
+                                             10,
+                                             1e-3);
+  CHECK(row_scales.size() == 2);
+
+  CHECK(matval[2] == doctest::Approx(0.1));  // pinned col never rescaled
+  CHECK(matval[3] == doctest::Approx(0.1));
+  CHECK(col_scales[1] == doctest::Approx(1.0));  // pin keeps scale at 1
+  CHECK(objval[1] == doctest::Approx(1.0));  // and objective untouched
 }
