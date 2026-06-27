@@ -983,6 +983,20 @@ void GurobiSolverBackend::set_row_price(const double* price)
 
 // ── solve ────────────────────────────────────────────────────────────────
 
+void GurobiSolverBackend::capture_effort_()
+{
+  // Per-optimize attributes (Gurobi resets them each GRBoptimize).  Runtime =
+  // wall seconds; Work = Gurobi's deterministic work unit (the tick analog).
+  double runtime = 0.0;
+  double work = 0.0;
+  const bool have_rt =
+      GRBgetdblattr(m_model_, GRB_DBL_ATTR_RUNTIME, &runtime) == 0;
+  const bool have_work = GRBgetdblattr(m_model_, GRB_DBL_ATTR_WORK, &work) == 0;
+  m_last_effort_.seconds = have_rt ? runtime : 0.0;
+  m_last_effort_.ticks =
+      have_work && work > 0.0 ? work : m_last_effort_.seconds;
+}
+
 void GurobiSolverBackend::initial_solve()
 {
   ensure_updated_();
@@ -990,6 +1004,7 @@ void GurobiSolverBackend::initial_solve()
   if (rc != 0) {
     check_error(rc, "GRBoptimize");
   }
+  capture_effort_();
 }
 
 void GurobiSolverBackend::resolve()
@@ -999,6 +1014,12 @@ void GurobiSolverBackend::resolve()
   if (rc != 0) {
     check_error(rc, "GRBoptimize");
   }
+  capture_effort_();
+}
+
+SolveEffort GurobiSolverBackend::last_solve_effort() const
+{
+  return m_last_effort_;
 }
 
 void GurobiSolverBackend::engage_robust_solve()

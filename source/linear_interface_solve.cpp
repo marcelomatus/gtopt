@@ -28,6 +28,18 @@ namespace gtopt
 
 namespace
 {
+/// Accumulate one solve's effort into the process-global SolveEffortTotals.
+/// Generic across all backends: prefer the backend's native solver time +
+/// ticks (`last_solve_effort`); fall back to the measured @p wall seconds
+/// when the backend reports none, and to seconds when it reports no ticks.
+void accumulate_solve_effort(const SolverBackend& backend, double wall)
+{
+  const auto eff = backend.last_solve_effort();
+  const double seconds = eff.seconds > 0.0 ? eff.seconds : wall;
+  const double ticks = eff.ticks > 0.0 ? eff.ticks : seconds;
+  SolveEffortTotals::instance().add(seconds, ticks);
+}
+
 /// Fold @p scale_objective into the solver's reduced-cost optimality
 /// tolerance (CPLEX ``EPOPT`` / HiGHS dual-feasibility tolerance).
 ///
@@ -107,8 +119,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
       // the LI cache (single source of truth).  Plugin backends no
       // longer maintain a parallel solution cache.
       populate_solution_cache_post_solve();
-      m_solver_stats_.total_solve_time_s +=
+      const double wall =
           std::chrono::duration<double>(Clock::now() - t0).count();
+      m_solver_stats_.total_solve_time_s += wall;
+      accumulate_solve_effort(*m_backend_, wall);
     };
 
     timed_solve();
@@ -230,8 +244,10 @@ std::expected<int, Error> LinearInterface::resolve(
       // the LI cache (single source of truth).  Plugin backends no
       // longer maintain a parallel solution cache.
       populate_solution_cache_post_solve();
-      m_solver_stats_.total_solve_time_s +=
+      const double wall =
           std::chrono::duration<double>(Clock::now() - t0).count();
+      m_solver_stats_.total_solve_time_s += wall;
+      accumulate_solve_effort(*m_backend_, wall);
     };
 
     timed_solve();

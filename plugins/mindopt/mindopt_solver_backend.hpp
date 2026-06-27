@@ -150,6 +150,7 @@ public:
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
+  [[nodiscard]] SolveEffort last_solve_effort() const override;
 
   // ---- status ----
   [[nodiscard]] bool is_proven_optimal() const override;
@@ -207,8 +208,12 @@ private:
   /// reset_env_lp() pattern.
   void reset_model_();
 
+  /// Capture the last solve's SolutionTime (ticks=time) into m_last_effort_.
+  void capture_effort_();
+
   MDOenv* m_env_ {};
   MDOmodel* m_model_ {};
+  SolveEffort m_last_effort_ {};  // SolutionTime (ticks=time) of last solve
 
   /// Cache of everything needed to replay backend state onto a fresh
   /// (env,model) pair (see CplexPrep for the pattern).

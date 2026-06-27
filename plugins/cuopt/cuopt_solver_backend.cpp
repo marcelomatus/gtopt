@@ -395,6 +395,11 @@ void CuOptSolverBackend::resolve()
   solve_();
 }
 
+SolveEffort CuOptSolverBackend::last_solve_effort() const
+{
+  return m_last_effort_;
+}
+
 void CuOptSolverBackend::solve_()
 {
   const int ncols = m_model_.num_cols;
@@ -566,10 +571,16 @@ void CuOptSolverBackend::solve_()
   // 5) Snapshot termination + primal/dual/RC/obj into host memory, so the
   //    cuOpt objects can be destroyed before the getters are read.
   m_sol_ = CuOptSolutionCache {};
+  m_last_effort_ = SolveEffort {};
   if (solve_status == CUOPT_SUCCESS && solution != nullptr) {
     cuopt_int_t term = CUOPT_TERMINATION_STATUS_NO_TERMINATION;
     cuOptGetTerminationStatus(solution, &term);
     m_sol_.termination = term;
+
+    // GPU solve time (cuOpt has no deterministic work unit → ticks=time).
+    cuopt_float_t solve_time = 0.0;
+    cuOptGetSolveTime(solution, &solve_time);
+    m_last_effort_ = SolveEffort {.seconds = solve_time, .ticks = solve_time};
 
     cuopt_float_t obj = 0.0;
     cuOptGetObjectiveValue(solution, &obj);

@@ -853,12 +853,23 @@ void MindOptSolverBackend::set_row_price(const double* price)
 
 // ── solve ────────────────────────────────────────────────────────────────
 
+void MindOptSolverBackend::capture_effort_()
+{
+  // MindOpt exposes solution time but no deterministic work unit, so ticks
+  // repeat the time (per the SolveEffort convention).
+  double st = 0.0;
+  if (MDOgetdblattr(m_model_, MDO_DBL_ATTR_SOLUTION_TIME, &st) == MDO_OKAY) {
+    m_last_effort_ = {.seconds = st, .ticks = st};
+  }
+}
+
 void MindOptSolverBackend::initial_solve()
 {
   const int rc = MDOoptimize(m_model_);
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
   }
+  capture_effort_();
 }
 
 void MindOptSolverBackend::resolve()
@@ -867,6 +878,12 @@ void MindOptSolverBackend::resolve()
   if (rc != MDO_OKAY && rc != MDO_NO_SOLN) {
     check_error(rc, "MDOoptimize");
   }
+  capture_effort_();
+}
+
+SolveEffort MindOptSolverBackend::last_solve_effort() const
+{
+  return m_last_effort_;
 }
 
 void MindOptSolverBackend::engage_robust_solve()

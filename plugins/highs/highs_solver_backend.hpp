@@ -146,6 +146,7 @@ public:
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
+  [[nodiscard]] SolveEffort last_solve_effort() const override;
 
   // ---- robust-solve mode ----
   void engage_robust_solve() override;
@@ -191,6 +192,8 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
   bool m_load_failed_ {};
+  SolveEffort
+      m_last_effort_ {};  // wall + ticks(=wall) of the most recent solve
 
   /// Snapshot of HiGHS tolerances + presolve/scaling captured by
   /// engage_robust_solve().  The first engage records the baseline;

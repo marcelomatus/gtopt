@@ -741,7 +741,12 @@ void HighsSolverBackend::initial_solve()
   if (m_load_failed_) {
     return;
   }
+  // getRunTime() is cumulative; the delta is this solve's wall time.  HiGHS
+  // has no deterministic work unit, so ticks repeat the time.
+  const double t0 = m_highs_->getRunTime();
   const auto status = m_highs_->run();
+  m_last_effort_.seconds = m_highs_->getRunTime() - t0;
+  m_last_effort_.ticks = m_last_effort_.seconds;
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during initial_solve");
   }
@@ -756,10 +761,18 @@ void HighsSolverBackend::resolve()
     // infeasibility.
     return;
   }
+  const double t0 = m_highs_->getRunTime();
   const auto status = m_highs_->run();
+  m_last_effort_.seconds = m_highs_->getRunTime() - t0;
+  m_last_effort_.ticks = m_last_effort_.seconds;
   if (status == HighsStatus::kError) {
     throw std::runtime_error("HiGHS: solver error during resolve");
   }
+}
+
+SolveEffort HighsSolverBackend::last_solve_effort() const
+{
+  return m_last_effort_;
 }
 
 void HighsSolverBackend::engage_robust_solve()

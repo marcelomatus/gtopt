@@ -214,6 +214,7 @@ public:
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
+  [[nodiscard]] SolveEffort last_solve_effort() const override;
 
   // ---- robust-solve mode ----
   void engage_robust_solve() override;
@@ -258,6 +259,7 @@ private:
 
   CuOptModel m_model_ {};
   CuOptSolutionCache m_sol_ {};
+  SolveEffort m_last_effort_ {};  // GPU solve time (ticks=time) of last solve
   SolverOptions m_options_ {};
   std::string m_prob_name_ {"gtopt_cuopt"};
   std::string m_log_filename_ {};  ///< CUOPT_LOG_FILE path (set_log_filename)

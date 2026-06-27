@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <format>
@@ -38,7 +39,66 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 12;
+inline constexpr int k_solver_abi_version = 13;
+
+/// Per-solve effort reported by a backend: wall `seconds` plus deterministic
+/// `ticks` (a load-independent work unit).  Conventions for backends lacking
+/// one or both (see `SolverBackend::last_solve_effort`):
+///   - no native ticks → set `ticks == seconds` (repeat the time);
+///   - no native time  → the plugin measures wall time itself.
+/// Any backend returning the default `{0,0}` is handled generically by the
+/// LinearInterface solve layer, which substitutes its own wall measurement.
+struct SolveEffort
+{
+  double seconds {0.0};
+  double ticks {0.0};
+};
+
+/// Process-global accumulator of solve effort across every backend solve
+/// routed through LinearInterface.  Thread-safe; queryable any time and
+/// dumped once at program exit.  Generic across all plugins.
+class SolveEffortTotals
+{
+public:
+  static SolveEffortTotals& instance()
+  {
+    static SolveEffortTotals totals;
+    return totals;
+  }
+  void add(double seconds, double ticks) noexcept
+  {
+    m_seconds_.fetch_add(seconds, std::memory_order_relaxed);
+    m_ticks_.fetch_add(ticks, std::memory_order_relaxed);
+    m_count_.fetch_add(1, std::memory_order_relaxed);
+  }
+  [[nodiscard]] double seconds() const noexcept
+  {
+    return m_seconds_.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] double ticks() const noexcept
+  {
+    return m_ticks_.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] long count() const noexcept
+  {
+    return m_count_.load(std::memory_order_relaxed);
+  }
+
+private:
+  SolveEffortTotals() = default;
+  ~SolveEffortTotals()
+  {
+    std::fprintf(
+        stderr,
+        "GTOPT_SOLVE_EFFORT solver_time=%.3f s ticks=%.1f solves=%ld\n",
+        seconds(),
+        ticks(),
+        count());
+  }
+  std::atomic<double> m_seconds_ {0.0};
+  std::atomic<double> m_ticks_ {0.0};
+  std::atomic<long> m_count_ {0};
+};
 
 /**
  * @brief Abstract interface for LP/MIP solver backends.
@@ -600,6 +660,14 @@ public:
 
   virtual void initial_solve() = 0;
   virtual void resolve() = 0;
+
+  /// Report the most recent solve's effort (wall seconds + deterministic
+  /// ticks).  Default `{0,0}` means "not provided" — the LinearInterface
+  /// solve layer then substitutes its own measured wall time (and
+  /// `ticks = seconds`).  Backends with native instrumentation override:
+  /// CPLEX uses `CPXgettime` + `CPXgetdettime`; backends without ticks set
+  /// `ticks == seconds`; backends without native time measure it themselves.
+  [[nodiscard]] virtual SolveEffort last_solve_effort() const { return {}; }
 
   // ---- robust-solve mode ----
 

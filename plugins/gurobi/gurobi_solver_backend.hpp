@@ -157,6 +157,7 @@ public:
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
+  [[nodiscard]] SolveEffort last_solve_effort() const override;
 
   // ---- robust-solve mode ----
   void engage_robust_solve() override;
@@ -214,6 +215,10 @@ private:
   /// newly-added elements see stale data until this is called.
   void ensure_updated_() const;
 
+  /// Capture the last GRBoptimize's Runtime (wall) + Work (deterministic) into
+  /// m_last_effort_ for the generic SolveEffort accounting.
+  void capture_effort_();
+
   /// Recreate m_model_ from m_prep_.  Used by load_problem() so every
   /// bulk load starts with a pristine model — mirrors the MindOpt
   /// plugin's reset_model_() pattern.
@@ -221,6 +226,7 @@ private:
 
   GRBenv* m_env_ {};
   GRBmodel* m_model_ {};
+  SolveEffort m_last_effort_ {};  // Runtime + Work of the most recent solve
 
   /// Cache of everything needed to replay backend state onto a fresh
   /// (env,model) pair (see MindOptPrep for the pattern).
