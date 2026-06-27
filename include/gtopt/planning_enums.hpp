@@ -143,47 +143,10 @@ inline constexpr auto data_format_entries =
   return std::span {data_format_entries};
 }
 
-// --- OutputLayout ----------------------------------------------------------
-
-/**
- * @brief On-disk layout for the per-(scene, phase) solution tables.
- *
- * `wide` (legacy) — one column per UID:
- *   schema: (scenario, stage, block, uid:1, uid:2, …, uid:N)
- *   one row per (stage, block).  Pays ~150 bytes of per-column
- *   metadata for *every* uid in *every* partition file — on the
- *   support/plp/2_years 1335-generator case that's ~110 KB of pure
- *   parquet footer per file, ~46% of the on-disk footprint, and
- *   the metadata cost grows linearly with the model size.
- *
- * `long` (default since 2026-05-19) — one row per non-zero cell:
- *   schema: (scenario, stage, block, uid, value)
- *   only 6 columns regardless of how many UIDs the model has.
- *   Non-zero filtering exploits the typical 0.1 % cell density
- *   directly — POC on plp_2_years measured 5-7× smaller files on
- *   the heavy Generator streams and 2-3× on the LMP / line-flow
- *   streams (1.0 GB → ~330 MB total).  Reading the long shape is
- *   a single `Σ value GROUP BY uid` instead of iterating
- *   `uid:*` columns; the streaming aggregators in
- *   `scripts/gtopt_check_output/_reader.py` handle both forms
- *   transparently.
- */
-enum class OutputLayout : uint8_t
-{
-  wide = 0,  ///< One column per UID (legacy)
-  long_ = 1,  ///< Long form — non-zero-only (default, smaller disk)
-};
-
-inline constexpr auto output_layout_entries =
-    std::to_array<EnumEntry<OutputLayout>>({
-        {.name = "wide", .value = OutputLayout::wide},
-        {.name = "long", .value = OutputLayout::long_},
-    });
-
-[[nodiscard]] constexpr auto enum_entries(OutputLayout /*tag*/) noexcept
-{
-  return std::span {output_layout_entries};
-}
+// Solution output is long-only — one row per non-zero (scenario, stage,
+// block, uid, value) cell.  The legacy wide layout (one `uid:N` column per
+// element) and its `OutputLayout` selector were removed; convert long files
+// to wide externally if a wide shape is ever needed.
 
 // --- CompressionCodec -------------------------------------------------------
 

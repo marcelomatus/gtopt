@@ -773,12 +773,11 @@ TEST_CASE(  // NOLINT
 //
 // Output-file layout reminder (see test_output_context.cpp): each
 // `<Class>/<field>_sol.parquet/` is a Hive-partitioned directory with
-// `scene=<s>/phase=<p>/part.parquet` leaf files.  Each leaf table has
-// columns `scenario, stage, block, uid:<uid>, ...` where each element
-// gets its own `uid:<uid>` column.  When a P1 skip elides every block
-// for an element, the writer iterates an empty per-(s, t) holder and
-// emits **no `uid:<uid>` column at all** — there is no row-with-zero
-// fallback.  The tests below pin that contract.
+// `scene=<s>/phase=<p>/part.parquet` leaf files.  Each leaf table is
+// long: `scenario, stage, block, uid, value` with one row per non-zero
+// cell.  When a P1 skip elides every block for an element — or the value
+// is identically zero — the writer emits **no rows** for that uid (zeros
+// are dropped).  The tests below pin that contract.
 // ---------------------------------------------------------------------------
 
 namespace
@@ -800,36 +799,55 @@ namespace
   return dataset_dir / "scene=0" / "phase=0" / "part";
 }
 
-// Look up an arrow column index by exact name, returning -1 when absent.
-[[nodiscard]] int find_column(const ArrowTable& table, std::string_view name)
+// Long output reader: return the `value` rows whose `uid` column equals
+// `uid`.  Zeros are dropped at write time, so an all-zero element yields an
+// empty vector (the long-form counterpart of "no `uid:N` column").  Handles
+// the uint16 uid column and the float32 / float64 value column.
+[[nodiscard]] std::vector<double> long_uid_values(const ArrowTable& table,
+                                                  int uid)
 {
-  return table->schema()->GetFieldIndex(std::string {name});
-}
-
-// Walk every row of the named double column and return the values.  If the
-// column is missing returns nullopt.
-[[nodiscard]] std::optional<std::vector<double>> read_double_column(
-    const ArrowTable& table, std::string_view name)
-{
-  const int idx = find_column(table, name);
-  if (idx < 0) {
-    return std::nullopt;
+  std::vector<double> out;
+  const int uid_idx = table->schema()->GetFieldIndex("uid");
+  const int val_idx = table->schema()->GetFieldIndex("value");
+  if (uid_idx < 0 || val_idx < 0) {
+    return out;
   }
-  const auto chunked = table->column(idx);
-  std::vector<double> values;
-  values.reserve(static_cast<std::size_t>(chunked->length()));
-  for (int c = 0; c < chunked->num_chunks(); ++c) {
-    const auto& chunk = chunked->chunk(c);
-    const auto* arr =
-        std::dynamic_pointer_cast<arrow::DoubleArray>(chunk).get();
-    if (arr == nullptr) {
-      return std::nullopt;  // type mismatch -> caller fails the check
+  const auto combined = table->CombineChunks().ValueOr(table);
+  const auto uchunk = combined->column(uid_idx)->chunk(0);
+  const auto vchunk = combined->column(val_idx)->chunk(0);
+  if (!uchunk || !vchunk) {
+    return out;
+  }
+  const auto read_uid = [&](int64_t i) -> int64_t
+  {
+    switch (uchunk->type_id()) {
+      case arrow::Type::UINT16:
+        return std::static_pointer_cast<arrow::UInt16Array>(uchunk)->Value(i);
+      case arrow::Type::INT32:
+        return std::static_pointer_cast<arrow::Int32Array>(uchunk)->Value(i);
+      case arrow::Type::INT64:
+        return std::static_pointer_cast<arrow::Int64Array>(uchunk)->Value(i);
+      default:
+        return -1;
     }
-    for (int64_t i = 0; i < arr->length(); ++i) {
-      values.push_back(arr->IsNull(i) ? 0.0 : arr->Value(i));
+  };
+  const auto read_val = [&](int64_t i) -> double
+  {
+    switch (vchunk->type_id()) {
+      case arrow::Type::FLOAT:
+        return std::static_pointer_cast<arrow::FloatArray>(vchunk)->Value(i);
+      case arrow::Type::DOUBLE:
+        return std::static_pointer_cast<arrow::DoubleArray>(vchunk)->Value(i);
+      default:
+        return 0.0;
+    }
+  };
+  for (int64_t i = 0; i < uchunk->length(); ++i) {
+    if (read_uid(i) == uid) {
+      out.push_back(read_val(i));
     }
   }
-  return values;
+  return out;
 }
 
 }  // namespace
@@ -890,15 +908,8 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
-    // Pin `wide` here: this test suite asserts the wide-form
-    // contract (one `uid:<uid>` column per element, no column at all
-    // for skipped elements).  The post-2026-05-19 default is `long`
-    // (5-column shape), under which the assertion `find_column("uid:1")
-    // < 0` doesn't apply — long form never emits a `uid:N` column, just
-    // a single `uid` column with row-level uid values.  The skipped-
-    // element invariant under long form is "no rows for the elided
-    // uid", not "no column" — a different test belongs there.
-    popts.output_layout = OutputLayout::wide;
+    // Long output: a skipped element emits no rows (its zeros are dropped),
+    // the long-form counterpart of the wide "no `uid:N` column" contract.
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -924,41 +935,33 @@ TEST_CASE(  // NOLINT
   solve_and_write(/*zero_gen_capacity=*/200.0, base_dir);
   solve_and_write(/*zero_gen_capacity=*/0.0, zero_dir);
 
-  // Baseline: both `uid:1` and `uid:2` columns present in generation_sol.
+  // Baseline: `g_zero` (uid 1) is the cheap unit and covers the full 10 MW;
+  // `g_backup` (uid 2) generates 0, so its zero rows are dropped in long.
   const auto base_dataset = base_dir / "Generator" / "generation_sol.parquet";
   REQUIRE(std::filesystem::exists(leaf_parquet(base_dataset)));
   const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
   REQUIRE(base_table.has_value());
 
-  const auto base_g_zero = read_double_column(*base_table, "uid:1");
-  const auto base_g_backup = read_double_column(*base_table, "uid:2");
-  REQUIRE(base_g_zero.has_value());
-  REQUIRE(base_g_backup.has_value());
-  // Two blocks, one scenario, one stage → two rows per uid column.
-  CHECK(base_g_zero->size() == 2);
-  CHECK(base_g_backup->size() == 2);
-  // `g_zero` is the cheap unit; it covers the full 10 MW demand.
-  for (const auto v : *base_g_zero) {
+  const auto base_g_zero = long_uid_values(*base_table, 1);
+  const auto base_g_backup = long_uid_values(*base_table, 2);
+  // Two blocks, one scenario, one stage → two rows for the active unit.
+  CHECK(base_g_zero.size() == 2);
+  CHECK(base_g_backup.empty());  // 0 generation → dropped
+  for (const auto v : base_g_zero) {
     CHECK(v == doctest::Approx(10.0));
   }
 
-  // Zero-cap variant: the `uid:1` column is *entirely absent* from the
-  // parquet schema — generation_cols never received any STB entries
-  // because every block was skipped at LP-build time.  This documents
-  // the observed contract: the writer does NOT emit a zero-valued
-  // placeholder column for an elided element.
+  // Zero-cap variant: `g_zero` is elided (capacity 0) → no rows for uid 1;
+  // `g_backup` becomes the only feasible unit and carries the whole 10 MW.
   const auto zero_dataset = zero_dir / "Generator" / "generation_sol.parquet";
   REQUIRE(std::filesystem::exists(leaf_parquet(zero_dataset)));
   const auto zero_table = parquet_read_table(leaf_parquet_stem(zero_dataset));
   REQUIRE(zero_table.has_value());
 
-  CHECK(find_column(*zero_table, "uid:1") < 0);
-  // The live `g_backup` survives with two-block rows.
-  const auto zero_g_backup = read_double_column(*zero_table, "uid:2");
-  REQUIRE(zero_g_backup.has_value());
-  CHECK(zero_g_backup->size() == 2);
-  // Now `g_backup` is the only feasible unit → it carries the whole 10 MW.
-  for (const auto v : *zero_g_backup) {
+  CHECK(long_uid_values(*zero_table, 1).empty());
+  const auto zero_g_backup = long_uid_values(*zero_table, 2);
+  CHECK(zero_g_backup.size() == 2);
+  for (const auto v : zero_g_backup) {
     CHECK(v == doctest::Approx(10.0));
   }
 
@@ -1037,15 +1040,8 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
-    // Pin `wide` here: this test suite asserts the wide-form
-    // contract (one `uid:<uid>` column per element, no column at all
-    // for skipped elements).  The post-2026-05-19 default is `long`
-    // (5-column shape), under which the assertion `find_column("uid:1")
-    // < 0` doesn't apply — long form never emits a `uid:N` column, just
-    // a single `uid` column with row-level uid values.  The skipped-
-    // element invariant under long form is "no rows for the elided
-    // uid", not "no column" — a different test belongs there.
-    popts.output_layout = OutputLayout::wide;
+    // Long output: a skipped element emits no rows (its zeros are dropped),
+    // the long-form counterpart of the wide "no `uid:N` column" contract.
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -1071,33 +1067,25 @@ TEST_CASE(  // NOLINT
   solve_and_write(/*waterway_capacity=*/100.0, base_dir);
   solve_and_write(/*waterway_capacity=*/0.0, zero_dir);
 
-  // Baseline: Waterway directory exists and the `uid:1` flow column is
-  // present (its value is 0 because there is no upstream source feeding
-  // the waterway, but the column itself is emitted).
+  // Baseline: the single waterway carries 0 flow (no upstream source), so in
+  // long output its zero rows are dropped — uid 1 has no flow rows, and the
+  // dataset may not be written at all.
   const auto base_dataset = base_dir / "Waterway" / "flow_sol.parquet";
-  REQUIRE(std::filesystem::exists(leaf_parquet(base_dataset)));
-  const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
-  REQUIRE(base_table.has_value());
-  const auto base_flow = read_double_column(*base_table, "uid:1");
-  REQUIRE(base_flow.has_value());
-  CHECK(base_flow->size() == 2);
+  const auto base_pq = leaf_parquet(base_dataset);
+  if (std::filesystem::exists(base_pq)) {
+    const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
+    REQUIRE(base_table.has_value());
+    CHECK(long_uid_values(*base_table, 1).empty());
+  }
 
-  // Zero-capacity variant: same skip contract as the generator —
-  // `uid:1` column is entirely absent from the parquet schema because
-  // every block was elided by the P1 waterway zero-flow guard.
-  // (The whole `Waterway/flow_sol.parquet` dataset may still exist if
-  // any other waterway populated it; with a single waterway it may
-  // simply not be written.)
+  // Zero-capacity variant: the P1 waterway zero-flow guard elides every
+  // block, so uid 1 likewise has no rows and the dataset may be absent.
   const auto zero_dataset = zero_dir / "Waterway" / "flow_sol.parquet";
   const auto zero_pq = leaf_parquet(zero_dataset);
   if (std::filesystem::exists(zero_pq)) {
     const auto zero_table = parquet_read_table(leaf_parquet_stem(zero_dataset));
     REQUIRE(zero_table.has_value());
-    CHECK(find_column(*zero_table, "uid:1") < 0);
-  } else {
-    // Acceptable too: the Waterway holder has no surviving uid columns,
-    // so the writer skips the dataset entirely.
-    CHECK_FALSE(std::filesystem::exists(zero_pq));
+    CHECK(long_uid_values(*zero_table, 1).empty());
   }
 
   std::filesystem::remove_all(base_dir);
@@ -1212,8 +1200,6 @@ TEST_CASE(  // NOLINT
   popts.model_options.demand_fail_cost = 10000.0;
   popts.output_directory = outdir.string();
   popts.output_format = DataFormat::parquet;
-  // Pin `wide` — see comment in the other tests of this file.
-  popts.output_layout = OutputLayout::wide;
 
   const PlanningOptionsLP options(popts);
   SimulationLP sim_lp(simulation, options);
@@ -1229,36 +1215,29 @@ TEST_CASE(  // NOLINT
 
   sys_lp.write_out();
 
-  // (b) Generator/generation_sol parquet: hydro_gen (uid=1) absent,
+  // (b) Generator/generation_sol parquet: hydro_gen (uid=1) elided → no rows;
   //     thermal_backup (uid=2) present with the full 50 MW load.
   const auto gen_dataset = outdir / "Generator" / "generation_sol.parquet";
   REQUIRE(std::filesystem::exists(leaf_parquet(gen_dataset)));
   const auto gen_table = parquet_read_table(leaf_parquet_stem(gen_dataset));
   REQUIRE(gen_table.has_value());
-  CHECK(find_column(*gen_table, "uid:1") < 0);
+  CHECK(long_uid_values(*gen_table, 1).empty());
 
-  const auto thermal_col = read_double_column(*gen_table, "uid:2");
-  REQUIRE(thermal_col.has_value());
-  REQUIRE(thermal_col->size() == 2);
-  for (const auto v : *thermal_col) {
+  const auto thermal_col = long_uid_values(*gen_table, 2);
+  REQUIRE(thermal_col.size() == 2);
+  for (const auto v : thermal_col) {
     CHECK(v == doctest::Approx(50.0));
   }
 
-  // Waterway/flow_sol parquet: the waterway is not elided (fmax=100),
-  // but with the turbine offline the optimal flow is 0 in every block.
-  // The observed contract is "column present, values zero" — distinct
-  // from the elided-uid case.
+  // Waterway/flow_sol parquet: the waterway is not elided (fmax=100), but with
+  // the turbine offline the optimal flow is 0 in every block.  In long output
+  // those zeros are dropped, so uid 1 has no flow rows.
   const auto ww_dataset = outdir / "Waterway" / "flow_sol.parquet";
   const auto ww_pq = leaf_parquet(ww_dataset);
   if (std::filesystem::exists(ww_pq)) {
     const auto ww_table = parquet_read_table(leaf_parquet_stem(ww_dataset));
     REQUIRE(ww_table.has_value());
-    const auto ww_col = read_double_column(*ww_table, "uid:1");
-    if (ww_col.has_value()) {
-      for (const auto v : *ww_col) {
-        CHECK(v == doctest::Approx(0.0));
-      }
-    }
+    CHECK(long_uid_values(*ww_table, 1).empty());
   }
 
   std::filesystem::remove_all(outdir);

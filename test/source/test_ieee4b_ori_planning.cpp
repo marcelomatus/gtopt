@@ -34,7 +34,7 @@
 #include "test_csv_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_helpers::read_uid_values;
+using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
 static constexpr std::string_view ieee4b_ori_json = R"(
@@ -43,7 +43,6 @@ static constexpr std::string_view ieee4b_ori_json = R"(
       "annual_discount_rate": 0.0,
       "output_format": "csv",
       "output_compression": "uncompressed",
-      "output_layout": "wide",
       "model_options": {
         "use_single_bus": false,
         "use_kirchhoff": true,
@@ -260,7 +259,7 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
   {
     // G1 dispatches all 250 MW, G2 is idle.
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", 2);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", 2);
     REQUIRE(gen.size() == 2);
     CHECK(gen[0] == doctest::Approx(250.0).epsilon(1e-4));
     CHECK(gen[1] == doctest::Approx(0.0).epsilon(1e-4));
@@ -268,12 +267,12 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
 
   SUBCASE("demand fully served — no load shedding")
   {
-    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 2);
+    const auto load = read_uid_values_long(out_dir / "Demand" / "load_sol", 2);
     REQUIRE(load.size() == 2);
     CHECK(load[0] == doctest::Approx(150.0).epsilon(1e-4));  // d3 at b3
     CHECK(load[1] == doctest::Approx(100.0).epsilon(1e-4));  // d4 at b4
 
-    const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", 2);
+    const auto fail = read_uid_values_long(out_dir / "Demand" / "fail_sol", 2);
     REQUIRE(fail.size() == 2);
     CHECK(fail[0] == doctest::Approx(0.0).epsilon(1e-4));
     CHECK(fail[1] == doctest::Approx(0.0).epsilon(1e-4));
@@ -282,7 +281,7 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
   SUBCASE("bus LMPs — uniform at marginal gen cost")
   {
     // No congestion → all bus LMPs equal the marginal generator cost ($20).
-    const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", 4);
+    const auto lmp = read_uid_values_long(out_dir / "Bus" / "balance_dual", 4);
     REQUIRE(lmp.size() == 4);
     for (size_t b = 0; b < 4; ++b) {
       CAPTURE(b);
@@ -293,8 +292,8 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
   SUBCASE("generation equals total demand")
   {
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", 2);
-    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 2);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", 2);
+    const auto load = read_uid_values_long(out_dir / "Demand" / "load_sol", 2);
     REQUIRE(gen.size() == 2);
     REQUIRE(load.size() == 2);
     const double total_gen = gen[0] + gen[1];

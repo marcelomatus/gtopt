@@ -157,89 +157,10 @@ template<typename Type = Uid, typename TUids>
   return std::round(v * scale) / scale;
 }
 
-// Apply `round_to_digits` element-wise to a freshly-allocated copy of
-// `vals`.  Returns the rounded copy by value (NRVO); the original is
-// not modified.  Used by the wide-schema writer to round each `uid:N`
-// column before it is appended into the Arrow builder.  A no-op fast
-// path returns an empty optional when `digits <= 0` so the caller can
-// fall back to the zero-copy forward path.
-template<typename Vec>
-[[nodiscard]] inline auto maybe_rounded_copy(const Vec& vals, int digits)
-    -> std::optional<std::vector<std::ranges::range_value_t<Vec>>>
-{
-  if (digits <= 0) [[unlikely]] {
-    return std::nullopt;
-  }
-  using V = std::ranges::range_value_t<Vec>;
-  std::vector<V> out;
-  out.reserve(vals.size());
-  for (auto v : vals) {
-    out.push_back(
-        static_cast<V>(round_to_digits(static_cast<double>(v), digits)));
-  }
-  return out;
-}
-
-template<typename Type = double, typename FieldVector>
-auto make_field_arrays(FieldVector&& field_vector, int round_digits = 0)
-{
-  std::vector<ArrowField> fields;
-  fields.reserve(field_vector.size() + 3);
-  std::vector<ArrowArray> arrays;
-  arrays.reserve(field_vector.size() + 3);
-
-  bool prelude_processed = false;
-
-  for (auto&& field_data : std::forward<FieldVector>(field_vector)) {
-    auto&& [fname, fvalues, fvalids, prelude] =
-        std::forward<decltype(field_data)>(field_data);
-
-    if (fvalues.empty()) [[unlikely]] {
-      continue;
-    }
-
-    // Process prelude only once
-    if (!prelude_processed && prelude) [[likely]] {
-      auto&& [pfields, parrays] = *std::forward<decltype(prelude)>(prelude);
-
-      // Move if rvalue, copy if lvalue
-      if constexpr (std::is_rvalue_reference_v<FieldVector&&>) {
-        fields = std::move(pfields);
-        arrays = std::move(parrays);
-      } else {
-        fields = pfields;
-        arrays = parrays;
-      }
-      prelude_processed = true;
-    }
-
-    fields.emplace_back(arrow::field(std::forward<decltype(fname)>(fname),
-                                     ArrowTraits<Type>::type()));
-
-    // Apply per-column rounding when requested by
-    // `options.output_round_decimals`.  Rounding to 8 decimal places
-    // is enough to keep dispatch / cost numbers readable for humans
-    // while zeroing the trailing mantissa bits — which improves
-    // dictionary-encoding compression on the wide schema (fewer
-    // distinct values per `uid:N` column).  See `round_to_digits` and
-    // the matching path in `make_field_arrays_long`.
-    if (auto rounded = maybe_rounded_copy(fvalues, round_digits)) {
-      arrays.emplace_back(make_array<Type>(
-          std::move(*rounded), std::forward<decltype(fvalids)>(fvalids)));
-    } else {
-      arrays.emplace_back(
-          make_array<Type>(std::forward<decltype(fvalues)>(fvalues),
-                           std::forward<decltype(fvalids)>(fvalids)));
-    }
-  }
-
-  return std::pair {std::move(fields), std::move(arrays)};
-}
-
 // Parse the trailing integer in a field name like `uid:42` → 42.  Returns
 // `-1` when the prefix is missing — those fields are written as a synthetic
 // `uid=-1` row in the long output so they survive without breaking the
-// schema (the wide path would have emitted the bare name unchanged).
+// schema.
 [[nodiscard]] inline auto parse_uid_suffix(std::string_view fname) noexcept
     -> int64_t
 {
@@ -257,22 +178,18 @@ auto make_field_arrays(FieldVector&& field_vector, int round_digits = 0)
   return out;
 }
 
-// Long-form (non-zero-only) variant of `make_field_arrays`.  Produces a
-// 6-column table:
+// The (only) solution-table writer.  Produces a 6-column long table:
 //   `(scenario, stage, block, uid, value, valid)`
 // with one row per *non-zero* cell across every uid column in the field
 // vector.  POC measurements on `support/plp/2_years` showed 5-7× smaller
 // per-partition files on the heavy Generator streams (0.1 % cell density)
-// and 2-3× on the LMP / line-flow streams.  The legacy wide
-// `make_field_arrays` is kept for callers that hit the back-compat option
-// `--output-layout wide`.
+// and 2-3× on the LMP / line-flow streams.
 //
-// Sign convention: an exact zero is dropped.  Callers that need to
-// preserve a real zero value (e.g. an LP variable basic-at-bound with
-// rc exactly 0) currently rely on `wide` mode — the long form takes the
-// stance that absence of a row means "no contribution from this uid in
-// this cell", which is the natural reader semantic (sums and min/max
-// aggregations are invariant under dropped zeros).
+// Sign convention: an exact zero is dropped.  Absence of a row means "no
+// contribution from this uid in this cell", which is the natural reader
+// semantic (sums and min/max aggregations are invariant under dropped
+// zeros).  Wide output was removed — convert long files externally if a real
+// zero must be materialised per cell.
 template<typename Type = double, typename FieldVector>
 auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
 {
@@ -356,8 +273,7 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
         }
       } else {
         // Unknown integer type — leave a zero-filled vector so the long
-        // output still has the right row count; the wide path remains
-        // the recommended fallback for non-int preludes.
+        // output still has the right row count.
         out.assign(static_cast<std::size_t>(len), 0);
       }
       return out;
@@ -403,9 +319,8 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
     for (std::size_t i = 0; i < n_rows; ++i) {
       const bool is_valid = !has_valids || fvalids[i];
       if (!is_valid) {
-        // Skip silently — the wide path would have stored a null, which
-        // costs at least one bit per row; the long form drops them
-        // entirely.  Downstream sums treat absence as zero.
+        // Drop invalid cells entirely — the long form omits the row and
+        // downstream sums treat absence as zero.
         continue;
       }
       const Type v = static_cast<Type>(fvalues[i]);
@@ -489,16 +404,14 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
 }
 
 template<typename Type = double, typename FieldVector>
-auto make_table(FieldVector&& field_vector,
-                gtopt::OutputLayout layout = gtopt::OutputLayout::wide,
-                int round_digits = 0)
+auto make_table(FieldVector&& field_vector, int round_digits = 0)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
-  auto [fields, arrays] = (layout == gtopt::OutputLayout::long_)
-      ? make_field_arrays_long<Type>(std::forward<FieldVector>(field_vector),
-                                     round_digits)
-      : make_field_arrays<Type>(std::forward<FieldVector>(field_vector),
-                                round_digits);
+  // Output is long-only: one row per non-zero (scenario, stage, block, uid)
+  // cell.  Wide output is no longer supported — convert long files externally
+  // if a wide shape is needed.
+  auto [fields, arrays] = make_field_arrays_long<Type>(
+      std::forward<FieldVector>(field_vector), round_digits);
 
   return arrow::Table::Make(arrow::schema(std::move(fields)),
                             std::move(arrays));
@@ -569,9 +482,8 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
 
   parquet::WriterProperties::Builder props_builder;
   props_builder.compression(resolve_parquet_codec(zfmt));
-  // Trim per-column metadata on the wide schemas gtopt emits
-  // (~1000-1500 columns per partition file).  Two on-by-default
-  // features dominate the footer footprint:
+  // Trim per-column parquet footer metadata.  Two on-by-default features
+  // add per-column footer bytes for no benefit here:
   //
   //   * `disable_statistics()` — drops per-column min/max +
   //     null-count stats (~100 bytes per column).
@@ -579,11 +491,10 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   //     `OffsetIndex` / `ColumnIndex` blobs (another ~100 bytes per
   //     column).
   //
-  // Combined, these cut a typical partition file from ~400 KB to
-  // ~120 KB without affecting readability — no downstream consumer
-  // (gtopt's scripts, marginal_units, check_output, results_summary,
-  // compare) uses parquet column stats or page indexes for pruning,
-  // and pyarrow's reader transparently handles their absence.
+  // No downstream consumer (gtopt's scripts, marginal_units,
+  // check_output, results_summary, compare) uses parquet column stats or
+  // page indexes for pruning, and pyarrow's reader transparently handles
+  // their absence.
   props_builder.disable_statistics();
   props_builder.disable_write_page_index();
 
@@ -601,13 +512,11 @@ auto parquet_write_table(const auto& fpath, const auto& table, const auto& zfmt)
   //     produces its own dictionary entry, doubling the page size
   //     before the codec runs.
   //
-  // We do not gate this on `layout == long` at the C++ level — the
-  // `encoding(path, ...)` call is a no-op when a column named
-  // `"value"` is absent (as in the wide-schema files), and Arrow
-  // accepts the property silently.  This keeps `write_table` layout-
-  // agnostic.  See also `make_field_arrays_long` for the matching
-  // round-to-1e-8 step that maximises the benefit (more zero bytes
-  // in the mantissa tail → better zstd ratio).
+  // The `encoding(path, ...)` call is a harmless no-op for any table that
+  // happens to lack a `"value"` column (e.g. an index-only prelude), and
+  // Arrow accepts the property silently.  See also `make_field_arrays_long`
+  // for the matching round-to-1e-8 step that maximises the benefit (more
+  // zero bytes in the mantissa tail → better zstd ratio).
   props_builder.encoding("value", parquet::Encoding::BYTE_STREAM_SPLIT);
   props_builder.disable_dictionary("value");
 
@@ -701,7 +610,6 @@ auto create_tables(std::string_view fmt,
                    PhaseUid phase_uid,
                    auto&& output_directory,
                    auto&& field_vector_map,
-                   gtopt::OutputLayout layout = gtopt::OutputLayout::wide,
                    int round_digits = 0)
 {
   using PathTable =
@@ -722,7 +630,7 @@ auto create_tables(std::string_view fmt,
     const auto& cname = class_fname[0];
     const auto fname_stem =
         std::format("{}_{}", class_fname[1], class_fname[2]);
-    const auto mtable = make_table<Type>(vfields, layout, round_digits);
+    const auto mtable = make_table<Type>(vfields, round_digits);
 
     const auto cname_dir = dirpath / cname;
 
@@ -832,14 +740,12 @@ void OutputContext::write() const
 {
   const auto fmt = options().output_format();
   const auto zfmt = options().output_compression();
-  const auto layout = options().output_layout();
   const auto round_digits = options().output_round_decimals();
   auto path_tables = create_tables(fmt,
                                    m_scene_uid_,
                                    m_phase_uid_,
                                    options().output_directory(),
                                    field_vector_map,
-                                   layout,
                                    round_digits);
 
   SPDLOG_DEBUG(

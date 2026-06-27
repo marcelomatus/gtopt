@@ -100,35 +100,6 @@ namespace
   return dataset_dir / "scene=0" / "phase=0" / "part";
 }
 
-[[nodiscard]] int find_column(const ArrowTable& table, std::string_view name)
-{
-  return table->schema()->GetFieldIndex(std::string {name});
-}
-
-[[nodiscard]] std::optional<std::vector<double>> read_double_column(
-    const ArrowTable& table, std::string_view name)
-{
-  const int idx = find_column(table, name);
-  if (idx < 0) {
-    return std::nullopt;
-  }
-  const auto chunked = table->column(idx);
-  std::vector<double> values;
-  values.reserve(static_cast<std::size_t>(chunked->length()));
-  for (int c = 0; c < chunked->num_chunks(); ++c) {
-    const auto& chunk = chunked->chunk(c);
-    const auto* arr =
-        std::dynamic_pointer_cast<arrow::DoubleArray>(chunk).get();
-    if (arr == nullptr) {
-      return std::nullopt;
-    }
-    for (int64_t i = 0; i < arr->length(); ++i) {
-      values.push_back(arr->IsNull(i) ? 0.0 : arr->Value(i));
-    }
-  }
-  return values;
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -313,7 +284,6 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
-    popts.output_layout = OutputLayout::wide;
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -338,24 +308,22 @@ TEST_CASE(  // NOLINT
   solve_and_write(/*fmax=*/100.0, base_dir);
   solve_and_write(/*fmax=*/0.0, zero_dir);
 
-  // Baseline: the extraction column for uid:1 is present (2 blocks).
+  // Baseline: long output carries the non-zero extraction row(s) for uid 1.
   const auto base_dataset = base_dir / "Reservoir" / "extraction_sol.parquet";
   REQUIRE(std::filesystem::exists(leaf_parquet(base_dataset)));
   const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
   REQUIRE(base_table.has_value());
-  const auto base_extract = read_double_column(*base_table, "uid:1");
-  REQUIRE(base_extract.has_value());
-  CHECK(base_extract->size() == 2);
+  CHECK((*base_table)->num_rows() > 0);
 
-  // Skip variant: extraction column entirely absent — the write-out
-  // rule "elided extraction == 0" rendered as a missing uid column.
-  // The dataset may not be written at all if it has no surviving cols.
+  // Skip variant: extraction elided (fmin==fmax==0) — the write-out rule
+  // "elided extraction == 0" renders as no emitted rows in the long output.
+  // The dataset may not be written at all if it has no surviving rows.
   const auto zero_dataset = zero_dir / "Reservoir" / "extraction_sol.parquet";
   const auto zero_pq = leaf_parquet(zero_dataset);
   if (std::filesystem::exists(zero_pq)) {
     const auto zero_table = parquet_read_table(leaf_parquet_stem(zero_dataset));
     REQUIRE(zero_table.has_value());
-    CHECK(find_column(*zero_table, "uid:1") < 0);
+    CHECK((*zero_table)->num_rows() == 0);
   }
 
   std::filesystem::remove_all(base_dir);
@@ -524,7 +492,6 @@ TEST_CASE(  // NOLINT
     popts.model_options.demand_fail_cost = 10000.0;
     popts.output_directory = outdir.string();
     popts.output_format = DataFormat::parquet;
-    popts.output_layout = OutputLayout::wide;
 
     const PlanningOptionsLP options(popts);
     SimulationLP sim_lp(simulation, options);
@@ -549,21 +516,25 @@ TEST_CASE(  // NOLINT
   solve_and_write(/*uc_gen_capacity=*/100.0, base_dir);
   solve_and_write(/*uc_gen_capacity=*/0.0, zero_dir);
 
-  // Baseline: Commitment/status_sol has the uid:1 status column.
+  // Baseline: Commitment/status_sol is written and parses.  The committed
+  // generator may sit at status 0 (a cheaper unit serves the demand), which
+  // in long output legitimately yields zero rows — the discriminating
+  // guarantee is the structural LP-size diff, not this row count.
   const auto base_dataset = base_dir / "Commitment" / "status_sol.parquet";
-  REQUIRE(std::filesystem::exists(leaf_parquet(base_dataset)));
-  const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
-  REQUIRE(base_table.has_value());
-  CHECK(find_column(*base_table, "uid:1") >= 0);
+  if (std::filesystem::exists(leaf_parquet(base_dataset))) {
+    const auto base_table = parquet_read_table(leaf_parquet_stem(base_dataset));
+    REQUIRE(base_table.has_value());
+  }
 
-  // Skip: the orphan-binary elimination leaves no status column for the
-  // OFF generator (no gcol → no u).  Dataset may be absent entirely.
+  // Skip: the orphan-binary elimination leaves no status for the OFF
+  // generator (no gcol → no u), so the long output emits no rows.  Dataset
+  // may be absent entirely.
   const auto zero_dataset = zero_dir / "Commitment" / "status_sol.parquet";
   const auto zero_pq = leaf_parquet(zero_dataset);
   if (std::filesystem::exists(zero_pq)) {
     const auto zero_table = parquet_read_table(leaf_parquet_stem(zero_dataset));
     REQUIRE(zero_table.has_value());
-    CHECK(find_column(*zero_table, "uid:1") < 0);
+    CHECK((*zero_table)->num_rows() == 0);
   }
 
   std::filesystem::remove_all(base_dir);

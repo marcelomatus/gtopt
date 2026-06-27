@@ -160,10 +160,10 @@ public:
   /** @brief Default compression codec for Parquet output files.
    *
    *  `zstd` since 2026-05-19 — empirically the best ratio × decode-speed
-   *  combo for the dense long-form value column produced by
-   *  `output_layout = long` (the matching default below).  On the
-   *  2-year case `zstd + long + BYTE_STREAM_SPLIT + round8` lands at
-   *  ~298 MB vs ~1 GB for `snappy + wide`.  All modern parquet readers
+   *  combo for the dense long-form value column produced by the long-only
+   *  output writer.  On the 2-year case `zstd + long + BYTE_STREAM_SPLIT +
+   *  round8` lands at ~298 MB vs ~1 GB for the legacy `snappy + wide`
+   *  combination.  All modern parquet readers
    *  (Arrow ≥ 1.8, pandas, polars, duckdb, R `arrow`) read it natively.
    *
    *  Use `output_compression: snappy` when faster encode-side latency
@@ -564,45 +564,15 @@ public:
     return m_options_.output_format.value_or(default_output_format);
   }
 
-  /// On-disk layout for the per-(scene, phase) solution tables.
-  ///
-  /// Default `long` (since 2026-05-19) — 6-column non-zero-only shape
-  /// `(scenario, stage, block, uid, value)` with `uint16_t` keys and
-  /// a `BYTE_STREAM_SPLIT`-encoded value column.  Combined with the
-  /// matching `zstd` compression default, this produces a 3-7× smaller
-  /// on-disk footprint on the typical 0.1 %-dense gtopt output
-  /// (e.g. 1 GB → 298 MB on the 2-year case).
-  ///
-  /// Two distinct compatibility questions to keep separate:
-  ///
-  ///   1. **Parquet file readability** — universal.  pandas, polars,
-  ///      duckdb, R `arrow`, Spark all read the file natively; nothing
-  ///      special needs to be installed.
-  ///
-  ///   2. **Downstream script compatibility** — NOT universal.  A
-  ///      script that hard-codes `df.iloc[:, 3:].sum().sum()` (wide
-  ///      assumption) or `df.groupby("uid")["value"].sum()` (long
-  ///      assumption) only works on the matching shape.  Scripts that
-  ///      need to work with both must sniff the schema (`"value" in
-  ///      df.columns` → long; else wide) and branch accordingly — see
-  ///      `scripts/gtopt_check_output/_reader.py::dataset_layout` for
-  ///      the reference sniff.  Or pivot long → wide once at read
-  ///      time: `df.pivot_table(index=["scenario","stage","block"],
-  ///      columns="uid", values="value", fill_value=0.0)`.
-  ///
-  /// Set `output_layout: "wide"` to restore the legacy shape (one
-  /// column per `uid`) for callers that depend on it — notably the
-  /// `gtopt_compare` e2e harness, which still reads `uid:N` columns
-  /// directly.  Long-mode readers must sniff the schema (presence
-  /// of a bare `uid` column → long; presence of `uid:N` columns →
-  /// wide) and dispatch accordingly; see
-  /// `scripts/gtopt_check_output/_reader.py::dataset_layout` for the
-  /// reference implementation.
-  static constexpr OutputLayout default_output_layout = OutputLayout::long_;
-  [[nodiscard]] constexpr auto output_layout() const noexcept -> OutputLayout
-  {
-    return m_options_.output_layout.value_or(default_output_layout);
-  }
+  /// Solution output is long-only — a 6-column non-zero-only shape
+  /// `(scenario, stage, block, uid, value)` with `uint16_t` keys and a
+  /// `BYTE_STREAM_SPLIT`-encoded value column.  Combined with the matching
+  /// `zstd` compression default, this produces a 3-7× smaller on-disk
+  /// footprint on the typical 0.1 %-dense gtopt output (e.g. 1 GB → 298 MB on
+  /// the 2-year case).  The legacy wide (`uid:N` column-per-element) layout
+  /// was removed; convert long files to wide externally if ever needed, e.g.
+  /// `df.pivot_table(index=["scenario","stage","block"], columns="uid",
+  /// values="value", fill_value=0.0)`.
 
   /// Decimal places to keep on the on-disk value columns.
   ///

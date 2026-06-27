@@ -52,7 +52,6 @@ struct PlanningOptionsConstructor
       OptName output_directory,
       OptName output_format_str,
       OptName output_compression_str,
-      OptName output_layout_str,
       OptInt output_round_decimals,
       OptBool use_uid_fname,
       OptName method_str,
@@ -102,10 +101,6 @@ struct PlanningOptionsConstructor
     if (output_compression_str) {
       opts.output_compression = gtopt::require_enum<CompressionCodec>(
           "output_compression", *output_compression_str);
-    }
-    if (output_layout_str) {
-      opts.output_layout = gtopt::require_enum<gtopt::OutputLayout>(
-          "output_layout", *output_layout_str);
     }
     opts.output_round_decimals = output_round_decimals;
     opts.use_uid_fname = use_uid_fname;
@@ -165,7 +160,6 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"output_directory", OptName>,
                        json_string_null<"output_format", OptName>,
                        json_string_null<"output_compression", OptName>,
-                       json_string_null<"output_layout", OptName>,
                        json_number_null<"output_round_decimals", OptInt>,
                        json_bool_null<"use_uid_fname", OptBool>,
 
@@ -203,7 +197,6 @@ struct json_data_contract<PlanningOptions>
         opt.output_directory,
         detail::enum_to_opt_name(opt.output_format),
         detail::enum_to_opt_name(opt.output_compression),
-        detail::enum_to_opt_name(opt.output_layout),
         opt.output_round_decimals,
         opt.use_uid_fname,
 

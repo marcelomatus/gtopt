@@ -59,7 +59,10 @@
  * run while the on-disk output was meaningless.
  */
 
+#include <cmath>
 #include <filesystem>
+#include <map>
+#include <tuple>
 #include <vector>
 
 #include <arrow/io/file.h>
@@ -114,73 +117,88 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return table;
 }
 
-// True for index / partition column names — value columns are everything
-// else.
-[[nodiscard]] constexpr auto is_index_column(std::string_view name) noexcept
-    -> bool
+// Read an Arrow numeric array element as double (handles the uint16 keys and
+// the float32 / float64 value column produced by the long writer).
+[[nodiscard]] auto numeric_at(const std::shared_ptr<arrow::Array>& a, int64_t i)
+    -> double
 {
-  return name == "scenario" || name == "stage" || name == "block"
-      || name == "scene" || name == "phase";
+  switch (a->type_id()) {
+    case arrow::Type::FLOAT:
+      return std::static_pointer_cast<arrow::FloatArray>(a)->Value(i);
+    case arrow::Type::DOUBLE:
+      return std::static_pointer_cast<arrow::DoubleArray>(a)->Value(i);
+    case arrow::Type::UINT16:
+      return std::static_pointer_cast<arrow::UInt16Array>(a)->Value(i);
+    case arrow::Type::INT32:
+      return std::static_pointer_cast<arrow::Int32Array>(a)->Value(i);
+    case arrow::Type::INT64:
+      return static_cast<double>(
+          std::static_pointer_cast<arrow::Int64Array>(a)->Value(i));
+    default:
+      return 0.0;
+  }
 }
 
-// Count finite (non-NaN, non-Inf) doubles across every numeric value
-// column of `table`.  Used to distinguish "sim pass ran" (lots of
-// finite duals/sols) from "sim pass skipped" (all-NaN dual columns).
+// Count finite (non-NaN, non-Inf) entries in the long `value` column.  Used
+// to distinguish "sim pass ran" (finite duals) from "sim pass skipped".
 [[nodiscard]] auto count_finite_doubles(const arrow::Table& table)
     -> std::size_t
 {
+  const auto idx = table.schema()->GetFieldIndex("value");
+  if (idx < 0) {
+    return 0;
+  }
+  const auto& col = table.column(idx);
   std::size_t finite_count = 0;
-  for (int c = 0; c < table.num_columns(); ++c) {
-    if (is_index_column(table.schema()->field(c)->name())) {
-      continue;
-    }
-    const auto& col = table.column(c);
-    if (col->type()->id() != arrow::Type::DOUBLE) {
-      continue;
-    }
-    for (int ch = 0; ch < col->num_chunks(); ++ch) {
-      const auto chunk =
-          std::static_pointer_cast<arrow::DoubleArray>(col->chunk(ch));
-      for (int64_t i = 0; i < chunk->length(); ++i) {
-        if (!chunk->IsNull(i) && std::isfinite(chunk->Value(i))) {
-          ++finite_count;
-        }
+  for (int ch = 0; ch < col->num_chunks(); ++ch) {
+    const auto chunk = col->chunk(ch);
+    for (int64_t i = 0; i < chunk->length(); ++i) {
+      if (!chunk->IsNull(i) && std::isfinite(numeric_at(chunk, i))) {
+        ++finite_count;
       }
     }
   }
   return finite_count;
 }
 
-// Sum across value columns per row.  Inactive (NaN-filled) blocks
-// leave their row at 0.0 — caller filters by `total > eps` to skip
-// them.  Used for both `generation_sol` (sum of generators) and
-// `load_sol` (only one demand in the fixture, so the sum trivially
-// equals that demand's served value).
-[[nodiscard]] auto sum_per_row(const arrow::Table& table) -> std::vector<double>
+// Sum the long `value` column grouped by (scenario, stage, block).  Inactive
+// cells have no rows (zeros dropped), so the returned vector holds one total
+// per distinct cell present in the file — the long counterpart of the old
+// per-row sum over wide `uid:N` columns.
+[[nodiscard]] auto sum_per_cell(const arrow::Table& table)
+    -> std::vector<double>
 {
-  std::vector<double> totals(static_cast<std::size_t>(table.num_rows()), 0.0);
-  for (int c = 0; c < table.num_columns(); ++c) {
-    if (is_index_column(table.schema()->field(c)->name())) {
+  const auto sidx = table.schema()->GetFieldIndex("scenario");
+  const auto tidx = table.schema()->GetFieldIndex("stage");
+  const auto bidx = table.schema()->GetFieldIndex("block");
+  const auto vidx = table.schema()->GetFieldIndex("value");
+  if (sidx < 0 || tidx < 0 || bidx < 0 || vidx < 0) {
+    return {};
+  }
+  const auto combined = table.CombineChunks().ValueOr(nullptr);
+  if (!combined) {
+    return {};
+  }
+  const auto s = combined->column(sidx)->chunk(0);
+  const auto t = combined->column(tidx)->chunk(0);
+  const auto b = combined->column(bidx)->chunk(0);
+  const auto v = combined->column(vidx)->chunk(0);
+  std::map<std::tuple<int64_t, int64_t, int64_t>, double> acc;
+  for (int64_t i = 0; i < (v ? v->length() : 0); ++i) {
+    if (v->IsNull(i)) {
       continue;
     }
-    const auto& col = table.column(c);
-    if (col->type()->id() != arrow::Type::DOUBLE) {
-      continue;
-    }
-    int64_t row_offset = 0;
-    for (int ch = 0; ch < col->num_chunks(); ++ch) {
-      const auto chunk =
-          std::static_pointer_cast<arrow::DoubleArray>(col->chunk(ch));
-      for (int64_t i = 0; i < chunk->length(); ++i) {
-        if (!chunk->IsNull(i)) {
-          const auto v = chunk->Value(i);
-          if (std::isfinite(v)) {
-            totals[static_cast<std::size_t>(row_offset + i)] += v;
-          }
-        }
-      }
-      row_offset += chunk->length();
-    }
+    const std::tuple<int64_t, int64_t, int64_t> key {
+        static_cast<int64_t>(numeric_at(s, i)),
+        static_cast<int64_t>(numeric_at(t, i)),
+        static_cast<int64_t>(numeric_at(b, i)),
+    };
+    acc[key] += numeric_at(v, i);
+  }
+  std::vector<double> totals;
+  totals.reserve(acc.size());
+  for (const auto& [k, total] : acc) {
+    totals.push_back(total);
   }
   return totals;
 }
@@ -239,13 +257,9 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   auto planning = make_3phase_hydro_planning();
   planning.options.output_directory = tmpdir.string();
   planning.options.output_format = DataFormat::parquet;
-  // Pin `wide` here — this test asserts on per-partition `num_rows()`
-  // counts (24 blocks × 3 scenarios = 72 rows in wide form).  Under
-  // the post-2026-05-19 `long` default the same data is sparse-filtered
-  // (zero rows dropped) so the row count is element- and solution-
-  // dependent rather than a clean cell-count.  The wide form is the
-  // right legacy match for this set of correctness assertions.
-  planning.options.output_layout = OutputLayout::wide;
+  // Long output: per-cell totals come from a (scenario, stage, block)
+  // GROUP BY over the single `value` column (zero rows dropped), so the
+  // correctness assertions below count balanced *cells*, not raw rows.
   PlanningLP planning_lp(std::move(planning));
 
   // ── Two-level cascade.  Each level inherits `max_iters` from the
@@ -350,8 +364,7 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     CAPTURE(phase_uid);
     auto gen_sol = read_parquet_shard(gen_sol_root, scene_uid, phase_uid);
     REQUIRE(gen_sol != nullptr);
-    CHECK(gen_sol->num_rows() == 72);
-    for (const auto total : sum_per_row(*gen_sol)) {
+    for (const auto total : sum_per_cell(*gen_sol)) {
       if (total > 1e-6) {
         CHECK(total == doctest::Approx(expected_demand_mw).epsilon(1e-3));
         ++gen_balanced_blocks;
@@ -373,8 +386,7 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
     CAPTURE(phase_uid);
     auto load_sol = read_parquet_shard(load_sol_root, scene_uid, phase_uid);
     REQUIRE(load_sol != nullptr);
-    CHECK(load_sol->num_rows() == 72);
-    for (const auto served : sum_per_row(*load_sol)) {
+    for (const auto served : sum_per_cell(*load_sol)) {
       if (served > 1e-6) {
         CHECK(served == doctest::Approx(expected_demand_mw).epsilon(1e-3));
         ++load_balanced_blocks;

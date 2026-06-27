@@ -31,7 +31,7 @@
 #include "test_csv_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_helpers::read_uid_values;
+using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
 static constexpr std::string_view ieee9b_ori_json = R"(
@@ -40,7 +40,6 @@ static constexpr std::string_view ieee9b_ori_json = R"(
       "annual_discount_rate": 0.0,
       "output_format": "csv",
       "output_compression": "uncompressed",
-      "output_layout": "wide",
       "model_options": {
         "use_single_bus": false,
         "use_kirchhoff": true,
@@ -337,8 +336,8 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
   SUBCASE("generation balance equals served demand (no shedding)")
   {
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", 3);
-    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", 3);
+    const auto load = read_uid_values_long(out_dir / "Demand" / "load_sol", 3);
     REQUIRE(gen.size() == 3);
     REQUIRE(load.size() == 3);
 
@@ -352,7 +351,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("no load shedding at any bus")
   {
-    const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", 3);
+    const auto fail = read_uid_values_long(out_dir / "Demand" / "fail_sol", 3);
     REQUIRE(fail.size() == 3);
     for (size_t i = 0; i < 3; ++i) {
       CAPTURE(i);
@@ -362,7 +361,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("all three demands fully served")
   {
-    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", 3);
+    const auto load = read_uid_values_long(out_dir / "Demand" / "load_sol", 3);
     REQUIRE(load.size() == 3);
     CHECK(load[0] == doctest::Approx(125.0).epsilon(1e-4));  // d1 at b5
     CHECK(load[1] == doctest::Approx(100.0).epsilon(1e-4));  // d2 at b7
@@ -371,7 +370,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 
   SUBCASE("bus LMPs reflect dispatch order, not artifact")
   {
-    const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", 9);
+    const auto lmp = read_uid_values_long(out_dir / "Bus" / "balance_dual", 9);
     REQUIRE(lmp.size() == 9);
 
     // All LMPs must be positive (power has value everywhere).
@@ -391,7 +390,7 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
   SUBCASE("all generators within bounds")
   {
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", 3);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", 3);
     REQUIRE(gen.size() == 3);
 
     // g1: pmin=10, pmax=250

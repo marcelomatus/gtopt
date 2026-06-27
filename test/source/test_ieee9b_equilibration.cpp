@@ -309,26 +309,54 @@ auto solve_ieee9b_eq(gtopt::LpEquilibrationMethod method,
   // Write output files.
   planning_lp.write_out();
 
-  // Helper: read all uid:N values from a CSV table into a vector.
+  // Helper: read per-uid values from a LONG CSV table
+  // (scenario, stage, block, uid, value).  Single-cell case → one value per
+  // uid; absent (zero-dropped) uids default to 0.
   auto read_uid_values = [](const std::filesystem::path& path,
                             int count) -> std::vector<double>
   {
-    std::vector<double> out;
+    std::vector<double> out(static_cast<std::size_t>(count), 0.0);
     auto tbl = csv_read_table(path);
     if (!tbl.has_value()) {
       return out;
     }
-    for (int uid = 1; uid <= count; ++uid) {
-      const auto col_name = std::format("uid:{}", uid);
-      auto col = (*tbl)->GetColumnByName(col_name);
-      if (!col || col->num_chunks() == 0) {
-        out.push_back(0.0);
-        continue;
+    auto uid_col = (*tbl)->GetColumnByName("uid");
+    auto val_col = (*tbl)->GetColumnByName("value");
+    if (!uid_col || !val_col || uid_col->num_chunks() == 0
+        || val_col->num_chunks() == 0)
+    {
+      return out;
+    }
+    const auto uchunk = uid_col->chunk(0);
+    const auto vchunk = val_col->chunk(0);
+    const auto uid_at = [&](int64_t i) -> int64_t
+    {
+      if (uchunk->type_id() == arrow::Type::INT64) {
+        return std::static_pointer_cast<arrow::Int64Array>(uchunk)->Value(i);
       }
-      const auto arr =
-          std::static_pointer_cast<arrow::DoubleArray>(col->chunk(0));
-      // Single row (1 block × 1 stage × 1 scenario).
-      out.push_back(arr->length() > 0 ? arr->Value(0) : 0.0);
+      if (uchunk->type_id() == arrow::Type::INT32) {
+        return std::static_pointer_cast<arrow::Int32Array>(uchunk)->Value(i);
+      }
+      return -1;
+    };
+    const auto val_at = [&](int64_t i) -> double
+    {
+      if (vchunk->type_id() == arrow::Type::DOUBLE) {
+        return std::static_pointer_cast<arrow::DoubleArray>(vchunk)->Value(i);
+      }
+      if (vchunk->type_id() == arrow::Type::INT64) {
+        return static_cast<double>(
+            std::static_pointer_cast<arrow::Int64Array>(vchunk)->Value(i));
+      }
+      return 0.0;
+    };
+    std::vector<bool> seen(static_cast<std::size_t>(count) + 1, false);
+    for (int64_t i = 0; i < uchunk->length(); ++i) {
+      const auto u = uid_at(i);
+      if (u >= 1 && u <= count && !seen[static_cast<std::size_t>(u)]) {
+        seen[static_cast<std::size_t>(u)] = true;
+        out[static_cast<std::size_t>(u - 1)] = val_at(i);
+      }
     }
     return out;
   };

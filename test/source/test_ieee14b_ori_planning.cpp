@@ -31,7 +31,7 @@
 #include "test_csv_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_helpers::read_uid_values;
+using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
 static constexpr std::string_view ieee14b_ori_json = R"(
@@ -40,7 +40,6 @@ static constexpr std::string_view ieee14b_ori_json = R"(
       "annual_discount_rate": 0.0,
       "output_format": "csv",
       "output_compression": "uncompressed",
-      "output_layout": "wide",
       "model_options": {
         "use_single_bus": false,
         "use_kirchhoff": true,
@@ -555,7 +554,8 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("no load shedding")
   {
-    const auto fail = read_uid_values(out_dir / "Demand" / "fail_sol", num_dem);
+    const auto fail =
+        read_uid_values_long(out_dir / "Demand" / "fail_sol", num_dem);
     REQUIRE(fail.size() == num_dem);
 
     for (size_t d = 0; d < num_dem; ++d) {
@@ -567,8 +567,9 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
   SUBCASE("generation balance equals total demand")
   {
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", num_gen);
-    const auto load = read_uid_values(out_dir / "Demand" / "load_sol", num_dem);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", num_gen);
+    const auto load =
+        read_uid_values_long(out_dir / "Demand" / "load_sol", num_dem);
     REQUIRE(gen.size() == num_gen);
     REQUIRE(load.size() == num_dem);
 
@@ -582,7 +583,7 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
   SUBCASE("generator dispatch within bounds")
   {
     const auto gen =
-        read_uid_values(out_dir / "Generator" / "generation_sol", num_gen);
+        read_uid_values_long(out_dir / "Generator" / "generation_sol", num_gen);
     REQUIRE(gen.size() == num_gen);
 
     // pmin=0, pmax: g1=260, g2=130, g3=130, g6=100, g8=80
@@ -605,7 +606,8 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 
   SUBCASE("bus LMPs are positive and vary by location")
   {
-    const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", num_bus);
+    const auto lmp =
+        read_uid_values_long(out_dir / "Bus" / "balance_dual", num_bus);
     REQUIRE(lmp.size() == num_bus);
 
     // b1 LMP = g1 marginal cost ($20) — cheapest generator bus

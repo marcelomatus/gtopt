@@ -98,18 +98,12 @@ struct PlanningOptions
    *  `PlanningOptionsLP::default_output_compression` for the
    *  rationale behind the default. */
   std::optional<CompressionCodec> output_compression {};
-  /** @brief On-disk layout for the per-(scene, phase) solution tables.
-   *  See `OutputLayout` for the trade-offs (`long` is the default —
-   *  3-7× smaller files on the typical sparse-dispatch shape; `wide`
-   *  remains available for back-compat with legacy readers). */
-  std::optional<OutputLayout> output_layout {};
   /** @brief Round the on-disk value columns to N decimal places before
    *  writing.  Default `8` — keeps the trailing mantissa bits zero so
    *  `BYTE_STREAM_SPLIT + zstd` can compress the value stream 3-5×
    *  better.  Set to a non-positive value (`0` or `-1`) to disable
    *  rounding and store the full IEEE-754 binary, e.g. when verifying
-   *  bit-for-bit reproducibility of dispatch outputs.  Applies to
-   *  both `output_layout: wide` and `long`. */
+   *  bit-for-bit reproducibility of dispatch outputs. */
   OptInt output_round_decimals {};
   /** @brief Use element UIDs instead of names in output filenames */
   OptBool use_uid_fname {};
@@ -303,7 +297,6 @@ struct PlanningOptions
     merge_opt(output_directory, std::move(opts.output_directory));
     merge_opt(output_format, opts.output_format);
     merge_opt(output_compression, opts.output_compression);
-    merge_opt(output_layout, opts.output_layout);
     merge_opt(output_round_decimals, opts.output_round_decimals);
 
     merge_opt(use_uid_fname, opts.use_uid_fname);

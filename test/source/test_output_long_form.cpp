@@ -119,7 +119,6 @@ TEST_CASE(
   opts.model_options.demand_fail_cost = 10000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.output_layout = OutputLayout::long_;
   opts.output_round_decimals = 7;  // float32 path
 
   const PlanningOptionsLP options(opts);
@@ -157,7 +156,6 @@ TEST_CASE("output long-form: value column is float32 when 1 <= d <= 7")
   opts.model_options.demand_fail_cost = 10000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.output_layout = OutputLayout::long_;
   opts.output_round_decimals = 5;  // float32 path
 
   const PlanningOptionsLP options(opts);
@@ -186,7 +184,6 @@ TEST_CASE("output long-form: value column is float64 when d >= 8")  // NOLINT
   opts.model_options.demand_fail_cost = 10000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.output_layout = OutputLayout::long_;
   opts.output_round_decimals = 8;  // double path
 
   const PlanningOptionsLP options(opts);
@@ -223,7 +220,6 @@ TEST_CASE(
   opts.model_options.demand_fail_cost = 10000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.output_layout = OutputLayout::long_;
   opts.output_round_decimals = 5;
 
   const PlanningOptionsLP options(opts);
@@ -274,7 +270,6 @@ TEST_CASE("output long-form: exact-zero rows are dropped")  // NOLINT
   opts.model_options.demand_fail_cost = 10000.0;
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::parquet;
-  opts.output_layout = OutputLayout::long_;
   opts.output_round_decimals = 5;
 
   const PlanningOptionsLP options(opts);

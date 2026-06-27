@@ -677,14 +677,6 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   opts.output_directory = tmpdir.string();
   opts.output_format = DataFormat::csv;
   opts.output_compression = CompressionCodec::gzip;
-  // Pin `wide` — this test exercises the legacy single-row read path of
-  // `csv_read_table` on a `(scenario, stage, block, uid:N…)` CSV shard.
-  // Under the post-2026-05-19 `long` default the shape would be
-  // `(scenario, stage, block, uid, value)` with zero rows dropped, and
-  // the simple `make_csv_system` fixture has no non-zero dispatch, so
-  // a long-form CSV would be header-only and `num_rows() > 0` fails.
-  // Wide form emits one row per cell-tuple regardless.
-  opts.output_layout = OutputLayout::wide;
 
   const PlanningOptionsLP options(opts);
   SimulationLP simulation_lp(simulation, options);
@@ -694,10 +686,30 @@ TEST_CASE("OutputContext - CSV gzip output is readable through csv_read_table")
   REQUIRE(lp.resolve().has_value());
   system_lp.write_out();
 
-  const auto table =
-      csv_read_table(tmpdir / "Generator" / "generation_sol_s0_p0");
-  REQUIRE(table.has_value());
-  CHECK((table && (*table)->num_rows() > 0));
+  // Long output drops zero rows, so a field with no non-zero dispatch is a
+  // header-only CSV that the strict `csv_read_table` rejects.  Scan every
+  // gzip CSV shard and confirm at least one round-trips with data rows.
+  bool found_readable = false;
+  for (const auto& entry :
+       std::filesystem::recursive_directory_iterator(tmpdir))
+  {
+    const auto p = entry.path().string();
+    constexpr std::string_view kSuffix {".csv.gz"};
+    if (!p.ends_with(kSuffix)) {
+      continue;
+    }
+    const std::filesystem::path stem = p.substr(0, p.size() - kSuffix.size());
+    try {
+      const auto table = csv_read_table(stem);
+      if (table.has_value() && (*table)->num_rows() > 0) {
+        found_readable = true;
+        break;
+      }
+    } catch (const std::exception&) {
+      // header-only all-zero field — keep scanning for one with data.
+    }
+  }
+  CHECK(found_readable);
 
   std::filesystem::remove_all(tmpdir);
 }

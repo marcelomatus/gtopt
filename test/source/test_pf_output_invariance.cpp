@@ -37,7 +37,7 @@
 #include "test_csv_helpers.hpp"
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_helpers::read_uid_values;
+using gtopt::test_helpers::read_uid_values_long;
 
 namespace
 {
@@ -60,7 +60,6 @@ inline auto make_planning_json(std::string_view scenario_array,
     "annual_discount_rate": 0.0,
     "output_format": "csv",
     "output_compression": "uncompressed",
-    "output_layout": "wide",
     "write_out": "all",
     "model_options": {
       "use_single_bus": true,
@@ -145,8 +144,8 @@ TEST_CASE(  // NOLINT
   auto plp_b = run_and_capture(json_b, out_b);
 
   // Read bus LMP (balance_dual) for each.  Single-bus → 1 uid value.
-  const auto lmp_a = read_uid_values(out_a / "Bus" / "balance_dual", 1);
-  const auto lmp_b = read_uid_values(out_b / "Bus" / "balance_dual", 1);
+  const auto lmp_a = read_uid_values_long(out_a / "Bus" / "balance_dual", 1);
+  const auto lmp_b = read_uid_values_long(out_b / "Bus" / "balance_dual", 1);
   REQUIRE(lmp_a.size() == 1);
   REQUIRE(lmp_b.size() == 1);
   CAPTURE(lmp_a[0]);
@@ -161,8 +160,10 @@ TEST_CASE(  // NOLINT
   // demand) or basic interior (when demand=80 < pmax=200).  Either
   // way reduced cost is 0 at the LP optimum for an interior basic
   // variable.
-  const auto rc_a = read_uid_values(out_a / "Generator" / "generation_cost", 1);
-  const auto rc_b = read_uid_values(out_b / "Generator" / "generation_cost", 1);
+  const auto rc_a =
+      read_uid_values_long(out_a / "Generator" / "generation_cost", 1);
+  const auto rc_b =
+      read_uid_values_long(out_b / "Generator" / "generation_cost", 1);
   REQUIRE(rc_a.size() == 1);
   REQUIRE(rc_b.size() == 1);
   CAPTURE(rc_a[0]);
@@ -197,8 +198,8 @@ TEST_CASE(  // NOLINT
   const auto out_c = root / "c";
   auto plp_c = run_and_capture(json_c, out_c);
 
-  const auto lmp_a = read_uid_values(out_a / "Bus" / "balance_dual", 1);
-  const auto lmp_c = read_uid_values(out_c / "Bus" / "balance_dual", 1);
+  const auto lmp_a = read_uid_values_long(out_a / "Bus" / "balance_dual", 1);
+  const auto lmp_c = read_uid_values_long(out_c / "Bus" / "balance_dual", 1);
   REQUIRE(lmp_a.size() == 1);
   REQUIRE(lmp_c.size() == 1);
   CAPTURE(lmp_a[0]);
@@ -250,7 +251,8 @@ TEST_CASE(  // NOLINT
           cfg.scenario_array, ""sv, std::string("T3_") + std::string(cfg.name));
       auto plp = run_and_capture(json, out_dir);
 
-      const auto lmp = read_uid_values(out_dir / "Bus" / "balance_dual", 1);
+      const auto lmp =
+          read_uid_values_long(out_dir / "Bus" / "balance_dual", 1);
       REQUIRE(lmp.size() == 1);
       CAPTURE(lmp[0]);
       // Generator g1 has gcost=20 $/MWh and is the only dispatchable

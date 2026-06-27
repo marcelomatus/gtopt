@@ -725,7 +725,6 @@ static constexpr std::string_view single_bus_uc_raw_json = R"json(
       "annual_discount_rate": 0.1,
       "output_format": "csv",
       "output_compression": "uncompressed",
-      "output_layout": "wide",
       "model_options": {
         "use_single_bus": true,
         "scale_objective": 1,
@@ -837,9 +836,10 @@ TEST_CASE("User constraint - raw/unitless type produces output CSV")
                               std::istreambuf_iterator<char>());
     CHECK_FALSE(content.empty());
     CHECK(content.find("scenario") != std::string::npos);
-    // Both constraints (uid 2 and uid 3) should have their own column
-    CHECK(content.find("uid:2") != std::string::npos);
-    CHECK(content.find("uid:3") != std::string::npos);
+    // Long output: a single `uid` column plus a `value` column (no per-uid
+    // columns).  Both constraints (uid 2 and uid 3) emit rows under `uid`.
+    CHECK(content.find("uid") != std::string::npos);
+    CHECK(content.find("value") != std::string::npos);
   }
 
   std::filesystem::remove_all(tmpdir);

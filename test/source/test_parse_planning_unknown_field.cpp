@@ -74,6 +74,22 @@ const std::string kBatteryUnknownFieldJson = R"({
     }]
   }
 })";
+
+// The `output_layout` option was removed when output became long-only.  A
+// JSON that still carries it must be rejected (strict parse), prompting the
+// user to drop the key rather than silently ignoring a now-meaningless value.
+const std::string kRemovedOutputLayoutJson = R"({
+  "options": {"output_layout": "wide"},
+  "simulation": {
+    "block_array": [{"uid": 1, "duration": 1.0}],
+    "stage_array": [{"uid": 1}],
+    "scenario_array": [{"uid": 1}]
+  },
+  "system": {
+    "name": "tiny",
+    "bus_array": [{"uid": 1, "name": "b1"}]
+  }
+})";
 // NOLINTEND(cert-err58-cpp)
 
 std::string write_temp_json(const std::filesystem::path& dir,
@@ -126,6 +142,21 @@ TEST_CASE(  // NOLINT
   // The formatter should successfully render *some* source context
   // (the original bug segfaulted before returning any context).
   CHECK(err.size() > 64);
+}
+
+TEST_CASE(  // NOLINT
+    "parse_planning_files - removed `output_layout` option is rejected")
+{
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_test_parse_unknown_field";
+  std::filesystem::create_directories(tmpdir);
+  const auto path = write_temp_json(
+      tmpdir, "removed_output_layout", kRemovedOutputLayoutJson);
+
+  const auto result = parse_planning_files({path}, std::nullopt);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error().find("JSON parsing error") != std::string::npos);
 }
 
 TEST_CASE(  // NOLINT
