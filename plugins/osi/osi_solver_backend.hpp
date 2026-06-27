@@ -148,6 +148,11 @@ public:
   // ---- solution hints ----
   void set_col_solution(const double* sol) override;
   void set_row_price(const double* price) override;
+  /// MIP start: only meaningful under CBC (CLP is LP-only → returns false).
+  /// Buffered here and replayed onto the CbcModel in `resolve()` right before
+  /// `branchAndBound()` (so it lands on the model that actually solves).
+  bool set_mip_start(std::span<const double> col_values,
+                     MipStartEffort effort) override;
 
   // ---- solve ----
   void initial_solve() override;
@@ -196,6 +201,11 @@ private:
   OsiSolverType m_type_;
   std::shared_ptr<OsiSolverInterface> m_solver_;
   std::unique_ptr<CoinMessageHandler> m_handler_;
+
+  /// Buffered CBC MIP start (empty = none) + whether CBC should validate it
+  /// (`setBestSolution` check flag; false only for `MipStartEffort::no_check`).
+  std::vector<double> m_mip_start_ {};
+  bool m_mip_start_check_ {true};
 
   /// Cache of everything needed to replay backend state onto a fresh
   /// OsiSolverInterface (see CplexPrep for the pattern).

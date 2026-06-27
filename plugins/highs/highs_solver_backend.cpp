@@ -661,6 +661,25 @@ void HighsSolverBackend::set_row_price(const double* price)
   m_highs_->setSolution(solution);
 }
 
+bool HighsSolverBackend::set_mip_start(const std::span<const double> col_values,
+                                       MipStartEffort /*effort*/)
+{
+  // HiGHS uses a provided primal solution as the MIP user-start: when the
+  // model has integer columns it seeds the initial incumbent (and otherwise
+  // primes the LP).  HiGHS has no caller-tunable effort level — it validates
+  // feasibility internally and keeps the start if usable — so `effort` is
+  // advisory here (honoured precisely only on the CPLEX backend).
+  const auto ncols = static_cast<std::size_t>(m_highs_->getNumCol());
+  if (col_values.size() != ncols) {
+    return false;
+  }
+  HighsSolution solution;
+  solution.col_value.assign(col_values.begin(), col_values.end());
+  solution.value_valid = true;
+  m_highs_->setSolution(solution);
+  return true;
+}
+
 namespace
 {
 /// Map a HiGHS basis status to the solver-agnostic BasisStatus.

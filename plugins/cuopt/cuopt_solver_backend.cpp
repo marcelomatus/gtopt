@@ -383,6 +383,23 @@ double CuOptSolverBackend::obj_value() const
 void CuOptSolverBackend::set_col_solution(const double* /*sol*/) {}
 void CuOptSolverBackend::set_row_price(const double* /*price*/) {}
 
+bool CuOptSolverBackend::set_mip_start(const std::span<const double> col_values,
+                                       MipStartEffort /*effort*/)
+{
+  // cuOpt has no persistent settings object (it is created fresh inside
+  // solve_()), so buffer the dense start here and replay it via
+  // cuOptAddMIPStart on the new settings.  cuOpt has no caller-tunable
+  // effort level, so `effort` is advisory.  NOTE: cuOptAddMIPStart is
+  // "unsupported with presolve on", so solve_() forces presolve OFF whenever
+  // a start is buffered.
+  if (col_values.size() != static_cast<std::size_t>(m_model_.num_cols)) {
+    m_mip_start_.clear();
+    return false;
+  }
+  m_mip_start_.assign(col_values.begin(), col_values.end());
+  return true;
+}
+
 // ---- solve ----------------------------------------------------------------
 
 void CuOptSolverBackend::initial_solve()
@@ -499,10 +516,30 @@ void CuOptSolverBackend::solve_()
   if (const auto feps = m_options_.feasible_eps; feps && *feps > 0.0) {
     cuOptSetFloatParameter(settings, CUOPT_ABSOLUTE_PRIMAL_TOLERANCE, *feps);
   }
-  cuOptSetIntegerParameter(
-      settings,
-      CUOPT_PRESOLVE,
-      m_options_.presolve ? CUOPT_PRESOLVE_DEFAULT : CUOPT_PRESOLVE_OFF);
+  // cuOptAddMIPStart is "unsupported with presolve on", so force presolve OFF
+  // whenever a MIP start is buffered (and warn if the user had asked for it).
+  // NB: plugins cannot link the (compiled, non-PIC) spdlog used by the core,
+  // so backend-side notices go to stderr.  The core `apply_mip_start` already
+  // logs the injection itself; here we only flag the cuOpt-specific presolve
+  // override (the API forbids a MIP start with presolve on).
+  const bool has_mip_start = !m_mip_start_.empty();
+  if (has_mip_start && m_options_.presolve) {
+    (void)std::fputs(
+        "cuOpt: forcing presolve OFF because a MIP start is set "
+        "(cuOptAddMIPStart is unsupported with presolve on)\n",
+        stderr);
+  }
+  cuOptSetIntegerParameter(settings,
+                           CUOPT_PRESOLVE,
+                           (m_options_.presolve && !has_mip_start)
+                               ? CUOPT_PRESOLVE_DEFAULT
+                               : CUOPT_PRESOLVE_OFF);
+  if (has_mip_start) {
+    check(cuOptAddMIPStart(settings,
+                           m_mip_start_.data(),
+                           static_cast<cuopt_int_t>(m_mip_start_.size())),
+          "cuOptAddMIPStart");
+  }
   cuOptSetIntegerParameter(
       settings, CUOPT_LOG_TO_CONSOLE, m_options_.log_level > 0 ? 1 : 0);
   if (m_options_.threads > 0) {

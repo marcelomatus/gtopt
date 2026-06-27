@@ -138,6 +138,8 @@ public:
   // ---- solution hints ----
   void set_col_solution(const double* sol) override;
   void set_row_price(const double* price) override;
+  bool set_mip_start(std::span<const double> col_values,
+                     MipStartEffort effort) override;
 
   // ---- simplex basis (advanced warm start) ----
   [[nodiscard]] std::optional<Basis> get_basis() const override;

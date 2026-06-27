@@ -843,6 +843,25 @@ void MindOptSolverBackend::set_col_solution(const double* sol)
                      const_cast<double*>(sol));  // NOLINT
 }
 
+bool MindOptSolverBackend::set_mip_start(
+    const std::span<const double> col_values, MipStartEffort /*effort*/)
+{
+  // MindOpt mirrors the Gurobi C API: the Start attribute IS the MIP start,
+  // seeding the incumbent and auto-completing partial assignments.  No
+  // caller-tunable effort level, so `effort` is advisory (honoured precisely
+  // only on the CPLEX backend).
+  const auto ncols = static_cast<std::size_t>(get_num_cols());
+  if (col_values.size() != ncols) {
+    return false;
+  }
+  MDOsetdblattrarray(m_model_,
+                     MDO_DBL_ATTR_START,
+                     0,
+                     static_cast<int>(ncols),
+                     const_cast<double*>(col_values.data()));  // NOLINT
+  return true;
+}
+
 void MindOptSolverBackend::set_row_price(const double* price)
 {
   if (price == nullptr) {

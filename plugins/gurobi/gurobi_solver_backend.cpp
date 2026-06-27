@@ -972,6 +972,27 @@ void GurobiSolverBackend::set_col_solution(const double* sol)
   m_dirty_ = true;
 }
 
+bool GurobiSolverBackend::set_mip_start(
+    const std::span<const double> col_values, MipStartEffort /*effort*/)
+{
+  // Gurobi's Start attribute IS the MIP start: it seeds the initial incumbent
+  // and auto-completes/repairs partial or slightly-infeasible assignments
+  // (closest to CPLEX's `repair`).  No caller-tunable effort level exists, so
+  // `effort` is advisory (honoured precisely only on the CPLEX backend).
+  ensure_updated_();
+  const auto ncols = static_cast<std::size_t>(get_num_cols());
+  if (col_values.size() != ncols) {
+    return false;
+  }
+  GRBsetdblattrarray(m_model_,
+                     GRB_DBL_ATTR_START,
+                     0,
+                     static_cast<int>(ncols),
+                     const_cast<double*>(col_values.data()));  // NOLINT
+  m_dirty_ = true;
+  return true;
+}
+
 void GurobiSolverBackend::set_row_price(const double* price)
 {
   if (price == nullptr) {

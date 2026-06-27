@@ -210,6 +210,11 @@ public:
   // ---- solution hints (warm start; no-op — cuOpt rebuilds cold) ----
   void set_col_solution(const double* sol) override;
   void set_row_price(const double* price) override;
+  /// MIP start: buffered here and replayed on the freshly-created
+  /// `cuOptSolverSettings` inside `solve_()` (cuOpt has no persistent settings
+  /// object — buffer-and-replay, like the cold-rebuild model).
+  bool set_mip_start(std::span<const double> col_values,
+                     MipStartEffort effort) override;
 
   // ---- solve ----
   void initial_solve() override;
@@ -261,6 +266,7 @@ private:
   CuOptSolutionCache m_sol_ {};
   SolveEffort m_last_effort_ {};  // GPU solve time (ticks=time) of last solve
   SolverOptions m_options_ {};
+  std::vector<double> m_mip_start_ {};  ///< buffered MIP start (set_mip_start)
   std::string m_prob_name_ {"gtopt_cuopt"};
   std::string m_log_filename_ {};  ///< CUOPT_LOG_FILE path (set_log_filename)
 

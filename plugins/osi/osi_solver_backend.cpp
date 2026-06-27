@@ -661,6 +661,29 @@ void OsiSolverBackend::set_row_price(const double* price)
   m_solver_->setRowPrice(price);
 }
 
+bool OsiSolverBackend::set_mip_start(const std::span<const double> col_values,
+                                     MipStartEffort effort)
+{
+#ifdef GTOPT_OSI_HAS_CBC
+  // Only CBC can use a MIP start; CLP is LP-only.  Buffer the dense start and
+  // replay it onto the CbcModel in resolve() right before branchAndBound().
+  if (m_type_ == OsiSolverType::cbc) {
+    const auto ncols = static_cast<std::size_t>(m_solver_->getNumCols());
+    if (col_values.size() != ncols) {
+      return false;
+    }
+    m_mip_start_.assign(col_values.begin(), col_values.end());
+    // CBC's setBestSolution validates feasibility unless the caller asks not
+    // to; map the only effort distinction CBC honours (no_check => trust it).
+    m_mip_start_check_ = (effort != MipStartEffort::no_check);
+    return true;
+  }
+#endif
+  (void)col_values;
+  (void)effort;
+  return false;
+}
+
 void OsiSolverBackend::initial_solve()
 {
   m_solver_->initialSolve();
@@ -673,6 +696,22 @@ void OsiSolverBackend::resolve()
   // OsiCbcSolverInterface::resolve() only does an LP re-solve; the MIP
   // solver requires an explicit branchAndBound() call.
   if (m_type_ == OsiSolverType::cbc && m_solver_->getNumIntegers() > 0) {
+    // Replay a buffered MIP start onto the CbcModel that branchAndBound() will
+    // use (getModelPtr() is the same persistent model the gap/node options are
+    // set on).  setBestSolution seeds the initial incumbent; check=true makes
+    // CBC validate feasibility and discard an infeasible start.
+    if (!m_mip_start_.empty()) {
+      if (auto* cbc = dynamic_cast<OsiCbcSolverInterface*>(m_solver_.get());
+          cbc != nullptr)
+      {
+        if (auto* model = cbc->getModelPtr(); model != nullptr) {
+          model->setBestSolution(m_mip_start_.data(),
+                                 static_cast<int>(m_mip_start_.size()),
+                                 COIN_DBL_MAX,
+                                 m_mip_start_check_);
+        }
+      }
+    }
     m_solver_->branchAndBound();
     return;
   }
