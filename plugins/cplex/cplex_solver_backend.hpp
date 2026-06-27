@@ -222,6 +222,7 @@ public:
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
+  [[nodiscard]] SolveEffort last_solve_effort() const override;
 
   // ---- robust-solve mode ----
   void engage_robust_solve() override;
@@ -306,6 +307,7 @@ private:
   mutable std::vector<double> m_row_price_;
 
   int m_solve_status_ {0};
+  SolveEffort m_last_effort_ {};  // wall + ticks of the most recent solve
   // Cached option values (updated by apply_options)
   LPAlgo m_algorithm_ {LPAlgo::default_algo};
   int m_threads_ {0};

@@ -156,6 +156,34 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
 /// (live in-place tweaks).
 void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
 {
+  // Read the user-supplied .prm FIRST so it forms the BASE that the typed
+  // gtopt SolverOptions below OVERRIDE — matching the field doc
+  // ("param_file applied before the fields above, so the typed gtopt fields
+  // keep priority on conflict").  This ordering is load-bearing:
+  // ``CPXreadcopyparam`` RESETS every parameter to its CPLEX default before
+  // applying the file, so any typed value set BEFORE it is silently wiped.
+  // The old order put this read LAST, which is why
+  // ``--set solver_options.presolve=false`` (and scaling, threads, …) had no
+  // effect whenever a ``.prm`` was pinned.  Params the .prm does not mention
+  // (e.g. the tuned LPMethod / Gomory cuts in the bundled cplex.prm) survive,
+  // provided gtopt does not also set them — see the ``default_algo`` case
+  // below, which deliberately leaves LPMethod to the .prm.
+  if (opts.param_file.has_value() && !opts.param_file->empty()) {
+    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
+    if (rc != 0) {
+      std::fprintf(stderr,
+                   "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
+                   "fell back to gtopt-set defaults.\n",
+                   opts.param_file->c_str(),
+                   rc);
+    } else {
+      std::fprintf(stderr,
+                   "[CPLEX] INFO: read parameter file '%s' (typed gtopt "
+                   "options below override its values)\n",
+                   opts.param_file->c_str());
+    }
+  }
+
   if (opts.threads > 0) {
     CPXsetintparam(env, CPX_PARAM_THREADS, opts.threads);
   }
@@ -229,7 +257,16 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   {
     switch (opts.algorithm) {
       case LPAlgo::default_algo:
-        CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
+        // No explicit algorithm preference.  A ``.prm`` read above may have
+        // pinned LPMethod (e.g. the bundled cplex.prm's barrier) — leave that
+        // in place.  But with NO ``.prm`` we must still set CPLEX's automatic
+        // explicitly: this env is frequently REUSED / cloned across solves, so
+        // an unconditional skip would let it inherit a residual LPMethod from a
+        // prior solve (a dual/barrier leftover), which shifted juan's otherwise
+        // deterministic ticks and is non-reproducible.
+        if (!opts.param_file.has_value() || opts.param_file->empty()) {
+          CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_AUTOMATIC);
+        }
         break;
       case LPAlgo::primal:
         CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_PRIMAL);
@@ -264,32 +301,6 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   // that lets CPLEX fall back to `./cplex.log` (and `clone1.log` /
   // `clone2.log` after `CPXcloneprob`) in the cwd of any caller that
   // bumps log_level without configuring a destination.
-
-  // Apply the user-supplied .prm file LAST so its values OVERRIDE
-  // everything gtopt set above.  ``CPXreadcopyparam`` parses the
-  // standard CPLEX parameter format (``CPX_PARAM_<NAME> <value>``
-  // one per line, ``#`` for comments) — same files written by
-  // CPLEX's ``CPXwriteparam`` and consumed by PLEXOS via
-  // ``PLEXOS_SolverParam.xml``.  Parameters NOT mentioned in the
-  // .prm file keep the gtopt-set value (or CPLEX's own default if
-  // gtopt didn't set them either).  Putting the read here means
-  // the user gets PRECISELY what they wrote, no fight from gtopt's
-  // typed defaults like ``threads`` or ``LPMethod``.
-  if (opts.param_file.has_value() && !opts.param_file->empty()) {
-    const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
-    if (rc != 0) {
-      std::fprintf(stderr,
-                   "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
-                   "fell back to gtopt-set defaults.\n",
-                   opts.param_file->c_str(),
-                   rc);
-    } else {
-      std::fprintf(stderr,
-                   "[CPLEX] INFO: read parameter file '%s' (its values "
-                   "override the gtopt defaults set above)\n",
-                   opts.param_file->c_str());
-    }
-  }
 
   // Advanced (warm) basis start — applied LAST (after the main .prm) via
   // the shared helper, so it wins over any LPMethod the .prm pins (the
@@ -1693,18 +1704,50 @@ CplexSolverBackend::diagnose_infeasibility(int max_items)
   return conflicts;
 }
 
+namespace
+{
+// Capture a solve's solver-reported wall time (CPXgettime) + deterministic
+// ticks (CPXgetdettime) as a per-solve delta on the env.  The generic
+// SolveEffort accounting (SolveEffortTotals, accumulated in LinearInterface)
+// reads this via last_solve_effort().
+[[nodiscard]] SolveEffort capture_cplex_effort(cpxenv* env,
+                                               double t0_ticks,
+                                               double t0_secs)
+{
+  SolveEffort e;
+  double t1 = 0.0;
+  if (CPXgetdettime(env, &t1) == 0) {
+    e.ticks = t1 - t0_ticks;
+  }
+  double s1 = 0.0;
+  if (CPXgettime(env, &s1) == 0) {
+    e.seconds = s1 - t0_secs;
+  }
+  return e;
+}
+}  // namespace
+
 void CplexSolverBackend::initial_solve()
 {
+  double t0 = 0.0;
+  double s0 = 0.0;
+  CPXgetdettime(m_env_lp_.env(), &t0);
+  CPXgettime(m_env_lp_.env(), &s0);
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
+  m_last_effort_ = capture_cplex_effort(m_env_lp_.env(), t0, s0);
 }
 
 void CplexSolverBackend::resolve()
 {
+  double t0 = 0.0;
+  double s0 = 0.0;
+  CPXgetdettime(m_env_lp_.env(), &t0);
+  CPXgettime(m_env_lp_.env(), &s0);
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -1712,6 +1755,12 @@ void CplexSolverBackend::resolve()
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
+  m_last_effort_ = capture_cplex_effort(m_env_lp_.env(), t0, s0);
+}
+
+SolveEffort CplexSolverBackend::last_solve_effort() const
+{
+  return m_last_effort_;
 }
 
 void CplexSolverBackend::engage_robust_solve()
