@@ -267,6 +267,8 @@ private:
   SolveEffort m_last_effort_ {};  // GPU solve time (ticks=time) of last solve
   SolverOptions m_options_ {};
   std::vector<double> m_mip_start_ {};  ///< buffered MIP start (set_mip_start)
+  MipStartEffort m_mip_start_effort_ {
+      MipStartEffort::check_feasibility};  ///< effort for the buffered start
   std::string m_prob_name_ {"gtopt_cuopt"};
   std::string m_log_filename_ {};  ///< CUOPT_LOG_FILE path (set_log_filename)
 

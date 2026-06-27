@@ -387,19 +387,21 @@ void CuOptSolverBackend::set_col_solution(const double* /*sol*/) {}
 void CuOptSolverBackend::set_row_price(const double* /*price*/) {}
 
 bool CuOptSolverBackend::set_mip_start(const std::span<const double> col_values,
-                                       MipStartEffort /*effort*/)
+                                       MipStartEffort effort)
 {
   // cuOpt has no persistent settings object (it is created fresh inside
-  // solve_()), so buffer the dense start here and replay it via
-  // cuOptAddMIPStart on the new settings.  cuOpt has no caller-tunable
-  // effort level, so `effort` is advisory.  NOTE: cuOptAddMIPStart is
+  // solve_()), so buffer the dense start + effort here and replay them via
+  // cuOptAddMIPStart on the new settings.  NOTE: cuOptAddMIPStart is
   // "unsupported with presolve on", so solve_() forces presolve OFF whenever
-  // a start is buffered.
+  // a start is buffered.  cuOpt's repair analog (effort=repair) is its
+  // hyper-heuristic feasibility-jump: under repair we ask cuOpt to drive to a
+  // first primal-feasible point, mending an infeasible injected start.
   if (col_values.size() != static_cast<std::size_t>(m_model_.num_cols)) {
     m_mip_start_.clear();
     return false;
   }
   m_mip_start_.assign(col_values.begin(), col_values.end());
+  m_mip_start_effort_ = effort;
   return true;
 }
 
@@ -538,6 +540,13 @@ void CuOptSolverBackend::solve_()
                            static_cast<cuopt_int_t>(m_mip_start_.size())),
           "cuOptAddMIPStart");
     spdlog::debug("cuOpt: applied MIP start ({} vars)", m_mip_start_.size());
+    // repair analog: ask cuOpt's hyper-heuristic feasibility-jump to drive to a
+    // first primal-feasible point so an INFEASIBLE injected start is mended
+    // rather than used verbatim (cuOpt has no CPLEX-style MIP-start REPAIR).
+    if (m_mip_start_effort_ == MipStartEffort::repair) {
+      cuOptSetIntegerParameter(settings, CUOPT_FIRST_PRIMAL_FEASIBLE, 1);
+      spdlog::debug("cuOpt: MIP-start effort=repair → first_primal_feasible=1");
+    }
   }
   cuOptSetIntegerParameter(
       settings, CUOPT_LOG_TO_CONSOLE, m_options_.log_level > 0 ? 1 : 0);

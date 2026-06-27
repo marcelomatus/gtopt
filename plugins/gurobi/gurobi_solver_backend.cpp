@@ -974,16 +974,22 @@ void GurobiSolverBackend::set_col_solution(const double* sol)
 }
 
 bool GurobiSolverBackend::set_mip_start(
-    const std::span<const double> col_values, MipStartEffort /*effort*/)
+    const std::span<const double> col_values, MipStartEffort effort)
 {
   // Gurobi's Start attribute IS the MIP start: it seeds the initial incumbent
-  // and auto-completes/repairs partial or slightly-infeasible assignments
-  // (closest to CPLEX's `repair`).  No caller-tunable effort level exists, so
-  // `effort` is advisory (honoured precisely only on the CPLEX backend).
+  // and auto-completes/repairs partial or slightly-infeasible assignments.
+  // Its repair analog (effort=repair) is to let it spend branch-and-bound
+  // nodes completing/repairing the start (StartNodeLimit) and run more primal
+  // heuristics (Heuristics) — closest to CPLEX's MIP-start REPAIR.
   ensure_updated_();
   const auto ncols = static_cast<std::size_t>(get_num_cols());
   if (col_values.size() != ncols) {
     return false;
+  }
+  if (effort == MipStartEffort::repair) {
+    GRBenv* menv = GRBgetenv(m_model_);
+    GRBsetintparam(menv, GRB_INT_PAR_STARTNODELIMIT, 2000);
+    GRBsetdblparam(menv, GRB_DBL_PAR_HEURISTICS, 0.2);
   }
   GRBsetdblattrarray(m_model_,
                      GRB_DBL_ATTR_START,

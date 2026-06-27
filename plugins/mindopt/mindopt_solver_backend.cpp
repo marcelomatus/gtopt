@@ -845,15 +845,19 @@ void MindOptSolverBackend::set_col_solution(const double* sol)
 }
 
 bool MindOptSolverBackend::set_mip_start(
-    const std::span<const double> col_values, MipStartEffort /*effort*/)
+    const std::span<const double> col_values, MipStartEffort effort)
 {
   // MindOpt mirrors the Gurobi C API: the Start attribute IS the MIP start,
-  // seeding the incumbent and auto-completing partial assignments.  No
-  // caller-tunable effort level, so `effort` is advisory (honoured precisely
-  // only on the CPLEX backend).
+  // seeding the incumbent and auto-completing partial assignments.  It has no
+  // CPLEX-style MIP-start REPAIR; its repair analog is the MIP heuristics, so
+  // under effort=repair we raise MIP/Heuristics (fraction of effort on
+  // heuristics) to mend an infeasible start toward a feasible incumbent.
   const auto ncols = static_cast<std::size_t>(get_num_cols());
   if (col_values.size() != ncols) {
     return false;
+  }
+  if (effort == MipStartEffort::repair) {
+    MDOsetdblparam(m_env_, MDO_DBL_PAR_MIP_HEURISTICS, 0.5);
   }
   MDOsetdblattrarray(m_model_,
                      MDO_DBL_ATTR_START,

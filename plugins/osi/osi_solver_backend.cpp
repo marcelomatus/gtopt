@@ -677,6 +677,10 @@ bool OsiSolverBackend::set_mip_start(const std::span<const double> col_values,
     // CBC's setBestSolution validates feasibility unless the caller asks not
     // to; map the only effort distinction CBC honours (no_check => trust it).
     m_mip_start_check_ = (effort != MipStartEffort::no_check);
+    // repair: also feed the start as a branching guide so CBC dives toward it
+    // (and its heuristics mend it) instead of just discarding an infeasible
+    // start on the setBestSolution feasibility check.
+    m_mip_start_repair_ = (effort == MipStartEffort::repair);
     return true;
   }
 #endif
@@ -710,6 +714,12 @@ void OsiSolverBackend::resolve()
                                  static_cast<int>(m_mip_start_.size()),
                                  COIN_DBL_MAX,
                                  m_mip_start_check_);
+          // repair: also hand CBC the start as a hot-start branching guide so
+          // its dive/heuristics mend a start the setBestSolution check rejects
+          // (closest CBC analog to CPLEX's MIP-start REPAIR).
+          if (m_mip_start_repair_) {
+            model->setHotstartSolution(m_mip_start_.data(), nullptr);
+          }
         }
       }
     }

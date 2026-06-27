@@ -204,8 +204,12 @@ private:
 
   /// Buffered CBC MIP start (empty = none) + whether CBC should validate it
   /// (`setBestSolution` check flag; false only for `MipStartEffort::no_check`).
+  /// `m_mip_start_repair_` (effort=repair) additionally feeds the start as a
+  /// `setHotstartSolution` branching guide so CBC's dive/heuristics mend an
+  /// infeasible start rather than discard it on the `setBestSolution` check.
   std::vector<double> m_mip_start_ {};
   bool m_mip_start_check_ {true};
+  bool m_mip_start_repair_ {false};
 
   /// Cache of everything needed to replay backend state onto a fresh
   /// OsiSolverInterface (see CplexPrep for the pattern).
