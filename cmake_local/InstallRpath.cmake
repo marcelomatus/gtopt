@@ -52,10 +52,18 @@ function(_resolve_imported_location _target _out_var)
     endif()
   endif()
 
-  # 3. LOCATION fallback (works for most generator expressions at
-  #    configure time and is the property CMake itself resolves)
+  # 3. LOCATION fallback — only for IMPORTED targets.  Reading the LOCATION
+  #    property on a target built in THIS project (e.g. a from-source shared
+  #    spdlog) is disallowed (CMP0026) and aborts configure.  Such targets land
+  #    in the build / install tree that CMake's own (build-time) rpath already
+  #    covers, and a plugin dlopen'd into the standalone resolves their symbols
+  #    from the instance the standalone already loaded — so resolving them here
+  #    is both unnecessary and an error.  Leave _loc empty for them.
   if(NOT _loc)
-    get_property(_loc TARGET ${_target} PROPERTY LOCATION)
+    get_target_property(_imported ${_target} IMPORTED)
+    if(_imported)
+      get_property(_loc TARGET ${_target} PROPERTY LOCATION)
+    endif()
   endif()
 
   set(${_out_var} "${_loc}" PARENT_SCOPE)

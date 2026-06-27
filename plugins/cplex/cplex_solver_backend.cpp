@@ -21,6 +21,7 @@
 
 #include <gtopt/solver_options.hpp>
 #include <ilcplex/cplex.h>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -171,16 +172,16 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
   if (opts.param_file.has_value() && !opts.param_file->empty()) {
     const int rc = CPXreadcopyparam(env, opts.param_file->c_str());
     if (rc != 0) {
-      std::fprintf(stderr,
-                   "[CPLEX] WARN: CPXreadcopyparam('%s') returned status %d — "
-                   "fell back to gtopt-set defaults.\n",
-                   opts.param_file->c_str(),
-                   rc);
+      spdlog::warn(
+          "CPLEX: CPXreadcopyparam('{}') returned status {} — fell back to "
+          "gtopt-set defaults",
+          *opts.param_file,
+          rc);
     } else {
-      std::fprintf(stderr,
-                   "[CPLEX] INFO: read parameter file '%s' (typed gtopt "
-                   "options below override its values)\n",
-                   opts.param_file->c_str());
+      spdlog::info(
+          "CPLEX: read parameter file '{}' (typed gtopt options below override "
+          "its values)",
+          *opts.param_file);
     }
   }
 
@@ -1991,10 +1992,7 @@ void CplexSolverBackend::push_names(const std::vector<std::string>& col_names,
                               indices.data(),
                               name_ptrs.data());
     if (status != 0) {
-      std::fprintf(stderr,
-                   "CPLEX: bulk %s rename failed with status %d\n",
-                   kind,
-                   status);
+      spdlog::warn("CPLEX: bulk {} rename failed with status {}", kind, status);
     }
   };
 

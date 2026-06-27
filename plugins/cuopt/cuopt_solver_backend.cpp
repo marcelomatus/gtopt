@@ -26,6 +26,7 @@
 
 #include <cuopt/linear_programming/constants.h>
 #include <cuopt/linear_programming/cuopt_c.h>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -52,12 +53,15 @@ constexpr double k_gtopt_inf = 1e30;
   return v;
 }
 
-/// Throw on a non-success cuOpt status code, naming the failing call.
+/// Log and throw on a non-success cuOpt status code, naming the failing call.
+/// Follows the gtopt convention (format the message once, log it, then throw
+/// the same text) so cuOpt API failures land in the log before propagating.
 void check(cuopt_int_t status, const char* what)
 {
   if (status != CUOPT_SUCCESS) {
-    throw std::runtime_error(
-        std::format("cuopt: {} failed with status {}", what, status));
+    auto msg = std::format("cuopt: {} failed with status {}", what, status);
+    spdlog::error(msg);
+    throw std::runtime_error(std::move(msg));
   }
 }
 
@@ -518,16 +522,11 @@ void CuOptSolverBackend::solve_()
   }
   // cuOptAddMIPStart is "unsupported with presolve on", so force presolve OFF
   // whenever a MIP start is buffered (and warn if the user had asked for it).
-  // NB: plugins cannot link the (compiled, non-PIC) spdlog used by the core,
-  // so backend-side notices go to stderr.  The core `apply_mip_start` already
-  // logs the injection itself; here we only flag the cuOpt-specific presolve
-  // override (the API forbids a MIP start with presolve on).
   const bool has_mip_start = !m_mip_start_.empty();
   if (has_mip_start && m_options_.presolve) {
-    (void)std::fputs(
+    spdlog::warn(
         "cuOpt: forcing presolve OFF because a MIP start is set "
-        "(cuOptAddMIPStart is unsupported with presolve on)\n",
-        stderr);
+        "(cuOptAddMIPStart is unsupported with presolve on)");
   }
   cuOptSetIntegerParameter(settings,
                            CUOPT_PRESOLVE,
@@ -539,6 +538,7 @@ void CuOptSolverBackend::solve_()
                            m_mip_start_.data(),
                            static_cast<cuopt_int_t>(m_mip_start_.size())),
           "cuOptAddMIPStart");
+    spdlog::debug("cuOpt: applied MIP start ({} vars)", m_mip_start_.size());
   }
   cuOptSetIntegerParameter(
       settings, CUOPT_LOG_TO_CONSOLE, m_options_.log_level > 0 ? 1 : 0);
@@ -588,13 +588,11 @@ void CuOptSolverBackend::solve_()
           if (cuOptSetParameter(settings, name.c_str(), value.c_str())
               != CUOPT_SUCCESS)
           {
-            std::fputs(
-                std::format("[cuOpt] WARN: cuopt.prm parameter '{}' = '{}' "
-                            "was rejected (unknown key or bad value)\n",
-                            name,
-                            value)
-                    .c_str(),
-                stderr);
+            spdlog::warn(
+                "cuOpt: cuopt.prm parameter '{}' = '{}' was rejected "
+                "(unknown key or bad value)",
+                name,
+                value);
           }
         }
       }

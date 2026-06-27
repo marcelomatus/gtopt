@@ -80,14 +80,29 @@ endif()
 
 # ---- External libraries ----
 
+# Build spdlog as a SHARED library from source.  The default static
+# libspdlog.a (and the system /usr/local static lib CPM would otherwise reuse)
+# is NOT position-independent, so it cannot be linked into the solver-plugin
+# MODULE .so's (ld: "relocation R_X86_64_PC32 against 'vtable for
+# spdlog::sinks::…'; recompile with -fPIC").  A shared libspdlog.so is PIC and,
+# as a single runtime instance shared by the core and every dlopen'd plugin,
+# gives ONE global logger/registry — so plugin log lines route through the same
+# (level-aware, async) logger the core configured.  We must force a from-source
+# build (CPM_USE_LOCAL_PACKAGES OFF for this package only) because the local
+# package is the static, non-PIC variant.  SPDLOG_INSTALL YES so the .so is
+# installed alongside the binaries that now depend on it at runtime.
+set(_gtopt_save_cpm_local "${CPM_USE_LOCAL_PACKAGES}")
+set(CPM_USE_LOCAL_PACKAGES OFF)
 CPMAddPackage(
   NAME spdlog
   GITHUB_REPOSITORY gabime/spdlog
   VERSION 1.15.0
-  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL NO"
+  OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" "SPDLOG_BUILD_SHARED ON"
   SYSTEM YES
   EXCLUDE_FROM_ALL YES
 )
+set(CPM_USE_LOCAL_PACKAGES "${_gtopt_save_cpm_local}")
+unset(_gtopt_save_cpm_local)
 
 CPMAddPackage(
   NAME daw
