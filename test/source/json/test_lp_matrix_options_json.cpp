@@ -36,8 +36,8 @@ TEST_CASE("LpMatrixOptions JSON - Missing fields keep defaults")
   CHECK(opts.col_with_names == false);
   CHECK(opts.row_with_names == false);
   CHECK_FALSE(opts.compute_stats.has_value());
-  // Ruiz tuning knobs: omitted JSON keeps the struct defaults (10 / 1e-3).
-  CHECK(opts.ruiz_max_iterations == 10);
+  // Ruiz tuning knobs: omitted JSON keeps the struct defaults (5 / 1e-3).
+  CHECK(opts.ruiz_max_iterations == 5);
   CHECK(opts.ruiz_tolerance == doctest::Approx(1e-3));
 }
 

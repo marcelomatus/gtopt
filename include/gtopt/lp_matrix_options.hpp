@@ -65,12 +65,16 @@ struct LpMatrixOptions
   /// can tune them.  The iterative Ruiz pass (`apply_ruiz_scaling`) runs at
   /// most `ruiz_max_iterations` row/column rescaling rounds, stopping early
   /// when the worst infinity-norm deviation from 1 drops below
-  /// `ruiz_tolerance`.  The defaults reproduce the historical hardcoded
-  /// values.  Lowering the cap trades a little conditioning for a cheaper LP
-  /// build — the lever for SDDP/cascade, where the whole-system LP is rebuilt
-  /// (and re-equilibrated) at every level.  Only consulted when
-  /// `equilibration_method == ruiz`.
-  int ruiz_max_iterations {10};
+  /// `ruiz_tolerance`.  Only consulted when `equilibration_method == ruiz`.
+  ///
+  /// Default cap is 5 (was 10).  A CPLEX kappa sweep on the 10-19 PLEXOS and
+  /// juan/IPLP LPs showed byte-identical kappa and deterministic ticks for
+  /// every cap in {1,5,10,15,20} — CPLEX's own scaling re-equilibrates the
+  /// matrix, so additional Ruiz iterations buy no conditioning or solve
+  /// speedup while costing build time linearly.  5 keeps a margin of
+  /// equilibration headroom for scaling-free backends (HiGHS / CLP) while
+  /// halving the per-build Ruiz cost vs the old 10.
+  int ruiz_max_iterations {5};
   double ruiz_tolerance {1e-3};
 
   double scale_objective {1.0};  ///< Global divisor for all objective
