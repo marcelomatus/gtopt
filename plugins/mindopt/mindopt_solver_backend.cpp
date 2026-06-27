@@ -17,6 +17,7 @@
 
 #include <Mindopt.h>
 #include <fcntl.h>
+#include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <unistd.h>
@@ -166,7 +167,7 @@ void MindOptSolverBackend::check_error(int rc, const char* func)
 {
   if (rc != MDO_OKAY) {
     const char* msg = MDOexplainerror(rc);
-    throw std::runtime_error(std::format(
+    gtopt::log_and_throw(std::format(
         "MindOpt: {} failed (rc={}: {})", func, rc, msg != nullptr ? msg : ""));
   }
 }
@@ -212,7 +213,7 @@ MindOptSolverBackend::MindOptSolverBackend()
       ::dup2(saved_stdout, STDOUT_FILENO);
       ::close(saved_stdout);
     }
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("MindOpt: MDOemptyenv failed (rc={})", rc));
   }
 
@@ -230,7 +231,7 @@ MindOptSolverBackend::MindOptSolverBackend()
     const char* msg = MDOexplainerror(rc);
     MDOfreeenv(m_env_);
     m_env_ = nullptr;
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("MindOpt: MDOstartenv failed (rc={}: {}). "
                     "Set MINDOPT_HOME to your MindOpt installation directory "
                     "and ensure a valid license file (mindopt.lic) is present.",
@@ -1121,7 +1122,7 @@ std::unique_ptr<SolverBackend> MindOptSolverBackend::clone() const
   }
   cloned->m_model_ = MDOcopymodel(m_model_);
   if (cloned->m_model_ == nullptr) {
-    throw std::runtime_error("MindOpt: MDOcopymodel failed");
+    gtopt::log_and_throw("MindOpt: MDOcopymodel failed");
   }
 
   // Replay every cached piece of backend state so the clone owns an env

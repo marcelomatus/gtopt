@@ -19,6 +19,7 @@
 #include <HConfig.h>
 #include <Highs.h>
 #include <gtopt/hardware_info.hpp>
+#include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
 
 namespace gtopt
@@ -767,7 +768,7 @@ void HighsSolverBackend::initial_solve()
   m_last_effort_.seconds = m_highs_->getRunTime() - t0;
   m_last_effort_.ticks = m_last_effort_.seconds;
   if (status == HighsStatus::kError) {
-    throw std::runtime_error("HiGHS: solver error during initial_solve");
+    gtopt::log_and_throw("HiGHS: solver error during initial_solve");
   }
 }
 
@@ -785,7 +786,7 @@ void HighsSolverBackend::resolve()
   m_last_effort_.seconds = m_highs_->getRunTime() - t0;
   m_last_effort_.ticks = m_last_effort_.seconds;
   if (status == HighsStatus::kError) {
-    throw std::runtime_error("HiGHS: solver error during resolve");
+    gtopt::log_and_throw("HiGHS: solver error during resolve");
   }
 }
 

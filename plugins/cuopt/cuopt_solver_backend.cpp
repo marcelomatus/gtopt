@@ -26,6 +26,7 @@
 
 #include <cuopt/linear_programming/constants.h>
 #include <cuopt/linear_programming/cuopt_c.h>
+#include <gtopt/log_and_throw.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -59,9 +60,7 @@ constexpr double k_gtopt_inf = 1e30;
 void check(cuopt_int_t status, const char* what)
 {
   if (status != CUOPT_SUCCESS) {
-    auto msg = std::format("cuopt: {} failed with status {}", what, status);
-    spdlog::error(msg);
-    throw std::runtime_error(std::move(msg));
+    log_and_throw(std::format("cuopt: {} failed with status {}", what, status));
   }
 }
 

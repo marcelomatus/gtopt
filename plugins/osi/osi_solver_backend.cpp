@@ -19,6 +19,7 @@
 #include <coin/CoinPackedVector.hpp>
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/OsiSolverInterface.hpp>
+#include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 
@@ -47,7 +48,7 @@ std::shared_ptr<OsiSolverInterface> make_osi_solver(
       return std::make_shared<OsiCbcSolverInterface>();
 #endif
     default:
-      throw std::runtime_error("Unsupported OSI solver type");
+      gtopt::log_and_throw("Unsupported OSI solver type");
   }
 }
 
@@ -905,7 +906,7 @@ void OsiSolverBackend::set_log_filename(const std::string& filename, int level)
             log_path.c_str(),
             "ae"));
     if (!m_log_file_ptr_) {
-      throw std::runtime_error(std::format(
+      gtopt::log_and_throw(std::format(
           "failed to open solver log file {}: errno {}", log_path, errno));
     }
     m_handler_ = std::make_unique<CoinMessageHandler>(m_log_file_ptr_.get());

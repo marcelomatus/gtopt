@@ -17,6 +17,7 @@
 #include "gurobi_solver_backend.hpp"
 
 #include <fcntl.h>
+#include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/utils.hpp>
 #include <gurobi_c.h>
@@ -191,7 +192,7 @@ void apply_log_filename_to_env(GRBenv* env,
 [[nodiscard]] GRBenv* make_silent_env()
 {
   if (!has_local_license()) {
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         "Gurobi: no license file found. "
         "Set GRB_LICENSE_FILE or place gurobi.lic under $GUROBI_HOME or "
         "$HOME.");
@@ -223,7 +224,7 @@ void apply_log_filename_to_env(GRBenv* env,
     if (env != nullptr) {
       GRBfreeenv(env);
     }
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("Gurobi: env start failed (rc={}: {}). "
                     "Set GUROBI_HOME to your Gurobi installation directory "
                     "and ensure a valid license file (gurobi.lic) is present.",
@@ -242,7 +243,7 @@ void GurobiSolverBackend::check_error(int rc, const char* func) const
 {
   if (rc != 0) {
     const char* msg = (m_env_ != nullptr) ? GRBgeterrormsg(m_env_) : "";
-    throw std::runtime_error(std::format(
+    gtopt::log_and_throw(std::format(
         "Gurobi: {} failed (rc={}: {})", func, rc, msg != nullptr ? msg : ""));
   }
 }
@@ -1276,7 +1277,7 @@ std::unique_ptr<SolverBackend> GurobiSolverBackend::clone() const
   const int rc = GRBcopymodeltoenv(m_model_, cloned->m_env_, &cloned->m_model_);
   if (rc != 0 || cloned->m_model_ == nullptr) {
     const char* msg = GRBgeterrormsg(m_env_);
-    throw std::runtime_error(
+    gtopt::log_and_throw(
         std::format("Gurobi: GRBcopymodeltoenv failed (rc={}: {})",
                     rc,
                     msg != nullptr ? msg : ""));
