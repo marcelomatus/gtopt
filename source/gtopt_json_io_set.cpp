@@ -19,9 +19,11 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <gtopt/enum_option.hpp>
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
@@ -230,71 +232,115 @@ namespace
   return json;
 }
 
-/// Set a single field on a SolverOptions struct.
+/// Signature of a single SolverOptions field setter: takes the struct, the
+/// field name (so `require_bool`/`require_enum` can build a good error
+/// message without re-typing the literal) and the raw string value.  A
+/// captureless lambda converts to this function pointer.
+using SolverFieldSetter = void (*)(SolverOptions&,
+                                   std::string_view,
+                                   const std::string&);
+
+/// Registry of `--set solver_options.<field>=value` setters, keyed by JSON
+/// field name — the single source of truth for the settable SolverOptions
+/// surface.  Adding a field is one entry here (the "every settable field
+/// round-trips" test guards the set).  Replaced an ~18-branch
+/// `if (field == ...)` chain where forgetting a branch silently dropped the
+/// field — the defect behind the `crossover` regression.
+[[nodiscard]] const std::unordered_map<std::string_view, SolverFieldSetter>&
+solver_field_setters()
+{
+  static const std::unordered_map<std::string_view, SolverFieldSetter>
+      registry {
+          {"threads",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.threads = std::stoi(v); }},
+          {"log_level",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.log_level = std::stoi(v); }},
+          {"max_fallbacks",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.max_fallbacks = std::stoi(v); }},
+          {"presolve",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.presolve = require_bool(n, v); }},
+          {"advanced_basis",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.advanced_basis = require_bool(n, v); }},
+          {"crossover",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.crossover = require_bool(n, v); }},
+          {"force_barrier_crossover",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.force_barrier_crossover = require_bool(n, v); }},
+          {"memory_emphasis",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.memory_emphasis = require_bool(n, v); }},
+          {"optimal_eps",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.optimal_eps = std::stod(v); }},
+          {"feasible_eps",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.feasible_eps = std::stod(v); }},
+          {"barrier_eps",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.barrier_eps = std::stod(v); }},
+          {"time_limit",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.time_limit = std::stod(v); }},
+          {"mip_gap",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.mip_gap = std::stod(v); }},
+          {"mip_gap_abs",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.mip_gap_abs = std::stod(v); }},
+          {"param_file",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           { o.param_file = v; }},
+          {"log_mode",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.log_mode = require_enum<SolverLogMode>(n, v); }},
+          {"scaling",
+           [](SolverOptions& o, std::string_view n, const std::string& v)
+           { o.scaling = require_enum<SolverScaling>(n, v); }},
+          // `algorithm` is the one irregular parse: a name (barrier) OR a
+          // numeric index (0..3), so its setter is a small inline lambda
+          // rather than a uniform `require_*` call.
+          {"algorithm",
+           [](SolverOptions& o, std::string_view, const std::string& v)
+           {
+             if (const auto algo = enum_from_name<LPAlgo>(v)) {
+               o.algorithm = *algo;
+               return;
+             }
+             const auto iv = std::stoi(v);
+             if (iv < 0
+                 || std::cmp_greater_equal(
+                     iv, std::to_underlying(LPAlgo::last_algo)))
+             {
+               throw std::invalid_argument(
+                   std::format("algorithm value {} out of range (0–{})",
+                               iv,
+                               std::to_underlying(LPAlgo::last_algo) - 1));
+             }
+             o.algorithm = static_cast<LPAlgo>(iv);
+           }},
+      };
+  return registry;
+}
+
+/// Set a single field on a SolverOptions struct via the registry.
 /// @return true if the field was recognised and set.
 [[nodiscard]] bool try_set_solver_field(SolverOptions& so,
                                         std::string_view field,
                                         const std::string& value)
 {
-  if (field == "threads") {
-    so.threads = std::stoi(value);
-    return true;
+  const auto& registry = solver_field_setters();
+  const auto it = registry.find(field);
+  if (it == registry.end()) {
+    return false;
   }
-  if (field == "algorithm") {
-    if (const auto algo = enum_from_name<LPAlgo>(value)) {
-      so.algorithm = *algo;
-    } else {
-      const auto v = std::stoi(value);
-      if (v < 0
-          || std::cmp_greater_equal(v, std::to_underlying(LPAlgo::last_algo)))
-      {
-        throw std::invalid_argument(
-            std::format("algorithm value {} out of range (0–{})",
-                        v,
-                        std::to_underlying(LPAlgo::last_algo) - 1));
-      }
-      so.algorithm = static_cast<LPAlgo>(v);
-    }
-    return true;
-  }
-  if (field == "presolve") {
-    so.presolve = (value == "true" || value == "1");
-    return true;
-  }
-  if (field == "advanced_basis") {
-    so.advanced_basis = (value == "true" || value == "1");
-    return true;
-  }
-  if (field == "log_level") {
-    so.log_level = std::stoi(value);
-    return true;
-  }
-  if (field == "optimal_eps") {
-    so.optimal_eps = std::stod(value);
-    return true;
-  }
-  if (field == "feasible_eps") {
-    so.feasible_eps = std::stod(value);
-    return true;
-  }
-  if (field == "barrier_eps") {
-    so.barrier_eps = std::stod(value);
-    return true;
-  }
-  if (field == "time_limit") {
-    so.time_limit = std::stod(value);
-    return true;
-  }
-  if (field == "log_mode") {
-    if (const auto mode = enum_from_name<SolverLogMode>(value)) {
-      so.log_mode = mode;
-    } else {
-      throw std::invalid_argument(std::format(
-          "Invalid log_mode '{}' (expected nolog or detailed)", value));
-    }
-    return true;
-  }
-  return false;
+  it->second(so, field, value);
+  return true;
 }
 
 /// Try to handle a --set key=value as a direct SolverOptions field set.

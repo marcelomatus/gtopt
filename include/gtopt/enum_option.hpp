@@ -238,4 +238,38 @@ template<NamedEnum E>
                   valid));
 }
 
+/**
+ * @brief Parse a boolean option value by name; throw on invalid input.
+ *
+ * The bool sibling of @ref require_enum, for the many non-enum boolean
+ * options (`crossover`, `presolve`, …).  Accepts (ASCII case-insensitive)
+ * `true`/`false`, with `1`/`0` as numeric aliases.  Rejecting anything else
+ * is the point: a hand-rolled `value == "true"` silently maps a typo
+ * (`"flase"`, `"ture"`, capitalised `"False"` under a case-sensitive check)
+ * to `false`, so a mis-spelled CLI / `--set` / config flag fails open
+ * instead of erroring.
+ *
+ * @param option_name  Human-readable option name (for the error message).
+ * @param value        The string supplied by the user.
+ * @return The parsed boolean.
+ * @throws std::invalid_argument if @p value is not a recognised boolean.
+ */
+[[nodiscard]] inline auto require_bool(std::string_view option_name,
+                                       std::string_view value) -> bool
+{
+  if (detail::ascii_iequals(value, "true") || detail::ascii_iequals(value, "1"))
+  {
+    return true;
+  }
+  if (detail::ascii_iequals(value, "false")
+      || detail::ascii_iequals(value, "0"))
+  {
+    return false;
+  }
+  throw std::invalid_argument(
+      std::format("invalid value '{}' for option '{}' (expected: true, false)",
+                  value,
+                  option_name));
+}
+
 }  // namespace gtopt

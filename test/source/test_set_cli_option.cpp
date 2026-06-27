@@ -337,6 +337,60 @@ TEST_CASE("--set solver_options.presolve via direct setter")
   CHECK(result.value_or(-1) == 0);
 }
 
+// ── Regression: previously-dropped SolverOptions fields ───────────────
+// `crossover` (and force_barrier_crossover, max_fallbacks, mip_gap,
+// mip_gap_abs, memory_emphasis, param_file, scaling) used to be silently
+// dropped: `try_set_solver_field` didn't list them, so the call fell back
+// to the JSON-overlay path whose `SolverOptions::merge()` carries ONLY the
+// optional fields — never the non-optional bools.  `--set
+// solver_options.crossover=false` therefore reached the backend as the
+// struct default `true`.  These tests assert the VALUE actually lands on
+// the Planning (the end-to-end exit-code tests above could not catch this).
+
+TEST_CASE("--set solver_options.crossover=false actually lands")  // NOLINT
+{
+  auto planning = daw::json::from_json<Planning>(
+      std::string_view {set_test_json}, StrictParsePolicy);
+  REQUIRE(planning.options.solver_options.crossover);  // default true
+  REQUIRE(apply_set_options(planning, {"solver_options.crossover=false"}));
+  CHECK(planning.options.solver_options.crossover == false);
+}
+
+TEST_CASE("--set solver_options: every settable field round-trips")  // NOLINT
+{
+  auto planning = daw::json::from_json<Planning>(
+      std::string_view {set_test_json}, StrictParsePolicy);
+  REQUIRE(apply_set_options(planning,
+                            {
+                                "solver_options.crossover=false",
+                                "solver_options.force_barrier_crossover=true",
+                                "solver_options.max_fallbacks=0",
+                                "solver_options.mip_gap=0.01",
+                                "solver_options.mip_gap_abs=5",
+                                "solver_options.memory_emphasis=true",
+                                "solver_options.param_file=solvers/cplex.prm",
+                                "solver_options.scaling=aggressive",
+                            }));
+  const auto& so = planning.options.solver_options;
+  CHECK(so.crossover == false);
+  CHECK(so.force_barrier_crossover == true);
+  CHECK(so.max_fallbacks == 0);
+  CHECK(so.mip_gap.value_or(-1.0) == doctest::Approx(0.01));
+  CHECK(so.mip_gap_abs.value_or(-1.0) == doctest::Approx(5.0));
+  CHECK(so.memory_emphasis.value_or(false) == true);
+  CHECK(so.param_file.value_or("") == "solvers/cplex.prm");
+  CHECK(so.scaling.value_or(SolverScaling::none) == SolverScaling::aggressive);
+}
+
+TEST_CASE("--set solver_options.crossover rejects an invalid bool")  // NOLINT
+{
+  auto planning = daw::json::from_json<Planning>(
+      std::string_view {set_test_json}, StrictParsePolicy);
+  // A typo must be a hard error (require_bool throws → apply returns false),
+  // NOT a silent default-to-false from a hand-rolled `value == "true"`.
+  CHECK_FALSE(apply_set_options(planning, {"solver_options.crossover=flase"}));
+}
+
 // ── Invalid format: missing '=' ───────────────────────────────────────
 
 TEST_CASE("--set invalid format: missing equals sign")
