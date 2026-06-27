@@ -26,6 +26,8 @@ struct LpMatrixOptionsConstructor
   [[nodiscard]] LpMatrixOptions operator()(OptReal lp_coeff_ratio_threshold,
                                            OptName equilibration_method_name,
                                            OptName fast_sqrt_method_name,
+                                           OptInt ruiz_max_iterations,
+                                           OptReal ruiz_tolerance,
                                            OptBool compute_stats,
                                            LpValidationOptions validation) const
   {
@@ -39,6 +41,14 @@ struct LpMatrixOptionsConstructor
     if (fast_sqrt_method_name) {
       opts.fast_sqrt_method = gtopt::require_enum<gtopt::FastSqrtMethod>(
           "fast_sqrt_method", *fast_sqrt_method_name);
+    }
+    // Ruiz iteration cap / tolerance: applied only when present so the
+    // struct defaults (10 / 1e-3) remain when the JSON omits them.
+    if (ruiz_max_iterations) {
+      opts.ruiz_max_iterations = *ruiz_max_iterations;
+    }
+    if (ruiz_tolerance) {
+      opts.ruiz_tolerance = *ruiz_tolerance;
     }
     opts.compute_stats = compute_stats;
     opts.validation = std::move(validation);
@@ -55,6 +65,8 @@ struct json_data_contract<LpMatrixOptions>
       json_member_list<json_number_null<"lp_coeff_ratio_threshold", OptReal>,
                        json_string_null<"equilibration_method", OptName>,
                        json_string_null<"fast_sqrt_method", OptName>,
+                       json_number_null<"ruiz_max_iterations", OptInt>,
+                       json_number_null<"ruiz_tolerance", OptReal>,
                        json_bool_null<"compute_stats", OptBool>,
                        json_class_null<"validation", LpValidationOptions>>;
 
@@ -69,6 +81,8 @@ struct json_data_contract<LpMatrixOptions>
     return std::make_tuple(opt.lp_coeff_ratio_threshold,
                            eq_name,
                            sqrt_name,
+                           OptInt {opt.ruiz_max_iterations},
+                           OptReal {opt.ruiz_tolerance},
                            opt.compute_stats,
                            opt.validation);
   }

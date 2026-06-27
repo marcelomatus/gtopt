@@ -59,15 +59,16 @@ struct LpMatrixOptions
                             ///< See FastSqrtMethod for options.
                             ///< Default is `ieee_halve`.
 
-  /// Ruiz equilibration iteration cap and convergence tolerance.  INTERNAL
-  /// (not JSON-bound — mirrors `skip_matrix_build`).  The iterative Ruiz
-  /// pass (`apply_ruiz_scaling`) runs at most `ruiz_max_iterations`
-  /// row/column rescaling rounds, stopping early when the worst
-  /// infinity-norm deviation from 1 drops below `ruiz_tolerance`.  The
-  /// defaults reproduce the historical hardcoded values.  Lowering the cap
-  /// trades a little conditioning for a cheaper LP build — the lever for
-  /// SDDP/cascade, where the whole-system LP is rebuilt (and
-  /// re-equilibrated) at every level.  Only consulted when
+  /// Ruiz equilibration iteration cap and convergence tolerance.  JSON-bound
+  /// (sibling of `equilibration_method` / `fast_sqrt_method`), so the
+  /// converter can emit them and `--set lp_matrix_options.ruiz_max_iterations`
+  /// can tune them.  The iterative Ruiz pass (`apply_ruiz_scaling`) runs at
+  /// most `ruiz_max_iterations` row/column rescaling rounds, stopping early
+  /// when the worst infinity-norm deviation from 1 drops below
+  /// `ruiz_tolerance`.  The defaults reproduce the historical hardcoded
+  /// values.  Lowering the cap trades a little conditioning for a cheaper LP
+  /// build — the lever for SDDP/cascade, where the whole-system LP is rebuilt
+  /// (and re-equilibrated) at every level.  Only consulted when
   /// `equilibration_method == ruiz`.
   int ruiz_max_iterations {10};
   double ruiz_tolerance {1e-3};
