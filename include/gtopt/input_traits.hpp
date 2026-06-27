@@ -92,6 +92,13 @@ struct InputTraits : UidTraits
           const auto raw_key = std::make_tuple(uid...);
           const auto lookup_key = project_key(raw_key, present_mask);
 
+          // Long-direct indexes are sparse: an absent (uid, key) cell must
+          // resolve to 0, per the long format's zero-drop convention (a
+          // dropped row is a present zero).  Non-sparse indexes keep the
+          // strict throw-on-missing-key behaviour.
+          const bool sparse_zero =
+              (present_mask & kArrowSparseZeroFillBit) != 0;
+
           const auto chunk = array->chunk(0);
           if (!chunk) {
             SPDLOG_ERROR("access_sched: null chunk in arrow array");
@@ -124,7 +131,7 @@ struct InputTraits : UidTraits
             }
 
             return RType {
-                access_oper(array_value, a_uid_idx, lookup_key),
+                access_oper(array_value, a_uid_idx, lookup_key, sparse_zero),
             };
           } else if constexpr (std::is_floating_point_v<Type>
                                && sizeof(Type) >= sizeof(double))
@@ -148,7 +155,7 @@ struct InputTraits : UidTraits
             }
 
             return RType {
-                access_oper(array_value, a_uid_idx, lookup_key),
+                access_oper(array_value, a_uid_idx, lookup_key, sparse_zero),
             };
           } else {
             if (chunk->type_id() != ArrowTraits<Type>::Type::type_id) {
@@ -166,7 +173,7 @@ struct InputTraits : UidTraits
                 std::static_pointer_cast<array_value_type>(chunk);
 
             return RType {
-                access_oper(array_value, a_uid_idx, lookup_key),
+                access_oper(array_value, a_uid_idx, lookup_key, sparse_zero),
             };
           }
         },
@@ -183,8 +190,18 @@ struct InputTraits : UidTraits
     return access_sched<Type>(
         sched,
         uid_idx,
-        [&](const auto& values, const auto& uid_idx, const auto& key) -> Type
+        [&](const auto& values,
+            const auto& uid_idx,
+            const auto& key,
+            const bool sparse_zero) -> Type
         {
+          if (sparse_zero) {
+            const auto it = uid_idx->find(key);
+            if (it == uid_idx->end()) {
+              return Type {};
+            }
+            return values->Value(it->second);
+          }
           try {
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);
@@ -214,8 +231,18 @@ struct InputTraits : UidTraits
         uid_idx,
         [&](const auto& values,
             const auto& uid_idx,
-            const auto& key) -> std::optional<Type>
+            const auto& key,
+            const bool sparse_zero) -> std::optional<Type>
         {
+          if (sparse_zero) {
+            // Long zero-fill: an absent (uid, key) is a present zero (the
+            // long format drops exact zeros).
+            const auto it = uid_idx->find(key);
+            if (it == uid_idx->end()) {
+              return Type {};
+            }
+            return values->Value(it->second);
+          }
           try {
             const auto idx = uid_idx->at(key);
             const auto value = values->Value(idx);

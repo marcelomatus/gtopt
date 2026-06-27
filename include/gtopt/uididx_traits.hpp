@@ -42,6 +42,14 @@ namespace gtopt
 /// dimension.
 using ArrowPresentMask = std::uint32_t;
 
+/// High bit of an ArrowPresentMask flagging a long-direct (sparse) index.
+/// When set, a missing `(uid, key)` cell resolves to 0 instead of throwing —
+/// matching both the wide pivot's zero-fill and the long format's own
+/// zero-drop convention (gtopt long output drops exact zeros).  The low bits
+/// (0..2) remain the scenario / stage / block present-axis flags, so
+/// `project_key` (which only inspects axis bits) is unaffected.
+inline constexpr ArrowPresentMask kArrowSparseZeroFillBit = 1U << 31U;
+
 /// Check whether @p table has a column named @p name.  Returns false on a
 /// null table.
 [[nodiscard]] inline auto table_has_column(const ArrowTable& table,
@@ -258,6 +266,109 @@ struct UidToArrowIdx<ScenarioUid, StageUid, BlockUid>
 
     return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
+
+  /// Long-layout variant.  Groups the rows of a `[scenario?, stage?, block?,
+  /// uid, value]` table by the element `uid` column into a per-uid
+  /// (Scenario, Stage, Block) -> row-index submap, in a SINGLE scan.  The
+  /// caller pairs each submap with the shared `value` column so the runtime
+  /// lookup `value = value_col->Value(submap->at(key))` matches the wide
+  /// path exactly — without ever materialising a wide table.  The returned
+  /// mask carries the same present-axis bits as `make_arrow_uids_idx` plus
+  /// `kArrowSparseZeroFillBit`, so absent `(uid, key)` cells resolve to 0.
+  ///
+  /// The table MUST be single-chunk (callers `CombineChunks` long tables)
+  /// so the row indices are valid for `value_col->chunk(0)`.
+  static auto make_arrow_uids_idx_long(const ArrowTable& table)
+      -> std::pair<gtopt::flat_map<Uid, uid_arrow_idx_map_ptr>,
+                   ArrowPresentMask>
+  {
+    constexpr ArrowPresentMask kScenarioBit = 1U << 0U;
+    constexpr ArrowPresentMask kStageBit = 1U << 1U;
+    constexpr ArrowPresentMask kBlockBit = 1U << 2U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> scenarios_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> blocks_arr;
+
+    if (table_has_column(table, Scenario::class_name)) {
+      auto col = make_uid_column(table, Scenario::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: scenarios column {}", col.error());
+        return {{}, 0};
+      }
+      scenarios_arr = *col;
+      mask |= kScenarioBit;
+    }
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: stages column {}", col.error());
+        return {{}, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
+    }
+    if (table_has_column(table, Block::class_name)) {
+      auto col = make_uid_column(table, Block::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: blocks column {}", col.error());
+        return {{}, 0};
+      }
+      blocks_arr = *col;
+      mask |= kBlockBit;
+    }
+
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR(
+          "long table has none of the expected UID columns "
+          "(scenario, stage, block)");
+      return {{}, 0};
+    }
+
+    auto uid_col = make_uid_column(table, "uid");
+    if (!uid_col) [[unlikely]] {
+      SPDLOG_ERROR("long table missing integer 'uid' column: {}",
+                   uid_col.error());
+      return {{}, 0};
+    }
+    const auto& uids = *uid_col;
+
+    gtopt::flat_map<Uid, uid_arrow_idx_map_ptr> groups;
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto sid = (mask & kScenarioBit)
+          ? make_uid<Scenario>(scenarios_arr->Value(i))
+          : ScenarioUid {};
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto bid = (mask & kBlockBit)
+          ? make_uid<Block>(blocks_arr->Value(i))
+          : BlockUid {};
+      const auto key = key_type {sid, tid, bid};
+
+      const Uid euid = uids->Value(i);
+      auto& submap = groups[euid];
+      if (!submap) {
+        submap = std::make_shared<uid_arrow_idx_map_t>();
+      }
+      const auto res = submap->emplace(key, i);
+      if (!res.second) [[unlikely]] {
+        SPDLOG_ERROR(
+            "duplicate (Scenario, Stage, Block) key {} for uid {} at row "
+            "{} in long input table — more than one row per (uid, scenario, "
+            "stage, block) tuple.",
+            as_string(key),
+            euid,
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in long input table — see preceding [error] "
+            "log line for details");
+      }
+    }
+
+    return {std::move(groups), mask | kArrowSparseZeroFillBit};
+  }
 };
 
 template<>
@@ -346,6 +457,80 @@ struct UidToArrowIdx<StageUid, BlockUid> : ArrowUidTraits<StageUid, BlockUid>
 
     return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
+
+  /// Long-layout variant — see the (Scenario, Stage, Block) overload.  Groups
+  /// `[stage?, block?, uid, value]` rows by element uid into per-uid
+  /// (Stage, Block) -> row submaps in one scan.  Table must be single-chunk.
+  static auto make_arrow_uids_idx_long(const ArrowTable& table)
+      -> std::pair<gtopt::flat_map<Uid, uid_arrow_idx_map_ptr>,
+                   ArrowPresentMask>
+  {
+    constexpr ArrowPresentMask kStageBit = 1U << 0U;
+    constexpr ArrowPresentMask kBlockBit = 1U << 1U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> blocks_arr;
+
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: stages column {}", col.error());
+        return {{}, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
+    }
+    if (table_has_column(table, Block::class_name)) {
+      auto col = make_uid_column(table, Block::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: blocks column {}", col.error());
+        return {{}, 0};
+      }
+      blocks_arr = *col;
+      mask |= kBlockBit;
+    }
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR("long table has neither `stage` nor `block` columns");
+      return {{}, 0};
+    }
+
+    auto uid_col = make_uid_column(table, "uid");
+    if (!uid_col) [[unlikely]] {
+      SPDLOG_ERROR("long table missing integer 'uid' column: {}",
+                   uid_col.error());
+      return {{}, 0};
+    }
+    const auto& uids = *uid_col;
+
+    gtopt::flat_map<Uid, uid_arrow_idx_map_ptr> groups;
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto bid = (mask & kBlockBit)
+          ? make_uid<Block>(blocks_arr->Value(i))
+          : BlockUid {};
+      const auto key = key_type {tid, bid};
+      const Uid euid = uids->Value(i);
+      auto& submap = groups[euid];
+      if (!submap) {
+        submap = std::make_shared<uid_arrow_idx_map_t>();
+      }
+      if (!submap->emplace(key, i).second) [[unlikely]] {
+        SPDLOG_ERROR(
+            "duplicate (Stage, Block) key {} for uid {} at row {} in long "
+            "input table",
+            as_string(key),
+            euid,
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in long input table — see preceding [error] "
+            "log line for details");
+      }
+    }
+    return {std::move(groups), mask | kArrowSparseZeroFillBit};
+  }
 };
 
 template<>
@@ -420,6 +605,80 @@ struct UidToArrowIdx<ScenarioUid, StageUid>
 
     return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)), mask};
   }
+
+  /// Long-layout variant — see the (Scenario, Stage, Block) overload.  Groups
+  /// `[scenario?, stage?, uid, value]` rows by element uid into per-uid
+  /// (Scenario, Stage) -> row submaps in one scan.  Table must be single-chunk.
+  static auto make_arrow_uids_idx_long(const ArrowTable& table)
+      -> std::pair<gtopt::flat_map<Uid, uid_arrow_idx_map_ptr>,
+                   ArrowPresentMask>
+  {
+    constexpr ArrowPresentMask kScenarioBit = 1U << 0U;
+    constexpr ArrowPresentMask kStageBit = 1U << 1U;
+
+    ArrowPresentMask mask = 0;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> scenarios_arr;
+    std::shared_ptr<arrow::CTypeTraits<Uid>::ArrayType> stages_arr;
+
+    if (table_has_column(table, Scenario::class_name)) {
+      auto col = make_uid_column(table, Scenario::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: scenarios column {}", col.error());
+        return {{}, 0};
+      }
+      scenarios_arr = *col;
+      mask |= kScenarioBit;
+    }
+    if (table_has_column(table, Stage::class_name)) {
+      auto col = make_uid_column(table, Stage::class_name);
+      if (!col) {
+        SPDLOG_ERROR("long index: stages column {}", col.error());
+        return {{}, 0};
+      }
+      stages_arr = *col;
+      mask |= kStageBit;
+    }
+    if (mask == 0) [[unlikely]] {
+      SPDLOG_ERROR("long table has neither `scenario` nor `stage` columns");
+      return {{}, 0};
+    }
+
+    auto uid_col = make_uid_column(table, "uid");
+    if (!uid_col) [[unlikely]] {
+      SPDLOG_ERROR("long table missing integer 'uid' column: {}",
+                   uid_col.error());
+      return {{}, 0};
+    }
+    const auto& uids = *uid_col;
+
+    gtopt::flat_map<Uid, uid_arrow_idx_map_ptr> groups;
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto sid = (mask & kScenarioBit)
+          ? make_uid<Scenario>(scenarios_arr->Value(i))
+          : ScenarioUid {};
+      const auto tid = (mask & kStageBit)
+          ? make_uid<Stage>(stages_arr->Value(i))
+          : StageUid {};
+      const auto key = key_type {sid, tid};
+      const Uid euid = uids->Value(i);
+      auto& submap = groups[euid];
+      if (!submap) {
+        submap = std::make_shared<uid_arrow_idx_map_t>();
+      }
+      if (!submap->emplace(key, i).second) [[unlikely]] {
+        SPDLOG_ERROR(
+            "duplicate (Scenario, Stage) key {} for uid {} at row {} in long "
+            "input table",
+            as_string(key),
+            euid,
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in long input table — see preceding [error] "
+            "log line for details");
+      }
+    }
+    return {std::move(groups), mask | kArrowSparseZeroFillBit};
+  }
 };
 
 template<>
@@ -462,6 +721,50 @@ struct UidToArrowIdx<StageUid> : ArrowUidTraits<StageUid>
     // Return a shared pointer to the map containing the index to uid mapping
     return {std::make_shared<uid_arrow_idx_map_t>(std::move(uid_idx)),
             kStageBit};
+  }
+
+  /// Long-layout variant — see the (Scenario, Stage, Block) overload.  Groups
+  /// `[stage, uid, value]` rows by element uid into per-uid (Stage) -> row
+  /// submaps in one scan.  Table must be single-chunk.
+  static auto make_arrow_uids_idx_long(const ArrowTable& table)
+      -> std::pair<gtopt::flat_map<Uid, uid_arrow_idx_map_ptr>,
+                   ArrowPresentMask>
+  {
+    constexpr ArrowPresentMask kStageBit = 1U << 0U;
+
+    const auto stages = make_uid_column(table, Stage::class_name);
+    if (!stages) {
+      SPDLOG_ERROR("long index: stages column {}", stages.error());
+      return {{}, 0};
+    }
+    auto uid_col = make_uid_column(table, "uid");
+    if (!uid_col) {
+      SPDLOG_ERROR("long table missing integer 'uid' column: {}",
+                   uid_col.error());
+      return {{}, 0};
+    }
+    const auto& uids = *uid_col;
+
+    gtopt::flat_map<Uid, uid_arrow_idx_map_ptr> groups;
+    for (ArrowIndex i = 0; i < table->num_rows(); ++i) {
+      const auto key = key_type {make_uid<Stage>((*stages)->Value(i))};
+      const Uid euid = uids->Value(i);
+      auto& submap = groups[euid];
+      if (!submap) {
+        submap = std::make_shared<uid_arrow_idx_map_t>();
+      }
+      if (!submap->emplace(key, i).second) [[unlikely]] {
+        SPDLOG_ERROR(
+            "duplicate Stage key {} for uid {} at row {} in long input table",
+            as_string(key),
+            euid,
+            i);
+        throw std::runtime_error(
+            "duplicate UID key in long input table — see preceding [error] "
+            "log line for details");
+      }
+    }
+    return {std::move(groups), kStageBit | kArrowSparseZeroFillBit};
   }
 };
 

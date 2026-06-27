@@ -611,14 +611,10 @@ template<typename CType>
                (*result)->num_rows(),
                (*result)->num_columns());
 
-  // Transparently accept long-layout input: pivot `[…, uid, value]` to the
-  // wide `[…, uid:N…]` shape the downstream index/access machinery expects.
-  if (is_long_layout(*result)) {
-    SPDLOG_DEBUG("read_arrow_table: long layout detected for '{}/{}', pivoting",
-                 cname,
-                 fname);
-    return pivot_long_to_wide(*result);
-  }
+  // Return the raw table unchanged.  get_arrow_index now owns the long/wide
+  // decision: long input is indexed directly (per-uid submaps over the long
+  // rows) for the (Scenario, Stage, Block) reader, and only pivoted to wide
+  // as a fallback for arities without a long-direct index builder.
   return *result;
 }
 

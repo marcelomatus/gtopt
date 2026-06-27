@@ -33,60 +33,53 @@ TEST_CASE("Parquet file write and read test")
 
   SUBCASE("Write Parquet file")
   {
-    // Crear datos de prueba
+    // Long layout: one row per (scenario, stage, block, uid) with a single
+    // `value` column.  All six rows carry element uid 1.
     const std::vector<Uid> scenario_data = {1, 1, 1, 2, 2, 2};
     const std::vector<Uid> stage_data = {1, 2, 2, 1, 2, 2};
     const std::vector<Uid> block_data = {1, 2, 3, 1, 2, 3};
-    const std::vector<double> uid_1_data = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    const std::vector<Uid> uid_data = {1, 1, 1, 1, 1, 1};
+    const std::vector<double> value_data = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
 
-    // Crear arrays de Arrow usando builders
     arrow::Int32Builder scenario_builder;
     arrow::Int32Builder stage_builder;
     arrow::Int32Builder block_builder;
-    arrow::DoubleBuilder uid_1_builder;
+    arrow::Int32Builder uid_builder;
+    arrow::DoubleBuilder value_builder;
 
-    // Agregar datos a los builders
-    auto scenario_status = scenario_builder.AppendValues(scenario_data);
-    auto stage_status = stage_builder.AppendValues(stage_data);
-    auto block_status = block_builder.AppendValues(block_data);
-    auto uid_1_status = uid_1_builder.AppendValues(uid_1_data);
+    REQUIRE(scenario_builder.AppendValues(scenario_data).ok());
+    REQUIRE(stage_builder.AppendValues(stage_data).ok());
+    REQUIRE(block_builder.AppendValues(block_data).ok());
+    REQUIRE(uid_builder.AppendValues(uid_data).ok());
+    REQUIRE(value_builder.AppendValues(value_data).ok());
 
-    REQUIRE(scenario_status.ok());
-    REQUIRE(stage_status.ok());
-    REQUIRE(block_status.ok());
-    REQUIRE(uid_1_status.ok());
-
-    // Finalizar arrays
     std::shared_ptr<arrow::Array> scenario_array;
     std::shared_ptr<arrow::Array> stage_array;
     std::shared_ptr<arrow::Array> block_array;
-    std::shared_ptr<arrow::Array> uid_1_array;
+    std::shared_ptr<arrow::Array> uid_array;
+    std::shared_ptr<arrow::Array> value_array;
 
-    auto scenario_finish = scenario_builder.Finish(&scenario_array);
-    auto stage_finish = stage_builder.Finish(&stage_array);
-    auto block_finish = block_builder.Finish(&block_array);
-    auto uid_1_finish = uid_1_builder.Finish(&uid_1_array);
+    REQUIRE(scenario_builder.Finish(&scenario_array).ok());
+    REQUIRE(stage_builder.Finish(&stage_array).ok());
+    REQUIRE(block_builder.Finish(&block_array).ok());
+    REQUIRE(uid_builder.Finish(&uid_array).ok());
+    REQUIRE(value_builder.Finish(&value_array).ok());
 
-    REQUIRE(scenario_finish.ok());
-    REQUIRE(stage_finish.ok());
-    REQUIRE(block_finish.ok());
-    REQUIRE(uid_1_finish.ok());
-
-    // Crear schema
     auto schema = arrow::schema({
         arrow::field("scenario", arrow::int32()),
         arrow::field("stage", arrow::int32()),
         arrow::field("block", arrow::int32()),
-        arrow::field("uid_1", arrow::float64()),
+        arrow::field("uid", arrow::int32()),
+        arrow::field("value", arrow::float64()),
     });
 
-    // Crear tabla
     auto table_result = arrow::Table::Make(
-        schema, {scenario_array, stage_array, block_array, uid_1_array});
+        schema,
+        {scenario_array, stage_array, block_array, uid_array, value_array});
 
     REQUIRE(table_result != nullptr);
     CHECK(table_result->num_rows() == 6);
-    CHECK(table_result->num_columns() == 4);
+    CHECK(table_result->num_columns() == 5);
 
     // Escribir archivo Parquet
     auto output_stream_result = arrow::io::FileOutputStream::Open(filename);
@@ -128,26 +121,28 @@ TEST_CASE("Parquet file write and read test")
 
     // Verificar estructura de la tabla
     CHECK(table->num_rows() == 6);
-    CHECK(table->num_columns() == 4);
+    CHECK(table->num_columns() == 5);
 
     // Verificar nombres de columnas
     auto schema = table->schema();
     CHECK(schema->field(0)->name() == "scenario");
     CHECK(schema->field(1)->name() == "stage");
     CHECK(schema->field(2)->name() == "block");
-    CHECK(schema->field(3)->name() == "uid_1");
+    CHECK(schema->field(3)->name() == "uid");
+    CHECK(schema->field(4)->name() == "value");
 
     // Verificar tipos de datos
     CHECK(schema->field(0)->type()->id() == arrow::Type::INT32);
     CHECK(schema->field(1)->type()->id() == arrow::Type::INT32);
     CHECK(schema->field(2)->type()->id() == arrow::Type::INT32);
-    CHECK(schema->field(3)->type()->id() == arrow::Type::DOUBLE);
+    CHECK(schema->field(3)->type()->id() == arrow::Type::INT32);
+    CHECK(schema->field(4)->type()->id() == arrow::Type::DOUBLE);
 
     // Obtener columnas
     auto scenario_column = table->column(0);
     auto stage_column = table->column(1);
     auto block_column = table->column(2);
-    auto uid_1_column = table->column(3);
+    auto uid_1_column = table->column(4);
 
     // Verificar datos de la columna 'scenario'
     auto scenario_array =
@@ -382,60 +377,53 @@ TEST_CASE("Parquet file write and read test 2")
 
   SUBCASE("Write Parquet file")
   {
-    // Create test data
+    // Long layout: one row per (scenario, stage, block, uid), single `value`
+    // column.  All five rows carry element uid 1.
     const std::vector<Uid> scenario_data = {1, 1, 1, 1, 1};
     const std::vector<Uid> stage_data = {1, 2, 3, 4, 5};
     const std::vector<Uid> block_data = {1, 2, 3, 4, 5};
-    const std::vector<double> d1_data = {1.0, 2.0, 3.0, 4.0, 5.0};
+    const std::vector<Uid> uid_data = {1, 1, 1, 1, 1};
+    const std::vector<double> value_data = {1.0, 2.0, 3.0, 4.0, 5.0};
 
-    // Create Arrow arrays using builders
     arrow::Int32Builder scenario_builder;
     arrow::Int32Builder stage_builder;
     arrow::Int32Builder block_builder;
-    arrow::DoubleBuilder d1_builder;
+    arrow::Int32Builder uid_builder;
+    arrow::DoubleBuilder value_builder;
 
-    // Add data to the builders
-    auto scenario_status = scenario_builder.AppendValues(scenario_data);
-    auto stage_status = stage_builder.AppendValues(stage_data);
-    auto block_status = block_builder.AppendValues(block_data);
-    auto d1_status = d1_builder.AppendValues(d1_data);
+    REQUIRE(scenario_builder.AppendValues(scenario_data).ok());
+    REQUIRE(stage_builder.AppendValues(stage_data).ok());
+    REQUIRE(block_builder.AppendValues(block_data).ok());
+    REQUIRE(uid_builder.AppendValues(uid_data).ok());
+    REQUIRE(value_builder.AppendValues(value_data).ok());
 
-    REQUIRE(scenario_status.ok());
-    REQUIRE(stage_status.ok());
-    REQUIRE(block_status.ok());
-    REQUIRE(d1_status.ok());
-
-    // Finalize arrays
     std::shared_ptr<arrow::Array> scenario_array;
     std::shared_ptr<arrow::Array> stage_array;
     std::shared_ptr<arrow::Array> block_array;
-    std::shared_ptr<arrow::Array> d1_array;
+    std::shared_ptr<arrow::Array> uid_array;
+    std::shared_ptr<arrow::Array> value_array;
 
-    auto scenario_finish = scenario_builder.Finish(&scenario_array);
-    auto stage_finish = stage_builder.Finish(&stage_array);
-    auto block_finish = block_builder.Finish(&block_array);
-    auto d1_finish = d1_builder.Finish(&d1_array);
+    REQUIRE(scenario_builder.Finish(&scenario_array).ok());
+    REQUIRE(stage_builder.Finish(&stage_array).ok());
+    REQUIRE(block_builder.Finish(&block_array).ok());
+    REQUIRE(uid_builder.Finish(&uid_array).ok());
+    REQUIRE(value_builder.Finish(&value_array).ok());
 
-    REQUIRE(scenario_finish.ok());
-    REQUIRE(stage_finish.ok());
-    REQUIRE(block_finish.ok());
-    REQUIRE(d1_finish.ok());
-
-    // Create schema
     auto schema = arrow::schema({
         arrow::field("scenario", ArrowTraits<Uid>::type()),
         arrow::field("stage", ArrowTraits<Uid>::type()),
         arrow::field("block", ArrowTraits<Uid>::type()),
-        arrow::field("d1", arrow::float64()),
+        arrow::field("uid", ArrowTraits<Uid>::type()),
+        arrow::field("value", arrow::float64()),
     });
 
-    // Create table
     auto table_result = arrow::Table::Make(
-        schema, {scenario_array, stage_array, block_array, d1_array});
+        schema,
+        {scenario_array, stage_array, block_array, uid_array, value_array});
 
     REQUIRE(table_result != nullptr);
     CHECK(table_result->num_rows() == 5);
-    CHECK(table_result->num_columns() == 4);
+    CHECK(table_result->num_columns() == 5);
 
     // Write Parquet file
     auto output_stream_result = arrow::io::FileOutputStream::Open(filename);
@@ -476,26 +464,28 @@ TEST_CASE("Parquet file write and read test 2")
 
     // Verify table structure
     CHECK(table->num_rows() == 5);
-    CHECK(table->num_columns() == 4);
+    CHECK(table->num_columns() == 5);
 
     // Verify column names
     auto schema = table->schema();
     CHECK(schema->field(0)->name() == "scenario");
     CHECK(schema->field(1)->name() == "stage");
     CHECK(schema->field(2)->name() == "block");
-    CHECK(schema->field(3)->name() == "d1");
+    CHECK(schema->field(3)->name() == "uid");
+    CHECK(schema->field(4)->name() == "value");
 
     // Verify data types
     CHECK(schema->field(0)->type()->id() == arrow::Type::INT32);
     CHECK(schema->field(1)->type()->id() == arrow::Type::INT32);
     CHECK(schema->field(2)->type()->id() == arrow::Type::INT32);
-    CHECK(schema->field(3)->type()->id() == arrow::Type::DOUBLE);
+    CHECK(schema->field(3)->type()->id() == arrow::Type::INT32);
+    CHECK(schema->field(4)->type()->id() == arrow::Type::DOUBLE);
 
     // Get columns
     auto scenario_column = table->column(0);
     auto stage_column = table->column(1);
     auto block_column = table->column(2);
-    auto d1_column = table->column(3);
+    auto d1_column = table->column(4);
 
     // Verify 'scenario' column data
     auto scenario_array =

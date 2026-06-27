@@ -472,14 +472,14 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
   CHECK(obj > 0.0);
 }
 
-// ── Item 1: bare UID string column lookup (array_index_traits.hpp:172) ──
+// ── Item 1: wide input (bare UID column) is rejected, not resolved ──
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
-/// Write a Parquet schedule file with bare UID column names (e.g. "1")
-/// instead of the standard "uid:1" or "name" patterns.
-/// This exercises the fallback path at array_index_traits.hpp:172.
+/// Write a wide Parquet schedule file with a bare UID column name (e.g. "1")
+/// and no `uid`/`value` columns.  Such wide input is no longer supported and
+/// must be rejected with an explicit convert-to-long error.
 void write_bare_uid_parquet(const std::filesystem::path& input_dir,
                             std::string_view class_name,
                             std::string_view field_name,
@@ -525,7 +525,7 @@ void write_bare_uid_parquet(const std::filesystem::path& input_dir,
 
 }  // namespace
 
-TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
+TEST_CASE("Wide bare-UID Parquet schedule is rejected")  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
   // NOLINTBEGIN(misc-const-correctness)
@@ -609,19 +609,15 @@ TEST_CASE("Bare UID column name lookup in Parquet schedule")  // NOLINT
           },
   };
 
-  PlanningLP planning_lp(std::move(planning));
-  auto result = planning_lp.resolve();
-  REQUIRE(result.has_value());
-  CHECK(result.value() == 1);
-
-  // Verify the generator cost came from the Parquet file (42.0 * 50 MW * 1h)
-  const auto obj = planning_lp.systems()
-                       .front()
-                       .front()
-                       .linear_interface()
-                       .get_obj_value_raw();
-  // The objective should reflect gcost = 42.0 from Parquet
-  CHECK(obj > 0.0);
+  // Wide bare-uid input is no longer supported: building the LP that reads the
+  // wide `gcost` file must throw the explicit convert-to-long error.
+  CHECK_THROWS_AS(
+      [&]
+      {
+        PlanningLP planning_lp(std::move(planning));
+        (void)planning_lp.resolve();
+      }(),
+      std::runtime_error);
 
   std::filesystem::remove_all(tmp_root);
 }

@@ -7,9 +7,11 @@
  * Exercises the three visitor branches of InputTraits::access_sched:
  *   1. Scalar (value_type) — already tested elsewhere; light check here.
  *   2. Vector (vector_type) — already tested elsewhere; light check here.
- *   3. FileSched (Arrow/Parquet) — the main target: writes a Parquet file
- *      with UID columns and exercises the full Arrow code path including
- *      type casting (int32, double).
+ *   3. FileSched (Arrow/Parquet) — the main target: writes a long-layout
+ *      Parquet file (scenario/stage/block, uid, value) and exercises the full
+ *      Arrow code path including type casting (int32, double).  The one
+ *      "column found by name" case stays wide on purpose to guard the
+ *      natively-wide input path.
  *
  * Also covers:
  *   - optval_sched (FileSched path)
@@ -104,8 +106,28 @@ auto make_test_simulation() -> Simulation
   };
 }
 
-/// Write a double-typed Parquet schedule indexed by (stage, block).
-/// Columns: "stage" (int32), "block" (int32), <col_name> (double).
+/// Extract the integer uid from a legacy wide-style "uid:N" label.  The test
+/// fixtures now write long-layout input (a bare `uid` column), so this maps
+/// the historical column name to the uid value that the `uid` column carries.
+[[nodiscard]] inline int32_t lit_uid_of(std::string_view col_name)
+{
+  const auto pos = col_name.rfind(':');
+  const auto digits =
+      pos == std::string_view::npos ? col_name : col_name.substr(pos + 1);
+  return static_cast<int32_t>(std::stoi(std::string(digits)));
+}
+
+[[nodiscard]] inline auto lit_i32(const std::vector<int32_t>& v) -> ArrowArray
+{
+  arrow::Int32Builder b;
+  REQUIRE(b.AppendValues(v).ok());
+  std::shared_ptr<arrow::Array> a;
+  REQUIRE(b.Finish(&a).ok());
+  return a;
+}
+
+/// Write a double-typed LONG schedule indexed by (stage, block).
+/// Columns: "stage", "block", "uid", "value"; the uid comes from `col_name`.
 /// Rows: (1,1,v0), (2,2,v1), (2,3,v2) matching make_test_simulation().
 void write_tb_double_parquet(const std::filesystem::path& input_dir,
                              std::string_view class_name,
@@ -115,15 +137,7 @@ void write_tb_double_parquet(const std::filesystem::path& input_dir,
                              double v1,
                              double v2)
 {
-  arrow::Int32Builder stage_b;
-  REQUIRE(stage_b.AppendValues({1, 2, 2}).ok());
-  std::shared_ptr<arrow::Array> stages;
-  REQUIRE(stage_b.Finish(&stages).ok());
-
-  arrow::Int32Builder block_b;
-  REQUIRE(block_b.AppendValues({1, 2, 3}).ok());
-  std::shared_ptr<arrow::Array> blocks;
-  REQUIRE(block_b.Finish(&blocks).ok());
+  const int32_t uid = lit_uid_of(col_name);
 
   arrow::DoubleBuilder val_b;
   REQUIRE(val_b.AppendValues({v0, v1, v2}).ok());
@@ -133,15 +147,20 @@ void write_tb_double_parquet(const std::filesystem::path& input_dir,
   auto schema = arrow::schema({
       arrow::field("stage", arrow::int32()),
       arrow::field("block", arrow::int32()),
-      arrow::field(std::string(col_name), arrow::float64()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::float64()),
   });
 
   write_schedule_parquet(
-      input_dir, class_name, field_name, schema, {stages, blocks, vals});
+      input_dir,
+      class_name,
+      field_name,
+      schema,
+      {lit_i32({1, 2, 2}), lit_i32({1, 2, 3}), lit_i32({uid, uid, uid}), vals});
 }
 
-/// Write an int32-typed Parquet schedule indexed by (stage).
-/// Columns: "stage" (int32), <col_name> (int32).
+/// Write an int32-typed LONG schedule indexed by (stage).
+/// Columns: "stage", "uid", "value" (int32 value column).
 void write_t_int_parquet(const std::filesystem::path& input_dir,
                          std::string_view class_name,
                          std::string_view field_name,
@@ -149,23 +168,20 @@ void write_t_int_parquet(const std::filesystem::path& input_dir,
                          int32_t v0,
                          int32_t v1)
 {
-  arrow::Int32Builder stage_b;
-  REQUIRE(stage_b.AppendValues({1, 2}).ok());
-  std::shared_ptr<arrow::Array> stages;
-  REQUIRE(stage_b.Finish(&stages).ok());
-
-  arrow::Int32Builder val_b;
-  REQUIRE(val_b.AppendValues({v0, v1}).ok());
-  std::shared_ptr<arrow::Array> vals;
-  REQUIRE(val_b.Finish(&vals).ok());
+  const int32_t uid = lit_uid_of(col_name);
 
   auto schema = arrow::schema({
       arrow::field("stage", arrow::int32()),
-      arrow::field(std::string(col_name), arrow::int32()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::int32()),
   });
 
   write_schedule_parquet(
-      input_dir, class_name, field_name, schema, {stages, vals});
+      input_dir,
+      class_name,
+      field_name,
+      schema,
+      {lit_i32({1, 2}), lit_i32({uid, uid}), lit_i32({v0, v1})});
 }
 
 /// Write an STB (scenario, stage, block) double Parquet schedule.
@@ -178,20 +194,7 @@ void write_stb_double_parquet(const std::filesystem::path& input_dir,
                               double v1,
                               double v2)
 {
-  arrow::Int32Builder scenario_b;
-  REQUIRE(scenario_b.AppendValues({1, 1, 1}).ok());
-  std::shared_ptr<arrow::Array> scenarios;
-  REQUIRE(scenario_b.Finish(&scenarios).ok());
-
-  arrow::Int32Builder stage_b;
-  REQUIRE(stage_b.AppendValues({1, 2, 2}).ok());
-  std::shared_ptr<arrow::Array> stages;
-  REQUIRE(stage_b.Finish(&stages).ok());
-
-  arrow::Int32Builder block_b;
-  REQUIRE(block_b.AppendValues({1, 2, 3}).ok());
-  std::shared_ptr<arrow::Array> blocks;
-  REQUIRE(block_b.Finish(&blocks).ok());
+  const int32_t uid = lit_uid_of(col_name);
 
   arrow::DoubleBuilder val_b;
   REQUIRE(val_b.AppendValues({v0, v1, v2}).ok());
@@ -202,14 +205,19 @@ void write_stb_double_parquet(const std::filesystem::path& input_dir,
       arrow::field("scenario", arrow::int32()),
       arrow::field("stage", arrow::int32()),
       arrow::field("block", arrow::int32()),
-      arrow::field(std::string(col_name), arrow::float64()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::float64()),
   });
 
   write_schedule_parquet(input_dir,
                          class_name,
                          field_name,
                          schema,
-                         {scenarios, stages, blocks, vals});
+                         {lit_i32({1, 1, 1}),
+                          lit_i32({1, 2, 2}),
+                          lit_i32({1, 2, 3}),
+                          lit_i32({uid, uid, uid}),
+                          vals});
 }
 
 }  // namespace
@@ -316,13 +324,8 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
   std::filesystem::remove_all(tmp_root);
   const auto input_dir = tmp_root / "input";
 
-  // Write a (stage, value) table
+  // Write a long (stage, uid, value) table
   {
-    arrow::Int32Builder stage_b;
-    REQUIRE(stage_b.AppendValues({1, 2}).ok());
-    std::shared_ptr<arrow::Array> stages;
-    REQUIRE(stage_b.Finish(&stages).ok());
-
     arrow::DoubleBuilder val_b;
     REQUIRE(val_b.AppendValues({42.5, 99.9}).ok());
     std::shared_ptr<arrow::Array> vals;
@@ -330,10 +333,15 @@ TEST_CASE("InputTraits FileSched double - TRealSched via Parquet")
 
     auto schema = arrow::schema({
         arrow::field("stage", arrow::int32()),
-        arrow::field("uid:1", arrow::float64()),
+        arrow::field("uid", arrow::int32()),
+        arrow::field("value", arrow::float64()),
     });
 
-    write_schedule_parquet(input_dir, "TestCap", "cap", schema, {stages, vals});
+    write_schedule_parquet(input_dir,
+                           "TestCap",
+                           "cap",
+                           schema,
+                           {lit_i32({1, 2}), lit_i32({1, 1}), vals});
   }
 
   const auto sim = make_test_simulation();
@@ -461,21 +469,38 @@ TEST_CASE("InputTraits OptSchedule empty returns nullopt")
 }
 
 // ---------------------------------------------------------------------------
-// FileSched with column name lookup by element name (not uid:N pattern)
+// Wide-format input is no longer supported: it must be rejected with an
+// explicit "convert to long" error rather than silently resolved.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("InputTraits FileSched - column found by name")
+TEST_CASE("InputTraits FileSched - wide input is rejected")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
   const auto tmp_root =
-      std::filesystem::temp_directory_path() / "test_input_traits_byname";
+      std::filesystem::temp_directory_path() / "test_input_traits_wide_reject";
   std::filesystem::remove_all(tmp_root);
   const auto input_dir = tmp_root / "input";
 
-  // Write Parquet with column named "myval" instead of "uid:N"
-  write_tb_double_parquet(
-      input_dir, "TestName", "field1", "myval", 7.0, 8.0, 9.0);
+  // A wide table: a per-element value column (here named "myval") and NO bare
+  // `uid`/`value` columns.  The loader must refuse it.
+  {
+    arrow::DoubleBuilder val_b;
+    REQUIRE(val_b.AppendValues({7.0, 8.0, 9.0}).ok());
+    std::shared_ptr<arrow::Array> vals;
+    REQUIRE(val_b.Finish(&vals).ok());
+
+    auto schema = arrow::schema({
+        arrow::field("stage", arrow::int32()),
+        arrow::field("block", arrow::int32()),
+        arrow::field("myval", arrow::float64()),
+    });
+    write_schedule_parquet(input_dir,
+                           "TestName",
+                           "field1",
+                           schema,
+                           {lit_i32({1, 2, 2}), lit_i32({1, 2, 3}), vals});
+  }
 
   const auto sim = make_test_simulation();
   const PlanningOptions opts {
@@ -491,17 +516,11 @@ TEST_CASE("InputTraits FileSched - column found by name")
   const SystemContext sc {simulation, system};
   const InputContext ic {sc};
 
-  // Id.second = "myval" should match the column name directly
+  // Resolving any element against a wide file throws the convert-to-long error.
   const Id id {Uid {99}, "myval"};
   const TBRealFieldSched fsched {std::string("field1")};
-  const TBRealSched sched {ic, "TestName", id, fsched};
-
-  CHECK(sched.at(make_uid<Stage>(1), make_uid<Block>(1))
-        == doctest::Approx(7.0));
-  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(2))
-        == doctest::Approx(8.0));
-  CHECK(sched.at(make_uid<Stage>(2), make_uid<Block>(3))
-        == doctest::Approx(9.0));
+  CHECK_THROWS_AS((TBRealSched {ic, "TestName", id, fsched}),
+                  std::runtime_error);
 
   std::filesystem::remove_all(tmp_root);
 }
@@ -560,13 +579,8 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
   std::filesystem::remove_all(tmp_root);
   const auto input_dir = tmp_root / "input";
 
-  // Write Parquet with float32 data column
+  // Write long input with a float32 value column
   {
-    arrow::Int32Builder stage_b;
-    REQUIRE(stage_b.AppendValues({1, 2}).ok());
-    std::shared_ptr<arrow::Array> stages;
-    REQUIRE(stage_b.Finish(&stages).ok());
-
     arrow::FloatBuilder val_b;
     REQUIRE(val_b.AppendValues({1.5F, 2.5F}).ok());
     std::shared_ptr<arrow::Array> vals;
@@ -574,11 +588,15 @@ TEST_CASE("InputTraits FileSched - float32 widened to double")
 
     auto schema = arrow::schema({
         arrow::field("stage", arrow::int32()),
-        arrow::field("uid:1", arrow::float32()),
+        arrow::field("uid", arrow::int32()),
+        arrow::field("value", arrow::float32()),
     });
 
-    write_schedule_parquet(
-        input_dir, "TestF32", "fval", schema, {stages, vals});
+    write_schedule_parquet(input_dir,
+                           "TestF32",
+                           "fval",
+                           schema,
+                           {lit_i32({1, 2}), lit_i32({1, 1}), vals});
   }
 
   const auto sim = make_test_simulation();
@@ -618,13 +636,8 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
   std::filesystem::remove_all(tmp_root);
   const auto input_dir = tmp_root / "input";
 
-  // Write Parquet with int16 data column and int16 stage column
+  // Write long input with an int16 value column
   {
-    arrow::Int32Builder stage_b;
-    REQUIRE(stage_b.AppendValues({1, 2}).ok());
-    std::shared_ptr<arrow::Array> stages;
-    REQUIRE(stage_b.Finish(&stages).ok());
-
     arrow::Int16Builder val_b;
     REQUIRE(val_b.AppendValues({int16_t {10}, int16_t {20}}).ok());
     std::shared_ptr<arrow::Array> vals;
@@ -632,11 +645,15 @@ TEST_CASE("InputTraits FileSched - int16 widened to int32")
 
     auto schema = arrow::schema({
         arrow::field("stage", arrow::int32()),
-        arrow::field("uid:1", arrow::int16()),
+        arrow::field("uid", arrow::int32()),
+        arrow::field("value", arrow::int16()),
     });
 
-    write_schedule_parquet(
-        input_dir, "TestI16", "ival", schema, {stages, vals});
+    write_schedule_parquet(input_dir,
+                           "TestI16",
+                           "ival",
+                           schema,
+                           {lit_i32({1, 2}), lit_i32({1, 1}), vals});
   }
 
   const auto sim = make_test_simulation();
@@ -678,13 +695,13 @@ TEST_CASE("InputTraits FileSched - CSV fallback")
   const auto class_dir = input_dir / "TestCSV";
   std::filesystem::create_directories(class_dir);
 
-  // Write a CSV file instead of Parquet
+  // Write a long-layout CSV file instead of Parquet
   {
     std::ofstream ofs((class_dir / "cost.csv").string());
-    ofs << "stage,block,uid:1\n";
-    ofs << "1,1,11.0\n";
-    ofs << "2,2,22.0\n";
-    ofs << "2,3,33.0\n";
+    ofs << "stage,block,uid,value\n";
+    ofs << "1,1,1,11.0\n";
+    ofs << "2,2,1,22.0\n";
+    ofs << "2,3,1,33.0\n";
   }
 
   const auto sim = make_test_simulation();
@@ -788,10 +805,7 @@ void write_t_only_double_parquet(const std::filesystem::path& input_dir,
                                  double v_stage_1,
                                  double v_stage_2)
 {
-  arrow::Int32Builder stage_b;
-  REQUIRE(stage_b.AppendValues({1, 2}).ok());
-  std::shared_ptr<arrow::Array> stages;
-  REQUIRE(stage_b.Finish(&stages).ok());
+  const int32_t uid = lit_uid_of(col_name);
 
   arrow::DoubleBuilder val_b;
   REQUIRE(val_b.AppendValues({v_stage_1, v_stage_2}).ok());
@@ -800,11 +814,15 @@ void write_t_only_double_parquet(const std::filesystem::path& input_dir,
 
   auto schema = arrow::schema({
       arrow::field("stage", arrow::int32()),
-      arrow::field(std::string(col_name), arrow::float64()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::float64()),
   });
 
-  write_schedule_parquet(
-      input_dir, class_name, field_name, schema, {stages, vals});
+  write_schedule_parquet(input_dir,
+                         class_name,
+                         field_name,
+                         schema,
+                         {lit_i32({1, 2}), lit_i32({uid, uid}), vals});
 }
 
 /// Variant of write_stb_double_parquet that omits the `scenario` and
@@ -818,10 +836,7 @@ void write_t_only_stb_double_parquet(const std::filesystem::path& input_dir,
                                      double v_stage_1,
                                      double v_stage_2)
 {
-  arrow::Int32Builder stage_b;
-  REQUIRE(stage_b.AppendValues({1, 2}).ok());
-  std::shared_ptr<arrow::Array> stages;
-  REQUIRE(stage_b.Finish(&stages).ok());
+  const int32_t uid = lit_uid_of(col_name);
 
   arrow::DoubleBuilder val_b;
   REQUIRE(val_b.AppendValues({v_stage_1, v_stage_2}).ok());
@@ -830,11 +845,15 @@ void write_t_only_stb_double_parquet(const std::filesystem::path& input_dir,
 
   auto schema = arrow::schema({
       arrow::field("stage", arrow::int32()),
-      arrow::field(std::string(col_name), arrow::float64()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::float64()),
   });
 
-  write_schedule_parquet(
-      input_dir, class_name, field_name, schema, {stages, vals});
+  write_schedule_parquet(input_dir,
+                         class_name,
+                         field_name,
+                         schema,
+                         {lit_i32({1, 2}), lit_i32({uid, uid}), vals});
 }
 
 }  // namespace
