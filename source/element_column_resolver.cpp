@@ -110,7 +110,42 @@ namespace
   // handles the boundary case via ``commitment.initial_status``.
   std::string normalised_attr {ref.attribute};
   static constexpr std::string_view PREV_SUFFIX {"_prev"};
-  if (normalised_attr.ends_with(PREV_SUFFIX)) {
+
+  // ── prev(<ref>): lagged reference for block_state storage volumes ──────
+  // Resolves to the previous chronological block's column within the stage.
+  // At the FIRST block of the stage it resolves to the cross-phase INCOMING
+  // column (`<attr>_in`, aliased across the stage's blocks), which the SDDP
+  // forward pass pins to the previous phase's end-of-phase value (or, on the
+  // first phase, the fixed initial value).  This is the `vol[b-1]` term that
+  // lets a user constraint express a per-block storage balance.
+  if (ref.prev_wrapped) {
+    const auto& blocks = stage.blocks();
+    const auto it = std::ranges::find_if(
+        blocks, [buid](const BlockLP& b) { return b.uid() == buid; });
+    if (it == blocks.end()) {
+      return std::nullopt;
+    }
+    if (it == blocks.begin()) {
+      // First block of the stage → the cross-phase/stage INCOMING column
+      // (`value_in`); buid stays at the first block.  This is a coarse state
+      // column, NOT an intra-stage lag, so it needs no chronological order
+      // (in particular a single-block stage is fine here).
+      normalised_attr += "_in";
+    } else if (!stage.is_chronological()) {
+      // Interior lag requires a chronological block sequence; without one
+      // there is no well-defined "previous block".
+      SPDLOG_WARN(
+          "user_constraint: prev({}({}).{}) references a prior-block value in "
+          "a non-chronological stage — dropping term",
+          ref.element_type,
+          ref.element_id,
+          ref.attribute);
+      return std::nullopt;
+    } else {
+      // Interior block → the same attribute on the previous block.
+      buid = std::prev(it)->uid();
+    }
+  } else if (normalised_attr.ends_with(PREV_SUFFIX)) {
     normalised_attr.erase(normalised_attr.size() - PREV_SUFFIX.size());
     if (!stage.is_chronological()) {
       SPDLOG_WARN(
@@ -375,7 +410,13 @@ namespace
     return sc.find_ampl_class_attribute(ref.element_type, ref.attribute);
   };
 
-  if (uid_opt) {
+  // `prev(<ref>)` must NOT take the fast `res.var` path: that resolves the
+  // CURRENT block's column under the (unchanged) attribute, but a lagged
+  // reference needs the previous block's column (or, at the first block, the
+  // `value_in` incoming column).  Skip to `resolve_single_col`, which honours
+  // `ref.prev_wrapped` — mirroring how a `_prev`-suffixed attribute escapes
+  // the fast path because its normalised name isn't registered.
+  if (uid_opt && !ref.prev_wrapped) {
     // Read every per-block shape directly off the cached registry entry
     // (`res.var`, resolved once above) — weighted-sum / sum / single col +
     // offset — instead of a separate hash+find per shape per block.  This

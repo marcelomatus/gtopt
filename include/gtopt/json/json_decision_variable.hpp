@@ -37,6 +37,8 @@ struct json_data_contract<DecisionVariable>
                        json_number_null<"block", OptUid>,
                        json_bool_null<"state", OptBool>,
                        json_bool_null<"link", OptBool>,
+                       json_bool_null<"block_state", OptBool>,
+                       json_number_null<"initial_value", OptReal>,
                        json_number_null<"obj_constant", OptReal>>;
 
   constexpr static auto to_json_data(DecisionVariable const& dv)
@@ -54,6 +56,8 @@ struct json_data_contract<DecisionVariable>
                                  dv.block,
                                  dv.state,
                                  dv.link,
+                                 dv.block_state,
+                                 dv.initial_value,
                                  dv.obj_constant);
   }
 };

@@ -135,6 +135,22 @@ struct DecisionVariable
   /// decouple the phases.  Ignored when ``state`` is unset / ``false``.
   OptBool link {};
 
+  /// Per-block storage-state flag — makes this `block`-scoped variable behave
+  /// like a reservoir volume: the per-block columns are storage volumes, a
+  /// cross-phase INCOMING column (`value_in`) is created and pinned by the
+  /// SDDP forward pass to the previous phase's end-of-phase value, and the
+  /// last block's column is registered as the cross-phase state.  Combined
+  /// with a `prev(...)` reference in a user constraint this expresses a
+  /// per-block volume balance `vol[b] = prev(vol) + inflow - release`.
+  /// Requires `link: true`; must be block-scoped; mutually exclusive with the
+  /// coarse `state` flag.  Default unset ⇒ false.
+  OptBool block_state {};
+
+  /// Initial value (`eini`-equivalent) for a `block_state` variable: the
+  /// incoming column on the first stage of the first phase is fixed to this.
+  /// Unset ⇒ the variable's `lower_bound` (0 by default).
+  OptReal initial_value {};
+
   /// Optional objective constant for a mean-shifted (rebased) variable.
   /// When the variable is α-rebased as ``value = value' + obj_constant``
   /// (the LP column holds ``value'``), the objective loses the constant

@@ -212,6 +212,11 @@ private:
     /// element reference (no sums, no nesting).  Sets `state_wrapped`
     /// on the resulting `ElementRef`.
     [[nodiscard]] std::vector<ConstraintTerm> parse_state_expr();
+    /// Parse `prev(element_ref)` — a lagged (previous-block) reference.
+    /// Called when the current token is the `prev` identifier.  The
+    /// argument must be a single element reference (no sums, no nesting).
+    /// Sets `prev_wrapped` on the resulting `ElementRef`.
+    [[nodiscard]] std::vector<ConstraintTerm> parse_prev_expr();
     /// Parse `max(arg1, arg2, ...)` or `min(arg1, arg2, ...)` (F7).
     /// Called when the current token is `max` or `min`.
     [[nodiscard]] std::vector<ConstraintTerm> parse_minmax_expr(

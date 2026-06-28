@@ -219,6 +219,15 @@ struct ElementRef
   /// identically; Phase 2 will require this flag to be set whenever
   /// the resolved column has `AmplVariableKind::StateBacked`.
   bool state_wrapped {false};
+
+  /// True when the user wrote `prev(<element_ref>)` — a lagged reference
+  /// to the variable's value in the PREVIOUS block within the stage.  At
+  /// the first block of a stage the lag resolves to the cross-phase
+  /// INCOMING column (a `block_state` DecisionVariable's `value_in`),
+  /// i.e. the previous phase's end-of-phase value pinned by the SDDP
+  /// forward pass.  This is what lets a user constraint express a
+  /// per-block storage balance `vol[b] = prev(vol) + inflow - release`.
+  bool prev_wrapped {false};
 };
 
 /**

@@ -991,6 +991,12 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_primary()
     return parse_state_expr();
   }
 
+  // prev(element_ref) — lagged (previous-block) reference; at the first
+  // block of a stage it resolves to the cross-phase incoming column.
+  if (m_current_.type == TokenType::IDENT && m_current_.value == "prev") {
+    return parse_prev_expr();
+  }
+
   // max(arg1, arg2, ...) / min(arg1, arg2, ...) — F7 auto-linearization
   if (m_current_.type == TokenType::IDENT
       && (m_current_.value == "max" || m_current_.value == "min"))
@@ -1513,6 +1519,42 @@ std::vector<ConstraintTerm> ConstraintParser::Parser::parse_state_expr()
   ref.state_wrapped = true;
 
   expect(TokenType::RPAREN, "close `state(` with ')'");
+
+  return {
+      ConstraintTerm {
+          .coefficient = 1.0,
+          .element = std::move(ref),
+      },
+  };
+}
+
+// ── prev(element_ref): lagged (previous-block) reference ───────────────────
+
+std::vector<ConstraintTerm> ConstraintParser::Parser::parse_prev_expr()
+{
+  // Current token is `prev`.  Mirrors parse_state_expr: a single element
+  // reference, no nesting.  The resolver lowers it to the previous block's
+  // column within the stage (or, at the first block, the cross-phase
+  // incoming column).
+  const auto prev_col = m_current_.start_pos;
+  advance();
+  expect(TokenType::LPAREN, "use `prev(<element_ref>)`");
+
+  if (m_current_.type != TokenType::IDENT || !is_element_type(m_current_.value))
+  {
+    error_at(prev_col,
+             std::format(
+                 "prev(...) expects a single element reference, "
+                 "got '{}'",
+                 m_current_.value.empty() ? "end of input" : m_current_.value),
+             "use `prev(<element>(\"id\").attr)`, e.g. "
+             "prev(decision_variable(\"vol\").value)");
+  }
+  auto type_name = std::move(m_current_.value);
+  auto ref = parse_element_ref(std::move(type_name));
+  ref.prev_wrapped = true;
+
+  expect(TokenType::RPAREN, "close `prev(` with ')'");
 
   return {
       ConstraintTerm {

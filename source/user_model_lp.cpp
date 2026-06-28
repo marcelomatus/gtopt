@@ -82,7 +82,7 @@ UserModelLP::UserModelLP(const UserModel& um, InputContext& ic)
   }
 }
 
-bool UserModelLP::add_to_lp(const SystemContext& sc,
+bool UserModelLP::add_to_lp(SystemContext& sc,
                             const ScenarioLP& scenario,
                             const StageLP& stage,
                             LinearProblem& lp)

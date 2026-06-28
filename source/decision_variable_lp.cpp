@@ -80,6 +80,37 @@ DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
 
   m_is_state_ = pdv.state.value_or(false);
   m_link_ = pdv.link.value_or(false);
+  m_block_state_ = pdv.block_state.value_or(false);
+
+  // ── Guard: `block_state` and the coarse `state` are mutually exclusive ───
+  // They are two different state mechanisms (per-block storage volume vs. one
+  // coarse end-of-phase column); enabling both is a modelling error.
+  if (m_block_state_ && m_is_state_) {
+    throw std::runtime_error(
+        std::format("decision_variable '{}': `block_state` and `state` are "
+                    "mutually exclusive — pick one state mechanism",
+                    pdv.name));
+  }
+
+  // ── Guard: `block_state` REQUIRES a link (same rationale as `state`) ─────
+  if (m_block_state_ && !m_link_) {
+    throw std::runtime_error(
+        std::format("decision_variable '{}': `block_state: true` requires "
+                    "`link: true` — an un-linked storage state would "
+                    "silently decouple the SDDP phases",
+                    pdv.name));
+  }
+
+  // ── Guard: `block_state` MUST be block-scoped ───────────────────────────
+  // A storage volume evolves per block; the coarse scopes have no per-block
+  // column to carry the within-phase balance.
+  if (m_block_state_ && m_scope_ != ConstraintScope::Block) {
+    throw std::runtime_error(
+        std::format("decision_variable '{}': `block_state: true` must be "
+                    "block-scoped (the default) — a per-block storage volume "
+                    "needs one column per block",
+                    pdv.name));
+  }
 
   // ── Guard 2: a state variable REQUIRES a link ───────────────────────────
   // An un-linked state variable would silently decouple the phases (its
@@ -108,7 +139,7 @@ DecisionVariableLP::DecisionVariableLP(const DecisionVariable& pdv,
   }
 }
 
-bool DecisionVariableLP::add_to_lp(const SystemContext& sc,
+bool DecisionVariableLP::add_to_lp(SystemContext& sc,
                                    const ScenarioLP& scenario,
                                    const StageLP& stage,
                                    LinearProblem& lp)
@@ -229,6 +260,85 @@ bool DecisionVariableLP::add_to_lp(const SystemContext& sc,
   if (!value_cols.at(st_key).empty()) {
     sc.add_ampl_variable(
         ampl_name, uid(), ValueName, scenario, stage, value_cols.at(st_key));
+  }
+
+  // ── block_state: storage-volume coupling (reservoir-in-AMPL) ────────────
+  // The per-block `value` columns above ARE the storage volumes.  Add the two
+  // pieces the native StorageLP provides (mirroring storage_lp.hpp:527-585 and
+  // 903-919), reusing the same SDDP state machinery so no engine change is
+  // needed:
+  //   1. an INCOMING column (`value_in`) — the start-of-stage / cross-phase
+  //      state-in value that `prev(...)` resolves to at the first block;
+  //   2. the LAST block's `value` column registered as the cross-phase STATE
+  //      so the SDDP forward pass propagates the end-of-phase volume.
+  if (m_block_state_ && !value_cols.at(st_key).empty()) {
+    const auto stg_ctx = make_stage_context(scenario.uid(), stage.uid());
+    const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
+
+    ColIndex incoming_col {unknown_index};
+    if (prev_stage == nullptr) {
+      // First stage of the first phase: incoming = initial_value (fixed).
+      incoming_col = lp.add_col({
+          .lowb = decision_variable().initial_value.value_or(lower),
+          .uppb = decision_variable().initial_value.value_or(lower),
+          .class_name = cname,
+          .variable_name = IncomingName,
+          .variable_uid = uid(),
+          .context = stg_ctx,
+      });
+    } else if (prev_phase == nullptr) {
+      // Same phase, later stage: reuse the previous stage's end-of-stage
+      // (last-block) column — both live in the same LP (no new column).
+      incoming_col = efin_cols.at({scenario.uid(), prev_stage->uid()});
+    } else {
+      // Cross-phase boundary: a free `value_in` column pinned by the SDDP
+      // forward pass to the previous phase's end-of-phase state, linked via
+      // the same deferred-link mechanism StorageLP uses for sini←efin.
+      incoming_col = lp.add_col({
+          .lowb = lower,
+          .uppb = upper,
+          .class_name = cname,
+          .variable_name = IncomingName,
+          .variable_uid = uid(),
+          .context = stg_ctx,
+      });
+      if (m_link_) {
+        sc.defer_state_link(
+            // NOLINTNEXTLINE(readability-suspicious-call-argument)
+            StateVariable::key(
+                scenario, *prev_stage, BlockStateClassName, uid(), ValueName),
+            incoming_col);
+      }
+    }
+    incoming_cols[st_key] = incoming_col;
+
+    // Register the incoming column under `IncomingName`, aliased across every
+    // block, so `prev(decision_variable("X").value)` at the first block (where
+    // the resolver rewrites the attribute to `value_in`) finds it.
+    {
+      BIndexHolder<ColIndex> icols;
+      map_reserve(icols, blocks.size());
+      for (auto&& b : blocks) {
+        icols[b.uid()] = incoming_col;
+      }
+      sc.add_ampl_variable(
+          ampl_name, uid(), IncomingName, scenario, stage, std::move(icols));
+    }
+
+    // Register the last block's `value` column as the cross-phase state
+    // (efin-equivalent) so the SDDP forward/backward passes propagate it.
+    const auto last_buid = blocks.back().uid();
+    const auto last_vol_col = value_cols.at(st_key).at(last_buid);
+    efin_cols[st_key] = last_vol_col;
+    sc.add_state_col(
+        lp,
+        // NOLINTNEXTLINE(readability-suspicious-call-argument)
+        StateVariable::key(
+            scenario, stage, BlockStateClassName, uid(), ValueName),
+        last_vol_col,
+        0.0 /*scost*/,
+        1.0 /*var_scale*/,
+        stg_ctx);
   }
 
   return true;

@@ -2335,6 +2335,46 @@ TEST_SUITE("ConstraintParser")
                     std::invalid_argument);
   }
 
+  // ── prev(...) lag operator (AMPL reservoir) ────────────────────────────
+
+  TEST_CASE("prev(decision_variable(...).value) parses with prev_wrapped")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    const auto expr = ConstraintParser::parse(
+        R"(decision_variable("vol").value
+           - prev(decision_variable("vol").value)
+           + generator("g").generation = 0)");
+    REQUIRE(expr.terms.size() == 3);
+
+    const auto& cur = expr.terms[0].element.value_or(ElementRef {});
+    CHECK(cur.element_type == "decision_variable");
+    CHECK(cur.attribute == "value");
+    CHECK_FALSE(cur.prev_wrapped);
+
+    const auto& lag = expr.terms[1].element.value_or(ElementRef {});
+    CHECK(lag.element_type == "decision_variable");
+    CHECK(lag.element_id == "vol");
+    CHECK(lag.attribute == "value");
+    CHECK(lag.prev_wrapped);
+    CHECK(expr.terms[1].coefficient == doctest::Approx(-1.0));
+  }
+
+  TEST_CASE("prev(...) nested / non-element args are rejected")
+  {
+    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(prev(prev(generator("g").generation)) <= 0)")),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(
+        static_cast<void>(ConstraintParser::parse(R"(prev(42) <= 0)")),
+        std::invalid_argument);
+    CHECK_THROWS_AS(static_cast<void>(ConstraintParser::parse(
+                        R"(prev(sum(generator(all).generation)) <= 0)")),
+                    std::invalid_argument);
+  }
+
   TEST_CASE("Phase 1e: state without parens is rejected")
   {
     using namespace gtopt;  // NOLINT(google-build-using-namespace)

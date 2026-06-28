@@ -69,7 +69,9 @@ public:
   /// internal `UserConstraintLP` for one (scenario, stage) pair (block/stage
   /// scope).  Coarse (phase/global) scopes are no-ops here — they route through
   /// the planning passes below, exactly like the standalone elements.
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+  /// Non-const `SystemContext&` (like ReservoirLP / DecisionVariableLP)
+  /// because a bundled `block_state` variable registers a cross-phase state.
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp);
