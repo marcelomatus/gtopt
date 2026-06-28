@@ -19,11 +19,21 @@ studies.  An SDDP study is stored as:
 - A **typed JSON snapshot** `psrclasses.json` written by the SDDP GUI
   alongside the `.dat` files when a study is saved.
 
-`sddp2gtopt` v0 reads only `psrclasses.json` (the JSON-first strategy
-documented in [`scripts/sddp2gtopt/DESIGN.md`](../../scripts/sddp2gtopt/DESIGN.md))
-and produces a single-bus monolithic gtopt planning that
-`gtopt --lp-only` ingests directly.  Raw `.dat` parsing arrives in v1
-(see [Roadmap](#roadmap-and-deferred-mappings)).
+`sddp2gtopt` has **two interchangeable front-ends** (auto-detected from
+the input directory), both feeding the same entity IR + writer:
+
+1. **`psrclasses.json`** — the typed JSON snapshot the SDDP GUI saves.
+2. **Raw PSR `.dat`** — the flat file collection real PSR SDDP / NCP
+   deployments ship (e.g. the Guatemalan AMM weekly/daily cases), which
+   have **no** `psrclasses.json`.  Parsed by the modular per-file readers
+   in [`dat_parsers.py`](../../scripts/sddp2gtopt/dat_parsers.py)
+   (each subclassing the shared
+   `gtopt_shared.base_parser.BaseTextParser`) and orchestrated by
+   [`dat_loader.py`](../../scripts/sddp2gtopt/dat_loader.py).
+
+Both produce a single-bus gtopt planning that `gtopt --lp-only` ingests
+directly.  See [the `.dat` front-end](#the-dat-front-end-psr-sddp--ncp)
+below.
 
 > ⚠️  **Two flavours of "SDDP"**: this tool targets the **PSR Inc.**
 > commercial format only, *not* the academic Julia package
@@ -83,6 +93,8 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `INPUT_DIR` (positional)      | —       | SDDP case dir (alternative to `-i`)               |
 | `-i, --input-dir DIR`         | —       | Same as positional, takes precedence              |
 | `-o, --output-dir DIR`        | inferred| Output dir (`sddp_X` → `gtopt_X`; else `gtopt_<X>`)|
+| `--hydro-cost $/MWh`          | `0`     | Uniform hydro water-value stand-in (.dat path)     |
+| `--import-limit MW`           | —       | Cap aggregate interconnection import (GUA↔MEX ≈ 200)|
 | `--info`                      | off     | Print case summary and exit                       |
 | `--validate`                  | off     | Run schema sanity checks and exit                 |
 | `-l, --log-level LEVEL`       | `INFO`  | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`|
@@ -408,6 +420,111 @@ only requires authoring a `psrclasses.json` — no PSR install needed.
 
 ---
 
+## The `.dat` front-end (PSR SDDP / NCP)
+
+When the input directory has **no `psrclasses.json`** but does contain a
+`sddp.dat`, `sddp2gtopt` switches to the raw-`.dat` front-end.  This is
+the format real PSR SDDP / NCP deployments ship — including the
+Guatemalan AMM weekly (`NCP`) and daily (`PDD_DIARIO`) cases.
+
+### Files read
+
+| file            | parser class    | → entity / use                                   |
+|-----------------|-----------------|--------------------------------------------------|
+| `sddp.dat`      | `ControlParser` | `StudySpec` (cadence, stages, deficit, discount) |
+| `sistem.dat`    | `SystemParser`  | `SystemSpec` list                                |
+| `ccombu*.dat`   | `FuelParser`    | fuel `Custo` ($/MWh) → thermal cost              |
+| `ctermi*.dat`   | `ThermalParser` | `ThermalSpec` (`gcost = CEsp × Custo + CVaria`)  |
+| `chidro*.dat`   | `HydroParser`   | `HydroSpec` (installed `Pot`)                     |
+| `cpde*.dat`     | `DemandParser`  | hourly demand → per-block `lmax`                 |
+
+Each parser subclasses `gtopt_shared.base_parser.BaseTextParser` — the
+same shared base `plp2gtopt`'s parsers use.
+
+### Cost model (the key win over the PSS/E network export)
+
+PSR `.dat` carries the economics a PSS/E `.raw` lacks.  Each thermal
+unit's gtopt `gcost` is computed per segment as
+`CEsp(i) × fuel.Custo + CVaria`, where `Comb` selects the fuel and
+`G(i)` are the segment capacity percentages — so the converted DC
+dispatch follows the real PSR merit order.
+
+### Multi-bus network (`dbus.dat` + `dcirc.dat`)
+
+When both `dbus.dat` and `dcirc.dat` are present, the converter emits a
+**multi-bus DC OPF** (`use_kirchhoff = true`):
+
+- **buses** from `dbus.dat` (one gtopt `Bus` per node);
+- **generator → bus** routing from the `dbus.dat` plant columns (matched
+  by name — 100 % of the Guatemalan thermal+hydro plants map);
+- **circuits** from the fixed-width `dcirc.dat` (lines + transformers),
+  with ohm reactances converted to per-unit on a 100 MVA base using the
+  bus base voltages from **`Volt.dat`** (name-suffix + neighbour
+  inference fill the generator-terminal buses absent from `Volt.dat`);
+  near-radial extremes are floored/capped to keep the LP well-conditioned;
+- **per-bus demand** from `cpdexbus.dat` (one `Demand` per load node).
+
+Falls back to a single bus when `dbus`/`dcirc` are absent.
+
+### Hydro water-value pricing
+
+A single-stage snapshot cannot *derive* water values (those come from the
+multi-stage SDDP cost-to-go) — so, exactly as PSR's NCP does, the
+converter **reads the water values and applies them as hydro costs**.
+When `watervcp.csv` is present it is auto-loaded: each plant's value
+(k$/hm³) is converted to $/MWh via its production factor —
+`gcost = WV · 3.6 / FPMed`, capped at the deficit cost — and set as that
+hydro's `gcost`.  Storage reservoirs price high (they hold water back);
+run-of-river plants (water value ≈ 0) stay free.  `--hydro-cost <$/MWh>`
+is a uniform fallback for plants without a water value.
+
+### The LMP cross-check (vs PDD `cmgbuscp.csv`)
+
+Cross-checking gtopt's bus duals against PSR's solved `cmgbuscp.csv`
+shows the multi-bus **topology + economics are reproduced**: the network
+builds and congests, storage-hydro water values are applied (83/102 GUA
+plants priced), run-of-river is inflow-limited (`inflow.csv × FPMed`),
+and the **interconnection import cap** (`--import-limit 200`, the EOR
+GUA↔MEX tie limit) stops the $0 Mexico import fuels (~1.8 GW) from
+flooding the dispatch.
+
+The import cap is the decisive lever — it lifts gtopt's LMPs from ~$3 to
+the right order of magnitude:
+
+| metric (PDD 22-Jun) | PSR `cmgbuscp` | gtopt (import-capped) | AMM 2025 spot |
+|---------------------|---------------:|----------------------:|--------------:|
+| time-mean LMP $/MWh | 141            | **58**                | ~85 (Jun ~80) |
+| peak-block LMP $/MWh| 165            | **88**                | —             |
+
+The residual ~2× gap is the **single-stage limitation**: PSR never prices
+below its **inter-temporal water-value floor** (~$93 even off-peak,
+because water saved now serves the peak later), whereas a single-stage
+snapshot lets free run-of-river hydro price to ~$0 off-peak.  Closing
+that requires the **multi-stage reservoir coupling** (volume state +
+boundary/FCF cuts) — the same mechanism PSR's SDDP uses to set the water
+value — which is the documented next step, not a single-stage fix.
+
+### Time model (v0)
+
+The NCP demand file is **hourly over the dispatch horizon**, so the
+converted planning is **single-stage with one block per demand hour**
+(e.g. a 7-day week → 1 stage × 168 hourly blocks).  Multi-stage SDDP
+horizons and reservoir hydro (`htopol`/`hinflw`) are follow-ons below.
+
+### Example
+
+```bash
+# Guatemalan AMM weekly NCP case (extracted .dat directory)
+sddp2gtopt --info  ./ncp_week
+sddp2gtopt -i ./ncp_week -o gtopt_ncp_week      # auto multi-bus if dbus+dcirc
+gtopt -s gtopt_ncp_week/gtopt_ncp_week.json -d out      # DC OPF, solves optimally
+
+# price hydro at the water value to lift LMPs toward the PSR band
+sddp2gtopt -i ./ncp_week -o gtopt_ncp_week --hydro-cost 92
+```
+
+---
+
 ## Roadmap and deferred mappings
 
 The following PSR features are **not yet** mapped.  See
@@ -421,7 +538,7 @@ full phased plan.
 | v2    | Inflow time-series from `PSRGaugingStation` + AR-P stationary draw               |
 | v2    | Multi-segment thermal bid curves (already collected, only the writer changes)    |
 | v2    | Per-block demand shape from `Duracao(i)` weights                                 |
-| v3    | Multi-bus topology from `ccombus*.dat`                                           |
+| ~~v3~~ ✅ | Multi-bus DC OPF from `dbus.dat` + `dcirc.dat` + `Volt.dat` + `cpdexbus.dat` (done) |
 | v3    | Transmission lines from `PSRCircuito` / `PSRTransformador`                       |
 | v4    | Multi-system cases with `PSRInterconnection*`                                    |
 | v4    | Multi-scenario stochasticity (forward/backward AR-P samples)                     |

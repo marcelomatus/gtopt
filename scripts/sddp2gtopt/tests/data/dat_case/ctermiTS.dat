@@ -1,0 +1,4 @@
+$version=1
+!Num ...Nombre... #Uni Tipo .PotIns .GerMin .GerMax ..Teif. ..Ih... .CVaria .MR. Comb ...G1.. .CEsp.1
+  10 GASPLANT        1    0   100.0     0.0   100.0      0.      0.      0.    0    1     100       2
+  11 OILPLANT        1    0    50.0    10.0    50.0      0.      0.      0.    0    2     100       3

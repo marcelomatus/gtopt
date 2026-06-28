@@ -11,10 +11,40 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .dat_loader import is_dat_case, load_dat_case
 from .psrclasses_loader import PsrClassesLoader, load_psrclasses
 
 
 logger = logging.getLogger(__name__)
+
+
+def _display_dat_info(input_dir: Path) -> None:
+    """Print a summary of a raw PSR ``.dat`` case."""
+    case = load_dat_case(input_dir)
+    s = case.study
+    n_blocks = len(case.demands[0].block_values) if case.demands else 0
+    pmax_t = sum(t.pmax for t in case.thermals)
+    pmax_h = sum(h.p_inst for h in case.hydros)
+    print(f"PSR SDDP/NCP .dat case: {input_dir}")
+    print(f"  cadence            : {s.stage_type} (1=weekly, 2=monthly, 3=trimester)")
+    print(f"  stages / blocks    : {s.num_stages} / {s.num_blocks}")
+    print(f"  discount rate      : {s.discount_rate:g}")
+    print(f"  deficit cost       : {s.deficit_cost:g} $/MWh")
+    print(
+        f"  systems            : {len(case.systems)}  "
+        f"({', '.join(sy.name for sy in case.systems)})"
+    )
+    print(f"  thermal units      : {len(case.thermals)}  (Σpmax {pmax_t:,.0f} MW)")
+    print(f"  hydro plants       : {len(case.hydros)}  (Σpot {pmax_h:,.0f} MW)")
+    print(f"  demand blocks      : {n_blocks}")
+    if case.multi_bus:
+        print(
+            f"  network (multi-bus): {len(case.buses)} buses, "
+            f"{len(case.circuits)} circuits → DC OPF"
+        )
+        print(f"  demand nodes       : {len(case.demands)}")
+    else:
+        print("  network            : single-bus (no dbus/dcirc)")
 
 
 def _study_summary(study: dict[str, Any]) -> list[tuple[str, str]]:
@@ -81,6 +111,12 @@ def display_sddp_info(options: dict[str, Any]) -> None:
         ValueError: If the JSON is malformed.
     """
     input_dir = Path(options["input_dir"])
+
+    # Raw PSR `.dat` case (no psrclasses.json): summarise via the .dat loader.
+    if is_dat_case(input_dir):
+        _display_dat_info(input_dir)
+        return
+
     loader = load_psrclasses(input_dir)
     print(f"SDDP case: {input_dir}")
     print(f"Manifest:  {loader.path.name}")

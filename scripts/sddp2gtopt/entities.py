@@ -93,6 +93,8 @@ class ThermalSpec:
     fuel_refs: list[int] = field(default_factory=list)
     g_segments: list[tuple[float, float]] = field(default_factory=list)
     system_ref: int | None = None
+    bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
+    is_import: bool = False  # backed by an interconnection import fuel (MEX/IMP)
 
 
 @dataclass
@@ -115,11 +117,20 @@ class HydroSpec:
     fp_med: float = 0.0
     station_ref: int | None = None
     system_ref: int | None = None
+    bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
+    gcost: float = 0.0  # water-value opportunity cost [$/MWh] (0 = free)
 
 
 @dataclass
 class DemandSpec:
-    """A consumer (``PSRDemand``)."""
+    """A consumer (``PSRDemand``).
+
+    ``profile`` is the per-stage series (GWh/stage, json path).
+    ``block_values`` is an optional explicit per-block MW series for a
+    single-stage model (used by the PSR ``.dat`` NCP path, whose demand
+    file is hourly over the dispatch horizon); when present the writer
+    emits it directly as ``lmax[0]`` instead of normalising ``profile``.
+    """
 
     code: int
     name: str
@@ -127,6 +138,8 @@ class DemandSpec:
     duracao_pct: float = 100.0
     system_ref: int | None = None
     profile: list[float] = field(default_factory=list)
+    block_values: list[float] = field(default_factory=list)
+    bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
 
 
 @dataclass
@@ -142,3 +155,33 @@ class GaugingStationSpec:
     name: str
     reference_id: int
     vazao: list[float] = field(default_factory=list)
+
+
+@dataclass
+class BusSpec:
+    """A network bus (``dbus.dat``) for the multi-bus DC OPF path.
+
+    ``base_kv`` is taken from the bus-name voltage suffix (``AGU-230`` →
+    230); used to convert ohm reactances to per-unit.
+    """
+
+    number: int
+    name: str
+    base_kv: float = 0.0
+    area: str = ""
+
+
+@dataclass
+class CircuitSpec:
+    """A transmission circuit (line / transformer) from ``dcirc.dat``.
+
+    ``reactance_pu`` is already normalised to per-unit on a 100 MVA base
+    by the parser/loader; ``rating`` is the MVA/MW flow cap.
+    """
+
+    from_bus: int
+    to_bus: int
+    name: str = ""
+    resistance: float = 0.0
+    reactance_pu: float = 0.0
+    rating: float = 0.0

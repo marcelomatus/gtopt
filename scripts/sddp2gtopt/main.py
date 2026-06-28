@@ -29,16 +29,19 @@ __version__ = "0.1.0"
 
 
 _DESCRIPTION = """\
-Convert a PSR SDDP case directory to gtopt JSON format.
+Convert a PSR SDDP / NCP case directory to gtopt JSON format.
 
-Reads the typed snapshot ``psrclasses.json`` that PSR SDDP writes
-alongside the legacy ``.dat`` files.  ``--info`` displays a case
-summary, ``--validate`` runs a light schema sanity check, and
-``-i / --input-dir`` + ``-o / --output-dir`` invoke the full
-conversion (currently emits a single-bus 1-scenario planning JSON
-covering thermal generators, flattened hydro generators, and per-
-stage demand; richer network / reservoir topology is on the roadmap
-— see DESIGN.md).
+Auto-detects two input front-ends: the typed ``psrclasses.json``
+snapshot the SDDP GUI writes, OR the raw fixed-format ``.dat`` collection
+real PSR SDDP / NCP deployments ship (``sddp.dat`` + ``sistem``/
+``ccombu``/``ctermi``/``chidro``/``cpde`` files; e.g. the Guatemalan AMM
+cases).  The ``.dat`` path carries real fuel/thermal costs, so the
+converted dispatch follows the PSR merit order.
+
+``--info`` displays a case summary, ``--validate`` runs a light sanity
+check, and ``-i / --input-dir`` + ``-o / --output-dir`` invoke the full
+conversion (single-bus 1-scenario planning; richer network / reservoir
+topology is on the roadmap — see DESIGN.md).
 """
 
 _EPILOG = """\
@@ -82,6 +85,21 @@ def make_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="output directory for the gtopt planning JSON",
+    )
+    parser.add_argument(
+        "--hydro-cost",
+        type=float,
+        default=0.0,
+        help="uniform hydro opportunity cost [$/MWh] (water-value stand-in; "
+        "default 0 = free hydro). Set near the PSR system marginal to match LMPs.",
+    )
+    parser.add_argument(
+        "--import-limit",
+        type=float,
+        default=None,
+        help="cap [MW] on aggregate interconnection import (Mexico/import-fuel "
+        "generators) — the physical tie limit (GUA↔MEX ≈ 200); stops the $0 "
+        "import fuels flooding the dispatch (.dat path only).",
     )
     parser.add_argument(
         "-l",
@@ -136,7 +154,12 @@ def main(argv: list[str] | None = None) -> None:
     if input_dir is None:
         parser.error("input directory is required: pass it positionally or via -i")
 
-    options = {"input_dir": input_dir, "output_dir": args.output_dir}
+    options = {
+        "input_dir": input_dir,
+        "output_dir": args.output_dir,
+        "hydro_cost": args.hydro_cost,
+        "import_limit": args.import_limit,
+    }
 
     if args.show_info:
         try:

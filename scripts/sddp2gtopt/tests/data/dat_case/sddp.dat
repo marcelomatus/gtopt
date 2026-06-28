@@ -1,0 +1,13 @@
+Synthetic PSR SDDP/NCP control file for sddp2gtopt tests
+IDIOMA                       1  0 = ING; 1 = ESP
+FUNCION                      7  1=POL; 2=SIM
+ETAPA                        1  1=SEMANAL; 2=MENSUAL; 3=TRIM.
+NUMERO DE ETAPAS             2
+NUMERO DE SISTEMAS           1
+NUMERO DE BLOQUES DEMANDA    1 1
+TASA DE DESCUENTO         0.10
+------------------------- Costo Deficit --------------------------------
+.....% ......c1 .....% ......c2
+   100    500.0
+------------------------- Funcion de Costo Futuro ----------------------
+Crea funcion costo futuro    0  0=no; 1=s

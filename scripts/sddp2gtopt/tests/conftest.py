@@ -27,6 +27,12 @@ def case0_dir() -> Path:
 
 
 @pytest.fixture(scope="session")
+def dat_case_dir() -> Path:
+    """Synthetic raw PSR ``.dat`` case (sddp/sistem/ccombu/ctermi/chidro/cpde)."""
+    return _case_fixture("dat_case")
+
+
+@pytest.fixture(scope="session")
 def case0_psrclasses(case0_dir: Path) -> Path:
     """Path to ``case0/psrclasses.json``."""
     return case0_dir / "psrclasses.json"

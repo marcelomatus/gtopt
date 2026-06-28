@@ -18,10 +18,12 @@ where the user has deliberately not declared any inter-area links.
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 from typing import Any
+
+from gtopt_shared.json_planning import (  # noqa: F401  pylint: disable=unused-import
+    write_planning,  # re-exported for back-compat
+)
 
 from .entities import (
     DemandSpec,
@@ -46,7 +48,12 @@ def _stage_hours(stage_type: int) -> float:
     return _STAGE_HOURS.get(stage_type, 730.0)
 
 
-def build_options(study: StudySpec, *, use_single_bus: bool = True) -> dict[str, Any]:
+def build_options(
+    study: StudySpec,
+    *,
+    use_single_bus: bool = True,
+    use_kirchhoff: bool = False,
+) -> dict[str, Any]:
     """Map :class:`StudySpec` onto gtopt's top-level ``options`` block.
 
     The 11 legacy top-level mirror keys (``use_single_bus`` /
@@ -63,7 +70,7 @@ def build_options(study: StudySpec, *, use_single_bus: bool = True) -> dict[str,
         "output_compression": "uncompressed",
         "model_options": {
             "use_single_bus": use_single_bus,
-            "use_kirchhoff": False,
+            "use_kirchhoff": use_kirchhoff,
             "demand_fail_cost": float(study.deficit_cost),
             "scale_objective": 1000,
         },
@@ -210,6 +217,7 @@ def build_hydro_generators(
     bus_by_ref: dict[int, str] | None = None,
     fallback_bus: str | None = None,
     start_uid: int,
+    gcost: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Hydros are flattened to zero-cost generators in v0.
 
@@ -241,7 +249,7 @@ def build_hydro_generators(
                 "bus": bus,
                 "pmin": 0.0,
                 "pmax": plant.p_inst,
-                "gcost": 0.0,
+                "gcost": gcost,
                 "capacity": plant.p_inst,
             }
         )
@@ -252,11 +260,19 @@ def build_hydro_generators(
 def _normalize_demand_profile(
     demand: DemandSpec, study: StudySpec
 ) -> list[list[float]]:
-    """Build the ``lmax[stage][block]`` matrix from PSR's monthly series.
+    """Build the ``lmax[stage][block]`` matrix.
 
-    PSR ``Demanda(1)`` is in **GWh per stage**. gtopt's ``lmax`` is in
-    **MW per block**, so we divide by block duration in hours.
+    Two sources:
+
+    * ``block_values`` (PSR ``.dat`` NCP path) — an explicit per-block MW
+      series for a single stage, emitted verbatim as ``lmax[0]``.
+    * ``profile`` (json path) — PSR ``Demanda(1)`` in **GWh per stage**;
+      gtopt's ``lmax`` is **MW per block**, so we divide by block hours
+      and replicate across blocks.
     """
+    if demand.block_values:
+        return [list(demand.block_values)]
+
     block_hours = _stage_hours(study.stage_type) / max(study.num_blocks, 1)
     profile = list(demand.profile)
     if len(profile) < study.num_stages:
@@ -306,6 +322,132 @@ def build_demands(
     return out
 
 
+# Minimum |reactance| (p.u.) for a circuit, so the DC flow equation
+# f = (θ_a − θ_b) / X stays well-posed on bus-tie / zero-impedance links.
+_MIN_REACTANCE = 1.0e-5
+# Large finite tmax for circuits with no declared rating.
+_UNLIMITED_RATING = 99999.0
+
+
+def _net_bus_ref(number: int) -> str:
+    """gtopt bus reference name for a PSR network bus number."""
+    return f"b{number}"
+
+
+def _build_multibus_planning(
+    *,
+    study: StudySpec,
+    thermals: list[ThermalSpec],
+    hydros: list[HydroSpec],
+    demands: list[DemandSpec],
+    buses: list[Any],
+    circuits: list[Any],
+    name: str,
+    hydro_cost: float = 0.0,
+) -> dict[str, Any]:
+    """Assemble a multi-bus DC OPF planning from the PSR network entities."""
+    live = {b.number for b in buses}
+    bus_array = [{"uid": b.number, "name": _net_bus_ref(b.number)} for b in buses]
+
+    line_array: list[dict[str, Any]] = []
+    uid = 1
+    for c in circuits:
+        if c.from_bus not in live or c.to_bus not in live:
+            continue
+        x = c.reactance_pu
+        if abs(x) < _MIN_REACTANCE:
+            x = _MIN_REACTANCE if x >= 0 else -_MIN_REACTANCE
+        tmax = c.rating if c.rating > 0 else _UNLIMITED_RATING
+        # PSR circuit names repeat (96 dups in the GUA case); the uid
+        # suffix guarantees the unique Line name gtopt requires.
+        label = (c.name or f"l{c.from_bus}_{c.to_bus}").replace(" ", "_")
+        line_array.append(
+            {
+                "uid": uid,
+                "name": f"{label}_{uid}",
+                "bus_a": _net_bus_ref(c.from_bus),
+                "bus_b": _net_bus_ref(c.to_bus),
+                "reactance": x,
+                "tmax_ab": tmax,
+                "tmax_ba": tmax,
+            }
+        )
+        uid += 1
+
+    gen_array: list[dict[str, Any]] = []
+    guid = 1
+    for tplant in thermals:
+        tbus = tplant.bus_number
+        if tbus is None or tbus not in live or tplant.pmax <= 0.0:
+            continue
+        gen_array.append(
+            {
+                "uid": guid,
+                "name": tplant.name or f"thermal_{tplant.code}",
+                "bus": _net_bus_ref(tbus),
+                "pmin": tplant.pmin,
+                "pmax": tplant.pmax,
+                "gcost": _gen_gcost(tplant),
+                "capacity": tplant.pmax,
+            }
+        )
+        guid += 1
+    for hplant in hydros:
+        hbus = hplant.bus_number
+        if hbus is None or hbus not in live or hplant.p_inst <= 0.0:
+            continue
+        gen_array.append(
+            {
+                "uid": guid,
+                "name": hplant.name or f"hydro_{hplant.code}",
+                "bus": _net_bus_ref(hbus),
+                "pmin": 0.0,
+                "pmax": hplant.p_inst,
+                # Per-plant water value (from watervcp) when present,
+                # else the uniform --hydro-cost stand-in.
+                "gcost": hplant.gcost if hplant.gcost > 0 else hydro_cost,
+                "capacity": hplant.p_inst,
+            }
+        )
+        guid += 1
+
+    demand_array: list[dict[str, Any]] = []
+    duid = 1
+    for d in demands:
+        dbus = d.bus_number
+        if dbus is None or dbus not in live:
+            continue
+        demand_array.append(
+            {
+                "uid": duid,
+                "name": d.name or f"dem_{dbus}",
+                "bus": _net_bus_ref(dbus),
+                "lmax": _normalize_demand_profile(d, study),
+            }
+        )
+        duid += 1
+
+    logger.info(
+        "multi-bus planning '%s': %d buses, %d lines, %d generators, %d demands",
+        name,
+        len(bus_array),
+        len(line_array),
+        len(gen_array),
+        len(demand_array),
+    )
+    return {
+        "options": build_options(study, use_single_bus=False, use_kirchhoff=True),
+        "simulation": build_simulation(study),
+        "system": {
+            "name": name,
+            "bus_array": bus_array,
+            "generator_array": gen_array,
+            "demand_array": demand_array,
+            "line_array": line_array,
+        },
+    }
+
+
 def build_planning(
     *,
     study: StudySpec,
@@ -314,21 +456,37 @@ def build_planning(
     hydros: list[HydroSpec],
     demands: list[DemandSpec],
     name: str,
+    buses: list[Any] | None = None,
+    circuits: list[Any] | None = None,
+    hydro_cost: float = 0.0,
 ) -> dict[str, Any]:
     """Assemble the full gtopt planning JSON.
 
-    Single-system cases produce one bus and one ``use_single_bus =
-    true`` planning (identical output to pre-2026-05-16 v0).
-    Multi-system cases emit one bus per ``PSRSystem``, set
-    ``use_single_bus = false`` so gtopt honors the multi-bus
-    topology, and route every thermal / hydro / demand to its
-    ``system_ref`` bus.
+    Three modes:
 
-    Without ``PSRInterconnection`` parsing (planned for v4) the
-    multi-system LP is a set of disjoint single-bus subproblems —
-    the correct semantics for a PSR study that has been declared as
-    multi-system but with no inter-area transmission yet.
+    * **Multi-bus DC OPF** — when ``buses`` + ``circuits`` are supplied
+      (PSR ``.dat`` network path): emits one ``Bus`` per ``dbus`` node,
+      one ``Line`` per ``dcirc`` circuit (per-unit reactance), routes
+      generators/demands to their ``bus_number``, and turns on Kirchhoff.
+    * **Single-system** — one bus, ``use_single_bus = true``.
+    * **Multi-system** — one bus per ``PSRSystem`` (no inter-area links).
+
+    ``hydro_cost`` is the uniform hydro opportunity cost [$/MWh] applied
+    to every (zero-fuel) hydro generator — a stand-in for the PSR water
+    value (v0 has no reservoir coupling).
     """
+    if buses and circuits:
+        return _build_multibus_planning(
+            study=study,
+            thermals=thermals,
+            hydros=hydros,
+            demands=demands,
+            buses=buses,
+            circuits=circuits,
+            name=name,
+            hydro_cost=hydro_cost,
+        )
+
     if not systems:
         raise ValueError("build_planning: no PSRSystem entities")
 
@@ -351,6 +509,7 @@ def build_planning(
             bus_by_ref=bus_by_ref,
             fallback_bus=fallback_bus,
             start_uid=len(gen_array) + 1,
+            gcost=hydro_cost,
         )
     )
     demand_array = build_demands(
@@ -369,28 +528,6 @@ def build_planning(
     }
 
 
-def write_planning(planning: dict[str, Any], output_path: Path) -> Path:
-    """Write the planning to ``output_path`` (parents created on demand).
-
-    Sanitises Inf / -Inf / NaN sentinels via
-    :func:`gtopt_shared.json_utils.sanitize_inf` and strips converter-
-    internal bookkeeping keys via
-    :func:`gtopt_shared.json_utils.strip_internal_keys` before
-    serialising — the C++ daw::json parser rejects literal ``Infinity``
-    and treats unknown keys as schema errors under StrictParsePolicy.
-    """
-    # Imported lazily so existing ``from sddp2gtopt.gtopt_writer import …``
-    # doesn't transitively pull pyarrow when consumers only need the
-    # builder helpers.
-    from gtopt_shared.json_utils import (  # pylint: disable=import-outside-toplevel
-        sanitize_inf,
-        strip_internal_keys,
-    )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cleaned = sanitize_inf(strip_internal_keys(planning))
-    with output_path.open("w", encoding="utf-8") as fh:
-        json.dump(cleaned, fh, indent=2)
-        fh.write("\n")
-    logger.info("wrote gtopt planning: %s", output_path)
-    return output_path
+# ``write_planning`` now lives in gtopt_shared.json_planning; re-exported
+# here so existing ``from sddp2gtopt.gtopt_writer import write_planning``
+# imports keep working.

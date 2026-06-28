@@ -14,6 +14,7 @@ preparing, converting, visualizing, and post-processing data for use with gtopt.
   - [gtopt_diagram](#gtopt_diagram) · [full docs](scripts/gtopt_diagram.md)
   - [plp2gtopt](#plp2gtopt) · [full docs](scripts/plp2gtopt.md)
   - [sddp2gtopt](#sddp2gtopt) · [full docs](scripts/sddp2gtopt.md)
+  - [psse2gtopt](#psse2gtopt) · [full docs](scripts/psse2gtopt.md)
   - [pp2gtopt](#pp2gtopt) · [full docs](scripts/pp2gtopt.md)
   - [gtopt2pp](#gtopt2pp) — convert gtopt JSON back to pandapower
   - [igtopt](#igtopt) · [full docs](scripts/igtopt.md) · [Excel template](templates/gtopt_template.xlsx) · `igtopt --make-template` regenerates the template
@@ -82,7 +83,8 @@ Each command-line tool lives in its own Python package directory under
 | `gtopt_field_extractor/` | `gtopt_field_extractor` | C++ header field metadata extractor |
 | `igtopt/` | `igtopt` | Excel → gtopt JSON converter |
 | `plp2gtopt/` | `plp2gtopt` | PLP → gtopt JSON converter |
-| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP → gtopt JSON converter |
+| `sddp2gtopt/` | `sddp2gtopt` | PSR SDDP/NCP → gtopt JSON converter (json + `.dat`) |
+| `psse2gtopt/` | `psse2gtopt` | PSS®E RAW → gtopt multi-bus DC OPF converter |
 | `pp2gtopt/` | `pp2gtopt` | pandapower → gtopt JSON converter |
 | `gtopt2pp/` | `gtopt2pp` | gtopt JSON → pandapower converter |
 | `run_gtopt/` | `run_gtopt` | Smart solver wrapper with pre/post-flight checks |
@@ -550,6 +552,33 @@ multi-scenario, `.dat` fallback) is tracked in
 [`scripts/sddp2gtopt/DESIGN.md`](../scripts/sddp2gtopt/DESIGN.md);
 the per-element mapping rules and unit conversions are documented
 in detail in [`scripts/sddp2gtopt.md`](scripts/sddp2gtopt.md).
+
+The `sddp2gtopt` front-end auto-detects the input: the typed
+`psrclasses.json` snapshot **or** the raw PSR `.dat` collection real
+SDDP/NCP deployments ship (e.g. the Guatemalan AMM weekly/daily cases).
+The `.dat` path builds a **multi-bus DC OPF** with real thermal merit
+costs, per-plant water-value hydro pricing, inflow-limited run-of-river,
+and an interconnection import cap (`--import-limit`).
+
+---
+
+## psse2gtopt
+
+> **[→ Full documentation](scripts/psse2gtopt.md)**
+
+Converts a **PSS®E** `.raw` power-flow case (revisions 32/33) into a
+single-snapshot **multi-bus DC OPF** gtopt planning — the sister tool to
+`plp2gtopt` / `sddp2gtopt` for the Siemens PSS/E dialect.  Buses → `Bus`,
+branches + transformers → `Line` (per-unit reactance; 3-winding → star
+bus), generators → `Generator` (uniform `--gcost`, since RAW has no
+costs), loads → `Demand`.  Optional AMM side-car inputs: `--nomenclatura`
+(readable bus names), `--ldm` (merit-order costs), `--rating-set A|B|C`.
+
+```bash
+psse2gtopt --info case.raw                 # case summary
+psse2gtopt -i case.raw -o gtopt_case        # convert
+gtopt -s gtopt_case/gtopt_case.json -d out  # solve DC OPF
+```
 
 ---
 

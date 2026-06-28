@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .dat_loader import is_dat_case, load_dat_case
 from .gtopt_writer import build_planning, write_planning
 from .parsers import (
     parse_demands,
@@ -50,6 +51,20 @@ def validate_sddp_case(options: dict[str, Any]) -> bool:
     if input_dir is None:
         logger.error("validate_sddp_case: 'input_dir' option is required")
         return False
+
+    # Raw PSR `.dat` case (no psrclasses.json): validate via the .dat loader.
+    if is_dat_case(input_dir):
+        try:
+            case = load_dat_case(input_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.error("validate failed: %s", exc)
+            return False
+        if not case.systems:
+            logger.error("validate failed: no systems parsed from .dat case")
+            return False
+        logger.info("validation OK (.dat): %s", Path(input_dir))
+        return True
+
     try:
         loader = load_psrclasses(input_dir)
     except (FileNotFoundError, ValueError) as exc:
@@ -118,15 +133,29 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     if raw_input is None:
         raise ValueError("convert_sddp_case: 'input_dir' option is required")
     input_dir = Path(raw_input)
-    loader = load_psrclasses(input_dir)
 
-    study = parse_study(loader)
-    systems = parse_systems(loader)
-    if not systems:
-        raise ValueError(f"{loader.path}: no PSRSystem entities — cannot convert")
-    thermals = parse_thermal_plants(loader)
-    hydros = parse_hydro_plants(loader)
-    demands = parse_demands(loader)
+    # Front-end selection: raw PSR `.dat` collection vs psrclasses.json.
+    buses = None
+    circuits = None
+    if is_dat_case(input_dir):
+        case = load_dat_case(input_dir, import_limit=options.get("import_limit"))
+        study = case.study
+        systems = case.systems
+        thermals = case.thermals
+        hydros = case.hydros
+        demands = case.demands
+        if case.multi_bus:
+            buses = case.buses
+            circuits = case.circuits
+    else:
+        loader = load_psrclasses(input_dir)
+        study = parse_study(loader)
+        systems = parse_systems(loader)
+        if not systems:
+            raise ValueError(f"{loader.path}: no PSRSystem entities — cannot convert")
+        thermals = parse_thermal_plants(loader)
+        hydros = parse_hydro_plants(loader)
+        demands = parse_demands(loader)
 
     output_dir, output_file, planning_name = _resolve_output_paths(
         input_dir,
@@ -142,6 +171,9 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
         hydros=hydros,
         demands=demands,
         name=planning_name,
+        buses=buses,
+        circuits=circuits,
+        hydro_cost=float(options.get("hydro_cost", 0.0)),
     )
 
     write_planning(planning, output_file)
