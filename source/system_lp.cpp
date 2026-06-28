@@ -1874,23 +1874,32 @@ int SystemLP::update_lp()
     return 0;
   }
 
-  // Rebuild collections if they were dropped.  Self-gating
-  // (`rebuild_collections_if_needed` returns immediately when both
-  // built-flags are set), so this is a NO-OP under the default
-  // keep-resident behaviour (P3) and under disposable-only drop —
-  // `visit_elements` below walks the still-resident HasUpdateLP types.
+  // Rebuild collections ONLY when the resident (HasUpdateLP) types this
+  // loop iterates were themselves dropped — the memory-limited *full*
+  // eviction path (`clear_collections_for_eviction()` on release) flips
+  // `m_collections_built_` to false.  Without the rebuild there,
+  // `visit_elements` would silently walk EMPTY collections and skip the
+  // per-(scene,stage) coefficient updates (seepage, production factors,
+  // …) — a silent-wrong-result bug, not a crash.  The rebuild is the
+  // optimized flatten (`skip_matrix_build`, no equilibration / labels /
+  // stats), ~5-10× cheaper than a full flatten — the CPU side of the
+  // bounded-memory trade, paid only when a memory limit forces eviction.
   //
-  // It only does work under the memory-limited *full* eviction path
-  // (`clear_collections_for_eviction()` on release), where the
-  // HasUpdateLP types this loop iterates were also dropped: without the
-  // rebuild, `visit_elements` would silently walk EMPTY collections and
-  // skip the per-(scene,stage) coefficient updates (seepage, production
-  // factors, …) — a silent-wrong-result bug, not a crash.  The rebuild
-  // is the optimized flatten (`skip_matrix_build`, no equilibration /
-  // labels / stats), ~5-10× cheaper than a full flatten — the CPU side
-  // of the bounded-memory trade, paid only when a memory limit forces
-  // eviction.
-  rebuild_collections_if_needed();
+  // Gate on `m_collections_built_`, NOT on
+  // `rebuild_collections_if_needed`'s own two-flag check: that helper
+  // also fires when only the DISPOSABLE types were dropped (compress
+  // mode's `clear_disposable_collections()` keeps `m_collections_built_`
+  // true but clears `m_disposable_collections_built_`).  `update_lp`'s
+  // `visit_elements` only ever touches HasUpdateLP types — never the
+  // disposables — so rehydrating them here every iteration would burn
+  // the very allocation compress mode amortises away.  `update_lp`
+  // deliberately leaves the disposables dropped; only an explicit
+  // `rebuild_collections_if_needed()` (e.g. write-out) revives them.
+  // See test_system_lp_lazy_rebuild ("update_lp does NOT rehydrate
+  // disposable collections").
+  if (!m_collections_built_) {
+    rebuild_collections_if_needed();
+  }
 
   int total = 0;
 

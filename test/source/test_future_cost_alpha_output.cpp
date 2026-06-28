@@ -83,9 +83,15 @@ TEST_CASE("FutureCost element saves alpha to the SDDP solution")  // NOLINT
           ++cells_with_alpha;
         }
       }
-      // FutureCostLP must still exist per cell so write_out routes the emit.
+      // FutureCostLP is a disposable collection: under compress it is
+      // dropped after solve and `write_out()` re-materialises it on demand
+      // via `rebuild_collections_if_needed()` (system_lp.cpp).  `update_lp`
+      // deliberately does NOT rehydrate it (see test_system_lp_lazy_rebuild),
+      // so mirror write_out's rebuild here before asserting the collection
+      // is present for the emit.
       for (const auto pi : iota_range<PhaseIndex>(0, n_phases)) {
         auto& sys = planning_lp.system(si, pi);
+        sys.rebuild_collections_if_needed();
         CHECK(!sys.elements<FutureCostLP>().empty());
       }
     }
