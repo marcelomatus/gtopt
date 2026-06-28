@@ -20,6 +20,7 @@
 
 #include "scip_solver_backend.hpp"
 
+#include <lpi/lpi.h>
 #include <scip/scip.h>
 #include <scip/scipdefplugins.h>
 
@@ -211,6 +212,13 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
   }
   if (!any_integer) {
     SCIP_CALL(SCIPsetIntParam(scip, "presolving/maxrounds", 0));
+    // Also disable domain propagation: it would tighten a binding constraint
+    // into a variable bound and move the shadow price onto that bound (reduced
+    // cost), so the constraint's own LP dual would read back as 0.  Keeping
+    // propagation off leaves the price on the row, where the dual-recovery
+    // re-solve reads it.
+    SCIP_CALL(SCIPsetIntParam(scip, "propagating/maxrounds", 0));
+    SCIP_CALL(SCIPsetIntParam(scip, "propagating/maxroundsroot", 0));
   }
 
   SCIP_CALL(SCIPsolve(scip));
@@ -236,9 +244,33 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
   // SCIP exposes the linear constraint dual via SCIPgetDualsolLinear after the
   // LP relaxation.
   if (!any_integer && out.status == static_cast<int>(SCIP_STATUS_OPTIMAL)) {
-    for (int i = 0; i < model.num_rows; ++i) {
-      const auto u = static_cast<std::size_t>(i);
-      out.dual[u] = SCIPgetDualsolLinear(scip, conss[u]);
+    // Row duals.  SCIPgetDualsolLinear() returns 0 in SOLVED stage (the value
+    // is not propagated back to the original constraint handle), so read the
+    // raw row prices from SCIP's LP interface, which still holds the last LP
+    // solve.  With presolve + propagation disabled (above), the LPI rows map
+    // 1:1 and in order to our constraints.
+    SCIP_LPI* lpi = nullptr;
+    int nlpi_rows = 0;
+    if (SCIPgetLPI(scip, &lpi) == SCIP_OKAY && lpi != nullptr
+        && SCIPlpiGetNRows(lpi, &nlpi_rows) == SCIP_OKAY
+        && nlpi_rows == model.num_rows)
+    {
+      std::vector<double> row_dual(static_cast<std::size_t>(model.num_rows),
+                                   0.0);
+      if (SCIPlpiGetSol(
+              lpi, nullptr, nullptr, row_dual.data(), nullptr, nullptr)
+          == SCIP_OKAY)
+      {
+        for (int i = 0; i < model.num_rows; ++i) {
+          out.dual[static_cast<std::size_t>(i)] =
+              row_dual[static_cast<std::size_t>(i)];
+        }
+      }
+    } else {
+      for (int i = 0; i < model.num_rows; ++i) {
+        const auto u = static_cast<std::size_t>(i);
+        out.dual[u] = SCIPgetDualsolLinear(scip, conss[u]);
+      }
     }
     // Column reduced costs.  With SCIP presolve disabled for this pure-LP solve
     // (see the solve setup above), no column is fixed/aggregated away, so
