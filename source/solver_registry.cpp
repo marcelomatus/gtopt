@@ -276,6 +276,28 @@ std::optional<double> SolverRegistry::plugin_infinity(
   return std::nullopt;
 }
 
+void SolverRegistry::reset_default_logger_after_fork() noexcept
+{
+  // Order matters: spdlog::drop_all() clears the registry AND resets the
+  // default logger to null (registry::drop_all → default_logger_.reset()).
+  // Detach the inherited async handles FIRST, then install the fresh
+  // synchronous default so it survives.  Installing before dropping leaves a
+  // null default logger, and the next spdlog::*() call dereferences it — the
+  // validation child SIGSEGV'd exactly here (should_log() on null, si_addr
+  // 0x40) on every run that validated an unavailable plugin (e.g. MindOpt).
+  try {
+    spdlog::drop_all();
+    auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
+    auto child_logger =
+        std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
+    child_logger->set_level(spdlog::level::warn);
+    spdlog::set_default_logger(std::move(child_logger));
+  } catch (...) {  // NOLINT(bugprone-empty-catch)
+    // Best effort — if the logger swap fails, validation continues without
+    // logging.  We must NOT propagate exceptions across the fork barrier.
+  }
+}
+
 bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
                                                 const std::string& solver_name)
 {
@@ -308,23 +330,12 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // `overrun_oldest`, silently lose every message including the
     // diagnostic that should help the user understand what went wrong).
     //
-    // Mitigation: replace the default logger with a fresh synchronous
-    // stderr logger before any logging happens.  We deliberately don't
-    // call `spdlog::shutdown()` — that walks the registry and tries to
-    // flush every async logger (including ours), which would just hang.
-    // Setting a new default logger and dropping the global reference
-    // table is the minimum we can do safely from a post-fork context.
-    try {
-      auto sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
-      auto child_logger =
-          std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
-      child_logger->set_level(spdlog::level::warn);
-      spdlog::set_default_logger(std::move(child_logger));
-      spdlog::drop_all();  // detach any inherited async logger handles
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
-      // Best effort — if logger swap fails, validation continues without
-      // logging.  We must NOT propagate exceptions across the fork barrier.
-    }
+    // Mitigation: swap in a fresh synchronous stderr logger before any
+    // logging happens (see SolverRegistry::reset_default_logger_after_fork
+    // for the ordering rationale).  We deliberately don't call
+    // `spdlog::shutdown()` — that walks the registry and flushes every async
+    // logger (including ours), which would just hang.
+    SolverRegistry::reset_default_logger_after_fork();
 
     // Reset signal handlers so doctest's crash-recovery logic (inherited
     // from the parent via fork) does not fire inside the child — without

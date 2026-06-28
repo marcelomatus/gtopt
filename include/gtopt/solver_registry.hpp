@@ -145,6 +145,23 @@ public:
   /** @brief Return diagnostic messages for plugins that failed to load. */
   [[nodiscard]] const std::vector<std::string>& load_errors() const;
 
+  /** @brief Re-establish a safe synchronous default logger after `fork()`.
+   *
+   * `fork()` copies the address space but not threads, so an inherited async
+   * default logger has a queue with no worker thread: logging into it
+   * deadlocks (block policy) or is silently dropped.  This installs a fresh
+   * synchronous stderr logger as the default and detaches the inherited
+   * registry handles — **in that order**.  `spdlog::drop_all()` resets the
+   * default logger to null (see spdlog `registry::drop_all`), so the fresh
+   * logger MUST be installed *after* it; the reverse order leaves a null
+   * default and the next `spdlog::*()` call dereferences it (SIGSEGV).
+   * `noexcept` and idempotent — safe to call across the fork barrier.
+   * Public so the post-fork logging contract can be unit-tested.
+   *
+   * @post `spdlog::default_logger_raw() != nullptr`.
+   */
+  static void reset_default_logger_after_fork() noexcept;
+
   ~SolverRegistry();
 
   SolverRegistry(const SolverRegistry&) = delete;

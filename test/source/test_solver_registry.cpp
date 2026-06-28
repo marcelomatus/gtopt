@@ -16,8 +16,45 @@
 #include <gtopt/gtopt_main.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_registry.hpp>
+#include <spdlog/spdlog.h>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+
+// ─── post-fork logger contract (regression guard) ───────────────────────────
+//
+// `validate_solver_subprocess` forks a child to test-create each plugin's
+// backend.  A failing backend ctor logs via `spdlog::error` (log_and_throw)
+// before throwing.  The post-fork logger reset MUST leave a valid default
+// logger: a previous version called `spdlog::drop_all()` AFTER
+// `set_default_logger()`, which nulled the default → the next `spdlog::*()`
+// dereferenced null (should_log() on a null logger, si_addr 0x40) and the
+// child SIGSEGV'd on every run that validated an unavailable plugin, dumping
+// a ~1 GB core each time while the parent test silently passed.
+TEST_CASE(
+    "SolverRegistry::reset_default_logger_after_fork keeps a valid "
+    "default logger")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  auto saved = spdlog::default_logger();  // restore afterwards for other tests
+
+  SolverRegistry::reset_default_logger_after_fork();
+
+  // The default logger must be non-null (this is the post-condition that the
+  // mis-ordered drop_all() used to violate)...
+  CHECK(spdlog::default_logger_raw() != nullptr);
+
+  // ...and logging through it must not crash — this is the exact call
+  // (spdlog::error → should_log) that faulted in the fork child.
+  spdlog::error("{}", std::string {"reset_default_logger_after_fork guard"});
+  CHECK(spdlog::default_logger_raw() != nullptr);  // still valid after logging
+
+  // Idempotent: a second call is also safe and keeps a valid default.
+  SolverRegistry::reset_default_logger_after_fork();
+  CHECK(spdlog::default_logger_raw() != nullptr);
+
+  spdlog::set_default_logger(std::move(saved));
+}
 
 // ─── SolverRegistry singleton ───────────────────────────────────────────────
 
