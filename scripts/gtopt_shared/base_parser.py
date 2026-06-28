@@ -78,11 +78,16 @@ class BaseTextParser(ABC):
 
     # ── validation ───────────────────────────────────────────────────────
     def validate_file(self) -> None:
-        """Validate that the input file exists and is a regular file."""
-        if not self.file_path.exists():
+        """Validate the input file exists (plain or compressed ``.xz``/…)."""
+        from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+            find_compressed_path,
+        )
+
+        resolved = find_compressed_path(self.file_path)
+        if resolved is None:
             raise FileNotFoundError(f"File not found: {self.file_path}")
-        if not self.file_path.is_file():
-            raise ValueError(f"Path is not a file: {self.file_path}")
+        if not resolved.is_file():
+            raise ValueError(f"Path is not a file: {resolved}")
 
     # ── scalar parsing ───────────────────────────────────────────────────
     def _parse_int(self, value: str) -> int:
@@ -137,9 +142,17 @@ class BaseTextParser(ABC):
         ``comment_prefixes`` are dropped.  PSR SDDP/NCP ``.dat`` files use
         ``!`` for comments; ``#`` is included for convenience.  Read as
         Latin-1 by default (PSR writes Windows-1252 / Latin-1 text).
+        Compressed inputs (``.xz`` / ``.gz`` / …) decompress transparently
+        — and a missing plain path falls back to its compressed variant.
         """
+        from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+            compressed_open,
+            resolve_compressed_path,
+        )
+
         out: list[str] = []
-        with self.file_path.open("r", encoding=encoding, errors="replace") as fh:
+        path = resolve_compressed_path(self.file_path)
+        with compressed_open(path, encoding=encoding, errors="replace") as fh:
             for raw in fh:
                 line = raw.rstrip("\n").rstrip()
                 stripped = line.lstrip()

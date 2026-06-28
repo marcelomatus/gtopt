@@ -144,6 +144,19 @@ def test_rating_to_tmax() -> None:
     assert rating_to_tmax(0.0) == pytest.approx(99999.0)
 
 
+def test_parse_raw_xz(synthetic_raw: Path, tmp_path: Path) -> None:
+    """A .xz-compressed RAW reads transparently (and resolves from the plain path)."""
+    import lzma  # pylint: disable=import-outside-toplevel
+
+    xz = tmp_path / "synthetic.raw.xz"
+    xz.write_bytes(lzma.compress(synthetic_raw.read_bytes()))
+    case = parse_raw(xz)
+    assert case.case.rev == 33 and len(case.buses) == 6
+    # Passing the plain path resolves to the .xz sibling.
+    case2 = parse_raw(tmp_path / "synthetic.raw")
+    assert len(case2.buses) == 6
+
+
 def test_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         parse_raw(tmp_path / "does_not_exist.raw")

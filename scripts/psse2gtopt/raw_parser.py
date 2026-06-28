@@ -384,11 +384,17 @@ def parse_raw(path: str | Path) -> PsseCase:
             if it is a PSS/E v34+/RAWX-style file (a different layout the
             classic reader cannot parse — see below).
     """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        find_compressed_path,
+        read_text,
+    )
+
     path = Path(path)
-    if not path.is_file():
+    if find_compressed_path(path) is None:
         raise FileNotFoundError(f"PSS/E RAW file not found: {path}")
 
-    lines = path.read_text(encoding="latin-1").splitlines()
+    # Transparent .xz/.gz/… decompression (and plain → compressed fallback).
+    lines = read_text(path, encoding="latin-1", errors="replace").splitlines()
     if len(lines) < 3:
         raise ValueError(f"{path}: not a PSS/E RAW file (fewer than 3 lines)")
 

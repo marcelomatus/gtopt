@@ -35,6 +35,8 @@ from .dat_parsers import (
     parse_inflows,
     parse_water_values,
 )
+from gtopt_shared.compressed_open import find_compressed_path
+
 from .entities import (
     BusSpec,
     CircuitSpec,
@@ -138,14 +140,17 @@ def is_dat_case(case_dir: str | Path) -> bool:
         return False
     if (case_dir / "psrclasses.json").is_file():
         return False
-    return (case_dir / "sddp.dat").is_file()
+    return find_compressed_path(case_dir / "sddp.dat") is not None
 
 
 def _demand_file(case_dir: Path) -> Path | None:
-    """Pick the hourly demand file, preferring 60-min over 15-min."""
+    """Pick the hourly demand file, preferring 60-min over 15-min.
+
+    Matches plain and compressed names (``cpde*.dat`` / ``cpde*.dat.xz``).
+    """
     # ``cpde15*`` is the 15-min file; prefer the plain hourly ``cpde*GU``.
-    for p in sorted(case_dir.glob("cpde*.dat")):
-        if "15" not in p.name:
+    for p in sorted(case_dir.glob("cpde*.dat*")):
+        if p.is_file() and "15" not in p.name and ".dat" in p.name:
             return p
     return None
 
@@ -227,8 +232,8 @@ def load_dat_case(
     # PSR water value is k$/hm³; convert to $/MWh via the production factor
     # (FPMed): $/MWh = WV·1000 / (FPMed·1e6/3600) = WV·3.6/FPMed.  Capped at
     # the deficit cost (no resource should price above unserved energy).
-    wv_path = case_dir / "watervcp.csv"
-    if wv_path.is_file():
+    wv_path = find_compressed_path(case_dir / "watervcp.csv")
+    if wv_path is not None:
         wv = parse_water_values(wv_path)
         n_priced = 0
         for h in hydros:
@@ -244,8 +249,8 @@ def load_dat_case(
     # available water: pmax = min(Pot, inflow[m³/s] · FPMed[MW/(m³/s)]).
     # Storage plants (priced > 0) keep `Pot`; their water value already
     # governs dispatch.
-    inflow_path = case_dir / "inflow.csv"
-    if inflow_path.is_file():
+    inflow_path = find_compressed_path(case_dir / "inflow.csv")
+    if inflow_path is not None:
         inflow = parse_inflows(inflow_path)
         n_capped = 0
         for h in hydros:
@@ -262,9 +267,9 @@ def load_dat_case(
     buses: list[BusSpec] = []
     circuits: list[CircuitSpec] = []
     gen2bus: dict[str, int] = {}
-    bus_path = case_dir / "dbus.dat"
-    circ_path = case_dir / "dcirc.dat"
-    if bus_path.is_file() and circ_path.is_file():
+    bus_path = find_compressed_path(case_dir / "dbus.dat")
+    circ_path = find_compressed_path(case_dir / "dcirc.dat")
+    if bus_path is not None and circ_path is not None:
         bp = BusParser(bus_path)
         buses = bp.parse()
         gen2bus = bp.gen2bus
@@ -274,8 +279,8 @@ def load_dat_case(
         # neighbour inference (generator terminal buses absent from
         # Volt.dat inherit the highest-voltage neighbour).
         kv_by_bus = {b.number: b.base_kv for b in buses}
-        volt_path = case_dir / "Volt.dat"
-        if volt_path.is_file():
+        volt_path = find_compressed_path(case_dir / "Volt.dat")
+        if volt_path is not None:
             for bus, kv in VoltParser(volt_path).parse().items():
                 kv_by_bus[bus] = kv
         for b in buses:
@@ -298,8 +303,9 @@ def load_dat_case(
 
     # ── demand ───────────────────────────────────────────────────────────
     demands: list[DemandSpec] = []
-    if multi_bus and (case_dir / "cpdexbus.dat").is_file():
-        series = BusDemandParser(case_dir / "cpdexbus.dat").parse()
+    cpx_path = find_compressed_path(case_dir / "cpdexbus.dat")
+    if multi_bus and cpx_path is not None:
+        series = BusDemandParser(cpx_path).parse()
         live = {b.number for b in buses}
         uid = 1
         n_blocks = 0

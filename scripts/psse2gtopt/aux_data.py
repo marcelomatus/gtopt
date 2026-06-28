@@ -22,14 +22,32 @@ from __future__ import annotations
 import logging
 import unicodedata
 from pathlib import Path
+from typing import Any
 
 
 logger = logging.getLogger(__name__)
 
 
 def _excel_engine(path: Path) -> str:
-    """Pick the pandas Excel engine from the file extension."""
-    return "xlrd" if path.suffix.lower() == ".xls" else "openpyxl"
+    """Pick the pandas Excel engine from the (de-compressed) extension."""
+    name = path.name.lower()
+    for ext in (".xz", ".gz", ".zst", ".lz4", ".bz2"):
+        if name.endswith(ext):
+            name = name[: -len(ext)]
+            break
+    return "xlrd" if name.endswith(".xls") else "openpyxl"
+
+
+def _read_excel(path: Path, **kwargs: Any) -> Any:
+    """Read an Excel workbook, transparently decompressing ``.xls.xz`` etc."""
+    import pandas as pd  # pylint: disable=import-outside-toplevel
+
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        open_binary,
+    )
+
+    with open_binary(Path(path)) as fh:
+        return pd.read_excel(fh, engine=_excel_engine(path), **kwargs)
 
 
 def ascii_sanitize(text: str) -> str:
@@ -64,10 +82,7 @@ def parse_nomenclatura(path: str | Path) -> dict[str, str]:
         Mapping of upper-cased code → description (may be empty if the
         layout is unrecognised).
     """
-    import pandas as pd  # pylint: disable=import-outside-toplevel
-
-    path = Path(path)
-    df = pd.read_excel(path, sheet_name=0, header=None, engine=_excel_engine(path))
+    df = _read_excel(Path(path), sheet_name=0, header=None)
     mapping: dict[str, str] = {}
     for _, row in df.iterrows():
         cells = [
@@ -81,7 +96,7 @@ def parse_nomenclatura(path: str | Path) -> dict[str, str]:
             continue
         if 1 <= len(code) <= 6 and any(c.isalpha() for c in code):
             mapping.setdefault(code.upper(), desc)
-    logger.info("parsed Nomenclatura %s: %d codes", path.name, len(mapping))
+    logger.info("parsed Nomenclatura %s: %d codes", Path(path).name, len(mapping))
     return mapping
 
 
@@ -100,10 +115,8 @@ def parse_ldm_merit_order(path: str | Path) -> list[str]:
     Returns:
         Ordered list of upper-cased unit codes (empty if unrecognised).
     """
-    import pandas as pd  # pylint: disable=import-outside-toplevel
-
     path = Path(path)
-    df = pd.read_excel(path, sheet_name=0, header=None, engine=_excel_engine(path))
+    df = _read_excel(path, sheet_name=0, header=None)
 
     # Find the first "DEMANDA ..." section header, then the column header
     # row ("Nemo"), then read codes until the next section / blank run.

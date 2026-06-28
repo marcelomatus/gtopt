@@ -454,8 +454,12 @@ def _parse_psr_block_csv_means(path: str | Path) -> dict[str, float]:
     (``inflow.csv``) readers: the agent names are columns 3+ of the
     ``Stag``-prefixed header row, the values one row per block.
     """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
     path = Path(path)
-    lines = path.read_text(encoding="latin-1").splitlines()
+    lines = read_text(path, encoding="latin-1", errors="replace").splitlines()
     header_idx = next(
         (i for i, ln in enumerate(lines) if ln.strip().lower().startswith("stag")),
         None,
@@ -504,10 +508,19 @@ def parse_inflows(path: str | Path) -> dict[str, float]:
     return out
 
 
+# Compression suffixes a ``.dat`` may carry (in glob-probe order).
+_COMPRESS_EXT = ("", ".xz", ".gz", ".zst", ".lz4", ".bz2")
+
+
 def find_dat(case_dir: Path, *patterns: str) -> Path | None:
-    """Return the first existing ``.dat`` matching any glob in ``case_dir``."""
+    """Return the first matching ``.dat`` (or compressed ``.dat.<codec>``).
+
+    Each glob ``pat`` is also tried with the compression suffixes, so a
+    case shipping ``sddp.dat.xz`` resolves transparently.
+    """
     for pat in patterns:
-        for p in sorted(case_dir.glob(pat)):
-            if p.is_file():
-                return p
+        for ext in _COMPRESS_EXT:
+            for p in sorted(case_dir.glob(pat + ext)):
+                if p.is_file():
+                    return p
     return None

@@ -21,10 +21,24 @@ from .raw_parser import parse_raw
 logger = logging.getLogger(__name__)
 
 
+# A RAW file, optionally compressed (``case.raw`` or ``case.raw.xz`` / .gz / …).
+_COMPRESS_EXT = (".xz", ".gz", ".zst", ".lz4", ".bz2")
+
+
+def _is_raw(p: Path) -> bool:
+    """True for ``*.raw`` or a compressed ``*.raw.<codec>``."""
+    if not p.is_file():
+        return False
+    name = p.name.lower()
+    if name.endswith(".raw"):
+        return True
+    return any(name.endswith(".raw" + e) for e in _COMPRESS_EXT)
+
+
 def _find_raw_files(directory: Path) -> list[Path]:
-    """Return the ``.raw`` files in ``directory``, sorted by name."""
+    """Return the ``.raw`` (or compressed ``.raw.*``) files, sorted by name."""
     return sorted(
-        (p for p in directory.iterdir() if p.is_file() and p.suffix.lower() == ".raw"),
+        (p for p in directory.iterdir() if _is_raw(p)),
         key=lambda p: p.name.lower(),
     )
 

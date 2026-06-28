@@ -133,6 +133,23 @@ def test_dat_case_solves(dat_case_dir: Path, gtopt_bin: str, tmp_path: Path) -> 
     assert status["status"] == "done"
 
 
+def test_load_dat_case_xz(dat_case_dir: Path, tmp_path: Path) -> None:
+    """A .xz-compressed PSR .dat case reads transparently."""
+    import lzma  # pylint: disable=import-outside-toplevel
+
+    xz_dir = tmp_path / "dat_xz"
+    xz_dir.mkdir()
+    for f in dat_case_dir.iterdir():
+        if f.is_file():
+            (xz_dir / (f.name + ".xz")).write_bytes(lzma.compress(f.read_bytes()))
+    assert is_dat_case(xz_dir)
+    case = load_dat_case(xz_dir)
+    assert len(case.thermals) == 2
+    assert len(case.hydros) == 2
+    assert len(case.demands) == 1
+    assert case.study.num_blocks == 6
+
+
 def test_validate_and_convert_dat(dat_case_dir: Path, tmp_path: Path) -> None:
     assert validate_sddp_case({"input_dir": dat_case_dir}) is True
     out = tmp_path / "out"

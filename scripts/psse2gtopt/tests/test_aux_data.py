@@ -78,6 +78,18 @@ def test_parse_ldm_merit_order(tmp_path: Path) -> None:
     assert order == ["CRZ-F", "ZUN-G", "AGU-H1"]
 
 
+def test_parse_nomenclatura_xz(tmp_path: Path) -> None:
+    """A .xz-compressed Excel workbook reads transparently."""
+    import lzma  # pylint: disable=import-outside-toplevel
+
+    path = tmp_path / "nom.xlsx"
+    _write_xlsx(path, [[None, "AGU", "Aguacapa"], [None, "CHX", "Chixoy"]])
+    xz = tmp_path / "nom.xlsx.xz"
+    xz.write_bytes(lzma.compress(path.read_bytes()))
+    codes = parse_nomenclatura(xz)
+    assert codes["AGU"] == "Aguacapa" and codes["CHX"] == "Chixoy"
+
+
 def test_parse_ldm_no_header(tmp_path: Path) -> None:
     path = tmp_path / "bad.xlsx"
     _write_xlsx(path, [["foo", "bar"], ["baz", "qux"]])
