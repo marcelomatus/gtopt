@@ -1520,18 +1520,12 @@ def convert(  # pylint: disable=too-many-locals,too-many-statements,too-many-bra
             "annual_discount_rate": 0.0,
             "output_format": "csv",
             "output_compression": "uncompressed",
-            # Keep the legacy wide layout: one column per uid with a
-            # row for every (scenario, stage, block) — including the
-            # exact-zero rows that ``OutputLayout::long_`` (the new
-            # default since 2026-05-19) drops.  The UC.jl cross-check
-            # readers rely on the full block grid being present so
-            # they can compare commitment status / dispatch over every
-            # block; e.g. UC.jl golden issue #57 has gen_524d4c85
-            # status = ``[1, 0, 0, 0]`` (committed only in block 1),
-            # which the long form would emit as a single ``block=1,
-            # value=1`` row, leaving the test reader to infer a 1-block
-            # vector instead of a 4-block one.
-            "output_layout": "wide",
+            # gtopt is long-only since 2026-05-19: the `output_layout`
+            # selector and wide output were removed (long drops exact-zero
+            # rows), and gtopt's strict parser now rejects the key.  The
+            # UC.jl cross-check reader reconstructs the full per-block grid
+            # from the sparse long output (a missing (block) ⇒ zero), so no
+            # layout option is emitted here.
             # Nested under model_options per the 2026-05-17 schema
             # reorganisation; the legacy top-level keys are still
             # accepted as deprecated aliases but emit a warning.

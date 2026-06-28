@@ -124,6 +124,19 @@ class _ScheduleTable:
     @classmethod
     def from_parquet(cls, field: str, axis: str, path: Path) -> _ScheduleTable:
         df = pq.read_table(path).to_pandas()
+        # gtopt's I/O is long-only: schedule files arrive as
+        # ``[<index cols...>, uid, value]``.  Pivot to the wide ``uid:<N>``
+        # shape this reducer operates on (older fixtures shipped wide and
+        # skip this branch).  Index cols are everything but ``uid``/``value``.
+        if "uid" in df.columns and "value" in df.columns:
+            index_cols = [c for c in df.columns if c not in ("uid", "value")]
+            df = df.pivot_table(
+                index=index_cols, columns="uid", values="value", aggfunc="first"
+            ).reset_index()
+            df.columns = [
+                col if isinstance(col, str) else f"uid:{int(col)}" for col in df.columns
+            ]
+            df.columns.name = None
         uids: list[int] = []
         for col in df.columns:
             if col.startswith("uid:"):

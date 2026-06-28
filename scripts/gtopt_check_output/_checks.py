@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from ._reader import (
+    dataset_layout,
     dataset_uid_cols,
     get_block_durations,
     get_generator_info,
@@ -287,13 +288,35 @@ def compute_energy_by_type(
 
 
 def _streaming_uid_abs_max_per_col(dataset) -> dict[int, float]:
-    """Per-uid `max(|value|)` aggregated via pyarrow streaming."""
+    """Per-uid `max(|value|)` aggregated via pyarrow streaming.
+
+    Layout-aware (mirrors ``_reader.streaming_uid_sum_per_col``): the
+    long-form path groups ``|value|`` by ``uid`` per batch, the wide-form
+    path iterates the ``uid:N`` columns.  Long form drops zero rows, so a
+    uid that is identically zero is simply absent from the result — which
+    is the right semantics for the congestion ranking (a never-flowing
+    line has zero utilization and is not congested)."""
     if dataset is None:
         return {}
-    cols = dataset_uid_cols(dataset)
-    out: dict[int, float] = {int(c.split(":")[1]): 0.0 for c in cols}
+    import pyarrow as pa  # noqa: PLC0415
     import pyarrow.compute as pc  # noqa: PLC0415
 
+    out: dict[int, float] = {}
+    if dataset_layout(dataset) == "long":
+        for batch in dataset.scanner(columns=["uid", "value"]).to_batches():
+            tbl = pa.table({"uid": batch["uid"], "absv": pc.abs(batch["value"])})
+            grouped = tbl.group_by("uid").aggregate([("absv", "max")])
+            uids = grouped["uid"].to_pylist()
+            maxes = grouped["absv_max"].to_pylist()
+            for u, m in zip(uids, maxes):
+                if u is None or m is None:
+                    continue
+                ui = int(u)
+                if float(m) > out.get(ui, 0.0):
+                    out[ui] = float(m)
+        return out
+    cols = dataset_uid_cols(dataset)
+    out = {int(c.split(":")[1]): 0.0 for c in cols}
     for batch in dataset.scanner(columns=cols).to_batches():
         for col in cols:
             arr = pc.abs(batch[col])

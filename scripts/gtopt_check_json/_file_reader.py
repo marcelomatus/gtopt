@@ -64,11 +64,44 @@ def try_read_table(
             continue
         try:
             if ".parquet" in ext:
-                return pd.read_parquet(fpath)
-            return pd.read_csv(fpath)
+                df = pd.read_parquet(fpath)
+            else:
+                df = pd.read_csv(fpath)
+            return _pivot_long_to_wide(df)
         except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
             continue
     return None
+
+
+def _pivot_long_to_wide(df: Any) -> Any:
+    """Pivot a long-layout FieldSched table to the wide ``uid:<N>`` shape.
+
+    gtopt's I/O is long-only: every per-element FieldSched file ships as
+    ``[<index cols...>, uid, value]`` rows (index cols = a subset of
+    ``scenario`` / ``stage`` / ``block``).  This reshapes it into the wide
+    ``{<index cols>, uid:<N>}`` layout the column-scanning helpers below
+    expect.  Legacy wide fixtures (no ``uid`` / ``value`` columns) pass
+    through untouched.
+    """
+    if "uid" not in df.columns or "value" not in df.columns:
+        return df
+    index_cols = [c for c in df.columns if c not in ("uid", "value")]
+    if index_cols:
+        df = df.pivot_table(
+            index=index_cols, columns="uid", values="value", aggfunc="first"
+        ).reset_index()
+    else:
+        # Scalar-per-element file (no index columns): one value per uid.
+        df = (
+            df.drop_duplicates(subset="uid", keep="first")
+            .set_index("uid")[["value"]]
+            .T.reset_index(drop=True)
+        )
+    df.columns = [
+        col if isinstance(col, str) else f"uid:{int(col)}" for col in df.columns
+    ]
+    df.columns.name = None
+    return df
 
 
 def resolve_file_sched_value(

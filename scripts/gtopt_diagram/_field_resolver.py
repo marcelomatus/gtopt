@@ -171,8 +171,24 @@ class FieldSchedResolver:
                     match = df
             df = match
 
-        # Extract uid:N columns
         result: dict[int, float] = {}
+
+        # Long layout (gtopt's I/O is long-only): ``{<index cols>, uid, value}``.
+        # After the scenario/stage/block filtering above there is one row per
+        # element uid; build the ``{uid: value}`` map directly.
+        if "uid" in df.columns and "value" in df.columns:
+            for uid_val, val in zip(df["uid"], df["value"]):
+                if uid_val is None or val is None:
+                    continue
+                try:
+                    uid = int(uid_val)
+                except (ValueError, TypeError):
+                    continue
+                if uid not in result:  # first row wins (matches iloc[0])
+                    result[uid] = float(val)
+            return result
+
+        # Legacy wide layout: one ``uid:N`` column per element.
         for col in df.columns:
             if col.startswith("uid:"):
                 try:

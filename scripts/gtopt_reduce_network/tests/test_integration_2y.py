@@ -2,9 +2,9 @@
 """End-to-end schedule-aggregation test on cases/gtopt_case_2y.
 
 The 2-year PLP-derived case carries the three Line schedules that
-real-world cases ship today: ``active.parquet`` (51 stages × 33 lines
-with maintenance), ``tmax_ab.parquet`` / ``tmax_ba.parquet`` (510
-stage-block ticks × 46 lines with capacity derating).  This test
+real-world cases ship today, in long layout: ``active.parquet``
+(per-stage line maintenance), ``tmax_ab.parquet`` / ``tmax_ba.parquet``
+(per-(stage, block) capacity derating).  This test
 exercises the full pipeline:
 
   1. Load the case via the reducer.
@@ -73,6 +73,16 @@ def test_reduce_2y_emits_three_parquets(case_2y_dir: Path, unique_tag) -> None:
     n_corridors = len(result.case.array("line_array"))
 
     line_dir = case_2y_dir / "Line"
+    # Expected temporal shape, derived from the case's own long inputs so the
+    # test survives fixture regeneration (active = 1 row/stage, tmax = 1
+    # row/(stage, block)).
+    n_stages = pq.read_table(line_dir / "active.parquet").to_pandas()["stage"].nunique()
+    n_ticks = (
+        pq.read_table(line_dir / "tmax_ab.parquet")
+        .to_pandas()[["stage", "block"]]
+        .drop_duplicates()
+        .shape[0]
+    )
     for field in ("active", "tmax_ab", "tmax_ba"):
         p = line_dir / f"{field}_{unique_tag}.parquet"
         assert p.exists(), f"missing {p}"
@@ -83,11 +93,13 @@ def test_reduce_2y_emits_three_parquets(case_2y_dir: Path, unique_tag) -> None:
         )
         # Shape sanity: active has one row per stage; tmax_ab one per (stage, block).
         if field == "active":
-            assert len(df) == 51, "2y case has 51 stages"
+            assert len(df) == n_stages, f"active rows must equal stages ({n_stages})"
             assert (df[uid_cols] >= 0).all().all()
             assert (df[uid_cols] <= 1).all().all()
         else:
-            assert len(df) == 510, "2y case has 51 stages × 10 blocks"
+            assert len(df) == n_ticks, (
+                f"tmax rows must equal stage-block ticks ({n_ticks})"
+            )
             assert (df[uid_cols] >= 0).all().all(), "tmax_ab must be non-negative"
         assert not df.isna().any().any(), f"{field} has NaN"
 

@@ -231,7 +231,9 @@ def _read_solution_status(results_dir: Path) -> tuple[int | None, float | None]:
     return status, obj
 
 
-def _read_uid_column_csv(csv_path: Path, gen_uid: int) -> list[float]:
+def _read_uid_column_csv(
+    csv_path: Path, gen_uid: int, expected_blocks: int | None = None
+) -> list[float]:
     """Return the per-block values for a given uid from a single-cell
     output CSV, transparently handling both layouts emitted by gtopt:
 
@@ -275,6 +277,23 @@ def _read_uid_column_csv(csv_path: Path, gen_uid: int) -> list[float]:
         uid_idx = header.index("uid")
         val_idx = header.index("value")
 
+        if expected_blocks is not None:
+            # gtopt's long output drops exact-zero ``(block)`` rows, and an
+            # entire block can be all-zero across every uid (no rows at all)
+            # — so the dense per-block grid must come from the known block
+            # count, not the file.  Blocks are 1-based per (scenario, stage);
+            # these ``*_s0_p0`` files hold a single scenario/stage.
+            vec = [0.0] * expected_blocks
+            for r in rows[1:]:
+                if not r[uid_idx] or not r[val_idx]:
+                    continue
+                if int(float(r[uid_idx])) != gen_uid:
+                    continue
+                blk = int(float(r[blk_idx])) if blk_idx >= 0 and r[blk_idx] else 1
+                if 1 <= blk <= expected_blocks:
+                    vec[blk - 1] = float(r[val_idx])
+            return vec
+
         def _row_key(r: list[str]) -> tuple[int, int, int]:
             return (
                 int(float(r[scn_idx])) if scn_idx >= 0 and r[scn_idx] else 0,
@@ -317,7 +336,9 @@ def _read_uid_column_csv(csv_path: Path, gen_uid: int) -> list[float]:
     return []
 
 
-def _read_commitment_status(results_dir: Path, gen_uid: int) -> list[float]:
+def _read_commitment_status(
+    results_dir: Path, gen_uid: int, expected_blocks: int | None = None
+) -> list[float]:
     """Per-block ``status_sol`` values for the Commitment matching `gen_uid`.
 
     Layout-aware via :func:`_read_uid_column_csv`.  Reads from
@@ -326,7 +347,9 @@ def _read_commitment_status(results_dir: Path, gen_uid: int) -> list[float]:
     absent or the uid has no rows.
     """
     return _read_uid_column_csv(
-        results_dir / "Commitment" / "status_sol_s0_p0.csv", gen_uid
+        results_dir / "Commitment" / "status_sol_s0_p0.csv",
+        gen_uid,
+        expected_blocks=expected_blocks,
     )
 
 
@@ -369,13 +392,17 @@ def _solve(gtopt_bin: str, json_path: Path, tmp_run: Path) -> tuple[int, str]:
 #     balance the same load.
 
 
-def _read_generation_dispatch(results_dir: Path, gen_uid: int) -> list[float]:
+def _read_generation_dispatch(
+    results_dir: Path, gen_uid: int, expected_blocks: int | None = None
+) -> list[float]:
     """Per-block generation MW for a given generator uid.
 
     Layout-aware via :func:`_read_uid_column_csv`.
     """
     return _read_uid_column_csv(
-        results_dir / "Generator" / "generation_sol_s0_p0.csv", gen_uid
+        results_dir / "Generator" / "generation_sol_s0_p0.csv",
+        gen_uid,
+        expected_blocks=expected_blocks,
     )
 
 
@@ -459,7 +486,9 @@ def _assert_ucjl_match(
             if gname not in mapping:
                 continue
             gen_uid, _ = mapping[gname]
-            disp = _read_generation_dispatch(output_dir, gen_uid=gen_uid)
+            disp = _read_generation_dispatch(
+                output_dir, gen_uid=gen_uid, expected_blocks=n_blocks
+            )
             for t, dv in enumerate(disp[:n_blocks]):
                 gtopt_total[t] += dv
         for t, (gt, ut) in enumerate(zip(gtopt_total, ucjl_total, strict=True)):
@@ -479,7 +508,9 @@ def _assert_ucjl_match(
         assert com_uid is not None, (
             f"pinned gen {gname!r} has no Commitment element in gtopt JSON"
         )
-        gtopt_status = _read_commitment_status(output_dir, gen_uid=com_uid)
+        gtopt_status = _read_commitment_status(
+            output_dir, gen_uid=com_uid, expected_blocks=len(on_vec)
+        )
         assert len(gtopt_status) == len(on_vec), (
             f"{gname}: gtopt produced {len(gtopt_status)} status blocks, "
             f"UC.jl golden has {len(on_vec)}"
@@ -503,7 +534,9 @@ def _assert_ucjl_match(
         _, com_uid = mapping[gname]
         if com_uid is None:
             continue
-        gtopt_status = _read_commitment_status(output_dir, gen_uid=com_uid)
+        gtopt_status = _read_commitment_status(
+            output_dir, gen_uid=com_uid, expected_blocks=len(on_vec)
+        )
         for t, gv in enumerate(gtopt_status):
             assert abs(gv) <= status_tol, (
                 f"{gname} block {t + 1}: gtopt status = {gv:.4f}, "

@@ -254,6 +254,30 @@ def test_congestion_warning(tmp_path: Path):
     assert any("90%" in f.message for f in warnings)
 
 
+def test_congestion_warning_long_layout(tmp_path: Path):
+    """Long-form Line/flow_sol still surfaces a >90% congestion warning.
+
+    Regression for the wide-only ``_streaming_uid_abs_max_per_col``: on
+    the long layout (``uid``/``value`` rows) the per-uid max was silently
+    empty, so no line ever ranked as congested.  tmax=100, flow=95 must
+    now trip the 90% warning regardless of layout."""
+    results = _make_results(tmp_path)
+    flow_long = pd.DataFrame(
+        {
+            "scenario": [1],
+            "stage": [1],
+            "block": [1],
+            "uid": [1],
+            "value": [95.0],
+        }
+    )
+    _write_csv(results / "Line" / "flow_sol.csv", flow_long)
+    findings = compute_congestion_ranking(results, _MINIMAL_PLANNING)
+    warnings = [f for f in findings if f.severity == "WARNING"]
+    assert len(warnings) >= 1
+    assert any("90%" in f.message for f in warnings)
+
+
 def test_lmp_high_spread_warning(tmp_path: Path):
     """High LMP spread produces a warning."""
     results = _make_results(tmp_path)
