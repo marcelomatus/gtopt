@@ -56,6 +56,13 @@ struct MipStartOptions
    * cross-solver hand-off (e.g. HiGHS dumps a feasible incumbent, cuOpt
    * replays it as its start). */
   OptName dump_file {};
+  /** @brief Optional SCIP repair STAGE (default false).  When true, the
+   * candidate produced by `method` (round + electric rules, or file) is handed
+   * to SCIP, whose completesol/repair heuristics turn it into a genuinely
+   * feasible integer solution before injection.  Composable with ANY base
+   * method and ANY active solver (cuOpt/HiGHS/CPLEX); requires the SCIP plugin
+   * (self-skips, keeping the pre-SCIP candidate, when absent). */
+  OptBool scip_repair {};
 
   // ── Stage A: relaxation analysis & diagnosis ──────────────────────────────
   /** @brief Run the LP-relaxation feasibility analysis even when
@@ -80,6 +87,7 @@ struct MipStartOptions
     merge_opt(effort, opts.effort);
     merge_opt(file, std::move(opts.file));
     merge_opt(dump_file, std::move(opts.dump_file));
+    merge_opt(scip_repair, opts.scip_repair);
     merge_opt(relax_check, opts.relax_check);
     merge_opt(on_infeasible, opts.on_infeasible);
     merge_opt(report_saturated, opts.report_saturated);

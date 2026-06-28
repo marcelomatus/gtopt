@@ -67,21 +67,18 @@ inline constexpr auto solve_mode_entries = std::to_array<EnumEntry<SolveMode>>({
  *   solver A (good MIP heuristics) finds a feasible incumbent and dumps it,
  *   then solver B replays it as its start.  Both runs build the identical
  *   flat LP (deterministic), so raw column indices match 1:1.
- * - `scip_repair`: round the LP relaxation, then use SCIP (a second backend
- *   built from the same flat LP) to REPAIR / complete the rounded commitment
- *   into a genuinely feasible integer solution via SCIP's completesol / repair
- *   primal heuristics, and overlay that on the active solver's relaxation base.
- *   Mends the hard min-up/down + Pmin/UC violations that a plain round leaves
- *   (which cuOpt/HiGHS heuristics cannot).  Needs the SCIP plugin at run time;
- *   self-skips ("not available") otherwise.
+ *
+ * The `method` chooses the candidate SOURCE (round / relax-fix / file); the
+ * optional SCIP repair stage (`mip_start.scip_repair=true`) and the injection
+ * `effort` ("solver repair") COMPOSE on top.  Full pipeline: round →
+ * electric-system rules → [scip_repair] → inject with effort + resolve.
  */
 enum class MipStartMethod : uint8_t
 {
   none = 0,  ///< No initial MIP solution (default)
-  lp_round = 1,  ///< Round the LP relaxation
-  relax_fix = 2,  ///< Fix all binaries + full-horizon ED-LP
+  lp_round = 1,  ///< Round the LP relaxation + electric-system rules
+  relax_fix = 2,  ///< lp_round, then pin binaries + full-horizon ED-LP
   file = 3,  ///< Replay an integer solution dumped by a previous solve
-  scip_repair = 4,  ///< Round, then repair to feasibility with SCIP (library)
 };
 
 inline constexpr auto mip_start_method_entries =
@@ -90,7 +87,6 @@ inline constexpr auto mip_start_method_entries =
         {.name = "lp_round", .value = MipStartMethod::lp_round},
         {.name = "relax_fix", .value = MipStartMethod::relax_fix},
         {.name = "file", .value = MipStartMethod::file},
-        {.name = "scip_repair", .value = MipStartMethod::scip_repair},
     });
 
 [[nodiscard]] constexpr auto enum_entries(MipStartMethod /*tag*/) noexcept

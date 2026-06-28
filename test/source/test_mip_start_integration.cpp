@@ -253,7 +253,8 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "MipStart integration: scip_repair is wired end-to-end and self-skips "
+    "MipStart integration: scip_repair stage is wired end-to-end and "
+    "self-skips "
     "cleanly without the SCIP plugin")
 {
   SolverRegistry& reg = SolverRegistry::instance();
@@ -262,13 +263,14 @@ TEST_CASE(  // NOLINT
     MESSAGE("Skipping MIP-start integration test — no MIP solver available");
     return;
   }
-  // scip_repair drives the SystemLP::resolve hook → apply_mip_start →
-  // ScipRepairMipStart, which receives the monolithic flat-LP snapshot.  With
-  // the SCIP plugin absent it self-skips at the has_solver("scip") guard (a
-  // benign no-injection) and the normal MIP solve still reaches the optimum;
-  // with SCIP present it repairs + injects.  Either way the wiring (enum →
-  // factory → generator → flat_lp threading) is exercised and the optimum is
-  // unchanged.
+  // The OPTIONAL scip_repair STAGE composes on top of lp_round: round +
+  // electric rules produce the candidate, then apply_mip_start hands it to
+  // scip_repair_candidate, which receives the monolithic flat-LP snapshot.
+  // With the SCIP plugin absent the stage self-skips at the has_solver("scip")
+  // guard (keeping the round+rules candidate) and the normal MIP solve still
+  // reaches the optimum; with SCIP present it repairs + injects.  Either way
+  // the wiring (flag → stage → flat_lp threading) is exercised and the optimum
+  // is unchanged.
   System system = make_commitment_system();
 
   PlanningOptions poptions;
@@ -277,7 +279,8 @@ TEST_CASE(  // NOLINT
   poptions.lp_matrix_options.col_with_names = true;
   poptions.lp_matrix_options.col_with_name_map = true;
   poptions.monolithic_options.mip_start.emplace();
-  poptions.monolithic_options.mip_start->method = MipStartMethod::scip_repair;
+  poptions.monolithic_options.mip_start->method = MipStartMethod::lp_round;
+  poptions.monolithic_options.mip_start->scip_repair = true;
 
   PlanningOptionsLP options(std::move(poptions));
   SimulationLP simulation_lp(three_block_simulation, options);

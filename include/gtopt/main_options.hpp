@@ -428,17 +428,18 @@ template<typename T>
       ("mip-start",
        po::value<std::string>(),
        "Initial-MIP-solution (warm-start) generator: none (default), "
-       "lp_round (round the LP relaxation), relax_fix, file (replay an "
-       "integer solution dumped by a previous solve), scip_repair (round, "
-       "then repair to feasibility with SCIP).  Solves the LP "
-       "relaxation first and injects a starting integer solution so the "
-       "solver bypasses its costly node-0 heuristic incumbent.  Shorthand "
-       "for --set monolithic_options.mip_start.method=<method>.  The other "
-       "controls (effort, on_infeasible=stop|warn|feasopt, relax_check, "
-       "report_saturated, round_threshold, relax_solver_options.*, "
-       "file=<path> for method=file, dump_file=<path> to persist this "
-       "solve's integer solution for a later cross-solver replay) are set "
-       "via --set monolithic_options.mip_start.<field>=<value>.")
+       "lp_round (round the LP relaxation + electric-system rules), relax_fix, "
+       "file (replay an integer solution dumped by a previous solve).  Solves "
+       "the LP relaxation first and injects a starting integer solution so the "
+       "solver bypasses its costly node-0 heuristic incumbent.  Shorthand for "
+       "--set monolithic_options.mip_start.method=<method>.  Other controls "
+       "via --set monolithic_options.mip_start.<field>=<value>: effort, "
+       "on_infeasible=stop|warn|feasopt, relax_check, report_saturated, "
+       "round_threshold, relax_solver_options.*, file=<path> for method=file, "
+       "dump_file=<path> to persist this solve's integers for a later "
+       "cross-solver replay, and scip_repair=true to add the optional SCIP "
+       "repair stage (composable with any method / any solver) that mends the "
+       "candidate to feasibility before injection.")
       //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //

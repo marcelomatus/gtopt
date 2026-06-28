@@ -13,6 +13,7 @@
 #include <string>
 #include <unordered_set>
 
+#include <gtopt/domain_rules.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/mip_start.hpp>
 #include <spdlog/spdlog.h>
@@ -35,47 +36,42 @@ namespace detail
   return std::clamp(r, lb, ub);
 }
 
-/// In-place min-up/min-down repair of the rounded status columns in `values`
-/// (a dense, raw-column-indexed vector).  Greedy forward sweep per unit:
-/// suppress any transition that would end a run shorter than the unit's
-/// minimum on/off time (accumulated block durations, hours) by extending the
-/// current run.  Makes the rounded commitment respect the run-length rules so
-/// the fixed dispatch LP is feasible and the start passes CHECKFEAS.
-/// @return Number of column values flipped (for logging).
-[[nodiscard]] int repair_run_lengths(
-    std::vector<double>& values, std::span<const CommitmentRunInfo> commitments)
+/// Stage 1 (round) + stage 2 (electric-system commitment-repair rules) shared
+/// by every base generator.  Rounds the relaxation's integer columns and runs
+/// the default `DomainRulePipeline` (min-up/down, … — see
+/// domain_rules.hpp) over the result; continuous columns keep their
+/// relaxation value.  @return the dense raw candidate start (empty iff the
+/// relaxation produced no primal — the caller skips).
+[[nodiscard]] std::vector<double> rounded_start_with_rules(
+    MipStartContext& ctx, std::string_view generator_name)
 {
-  constexpr double eps = 1e-9;
-  int flipped = 0;
-  for (const auto& c : commitments) {
-    const std::size_t n = c.status_cols.size();
-    if (n < 2 || (c.min_up_hours <= 0.0 && c.min_down_hours <= 0.0)) {
-      continue;
-    }
-    const auto val = [&](std::size_t t) -> double&
-    { return values[static_cast<std::size_t>(c.status_cols[t])]; };
-
-    int state = (val(0) >= 0.5) ? 1 : 0;
-    double run = c.durations[0];
-    for (std::size_t t = 1; t < n; ++t) {
-      const int u = (val(t) >= 0.5) ? 1 : 0;
-      if (u == state) {
-        run += c.durations[t];
-        continue;
-      }
-      const double min_run = (state == 1) ? c.min_up_hours : c.min_down_hours;
-      if (run + eps < min_run) {
-        // Premature transition — extend the current run by suppressing it.
-        val(t) = static_cast<double>(state);
-        run += c.durations[t];
-        ++flipped;
-      } else {
-        state = u;
-        run = c.durations[t];
-      }
-    }
+  auto& li = ctx.li;
+  const auto sol = li.get_col_sol_raw();
+  std::vector<double> start(sol.begin(), sol.end());
+  if (sol.empty()) {
+    return start;
   }
-  return flipped;
+  // Stage 1 — generic rounding of the integer columns.
+  const auto lb = li.get_col_low_raw();
+  const auto ub = li.get_col_upp_raw();
+  const double threshold = ctx.opts.round_threshold.value_or(0.5);
+  for (const int i : ctx.int_cols) {
+    const auto u = static_cast<std::size_t>(i);
+    const double l = (u < lb.size()) ? lb[u] : 0.0;
+    const double h = (u < ub.size()) ? ub[u] : 1.0;
+    start[u] = round_with_threshold(sol[u], threshold, l, h);
+  }
+  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  One
+  // shared, stateless default pipeline (thread-safe function-local static).
+  static const DomainRulePipeline pipeline = make_default_domain_rules();
+  const int flipped =
+      pipeline.apply(start, DomainRuleContext {.commitments = ctx.commitments});
+  if (flipped > 0) {
+    spdlog::info("MIP-start[{}]: domain rules flipped {} status values",
+                 generator_name,
+                 flipped);
+  }
+  return start;
 }
 
 }  // namespace detail
@@ -97,29 +93,10 @@ public:
   [[nodiscard]] std::optional<std::vector<double>> generate(
       MipStartContext& ctx) override
   {
-    auto& li = ctx.li;
-    const auto sol = li.get_col_sol_raw();  // RAW relaxation primal
-    if (sol.empty()) {
+    // Stage 1 (round) + stage 2 (electric-system rules); nothing else.
+    auto start = detail::rounded_start_with_rules(ctx, "lp_round");
+    if (start.empty()) {
       return std::nullopt;
-    }
-    const auto lb = li.get_col_low_raw();
-    const auto ub = li.get_col_upp_raw();
-    const double threshold = ctx.opts.round_threshold.value_or(0.5);
-
-    std::vector<double> start(sol.begin(), sol.end());
-    for (const int i : ctx.int_cols) {
-      const auto u = static_cast<std::size_t>(i);
-      const double l = (u < lb.size()) ? lb[u] : 0.0;
-      const double h = (u < ub.size()) ? ub[u] : 1.0;
-      start[u] = detail::round_with_threshold(sol[u], threshold, l, h);
-    }
-    // Repair min-up/down run-length violations on the rounded commitment.
-    const int fixed = detail::repair_run_lengths(start, ctx.commitments);
-    if (fixed > 0) {
-      spdlog::info(
-          "MIP-start[lp_round]: min-up/down repair flipped {} status "
-          "values",
-          fixed);
     }
     return start;
   }
@@ -147,30 +124,15 @@ public:
       MipStartContext& ctx) override
   {
     auto& li = ctx.li;
-    const auto sol = li.get_col_sol_raw();  // RAW relaxation primal
-    if (sol.empty()) {
+    // Stage 1 (round) + stage 2 (electric-system rules) → the candidate
+    // commitment, then pin it and re-solve a dispatch LP for consistency.
+    std::vector<double> rounded =
+        detail::rounded_start_with_rules(ctx, "relax_fix");
+    if (rounded.empty()) {
       return std::nullopt;
     }
     const auto lb = li.get_col_low_raw();
     const auto ub = li.get_col_upp_raw();
-    const double threshold = ctx.opts.round_threshold.value_or(0.5);
-
-    // Round every integer column into a working vector, then repair min-up/down
-    // run-length violations so the fixed commitment is feasible.
-    std::vector<double> rounded(sol.begin(), sol.end());
-    for (const int i : ctx.int_cols) {
-      const auto u = static_cast<std::size_t>(i);
-      const double l = (u < lb.size()) ? lb[u] : 0.0;
-      const double h = (u < ub.size()) ? ub[u] : 1.0;
-      rounded[u] = detail::round_with_threshold(sol[u], threshold, l, h);
-    }
-    const int fixed = detail::repair_run_lengths(rounded, ctx.commitments);
-    if (fixed > 0) {
-      spdlog::info(
-          "MIP-start[relax_fix]: min-up/down repair flipped {} status "
-          "values",
-          fixed);
-    }
 
     // Pin the repaired commitment to bounds; record originals to restore.
     std::vector<ColIndex> cols;
@@ -403,9 +365,6 @@ std::unique_ptr<MipStartGenerator> make_mip_start_generator(
       return std::make_unique<RelaxFixMipStart>();
     case MipStartMethod::file:
       return std::make_unique<FileMipStart>();
-    case MipStartMethod::scip_repair:
-      return make_scip_repair_generator();  // self-skips without the SCIP
-                                            // plugin
     case MipStartMethod::none:
       break;
   }
@@ -570,27 +529,47 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .commitments = commitments,
       .flat_lp = flat_lp,
   };
-  auto start = gen->generate(ctx);
+  auto start =
+      gen->generate(ctx);  // stage 1 (round) + stage 2 (electric rules)
+  std::string source {gen->name()};
+
+  // Stage 3 (optional): SCIP repair.  Composable with any base method and any
+  // active solver — turns the round+rules candidate into a genuinely feasible
+  // integer solution via SCIP's completesol/repair.  On failure (no SCIP
+  // plugin / no flat LP / nothing feasible) keep the pre-SCIP candidate.
+  if (start && opts.scip_repair.value_or(false)) {
+    if (auto repaired = scip_repair_candidate(ctx, *start)) {
+      start = std::move(repaired);
+      source += "+scip";
+    } else {
+      spdlog::warn(
+          "MIP-start[scip]: repair stage produced no result; keeping the "
+          "round+rules candidate from '{}'",
+          gen->name());
+    }
+  }
 
   // Re-establish integrality BEFORE injecting: the backend MIP-start API
   // requires the problem to be a MIP (CPXaddmipstarts needs integer columns).
   restore_integrality();
 
   if (!start) {
-    spdlog::warn("MIP-start[{}]: generator produced no start", gen->name());
+    spdlog::warn("MIP-start[{}]: produced no start", source);
     return report;
   }
 
-  // Default to `repair`: the rounded + run-length-repaired commitment is
-  // near-feasible but typically still nicks a few Pmin / user-constraint /
-  // reserve rows, so CHECKFEAS would discard it; `repair` lets the solver mend
-  // those residual conflicts and (empirically) lands the optimum at the root.
+  // Stage 4 — inject with `effort` ("solver repair").  Default `repair`: the
+  // candidate is near-feasible but typically still nicks a few Pmin /
+  // user-constraint / reserve rows, so CHECKFEAS would discard it; `repair`
+  // lets the active backend mend those residuals (and on CPLEX this composes
+  // with the SCIP stage as structural-then-numerical repair).  SystemLP then
+  // runs the MIP solve (the "resolve").
   const auto effort = opts.effort.value_or(MipStartEffort::repair);
   report.injected = li.set_mip_start(*start, effort);
-  report.source = std::string {gen->name()};
+  report.source = source;
   spdlog::info(
       "MIP-start[{}]: {} ({} integer cols, effort={}, relax_obj={:.6g})",
-      gen->name(),
+      source,
       report.injected ? "injected" : "backend declined",
       int_cols.size(),
       enum_name(effort),

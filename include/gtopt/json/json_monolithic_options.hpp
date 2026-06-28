@@ -35,6 +35,7 @@ struct MipStartOptionsConstructor
       OptName effort_str,
       OptName file,
       OptName dump_file,
+      OptBool scip_repair,
       OptBool relax_check,
       OptName on_infeasible_str,
       OptBool report_saturated,
@@ -50,6 +51,7 @@ struct MipStartOptionsConstructor
     }
     opts.file = std::move(file);
     opts.dump_file = std::move(dump_file);
+    opts.scip_repair = scip_repair;
     opts.relax_check = relax_check;
     if (on_infeasible_str) {
       opts.on_infeasible = gtopt::require_enum<RelaxInfeasibleAction>(
@@ -72,6 +74,7 @@ struct json_data_contract<MipStartOptions>
                        json_string_null<"effort", OptName>,
                        json_string_null<"file", OptName>,
                        json_string_null<"dump_file", OptName>,
+                       json_bool_null<"scip_repair", OptBool>,
                        json_bool_null<"relax_check", OptBool>,
                        json_string_null<"on_infeasible", OptName>,
                        json_bool_null<"report_saturated", OptBool>,
@@ -84,6 +87,7 @@ struct json_data_contract<MipStartOptions>
                            detail::enum_to_opt_name(opt.effort),
                            opt.file,
                            opt.dump_file,
+                           opt.scip_repair,
                            opt.relax_check,
                            detail::enum_to_opt_name(opt.on_infeasible),
                            opt.report_saturated,

@@ -31,6 +31,7 @@
 #include <string_view>
 #include <vector>
 
+#include <gtopt/domain_rules.hpp>
 #include <gtopt/error.hpp>
 #include <gtopt/monolithic_options.hpp>
 #include <gtopt/solver_options.hpp>
@@ -40,39 +41,27 @@ namespace gtopt
 
 class LinearInterface;
 struct FlatLinearProblem;
-
-/// One commitment unit's status (u) columns in chronological order, with the
-/// matching block durations and the unit's min-up/min-down times (hours).  This
-/// is the domain input the min-up/down repair needs — built by the
-/// `SystemLP::resolve` hook (one entry per (scenario, commitment) with a
-/// run-length limit).  `status_cols[t]` is a RAW column index;
-/// `durations[t]` is the block duration [h] of that period (parallel arrays).
-struct CommitmentRunInfo
-{
-  double min_up_hours {0.0};
-  double min_down_hours {0.0};
-  std::vector<int> status_cols {};
-  std::vector<double> durations {};
-};
+struct MipStartContext;
 
 namespace detail
 {
 /// Round `v` to the nearest integer biased by `threshold` (a relaxed binary at
-/// `v` rounds up iff `v >= threshold`), then clamp to `[lb, ub]`.  Shared by
-/// the generators (lp_round / relax_fix / scip_repair).
+/// `v` rounds up iff `v >= threshold`), then clamp to `[lb, ub]`.  The generic,
+/// domain-agnostic rounding step (stage 1) — any solver does this.
 [[nodiscard]] double round_with_threshold(double v,
                                           double threshold,
                                           double lb,
                                           double ub) noexcept;
 
-/// In-place min-up/min-down repair of the rounded status columns in `values`
-/// (a dense, raw-column-indexed vector): a greedy forward sweep per unit
-/// suppresses any transition that would end a run shorter than the unit's
-/// minimum on/off time by extending the current run.
-/// @return Number of column values flipped.
-[[nodiscard]] int repair_run_lengths(
-    std::vector<double>& values,
-    std::span<const CommitmentRunInfo> commitments);
+/// Stage 1 + 2 of the MIP-start pipeline: round the relaxation's integer
+/// columns (`round_with_threshold`) and apply the default electric-system
+/// commitment-repair pipeline (`make_default_domain_rules`) to the result.
+/// Continuous columns are kept at their relaxation value.  Returns the dense
+/// raw candidate start (empty iff the relaxation has no primal).  Shared by
+/// every base generator (lp_round / relax_fix / file) so they all get the same
+/// round + electric-rules front-end.
+[[nodiscard]] std::vector<double> rounded_start_with_rules(
+    MipStartContext& ctx, std::string_view generator_name);
 }  // namespace detail
 
 /// Outcome of the MIP-start pipeline (for logging / tests).
@@ -127,12 +116,16 @@ public:
 [[nodiscard]] std::unique_ptr<MipStartGenerator> make_mip_start_generator(
     MipStartMethod method);
 
-/// Build the SCIP-repair generator (`MipStartMethod::scip_repair`).  Defined in
-/// `mip_start_scip.cpp`; always constructible (it drives SCIP through the
-/// generic backend interface, so the core needs no SCIP headers).  The
-/// generator self-skips at run time — returning no start — when the "scip"
-/// plugin is not registered or no flat LP was supplied.
-[[nodiscard]] std::unique_ptr<MipStartGenerator> make_scip_repair_generator();
+/// Optional SCIP repair STAGE (stage 3 of the pipeline) — composable with any
+/// base method and any active solver via `mip_start.scip_repair=true`.  Build a
+/// SCIP backend from `ctx.flat_lp`, hand it the `candidate` commitment through
+/// `set_mip_start(repair)` (→ the SCIP plugin's completesol/repair), and return
+/// the candidate with SCIP's repaired integer columns overlaid.  Returns
+/// `std::nullopt` (caller keeps the pre-SCIP candidate) when the SCIP plugin or
+/// the flat LP is absent, or SCIP finds nothing feasible.  Defined in
+/// `mip_start_scip.cpp` — the core links no SCIP headers.
+[[nodiscard]] std::optional<std::vector<double>> scip_repair_candidate(
+    MipStartContext& ctx, std::vector<double> candidate);
 
 /// Run the two-stage MIP-start pipeline on `li` immediately before its MIP
 /// solve.  `base_opts` are the effective monolithic solver options (the
