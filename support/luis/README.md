@@ -12,6 +12,11 @@ Plus **`reference_data/`** — operator-published data downloaded from AMM/EOR
 (hourly spot prices for LMP validation, per-plant CVG, interconnection
 transfer limits); see its own `README.md`.
 
+Each case directory also ships a **`src/`** subfolder with the exact
+converter inputs **xz‑compressed** (`.raw.xz`, `.dat.xz`, `.csv.xz`,
+`.xls.xz`), so every case regenerates **from this repo** — no proprietary
+archive needed.  Both converters read `.xz` transparently.
+
 Every `<case>.json` is self-contained (inline `lmax`) — run with
 `gtopt -s <path>/<case>.json -d out`.  All solve to optimality with CPLEX.
 
@@ -35,16 +40,18 @@ runnable case under `psse_bdd/<case>/<case>.json`.
 Single-snapshot multi-bus DC OPF (1 stage / 1 block / 1 scenario):
 ~871 buses, ~942 lines, ~115 generators, ~255 demands.
 
-Generated from the **PSS/E v33** `.raw` files plus the AMM side-car
-spreadsheets, using [`scripts/psse2gtopt`](../../docs/scripts/psse2gtopt.md):
+Regenerate from the committed **`psse_bdd/src/`** xz inputs (PSS/E v33
+`.raw` + AMM spreadsheets), using
+[`scripts/psse2gtopt`](../../docs/scripts/psse2gtopt.md):
 
 ```bash
-# (after extracting the 7z to <EX>)
-psse2gtopt -i "<EX>/PSS(R)Ev33/PAESEPMED26.raw" -o psse_bdd/PAESEPMED26 \
-  --nomenclatura "<EX>/Nomenclatura.xls" \
-  --ldm          "<EX>/LDM Septiembre 2026.xlsx" --rating-set A
+psse2gtopt -i psse_bdd/src/PAESEPMED26.raw.xz -o psse_bdd/PAESEPMED26 \
+  --nomenclatura "psse_bdd/src/Nomenclatura.xls.xz" \
+  --ldm          "psse_bdd/src/LDM Septiembre 2026.xlsx.xz" --rating-set A
 gtopt -s psse_bdd/PAESEPMED26/PAESEPMED26.json -d out
 ```
+
+(SEP cases use *LDM Septiembre 2026*, MAR cases *LDM Marzo 2027*.)
 
 - `--nomenclatura` → human-readable bus names (`AGU-230` → `Aguacapa-230`).
 - `--ldm` → rank-based **merit-order** generation costs (SEP cases use
@@ -71,11 +78,9 @@ horizon (1 block per hour).  ~830 buses, ~955 lines, ~220 generators,
 | `ncp_pdd_22jun/` | daily PDD (`PDD_DIARIO`) | thermal merit + **water values** + inflow-limited RoR + **import cap** |
 
 ```bash
-# regenerate (after extracting the .rar archives to <EX>)
-sddp2gtopt -i "<EX>/26 - Semana del 21 al 27 de junio de 2026 NCP.5.29.b" \
-           -o sddp_ncp_week --import-limit 200
-sddp2gtopt -i "<EX>/PDD_22JUN2026_V5.29.b/PDD_DIARIO" -o ncp_pdd_22jun \
-           --import-limit 200
+# regenerate from the committed xz inputs (sddp_ncp_week/src, ncp_pdd_22jun/src)
+sddp2gtopt -i sddp_ncp_week/src -o sddp_ncp_week --import-limit 200
+sddp2gtopt -i ncp_pdd_22jun/src -o ncp_pdd_22jun --import-limit 200
 gtopt -s ncp_pdd_22jun/ncp_pdd_22jun.json -d out
 ```
 
