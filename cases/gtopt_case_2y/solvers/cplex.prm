@@ -1,0 +1,36 @@
+CPLEX Parameter File Version 22.1.1.0
+# Tuned for plexos2gtopt-derived MIPs (~600 K vars / 277 K integers
+# / 559 K rows / 2.18 M nz, ~13 % integer density).
+#
+# Two recommended overrides on top of CPLEX defaults:
+#
+#   1. CPXPARAM_MIP_Cuts_Gomory = 2
+#      CPLEX `tools tune` ran 4 parameter-set tests on
+#         /tmp/gtopt_pcp_mip4_tan/output/logs/error_0_0_scene_0_phase_0.lp
+#      in 5,282 s.  Its `Fixed and tuned parameter settings` verdict was
+#      `mip cuts gomory 2` — the only forced override that pays off.
+#
+#   2. CPXPARAM_LPMethod = 4
+#      LP-method benchmark on the same LP (relaxation only, 14 threads):
+#
+#           LPMethod 0 (auto → concurrent):    46.9 s, optimal
+#           LPMethod 1 (primal simplex):      time-limit (600 s)
+#           LPMethod 2 (dual simplex):        time-limit (600 s)
+#           LPMethod 4 (barrier):              34.4 s, optimal  *
+#           LPMethod 5 (sifting):             time-limit (600 s)
+#           LPMethod 6 (concurrent explicit):  46.4 s, optimal
+#
+#      Barrier alone with all 14 threads beats concurrent (which wastes
+#      threads on a doomed dual-simplex race) by ~12 s.  Dual simplex
+#      did not converge cold-start in 10 min; LPMethod = 2 was the
+#      worst possible choice for monolithic / cold-start solves.
+#
+# Caveat: forcing barrier here makes warm-started SDDP iteration LPs
+# slower (dual simplex would be faster on those).  If this same prm is
+# loaded under SDDP, comment out the LPMethod line and let CPLEX's
+# auto-pick choose dual on warm bases.
+# ---------------------------------------------------------------------
+# --- plp2gtopt iterative (sddp/cascade) LP overrides ---
+CPXPARAM_LPMethod                               2
+CPXPARAM_Advance                                1
+CPXPARAM_Preprocessing_Presolve                 0

@@ -1,0 +1,23 @@
+CPLEX Parameter File Version 22.1.1.0
+# Warm-start parameters for gtopt's basis-resident simplex re-solves:
+# the post-MIP FIXED-MILP dual-recovery pass AND the SDDP aperture
+# warm-start (SolverOptions::advanced_basis) both load this sibling.
+#
+# After a MIP solve, gtopt switches the live problem to CPXPROB_FIXEDMILP
+# (integers pinned at the incumbent, the incumbent node's optimal simplex
+# basis retained) to recover valid duals / reduced costs.  This must be a
+# WARM simplex pass — a handful of pivots off the incumbent basis — NOT a
+# cold barrier re-solve (which would re-presolve with the binaries and cost
+# as much as the MIP itself).
+#
+# This file is loaded INSTEAD OF the barrier cplex.prm for that pass:
+#
+#   CPXPARAM_LPMethod = 1   primal simplex (warm off the incumbent basis),
+#                           NOT 4 (barrier) as cplex.prm forces for the
+#                           cold MIP-root relaxation.
+#   CPXPARAM_Advance  = 1   USE the advanced/incumbent basis installed by
+#                           CPXPROB_FIXEDMILP (without this CPLEX discards
+#                           the basis and re-presolves cold).
+# ---------------------------------------------------------------------
+CPXPARAM_LPMethod                               1
+CPXPARAM_Advance                                1
