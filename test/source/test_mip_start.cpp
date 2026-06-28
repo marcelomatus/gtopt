@@ -13,6 +13,9 @@
  */
 
 #include <array>
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -36,9 +39,12 @@ TEST_CASE("MipStart option enums round-trip by name")  // NOLINT
     CHECK(enum_name(MipStartMethod::none) == "none");
     CHECK(enum_name(MipStartMethod::lp_round) == "lp_round");
     CHECK(enum_name(MipStartMethod::relax_fix) == "relax_fix");
+    CHECK(enum_name(MipStartMethod::file) == "file");
     CHECK(enum_from_name<MipStartMethod>("lp_round")
               .value_or(MipStartMethod::none)
           == MipStartMethod::lp_round);
+    CHECK(enum_from_name<MipStartMethod>("file").value_or(MipStartMethod::none)
+          == MipStartMethod::file);
   }
 
   SUBCASE("MipStartEffort")
@@ -71,6 +77,8 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.method = MipStartMethod::lp_round;
   opts.round_threshold = 0.6;
   opts.effort = MipStartEffort::repair;
+  opts.file = "in.start";
+  opts.dump_file = "out.start";
   opts.relax_check = true;
   opts.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.report_saturated = true;
@@ -82,6 +90,8 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   CHECK(back.round_threshold.value_or(-1.0) == doctest::Approx(0.6));
   CHECK(back.effort.value_or(MipStartEffort::check_feasibility)
         == MipStartEffort::repair);
+  CHECK(back.file.value_or("") == "in.start");
+  CHECK(back.dump_file.value_or("") == "out.start");
   CHECK(back.relax_check.value_or(false) == true);
   CHECK(back.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
@@ -125,6 +135,13 @@ TEST_CASE("make_mip_start_generator factory")  // NOLINT
     auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
     REQUIRE(gen != nullptr);
     CHECK(gen->name() == "relax_fix");
+  }
+
+  SUBCASE("file yields a named generator")
+  {
+    auto gen = make_mip_start_generator(MipStartMethod::file);
+    REQUIRE(gen != nullptr);
+    CHECK(gen->name() == "file");
   }
 
   SUBCASE("none yields no generator")
@@ -567,6 +584,174 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
   CHECK(rep->source == "lp_round");
   CHECK(li.is_integer(x));
+}
+
+// ── FileMipStart consumer: overlay a dump onto the relaxation base ─────────
+//
+// The `file` generator must take integer-column values FROM the dump and keep
+// the continuous columns AT the destination LP's own relaxation value.  Drive
+// it with a hand-written dump (the exact format `dump_integer_solution` emits)
+// so the consumer is exercised with no MIP solver: one LP relaxation suffices.
+
+TEST_CASE(
+    "MipStart file generator overlays integers onto relaxation")  // NOLINT
+{
+  const std::filesystem::path path = "test_mip_start_overlay.start";
+  {
+    std::ofstream out(path, std::ios::trunc);
+    out << "# gtopt mip_start integer solution (index value)\n";
+    out << "ncols 3\n";
+    out << "nint 2\n";
+    out << "0 1\n";  // col 0 → 1
+    out << "1 0\n";  // col 1 → 0
+  }
+
+  // Destination LP: a DIFFERENT (fractional) continuous relaxation.
+  LinearInterface dst;
+  const auto y0 =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto y1 =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto dd =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 0.0});
+  pin_col(dst, y0, 0.3);  // overwritten by the file's integer (→ 1)
+  pin_col(dst, y1, 0.7);  // overwritten by the file's integer (→ 0)
+  pin_col(dst, dd, 2.0);  // continuous — must keep the dst relaxation value
+  REQUIRE(dst.initial_solve(SolverOptions {.log_level = 0}).has_value());
+  REQUIRE(dst.is_optimal());
+
+  const std::array<int, 2> int_cols {0, 1};
+  MipStartOptions opts;
+  opts.file = path.string();
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = dst,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = {}};
+
+  auto gen = make_mip_start_generator(MipStartMethod::file);
+  REQUIRE(gen != nullptr);
+  const auto start = gen->generate(ctx);
+  REQUIRE(start.has_value());
+  REQUIRE(start->size() == 3);
+  CHECK((*start)[0] == doctest::Approx(1.0));  // from the dump
+  CHECK((*start)[1] == doctest::Approx(0.0));  // from the dump
+  CHECK((*start)[2] == doctest::Approx(2.0));  // dst continuous, untouched
+
+  std::filesystem::remove(path);
+}
+
+// ── dump → file full round-trip (production ordering: integers set, then a
+// real MIP solve, then dump).  Gated on a MIP solver because the dump must
+// read a SOLVED integer primal — `set_integer` before the solve is exactly the
+// production path, and re-reading the cached primal after a post-hoc
+// `set_integer` is invalid on some backends.
+TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
+{
+  SolverRegistry& reg = SolverRegistry::instance();
+  if (!reg.has_mip_solver()) {
+    MESSAGE("Skipping MIP test — no MIP solver available");
+    return;
+  }
+  const std::filesystem::path path = "test_mip_start_roundtrip.start";
+  std::filesystem::remove(path);
+
+  // Source MIP: x0,x1 binary, x0>=0.6 (→1), x1<=0.4 (→0); cc pinned at 3.
+  {
+    LinearInterface src;
+    const auto x0 =
+        src.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+    const auto x1 =
+        src.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+    const auto cc =
+        src.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 0.0});
+    src.set_integer(x0);  // integrality set BEFORE solving (production order)
+    src.set_integer(x1);
+    const auto rlo =
+        src.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
+    src.set_coeff(rlo, x0, 1.0);  // x0 >= 0.6 → 1
+    const auto rhi = src.add_row(SparseRow {.lowb = 0.0, .uppb = 0.4});
+    src.set_coeff(rhi, x1, 1.0);  // x1 <= 0.4 → 0
+    pin_col(src, cc, 3.0);
+    REQUIRE(src.initial_solve(SolverOptions {.log_level = 0}).has_value());
+    REQUIRE(src.is_optimal());
+    REQUIRE(src.get_col_sol_raw()[0] == doctest::Approx(1.0));
+    REQUIRE(src.get_col_sol_raw()[1] == doctest::Approx(0.0));
+
+    const auto dumped = dump_integer_solution(src, path.string());
+    REQUIRE(dumped.has_value());
+  }
+
+  // Destination LP: different continuous base; replay the dumped integers.
+  LinearInterface dst;
+  const auto y0 =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto y1 =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 0.0});
+  const auto dd =
+      dst.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 0.0});
+  pin_col(dst, y0, 0.3);
+  pin_col(dst, y1, 0.7);
+  pin_col(dst, dd, 2.0);
+  REQUIRE(dst.initial_solve(SolverOptions {.log_level = 0}).has_value());
+
+  const std::array<int, 2> int_cols {0, 1};
+  MipStartOptions opts;
+  opts.file = path.string();
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = dst,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = {}};
+  auto gen = make_mip_start_generator(MipStartMethod::file);
+  REQUIRE(gen != nullptr);
+  const auto start = gen->generate(ctx);
+  REQUIRE(start.has_value());
+  CHECK((*start)[0] == doctest::Approx(1.0));  // dumped MIP value
+  CHECK((*start)[1] == doctest::Approx(0.0));  // dumped MIP value
+  CHECK((*start)[2] == doctest::Approx(2.0));  // dst continuous, untouched
+
+  std::filesystem::remove(path);
+}
+
+TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
+{
+  // A dump built for a 3-column LP must NOT be replayed onto a 2-column LP —
+  // the `ncols` header guard returns nullopt rather than silently injecting a
+  // start built for a different problem.
+  const std::filesystem::path path = "test_mip_start_ncols_mismatch.start";
+  {
+    std::ofstream out(path, std::ios::trunc);
+    out << "# gtopt mip_start integer solution (index value)\n";
+    out << "ncols 3\n";
+    out << "nint 1\n";
+    out << "0 1\n";
+  }
+
+  LinearInterface dst;  // only TWO columns
+  (void)dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  (void)dst.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
+  pin_col(dst, ColIndex {0}, 0.5);
+  pin_col(dst, ColIndex {1}, 0.5);
+  REQUIRE(dst.initial_solve(SolverOptions {.log_level = 0}).has_value());
+
+  const std::array<int, 1> int_cols {0};
+  MipStartOptions opts;
+  opts.file = path.string();
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = dst,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = {}};
+
+  auto gen = make_mip_start_generator(MipStartMethod::file);
+  REQUIRE(gen != nullptr);
+  CHECK_FALSE(gen->generate(ctx).has_value());  // ncols 3 ≠ 2 → refused
+
+  std::filesystem::remove(path);
 }
 
 }  // namespace mip_start_test

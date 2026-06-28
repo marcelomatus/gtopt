@@ -8,6 +8,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <fstream>
+#include <string>
+#include <unordered_set>
 
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/mip_start.hpp>
@@ -221,6 +225,112 @@ public:
   }
 };
 
+/// File generator: replay an integer solution dumped by a previous solve
+/// (`dump_integer_solution`).  The dumped `<index> <value>` lines carry the
+/// integer-column raw values found by another solver; this overlays them onto
+/// THIS solver's own LP-relaxation primal (the continuous columns stay at the
+/// relaxation value, exactly like `lp_round`, but the integer columns come from
+/// the file instead of rounding).  Enables a cross-solver hand-off: e.g. HiGHS
+/// (strong MIP heuristics) finds a feasible incumbent and dumps it, then cuOpt
+/// replays it as its start.  Both runs build the identical deterministic flat
+/// LP, so raw column indices match 1:1 — validated by the `ncols` header and a
+/// per-index integer-column membership check (no silent skip on mismatch).
+class FileMipStart final : public MipStartGenerator
+{
+public:
+  [[nodiscard]] std::string_view name() const noexcept override
+  {
+    return "file";
+  }
+
+  [[nodiscard]] std::optional<std::vector<double>> generate(
+      MipStartContext& ctx) override
+  {
+    const auto& path = ctx.opts.file;
+    if (!path.has_value() || path->empty()) {
+      spdlog::warn(
+          "MIP-start[file]: no mip_start.file configured; nothing to replay");
+      return std::nullopt;
+    }
+    std::ifstream in(*path);
+    if (!in) {
+      spdlog::error("MIP-start[file]: cannot open '{}' for reading", *path);
+      return std::nullopt;
+    }
+
+    const auto sol = ctx.li.get_col_sol_raw();  // RAW relaxation primal = base
+    if (sol.empty()) {
+      return std::nullopt;
+    }
+    const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
+    const std::unordered_set<int> int_set(ctx.int_cols.begin(),
+                                          ctx.int_cols.end());
+
+    std::vector<double> start(sol.begin(), sol.end());
+    std::size_t file_ncols = 0;
+    std::size_t placed = 0;
+    std::size_t skipped = 0;
+    std::string token;
+    while (in >> token) {
+      if (token == "ncols") {
+        in >> file_ncols;
+        if (file_ncols != ncols) {
+          spdlog::error(
+              "MIP-start[file]: column-count mismatch (dump ncols={}, this LP "
+              "ncols={}); refusing to replay a start built for a different LP",
+              file_ncols,
+              ncols);
+          return std::nullopt;
+        }
+        continue;
+      }
+      if (token == "nint") {
+        in >> token;  // value consumed, informational only
+        continue;
+      }
+      if (!token.empty() && token.front() == '#') {
+        std::getline(in, token);  // comment line — discard remainder
+        continue;
+      }
+      // Otherwise `token` is a column index; the next token is its value.
+      int idx = -1;
+      double value = 0.0;
+      try {
+        idx = std::stoi(token);
+      } catch (const std::exception&) {
+        continue;  // not an index token; skip
+      }
+      if (!(in >> value)) {
+        break;
+      }
+      const auto u = static_cast<std::size_t>(idx);
+      if (idx < 0 || u >= ncols || !int_set.contains(idx)) {
+        ++skipped;
+        continue;
+      }
+      start[u] = value;
+      ++placed;
+    }
+
+    if (placed == 0) {
+      spdlog::error(
+          "MIP-start[file]: dump '{}' yielded no usable integer values "
+          "(placed=0, skipped={})",
+          *path,
+          skipped);
+      return std::nullopt;
+    }
+    spdlog::info(
+        "MIP-start[file]: replayed {} integer values from '{}' ({} skipped, "
+        "{} integer cols in this LP)",
+        placed,
+        *path,
+        skipped,
+        ctx.int_cols.size());
+    return start;
+  }
+};
+
 /// Report the saturated / binding constraints (nonzero dual) of the solved LP
 /// relaxation — solver-agnostic, read from the row duals.
 void report_saturated_rows(LinearInterface& li, int max_items)
@@ -239,10 +349,14 @@ void report_saturated_rows(LinearInterface& li, int max_items)
     int row {};
   };
   std::vector<Hit> hits;
-  for (int i = 0; i < static_cast<int>(duals.size()); ++i) {
-    const double d = duals[static_cast<std::size_t>(i)];
+  for (std::size_t i = 0; i < duals.size(); ++i) {
+    const double d = duals[i];
     if (std::abs(d) > tol) {
-      hits.push_back({.mag = std::abs(d), .dual = d, .row = i});
+      hits.push_back({
+          .mag = std::abs(d),
+          .dual = d,
+          .row = static_cast<int>(i),
+      });
     }
   }
   if (hits.empty()) {
@@ -282,10 +396,60 @@ std::unique_ptr<MipStartGenerator> make_mip_start_generator(
       return std::make_unique<LpRoundMipStart>();
     case MipStartMethod::relax_fix:
       return std::make_unique<RelaxFixMipStart>();
+    case MipStartMethod::file:
+      return std::make_unique<FileMipStart>();
     case MipStartMethod::none:
       break;
   }
   return nullptr;
+}
+
+std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
+                                                 const std::string& path)
+{
+  const auto sol = li.get_col_sol_raw();
+  if (sol.empty()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InvalidInput,
+        .message = "MIP-start dump: no primal solution to dump",
+    });
+  }
+  const int ncols = static_cast<int>(li.get_numcols());
+
+  // Collect integer columns + their raw values (integrality must still be
+  // intact at the call site — before any dual-recovery relaxation).
+  std::vector<std::pair<int, double>> ints;
+  ints.reserve((static_cast<std::size_t>(ncols) / 8) + 1);
+  for (int i = 0; i < ncols; ++i) {
+    if (li.is_integer(ColIndex {i})) {
+      ints.emplace_back(i, sol[static_cast<std::size_t>(i)]);
+    }
+  }
+
+  std::ofstream out(path, std::ios::trunc);
+  if (!out) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message =
+            std::format("MIP-start dump: cannot open '{}' for writing", path),
+    });
+  }
+  out << "# gtopt mip_start integer solution (index value)\n";
+  out << std::format("ncols {}\n", ncols);
+  out << std::format("nint {}\n", ints.size());
+  for (const auto& [idx, value] : ints) {
+    // `{}` renders the shortest round-trippable representation of the double.
+    out << std::format("{} {}\n", idx, value);
+  }
+  if (!out) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("MIP-start dump: write to '{}' failed", path),
+    });
+  }
+  spdlog::info(
+      "MIP-start dump: wrote {} integer columns to '{}'", ints.size(), path);
+  return {};
 }
 
 std::expected<MipStartReport, Error> apply_mip_start(
@@ -362,11 +526,12 @@ std::expected<MipStartReport, Error> apply_mip_start(
           "anyway (on_infeasible=warn)");
       return report;
     }
-    return std::unexpected(
-        Error {.code = ErrorCode::SolverError,
-               .message = std::string {"MIP-start: LP relaxation is infeasible "
-                                       "(on_infeasible="}
-                   + std::string {enum_name(action)} + ")"});
+    return std::unexpected(Error {
+        .code = ErrorCode::SolverError,
+        .message = std::string {"MIP-start: LP relaxation is infeasible "
+                                "(on_infeasible="}
+            + std::string {enum_name(action)} + ")",
+    });
   }
 
   // Feasible: optional saturated-row report.
@@ -388,11 +553,13 @@ std::expected<MipStartReport, Error> apply_mip_start(
     return report;
   }
 
-  MipStartContext ctx {.li = li,
-                       .relax_opts = relax_opts,
-                       .int_cols = int_cols,
-                       .opts = opts,
-                       .commitments = commitments};
+  MipStartContext ctx {
+      .li = li,
+      .relax_opts = relax_opts,
+      .int_cols = int_cols,
+      .opts = opts,
+      .commitments = commitments,
+  };
   auto start = gen->generate(ctx);
 
   // Re-establish integrality BEFORE injecting: the backend MIP-start API

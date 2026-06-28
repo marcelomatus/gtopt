@@ -61,12 +61,19 @@ inline constexpr auto solve_mode_entries = std::to_array<EnumEntry<SolveMode>>({
  * - `relax_fix`: as `lp_round`, then pin every binary at once and solve one
  *   full-horizon economic-dispatch LP, injecting the validated dispatch.
  *   Storage-safe — the whole horizon is fixed simultaneously.
+ * - `file`: replay an integer solution dumped by a previous solve
+ *   (`mip_start.dump_file`) — overlay those integer-column values onto this
+ *   solver's own LP-relaxation base.  Enables a CROSS-SOLVER hand-off: e.g.
+ *   solver A (good MIP heuristics) finds a feasible incumbent and dumps it,
+ *   then solver B replays it as its start.  Both runs build the identical
+ *   flat LP (deterministic), so raw column indices match 1:1.
  */
 enum class MipStartMethod : uint8_t
 {
   none = 0,  ///< No initial MIP solution (default)
   lp_round = 1,  ///< Round the LP relaxation
   relax_fix = 2,  ///< Fix all binaries + full-horizon ED-LP
+  file = 3,  ///< Replay an integer solution dumped by a previous solve
 };
 
 inline constexpr auto mip_start_method_entries =
@@ -74,6 +81,7 @@ inline constexpr auto mip_start_method_entries =
         {.name = "none", .value = MipStartMethod::none},
         {.name = "lp_round", .value = MipStartMethod::lp_round},
         {.name = "relax_fix", .value = MipStartMethod::relax_fix},
+        {.name = "file", .value = MipStartMethod::file},
     });
 
 [[nodiscard]] constexpr auto enum_entries(MipStartMethod /*tag*/) noexcept

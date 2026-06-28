@@ -1786,6 +1786,24 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     return result;
   }
 
+  // ── Optional: dump the solved integer solution for cross-run reuse ─────
+  //
+  // Persist this MIP's integer columns so a LATER run can replay them as its
+  // start (`mip_start.method=file`).  Done here — after the MIP solve, before
+  // the dual-recovery pass relaxes integrality — so `is_integer` still marks
+  // the commitment columns.  A failed dump must not fail the solve.
+  if (const auto ms_opts = options().mip_start_options();
+      ms_opts.dump_file.has_value() && !ms_opts.dump_file->empty()
+      && li.has_integer_cols())
+  {
+    if (auto dumped = dump_integer_solution(li, *ms_opts.dump_file); !dumped) {
+      spdlog::warn("SystemLP::resolve [scene={} phase={}]: {}",
+                   scene().uid(),
+                   phase().uid(),
+                   dumped.error().message);
+    }
+  }
+
   // ── Fix-integers dual-recovery pass ───────────────────────────────────
   //
   // A MIP solution carries no LP duals (shadow prices) or reduced costs,

@@ -113,4 +113,16 @@ public:
     const MipStartOptions& opts,
     std::span<const CommitmentRunInfo> commitments = {});
 
+/// Dump the live MIP solution's integer-column RAW values to `path`, one
+/// `<index> <value>` line per integer column, preceded by an `ncols` header
+/// for a structural sanity check on replay.  Call AFTER a successful MIP solve
+/// (integrality intact, before any dual-recovery relaxation).  A later run
+/// replays the dump as a cross-solver MIP start via `MipStartMethod::file`
+/// (`FileMipStart`): both runs build the identical deterministic flat LP, so
+/// raw column indices line up 1:1.
+///
+/// @return Empty on success, or a `FileIOError` if the file cannot be written.
+[[nodiscard]] std::expected<void, Error> dump_integer_solution(
+    const LinearInterface& li, const std::string& path);
+
 }  // namespace gtopt

@@ -34,6 +34,7 @@ struct MipStartOptionsConstructor
       OptReal round_threshold,
       OptName effort_str,
       OptName file,
+      OptName dump_file,
       OptBool relax_check,
       OptName on_infeasible_str,
       OptBool report_saturated,
@@ -48,6 +49,7 @@ struct MipStartOptionsConstructor
       opts.effort = gtopt::require_enum<MipStartEffort>("effort", *effort_str);
     }
     opts.file = std::move(file);
+    opts.dump_file = std::move(dump_file);
     opts.relax_check = relax_check;
     if (on_infeasible_str) {
       opts.on_infeasible = gtopt::require_enum<RelaxInfeasibleAction>(
@@ -69,6 +71,7 @@ struct json_data_contract<MipStartOptions>
                        json_number_null<"round_threshold", OptReal>,
                        json_string_null<"effort", OptName>,
                        json_string_null<"file", OptName>,
+                       json_string_null<"dump_file", OptName>,
                        json_bool_null<"relax_check", OptBool>,
                        json_string_null<"on_infeasible", OptName>,
                        json_bool_null<"report_saturated", OptBool>,
@@ -80,6 +83,7 @@ struct json_data_contract<MipStartOptions>
                            opt.round_threshold,
                            detail::enum_to_opt_name(opt.effort),
                            opt.file,
+                           opt.dump_file,
                            opt.relax_check,
                            detail::enum_to_opt_name(opt.on_infeasible),
                            opt.report_saturated,

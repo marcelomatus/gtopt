@@ -48,8 +48,14 @@ struct MipStartOptions
    * the optimum at the root; `check_feasibility` only accepts an
    * already-feasible start). */
   std::optional<MipStartEffort> effort {};
-  /** @brief Optional path to an externally-computed start (file generators) */
+  /** @brief Optional path to an externally-computed start, read by the `file`
+   * generator: a dump produced by a previous solve's `dump_file`. */
   OptName file {};
+  /** @brief Optional path to DUMP this solve's integer solution to, after the
+   * MIP solve completes.  A later run replays it via `method=file` — enables a
+   * cross-solver hand-off (e.g. HiGHS dumps a feasible incumbent, cuOpt
+   * replays it as its start). */
+  OptName dump_file {};
 
   // ── Stage A: relaxation analysis & diagnosis ──────────────────────────────
   /** @brief Run the LP-relaxation feasibility analysis even when
@@ -73,6 +79,7 @@ struct MipStartOptions
     merge_opt(round_threshold, opts.round_threshold);
     merge_opt(effort, opts.effort);
     merge_opt(file, std::move(opts.file));
+    merge_opt(dump_file, std::move(opts.dump_file));
     merge_opt(relax_check, opts.relax_check);
     merge_opt(on_infeasible, opts.on_infeasible);
     merge_opt(report_saturated, opts.report_saturated);
