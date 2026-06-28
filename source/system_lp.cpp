@@ -1289,12 +1289,22 @@ void SystemLP::rebuild_collections_if_needed()
   // 5–10× speedup on the per-cell rebuild slice.
   flat_opts.skip_matrix_build = true;
 
-  // Silence SystemContext registrations (state variables, AMPL
-  // variable registry, deferred cross-phase links) on this pass.
-  // They were populated during the original flatten and every col/row
-  // index is deterministic, so re-running them would be wasted work
-  // (and for `defer_state_link` would silently duplicate cross-phase
-  // links).
+  // Silence SystemContext registrations (state variables, integer
+  // variables, deferred cross-phase links) on this pass.  They were
+  // populated during the original flatten and every col/row index is
+  // deterministic, so re-running them would be wasted work (and for
+  // `defer_state_link` would silently duplicate cross-phase links).
+  //
+  // EXCEPT the per-cell AMPL variable/metadata registry: the production
+  // solve path frees it after the initial flatten
+  // (`release_ampl_after_flatten` → `SimulationLP::release_ampl_cell`),
+  // and this rebuild re-runs `UserConstraintLP::add_to_lp`, which
+  // resolves element columns through that registry.  Replay it so user
+  // constraints referencing `generator('g').generation` (etc.) still
+  // resolve under `low_memory=compress` (SDDP / cascade / write_out) —
+  // otherwise they fail with "unknown attribute".  The col indices are
+  // deterministic, so replaying when the registry was NOT released just
+  // overwrites with identical entries.
   struct SilentFlattenPassGuard
   {
     SystemContext& ctx;
@@ -1306,8 +1316,13 @@ void SystemLP::rebuild_collections_if_needed()
         : ctx(c)
     {
       ctx.set_silent_flatten_pass(/*v=*/true);
+      ctx.set_replay_ampl_registry(/*v=*/true);
     }
-    ~SilentFlattenPassGuard() { ctx.set_silent_flatten_pass(/*v=*/false); }
+    ~SilentFlattenPassGuard()
+    {
+      ctx.set_silent_flatten_pass(/*v=*/false);
+      ctx.set_replay_ampl_registry(/*v=*/false);
+    }
   } const guard {system_context()};
 
   // Discard the produced FlatLinearProblem; we only care about the

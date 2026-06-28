@@ -95,7 +95,7 @@ void SystemContext::add_ampl_variable(
     const StageLP& stage,
     const BIndexHolder<ColIndex>& block_cols) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -117,7 +117,7 @@ void SystemContext::add_ampl_variable(
     const BIndexHolder<ColIndex>& block_cols,
     const BIndexHolder<double>& block_offsets) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -138,7 +138,7 @@ void SystemContext::add_ampl_variable(std::string_view class_name,
                                       const StageLP& stage,
                                       ColIndex stage_col) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -159,7 +159,7 @@ void SystemContext::add_ampl_variable(
     const StageLP& stage,
     const BIndexHolder<std::vector<ColIndex>>& block_cols_sum) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;  // registry already holds entries from the initial pass
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -181,7 +181,7 @@ void SystemContext::add_ampl_variable(
     const BIndexHolder<std::vector<std::pair<ColIndex, double>>>&
         block_cols_weighted_sum) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;
   }
   m_simulation_.get().add_ampl_variable(system().scene().index(),
@@ -286,7 +286,7 @@ void SystemContext::register_ampl_element_metadata(
     Uid element_uid,
     AmplElementMetadata metadata) const
 {
-  if (m_silent_flatten_pass_) {
+  if (m_silent_flatten_pass_ && !m_replay_ampl_registry_) {
     return;  // metadata unchanged across rebuilds
   }
   m_simulation_.get().register_ampl_element_metadata(system().scene().index(),

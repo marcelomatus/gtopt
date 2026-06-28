@@ -26,11 +26,11 @@
 # to the case (the loader resolves a relative path against input_directory,
 # then against the working directory).  Then run:
 #
-#   gtopt -s ieee_24b_rts.json --set method=monolithic
+#   gtopt -s ieee_24b_rts.json
 #
-# NOTE: the shipped case defaults to `method: cascade`; generator user
-# constraints are only resolved under the monolithic method today, hence the
-# `--set method=monolithic` above.
+# Works under every planning method — monolithic, sddp and the shipped
+# `method: cascade` default — i.e. element-attribute user constraints
+# resolve through the per-cell AMPL registry on every build/rebuild pass.
 #
 # Element names match cases/ieee_24b_rts/ieee_24b_rts.json:
 #   generators g1..g11, lines l1_2.., transformers t24_3..

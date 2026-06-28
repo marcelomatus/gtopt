@@ -317,13 +317,25 @@ public:
   /// `SystemLP::rebuild_collections_if_needed` while a throw-away
   /// flatten regenerates the per-element XLP state (under
   /// `LowMemoryMode::compress`, after `release_backend()` dropped the
-  /// disposable element wrappers).  Gated registry side-effects
-  /// (`add_state_variable`, `add_ampl_variable`, `defer_state_link`,
-  /// `register_ampl_element_metadata`) become no-ops when the flag is
-  /// set — the initial pass already populated the registries with
-  /// matching col indices, and re-registering on every rebuild would
-  /// burn CPU for zero gain while risking false-positive mismatches in
-  /// the idempotency guards.
+  /// disposable element wrappers).  Cross-phase / engine registry
+  /// side-effects (`add_state_variable`, `add_integer_variable`,
+  /// `defer_state_link`) become no-ops when the flag is set — the
+  /// initial pass already populated those registries with matching col
+  /// indices, and re-registering on rebuild would duplicate cross-phase
+  /// links or burn CPU for zero gain.
+  ///
+  /// EXCEPTION — the per-cell AMPL variable/metadata registry
+  /// (`add_ampl_variable`, `register_ampl_element_metadata`): the
+  /// production solve path frees it after the initial flatten
+  /// (`LpMatrixOptions::release_ampl_after_flatten` →
+  /// `SimulationLP::release_ampl_cell`).  A subsequent rebuild flatten
+  /// (e.g. `write_out`) re-runs `UserConstraintLP::add_to_lp`, which
+  /// resolves element columns through that registry — so it MUST be
+  /// repopulated, or user constraints fail with "unknown attribute".
+  /// `set_replay_ampl_registry(true)` makes those two registrations
+  /// run even on the silent pass; the writes are idempotent (same
+  /// deterministic col indices) so replaying when the registry was NOT
+  /// released is harmless.
   [[nodiscard]] constexpr bool silent_flatten_pass() const noexcept
   {
     return m_silent_flatten_pass_;
@@ -332,6 +344,18 @@ public:
   constexpr void set_silent_flatten_pass(bool v) noexcept
   {
     m_silent_flatten_pass_ = v;
+  }
+
+  /// Whether the AMPL variable/metadata registry should be repopulated
+  /// even during a silent rebuild pass (see `silent_flatten_pass`).
+  [[nodiscard]] constexpr bool replay_ampl_registry() const noexcept
+  {
+    return m_replay_ampl_registry_;
+  }
+
+  constexpr void set_replay_ampl_registry(bool v) noexcept
+  {
+    m_replay_ampl_registry_ = v;
   }
 
   // Methods to handle the state_variables
@@ -798,6 +822,12 @@ private:
   /// `SystemLP::rebuild_in_place()` during the rebuild pass only.  See
   /// `set_silent_flatten_pass`.
   bool m_silent_flatten_pass_ {false};
+
+  /// When true, AMPL variable/metadata registration runs even under
+  /// `m_silent_flatten_pass_` so a rebuild flatten repopulates a
+  /// registry that the production path released after the initial pass
+  /// (see `set_replay_ampl_registry`).
+  bool m_replay_ampl_registry_ {false};
 };
 
 }  // namespace gtopt
