@@ -1,0 +1,100 @@
+# ========================================================================
+# uc_opf_limits.pampl — textbook DC-OPF operating limits for the IEEE
+# RTS-24 case, written in gtopt pseudo-AMPL (.pampl).
+#
+# This file translates the constraint families of a classic AMPL DC-OPF
+# model into gtopt user-constraint syntax.  The reference formulation is
+# the IEEE Reliability Test System lossless DC-OPF distributed with
+#
+#   rpglab/PSOPT_Models  ->  DCOPF/LosslessDCOPF.mod
+#       minimize Cost: BaseMVA * sum{i in GEN} gen_supply[i]*gen_C[i];
+#       PGenMaxMin{i}:  gen_Pmin[i] <= gen_supply[i] <= gen_Pmax[i];
+#       Line_Flow{j}:   line_flow[j] = (theta_from - theta_to)/branch_x[j];
+#       Thermal1{j}:    -rateA[j] <= line_flow[j] <= rateA[j];
+#
+# In gtopt the objective, per-generator bounds, the DC line-flow identity,
+# and the per-line thermal rating are all assembled natively from the
+# JSON model (gcost, pmin/pmax, reactance, tmax_ab/tmax_ba).  The rows
+# below are the *additional* operating policies an analyst layers on top:
+# group caps, corridor limits, a soft spinning-reserve floor, an energy
+# budget and a per-block dispatch schedule.
+#
+# The file is wired in through the JSON, not a CLI flag: add
+#
+#   "system": { ..., "user_constraint_file": "uc_opf_limits.pampl" }
+#
+# to the case (the loader resolves a relative path against input_directory,
+# then against the working directory).  Then run:
+#
+#   gtopt -s ieee_24b_rts.json --set method=monolithic
+#
+# NOTE: the shipped case defaults to `method: cascade`; generator user
+# constraints are only resolved under the monolithic method today, hence the
+# `--set method=monolithic` above.
+#
+# Element names match cases/ieee_24b_rts/ieee_24b_rts.json:
+#   generators g1..g11, lines l1_2.., transformers t24_3..
+# ========================================================================
+
+# ── Parameters ──────────────────────────────────────────────────────────
+# Per-unit slack cost [$/MWh] for the soft reserve floor below.
+param reserve_penalty = 1000;
+
+# ── Visible slack column ────────────────────────────────────────────────
+# `var slack_<NAME>;` binds, by naming convention, to `constraint <NAME>`,
+# giving that soft row a user-controlled LP-internal slack label.
+var slack_north_reserve;
+
+# ── Group capacity cap (cf. AMPL PGenMaxMin, aggregated) ─────────────────
+# The two cheapest base-load units (g8, g9 at $4.4231/MWh, 400 MW each)
+# share a 700 MW combined ceiling — e.g. a shared fuel or cooling limit.
+constraint base_load_cap "Combined base-load cap for g8 + g9":
+  generator('g8').generation + generator('g9').generation <= 700;
+
+# ── Corridor thermal limit (cf. AMPL Thermal1 / Thermal2) ───────────────
+# A two-sided flow limit on line l1_2, tighter than its 175 MW rating, to
+# emulate an operator-imposed N-1 corridor restriction.  `line.flow` is
+# signed, so both directions are bounded.
+constraint corridor_l1_2_fwd "l1_2 corridor limit (forward)":
+  line('l1_2').flow <= 150;
+constraint corridor_l1_2_rev "l1_2 corridor limit (reverse)":
+  line('l1_2').flow >= -150;
+
+# ── System-wide dispatch cap (sum over all generators) ──────────────────
+# Σ generation over every generator may not exceed the installed total.
+# Non-binding here; demonstrates `sum(generator(all)...)` aggregation.
+constraint system_dispatch_cap "System-wide dispatch ceiling":
+  sum(generator(all).generation) <= 1509;
+
+# ── Soft spinning-reserve floor (penalty + slack) ───────────────────────
+# The two mid-merit units g7 + g11 ($12.3883/MWh, 155 MW each) must keep
+# at least 200 MW online for reserve; violations are priced at
+# `reserve_penalty` $/MWh rather than rendering the LP infeasible.
+constraint north_reserve "Spinning-reserve floor (soft)" penalty reserve_penalty:
+  generator('g7').generation + generator('g11').generation >= 200;
+
+# ── Daily energy budget (sum{} time aggregation, dur-weighted) ──────────
+# Σ_b dur[b] * generation[b] caps the ENERGY (MWh) drawn from peaker g1
+# over the stage.  The `dur[b] *` factor makes the row an energy limit;
+# without it the row would cap the per-block MW sum instead.
+constraint g1_energy_budget "Daily energy budget for peaker g1":
+  sum{b in stage} dur[b] * generator('g1').generation <= 5000;
+
+# ── Per-block dispatch schedule (scheduled RHS) ─────────────────────────
+# The inline `<= 0` is the per-block fallback; the `rhs [...]` vector
+# overrides it block-by-block.  This single-block case uses one value;
+# for a 24-block daily case supply 24 comma-separated ceilings.
+constraint g1_block_ceiling "Per-block dispatch ceiling for g1" rhs [180]:
+  generator('g1').generation <= 0;
+
+# ── Domain-scoped cap (for(...) clause) ─────────────────────────────────
+# Restrict g4 across every stage and block — the explicit `for(...)`
+# domain is the gtopt analogue of AMPL's indexing set on the constraint.
+constraint g4_window_cap "g4 ceiling over the planning window":
+  generator('g4').generation <= 90, for(stage in all, block in all);
+
+# ── Disabled-by-default tuning row (inactive keyword) ───────────────────
+# Kept in the file for documentation; contributes no LP rows until the
+# leading `inactive` is removed.
+inactive constraint g6_tuning "Disabled tuning ceiling for g6":
+  generator('g6').generation <= 5;
