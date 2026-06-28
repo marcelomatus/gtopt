@@ -168,6 +168,7 @@ SCIP_RETCODE scip_install_mip_start(SCIP* scip,
 SCIP_RETCODE scip_build_and_solve(SCIP* scip,
                                   const ScipModel& model,
                                   const SolverOptions& opts,
+                                  const std::string& log_filename,
                                   const std::vector<double>& mip_start,
                                   MipStartEffort mip_effort,
                                   ScipSolutionCache& out,
@@ -176,6 +177,16 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
   SCIP_CALL(SCIPincludeDefaultPlugins(scip));
   SCIP_CALL(SCIPcreateProbBasic(scip, "gtopt_scip"));
   SCIP_CALL(apply_options_to_scip(scip, opts));
+
+  // File logging (log_mode=detailed): apply_options_to_scip sets
+  // display/verblevel=0 (quiet); when a log file is requested, raise the
+  // verbosity back to NORMAL and redirect SCIP's message output to it so the
+  // framework's "<stem>.log" is created and populated.
+  if (!log_filename.empty()) {
+    SCIP_CALL(SCIPsetIntParam(
+        scip, "display/verblevel", static_cast<int>(SCIP_VERBLEVEL_NORMAL)));
+    SCIPsetMessagehdlrLogfile(scip, log_filename.c_str());
+  }
 
   std::vector<SCIP_VAR*> vars;
   std::vector<SCIP_CONS*> conss;
@@ -616,6 +627,7 @@ void ScipSolverBackend::solve_()
   const SCIP_RETCODE rc = scip_build_and_solve(scip,
                                                m_model_,
                                                m_options_,
+                                               m_log_filename_,
                                                m_mip_start_,
                                                m_mip_start_effort_,
                                                m_sol_,
@@ -734,6 +746,20 @@ void ScipSolverBackend::open_log(FILE* /*file*/, int level)
 void ScipSolverBackend::close_log()
 {
   m_log_level_ = 0;
+}
+
+void ScipSolverBackend::set_log_filename(const std::string& filename, int level)
+{
+  // Mirror HiGHS/MindOpt: append ".log" to the stem; the message handler is
+  // installed per solve in scip_build_and_solve.
+  m_log_filename_ =
+      (level > 0 && !filename.empty()) ? filename + ".log" : std::string {};
+  m_log_level_ = level;
+}
+
+void ScipSolverBackend::clear_log_filename()
+{
+  m_log_filename_.clear();
 }
 
 void ScipSolverBackend::push_names(const std::vector<std::string>& col_names,

@@ -217,6 +217,8 @@ public:
   // ---- logging ----
   void open_log(FILE* file, int level) override;
   void close_log() override;
+  void set_log_filename(const std::string& filename, int level) override;
+  void clear_log_filename() override;
 
   // ---- names & LP output ----
   void push_names(const std::vector<std::string>& col_names,
@@ -244,6 +246,7 @@ private:
   std::vector<std::string> m_col_names_ {};
   std::vector<std::string> m_row_names_ {};
   int m_log_level_ {0};
+  std::string m_log_filename_ {};  ///< "<stem>.log" set when log_mode != nolog
 
   std::optional<SolverOptions> m_saved_robust_options_;
 };
