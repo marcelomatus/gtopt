@@ -40,11 +40,15 @@ TEST_CASE("MipStart option enums round-trip by name")  // NOLINT
     CHECK(enum_name(MipStartMethod::lp_round) == "lp_round");
     CHECK(enum_name(MipStartMethod::relax_fix) == "relax_fix");
     CHECK(enum_name(MipStartMethod::file) == "file");
+    CHECK(enum_name(MipStartMethod::scip_repair) == "scip_repair");
     CHECK(enum_from_name<MipStartMethod>("lp_round")
               .value_or(MipStartMethod::none)
           == MipStartMethod::lp_round);
     CHECK(enum_from_name<MipStartMethod>("file").value_or(MipStartMethod::none)
           == MipStartMethod::file);
+    CHECK(enum_from_name<MipStartMethod>("scip_repair")
+              .value_or(MipStartMethod::none)
+          == MipStartMethod::scip_repair);
   }
 
   SUBCASE("MipStartEffort")
@@ -142,6 +146,15 @@ TEST_CASE("make_mip_start_generator factory")  // NOLINT
     auto gen = make_mip_start_generator(MipStartMethod::file);
     REQUIRE(gen != nullptr);
     CHECK(gen->name() == "file");
+  }
+
+  SUBCASE("scip_repair yields a named generator")
+  {
+    // Always constructible (the SCIP repair runs through the generic backend
+    // interface); it self-skips at run time without the SCIP plugin / flat LP.
+    auto gen = make_mip_start_generator(MipStartMethod::scip_repair);
+    REQUIRE(gen != nullptr);
+    CHECK(gen->name() == "scip_repair");
   }
 
   SUBCASE("none yields no generator")

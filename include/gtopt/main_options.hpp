@@ -429,7 +429,8 @@ template<typename T>
        po::value<std::string>(),
        "Initial-MIP-solution (warm-start) generator: none (default), "
        "lp_round (round the LP relaxation), relax_fix, file (replay an "
-       "integer solution dumped by a previous solve).  Solves the LP "
+       "integer solution dumped by a previous solve), scip_repair (round, "
+       "then repair to feasibility with SCIP).  Solves the LP "
        "relaxation first and injects a starting integer solution so the "
        "solver bypasses its costly node-0 heuristic incumbent.  Shorthand "
        "for --set monolithic_options.mip_start.method=<method>.  The other "

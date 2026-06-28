@@ -859,6 +859,16 @@ public:
         && !m_snapshot_holder_.snapshot().flat_lp.matbeg.empty();
   }
 
+  /// The retained, decompressed flattened LP, or `nullptr` when none is held
+  /// (e.g. `low_memory` off, or a compressed snapshot not yet re-hydrated).
+  /// Used by the `scip_repair` MIP-start generator, which builds a second
+  /// backend from this exact flat problem (column j here == raw LP column j).
+  [[nodiscard]] const FlatLinearProblem* flat_lp_snapshot() const noexcept
+  {
+    return has_decompressed_snapshot() ? &m_snapshot_holder_.snapshot().flat_lp
+                                       : nullptr;
+  }
+
   /// Move out the recorded dynamic columns (alpha) so the caller can
   /// preserve them across a destructive rebuild.
   [[nodiscard]] std::vector<SparseCol> take_dynamic_cols() noexcept

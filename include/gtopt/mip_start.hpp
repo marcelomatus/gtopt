@@ -39,6 +39,7 @@ namespace gtopt
 {
 
 class LinearInterface;
+struct FlatLinearProblem;
 
 /// One commitment unit's status (u) columns in chronological order, with the
 /// matching block durations and the unit's min-up/min-down times (hours).  This
@@ -53,6 +54,26 @@ struct CommitmentRunInfo
   std::vector<int> status_cols {};
   std::vector<double> durations {};
 };
+
+namespace detail
+{
+/// Round `v` to the nearest integer biased by `threshold` (a relaxed binary at
+/// `v` rounds up iff `v >= threshold`), then clamp to `[lb, ub]`.  Shared by
+/// the generators (lp_round / relax_fix / scip_repair).
+[[nodiscard]] double round_with_threshold(double v,
+                                          double threshold,
+                                          double lb,
+                                          double ub) noexcept;
+
+/// In-place min-up/min-down repair of the rounded status columns in `values`
+/// (a dense, raw-column-indexed vector): a greedy forward sweep per unit
+/// suppresses any transition that would end a run shorter than the unit's
+/// minimum on/off time by extending the current run.
+/// @return Number of column values flipped.
+[[nodiscard]] int repair_run_lengths(
+    std::vector<double>& values,
+    std::span<const CommitmentRunInfo> commitments);
+}  // namespace detail
 
 /// Outcome of the MIP-start pipeline (for logging / tests).
 struct MipStartReport
@@ -74,6 +95,12 @@ struct MipStartContext
   std::span<const int> int_cols;
   const MipStartOptions& opts;
   std::span<const CommitmentRunInfo> commitments;
+  /// The flattened LP (CSC matrix + bounds + objective + integer markers),
+  /// supplied for generators that build a *second* solver model in process
+  /// (e.g. `scip_repair`).  Column index j here equals raw LP column j, so the
+  /// produced start maps 1:1 onto the dense start vector.  `nullptr` for
+  /// generators that operate purely on `li` (lp_round / relax_fix / file).
+  const FlatLinearProblem* flat_lp {nullptr};
 };
 
 /// Pluggable strategy that turns the solved LP relaxation into a dense
@@ -100,6 +127,13 @@ public:
 [[nodiscard]] std::unique_ptr<MipStartGenerator> make_mip_start_generator(
     MipStartMethod method);
 
+/// Build the SCIP-repair generator (`MipStartMethod::scip_repair`).  Defined in
+/// `mip_start_scip.cpp`; always constructible (it drives SCIP through the
+/// generic backend interface, so the core needs no SCIP headers).  The
+/// generator self-skips at run time — returning no start — when the "scip"
+/// plugin is not registered or no flat LP was supplied.
+[[nodiscard]] std::unique_ptr<MipStartGenerator> make_scip_repair_generator();
+
 /// Run the two-stage MIP-start pipeline on `li` immediately before its MIP
 /// solve.  `base_opts` are the effective monolithic solver options (the
 /// relaxation solve overlays `opts.relax_solver_options` on top).
@@ -107,11 +141,15 @@ public:
 /// @return A report on success (including the relaxation-only / no-op cases),
 ///         or an `Error` when the relaxation is infeasible and the policy is
 ///         `stop` or `feasopt` (the caller must NOT proceed to the MIP solve).
+/// `flat_lp` (optional) is the flattened LP that the active backend was loaded
+/// from — required only by `scip_repair`, which builds a second backend from
+/// it; `nullptr` for every other method.
 [[nodiscard]] std::expected<MipStartReport, Error> apply_mip_start(
     LinearInterface& li,
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
-    std::span<const CommitmentRunInfo> commitments = {});
+    std::span<const CommitmentRunInfo> commitments = {},
+    const FlatLinearProblem* flat_lp = nullptr);
 
 /// Dump the live MIP solution's integer-column RAW values to `path`, one
 /// `<index> <value>` line per integer column, preceded by an `ncols` header

@@ -20,7 +20,7 @@
 namespace gtopt
 {
 
-namespace
+namespace detail
 {
 
 /// Round a relaxed value to its nearest feasible integer, biased by
@@ -78,6 +78,11 @@ namespace
   return flipped;
 }
 
+}  // namespace detail
+
+namespace
+{
+
 /// P1 generator: round the integer columns of the solved LP relaxation,
 /// leaving the continuous (dispatch) columns at their relaxation value.
 /// Storage-safe — operates on the whole-horizon relaxation, no time chunking.
@@ -106,10 +111,10 @@ public:
       const auto u = static_cast<std::size_t>(i);
       const double l = (u < lb.size()) ? lb[u] : 0.0;
       const double h = (u < ub.size()) ? ub[u] : 1.0;
-      start[u] = round_with_threshold(sol[u], threshold, l, h);
+      start[u] = detail::round_with_threshold(sol[u], threshold, l, h);
     }
     // Repair min-up/down run-length violations on the rounded commitment.
-    const int fixed = repair_run_lengths(start, ctx.commitments);
+    const int fixed = detail::repair_run_lengths(start, ctx.commitments);
     if (fixed > 0) {
       spdlog::info(
           "MIP-start[lp_round]: min-up/down repair flipped {} status "
@@ -157,9 +162,9 @@ public:
       const auto u = static_cast<std::size_t>(i);
       const double l = (u < lb.size()) ? lb[u] : 0.0;
       const double h = (u < ub.size()) ? ub[u] : 1.0;
-      rounded[u] = round_with_threshold(sol[u], threshold, l, h);
+      rounded[u] = detail::round_with_threshold(sol[u], threshold, l, h);
     }
-    const int fixed = repair_run_lengths(rounded, ctx.commitments);
+    const int fixed = detail::repair_run_lengths(rounded, ctx.commitments);
     if (fixed > 0) {
       spdlog::info(
           "MIP-start[relax_fix]: min-up/down repair flipped {} status "
@@ -398,6 +403,9 @@ std::unique_ptr<MipStartGenerator> make_mip_start_generator(
       return std::make_unique<RelaxFixMipStart>();
     case MipStartMethod::file:
       return std::make_unique<FileMipStart>();
+    case MipStartMethod::scip_repair:
+      return make_scip_repair_generator();  // self-skips without the SCIP
+                                            // plugin
     case MipStartMethod::none:
       break;
   }
@@ -456,7 +464,8 @@ std::expected<MipStartReport, Error> apply_mip_start(
     LinearInterface& li,
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
-    std::span<const CommitmentRunInfo> commitments)
+    std::span<const CommitmentRunInfo> commitments,
+    const FlatLinearProblem* flat_lp)
 {
   MipStartReport report;
 
@@ -559,6 +568,7 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .int_cols = int_cols,
       .opts = opts,
       .commitments = commitments,
+      .flat_lp = flat_lp,
   };
   auto start = gen->generate(ctx);
 

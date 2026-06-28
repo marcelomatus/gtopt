@@ -1775,7 +1775,11 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
       }
     }
 
-    auto ms = apply_mip_start(li, solver_options, mip_start_opts, commitments);
+    // `scip_repair` builds a second backend from the flattened LP; pass the
+    // retained snapshot when present (nullptr otherwise → that method
+    // self-skips).  Other methods ignore it.
+    auto ms = apply_mip_start(
+        li, solver_options, mip_start_opts, commitments, li.flat_lp_snapshot());
     if (!ms) {
       return std::unexpected(std::move(ms.error()));
     }
