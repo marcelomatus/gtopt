@@ -91,6 +91,32 @@ else()
   message(STATUS "Solver plugin: cuOpt skipped (cuOpt not found; pip install libcuopt-cu12 or set CUOPT_HOME)")
 endif()
 
+# ---- SCIP plugin (open-source CIP/MIP solver; Apache-2.0 since v9) ----
+# Prefer SCIP's own CMake config (the `libscip` imported target); fall back to
+# the bundled FindSCIP.cmake module when the config is unavailable or fails
+# (its find_dependency(GMP/MPFR) needs dev headers we don't require to link
+# libscip.so).  Disable explicitly with -DGTOPT_DISABLE_SCIP=ON.
+
+if(NOT GTOPT_DISABLE_SCIP)
+  find_package(SCIP CONFIG QUIET)
+  if(SCIP_FOUND AND NOT SCIP_LIBRARIES AND TARGET libscip)
+    set(SCIP_LIBRARIES libscip)
+  endif()
+  if(NOT SCIP_FOUND)
+    find_package(SCIP MODULE QUIET)
+  endif()
+endif()
+if(SCIP_FOUND)
+  if(SCIP_VERSION)
+    message(STATUS "Solver plugin: SCIP enabled (${SCIP_VERSION})")
+  else()
+    message(STATUS "Solver plugin: SCIP enabled")
+  endif()
+  add_subdirectory(scip)
+else()
+  message(STATUS "Solver plugin: SCIP skipped (SCIP not found; set SCIP_ROOT_DIR or -DGTOPT_DISABLE_SCIP=ON to silence)")
+endif()
+
 if(highs_FOUND OR HIGHS_FOUND)
   # Config-mode sets the highs::highs imported target.
   # Legacy Find-module mode sets HIGHS_INCLUDE_DIRS / HIGHS_LIBRARIES.
