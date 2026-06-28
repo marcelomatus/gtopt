@@ -185,6 +185,23 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
     SCIP_CALL(scip_install_mip_start(scip, model, mip_start, mip_effort, vars));
   }
 
+  // A pure-LP solve is where gtopt reads duals + reduced costs (the
+  // dual-recovery re-solve: pin integers, relax, resolve).  Disable SCIP
+  // presolve there so no column is fixed/aggregated away — otherwise
+  // SCIPgetVarRedcost reports 0 for the pinned (lb==ub) commitment columns (the
+  // committed-dual gap) and the reconstructed duals are not matrix-consistent.
+  // MIP solves keep presolve (their duals are not read).
+  bool any_integer = false;
+  for (const char t : model.col_type) {
+    if (t == 'I') {
+      any_integer = true;
+      break;
+    }
+  }
+  if (!any_integer) {
+    SCIP_CALL(SCIPsetIntParam(scip, "presolving/maxrounds", 0));
+  }
+
   SCIP_CALL(SCIPsolve(scip));
   solving_time = SCIPgetSolvingTime(scip);
 
@@ -203,21 +220,21 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
     out.obj = SCIPgetPrimalbound(scip);
   }
 
-  // Duals are only meaningful for a pure-LP optimum; SCIP exposes the linear
-  // constraint dual via SCIPgetDualsolLinear after solving the LP relaxation.
-  bool any_integer = false;
-  for (const char t : model.col_type) {
-    if (t == 'I') {
-      any_integer = true;
-      break;
-    }
-  }
+  // Duals/reduced costs are only meaningful for a pure-LP optimum;
+  // `any_integer` was determined before the solve (it also gated presolve).
+  // SCIP exposes the linear constraint dual via SCIPgetDualsolLinear after the
+  // LP relaxation.
   if (!any_integer && out.status == static_cast<int>(SCIP_STATUS_OPTIMAL)) {
     for (int i = 0; i < model.num_rows; ++i) {
       const auto u = static_cast<std::size_t>(i);
       out.dual[u] = SCIPgetDualsolLinear(scip, conss[u]);
     }
-    // Column reduced costs (LP-only): match the CLP/HiGHS column-dual output.
+    // Column reduced costs.  With SCIP presolve disabled for this pure-LP solve
+    // (see the solve setup above), no column is fixed/aggregated away, so
+    // SCIPgetVarRedcost returns the exact LP reduced cost for EVERY column —
+    // including the pinned (lb==ub) commitment columns of gtopt's dual-recovery
+    // LP, which presolve would otherwise read back as 0 (the committed-dual
+    // gap).  Matches CLP.
     for (int j = 0; j < model.num_cols; ++j) {
       const auto u = static_cast<std::size_t>(j);
       out.reduced[u] = SCIPgetVarRedcost(scip, vars[u]);
