@@ -1,0 +1,6 @@
+# Proprietary AMM source archives (large; obtained separately).
+# The converted gtopt cases (psse_bdd/, sddp_ncp_week/, ncp_pdd_22jun/)
+# and the operator reference data (reference_data/) are committed; the
+# raw archives below are not.
+*.7z
+*.rar
