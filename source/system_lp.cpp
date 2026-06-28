@@ -622,6 +622,12 @@ constexpr auto create_linear_interface(auto& collections,
     }
   } else {
     li.load_flat(flat_lp);
+    // Retain the flat LP as an inert (uncompressed) snapshot.  Besides the
+    // reconstruct/clone paths, the `scip_repair` MIP-start generator relies on
+    // this: monolithic forces low_memory=off, so this branch is the ONLY place
+    // the flat LP is kept resident for `LinearInterface::flat_lp_snapshot()` to
+    // hand to apply_mip_start.  Do not drop it for off mode without rerouting
+    // scip_repair (it self-skips when the snapshot is absent).
     li.save_snapshot(std::move(flat_lp));
   }
   return std::tuple {std::move(li), std::move(fingerprint)};
