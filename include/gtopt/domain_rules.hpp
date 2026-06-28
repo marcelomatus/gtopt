@@ -49,6 +49,24 @@ struct CommitmentRunInfo
   std::vector<double> durations {};
 };
 
+/// One storage / hydro injection unit's status (u) columns in chronological
+/// order, with a parallel flag marking which blocks the rule should seed ON.
+/// The domain input the `PeakInjectionRule` needs — built by the
+/// `SystemLP::resolve` hook (one entry per storage-injection commitment: the
+/// `u` of a reservoir-fed hydro generator or a battery-discharge converter,
+/// both reachable through `CommitmentLP::find_status_cols`).  The hook picks
+/// the seed window PER UNIT CLASS: hydro → the evening peak window; battery →
+/// the solar charge window plus the evening discharge window (one daily cycle).
+/// Only chronological stages carry commitment columns, so `status_cols` is
+/// naturally restricted to where a wall-clock hour-of-day is meaningful.
+/// `status_cols[t]` is a RAW column index; `is_peak[t] != 0` marks block t as a
+/// seed-ON block (parallel arrays).
+struct PeakInjectionInfo
+{
+  std::vector<int> status_cols {};
+  std::vector<char> is_peak {};
+};
+
 /// The electric-system data a repair rule reads.  EXTENSION POINT: add fields
 /// (reserve requirements, ramp limits, demand profile, hydro coupling, …) as
 /// new rules need them; existing rules ignore fields they don't read, so the
@@ -56,6 +74,7 @@ struct CommitmentRunInfo
 struct DomainRuleContext
 {
   std::span<const CommitmentRunInfo> commitments {};
+  std::span<const PeakInjectionInfo> injections {};
 };
 
 /// A single electric-system rule that adjusts a candidate integer commitment
@@ -96,6 +115,32 @@ public:
                           const DomainRuleContext& ctx) const override;
 };
 
+/// Peak-injection bias rule: seed storage / hydro injection units to inject
+/// (discharge / generate) during peak hours.  For each `PeakInjectionInfo`
+/// unit, on every block flagged `is_peak`, set the unit's status (u) column ON
+/// (1.0) when the rounded candidate has it OFF/ambiguous (< 0.5).
+///
+/// CONSERVATIVE POLICY — this rule only ever flips a status binary toward ON,
+/// and only at peak blocks: it never turns a committed unit OFF and never
+/// touches off-peak blocks.  So it cannot override a decisive LP-relaxation
+/// signal to keep a unit committed; it only nudges idle-but-available storage
+/// to be online when the system is most stressed.  The MIP then validates and
+/// re-optimizes the seed, so a wrong nudge costs at most a little
+/// branch-and-cut work, never correctness.  Empty `ctx.injections` ⇒ no-op (the
+/// feature is gated by the `SystemLP::resolve` hook only populating it when
+/// `mip_start.peak_injection` is enabled), exactly like `MinUpDownRule` skips
+/// units without run-length limits.
+class PeakInjectionRule final : public DomainRule
+{
+public:
+  [[nodiscard]] std::string_view name() const noexcept override
+  {
+    return "peak_injection";
+  }
+  [[nodiscard]] int apply(std::span<double> values,
+                          const DomainRuleContext& ctx) const override;
+};
+
 /// An ordered set of `DomainRule`s applied as a pipeline.
 class DomainRulePipeline
 {
@@ -121,7 +166,9 @@ private:
 /// Build the default electric-system repair pipeline.  THE place to register
 /// future rules that encode more power-system knowledge into the initial
 /// integer guess (ramp, must-run, reserve coverage, …).  Currently:
-/// `MinUpDownRule`.
+/// `MinUpDownRule`, then `PeakInjectionRule`.  Both are data-gated: a rule
+/// no-ops when its slice of `DomainRuleContext` is empty, so registering by
+/// default is free for runs that don't supply the data.
 [[nodiscard]] DomainRulePipeline make_default_domain_rules();
 
 }  // namespace gtopt

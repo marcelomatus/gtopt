@@ -6,6 +6,8 @@
  * @copyright BSD-3-Clause
  */
 
+#include <algorithm>
+
 #include <gtopt/domain_rules.hpp>
 
 namespace gtopt
@@ -47,6 +49,31 @@ int MinUpDownRule::apply(std::span<double> values,
   return flipped;
 }
 
+int PeakInjectionRule::apply(std::span<double> values,
+                             const DomainRuleContext& ctx) const
+{
+  int flipped = 0;
+  for (const auto& inj : ctx.injections) {
+    const std::size_t n = inj.status_cols.size();
+    // Parallel arrays — guard against a malformed entry (defensive; the hook
+    // always builds them in lockstep).
+    const std::size_t m = std::min(n, inj.is_peak.size());
+    for (std::size_t t = 0; t < m; ++t) {
+      if (inj.is_peak[t] == 0) {
+        continue;  // off-peak block — leave the rounded value untouched
+      }
+      auto& v = values[static_cast<std::size_t>(inj.status_cols[t])];
+      // Conservative: only nudge an idle/ambiguous unit ON; never turn a
+      // committed (>= 0.5) unit OFF, so a decisive LP-relaxation signal stands.
+      if (v < 0.5) {
+        v = 1.0;
+        ++flipped;
+      }
+    }
+  }
+  return flipped;
+}
+
 void DomainRulePipeline::add(std::unique_ptr<DomainRule> rule)
 {
   if (rule) {
@@ -77,6 +104,10 @@ DomainRulePipeline make_default_domain_rules()
 {
   DomainRulePipeline pipeline;
   pipeline.add(std::make_unique<MinUpDownRule>());
+  // Peak-injection bias runs AFTER run-length repair: it only forces u ON at
+  // peak (never OFF), so it cannot create a sub-min-up run; a following pass of
+  // MinUpDownRule (max_passes > 1) would absorb any min-down it shortens.
+  pipeline.add(std::make_unique<PeakInjectionRule>());
   // Future electric-system rules register here — each one encodes more
   // power-system knowledge into the initial integer guess, e.g.:
   //   pipeline.add(std::make_unique<RampFeasibilityRule>());

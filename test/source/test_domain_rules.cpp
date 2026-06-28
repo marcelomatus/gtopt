@@ -85,11 +85,11 @@ TEST_CASE("DomainRulePipeline composes rules")  // NOLINT
     CHECK(pipeline.apply(values, DomainRuleContext {}) == 0);
   }
 
-  SUBCASE("default pipeline registers the min-up/down rule")
+  SUBCASE("default pipeline registers the min-up/down + peak-injection rules")
   {
     const auto pipeline = make_default_domain_rules();
     CHECK_FALSE(pipeline.empty());
-    CHECK(pipeline.size() == 1);
+    CHECK(pipeline.size() == 2);
 
     std::vector<double> values {1.0, 1.0, 0.0, 1.0};
     const std::array<CommitmentRunInfo, 1> commitments {CommitmentRunInfo {
@@ -103,6 +103,83 @@ TEST_CASE("DomainRulePipeline composes rules")  // NOLINT
     CHECK(flipped == 1);
     CHECK(values[3] == doctest::Approx(0.0));  // routed through MinUpDownRule
   }
+
+  SUBCASE("default pipeline routes through the peak-injection rule")
+  {
+    const auto pipeline = make_default_domain_rules();
+    // status 0,0 on two blocks; block 1 is peak → seeded ON via
+    // PeakInjectionRule (no commitments, so MinUpDownRule is a no-op).
+    std::vector<double> values {0.0, 0.0};
+    const std::array<PeakInjectionInfo, 1> injections {PeakInjectionInfo {
+        .status_cols = {0, 1},
+        .is_peak = {0, 1},
+    }};
+    const int flipped =
+        pipeline.apply(values, DomainRuleContext {.injections = injections});
+    CHECK(flipped == 1);
+    CHECK(values[0] == doctest::Approx(0.0));  // off-peak untouched
+    CHECK(values[1] == doctest::Approx(1.0));  // peak seeded ON
+  }
+}
+
+TEST_CASE("PeakInjectionRule seeds storage ON during peak blocks")  // NOLINT
+{
+  // status 0,0,0,0 over four blocks; blocks 2 and 3 are flagged peak → the
+  // rule flips the two peak blocks ON and leaves the two off-peak ones OFF.
+  std::vector<double> values {0.0, 0.0, 0.0, 0.0};
+  const std::array<PeakInjectionInfo, 1> injections {PeakInjectionInfo {
+      .status_cols = {0, 1, 2, 3},
+      .is_peak = {0, 0, 1, 1},
+  }};
+  const PeakInjectionRule rule;
+  const int flipped =
+      rule.apply(values, DomainRuleContext {.injections = injections});
+  CHECK(flipped == 2);
+  CHECK(values[0] == doctest::Approx(0.0));  // off-peak — untouched
+  CHECK(values[1] == doctest::Approx(0.0));  // off-peak — untouched
+  CHECK(values[2] == doctest::Approx(1.0));  // peak — seeded ON
+  CHECK(values[3] == doctest::Approx(1.0));  // peak — seeded ON
+}
+
+TEST_CASE("PeakInjectionRule never turns a committed unit OFF")  // NOLINT
+{
+  // The unit is already ON at every block (the LP relaxation committed it).
+  // The conservative policy only flips toward ON, so a peak block that is
+  // already ON is left as-is (0 flips) and an off-peak ON stays ON.
+  std::vector<double> values {1.0, 1.0};
+  const std::array<PeakInjectionInfo, 1> injections {PeakInjectionInfo {
+      .status_cols = {0, 1},
+      .is_peak = {0, 1},  // block 1 is peak but already ON
+  }};
+  const PeakInjectionRule rule;
+  CHECK(rule.apply(values, DomainRuleContext {.injections = injections}) == 0);
+  CHECK(values[0] == doctest::Approx(1.0));
+  CHECK(values[1] == doctest::Approx(1.0));
+}
+
+TEST_CASE("PeakInjectionRule is a no-op without injection data")  // NOLINT
+{
+  // Empty injections (the feature is disabled / the hook supplied nothing) →
+  // the rule flips nothing, mirroring MinUpDownRule on a unit with no limits.
+  std::vector<double> values {0.0, 0.0, 0.0};
+  const PeakInjectionRule rule;
+  CHECK(rule.apply(values, DomainRuleContext {}) == 0);
+  CHECK(values[0] == doctest::Approx(0.0));
+}
+
+TEST_CASE("PeakInjectionRule maps to RAW columns, not block order")  // NOLINT
+{
+  // status_cols are RAW LP column indices, not 0..n — the rule must index the
+  // value vector THROUGH status_cols.  Here the peak block's column is 5.
+  std::vector<double> values {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  const std::array<PeakInjectionInfo, 1> injections {PeakInjectionInfo {
+      .status_cols = {3, 5},
+      .is_peak = {0, 1},
+  }};
+  const PeakInjectionRule rule;
+  CHECK(rule.apply(values, DomainRuleContext {.injections = injections}) == 1);
+  CHECK(values[3] == doctest::Approx(0.0));  // off-peak column untouched
+  CHECK(values[5] == doctest::Approx(1.0));  // peak column seeded ON
 }
 
 }  // namespace domain_rules_test

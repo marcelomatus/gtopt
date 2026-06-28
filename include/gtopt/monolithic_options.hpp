@@ -64,6 +64,48 @@ struct MipStartOptions
    * (self-skips, keeping the pre-SCIP candidate, when absent). */
   OptBool scip_repair {};
 
+  // ── Stage 2 add-on: peak-injection domain rule ────────────────────────────
+  /** @brief Seed storage / hydro injection units to be committed ON during the
+   * relevant window in the rounded integer start (the `PeakInjectionRule`
+   * domain rule).  Two unit classes, distinguished by topology:
+   *   - reservoir-fed HYDRO (any turbine-linked generator): commit ON across
+   *     the evening PEAK window `[peak_start_hour, peak_end_hour)` so it
+   * injects when the system is most stressed.
+   *   - BATTERY discharge (any converter's discharge generator): seed the unit
+   *     ACTIVE across BOTH the SOLAR window `[solar_start_hour,
+   * solar_end_hour)` (charge) and the evening PEAK window (discharge),
+   * approximating a single daily charge→discharge cycle.  NOTE: an
+   * `expand_batteries` battery exposes a SINGLE shared activity binary (the
+   * `uc_<bat>_gen` commitment `u`), not separate charge/discharge binaries, so
+   * the binary marks "active" in both windows while the continuous
+   * charge/discharge columns (which the MIP optimizes) pick the direction.
+   * Opt-in (default false): the bias encodes a power-system heuristic and
+   * relies on a stage-relative hour-of-day mapping, so it is enabled
+   * deliberately. Conservative — only ever flips a status binary toward ON
+   * inside a window (never OFF, never outside), so the MIP still validates and
+   * re-optimizes. */
+  OptBool peak_injection {};
+  /** @brief Inclusive start hour-of-day of the evening peak / discharge window
+   * `[0, 24)` for `peak_injection` (default 18).  Hour-of-day is
+   * `(stage.timeinit + intra-stage cumulative duration) mod 24`, i.e. the
+   * planning horizon starts at hour 0.  Only chronological stages carry
+   * commitment binaries. */
+  OptReal peak_start_hour {};
+  /** @brief Exclusive end hour-of-day of the evening peak / discharge window
+   * `[0, 24]` for `peak_injection` (default 23).  A block falls in the window
+   * when its start hour-of-day h satisfies
+   * `peak_start_hour <= h < peak_end_hour`. */
+  OptReal peak_end_hour {};
+  /** @brief Inclusive start hour-of-day of the BATTERY solar-charge window
+   * `[0, 24)` (default 9).  Batteries are seeded active across this window to
+   * approximate daytime charging.  A fixed fallback window — robust per-block
+   * solar-profile detection is a follow-up; set equal to `solar_end_hour` to
+   * disable the charge-window seed. */
+  OptReal solar_start_hour {};
+  /** @brief Exclusive end hour-of-day of the BATTERY solar-charge window
+   * `[0, 24]` (default 17). */
+  OptReal solar_end_hour {};
+
   // ── Stage A: relaxation analysis & diagnosis ──────────────────────────────
   /** @brief Run the LP-relaxation feasibility analysis even when
    * `method == none` (diagnosis-only).  When `method != none` the relaxation
@@ -88,6 +130,11 @@ struct MipStartOptions
     merge_opt(file, std::move(opts.file));
     merge_opt(dump_file, std::move(opts.dump_file));
     merge_opt(scip_repair, opts.scip_repair);
+    merge_opt(peak_injection, opts.peak_injection);
+    merge_opt(peak_start_hour, opts.peak_start_hour);
+    merge_opt(peak_end_hour, opts.peak_end_hour);
+    merge_opt(solar_start_hour, opts.solar_start_hour);
+    merge_opt(solar_end_hour, opts.solar_end_hour);
     merge_opt(relax_check, opts.relax_check);
     merge_opt(on_infeasible, opts.on_infeasible);
     merge_opt(report_saturated, opts.report_saturated);

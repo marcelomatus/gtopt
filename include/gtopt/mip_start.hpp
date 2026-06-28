@@ -84,6 +84,11 @@ struct MipStartContext
   std::span<const int> int_cols;
   const MipStartOptions& opts;
   std::span<const CommitmentRunInfo> commitments;
+  /// Per storage-injection unit (reservoir-fed hydro / battery discharge) the
+  /// `PeakInjectionRule` reads — status columns + per-block peak flags.  Empty
+  /// unless `mip_start.peak_injection` is enabled (the `SystemLP::resolve` hook
+  /// fills it).
+  std::span<const PeakInjectionInfo> injections;
   /// The flattened LP (CSC matrix + bounds + objective + integer markers),
   /// supplied for generators that build a *second* solver model in process
   /// (e.g. `scip_repair`).  Column index j here equals raw LP column j, so the
@@ -142,6 +147,7 @@ public:
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
     std::span<const CommitmentRunInfo> commitments = {},
+    std::span<const PeakInjectionInfo> injections = {},
     const FlatLinearProblem* flat_lp = nullptr);
 
 /// Dump the live MIP solution's integer-column RAW values to `path`, one

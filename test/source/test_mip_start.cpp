@@ -80,6 +80,11 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.file = "in.start";
   opts.dump_file = "out.start";
   opts.scip_repair = true;
+  opts.peak_injection = true;
+  opts.peak_start_hour = 19.0;
+  opts.peak_end_hour = 22.0;
+  opts.solar_start_hour = 10.0;
+  opts.solar_end_hour = 16.0;
   opts.relax_check = true;
   opts.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.report_saturated = true;
@@ -94,6 +99,11 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   CHECK(back.file.value_or("") == "in.start");
   CHECK(back.dump_file.value_or("") == "out.start");
   CHECK(back.scip_repair.value_or(false) == true);
+  CHECK(back.peak_injection.value_or(false) == true);
+  CHECK(back.peak_start_hour.value_or(-1.0) == doctest::Approx(19.0));
+  CHECK(back.peak_end_hour.value_or(-1.0) == doctest::Approx(22.0));
+  CHECK(back.solar_start_hour.value_or(-1.0) == doctest::Approx(10.0));
+  CHECK(back.solar_end_hour.value_or(-1.0) == doctest::Approx(16.0));
   CHECK(back.relax_check.value_or(false) == true);
   CHECK(back.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
@@ -202,7 +212,8 @@ TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
                          .opts = opts,
-                         .commitments = {}};
+                         .commitments = {},
+                         .injections = {}};
     const auto start = gen->generate(ctx);
     REQUIRE(start.has_value());
     REQUIRE(start->size() == 3);
@@ -219,7 +230,8 @@ TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
                          .opts = opts,
-                         .commitments = {}};
+                         .commitments = {},
+                         .injections = {}};
     const auto start = gen->generate(ctx);
     REQUIRE(start.has_value());
     CHECK((*start)[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
@@ -260,7 +272,8 @@ TEST_CASE(
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = commitments};
+                       .commitments = commitments,
+                       .injections = {}};
 
   auto gen = make_mip_start_generator(MipStartMethod::lp_round);
   const auto start = gen->generate(ctx);
@@ -305,7 +318,8 @@ TEST_CASE(
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {}};
+                       .commitments = {},
+                       .injections = {}};
 
   auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
   REQUIRE(gen != nullptr);
@@ -478,7 +492,8 @@ TEST_CASE(  // NOLINT
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {}};
+                       .commitments = {},
+                       .injections = {}};
 
   auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
   REQUIRE(gen != nullptr);
@@ -630,7 +645,8 @@ TEST_CASE(
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {}};
+                       .commitments = {},
+                       .injections = {}};
 
   auto gen = make_mip_start_generator(MipStartMethod::file);
   REQUIRE(gen != nullptr);
@@ -706,7 +722,8 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {}};
+                       .commitments = {},
+                       .injections = {}};
   auto gen = make_mip_start_generator(MipStartMethod::file);
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
@@ -747,7 +764,8 @@ TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {}};
+                       .commitments = {},
+                       .injections = {}};
 
   auto gen = make_mip_start_generator(MipStartMethod::file);
   REQUIRE(gen != nullptr);

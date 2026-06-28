@@ -15,12 +15,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <gtopt/ampl_dispatch_registry.hpp>
 #include <gtopt/bus_island.hpp>
@@ -1781,11 +1784,115 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
       }
     }
 
+    // Build per storage-injection unit the `PeakInjectionRule` data, when the
+    // opt-in `peak_injection` flag is set.  Two unit classes, distinguished by
+    // topology and seeded with different windows:
+    //
+    //   - HYDRO  — any turbine-linked generator (the reservoir/hydro fleet):
+    //     seed its commitment `u` ON across the evening PEAK window so it
+    //     injects when the system is most stressed.
+    //   - BATTERY — any converter's discharge generator (battery discharge,
+    //     including the `<bat>_gen` synthesised by `System::expand_batteries`):
+    //     seed its activity binary ON across BOTH the SOLAR charge window and
+    //     the evening PEAK discharge window — a single daily charge→discharge
+    //     cycle.  An `expand_batteries` battery exposes ONE shared activity
+    //     binary (the `uc_<bat>_gen` commitment `u`), gating both charge and
+    //     discharge (see `converter_lp.cpp` "one true source for u_commit"); it
+    //     has no separate, reachable charge/discharge binaries, so the binary
+    //     just marks "active" while the continuous charge/discharge columns
+    //     (optimized by the MIP) choose the direction in each window.
+    //
+    // Both classes resolve their `u` through the SAME
+    // `CommitmentLP::find_status_cols` path the run-length loop above uses.
+    // Hour-of-day is `(stage.timeinit + intra-stage cumulative duration) mod
+    // 24` (planning horizon starts at hour 0) — only chronological stages carry
+    // status columns, which is exactly where a wall-clock hour is meaningful.
+    std::vector<PeakInjectionInfo> injections;
+    if (mip_start_opts.peak_injection.value_or(false)) {
+      const double peak_lo = mip_start_opts.peak_start_hour.value_or(18.0);
+      const double peak_hi = mip_start_opts.peak_end_hour.value_or(23.0);
+      const double solar_lo = mip_start_opts.solar_start_hour.value_or(9.0);
+      const double solar_hi = mip_start_opts.solar_end_hour.value_or(17.0);
+
+      // Bucket each injection generator by class.  A generator is hydro XOR
+      // battery (turbine-linked vs converter-discharge), so the two sets don't
+      // overlap in practice; battery takes precedence if they ever did.
+      std::unordered_set<Uid> hydro_gen_uids;
+      std::unordered_set<Uid> battery_gen_uids;
+      // Resolve a generator FK to the GeneratorLP's own uid — a stable identity
+      // independent of whether the reference was by uid or name (element()
+      // looks both up).  Turbine / converter / commitment generator FKs are
+      // validated at planning load, so the lookup always resolves (same
+      // precedent as turbine_lp.cpp / converter_lp.cpp resolving their
+      // generator directly).
+      const auto gen_uid_of = [&](const auto& gen_sid) -> Uid
+      { return element<GeneratorLP>(gen_sid).uid(); };
+      for (const auto& turb : elements<TurbineLP>()) {
+        hydro_gen_uids.insert(gen_uid_of(turb.generator_sid()));
+      }
+      for (const auto& conv : elements<ConverterLP>()) {
+        battery_gen_uids.insert(gen_uid_of(conv.generator_sid()));
+      }
+
+      if (!hydro_gen_uids.empty() || !battery_gen_uids.empty()) {
+        for (const auto& scenario : scene().scenarios()) {
+          for (const auto& comm : elements<CommitmentLP>()) {
+            const Uid gu = gen_uid_of(comm.generator_sid());
+            const bool is_battery = battery_gen_uids.contains(gu);
+            const bool is_hydro = !is_battery && hydro_gen_uids.contains(gu);
+            if (!is_battery && !is_hydro) {
+              continue;  // not a storage / hydro injection commitment
+            }
+            // Returns true when block at hour-of-day `hod` should be seeded ON.
+            const auto in_seed_window = [&](double hod)
+            {
+              const bool in_peak = (hod >= peak_lo && hod < peak_hi);
+              if (!is_battery) {
+                return in_peak;  // hydro: evening peak only
+              }
+              const bool in_solar = (hod >= solar_lo && hod < solar_hi);
+              return in_peak || in_solar;  // battery: charge + discharge cycle
+            };
+            PeakInjectionInfo info;
+            for (const auto& stage : phase().stages()) {
+              if (!stage.is_chronological()) {
+                continue;  // no wall-clock hour-of-day → no seed window
+              }
+              const auto* ucols = comm.find_status_cols(scenario, stage);
+              // Accumulate the absolute hour over EVERY block (whether or not
+              // it carries a status column) so the hour-of-day stays correct
+              // across P1-elided blocks.
+              double hour = stage.timeinit();
+              for (const auto& blk : stage.blocks()) {
+                const bool seed = in_seed_window(std::fmod(hour, 24.0));
+                if (ucols != nullptr) {
+                  const auto it = ucols->find(blk.uid());
+                  if (it != ucols->end()) {
+                    info.status_cols.push_back(static_cast<int>(it->second));
+                    info.is_peak.push_back(seed ? static_cast<char>(1)
+                                                : static_cast<char>(0));
+                  }
+                }
+                hour += blk.duration();
+              }
+            }
+            if (!info.status_cols.empty()) {
+              injections.push_back(std::move(info));
+            }
+          }
+        }
+      }
+    }
+
     // `scip_repair` builds a second backend from the flattened LP; pass the
     // retained snapshot when present (nullptr otherwise → that method
     // self-skips).  Other methods ignore it.
-    auto ms = apply_mip_start(
-        li, solver_options, mip_start_opts, commitments, li.flat_lp_snapshot());
+    auto ms = apply_mip_start(li,
+                              solver_options,
+                              mip_start_opts,
+                              commitments,
+                              injections,
+                              li.flat_lp_snapshot());
     if (!ms) {
       return std::unexpected(std::move(ms.error()));
     }

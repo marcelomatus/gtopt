@@ -36,6 +36,11 @@ struct MipStartOptionsConstructor
       OptName file,
       OptName dump_file,
       OptBool scip_repair,
+      OptBool peak_injection,
+      OptReal peak_start_hour,
+      OptReal peak_end_hour,
+      OptReal solar_start_hour,
+      OptReal solar_end_hour,
       OptBool relax_check,
       OptName on_infeasible_str,
       OptBool report_saturated,
@@ -52,6 +57,11 @@ struct MipStartOptionsConstructor
     opts.file = std::move(file);
     opts.dump_file = std::move(dump_file);
     opts.scip_repair = scip_repair;
+    opts.peak_injection = peak_injection;
+    opts.peak_start_hour = peak_start_hour;
+    opts.peak_end_hour = peak_end_hour;
+    opts.solar_start_hour = solar_start_hour;
+    opts.solar_end_hour = solar_end_hour;
     opts.relax_check = relax_check;
     if (on_infeasible_str) {
       opts.on_infeasible = gtopt::require_enum<RelaxInfeasibleAction>(
@@ -75,6 +85,11 @@ struct json_data_contract<MipStartOptions>
                        json_string_null<"file", OptName>,
                        json_string_null<"dump_file", OptName>,
                        json_bool_null<"scip_repair", OptBool>,
+                       json_bool_null<"peak_injection", OptBool>,
+                       json_number_null<"peak_start_hour", OptReal>,
+                       json_number_null<"peak_end_hour", OptReal>,
+                       json_number_null<"solar_start_hour", OptReal>,
+                       json_number_null<"solar_end_hour", OptReal>,
                        json_bool_null<"relax_check", OptBool>,
                        json_string_null<"on_infeasible", OptName>,
                        json_bool_null<"report_saturated", OptBool>,
@@ -88,6 +103,11 @@ struct json_data_contract<MipStartOptions>
                            opt.file,
                            opt.dump_file,
                            opt.scip_repair,
+                           opt.peak_injection,
+                           opt.peak_start_hour,
+                           opt.peak_end_hour,
+                           opt.solar_start_hour,
+                           opt.solar_end_hour,
                            opt.relax_check,
                            detail::enum_to_opt_name(opt.on_infeasible),
                            opt.report_saturated,

@@ -64,8 +64,11 @@ namespace detail
   // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  One
   // shared, stateless default pipeline (thread-safe function-local static).
   static const DomainRulePipeline pipeline = make_default_domain_rules();
-  const int flipped =
-      pipeline.apply(start, DomainRuleContext {.commitments = ctx.commitments});
+  const int flipped = pipeline.apply(start,
+                                     DomainRuleContext {
+                                         .commitments = ctx.commitments,
+                                         .injections = ctx.injections,
+                                     });
   if (flipped > 0) {
     spdlog::info("MIP-start[{}]: domain rules flipped {} status values",
                  generator_name,
@@ -424,6 +427,7 @@ std::expected<MipStartReport, Error> apply_mip_start(
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
     std::span<const CommitmentRunInfo> commitments,
+    std::span<const PeakInjectionInfo> injections,
     const FlatLinearProblem* flat_lp)
 {
   MipStartReport report;
@@ -527,6 +531,7 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .int_cols = int_cols,
       .opts = opts,
       .commitments = commitments,
+      .injections = injections,
       .flat_lp = flat_lp,
   };
   auto start =
