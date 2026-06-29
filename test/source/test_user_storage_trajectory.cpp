@@ -25,20 +25,27 @@
  *     the previous stage's end-of-stage volume (the SDDP state).
  *
  * Fixture:
- *   - 6 phases (1 stage / phase), 4 chronological blocks / stage (duration 1).
+ *   - 6 phases (1 stage / phase), 4 chronological blocks / stage with
+ *     NON-UNIFORM durations {6, 4, 2, 12} h (a realistic load-block shape).
  *   - 2 deterministic (identical) scenes, single bus.
  *   - Time-varying per-(stage, block) demand `lmax` (see kDemand2D).
  *   - Two ASYMMETRIC hydro generators with DISTINCT costs (gcost 1 and 2) so
  *     the merit order is strict, plus an expensive thermal backup (gcost 100).
  *   - No inflow; the reservoirs draw down from a generous initial volume.
  *
+ * The non-uniform durations make this a duration-CORRECTNESS test: a release of
+ * P MW over a Δt-hour block draws P·Δt of volume, so the AMPL balance
+ * multiplies the release by `block.duration` to match the native StorageLP
+ * (which scales its flow column by `block.duration()`).  A duration-1 fixture
+ * would pass even with the Δt factor missing; this one would not.
+ *
  * Because hydro is strictly cheaper than thermal and the cheaper unit (gen1) is
- * used maximally in every block (`min(cap, demand)`), the per-block generation
- * split — and therefore each reservoir's full volume path — is uniquely
- * determined and varies block to block.  Two structurally different LPs landing
- * on the SAME 24-block trajectory is then a meaningful 1:1 (a degenerate
- * optimum would let them diverge).  The expected path is computed in the test
- * directly from the demand schedule, so the numbers are self-documenting.
+ * used maximally in every block (`min(cap, demand_power)`), the per-block
+ * generation split — and therefore each reservoir's full volume path — is
+ * uniquely determined and varies block to block.  Two structurally different
+ * LPs landing on the SAME 24-block trajectory is then a meaningful 1:1 (a
+ * degenerate optimum would let them diverge).  The expected path is computed in
+ * the test directly from the demand schedule × durations, self-documenting.
  */
 
 #include <algorithm>
@@ -87,10 +94,19 @@ constexpr std::array<std::array<double, blocks_per_stage>, num_stages>
         {50, 30, 25, 40},
     }};
 
+// NON-UNIFORM block durations (hours) — a realistic load-block shape
+// (off-peak / shoulder / peak / night).  These make the reservoir balance
+// duration-sensitive: a release of P MW over a Δt-hour block draws P·Δt of
+// volume, so the AMPL balance MUST scale generation by `block.duration` to
+// match the native StorageLP.  Same shape every stage; sums to 24 h/stage.
+constexpr std::array<double, blocks_per_stage> kBlockDur {6.0, 4.0, 2.0, 12.0};
+
 constexpr double kCap1 = 30.0;  // cheaper hydro (gen1) capacity
 constexpr double kCap2 = 30.0;  // dearer hydro (gen2) capacity
-constexpr double kEini1 = 700.0;  // reservoir 1 initial volume (generous)
-constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
+// Generous initial volumes so water never binds — the trajectory stays the
+// forced demand-driven drawdown (gen1 maxed each block), now in ENERGY terms.
+constexpr double kEini1 = 5000.0;  // reservoir 1 initial volume
+constexpr double kEini2 = 5000.0;  // reservoir 2 initial volume
 
 /// All-native oracle: two reservoirs, each with its own hydro turbine; an
 /// expensive thermal backup; time-varying per-block demand; 4 chronological
@@ -99,6 +115,11 @@ constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
 {
   auto block_array =
       make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
+  // Stamp the non-uniform per-block durations (same shape every stage).
+  for (int i = 0; i < total_blocks; ++i) {
+    block_array[static_cast<std::size_t>(i)].duration =
+        kBlockDur[static_cast<std::size_t>(i % blocks_per_stage)];
+  }
   auto stage_array =
       make_uniform_stages(static_cast<std::size_t>(num_stages),
                           static_cast<std::size_t>(blocks_per_stage));
@@ -193,9 +214,9 @@ constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
           .uid = Uid {1},
           .name = "rsv1",
           .junction = Uid {1},
-          .capacity = 800.0,
+          .capacity = 6000.0,
           .emin = emin_per_stage,
-          .emax = 800.0,
+          .emax = 6000.0,
           .eini = kEini1,
           .efin = 0.0,
           .fmin = -1000.0,
@@ -206,9 +227,9 @@ constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
           .uid = Uid {2},
           .name = "rsv2",
           .junction = Uid {2},
-          .capacity = 800.0,
+          .capacity = 6000.0,
           .emin = emin_per_stage,
-          .emax = 800.0,
+          .emax = 6000.0,
           .eini = kEini2,
           .efin = 0.0,
           .fmin = -1000.0,
@@ -338,12 +359,12 @@ constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
                 [](const Turbine& t) { return t.uid == Uid {1}; });
   std::erase_if(sys.flow_array, [](const Flow& f) { return f.uid == Uid {1}; });
 
-  // vol1: per-block storage state, starts at kEini1, bounded [0, 800].
+  // vol1: per-block storage state, starts at kEini1, bounded [0, 6000].
   sys.decision_variable_array.push_back(DecisionVariable {
       .uid = Uid {101},
       .name = "vol1",
       .lower_bound = OptReal {0.0},
-      .upper_bound = OptReal {800.0},
+      .upper_bound = OptReal {6000.0},
       .scope = OptName {"block"},
       .state = OptBool {},
       .link = OptBool {true},
@@ -351,17 +372,22 @@ constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
       .initial_value = OptReal {kEini1},
   });
 
-  // Per-block balance (inflow = 0): vol1[b] - prev(vol1[b]) + generation[b] =
-  // 0. prev(vol1) at block 0 of a stage resolves to the incoming column (the
-  // previous stage's end-of-stage volume, or the initial value on the very
-  // first stage); at block b>0 it resolves to block b-1 within the stage.
-  // The efin terminal (vol1 >= 0) is already enforced by the lower bound.
+  // Per-block balance (inflow = 0):
+  //   vol1[b] - prev(vol1[b]) + generation[b] * block.duration = 0.
+  // The `* block.duration` Δt weight turns the release POWER into the VOLUME
+  // drawn over the block — matching the native StorageLP balance, which scales
+  // its flow column by `block.duration()`.  Without it the balance would be
+  // wrong for every block whose duration != 1 h.  prev(vol1) at block 0 of a
+  // stage resolves to the incoming column (the previous stage's end-of-stage
+  // volume, or the initial value on the very first stage); at block b>0 it
+  // resolves to block b-1.  The efin terminal (vol1 >= 0) is the lower bound.
   sys.user_constraint_array.push_back(UserConstraint {
       .uid = Uid {201},
       .name = "vol1_balance",
-      .expression = "decision_variable('vol1').value "
-                    "- prev(decision_variable('vol1').value) "
-                    "+ generator('hydro_gen_1').generation = 0",
+      .expression =
+          "decision_variable('vol1').value "
+          "- prev(decision_variable('vol1').value) "
+          "+ generator('hydro_gen_1').generation * block.duration = 0",
   });
 
   return p;
@@ -463,9 +489,10 @@ void run_sddp(PlanningLP& plp)
 
 /// Unique optimal per-block volume path for the reservoir feeding `gen1` (the
 /// cheaper unit, when `is_gen1`) or `gen2` (the remainder).  gen1 is used
-/// maximally each block (min(cap, demand)); gen2 serves what's left.  vol =
-/// eini − cumulative release, chained continuously across stages (each stage's
-/// incoming is the previous stage's end-of-stage volume).
+/// maximally each block (min(cap, demand_POWER)); gen2 serves what's left.
+/// The VOLUME drawn over a block is the release power × the block duration
+/// (Δt), so vol = eini − cumulative(release · Δt), chained continuously across
+/// stages (each stage's incoming is the previous stage's end-of-stage volume).
 [[nodiscard]] auto expected_trajectory(double eini, bool is_gen1)
     -> std::vector<double>
 {
@@ -473,10 +500,11 @@ void run_sddp(PlanningLP& plp)
   v.reserve(static_cast<std::size_t>(total_blocks));
   double cum = 0.0;
   for (const auto& stage_demand : kDemand2D) {
-    for (const double d : stage_demand) {
+    for (std::size_t b = 0; b < blocks_per_stage; ++b) {
+      const double d = stage_demand[b];
       const double g1 = std::min(kCap1, d);
       const double g2 = d - g1;
-      cum += is_gen1 ? g1 : g2;
+      cum += (is_gen1 ? g1 : g2) * kBlockDur[b];  // power × Δt = volume drawn
       v.push_back(eini - cum);
     }
   }

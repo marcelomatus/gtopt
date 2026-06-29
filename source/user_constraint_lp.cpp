@@ -424,7 +424,13 @@ BuildResult build_row_from_terms(LowerCtx& ctx,
     // `coeff_profile` (F9), `coeff_at` selects the entry for this block's
     // ordinal within the stage; otherwise it returns the scalar
     // `coefficient`.  Backward-compatible — scalar terms are unchanged.
-    const double coef = outer_coef * term.coeff_at(ctx.block_ordinal);
+    // A `duration_weighted` term (`... * block.duration`) is additionally
+    // scaled by the ambient block's Δt (hours), converting a per-block rate
+    // into the energy/volume it contributes — matching the native StorageLP
+    // energy balance.  Applies uniformly to the element and the param-shift
+    // (RHS) branches below.
+    const double coef = outer_coef * term.coeff_at(ctx.block_ordinal)
+        * (term.duration_weighted ? ctx.block.duration() : 1.0);
 
     if (term.element) {
       const std::size_t before_col = row.size();

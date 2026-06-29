@@ -525,10 +525,24 @@ struct ConstraintTerm
   /// compatible).
   std::optional<std::vector<double>> coeff_profile {};
 
+  /// When true, this term's coefficient is additionally multiplied by the
+  /// ambient block's duration (Δt, hours) at row-assembly time.  Set by the
+  /// parser when a term is multiplied by the singleton scalar
+  /// `block.duration` (e.g. `generator('g').generation * block.duration`),
+  /// turning a per-block rate (power, flow) into the per-block energy/volume
+  /// it contributes — mirroring the native `StorageLP` energy balance, which
+  /// scales every flow column by `block.duration()`.  Orthogonal to
+  /// `coeff_profile`; the Δt factor is applied on top of `coeff_at(...)` in
+  /// `user_constraint_lp` (which has the block), not in `coeff_at` here.  Both
+  /// may be set at once — `[k0,k1] * gen * block.duration` is supported: the
+  /// profile picks the per-block coefficient and Δt then multiplies it.
+  bool duration_weighted {false};
+
   /// Resolve the effective coefficient for the given 0-based block
   /// ordinal within the stage.  Returns the profile entry (clamped to
   /// the last when the ordinal runs past the profile) when a per-block
-  /// profile is set, otherwise the scalar `coefficient`.
+  /// profile is set, otherwise the scalar `coefficient`.  Does NOT apply
+  /// the `duration_weighted` Δt factor (that needs the block's duration).
   [[nodiscard]] constexpr double coeff_at(
       std::size_t block_ordinal) const noexcept
   {

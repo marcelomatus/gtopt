@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include <gtopt/block_lp.hpp>
 #include <gtopt/constraint_parser.hpp>
 
 namespace gtopt
@@ -525,7 +526,11 @@ bool ConstraintParser::Parser::is_singleton_class(const std::string& name)
   // registered in `system_lp.cpp::register_all_ampl_element_names`,
   // except for `stage.*` whose values come from the active StageLP at
   // resolution time (calendar metadata of the stage being assembled).
-  return name == "options" || name == "system" || name == "stage";
+  // `block.*` likewise reads the active BlockLP (currently `block.duration`),
+  // and additionally folds into a term's `duration_weighted` Δt factor when
+  // it multiplies a variable (see `multiply_terms`).
+  return name == "options" || name == "system" || name == "stage"
+      || name == "block";
 }
 
 ConstraintExpr ConstraintParser::Parser::parse_constraint()
@@ -760,6 +765,29 @@ void scale_terms(std::vector<ConstraintTerm>& terms, double k) noexcept
   }
 }
 
+/// If `ts` is a single bare `block.duration` singleton scalar (no profile,
+/// no prior Δt weight, no aggregate/wrapper), return its coefficient; else
+/// nullopt.  Used by `multiply_terms` to recognise the one param×variable
+/// product that is allowed — `block.duration * <var>` — and fold it into a
+/// per-block Δt weight on the variable term.
+[[nodiscard]] std::optional<double> as_block_duration_coef(
+    const std::vector<ConstraintTerm>& ts)
+{
+  if (ts.size() != 1) {
+    return std::nullopt;
+  }
+  const auto& t = ts.front();
+  if (t.element && t.element->element_id.empty()
+      && t.element->element_type == BlockLP::ClassName
+      && t.element->attribute == BlockLP::DurationName && !t.coeff_profile
+      && !t.duration_weighted && !t.sum_ref && !t.param_name && !t.abs_expr
+      && !t.minmax_expr && !t.if_expr && !t.time_agg)
+  {
+    return t.coefficient;
+  }
+  return std::nullopt;
+}
+
 /// Multiply two linear expressions.  At least one side must be a pure
 /// constant (or a per-block coefficient profile, which then attaches to
 /// the variable term on the other side); any product of two
@@ -838,6 +866,37 @@ std::vector<ConstraintTerm> multiply_terms(std::vector<ConstraintTerm> lhs,
     scale_terms(rhs, *l_const);
     return rhs;
   }
+
+  // `block.duration` × (variable expression): the singleton scalar
+  // `block.duration` is resolved per-block at row-assembly, so it cannot be
+  // folded into a numeric coefficient at parse time the way a constant is.
+  // Instead, record a per-block Δt weight on the variable terms — turning a
+  // rate (power/flow) into the energy/volume it contributes over the block,
+  // exactly as the native StorageLP balance scales flow columns by
+  // `block.duration()`.  This is the ONLY param×variable product allowed.
+  const auto l_dur = as_block_duration_coef(lhs);
+  const auto r_dur = as_block_duration_coef(rhs);
+  if (l_dur && r_dur) {
+    throw std::invalid_argument(
+        "Non-linear product: `block.duration * block.duration` is not a "
+        "linear term");
+  }
+  if (l_dur || r_dur) {
+    // `var_terms` is a reference to the by-value parameter (`lhs`/`rhs`) that
+    // is NOT `block.duration`; valid through the `std::move(var_terms)` return.
+    auto& var_terms = l_dur ? rhs : lhs;
+    const double k = l_dur ? *l_dur : *r_dur;
+    for (auto& t : var_terms) {
+      if (t.duration_weighted) {
+        throw std::invalid_argument(
+            "`block.duration` applied twice to the same term");
+      }
+      t.coefficient *= k;
+      t.duration_weighted = true;
+    }
+    return std::move(var_terms);
+  }
+
   throw std::invalid_argument(
       "Non-linear product: both sides of '*' contain variables or "
       "parameters; only scalar-by-expression products are allowed");

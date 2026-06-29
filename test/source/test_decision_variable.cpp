@@ -212,6 +212,53 @@ TEST_CASE("DecisionVariable — block scope + cost_type round-trip")  // NOLINT
   CHECK_FALSE(bare.obj_constant.has_value());
 }
 
+TEST_CASE(
+    "DecisionVariable — block_state + link + state + initial_value "
+    "round-trip")  // NOLINT
+{
+  // The AMPL-reservoir fields (`block_state`, `link`, `state`,
+  // `initial_value`) must survive JSON parse + re-emit.  A binding name drift
+  // (e.g. `block_state` → `blockState`) would silently leave every reservoir
+  // DV with `block_state=false`, disabling the whole feature — this pins the
+  // contract in `json_decision_variable.hpp`.
+  constexpr std::string_view input = R"({
+    "uid": 55,
+    "name": "vol",
+    "lower_bound": 0,
+    "upper_bound": 500,
+    "scope": "block",
+    "link": true,
+    "block_state": true,
+    "initial_value": 120.0
+  })";
+  const auto dv =
+      daw::json::from_json<DecisionVariable>(input, StrictParsePolicy);
+  CHECK(dv.link.value_or(false) == true);
+  CHECK(dv.block_state.value_or(false) == true);
+  CHECK(dv.initial_value.value_or(-1.0) == doctest::Approx(120.0));
+
+  // Re-emit + re-parse preserves them.
+  const auto dv2 = daw::json::from_json<DecisionVariable>(
+      daw::json::to_json(dv), StrictParsePolicy);
+  CHECK(dv2.link.value_or(false) == true);
+  CHECK(dv2.block_state.value_or(false) == true);
+  CHECK(dv2.initial_value.value_or(-1.0) == doctest::Approx(120.0));
+
+  // A coarse `state` DV round-trips its flag too.
+  const auto sv = daw::json::from_json<DecisionVariable>(
+      R"({"uid": 56, "name": "s", "scope": "global", "state": true, "link": true})",
+      StrictParsePolicy);
+  CHECK(sv.state.value_or(false) == true);
+
+  // Defaults: all four absent when not supplied.
+  const auto bare = daw::json::from_json<DecisionVariable>(
+      R"({"uid": 1, "name": "x"})", StrictParsePolicy);
+  CHECK_FALSE(bare.block_state.has_value());
+  CHECK_FALSE(bare.link.has_value());
+  CHECK_FALSE(bare.state.has_value());
+  CHECK_FALSE(bare.initial_value.has_value());
+}
+
 TEST_CASE("DecisionVariable — JSON parses minimal (uid + name only)")  // NOLINT
 {
   // All non-uid/name fields are optional.  A minimal DecisionVariable

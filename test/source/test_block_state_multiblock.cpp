@@ -31,10 +31,12 @@ namespace block_state_mb_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-name
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 
-/// Solve a monolithic planning JSON and return the `vol` (uid 101) per-block
-/// volume solution, ordered by (stage, block).  Used to assert the storage
-/// recurrence chains correctly across blocks and stages.
-[[nodiscard]] auto solve_and_read_vol(std::string_view json)
+/// Solve a monolithic planning JSON and return the per-block volume solution
+/// of the `block_state` DecisionVariable with the given uid (default 101),
+/// ordered by (stage, block).  Used to assert the storage recurrence chains
+/// correctly across blocks and stages.
+[[nodiscard]] auto solve_and_read_vol(std::string_view json,
+                                      Uid which = Uid {101})
     -> std::vector<double>
 {
   Planning base;
@@ -48,7 +50,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
   std::vector<double> out;
   for (const auto& dv : sys.elements<DecisionVariableLP>()) {
-    if (dv.uid() != Uid {101}) {
+    if (dv.uid() != which) {
       continue;
     }
     // value_cols_holder: (scenario, stage) → (block → col), iterated in key
@@ -168,4 +170,118 @@ TEST_CASE(
   auto planning = parse_planning_json(json);
   CHECK_THROWS_AS(PlanningLP(std::move(planning)),  // NOLINT
                   std::runtime_error);
+}
+
+TEST_CASE("block_state: `* block.duration` weights the per-block balance by Δt")
+{
+  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+
+  // 1 chronological stage, 3 blocks with NON-UNIT durations {1, 2, 4}.  The
+  // balance `vol - prev(vol) + generation * block.duration = 0` draws
+  // generation·Δt of volume each block.  Constant demand 10 MW forces
+  // generation = 10 every block (cheapest, capacity 100).  So:
+  //   vol[0] = 1000 - 10*1 = 990;  vol[1] = 990 - 10*2 = 970;
+  //   vol[2] = 970 - 10*4 = 930.
+  // Without the `* block.duration` factor this would be {990, 980, 970} — the
+  // test pins the Δt weighting.
+  static constexpr std::string_view json = R"json({
+    "options": { "annual_discount_rate": 0.0, "output_compression": "uncompressed",
+      "model_options": { "use_single_bus": true, "scale_objective": 1, "demand_fail_cost": 1000 } },
+    "simulation": {
+      "block_array": [ {"uid":1,"duration":1}, {"uid":2,"duration":2}, {"uid":3,"duration":4} ],
+      "stage_array": [ {"uid":1,"first_block":0,"count_block":3,"active":1,"chronological":true} ],
+      "scenario_array": [ {"uid":1,"probability_factor":1} ]
+    },
+    "system": {
+      "name": "block_state_duration",
+      "bus_array": [ {"uid":1,"name":"b1"} ],
+      "generator_array": [ {"uid":1,"name":"g1","bus":1,"gcost":1,"capacity":100} ],
+      "demand_array": [ {"uid":1,"name":"d1","bus":1,"lmax":[[10,10,10]]} ],
+      "decision_variable_array": [ {"uid":101,"name":"vol","scope":"block",
+        "lower_bound":0,"upper_bound":10000,"link":true,"block_state":true,"initial_value":1000} ],
+      "user_constraint_array": [ {"uid":201,"name":"bal",
+        "expression":"decision_variable('vol').value - prev(decision_variable('vol').value) + generator('g1').generation * block.duration = 0"} ]
+    }
+  })json";
+
+  const auto vol = solve_and_read_vol(json);
+  REQUIRE(vol.size() == 3);
+  CHECK(vol[0] == doctest::Approx(990.0));
+  CHECK(vol[1] == doctest::Approx(970.0));
+  CHECK(vol[2] == doctest::Approx(930.0));
+}
+
+TEST_CASE(
+    "block_state: initial_value unset defaults the incoming to lower_bound")
+{
+  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+
+  // 1 stage, 1 block, NO initial_value, lower_bound = 10.  The first-stage
+  // incoming column is fixed to the lower bound (10), not 0, so the balance
+  // `vol - prev(vol) = 5` gives vol[0] = 10 + 5 = 15.
+  static constexpr std::string_view json = R"json({
+    "options": { "annual_discount_rate": 0.0, "output_compression": "uncompressed",
+      "model_options": { "use_single_bus": true, "scale_objective": 1, "demand_fail_cost": 1000 } },
+    "simulation": {
+      "block_array": [ {"uid":1,"duration":1} ],
+      "stage_array": [ {"uid":1,"first_block":0,"count_block":1,"active":1,"chronological":true} ],
+      "scenario_array": [ {"uid":1,"probability_factor":1} ]
+    },
+    "system": {
+      "name": "block_state_initdefault",
+      "bus_array": [ {"uid":1,"name":"b1"} ],
+      "generator_array": [ {"uid":1,"name":"g1","bus":1,"gcost":1,"capacity":100} ],
+      "demand_array": [ {"uid":1,"name":"d1","bus":1,"lmax":[[5]]} ],
+      "decision_variable_array": [ {"uid":101,"name":"vol","scope":"block",
+        "lower_bound":10,"upper_bound":1000,"link":true,"block_state":true} ],
+      "user_constraint_array": [ {"uid":201,"name":"bal",
+        "expression":"decision_variable('vol').value - prev(decision_variable('vol').value) = 5"} ]
+    }
+  })json";
+
+  const auto vol = solve_and_read_vol(json);
+  REQUIRE(vol.size() == 1);
+  CHECK(vol[0] == doctest::Approx(15.0));
+}
+
+TEST_CASE("block_state: two independent block_state DVs do not cross-wire")
+{
+  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+
+  // Two block_state DVs in one 3-block chronological stage, each with its own
+  // balance and initial value.  vol1: 60,70,80 (RHS 10, init 50); vol2:
+  // 120,140,160 (RHS 20, init 100).  Reading each by uid confirms the
+  // `value_in` / state registration keys per-DV without aliasing.
+  static constexpr std::string_view json = R"json({
+    "options": { "annual_discount_rate": 0.0, "output_compression": "uncompressed",
+      "model_options": { "use_single_bus": true, "scale_objective": 1, "demand_fail_cost": 1000 } },
+    "simulation": {
+      "block_array": [ {"uid":1,"duration":1}, {"uid":2,"duration":1}, {"uid":3,"duration":1} ],
+      "stage_array": [ {"uid":1,"first_block":0,"count_block":3,"active":1,"chronological":true} ],
+      "scenario_array": [ {"uid":1,"probability_factor":1} ]
+    },
+    "system": {
+      "name": "block_state_two_dv",
+      "bus_array": [ {"uid":1,"name":"b1"} ],
+      "generator_array": [ {"uid":1,"name":"g1","bus":1,"gcost":1,"capacity":100} ],
+      "demand_array": [ {"uid":1,"name":"d1","bus":1,"lmax":[[5,5,5]]} ],
+      "decision_variable_array": [
+        {"uid":101,"name":"vol1","scope":"block","lower_bound":0,"upper_bound":1000,"link":true,"block_state":true,"initial_value":50},
+        {"uid":102,"name":"vol2","scope":"block","lower_bound":0,"upper_bound":1000,"link":true,"block_state":true,"initial_value":100} ],
+      "user_constraint_array": [
+        {"uid":201,"name":"bal1","expression":"decision_variable('vol1').value - prev(decision_variable('vol1').value) = 10"},
+        {"uid":202,"name":"bal2","expression":"decision_variable('vol2').value - prev(decision_variable('vol2').value) = 20"} ]
+    }
+  })json";
+
+  const auto vol1 = solve_and_read_vol(json, Uid {101});
+  const auto vol2 = solve_and_read_vol(json, Uid {102});
+  REQUIRE(vol1.size() == 3);
+  REQUIRE(vol2.size() == 3);
+  CHECK(vol1[0] == doctest::Approx(60.0));
+  CHECK(vol1[1] == doctest::Approx(70.0));
+  CHECK(vol1[2] == doctest::Approx(80.0));
+  CHECK(vol2[0] == doctest::Approx(120.0));
+  CHECK(vol2[1] == doctest::Approx(140.0));
+  CHECK(vol2[2] == doctest::Approx(160.0));
 }

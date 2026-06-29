@@ -589,6 +589,18 @@ ResolveColResult resolve_col_to_row(const SystemContext& sc,
                    ref.attribute);
       return std::nullopt;
     }
+    if (ref.element_type == BlockLP::ClassName) {
+      // `block.*` reads metadata of the *active* block (the one this row is
+      // being assembled for), so it resolves against the BlockLP argument
+      // rather than the immutable scalar registry.  Currently just
+      // `block.duration` (Δt, hours).
+      if (ref.attribute == BlockLP::DurationName) {
+        return block.duration();
+      }
+      SPDLOG_DEBUG("user_constraint: unknown block attribute '{}'",
+                   ref.attribute);
+      return std::nullopt;
+    }
     if (auto val = sc.find_ampl_scalar(ref.element_type, ref.attribute)) {
       return val;
     }

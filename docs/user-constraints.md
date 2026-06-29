@@ -195,6 +195,54 @@ if stage = 1 and block in {1..12} then ... else ... <= 60
 The `else` branch is optional; an omitted `else` means the LP row
 contains only the constant RHS when the condition is false.
 
+### Time-coupling: `prev()` and `block.duration`
+
+Two constructs let a per-block constraint reference time, which together make
+it possible to write a storage/reservoir balance entirely in user-constraint
+text (see [Example 23](#example-23--a-reservoir-modeled-in-user-constraint-text)).
+
+**`prev(<element_ref>)`** — the lagged value of an element attribute at the
+**previous chronological block**:
+
+```text
+prev(decision_variable('vol').value)   -- vol at the block before this one
+```
+
+- At block `b > 0` of a stage it resolves to block `b − 1` (the stage must
+  set `"chronological": true`).
+- At the **first block** of a stage it resolves to the cross-stage / cross-phase
+  **incoming** value — for a `block_state` decision variable that is the
+  previous stage's end-of-stage value (or the `initial_value` on the very first
+  stage). This is what carries a reservoir's storage across stages and, under
+  `method=sddp`, across phases.
+- `prev(...)` may not be nested and takes a single element reference (no `sum`,
+  no numeric argument).
+
+**`block.duration`** — a singleton scalar giving the **current block's
+duration Δt (hours)**. Unlike `stage.duration` (the whole-stage total), it
+varies block to block, so it converts a per-block **rate** (power, flow) into
+the **energy / volume** it contributes over the block:
+
+```text
+generator('g').generation * block.duration   -- MWh drawn over the block
+```
+
+> **Duration trap.** A per-block term is a *rate*, not an energy: `generator('g').generation`
+> is power (MW), and gtopt does **not** auto-multiply it by Δt. A storage
+> balance written without `* block.duration` is only correct when every block
+> is exactly 1 hour long. For multi-hour blocks you **must** write the explicit
+> `* block.duration` factor — this mirrors the native reservoir, whose energy
+> balance scales each flow column by the block duration. (`block.duration` is
+> the only scalar allowed to multiply a variable; all other products of a
+> parameter and a variable are rejected as non-linear.)
+
+### State variables: `state()`
+
+`state(<element_ref>)` asserts that the wrapped reference is a cross-phase
+**state** column (a `DecisionVariable` with `"state": true` / `"block_state":
+true`). It is a typing hint that documents intent and is checked during
+resolution; it does not change the LP value.
+
 ### Element references
 
 Elements are referenced by type and identifier (name or UID):
@@ -717,6 +765,49 @@ Constrain total up-reserve in a zone across all provisions:
 }
 ```
 
+### Example 23 — A reservoir modeled in user-constraint text
+
+A hydro reservoir can be expressed entirely in user-constraint text — no native
+`reservoir` element — using a `block_state` decision variable (the per-block
+volume) plus a balance and a terminal target. The `block_state` variable
+creates one volume column per block, an incoming column reachable as the
+first-block `prev(...)`, and registers the last block as the cross-phase SDDP
+state, so the same machinery the native reservoir uses carries storage across
+stages and phases. The release here is a hydro generator; the
+`* block.duration` factor turns its power into the volume drawn over each block
+(required whenever blocks are not exactly 1 hour — see the duration trap in
+[§2](#time-coupling-prev-and-blockduration)).
+
+```json
+{
+  "system": {
+    "decision_variable_array": [
+      {
+        "uid": 101, "name": "vol", "scope": "block",
+        "lower_bound": 0, "upper_bound": 1000,
+        "link": true, "block_state": true, "initial_value": 600
+      }
+    ],
+    "user_constraint_array": [
+      {
+        "uid": 201, "name": "vol_balance",
+        "expression": "decision_variable('vol').value - prev(decision_variable('vol').value) + generator('HYDRO').generation * block.duration = inflow * block.duration"
+      },
+      {
+        "uid": 202, "name": "vol_terminal",
+        "expression": "decision_variable('vol').value >= 150, for(stage in {12})"
+      }
+    ]
+  }
+}
+```
+
+Here `inflow` is a named user parameter (per the
+[Constraint Directives](#12-constraint-directives) `params` section); set it to
+`0` for a pure-drawdown reservoir. The terminal `vol >= 150` plays the role of
+the native reservoir's `efin`. Stages carrying multiple blocks must set
+`"chronological": true` so the within-stage `prev(...)` lag is well-defined.
+
 ---
 
 ## 9. External Constraint Files
@@ -848,17 +939,29 @@ primary        := number
                |  abs_expr              -- F5: absolute value
                |  minmax_expr           -- F7: min / max envelope
                |  if_expr               -- F8: data-only conditional
+               |  prev_expr             -- previous-block / incoming lag
+               |  state_expr            -- state-column typing assertion
                |  element_ref
+               |  scalar_ref            -- options.X / system.X / stage.X / block.duration
                |  IDENT                 -- bare parameter reference
 
 -- Linearity rules (enforced at parse time):
---   * At least one operand of every '*' must fold to a numeric constant.
+--   * At least one operand of every '*' must fold to a numeric constant,
+--     EXCEPT `block.duration` which may multiply a single variable term
+--     (recorded as a per-block Δt weight).
 --   * The right operand of every '/' must fold to a nonzero constant.
 --   * Any subexpression made of numeric literals is constant-folded.
 --   * abs / max / min / if are not allowed inside a RANGE constraint
 --     (`lo <= expr <= hi`): only single-sided `<=` / `>=` are convex.
+--   * prev(...) and state(...) take a single element_ref and do not nest.
 
 element_ref    := element_type '(' element_id ')' '.' IDENT
+
+scalar_ref     := ('options' | 'system' | 'stage' | 'block') '.' IDENT
+
+prev_expr      := 'prev' '(' element_ref ')'
+
+state_expr     := 'state' '(' element_ref ')'
 
 sum_expr       := 'sum' '(' element_type '(' id_list ')' '.' IDENT ')'
 

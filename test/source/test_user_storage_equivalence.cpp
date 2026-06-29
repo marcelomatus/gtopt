@@ -238,4 +238,16 @@ TEST_CASE(
                                              .block_state = OptBool {true}})),
         std::runtime_error);
   }
+  SUBCASE("block_state with a single-block selector is a hard error")
+  {
+    // A storage volume needs a column on every block (and registers the last
+    // as the state), so the single-`block` selector is contradictory.
+    CHECK_THROWS_AS(  // NOLINT
+        PlanningLP(with_dv(DecisionVariable {.uid = Uid {903},
+                                             .name = "bad",
+                                             .block = OptUid {Uid {1}},
+                                             .link = OptBool {true},
+                                             .block_state = OptBool {true}})),
+        std::runtime_error);
+  }
 }

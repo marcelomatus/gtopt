@@ -28,6 +28,15 @@ namespace gtopt
 class BlockLP
 {
 public:
+  /// Class name exposed to user-constraint expressions as the singleton
+  /// scalar `block.duration` — the duration (hours) of the block being
+  /// assembled.  Unlike `stage.duration` (the whole-stage total), this
+  /// varies per block, so it lets a per-block balance scale a rate term by
+  /// Δt, e.g. `... + generator('g').generation * block.duration = 0`.
+  static constexpr std::string_view ClassName {"block"};
+  /// Block duration attribute name (hours).
+  static constexpr std::string_view DurationName {"duration"};
+
   BlockLP() = default;
 
   explicit constexpr BlockLP(
