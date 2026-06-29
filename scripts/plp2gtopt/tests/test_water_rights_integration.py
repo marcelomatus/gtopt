@@ -17,7 +17,7 @@ import pytest
 from plp2gtopt.compressed_open import find_compressed_path
 
 _SUPPORT_DIR = Path(__file__).parent.parent.parent.parent / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp_2_years"
+_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
 
 
 def _has_plp_2_years() -> bool:

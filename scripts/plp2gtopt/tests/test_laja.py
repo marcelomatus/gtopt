@@ -14,7 +14,7 @@ from plp2gtopt.laja_writer import LajaWriter, _zones_to_bound_rule_segments
 
 # Path to actual PLP test data (compressed)
 _SUPPORT_DIR = Path(__file__).parent.parent.parent.parent / "support"
-_PLP_2Y = _SUPPORT_DIR / "plp_2_years"
+_PLP_2Y = _SUPPORT_DIR / "plp" / "2_years"
 
 
 @pytest.fixture()
