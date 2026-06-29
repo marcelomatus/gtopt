@@ -2325,17 +2325,22 @@ std::expected<void, Error> PlanningLP::resolve_scene_phases(
                    phase_index,
                    result.error().message);
 
-      // On error, write the problematic model to the log directory for
-      // debugging
-      const auto log_dir = m_options_.log_directory();
-      std::filesystem::create_directories(log_dir);
-      const auto filename = (std::filesystem::path(log_dir)
-                             / as_label("error", scene_index, phase_index))
-                                .string();
-      if (auto lp_result = system_sp.write_lp(filename)) {
-        spdlog::error("  Infeasible LP written to: {}", *lp_result);
-      } else {
-        spdlog::warn("{}", lp_result.error().message);
+      // Write the problematic model to the log directory for debugging ONLY
+      // when lp_error or lp_debug is set (both default OFF).  Otherwise an
+      // infeasible cell on a large monolithic case would dump a multi-GB
+      // error*.lp every time.  lp_debug implies lp_error (auto-enable);
+      // lp_error turns it on by itself.  Mirrors the SDDP forward-pass gate.
+      if (m_options_.lp_error() || m_options_.lp_debug()) {
+        const auto log_dir = m_options_.log_directory();
+        std::filesystem::create_directories(log_dir);
+        const auto filename = (std::filesystem::path(log_dir)
+                               / as_label("error", scene_index, phase_index))
+                                  .string();
+        if (auto lp_result = system_sp.write_lp(filename)) {
+          spdlog::error("  Infeasible LP written to: {}", *lp_result);
+        } else {
+          spdlog::warn("{}", lp_result.error().message);
+        }
       }
 
       // LP diagnostic analysis is performed by run_gtopt after the solver
