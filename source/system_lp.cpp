@@ -1882,7 +1882,12 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
       // validated at planning load, so the lookup always resolves (same
       // precedent as turbine_lp.cpp / converter_lp.cpp resolving their
       // generator directly).
-      const auto gen_uid_of = [&](const auto& gen_sid) -> Uid
+      // NB: concrete `GeneratorLPSId` parameter (not `const auto&`) — a
+      // GENERIC lambda capturing `this` ICEs g++-14 (the CI compiler):
+      // "trying to capture 'this' in instantiation of generic lambda".  All
+      // three callers (turbine/converter/commitment `generator_sid()`) return
+      // `GeneratorLPSId`, so a non-generic lambda is exact and dodges the bug.
+      const auto gen_uid_of = [&](const GeneratorLPSId& gen_sid) -> Uid
       { return element<GeneratorLP>(gen_sid).uid(); };
       for (const auto& turb : elements<TurbineLP>()) {
         hydro_gen_uids.insert(gen_uid_of(turb.generator_sid()));
