@@ -1779,37 +1779,55 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   // Gated so pure-LP solves and runs that don't enable the feature pay
   // nothing; `apply_mip_start` itself no-ops when there are no integer cols.
   if (const auto mip_start_opts = options().mip_start_options();
-      mip_start_opts.method.value_or(MipStartMethod::none)
-          != MipStartMethod::none
-      || mip_start_opts.relax_check.value_or(false))
+      mip_start_opts.enabled.value_or(false)
+      || mip_start_opts.relax.check.value_or(false))
   {
-    // Build per-(scenario, commitment) min-up/down run-length info so the
-    // generator can repair a rounded commitment that violates run-lengths.
-    // One entry per unit WITH a min-up or min-down limit; status columns in
-    // chronological (stage, block) order with the matching block durations.
+    // Build per-(scenario, commitment) run-length + logic info so the
+    // generators can repair a rounded commitment.  ONE ENTRY PER UNIT (not only
+    // those with min-up/down limits): the `CommitmentLogicRule` needs the
+    // startup/shutdown columns of EVERY commitment to make v/w consistent with
+    // u, and `MinUpDownRule` self-skips units with no run-length limit.  Status
+    // / startup / shutdown columns are kept in chronological (stage, block)
+    // order, parallel to the block durations; a v/w index is < 0 when that
+    // block has no such column.
     std::vector<CommitmentRunInfo> commitments;
     for (const auto& scenario : scene().scenarios()) {
       for (const auto& comm : elements<CommitmentLP>()) {
-        const double min_up = comm.commitment().min_up_time.value_or(0.0);
-        const double min_down = comm.commitment().min_down_time.value_or(0.0);
-        if (min_up <= 0.0 && min_down <= 0.0) {
-          continue;
-        }
         CommitmentRunInfo info {
-            .min_up_hours = min_up,
-            .min_down_hours = min_down,
+            .min_up_hours = comm.commitment().min_up_time.value_or(0.0),
+            .min_down_hours = comm.commitment().min_down_time.value_or(0.0),
+            .initial_status = comm.commitment().initial_status.value_or(0.0),
         };
         for (const auto& stage : phase().stages()) {
           const auto* ucols = comm.find_status_cols(scenario, stage);
           if (ucols == nullptr) {
             continue;
           }
+          const auto* vcols = comm.find_startup_cols(scenario, stage);
+          const auto* wcols = comm.find_shutdown_cols(scenario, stage);
           for (const auto& blk : stage.blocks()) {
             const auto it = ucols->find(blk.uid());
-            if (it != ucols->end()) {
-              info.status_cols.push_back(static_cast<int>(it->second));
-              info.durations.push_back(blk.duration());
+            if (it == ucols->end()) {
+              continue;
             }
+            info.status_cols.push_back(static_cast<int>(it->second));
+            info.durations.push_back(blk.duration());
+            int vcol = -1;
+            int wcol = -1;
+            if (vcols != nullptr) {
+              if (const auto vit = vcols->find(blk.uid()); vit != vcols->end())
+              {
+                vcol = static_cast<int>(vit->second);
+              }
+            }
+            if (wcols != nullptr) {
+              if (const auto wit = wcols->find(blk.uid()); wit != wcols->end())
+              {
+                wcol = static_cast<int>(wit->second);
+              }
+            }
+            info.startup_cols.push_back(vcol);
+            info.shutdown_cols.push_back(wcol);
           }
         }
         if (info.status_cols.size() >= 2) {
@@ -1818,8 +1836,11 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
       }
     }
 
-    // Build per storage-injection unit the `PeakInjectionRule` data, when the
-    // opt-in `peak_injection` flag is set.  Two unit classes, distinguished by
+    // Build per storage-injection unit the `PeakInjectionRule` data.  This is
+    // the whole point of the domain rules — encoding power-system knowledge the
+    // generic round cannot — so it is ON BY DEFAULT (set
+    // `domain_rules.peak_injection.enabled=false` to disable).  Two unit
+    // classes, distinguished by
     // topology and seeded with different windows:
     //
     //   - HYDRO  — any turbine-linked generator (the reservoir/hydro fleet):
@@ -1842,11 +1863,13 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     // 24` (planning horizon starts at hour 0) — only chronological stages carry
     // status columns, which is exactly where a wall-clock hour is meaningful.
     std::vector<PeakInjectionInfo> injections;
-    if (mip_start_opts.peak_injection.value_or(false)) {
-      const double peak_lo = mip_start_opts.peak_start_hour.value_or(18.0);
-      const double peak_hi = mip_start_opts.peak_end_hour.value_or(23.0);
-      const double solar_lo = mip_start_opts.solar_start_hour.value_or(9.0);
-      const double solar_hi = mip_start_opts.solar_end_hour.value_or(17.0);
+    if (const auto& pinj = mip_start_opts.domain_rules.peak_injection;
+        pinj.enabled.value_or(true))
+    {
+      const double peak_lo = pinj.peak_window.start.value_or(18.0);
+      const double peak_hi = pinj.peak_window.end.value_or(23.0);
+      const double solar_lo = pinj.solar_window.start.value_or(9.0);
+      const double solar_hi = pinj.solar_window.end.value_or(17.0);
 
       // Bucket each injection generator by class.  A generator is hydro XOR
       // battery (turbine-linked vs converter-discharge), so the two sets don't

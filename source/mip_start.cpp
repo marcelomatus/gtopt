@@ -36,7 +36,7 @@ namespace detail
   return std::clamp(r, lb, ub);
 }
 
-/// Stage 1 (round) + stage 2 (electric-system commitment-repair rules) shared
+/// Stage 1 (round) + stage 2 (domain rules: commitment repair) shared
 /// by every base generator.  Rounds the relaxation's integer columns and runs
 /// the default `DomainRulePipeline` (min-up/down, … — see
 /// domain_rules.hpp) over the result; continuous columns keep their
@@ -54,16 +54,18 @@ namespace detail
   // Stage 1 — generic rounding of the integer columns.
   const auto lb = li.get_col_low_raw();
   const auto ub = li.get_col_upp_raw();
-  const double threshold = ctx.opts.round_threshold.value_or(0.5);
+  const double threshold = ctx.opts.round.threshold.value_or(0.5);
   for (const int i : ctx.int_cols) {
     const auto u = static_cast<std::size_t>(i);
     const double l = (u < lb.size()) ? lb[u] : 0.0;
     const double h = (u < ub.size()) ? ub[u] : 1.0;
     start[u] = round_with_threshold(sol[u], threshold, l, h);
   }
-  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  One
-  // shared, stateless default pipeline (thread-safe function-local static).
-  static const DomainRulePipeline pipeline = make_default_domain_rules();
+  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  Built
+  // per call from the per-stage toggles in `ctx.opts.domain_rules`; the rules
+  // themselves are stateless and `const`-applied.
+  const DomainRulePipeline pipeline =
+      make_default_domain_rules(ctx.opts.domain_rules);
   const int flipped = pipeline.apply(start,
                                      DomainRuleContext {
                                          .commitments = ctx.commitments,
@@ -85,112 +87,22 @@ namespace
 /// P1 generator: round the integer columns of the solved LP relaxation,
 /// leaving the continuous (dispatch) columns at their relaxation value.
 /// Storage-safe — operates on the whole-horizon relaxation, no time chunking.
-class LpRoundMipStart final : public MipStartGenerator
+class WarmStartGenerator final : public MipStartGenerator
 {
 public:
   [[nodiscard]] std::string_view name() const noexcept override
   {
-    return "lp_round";
+    return "warmstart";
   }
 
   [[nodiscard]] std::optional<std::vector<double>> generate(
       MipStartContext& ctx) override
   {
-    // Stage 1 (round) + stage 2 (electric-system rules); nothing else.
-    auto start = detail::rounded_start_with_rules(ctx, "lp_round");
+    // Stage 1 (round) + stage 2 (domain rules); nothing else.
+    auto start = detail::rounded_start_with_rules(ctx, "warmstart");
     if (start.empty()) {
       return std::nullopt;
     }
-    return start;
-  }
-};
-
-/// P2 generator: round the integer columns, PIN them to the rounded values,
-/// and re-solve the full-horizon LP so the dependent continuous columns
-/// (startup/shutdown logic, dispatch) are recomputed CONSISTENTLY with the
-/// fixed commitment — yielding a genuinely feasible start (unlike lp_round,
-/// whose startup/shutdown columns keep their fractional relaxation values and
-/// violate the u−u₋₁ = v−w logic, so CHECKFEAS rejects it).  Storage-safe: the
-/// whole horizon is fixed at once and one economic-dispatch LP keeps the
-/// reservoir balance intact (no time chunking).  Returns std::nullopt when the
-/// rounded commitment makes the ED-LP infeasible (rounded binaries violate hard
-/// constraints) — the signal that a feasibility repair is needed.
-class RelaxFixMipStart final : public MipStartGenerator
-{
-public:
-  [[nodiscard]] std::string_view name() const noexcept override
-  {
-    return "relax_fix";
-  }
-
-  [[nodiscard]] std::optional<std::vector<double>> generate(
-      MipStartContext& ctx) override
-  {
-    auto& li = ctx.li;
-    // Stage 1 (round) + stage 2 (electric-system rules) → the candidate
-    // commitment, then pin it and re-solve a dispatch LP for consistency.
-    std::vector<double> rounded =
-        detail::rounded_start_with_rules(ctx, "relax_fix");
-    if (rounded.empty()) {
-      return std::nullopt;
-    }
-    const auto lb = li.get_col_low_raw();
-    const auto ub = li.get_col_upp_raw();
-
-    // Pin the repaired commitment to bounds; record originals to restore.
-    std::vector<ColIndex> cols;
-    std::vector<double> pinned;
-    std::vector<double> orig_lb;
-    std::vector<double> orig_ub;
-    cols.reserve(ctx.int_cols.size());
-    pinned.reserve(ctx.int_cols.size());
-    orig_lb.reserve(ctx.int_cols.size());
-    orig_ub.reserve(ctx.int_cols.size());
-    for (const int i : ctx.int_cols) {
-      const auto u = static_cast<std::size_t>(i);
-      cols.emplace_back(i);
-      pinned.push_back(rounded[u]);
-      orig_lb.push_back((u < lb.size()) ? lb[u] : 0.0);
-      orig_ub.push_back((u < ub.size()) ? ub[u] : 1.0);
-    }
-    if (cols.empty()) {
-      return std::nullopt;
-    }
-
-    // Pin the rounded commitment ('B' = both bounds) and re-solve the LP.
-    const std::vector<char> lu_pin(cols.size(), 'B');
-    li.set_col_bounds_raw(cols, lu_pin, pinned);
-    const auto ed = li.resolve(ctx.relax_opts);
-    const bool feasible = ed.has_value() && li.is_optimal();
-
-    std::optional<std::vector<double>> start;
-    if (feasible) {
-      const auto fixed_sol = li.get_col_sol_raw();
-      start = std::vector<double>(fixed_sol.begin(), fixed_sol.end());
-    } else {
-      spdlog::warn(
-          "MIP-start[relax_fix]: economic-dispatch LP infeasible with the "
-          "rounded commitment (rounded binaries violate hard constraints); no "
-          "start produced — a feasibility repair pass is needed");
-      // Confirm WHICH hard rows the rounded commitment conflicts with (the
-      // repair pass must respect them — expected: min-up/down run-lengths).
-      if (auto conflicts = li.diagnose_infeasibility(20)) {
-        spdlog::warn(
-            "MIP-start[relax_fix]: {} conflicting constraints in the fixed "
-            "ED-LP (minimal infeasible subsystem):",
-            conflicts->size());
-        for (const auto& c : *conflicts) {
-          spdlog::warn("  conflict: {}", c);
-        }
-      }
-    }
-
-    // Restore the original bounds on the (still-relaxed) integer columns.
-    const std::vector<char> lu_lo(cols.size(), 'L');
-    li.set_col_bounds_raw(cols, lu_lo, orig_lb);
-    const std::vector<char> lu_hi(cols.size(), 'U');
-    li.set_col_bounds_raw(cols, lu_hi, orig_ub);
-
     return start;
   }
 };
@@ -199,12 +111,13 @@ public:
 /// (`dump_integer_solution`).  The dumped `<index> <value>` lines carry the
 /// integer-column raw values found by another solver; this overlays them onto
 /// THIS solver's own LP-relaxation primal (the continuous columns stay at the
-/// relaxation value, exactly like `lp_round`, but the integer columns come from
-/// the file instead of rounding).  Enables a cross-solver hand-off: e.g. HiGHS
-/// (strong MIP heuristics) finds a feasible incumbent and dumps it, then cuOpt
-/// replays it as its start.  Both runs build the identical deterministic flat
-/// LP, so raw column indices match 1:1 — validated by the `ncols` header and a
-/// per-index integer-column membership check (no silent skip on mismatch).
+/// relaxation value, exactly like `warmstart`, but the integer columns come
+/// from the file instead of rounding).  Enables a cross-solver hand-off: e.g.
+/// HiGHS (strong MIP heuristics) finds a feasible incumbent and dumps it, then
+/// cuOpt replays it as its start.  Both runs build the identical deterministic
+/// flat LP, so raw column indices match 1:1 — validated by the `ncols` header
+/// and a per-index integer-column membership check (no silent skip on
+/// mismatch).
 class FileMipStart final : public MipStartGenerator
 {
 public:
@@ -216,10 +129,11 @@ public:
   [[nodiscard]] std::optional<std::vector<double>> generate(
       MipStartContext& ctx) override
   {
-    const auto& path = ctx.opts.file;
+    const auto& path = ctx.opts.from_file;
     if (!path.has_value() || path->empty()) {
       spdlog::warn(
-          "MIP-start[file]: no mip_start.file configured; nothing to replay");
+          "MIP-start[file]: no mip_start.from_file configured; nothing to "
+          "replay");
       return std::nullopt;
     }
     std::ifstream in(*path);
@@ -359,19 +273,14 @@ void report_saturated_rows(LinearInterface& li, int max_items)
 }  // namespace
 
 std::unique_ptr<MipStartGenerator> make_mip_start_generator(
-    const MipStartMethod method)
+    const MipStartOptions& opts)
 {
-  switch (method) {
-    case MipStartMethod::lp_round:
-      return std::make_unique<LpRoundMipStart>();
-    case MipStartMethod::relax_fix:
-      return std::make_unique<RelaxFixMipStart>();
-    case MipStartMethod::file:
-      return std::make_unique<FileMipStart>();
-    case MipStartMethod::none:
-      break;
+  // `from_file` set → replay a dumped integer solution; otherwise the default
+  // round + domain-rules candidate.
+  if (opts.from_file.has_value() && !opts.from_file->empty()) {
+    return std::make_unique<FileMipStart>();
   }
-  return nullptr;
+  return std::make_unique<WarmStartGenerator>();
 }
 
 std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
@@ -432,9 +341,9 @@ std::expected<MipStartReport, Error> apply_mip_start(
 {
   MipStartReport report;
 
-  const auto method = opts.method.value_or(MipStartMethod::none);
-  const bool relax_check = opts.relax_check.value_or(false);
-  if (method == MipStartMethod::none && !relax_check) {
+  const bool enabled = opts.enabled.value_or(false);
+  const bool relax_check = opts.relax.check.value_or(false);
+  if (!enabled && !relax_check) {
     return report;  // feature off
   }
 
@@ -459,8 +368,8 @@ std::expected<MipStartReport, Error> apply_mip_start(
   // Relaxation solve options: base overlaid with the relax-specific overrides
   // so the relaxation can use a different algorithm / params than the MIP.
   SolverOptions relax_opts = base_opts;
-  if (opts.relax_solver_options.has_value()) {
-    relax_opts.overlay(*opts.relax_solver_options);
+  if (opts.relax.solver_options.has_value()) {
+    relax_opts.overlay(*opts.relax.solver_options);
   }
 
   // ── Stage A: solve & analyze the LP relaxation ──────────────────────────
@@ -475,7 +384,7 @@ std::expected<MipStartReport, Error> apply_mip_start(
 
   if (!feasible) {
     const auto action =
-        opts.on_infeasible.value_or(RelaxInfeasibleAction::stop);
+        opts.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop);
     if (action == RelaxInfeasibleAction::feasopt) {
       if (auto conflicts = li.diagnose_infeasibility()) {
         spdlog::error(
@@ -507,20 +416,19 @@ std::expected<MipStartReport, Error> apply_mip_start(
   }
 
   // Feasible: optional saturated-row report.
-  if (opts.report_saturated.value_or(false)) {
+  if (opts.relax.report_saturated.value_or(false)) {
     report_saturated_rows(li, 50);
   }
 
   // ── Stage B: integer-solution generation & injection ────────────────────
-  if (method == MipStartMethod::none) {
-    restore_integrality();  // diagnosis-only run
+  if (!enabled) {
+    restore_integrality();  // diagnosis-only run (relax.check)
     return report;
   }
 
-  auto gen = make_mip_start_generator(method);
+  auto gen = make_mip_start_generator(opts);
   if (!gen) {
-    spdlog::warn("MIP-start: method '{}' not available; skipping injection",
-                 enum_name(method));
+    spdlog::warn("MIP-start: no generator available; skipping injection");
     restore_integrality();
     return report;
   }
@@ -534,15 +442,14 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .injections = injections,
       .flat_lp = flat_lp,
   };
-  auto start =
-      gen->generate(ctx);  // stage 1 (round) + stage 2 (electric rules)
+  auto start = gen->generate(ctx);  // stage 1 (round) + stage 2 (domain rules)
   std::string source {gen->name()};
 
-  // Stage 3 (optional): SCIP repair.  Composable with any base method and any
-  // active solver — turns the round+rules candidate into a genuinely feasible
-  // integer solution via SCIP's completesol/repair.  On failure (no SCIP
-  // plugin / no flat LP / nothing feasible) keep the pre-SCIP candidate.
-  if (start && opts.scip_repair.value_or(false)) {
+  // Stage 4 (optional): SCIP repair.  Composable with any base candidate and
+  // any active solver — turns the round+rules candidate into a genuinely
+  // feasible integer solution via SCIP's completesol/repair.  On failure (no
+  // SCIP plugin / no flat LP / nothing feasible) keep the pre-SCIP candidate.
+  if (start && opts.scip_repair.enabled.value_or(false)) {
     if (auto repaired = scip_repair_candidate(ctx, *start)) {
       start = std::move(repaired);
       source += "+scip";
@@ -563,13 +470,13 @@ std::expected<MipStartReport, Error> apply_mip_start(
     return report;
   }
 
-  // Stage 4 — inject with `effort` ("solver repair").  Default `repair`: the
+  // Stage 5 — inject with `effort` ("solver repair").  Default `repair`: the
   // candidate is near-feasible but typically still nicks a few Pmin /
   // user-constraint / reserve rows, so CHECKFEAS would discard it; `repair`
   // lets the active backend mend those residuals (and on CPLEX this composes
   // with the SCIP stage as structural-then-numerical repair).  SystemLP then
   // runs the MIP solve (the "resolve").
-  const auto effort = opts.effort.value_or(MipStartEffort::repair);
+  const auto effort = opts.inject.effort.value_or(MipStartEffort::repair);
   report.injected = li.set_mip_start(*start, effort);
   report.source = source;
   spdlog::info(

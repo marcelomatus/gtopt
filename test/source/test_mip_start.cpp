@@ -6,10 +6,10 @@
  * @copyright BSD-3-Clause
  *
  * Covers the solver-independent surface of the MIP-start framework: the
- * `MipStartOptions` JSON contract, the option enums (`MipStartMethod`,
- * `MipStartEffort`, `RelaxInfeasibleAction`) and their aliases, and the
- * generator factory.  The end-to-end relaxation→round→inject pipeline is
- * validated separately by the benchmark on a real cliff case.
+ * staged `MipStartOptions` JSON contract, the option enums (`MipStartEffort`,
+ * `RelaxInfeasibleAction`) and their aliases, and the generator factory.  The
+ * end-to-end relaxation→round→inject pipeline is validated separately by the
+ * benchmark on a real cliff case.
  */
 
 #include <array>
@@ -34,19 +34,6 @@ namespace mip_start_test  // NOLINT(misc-use-anonymous-namespace)
 
 TEST_CASE("MipStart option enums round-trip by name")  // NOLINT
 {
-  SUBCASE("MipStartMethod")
-  {
-    CHECK(enum_name(MipStartMethod::none) == "none");
-    CHECK(enum_name(MipStartMethod::lp_round) == "lp_round");
-    CHECK(enum_name(MipStartMethod::relax_fix) == "relax_fix");
-    CHECK(enum_name(MipStartMethod::file) == "file");
-    CHECK(enum_from_name<MipStartMethod>("lp_round")
-              .value_or(MipStartMethod::none)
-          == MipStartMethod::lp_round);
-    CHECK(enum_from_name<MipStartMethod>("file").value_or(MipStartMethod::none)
-          == MipStartMethod::file);
-  }
-
   SUBCASE("MipStartEffort")
   {
     CHECK(enum_name(MipStartEffort::check_feasibility) == "check_feasibility");
@@ -74,97 +61,97 @@ TEST_CASE("MipStart option enums round-trip by name")  // NOLINT
 TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
 {
   MipStartOptions opts;
-  opts.method = MipStartMethod::lp_round;
-  opts.round_threshold = 0.6;
-  opts.effort = MipStartEffort::repair;
-  opts.file = "in.start";
+  opts.enabled = true;
+  opts.round.threshold = 0.6;
+  opts.inject.effort = MipStartEffort::repair;
+  opts.from_file = "in.start";
   opts.dump_file = "out.start";
-  opts.scip_repair = true;
-  opts.peak_injection = true;
-  opts.peak_start_hour = 19.0;
-  opts.peak_end_hour = 22.0;
-  opts.solar_start_hour = 10.0;
-  opts.solar_end_hour = 16.0;
-  opts.relax_check = true;
-  opts.on_infeasible = RelaxInfeasibleAction::feasopt;
-  opts.report_saturated = true;
+  opts.scip_repair.enabled = true;
+  opts.domain_rules.min_up_down = false;
+  opts.domain_rules.commitment_logic = true;
+  opts.domain_rules.peak_injection.enabled = true;
+  opts.domain_rules.peak_injection.peak_window.start = 19.0;
+  opts.domain_rules.peak_injection.peak_window.end = 22.0;
+  opts.domain_rules.peak_injection.solar_window.start = 10.0;
+  opts.domain_rules.peak_injection.solar_window.end = 16.0;
+  opts.relax.check = true;
+  opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
+  opts.relax.report_saturated = true;
 
   const auto json_string = daw::json::to_json(opts);
   const auto back = daw::json::from_json<MipStartOptions>(json_string);
 
-  CHECK(back.method.value_or(MipStartMethod::none) == MipStartMethod::lp_round);
-  CHECK(back.round_threshold.value_or(-1.0) == doctest::Approx(0.6));
-  CHECK(back.effort.value_or(MipStartEffort::check_feasibility)
+  CHECK(back.enabled.value_or(false) == true);
+  CHECK(back.round.threshold.value_or(-1.0) == doctest::Approx(0.6));
+  CHECK(back.inject.effort.value_or(MipStartEffort::check_feasibility)
         == MipStartEffort::repair);
-  CHECK(back.file.value_or("") == "in.start");
+  CHECK(back.from_file.value_or("") == "in.start");
   CHECK(back.dump_file.value_or("") == "out.start");
-  CHECK(back.scip_repair.value_or(false) == true);
-  CHECK(back.peak_injection.value_or(false) == true);
-  CHECK(back.peak_start_hour.value_or(-1.0) == doctest::Approx(19.0));
-  CHECK(back.peak_end_hour.value_or(-1.0) == doctest::Approx(22.0));
-  CHECK(back.solar_start_hour.value_or(-1.0) == doctest::Approx(10.0));
-  CHECK(back.solar_end_hour.value_or(-1.0) == doctest::Approx(16.0));
-  CHECK(back.relax_check.value_or(false) == true);
-  CHECK(back.on_infeasible.value_or(RelaxInfeasibleAction::stop)
+  CHECK(back.scip_repair.enabled.value_or(false) == true);
+  CHECK(back.domain_rules.min_up_down.value_or(true) == false);
+  CHECK(back.domain_rules.commitment_logic.value_or(false) == true);
+  CHECK(back.domain_rules.peak_injection.enabled.value_or(false) == true);
+  CHECK(back.domain_rules.peak_injection.peak_window.start.value_or(-1.0)
+        == doctest::Approx(19.0));
+  CHECK(back.domain_rules.peak_injection.peak_window.end.value_or(-1.0)
+        == doctest::Approx(22.0));
+  CHECK(back.domain_rules.peak_injection.solar_window.start.value_or(-1.0)
+        == doctest::Approx(10.0));
+  CHECK(back.domain_rules.peak_injection.solar_window.end.value_or(-1.0)
+        == doctest::Approx(16.0));
+  CHECK(back.relax.check.value_or(false) == true);
+  CHECK(back.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
-  CHECK(back.report_saturated.value_or(false) == true);
+  CHECK(back.relax.report_saturated.value_or(false) == true);
 }
 
 TEST_CASE("MipStartOptions parses from a monolithic_options block")  // NOLINT
 {
   // The feature is reachable via `--set monolithic_options.mip_start.*`; a
-  // bare mip_start block must deserialize with the string enums resolved.
+  // bare mip_start block must deserialize the staged shape with the string
+  // enums resolved.
   constexpr std::string_view json = R"({
     "mip_start": {
-      "method": "lp_round",
-      "effort": "solve_fixed",
-      "on_infeasible": "warn",
-      "relax_check": true
+      "enabled": true,
+      "inject": { "effort": "solve_fixed" },
+      "relax": { "on_infeasible": "warn", "check": true }
     }
   })";
   const auto mono = daw::json::from_json<MonolithicOptions>(json);
   REQUIRE(mono.mip_start.has_value());
-  CHECK(mono.mip_start->method.value_or(MipStartMethod::none)
-        == MipStartMethod::lp_round);
-  CHECK(mono.mip_start->effort.value_or(MipStartEffort::check_feasibility)
-        == MipStartEffort::solve_fixed);
-  CHECK(mono.mip_start->on_infeasible.value_or(RelaxInfeasibleAction::stop)
-        == RelaxInfeasibleAction::warn);
-  CHECK(mono.mip_start->relax_check.value_or(false) == true);
+  CHECK(mono.mip_start->enabled.value_or(false) == true);
+  CHECK(
+      mono.mip_start->inject.effort.value_or(MipStartEffort::check_feasibility)
+      == MipStartEffort::solve_fixed);
+  CHECK(
+      mono.mip_start->relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
+      == RelaxInfeasibleAction::warn);
+  CHECK(mono.mip_start->relax.check.value_or(false) == true);
 }
 
 TEST_CASE("make_mip_start_generator factory")  // NOLINT
 {
-  SUBCASE("lp_round yields a named generator")
+  SUBCASE("default (no from_file) yields the round+rules generator")
   {
-    auto gen = make_mip_start_generator(MipStartMethod::lp_round);
+    MipStartOptions opts;
+    auto gen = make_mip_start_generator(opts);
     REQUIRE(gen != nullptr);
-    CHECK(gen->name() == "lp_round");
+    CHECK(gen->name() == "warmstart");
   }
 
-  SUBCASE("relax_fix yields a named generator")
+  SUBCASE("from_file set yields the file generator")
   {
-    auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
-    REQUIRE(gen != nullptr);
-    CHECK(gen->name() == "relax_fix");
-  }
-
-  SUBCASE("file yields a named generator")
-  {
-    auto gen = make_mip_start_generator(MipStartMethod::file);
+    MipStartOptions opts;
+    opts.from_file = "some.start";
+    auto gen = make_mip_start_generator(opts);
     REQUIRE(gen != nullptr);
     CHECK(gen->name() == "file");
-  }
-
-  SUBCASE("none yields no generator")
-  {
-    CHECK(make_mip_start_generator(MipStartMethod::none) == nullptr);
   }
 }
 
 // ── Generator behaviour (solved-relaxation → rounded start) ───────────────
 //
-// These exercise the actual algorithm in `LpRoundMipStart` /
+// These exercise the actual algorithm in `WarmStartGenerator` /
 // `RelaxFixMipStart` (and the internal `round_with_threshold` /
 // `repair_run_lengths` helpers) through the public `generate()` surface.
 // A tiny LP is built directly on a LinearInterface, solved as a
@@ -184,7 +171,7 @@ void pin_col(LinearInterface& li, ColIndex col, double v)
 }
 }  // namespace
 
-TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
+TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
 {
   LinearInterface li;
   // cols 0,1 are the "integer" columns to round; col 2 is a pure
@@ -201,13 +188,13 @@ TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
 
   const std::array<int, 2> int_cols {0, 1};
   const SolverOptions relax_opts {.log_level = 0};
-  auto gen = make_mip_start_generator(MipStartMethod::lp_round);
+  auto gen = make_mip_start_generator(MipStartOptions {});
   REQUIRE(gen != nullptr);
 
   SUBCASE("threshold 0.5 — 0.7 rounds up, 0.2 rounds down")
   {
     MipStartOptions opts;
-    opts.round_threshold = 0.5;
+    opts.round.threshold = 0.5;
     MipStartContext ctx {.li = li,
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
@@ -225,7 +212,7 @@ TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
   SUBCASE("threshold 0.8 — 0.7 now rounds down")
   {
     MipStartOptions opts;
-    opts.round_threshold = 0.8;
+    opts.round.threshold = 0.8;
     MipStartContext ctx {.li = li,
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
@@ -240,7 +227,7 @@ TEST_CASE("MipStart lp_round rounds integer columns by threshold")  // NOLINT
 }
 
 TEST_CASE(
-    "MipStart lp_round repairs min-up/down run-length violations")  // NOLINT
+    "MipStart warmstart repairs min-up/down run-length violations")  // NOLINT
 {
   // Four unit-status columns rounding to on,on,off,on with min_down=2h and
   // 1h blocks: the single 1h OFF period is shorter than min_down, so the
@@ -266,7 +253,7 @@ TEST_CASE(
       .durations = {1.0, 1.0, 1.0, 1.0},
   }};
   MipStartOptions opts;
-  opts.round_threshold = 0.5;
+  opts.round.threshold = 0.5;
   const SolverOptions relax_opts {.log_level = 0};
   MipStartContext ctx {.li = li,
                        .relax_opts = relax_opts,
@@ -275,7 +262,7 @@ TEST_CASE(
                        .commitments = commitments,
                        .injections = {}};
 
-  auto gen = make_mip_start_generator(MipStartMethod::lp_round);
+  auto gen = make_mip_start_generator(opts);
   const auto start = gen->generate(ctx);
   REQUIRE(start.has_value());
   CHECK((*start)[0] == doctest::Approx(1.0));
@@ -284,62 +271,14 @@ TEST_CASE(
   CHECK((*start)[3] == doctest::Approx(0.0));  // min-down repair flipped 1→0
 }
 
-TEST_CASE(
-    "MipStart relax_fix re-solves dependent columns from the pinned "
-    "commitment")  // NOLINT
-{
-  // c = 5·x ; x ≥ 0.6 ; minimise x ⇒ relaxation x = 0.6, c = 3.0.
-  // relax_fix rounds x → 1, pins it, and re-solves ⇒ c = 5.0 (NOT the
-  // relaxation's 3.0).  This is the distinguishing behaviour vs lp_round,
-  // which would leave c at 3.0.
-  LinearInterface li;
-  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
-  const auto cc =
-      li.add_col(SparseCol {.lowb = 0.0, .uppb = 10.0, .cost = 0.0});
-  // c - 5x = 0
-  const auto rbal = li.add_row(SparseRow {.lowb = 0.0, .uppb = 0.0});
-  li.set_coeff(rbal, cc, 1.0);
-  li.set_coeff(rbal, x, -5.0);
-  // x >= 0.6
-  const auto rlo =
-      li.add_row(SparseRow {.lowb = 0.6, .uppb = SparseRow::DblMax});
-  li.set_coeff(rlo, x, 1.0);
-  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
-  REQUIRE(li.is_optimal());
-  // Relaxation: x = 0.6, c = 3.0.
-  REQUIRE(li.get_col_sol_raw()[0] == doctest::Approx(0.6));
-  REQUIRE(li.get_col_sol_raw()[1] == doctest::Approx(3.0));
-
-  const std::array<int, 1> int_cols {0};
-  MipStartOptions opts;
-  opts.round_threshold = 0.5;
-  const SolverOptions relax_opts {.log_level = 0};
-  MipStartContext ctx {.li = li,
-                       .relax_opts = relax_opts,
-                       .int_cols = int_cols,
-                       .opts = opts,
-                       .commitments = {},
-                       .injections = {}};
-
-  auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
-  REQUIRE(gen != nullptr);
-  const auto start = gen->generate(ctx);
-  REQUIRE(start.has_value());
-  CHECK((*start)[0] == doctest::Approx(1.0));  // x rounded + pinned
-  CHECK((*start)[1] == doctest::Approx(5.0));  // c recomputed = 5·1
-  // Original (relaxed) bounds restored on the integer column.
-  CHECK(li.get_col_low_raw()[0] == doctest::Approx(0.0));
-  CHECK(li.get_col_upp_raw()[0] == doctest::Approx(1.0));
-}
-
 // ── apply_mip_start orchestrator ──────────────────────────────────────────
 
 TEST_CASE("apply_mip_start: feature off is a no-op report")  // NOLINT
 {
-  // method=none + relax_check=false → returns immediately, nothing solved.
+  // enabled=false + relax.check=false → returns immediately, nothing solved.
   LinearInterface li;
   (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
-  MipStartOptions opts;  // method unset (none), relax_check unset (false)
+  MipStartOptions opts;  // enabled unset (false), relax.check unset (false)
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   REQUIRE(rep.has_value());
   CHECK_FALSE(rep->relaxation_solved);
@@ -351,19 +290,19 @@ TEST_CASE("apply_mip_start: feature off is a no-op report")  // NOLINT
 TEST_CASE("apply_mip_start: pure LP (no integer cols) skips before solving")
 // NOLINT
 {
-  // relax_check requested, but there are no integer columns → returns
+  // relax.check requested, but there are no integer columns → returns
   // before stage A (relaxation_solved stays false).  No solver needed.
   LinearInterface li;
   (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 5.0, .cost = 1.0});
   MipStartOptions opts;
-  opts.relax_check = true;  // diagnosis requested
+  opts.relax.check = true;  // diagnosis requested
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   REQUIRE(rep.has_value());
   CHECK_FALSE(rep->relaxation_solved);  // bailed at the empty int_cols guard
   CHECK_FALSE(rep->injected);
 }
 
-TEST_CASE("apply_mip_start: lp_round injects on a feasible MIP relaxation")
+TEST_CASE("apply_mip_start: warmstart injects on a feasible MIP relaxation")
 // NOLINT
 {
   SolverRegistry& reg = SolverRegistry::instance();
@@ -372,7 +311,7 @@ TEST_CASE("apply_mip_start: lp_round injects on a feasible MIP relaxation")
     return;
   }
   // Integer x in [0,1] with x >= 0.6, minimise x → relaxation x = 0.6
-  // (feasible, obj 0.6).  Orchestrator: relax → solve → lp_round → restore
+  // (feasible, obj 0.6).  Orchestrator: relax → solve → warmstart → restore
   // integrality → inject.
   LinearInterface li;
   const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
@@ -381,14 +320,14 @@ TEST_CASE("apply_mip_start: lp_round injects on a feasible MIP relaxation")
   li.set_coeff(r, x, 1.0);
 
   MipStartOptions opts;
-  opts.method = MipStartMethod::lp_round;
+  opts.enabled = true;
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   REQUIRE(rep.has_value());
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
   CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
-  CHECK(rep->source == "lp_round");  // a start was produced
+  CHECK(rep->source == "warmstart");  // a start was produced
   // Integrality is re-established before returning (restore_integers) —
   // also guards the CPLEX restore_integers fix in the orchestrator path.
   CHECK(li.is_integer(x));
@@ -413,8 +352,8 @@ TEST_CASE(
   SUBCASE("on_infeasible=stop → Error (caller must not proceed)")
   {
     MipStartOptions opts;
-    opts.method = MipStartMethod::lp_round;
-    opts.on_infeasible = RelaxInfeasibleAction::stop;
+    opts.enabled = true;
+    opts.relax.on_infeasible = RelaxInfeasibleAction::stop;
     const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
     CHECK_FALSE(rep.has_value());  // propagated as an Error
   }
@@ -422,8 +361,8 @@ TEST_CASE(
   SUBCASE("on_infeasible=warn → report, no error, nothing injected")
   {
     MipStartOptions opts;
-    opts.method = MipStartMethod::lp_round;
-    opts.on_infeasible = RelaxInfeasibleAction::warn;
+    opts.enabled = true;
+    opts.relax.on_infeasible = RelaxInfeasibleAction::warn;
     const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
     REQUIRE(rep.has_value());
     CHECK(rep->relaxation_solved);
@@ -455,53 +394,12 @@ TEST_CASE(  // NOLINT
   li.set_coeff(r, x, 1.0);
 
   MipStartOptions opts;
-  opts.method = MipStartMethod::lp_round;
-  opts.on_infeasible = RelaxInfeasibleAction::feasopt;
+  opts.enabled = true;
+  opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   CHECK_FALSE(rep.has_value());  // feasopt diagnoses then propagates an Error
   // Integrality is restored before the Error is returned.
   CHECK(li.is_integer(x));
-}
-
-TEST_CASE(  // NOLINT
-    "MipStart relax_fix returns nullopt when the pinned commitment is "
-    "infeasible")
-{
-  // Force the conflict to surface only AFTER pinning the rounded binary:
-  //   x in [0,1], row 0.6 <= x <= 0.6  ⇒ relaxation x = 0.6 (FEASIBLE).
-  // round_with_threshold(0.6, 0.5) = floor(0.6 + 0.5) = 1 ⇒ x rounds to 1.
-  // Pinning x = 1 violates the upper bound of the row (x <= 0.6), so the
-  // re-solved economic-dispatch LP is INFEASIBLE and `generate` must return
-  // std::nullopt — the signal that a feasibility repair pass is needed.
-  // (RelaxFixMipStart lives in an anonymous namespace; reached via the
-  // factory exactly as in the relax_fix re-solve test above.)
-  LinearInterface li;
-  const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
-  const auto rbox = li.add_row(SparseRow {.lowb = 0.6, .uppb = 0.6});
-  li.set_coeff(rbox, x, 1.0);
-  REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
-  REQUIRE(li.is_optimal());
-  // Relaxation pins x to exactly 0.6 (feasible) — verify before rounding.
-  REQUIRE(li.get_col_sol_raw()[0] == doctest::Approx(0.6));
-
-  const std::array<int, 1> int_cols {0};
-  MipStartOptions opts;
-  opts.round_threshold = 0.5;
-  const SolverOptions relax_opts {.log_level = 0};
-  MipStartContext ctx {.li = li,
-                       .relax_opts = relax_opts,
-                       .int_cols = int_cols,
-                       .opts = opts,
-                       .commitments = {},
-                       .injections = {}};
-
-  auto gen = make_mip_start_generator(MipStartMethod::relax_fix);
-  REQUIRE(gen != nullptr);
-  const auto start = gen->generate(ctx);
-  CHECK_FALSE(start.has_value());  // pinned x=1 violates x<=0.6 → infeasible
-  // Original bounds restored on the (still-relaxed) column after the failure.
-  CHECK(li.get_col_low_raw()[0] == doctest::Approx(0.0));
-  CHECK(li.get_col_upp_raw()[0] == doctest::Approx(1.0));
 }
 
 TEST_CASE(  // NOLINT
@@ -514,7 +412,7 @@ TEST_CASE(  // NOLINT
   }
   // Integer x in [0,1], x >= 0.6, minimise x → relaxation x = 0.6 with the
   // x>=0.6 row BINDING (nonzero dual), so report_saturated has a row to log.
-  // method=none + relax_check=true → diagnosis-only (no injection).
+  // enabled=false + relax.check=true → diagnosis-only (no injection).
   LinearInterface li;
   const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
   li.set_integer(x);
@@ -522,9 +420,8 @@ TEST_CASE(  // NOLINT
   li.set_coeff(r, x, 1.0);
 
   MipStartOptions opts;
-  opts.method = MipStartMethod::none;
-  opts.relax_check = true;
-  opts.report_saturated = true;
+  opts.relax.check = true;
+  opts.relax.report_saturated = true;
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   REQUIRE(rep.has_value());
   CHECK(rep->relaxation_solved);
@@ -545,9 +442,9 @@ TEST_CASE(  // NOLINT
     MESSAGE("Skipping MIP test — no MIP solver available");
     return;
   }
-  // method=none + relax_check=true, with a real integer column and a feasible
-  // relaxation: stage A solves the relaxation and reports feasibility, but no
-  // start is generated (injected stays false) and integrality is restored.
+  // enabled=false + relax.check=true, with a real integer column and a
+  // feasible relaxation: stage A solves the relaxation and reports feasibility,
+  // but no start is generated (injected stays false) and integrality restored.
   LinearInterface li;
   const auto x = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0, .cost = 1.0});
   li.set_integer(x);
@@ -555,15 +452,14 @@ TEST_CASE(  // NOLINT
   li.set_coeff(r, x, 1.0);
 
   MipStartOptions opts;
-  opts.method = MipStartMethod::none;
-  opts.relax_check = true;
+  opts.relax.check = true;
   const auto rep = apply_mip_start(li, SolverOptions {.log_level = 0}, opts);
   REQUIRE(rep.has_value());
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
   CHECK(rep->relax_obj.value() == doctest::Approx(0.4));
-  CHECK_FALSE(rep->injected);  // none method → nothing injected
+  CHECK_FALSE(rep->injected);  // not enabled → nothing injected
   CHECK(li.is_integer(x));  // integrality re-established before return
 }
 
@@ -576,7 +472,7 @@ TEST_CASE(  // NOLINT
     MESSAGE("Skipping MIP test — no MIP solver available");
     return;
   }
-  // The relaxation solve overlays `opts.relax_solver_options` on top of the
+  // The relaxation solve overlays `opts.relax.solver_options` on top of the
   // base options — pick a distinct algorithm (primal simplex) and assert the
   // relaxation still solves feasibly with the configured method.
   LinearInterface li;
@@ -586,10 +482,10 @@ TEST_CASE(  // NOLINT
   li.set_coeff(r, x, 1.0);
 
   MipStartOptions opts;
-  opts.method = MipStartMethod::lp_round;
+  opts.enabled = true;
   SolverOptions relax_overlay {.log_level = 0};
   relax_overlay.algorithm = LPAlgo::primal;  // distinct from the base default
-  opts.relax_solver_options = relax_overlay;
+  opts.relax.solver_options = relax_overlay;
   // Base options use the dual algorithm; the overlay must take effect for the
   // relaxation without breaking the solve.
   const auto rep = apply_mip_start(
@@ -599,7 +495,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
   CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
-  CHECK(rep->source == "lp_round");
+  CHECK(rep->source == "warmstart");
   CHECK(li.is_integer(x));
 }
 
@@ -639,7 +535,7 @@ TEST_CASE(
 
   const std::array<int, 2> int_cols {0, 1};
   MipStartOptions opts;
-  opts.file = path.string();
+  opts.from_file = path.string();
   const SolverOptions relax_opts {.log_level = 0};
   MipStartContext ctx {.li = dst,
                        .relax_opts = relax_opts,
@@ -648,7 +544,7 @@ TEST_CASE(
                        .commitments = {},
                        .injections = {}};
 
-  auto gen = make_mip_start_generator(MipStartMethod::file);
+  auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
   REQUIRE(start.has_value());
@@ -716,7 +612,7 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
 
   const std::array<int, 2> int_cols {0, 1};
   MipStartOptions opts;
-  opts.file = path.string();
+  opts.from_file = path.string();
   const SolverOptions relax_opts {.log_level = 0};
   MipStartContext ctx {.li = dst,
                        .relax_opts = relax_opts,
@@ -724,7 +620,7 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
                        .opts = opts,
                        .commitments = {},
                        .injections = {}};
-  auto gen = make_mip_start_generator(MipStartMethod::file);
+  auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
   REQUIRE(start.has_value());
@@ -758,7 +654,7 @@ TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
 
   const std::array<int, 1> int_cols {0};
   MipStartOptions opts;
-  opts.file = path.string();
+  opts.from_file = path.string();
   const SolverOptions relax_opts {.log_level = 0};
   MipStartContext ctx {.li = dst,
                        .relax_opts = relax_opts,
@@ -767,7 +663,7 @@ TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
                        .commitments = {},
                        .injections = {}};
 
-  auto gen = make_mip_start_generator(MipStartMethod::file);
+  auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
   CHECK_FALSE(gen->generate(ctx).has_value());  // ncols 3 ≠ 2 → refused
 

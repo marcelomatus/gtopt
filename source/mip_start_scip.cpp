@@ -5,13 +5,13 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * `scip_repair_candidate` is stage 3 of the MIP-start pipeline (round →
- * electric rules → **scip_repair** → solver repair + resolve).  It is OPTIONAL
- * and composable: enabled by `mip_start.scip_repair=true` on top of ANY base
- * method (lp_round / relax_fix / file) and ANY active solver (cuOpt, HiGHS,
- * CPLEX, …).
+ * `scip_repair_candidate` is stage 4 of the MIP-start pipeline (round →
+ * domain rules → **scip_repair** → solver repair + resolve).  It is OPTIONAL
+ * and composable: enabled by `mip_start.scip_repair.enabled=true` on top of ANY
+ * base candidate (the default round+rules or a `from_file` replay) and ANY
+ * active solver (cuOpt, HiGHS, CPLEX, …).
  *
- * Where the generic round + electric rules make the commitment *structurally*
+ * Where the generic round + domain rules make the commitment *structurally*
  * plausible, this hands that candidate to SCIP, whose completesol / repair
  * primal heuristics turn it into a GENUINELY feasible integer solution — the
  * one thing cuOpt/HiGHS cannot do, and that even CPLEX's own repair sometimes

@@ -12,7 +12,7 @@
  * MIP solve, and (3) drives the CPLEX backend `set_mip_start` /
  * `restore_integers` round-trip.  A small monolithic unit-commitment MIP is
  * built (mirroring `test_mip_solvers.cpp`'s build), the MIP-start method is
- * set to `lp_round`, the case is solved through `SystemLP::resolve`, and the
+ * enabled, the case is solved through `SystemLP::resolve`, and the
  * commitment status binaries are checked to be integral in the solution.
  *
  * Gated on `SolverRegistry::has_mip_solver()` (CPLEX here) — without a MIP
@@ -86,7 +86,7 @@ const Simulation three_block_simulation = {
 
 // A single generator with a startup-costed commitment and a demand profile
 // (0, 60, 60) so the optimum starts the unit at block 1 and keeps it on: the
-// status binaries are 0, 1, 1.  Shared by the lp_round and scip_repair tests.
+// status binaries are 0, 1, 1.  Shared by the warmstart and scip_repair tests.
 [[nodiscard]] System make_commitment_system()
 {
   System system;
@@ -135,7 +135,7 @@ const Simulation three_block_simulation = {
 }  // namespace
 
 TEST_CASE(  // NOLINT
-    "MipStart integration: lp_round through SystemLP::resolve keeps "
+    "MipStart integration: warmstart through SystemLP::resolve keeps "
     "commitment status integral")
 {
   SolverRegistry& reg = SolverRegistry::instance();
@@ -154,11 +154,10 @@ TEST_CASE(  // NOLINT
   poptions.lp_matrix_options.col_with_name_map = true;
   // Enable the MIP-start hook: this is the surface under test.
   poptions.monolithic_options.mip_start.emplace();
-  poptions.monolithic_options.mip_start->method = MipStartMethod::lp_round;
+  poptions.monolithic_options.mip_start->enabled = true;
 
   PlanningOptionsLP options(std::move(poptions));
-  REQUIRE(options.mip_start_options().method.value_or(MipStartMethod::none)
-          == MipStartMethod::lp_round);
+  REQUIRE(options.mip_start_options().enabled.value_or(false) == true);
 
   SimulationLP simulation_lp(three_block_simulation, options);
 
@@ -197,7 +196,7 @@ TEST_CASE(  // NOLINT
   }
 
   // Drive the SystemLP::resolve hook (NOT lp.resolve()) so apply_mip_start
-  // runs: relaxation solve → lp_round generate → restore_integers →
+  // runs: relaxation solve → warmstart generate → restore_integers →
   // set_mip_start → MIP solve.
   const auto result = system_lp.resolve(SolverOptions {.log_level = 0});
   REQUIRE(result.has_value());
@@ -263,7 +262,7 @@ TEST_CASE(  // NOLINT
     MESSAGE("Skipping MIP-start integration test — no MIP solver available");
     return;
   }
-  // The OPTIONAL scip_repair STAGE composes on top of lp_round: round +
+  // The OPTIONAL scip_repair STAGE composes on top of warmstart: round +
   // electric rules produce the candidate, then apply_mip_start hands it to
   // scip_repair_candidate, which receives the monolithic flat-LP snapshot.
   // With the SCIP plugin absent the stage self-skips at the has_solver("scip")
@@ -279,8 +278,8 @@ TEST_CASE(  // NOLINT
   poptions.lp_matrix_options.col_with_names = true;
   poptions.lp_matrix_options.col_with_name_map = true;
   poptions.monolithic_options.mip_start.emplace();
-  poptions.monolithic_options.mip_start->method = MipStartMethod::lp_round;
-  poptions.monolithic_options.mip_start->scip_repair = true;
+  poptions.monolithic_options.mip_start->enabled = true;
+  poptions.monolithic_options.mip_start->scip_repair.enabled = true;
 
   PlanningOptionsLP options(std::move(poptions));
   SimulationLP simulation_lp(three_block_simulation, options);
@@ -298,7 +297,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(result.has_value());
   REQUIRE(lp.is_optimal());
 
-  // Same optimum as lp_round: blocks (0, 1, 2) → status (0, 1, 1).
+  // Same optimum as warmstart: blocks (0, 1, 2) → status (0, 1, 1).
   const auto sol = lp.get_col_sol();
   const auto& comm_lps = system_lp.elements<CommitmentLP>();
   const auto& scenario_lp = simulation_lp.scenarios().front();

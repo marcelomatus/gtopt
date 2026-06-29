@@ -426,20 +426,23 @@ template<typename T>
        "`is_optimal()` after solve to detect timeouts.")
       //
       ("mip-start",
-       po::value<std::string>(),
-       "Initial-MIP-solution (warm-start) generator: none (default), "
-       "lp_round (round the LP relaxation + electric-system rules), relax_fix, "
-       "file (replay an integer solution dumped by a previous solve).  Solves "
-       "the LP relaxation first and injects a starting integer solution so the "
+       po::value<bool>().implicit_value(/*v=*/true),
+       "enable the initial-MIP-solution (warm-start) pipeline: relax -> round "
+       "-> domain_rules -> [scip_repair] -> inject.  Solves the LP relaxation, "
+       "rounds the integer columns, repairs the commitment with power-system "
+       "domain rules, and injects the result as a backend MIP start so the "
        "solver bypasses its costly node-0 heuristic incumbent.  Shorthand for "
-       "--set monolithic_options.mip_start.method=<method>.  Other controls "
-       "via --set monolithic_options.mip_start.<field>=<value>: effort, "
-       "on_infeasible=stop|warn|feasopt, relax_check, report_saturated, "
-       "round_threshold, relax_solver_options.*, file=<path> for method=file, "
-       "dump_file=<path> to persist this solve's integers for a later "
-       "cross-solver replay, and scip_repair=true to add the optional SCIP "
-       "repair stage (composable with any method / any solver) that mends the "
-       "candidate to feasibility before injection.")
+       "--set monolithic_options.mip_start.enabled=true.  Stage controls via "
+       "--set monolithic_options.mip_start.<stage>.<field>=<value>: "
+       "relax.solver_options.*, relax.check, "
+       "relax.on_infeasible=stop|warn|feasopt, relax.report_saturated, "
+       "round.threshold, domain_rules.min_up_down, "
+       "domain_rules.commitment_logic, domain_rules.peak_injection.enabled, "
+       "domain_rules.peak_injection.peak_window.{start,end}, "
+       "domain_rules.peak_injection.solar_window.{start,end}, "
+       "scip_repair.enabled, inject.effort, from_file=<path> to replay a "
+       "dumped start, dump_file=<path> to persist this solve's integers for a "
+       "later cross-solver replay.")
       //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
@@ -951,16 +954,15 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     planning.options.solver_options.time_limit = opts.time_limit;
   }
 
-  if (opts.mip_start.has_value()) {
-    // CLI shortcut → monolithic_options.mip_start.method.  The remaining
-    // MIP-start controls stay reachable via `--set
-    // monolithic_options.mip_start.<field>=…`.
+  if (opts.mip_start_enable.has_value()) {
+    // CLI flag → monolithic_options.mip_start.enabled.  The staged controls
+    // stay reachable via `--set
+    // monolithic_options.mip_start.<stage>.<field>=…`.
     auto& mip_start = planning.options.monolithic_options.mip_start;
     if (!mip_start.has_value()) {
       mip_start.emplace();
     }
-    mip_start->method =
-        require_enum<MipStartMethod>("mip-start", *opts.mip_start);
+    mip_start->enabled = *opts.mip_start_enable;
   }
 
   if (opts.no_scale.value_or(false)) {
@@ -1211,7 +1213,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .time_limit = get_opt<double>(vm, "time-limit"),
-      .mip_start = get_opt<std::string>(vm, "mip-start"),
+      .mip_start_enable = get_opt<bool>(vm, "mip-start"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},

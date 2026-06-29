@@ -12,8 +12,8 @@
  *      options), check feasibility, optionally report the saturated / binding
  *      constraints, and apply the `on_infeasible` policy (stop / warn /
  *      feasopt-diagnose).
- *   B. **Integer injection** — when a `MipStartMethod` is configured, compute a
- *      starting integer solution from the relaxation via a pluggable
+ *   B. **Integer injection** — when `mip_start.enabled`, compute a starting
+ *      integer solution from the relaxation via a pluggable
  *      `MipStartGenerator` and inject it as a backend MIP start.
  *
  * The pipeline operates IN PLACE on the live `LinearInterface` (relax → solve →
@@ -54,12 +54,11 @@ namespace detail
                                           double ub) noexcept;
 
 /// Stage 1 + 2 of the MIP-start pipeline: round the relaxation's integer
-/// columns (`round_with_threshold`) and apply the default electric-system
-/// commitment-repair pipeline (`make_default_domain_rules`) to the result.
-/// Continuous columns are kept at their relaxation value.  Returns the dense
-/// raw candidate start (empty iff the relaxation has no primal).  Shared by
-/// every base generator (lp_round / relax_fix / file) so they all get the same
-/// round + electric-rules front-end.
+/// columns (`round_with_threshold`) and apply the default domain commitment-
+/// repair pipeline (`make_default_domain_rules`, built per-call from
+/// `ctx.opts.domain_rules`) to the result.  Continuous columns are kept at
+/// their relaxation value.  Returns the dense raw candidate start (empty iff
+/// the relaxation has no primal).  Used by the default round+rules generator.
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
     MipStartContext& ctx, std::string_view generator_name);
 }  // namespace detail
@@ -86,14 +85,14 @@ struct MipStartContext
   std::span<const CommitmentRunInfo> commitments;
   /// Per storage-injection unit (reservoir-fed hydro / battery discharge) the
   /// `PeakInjectionRule` reads — status columns + per-block peak flags.  Empty
-  /// unless `mip_start.peak_injection` is enabled (the `SystemLP::resolve` hook
-  /// fills it).
+  /// unless `mip_start.domain_rules.peak_injection.enabled` is on (the
+  /// `SystemLP::resolve` hook fills it).
   std::span<const PeakInjectionInfo> injections;
   /// The flattened LP (CSC matrix + bounds + objective + integer markers),
   /// supplied for generators that build a *second* solver model in process
   /// (e.g. `scip_repair`).  Column index j here equals raw LP column j, so the
   /// produced start maps 1:1 onto the dense start vector.  `nullptr` for
-  /// generators that operate purely on `li` (lp_round / relax_fix / file).
+  /// generators that operate purely on `li` (the round+rules / file paths).
   const FlatLinearProblem* flat_lp {nullptr};
 };
 
@@ -116,10 +115,11 @@ public:
       MipStartContext& ctx) = 0;
 };
 
-/// Factory: build the generator for a method, or `nullptr` when the method is
-/// `none` or not yet implemented (caller skips injection).
+/// Factory: build the candidate generator for these options.  When
+/// `opts.from_file` is set, the file-replay generator; otherwise the default
+/// round + domain-rules generator.  Never returns `nullptr`.
 [[nodiscard]] std::unique_ptr<MipStartGenerator> make_mip_start_generator(
-    MipStartMethod method);
+    const MipStartOptions& opts);
 
 /// Optional SCIP repair STAGE (stage 3 of the pipeline) — composable with any
 /// base method and any active solver via `mip_start.scip_repair=true`.  Build a
@@ -134,7 +134,7 @@ public:
 
 /// Run the two-stage MIP-start pipeline on `li` immediately before its MIP
 /// solve.  `base_opts` are the effective monolithic solver options (the
-/// relaxation solve overlays `opts.relax_solver_options` on top).
+/// relaxation solve overlays `opts.relax.solver_options` on top).
 ///
 /// @return A report on success (including the relaxation-only / no-op cases),
 ///         or an `Error` when the relaxation is infeasible and the policy is
@@ -154,7 +154,7 @@ public:
 /// `<index> <value>` line per integer column, preceded by an `ncols` header
 /// for a structural sanity check on replay.  Call AFTER a successful MIP solve
 /// (integrality intact, before any dual-recovery relaxation).  A later run
-/// replays the dump as a cross-solver MIP start via `MipStartMethod::file`
+/// replays the dump as a cross-solver MIP start via `mip_start.from_file`
 /// (`FileMipStart`): both runs build the identical deterministic flat LP, so
 /// raw column indices line up 1:1.
 ///

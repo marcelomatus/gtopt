@@ -357,14 +357,14 @@ struct MainOptions
    * the solver aborts when wall-clock exceeds the limit. */
   std::optional<double> time_limit {};
 
-  /** @brief Initial-MIP-solution generator (CLI shortcut).
+  /** @brief Enable the initial-MIP-solution (warm-start) pipeline (CLI flag).
    *
-   * Bound to the CLI flag `--mip-start <method>` (none, lp_round, relax_fix).
-   * Forwards to `monolithic_options.mip_start.method`.  The remaining MIP-start
-   * controls (effort, on_infeasible, relax_check, report_saturated,
-   * round_threshold, relax_solver_options.*) are set via
-   * `--set monolithic_options.mip_start.<field>=<value>`. */
-  std::optional<std::string> mip_start {};
+   * Bound to the CLI flag `--mip-start` (a bool toggle, default true when given
+   * without a value).  Forwards to `monolithic_options.mip_start.enabled`.  The
+   * staged controls (relax.*, round.threshold, domain_rules.*, scip_repair.*,
+   * inject.effort, from_file, dump_file) are set via
+   * `--set monolithic_options.mip_start.<stage>.<field>=<value>`. */
+  std::optional<bool> mip_start_enable {};
 
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.

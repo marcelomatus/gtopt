@@ -17,6 +17,7 @@
 
 #include <doctest/doctest.h>
 #include <gtopt/domain_rules.hpp>
+#include <gtopt/monolithic_options.hpp>
 
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
@@ -85,11 +86,11 @@ TEST_CASE("DomainRulePipeline composes rules")  // NOLINT
     CHECK(pipeline.apply(values, DomainRuleContext {}) == 0);
   }
 
-  SUBCASE("default pipeline registers the min-up/down + peak-injection rules")
+  SUBCASE("default pipeline registers min-up/down + peak + commitment-logic")
   {
-    const auto pipeline = make_default_domain_rules();
+    const auto pipeline = make_default_domain_rules(MipStartDomainRules {});
     CHECK_FALSE(pipeline.empty());
-    CHECK(pipeline.size() == 2);
+    CHECK(pipeline.size() == 3);
 
     std::vector<double> values {1.0, 1.0, 0.0, 1.0};
     const std::array<CommitmentRunInfo, 1> commitments {CommitmentRunInfo {
@@ -106,7 +107,7 @@ TEST_CASE("DomainRulePipeline composes rules")  // NOLINT
 
   SUBCASE("default pipeline routes through the peak-injection rule")
   {
-    const auto pipeline = make_default_domain_rules();
+    const auto pipeline = make_default_domain_rules(MipStartDomainRules {});
     // status 0,0 on two blocks; block 1 is peak → seeded ON via
     // PeakInjectionRule (no commitments, so MinUpDownRule is a no-op).
     std::vector<double> values {0.0, 0.0};
@@ -119,6 +120,44 @@ TEST_CASE("DomainRulePipeline composes rules")  // NOLINT
     CHECK(flipped == 1);
     CHECK(values[0] == doctest::Approx(0.0));  // off-peak untouched
     CHECK(values[1] == doctest::Approx(1.0));  // peak seeded ON
+  }
+}
+
+TEST_CASE("make_default_domain_rules honours the per-stage toggles")  // NOLINT
+{
+  SUBCASE("all toggles default ON → three rules")
+  {
+    CHECK(make_default_domain_rules(MipStartDomainRules {}).size() == 3);
+  }
+
+  SUBCASE("min_up_down=false drops one rule")
+  {
+    MipStartDomainRules opts;
+    opts.min_up_down = false;
+    CHECK(make_default_domain_rules(opts).size() == 2);
+  }
+
+  SUBCASE("peak_injection.enabled=false drops one rule")
+  {
+    MipStartDomainRules opts;
+    opts.peak_injection.enabled = false;
+    CHECK(make_default_domain_rules(opts).size() == 2);
+  }
+
+  SUBCASE("commitment_logic=false drops one rule")
+  {
+    MipStartDomainRules opts;
+    opts.commitment_logic = false;
+    CHECK(make_default_domain_rules(opts).size() == 2);
+  }
+
+  SUBCASE("all toggles OFF → empty pipeline")
+  {
+    MipStartDomainRules opts;
+    opts.min_up_down = false;
+    opts.commitment_logic = false;
+    opts.peak_injection.enabled = false;
+    CHECK(make_default_domain_rules(opts).empty());
   }
 }
 

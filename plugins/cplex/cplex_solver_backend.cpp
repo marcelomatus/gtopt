@@ -1487,18 +1487,44 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
       break;
   }
 
-  // One dense MIP start over all columns: indices 0..ncols-1, beg = {0}.
-  std::vector<int> indices(static_cast<std::size_t>(ncols));
-  std::iota(indices.begin(), indices.end(), 0);
+  // SPARSE start over the INTEGER columns only — NOT a dense all-columns
+  // start.  The caller hands us a dense vector whose continuous entries are the
+  // LP-relaxation dispatch, which is inconsistent with the ROUNDED integers; a
+  // dense start makes CHECKFEAS reject on those continuous columns even when
+  // the integer commitment is feasible.  Feeding only the integer (status /
+  // startup / shutdown / …) columns lets CPLEX complete a consistent continuous
+  // dispatch itself — the intended "seed the commitment, let the solver
+  // dispatch" behaviour.  Continuous columns are identified by their ctype
+  // (restored by restore_integers before this call).
+  std::vector<char> ctype(static_cast<std::size_t>(ncols));
+  if (CPXgetctype(m_env_lp_.env(), m_env_lp_.lp(), ctype.data(), 0, ncols - 1)
+      != 0)
+  {
+    return false;  // no ctype info (pure LP / not a MIP) — nothing to seed
+  }
+  std::vector<int> indices;
+  std::vector<double> values;
+  indices.reserve(static_cast<std::size_t>(ncols));
+  values.reserve(static_cast<std::size_t>(ncols));
+  for (int j = 0; j < ncols; ++j) {
+    if (ctype[static_cast<std::size_t>(j)] != CPX_CONTINUOUS) {
+      indices.push_back(j);
+      values.push_back(col_values[static_cast<std::size_t>(j)]);
+    }
+  }
+  if (indices.empty()) {
+    return false;  // no integer columns to seed
+  }
+  const int nz = static_cast<int>(indices.size());
   const int beg = 0;
 
   const int rc = CPXaddmipstarts(m_env_lp_.env(),
                                  m_env_lp_.lp(),
                                  1,  // mcnt: one start set
-                                 ncols,  // nzcnt
+                                 nz,  // nzcnt: integer columns only
                                  &beg,  // beg
                                  indices.data(),
-                                 col_values.data(),
+                                 values.data(),
                                  &effortlevel,
                                  nullptr);  // mipstartname
   if (rc != 0) {
@@ -1506,8 +1532,9 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
     CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
     gtopt::log_and_throw(
         std::format("CplexSolverBackend::set_mip_start CPXaddmipstarts "
-                    "failed (rc={}, ncols={}): {}",
+                    "failed (rc={}, nz={}/{}): {}",
                     rc,
+                    nz,
                     ncols,
                     err_buf.data()));
   }

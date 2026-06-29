@@ -73,6 +73,26 @@ public:
     return it != status_cols_.end() ? &it->second : nullptr;
   }
 
+  /// Per-block startup (v) columns for a (scenario, stage); nullptr when the
+  /// commitment is inactive there.  Used by the MIP-start `CommitmentLogicRule`
+  /// to derive v from the repaired status (u) transitions so the C1 logic rows
+  /// (`u[p] - u[p-1] - v[p] + w[p] = 0`) hold for the injected integer start.
+  [[nodiscard]] const BIndexHolder<ColIndex>* find_startup_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto it = startup_cols_.find({scenario.uid(), stage.uid()});
+    return it != startup_cols_.end() ? &it->second : nullptr;
+  }
+
+  /// Per-block shutdown (w) columns for a (scenario, stage); nullptr when the
+  /// commitment is inactive there.  Companion to `find_startup_cols`.
+  [[nodiscard]] const BIndexHolder<ColIndex>* find_shutdown_cols(
+      const ScenarioLP& scenario, const StageLP& stage) const
+  {
+    const auto it = shutdown_cols_.find({scenario.uid(), stage.uid()});
+    return it != shutdown_cols_.end() ? &it->second : nullptr;
+  }
+
   [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,

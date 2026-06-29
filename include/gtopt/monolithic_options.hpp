@@ -16,135 +16,211 @@
 namespace gtopt
 {
 
-// ─── MipStartOptions struct ─────────────────────────────────────────────────
+// ─── MipStartOptions: staged warm-start configuration ───────────────────────
+//
+// The initial-MIP-solution (warm-start) pipeline runs as a sequence of cleanly
+// separated stages immediately before the monolithic MIP solve:
+//
+//   relax → round → domain_rules → [scip_repair] → inject
+//
+// `enabled` is the master on/off switch (replaces the old `method != none`).
+// Stage 0 (relax) ALSO runs when `relax.check` is true on its own, for a
+// diagnosis-only pass with no injection.  `from_file` swaps the round+rules
+// candidate source for a replayed dump (cross-solver hand-off).  Every field
+// is optional; defaults are applied at the consume site.
 
-/**
- * @brief Initial-MIP-solution (warm-start) configuration.
- *
- * Two independently-toggleable stages run before the monolithic MIP solve:
- *
- *   A. **Relaxation analysis** — solve the LP relaxation (under its own
- *      `relax_solver_options`), check feasibility, and (optionally) report the
- *      saturated / binding constraints.  On infeasibility, `on_infeasible`
- *      selects stop / warn / feasopt-diagnose.
- *   B. **Integer injection** — when `method != none`, compute a starting
- *      integer solution from the relaxation and inject it as a backend MIP
- *      start with the given `effort`.
- *
- * Stage A runs whenever `method != none` (the generator needs the relaxation)
- * or `relax_check` is explicitly true (diagnosis-only, no injection).  All
- * fields optional; defaults applied at the consume site.
- */
-struct MipStartOptions
+/// A peak/solar hour-of-day sub-window `[start, end)` for the peak-injection
+/// domain rule.  Hour-of-day is `(stage.timeinit + intra-stage cumulative
+/// duration) mod 24` (the planning horizon starts at hour 0).
+struct MipStartWindow
 {
-  // ── Stage B: integer-solution generator & injection ───────────────────────
-  /** @brief Generator strategy: none (default), lp_round, relax_fix */
-  std::optional<MipStartMethod> method {};
-  /** @brief Threshold for rounding a relaxed binary up to 1 (default 0.5) */
-  OptReal round_threshold {};
-  /** @brief Backend effort for the injected start (default `repair` — the
-   * rounded+repaired commitment is near-feasible but usually still nicks a few
-   * Pmin/UC/reserve rows, so the solver's repair heuristic mends them and lands
-   * the optimum at the root; `check_feasibility` only accepts an
-   * already-feasible start). */
-  std::optional<MipStartEffort> effort {};
-  /** @brief Optional path to an externally-computed start, read by the `file`
-   * generator: a dump produced by a previous solve's `dump_file`. */
-  OptName file {};
-  /** @brief Optional path to DUMP this solve's integer solution to, after the
-   * MIP solve completes.  A later run replays it via `method=file` — enables a
-   * cross-solver hand-off (e.g. HiGHS dumps a feasible incumbent, cuOpt
-   * replays it as its start). */
-  OptName dump_file {};
-  /** @brief Optional SCIP repair STAGE (default false).  When true, the
-   * candidate produced by `method` (round + electric rules, or file) is handed
-   * to SCIP, whose completesol/repair heuristics turn it into a genuinely
-   * feasible integer solution before injection.  Composable with ANY base
-   * method and ANY active solver (cuOpt/HiGHS/CPLEX); requires the SCIP plugin
-   * (self-skips, keeping the pre-SCIP candidate, when absent). */
-  OptBool scip_repair {};
+  /** @brief Inclusive start hour-of-day `[0, 24)`. */
+  OptReal start {};
+  /** @brief Exclusive end hour-of-day `[0, 24]`. */
+  OptReal end {};
 
-  // ── Stage 2 add-on: peak-injection domain rule ────────────────────────────
-  /** @brief Seed storage / hydro injection units to be committed ON during the
-   * relevant window in the rounded integer start (the `PeakInjectionRule`
-   * domain rule).  Two unit classes, distinguished by topology:
-   *   - reservoir-fed HYDRO (any turbine-linked generator): commit ON across
-   *     the evening PEAK window `[peak_start_hour, peak_end_hour)` so it
-   * injects when the system is most stressed.
-   *   - BATTERY discharge (any converter's discharge generator): seed the unit
-   *     ACTIVE across BOTH the SOLAR window `[solar_start_hour,
-   * solar_end_hour)` (charge) and the evening PEAK window (discharge),
-   * approximating a single daily charge→discharge cycle.  NOTE: an
-   * `expand_batteries` battery exposes a SINGLE shared activity binary (the
-   * `uc_<bat>_gen` commitment `u`), not separate charge/discharge binaries, so
-   * the binary marks "active" in both windows while the continuous
-   * charge/discharge columns (which the MIP optimizes) pick the direction.
-   * Opt-in (default false): the bias encodes a power-system heuristic and
-   * relies on a stage-relative hour-of-day mapping, so it is enabled
-   * deliberately. Conservative — only ever flips a status binary toward ON
-   * inside a window (never OFF, never outside), so the MIP still validates and
-   * re-optimizes. */
-  OptBool peak_injection {};
-  /** @brief Inclusive start hour-of-day of the evening peak / discharge window
-   * `[0, 24)` for `peak_injection` (default 18).  Hour-of-day is
-   * `(stage.timeinit + intra-stage cumulative duration) mod 24`, i.e. the
-   * planning horizon starts at hour 0.  Only chronological stages carry
-   * commitment binaries. */
-  OptReal peak_start_hour {};
-  /** @brief Exclusive end hour-of-day of the evening peak / discharge window
-   * `[0, 24]` for `peak_injection` (default 23).  A block falls in the window
-   * when its start hour-of-day h satisfies
-   * `peak_start_hour <= h < peak_end_hour`. */
-  OptReal peak_end_hour {};
-  /** @brief Inclusive start hour-of-day of the BATTERY solar-charge window
-   * `[0, 24)` (default 9).  Batteries are seeded active across this window to
-   * approximate daytime charging.  A fixed fallback window — robust per-block
-   * solar-profile detection is a follow-up; set equal to `solar_end_hour` to
-   * disable the charge-window seed. */
-  OptReal solar_start_hour {};
-  /** @brief Exclusive end hour-of-day of the BATTERY solar-charge window
-   * `[0, 24]` (default 17). */
-  OptReal solar_end_hour {};
+  void merge(MipStartWindow&& opts)
+  {
+    merge_opt(start, opts.start);
+    merge_opt(end, opts.end);
+    auto _ = std::move(opts);
+  }
+};
 
-  // ── Stage A: relaxation analysis & diagnosis ──────────────────────────────
-  /** @brief Run the LP-relaxation feasibility analysis even when
-   * `method == none` (diagnosis-only).  When `method != none` the relaxation
-   * is solved regardless. Default false. */
-  OptBool relax_check {};
-  /** @brief Policy when the LP relaxation is infeasible: stop (default),
-   * warn, or feasopt (diagnose then stop). */
-  std::optional<RelaxInfeasibleAction> on_infeasible {};
-  /** @brief Print the saturated / binding constraints (nonzero dual) from the
-   * LP relaxation. Default false. */
-  OptBool report_saturated {};
+/// STAGE 2 add-on: peak-injection domain rule (battery + hydro seeding).
+///
+/// Seeds storage / hydro injection units to be committed ON during the
+/// relevant window in the rounded integer start (the `PeakInjectionRule`).
+/// Two unit classes, distinguished by topology:
+///   - reservoir-fed HYDRO (any turbine-linked generator): commit ON across
+///     the evening `peak_window` so it injects when the system is most
+///     stressed.
+///   - BATTERY discharge (any converter's discharge generator): seed the unit
+///     ACTIVE across BOTH the `solar_window` (charge) and the evening
+///     `peak_window` (discharge), approximating a single daily charge→discharge
+///     cycle.  An `expand_batteries` battery exposes a SINGLE shared activity
+///     binary, so the binary marks "active" in both windows while the
+///     continuous charge/discharge columns (which the MIP optimizes) pick the
+///     direction.
+/// Conservative — only ever flips a status binary toward ON inside a window
+/// (never OFF, never outside), so the MIP still validates and re-optimizes.
+/// `enabled` default TRUE.
+struct MipStartPeakInjection
+{
+  /** @brief Master on/off for the peak-injection rule (default true). */
+  OptBool enabled {};
+  /** @brief Evening peak / discharge window (default 18→23). */
+  MipStartWindow peak_window {};
+  /** @brief Battery solar-charge window (default 9→17). */
+  MipStartWindow solar_window {};
+
+  void merge(MipStartPeakInjection&& opts)
+  {
+    merge_opt(enabled, opts.enabled);
+    peak_window.merge(std::move(opts.peak_window));
+    solar_window.merge(std::move(opts.solar_window));
+    auto _ = std::move(opts);
+  }
+};
+
+/// STAGE 2: domain (power-system) commitment-repair rules applied to the
+/// rounded candidate.  Each toggle gates one rule in the default pipeline.
+struct MipStartDomainRules
+{
+  /** @brief Register the min-up/min-down run-length rule (default true). */
+  OptBool min_up_down {};
+  /** @brief Register the commitment-logic (u/v/w consistency) rule, run LAST
+   * (default true). */
+  OptBool commitment_logic {};
+  /** @brief Peak-injection seeding (battery + hydro). */
+  MipStartPeakInjection peak_injection {};
+
+  void merge(MipStartDomainRules&& opts)
+  {
+    merge_opt(min_up_down, opts.min_up_down);
+    merge_opt(commitment_logic, opts.commitment_logic);
+    peak_injection.merge(std::move(opts.peak_injection));
+    auto _ = std::move(opts);
+  }
+};
+
+/// STAGE 0: LP-relaxation analysis & diagnosis.  Runs whenever the pipeline is
+/// `enabled` (the generator needs the relaxation) or `check` is explicitly true
+/// (diagnosis-only, no injection).
+struct MipStartRelax
+{
   /** @brief Solver options (algorithm, params, time limit, …) applied to the
    * LP-relaxation solve only — overlaid on the monolithic solver options so
    * the relaxation can use a different algorithm than the MIP. */
-  std::optional<SolverOptions> relax_solver_options {};
+  std::optional<SolverOptions> solver_options {};
+  /** @brief Run the LP-relaxation feasibility analysis even when the pipeline
+   * is not `enabled` (diagnosis-only). Default false. */
+  OptBool check {};
+  /** @brief Print the saturated / binding constraints (nonzero dual) from the
+   * LP relaxation. Default false. */
+  OptBool report_saturated {};
+  /** @brief Policy when the LP relaxation is infeasible: stop (default),
+   * warn, or feasopt (diagnose then stop). */
+  std::optional<RelaxInfeasibleAction> on_infeasible {};
+
+  void merge(MipStartRelax&& opts)
+  {
+    if (opts.solver_options.has_value()) {
+      if (solver_options.has_value()) {
+        solver_options->merge(*opts.solver_options);
+      } else {
+        solver_options = opts.solver_options;
+      }
+    }
+    merge_opt(check, opts.check);
+    merge_opt(report_saturated, opts.report_saturated);
+    merge_opt(on_infeasible, opts.on_infeasible);
+    auto _ = std::move(opts);
+  }
+};
+
+/// STAGE 1: round the relaxation's integer columns.
+struct MipStartRound
+{
+  /** @brief Threshold for rounding a relaxed binary up to 1 (default 0.5). */
+  OptReal threshold {};
+
+  void merge(MipStartRound&& opts)
+  {
+    merge_opt(threshold, opts.threshold);
+    auto _ = std::move(opts);
+  }
+};
+
+/// STAGE 4 (optional): SCIP feasibility repair.  When `enabled`, the
+/// round+rules (or file) candidate is handed to SCIP, whose completesol/repair
+/// heuristics turn it into a genuinely feasible integer solution before
+/// injection.  Composable with ANY active solver; requires the SCIP plugin
+/// (self-skips, keeping the pre-SCIP candidate, when absent).  Default false.
+struct MipStartScipRepair
+{
+  OptBool enabled {};
+
+  void merge(MipStartScipRepair&& opts)
+  {
+    merge_opt(enabled, opts.enabled);
+    auto _ = std::move(opts);
+  }
+};
+
+/// STAGE 5: inject the candidate as a backend MIP start.
+struct MipStartInject
+{
+  /** @brief Backend effort for the injected start (default `repair` — the
+   * rounded+repaired commitment is near-feasible but usually still nicks a few
+   * Pmin/UC/reserve rows, so the solver's repair heuristic mends them and
+   * lands the optimum at the root; `check_feasibility` only accepts an
+   * already-feasible start). */
+  std::optional<MipStartEffort> effort {};
+
+  void merge(MipStartInject&& opts)
+  {
+    merge_opt(effort, opts.effort);
+    auto _ = std::move(opts);
+  }
+};
+
+/// Initial-MIP-solution (warm-start) configuration: a staged pipeline.
+struct MipStartOptions
+{
+  /** @brief Master on/off switch for the warm-start pipeline.  Replaces the
+   * legacy `method != none`.  When false the pipeline still runs Stage 0 iff
+   * `relax.check` is true (diagnosis-only). Default false. */
+  OptBool enabled {};
+  /** @brief STAGE 0 — LP relaxation analysis & diagnosis. */
+  MipStartRelax relax {};
+  /** @brief STAGE 1 — round the relaxation's integer columns. */
+  MipStartRound round {};
+  /** @brief STAGE 2 — power-system domain commitment-repair rules. */
+  MipStartDomainRules domain_rules {};
+  /** @brief STAGE 4 (optional) — SCIP feasibility repair. */
+  MipStartScipRepair scip_repair {};
+  /** @brief STAGE 5 — inject the candidate as a backend MIP start. */
+  MipStartInject inject {};
+  /** @brief Optional path to an externally-computed start to REPLAY instead of
+   * the round+rules candidate: a dump produced by a previous solve's
+   * `dump_file`.  Enables a cross-solver hand-off (e.g. HiGHS dumps a feasible
+   * incumbent, cuOpt replays it as its start). */
+  OptName from_file {};
+  /** @brief Optional path to DUMP this solve's integer solution to, after the
+   * MIP solve completes.  A later run replays it via `from_file`. */
+  OptName dump_file {};
 
   void merge(MipStartOptions&& opts)
   {
-    merge_opt(method, opts.method);
-    merge_opt(round_threshold, opts.round_threshold);
-    merge_opt(effort, opts.effort);
-    merge_opt(file, std::move(opts.file));
+    merge_opt(enabled, opts.enabled);
+    relax.merge(std::move(opts.relax));
+    round.merge(std::move(opts.round));
+    domain_rules.merge(std::move(opts.domain_rules));
+    scip_repair.merge(std::move(opts.scip_repair));
+    inject.merge(std::move(opts.inject));
+    merge_opt(from_file, std::move(opts.from_file));
     merge_opt(dump_file, std::move(opts.dump_file));
-    merge_opt(scip_repair, opts.scip_repair);
-    merge_opt(peak_injection, opts.peak_injection);
-    merge_opt(peak_start_hour, opts.peak_start_hour);
-    merge_opt(peak_end_hour, opts.peak_end_hour);
-    merge_opt(solar_start_hour, opts.solar_start_hour);
-    merge_opt(solar_end_hour, opts.solar_end_hour);
-    merge_opt(relax_check, opts.relax_check);
-    merge_opt(on_infeasible, opts.on_infeasible);
-    merge_opt(report_saturated, opts.report_saturated);
-    if (opts.relax_solver_options.has_value()) {
-      if (relax_solver_options.has_value()) {
-        relax_solver_options->merge(*opts.relax_solver_options);
-      } else {
-        relax_solver_options = opts.relax_solver_options;
-      }
-    }
 
     auto _ = std::move(opts);
   }
@@ -195,9 +271,9 @@ struct MonolithicOptions
   // ── Initial-MIP-solution (warm-start) options ──────────────────────────────
   /** @brief Optional initial-MIP-solution generator configuration.
    *
-   * When `method` is set to something other than `none`, the monolithic
-   * solver computes a starting integer solution and injects it into the
-   * backend before branch-and-cut (see `MipStartOptions`).
+   * When `mip_start.enabled` is true, the monolithic solver computes a starting
+   * integer solution (relax → round → domain_rules → [scip_repair]) and injects
+   * it into the backend before branch-and-cut (see `MipStartOptions`).
    */
   std::optional<MipStartOptions> mip_start {};
 
