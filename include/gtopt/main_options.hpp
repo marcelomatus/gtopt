@@ -507,6 +507,12 @@ template<typename T>
        "SDDP pass selected by sddp_options.lp_debug_passes; shorthand for "
        "--set lp_debug=<bool> (default when flag is given without "
        "value: true)")  //
+      ("lp-error",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "write an error LP file to log_directory when a cell is infeasible, and "
+       "keep the col/row name metadata needed to write it (independent of "
+       "lp-debug); shorthand for --set lp_error=<bool> (default when flag is "
+       "given without value: true)")  //
       ("lp-compression",
        po::value<std::string>(),
        "compression codec for LP debug files: gzip | zstd | none "
@@ -611,6 +617,7 @@ inline void apply_cli_options(
     const std::optional<std::string>& sddp_elastic_mode = {},
     const std::optional<int>& sddp_num_apertures = {},
     const std::optional<bool>& lp_debug = {},
+    const std::optional<bool>& lp_error = {},
     const std::optional<std::string>& lp_compression = {},
     const std::optional<double>& lp_coeff_ratio_threshold = {})
 {
@@ -685,6 +692,7 @@ inline void apply_cli_options(
 
   if (lp_debug) {
     planning.options.lp_debug = lp_debug;
+    planning.options.lp_error = lp_error;
   }
 
   if (lp_compression) {
@@ -797,6 +805,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   }
   warn_deprecated_cli(opts.threads, "threads", "solver_options.threads");
   warn_deprecated_cli(opts.lp_debug, "lp-debug", "lp_debug");
+  warn_deprecated_cli(opts.lp_error, "lp-error", "lp_error");
   warn_deprecated_cli(opts.lp_compression, "lp-compression", "lp_compression");
   warn_deprecated_cli(opts.lp_coeff_ratio_threshold,
                       "lp-coeff-ratio",
@@ -818,6 +827,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
                     opts.sddp_elastic_mode,
                     opts.sddp_num_apertures,
                     opts.lp_debug,
+                    opts.lp_error,
                     opts.lp_compression,
                     opts.lp_coeff_ratio_threshold);
 
@@ -1142,6 +1152,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .matrix_eps = get_opt<double>(vm, "matrix-eps"),
       .lp_only = get_opt<bool>(vm, "lp-only"),
       .lp_debug = get_opt<bool>(vm, "lp-debug"),
+      .lp_error = get_opt<bool>(vm, "lp-error"),
       .lp_compression = get_opt<std::string>(vm, "lp-compression"),
       .lp_coeff_ratio_threshold = get_opt<double>(vm, "lp-coeff-ratio"),
       .json_file = get_opt<std::string>(vm, "json-file"),
@@ -1302,6 +1313,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.matrix_eps = get_dbl("matrix-eps");
   opts.lp_only = get_bool("lp-only");
   opts.lp_debug = get_bool("lp-debug");
+  opts.lp_error = get_bool("lp-error");
   opts.lp_compression = get_str("lp-compression");
   opts.lp_coeff_ratio_threshold = get_dbl("lp-coeff-ratio");
 
@@ -1471,6 +1483,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.matrix_eps, defaults.matrix_eps);
   merge(opts.lp_only, defaults.lp_only);
   merge(opts.lp_debug, defaults.lp_debug);
+  merge(opts.lp_error, defaults.lp_error);
   merge(opts.lp_compression, defaults.lp_compression);
   merge(opts.lp_coeff_ratio_threshold, defaults.lp_coeff_ratio_threshold);
   merge(opts.json_file, defaults.json_file);

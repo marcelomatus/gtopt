@@ -299,6 +299,11 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
         None,
     ),
     (
+        "lp_error",
+        "Write an error LP file on cell infeasibility (true/false)",
+        None,
+    ),
+    (
         "lp_compression",
         "Compression codec for debug LP files (e.g. 'gzip')",
         None,

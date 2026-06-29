@@ -58,6 +58,7 @@ struct PlanningOptionsConstructor
       OptName build_mode_str,
       OptName log_directory,
       OptBool lp_debug,
+      OptBool lp_error,
       OptName lp_compression_str,
       OptBool lp_only,
       OptBool lp_fingerprint,
@@ -113,6 +114,7 @@ struct PlanningOptionsConstructor
     }
     opts.log_directory = std::move(log_directory);
     opts.lp_debug = lp_debug;
+    opts.lp_error = lp_error;
     if (lp_compression_str) {
       opts.lp_compression = gtopt::require_enum<CompressionCodec>(
           "lp_compression", *lp_compression_str);
@@ -167,6 +169,7 @@ struct json_data_contract<PlanningOptions>
                        json_string_null<"build_mode", OptName>,
                        json_string_null<"log_directory", OptName>,
                        json_bool_null<"lp_debug", OptBool>,
+                       json_bool_null<"lp_error", OptBool>,
                        json_string_null<"lp_compression", OptName>,
                        json_bool_null<"lp_only", OptBool>,
                        json_bool_null<"lp_fingerprint", OptBool>,
@@ -204,6 +207,7 @@ struct json_data_contract<PlanningOptions>
         detail::enum_to_opt_name(opt.build_mode),
         opt.log_directory,
         opt.lp_debug,
+        opt.lp_error,
         detail::enum_to_opt_name(opt.lp_compression),
         opt.lp_only,
         opt.lp_fingerprint,

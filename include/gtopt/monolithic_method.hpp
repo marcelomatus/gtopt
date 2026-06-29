@@ -56,6 +56,9 @@ public:
   std::chrono::milliseconds api_update_interval {500};
   /// When true, write LP debug files to lp_debug_directory before solving.
   bool lp_debug {false};
+  /// When true, write an error LP file when a cell is infeasible (independent
+  /// of lp_debug).
+  bool lp_error {false};
   /// Directory for LP debug files (used when lp_debug is true).
   std::string lp_debug_directory {};
   /// Compression format for LP debug files ("gzip" / "uncompressed" / "").

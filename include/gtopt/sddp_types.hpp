@@ -621,6 +621,10 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// `debug_aperture_lp_fmt` (aperture).
   bool lp_debug {false};
 
+  /// When true, write an error LP file when a (scene, phase) is infeasible
+  /// (independent of `lp_debug`, which gates the per-pass debug dumps).
+  bool lp_error {false};
+
   /// Comma-separated list of SDDP passes whose LP-debug dump is
   /// active when `lp_debug=true`.  Empty / unset selects the legacy
   /// default `"forward,aperture"`.  Tokens (case-insensitive,

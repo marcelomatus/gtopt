@@ -695,7 +695,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // the right window in advance to capture it.
         std::string saved_error_lp;
         std::string saved_elastic_lp;
-        if (m_options_.lp_debug && !m_options_.log_directory.empty()) {
+        if ((m_options_.lp_error || m_options_.lp_debug)
+            && !m_options_.log_directory.empty())
+        {
           std::error_code mkdir_ec;
           std::filesystem::create_directories(m_options_.log_directory,
                                               mkdir_ec);

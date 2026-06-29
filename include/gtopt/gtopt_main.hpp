@@ -83,6 +83,9 @@ struct MainOptions
   /** @brief Save debug LP files to the log directory (monolithic: one per
    * scene/phase; SDDP: one per iteration/scene/phase) */
   std::optional<bool> lp_debug {};
+  /** @brief Write an error LP file when a cell is infeasible (keeps the col/row
+   * name metadata needed for it; independent of lp_debug) */
+  std::optional<bool> lp_error {};
   /** @brief Compression codec for LP debug files.
    * `""` = auto (let gtopt_compress_lp decide); `"none"` = no compression;
    * `"gzip"`, `"zstd"`, `"lz4"`, `"bzip2"`, `"xz"` = specific codec. */

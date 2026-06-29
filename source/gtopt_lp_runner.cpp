@@ -560,9 +560,11 @@ void log_lp_coefficient_stats(const PlanningLP& planning_lp)
                                                      bool do_stats)
 {
   // --lp-file and --lp-debug require all col+row names to be generated so
-  // the solver can write a readable .lp dump.
-  const bool enable_names =
-      opts.lp_file.has_value() || opts.lp_debug.value_or(false);
+  // the solver can write a readable .lp dump.  `lp_error` also needs them: it
+  // writes an error LP file on cell infeasibility.  All three off ⇒ no name
+  // metadata is generated/compressed/saved/loaded.
+  const bool enable_names = opts.lp_file.has_value()
+      || opts.lp_debug.value_or(false) || opts.lp_error.value_or(false);
   const auto eq_method = effective_equilibration_method(planning);
   auto flat_opts = make_lp_matrix_options(
       enable_names, opts.matrix_eps, do_stats, opts.solver, eq_method);

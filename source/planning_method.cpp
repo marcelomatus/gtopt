@@ -131,6 +131,7 @@ namespace
   // a graceful stop without using the raw sentinel path.
   sddp_opts.log_directory = std::string(options.log_directory());
   sddp_opts.lp_debug = options.lp_debug();
+  sddp_opts.lp_error = options.lp_error();
   sddp_opts.lp_debug_compression = std::string(options.lp_compression());
   sddp_opts.lp_debug_scene_min = options.lp_debug_scene_min();
   sddp_opts.lp_debug_scene_max = options.lp_debug_scene_max();
@@ -224,6 +225,7 @@ std::unique_ptr<PlanningMethod> make_planning_method(
         (std::filesystem::path(output_dir_m) / "solver_status.json").string();
   }
   solver->lp_debug = options.lp_debug();
+  solver->lp_error = options.lp_error();
   solver->lp_debug_directory = std::string(options.log_directory());
   solver->lp_debug_compression = std::string(options.lp_compression());
   solver->lp_debug_scene_min = options.lp_debug_scene_min();

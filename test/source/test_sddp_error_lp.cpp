@@ -214,6 +214,67 @@ TEST_CASE(  // NOLINT
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// `lp_error` gates the error-LP dump independently of `lp_debug`
+// ═══════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP forward: lp_error writes the error LP without lp_debug")
+{
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_sddp_err_lp_lperror";
+  std::error_code ec;
+  std::filesystem::remove_all(log_dir, ec);
+  std::filesystem::create_directories(log_dir, ec);
+
+  auto planning = make_phase0_infeasible_planning();
+  LpMatrixOptions flat_opts;
+  flat_opts.col_with_names = true;
+  flat_opts.row_with_names = true;
+  PlanningLP planning_lp(std::move(planning), flat_opts);
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.log_directory = log_dir.string();
+  sddp_opts.enable_api = false;
+  sddp_opts.lp_debug = false;  // explicitly off
+  sddp_opts.lp_error = true;  // lp_error alone gates the error-LP dump
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE_FALSE(results.has_value());
+
+  // lp_error (without lp_debug) still triggers the error-LP write.
+  CHECK(std::filesystem::exists(log_dir / "error_s0_p1_i0.lp"));
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP forward: no error LP when both lp_error and lp_debug are off")
+{
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_sddp_err_lp_off";
+  std::error_code ec;
+  std::filesystem::remove_all(log_dir, ec);
+  std::filesystem::create_directories(log_dir, ec);
+
+  auto planning = make_phase0_infeasible_planning();
+  PlanningLP planning_lp(std::move(planning));
+
+  SDDPOptions sddp_opts;
+  sddp_opts.max_iterations = 1;
+  sddp_opts.log_directory = log_dir.string();
+  sddp_opts.enable_api = false;
+  sddp_opts.lp_debug = false;
+  sddp_opts.lp_error = false;
+
+  SDDPMethod sddp(planning_lp, sddp_opts);
+  auto results = sddp.solve();
+  REQUIRE_FALSE(results.has_value());  // still infeasible
+
+  // Both gates off → no error LP file written.
+  CHECK_FALSE(std::filesystem::exists(log_dir / "error_s0_p1_i0.lp"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Branch B — infeasibility elsewhere than phase 0 where state-variable
 // relaxation alone cannot produce a feasible elastic cut.  Uses the
 // shared `make_forced_infeasibility_planning` fixture (same one the

@@ -655,6 +655,13 @@ public:
     return m_options_.lp_debug.value_or(false);
   }
 
+  /// When true, write an error LP file on cell infeasibility and keep the
+  /// name metadata needed for it (independent of `lp_debug`).
+  [[nodiscard]] constexpr auto lp_error() const
+  {
+    return m_options_.lp_error.value_or(false);
+  }
+
   /// Minimum scene UID for selective LP debug saving (nullopt = no filter).
   [[nodiscard]] constexpr auto lp_debug_scene_min() const -> OptInt
   {

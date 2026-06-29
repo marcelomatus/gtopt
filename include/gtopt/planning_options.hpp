@@ -138,6 +138,11 @@ struct PlanningOptions
    * model.  SDDP solver: saves one LP file per (iteration, scene, phase) during
    * the forward pass. */
   OptBool lp_debug {};
+  /** @brief When true, write an error LP file when a cell is infeasible and
+   * keep the col/row name metadata needed to write it — independent of
+   * `lp_debug`.  Coordinated with `lp_debug`/`lp_file`: if all are off, no name
+   * metadata is generated, compressed, saved or loaded. */
+  OptBool lp_error {};
   /** @brief Compression codec for LP debug files.
    *
    * Controls how LP debug files (`lp_debug=true`) are compressed.
@@ -307,6 +312,7 @@ struct PlanningOptions
     merge_opt(build_mode, opts.build_mode);
     merge_opt(log_directory, std::move(opts.log_directory));
     merge_opt(lp_debug, opts.lp_debug);
+    merge_opt(lp_error, opts.lp_error);
     merge_opt(lp_compression, opts.lp_compression);
     merge_opt(lp_only, opts.lp_only);
     merge_opt(lp_fingerprint, opts.lp_fingerprint);
