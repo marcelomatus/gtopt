@@ -1,36 +1,44 @@
 // SPDX-License-Identifier: BSD-3-Clause
 /**
  * @file      test_user_storage_trajectory.cpp
- * @brief     Per-phase SDDP storage-trajectory equivalence: an AMPL-text
- *            reservoir traces the SAME volume path as the native reservoir.
+ * @brief     Per-(stage, block) SDDP storage-trajectory equivalence: an
+ *            AMPL-text reservoir traces the SAME volume path as the native
+ *            reservoir, with a realistic 4-blocks-per-stage model.
  * @date      2026-06-28
  * @copyright BSD-3-Clause
  *
  * The companion `test_user_storage_equivalence.cpp` matches the SDDP *bounds*
  * (the optimum cost) on the shipped flat-cost 2-reservoir fixture.  That
- * fixture is intentionally NOT used for a per-phase trajectory comparison:
- * with both reservoirs symmetric and the marginal substitution cost flat
- * across phases, the optimal *release timing* is degenerate (many primal
- * trajectories realise the same optimum), so the native LP and the
- * structurally-different AMPL LP may legitimately land on different vertices.
+ * fixture is intentionally NOT used for a trajectory comparison: with both
+ * reservoirs symmetric and the marginal substitution cost flat across time, the
+ * optimal *release timing* is degenerate (many primal trajectories realise the
+ * same optimum), so the native LP and the structurally-different AMPL LP may
+ * legitimately land on different vertices.
  *
  * This file adds a purpose-built NON-DEGENERATE fixture whose optimal storage
- * trajectory is UNIQUE, then asserts the AMPL reservoir reproduces it phase by
- * phase under `method=sddp`:
+ * trajectory is UNIQUE, modelled the way a reservoir actually should be — with
+ * MULTIPLE CHRONOLOGICAL BLOCKS PER STAGE (4 here).  That exercises the full
+ * `block_state` recurrence under `method=sddp`:
  *
- *   - 6 phases (1 block / phase), 2 deterministic (identical) scenes.
- *   - Single bus, time-varying demand `lmax = {50,70,30,80,60,40}`.
+ *   - the WITHIN-stage lag: `prev(vol)` at block b>0 resolves to block b-1;
+ *   - the CROSS-stage / cross-phase incoming: block 0 of each stage chains to
+ *     the previous stage's end-of-stage volume (the SDDP state).
+ *
+ * Fixture:
+ *   - 6 phases (1 stage / phase), 4 chronological blocks / stage (duration 1).
+ *   - 2 deterministic (identical) scenes, single bus.
+ *   - Time-varying per-(stage, block) demand `lmax` (see kDemand2D).
  *   - Two ASYMMETRIC hydro generators with DISTINCT costs (gcost 1 and 2) so
  *     the merit order is strict, plus an expensive thermal backup (gcost 100).
- *   - No inflow; reservoir 1 holds 250, reservoir 2 holds 120 (generous), so
- *     hydro covers all load and thermal stays off.
+ *   - No inflow; the reservoirs draw down from a generous initial volume.
  *
- * Because hydro is strictly cheaper than thermal and the cheaper unit (gen1)
- * is used maximally in every phase (`min(cap, demand)`), the per-phase
- * generation split — and therefore each reservoir's volume path — is uniquely
- * determined and varies across phases.  Two structurally different LPs landing
- * on the SAME trajectory is then a meaningful 1:1 check (a degenerate optimum
- * would let them diverge).
+ * Because hydro is strictly cheaper than thermal and the cheaper unit (gen1) is
+ * used maximally in every block (`min(cap, demand)`), the per-block generation
+ * split — and therefore each reservoir's full volume path — is uniquely
+ * determined and varies block to block.  Two structurally different LPs landing
+ * on the SAME 24-block trajectory is then a meaningful 1:1 (a degenerate
+ * optimum would let them diverge).  The expected path is computed in the test
+ * directly from the demand schedule, so the numbers are self-documenting.
  */
 
 #include <algorithm>
@@ -63,39 +71,51 @@ using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
 
-constexpr int num_phases = 6;
-// Per-phase served load (one stage / phase, one block / stage).  Distinct,
-// varying values are what pin the unique trajectory.
-constexpr std::array<double, num_phases> kDemand {50, 70, 30, 80, 60, 40};
-// Reservoir 1 (cheap hydro) initial volume; reservoir 2 (dearer hydro).
-constexpr double kEini1 = 250.0;
-constexpr double kEini2 = 120.0;
+constexpr int num_stages = 6;
+constexpr int blocks_per_stage = 4;
+constexpr int total_blocks = num_stages * blocks_per_stage;
+
+// Per-(stage, block) served load.  A peak/shoulder/off/evening shape that
+// varies stage to stage; every value <= cap1 + cap2 = 60 so thermal stays off.
+constexpr std::array<std::array<double, blocks_per_stage>, num_stages>
+    kDemand2D {{
+        {50, 30, 20, 45},
+        {55, 35, 25, 40},
+        {40, 20, 15, 50},
+        {60, 40, 30, 35},
+        {45, 25, 20, 55},
+        {50, 30, 25, 40},
+    }};
+
+constexpr double kCap1 = 30.0;  // cheaper hydro (gen1) capacity
+constexpr double kCap2 = 30.0;  // dearer hydro (gen2) capacity
+constexpr double kEini1 = 700.0;  // reservoir 1 initial volume (generous)
+constexpr double kEini2 = 250.0;  // reservoir 2 initial volume
 
 /// All-native oracle: two reservoirs, each with its own hydro turbine; an
-/// expensive thermal backup; time-varying demand.  See the file header for the
-/// non-degeneracy argument.
+/// expensive thermal backup; time-varying per-block demand; 4 chronological
+/// blocks per stage.  See the file header for the non-degeneracy argument.
 [[nodiscard]] auto make_unique_trajectory_two_reservoir_planning() -> Planning
 {
   auto block_array =
-      make_uniform_blocks(static_cast<std::size_t>(num_phases), 1.0);
+      make_uniform_blocks(static_cast<std::size_t>(total_blocks), 1.0);
   auto stage_array =
-      make_uniform_stages(static_cast<std::size_t>(num_phases), 1);
+      make_uniform_stages(static_cast<std::size_t>(num_stages),
+                          static_cast<std::size_t>(blocks_per_stage));
+  // The within-stage `prev()` lag requires chronological blocks.
+  for (auto& st : stage_array) {
+    st.chronological = OptBool {true};
+  }
   auto phase_array =
-      make_single_stage_phases(static_cast<std::size_t>(num_phases));
+      make_single_stage_phases(static_cast<std::size_t>(num_stages));
 
-  // emin = 0 on every (stage, block).
-  std::vector<std::vector<double>> emin_per_stage(num_phases,
-                                                  std::vector<double> {
-                                                      0.0,
-                                                  });
-
-  // Time-varying demand as a per-(stage, block) schedule.
+  // emin = 0 and per-(stage, block) demand schedules.
+  std::vector<std::vector<double>> emin_per_stage(
+      num_stages, std::vector<double>(blocks_per_stage, 0.0));
   std::vector<std::vector<double>> lmax_per_stage;
-  lmax_per_stage.reserve(static_cast<std::size_t>(num_phases));
-  for (const double d : kDemand) {
-    lmax_per_stage.push_back(std::vector<double> {
-        d,
-    });
+  lmax_per_stage.reserve(static_cast<std::size_t>(num_stages));
+  for (const auto& stage_demand : kDemand2D) {
+    lmax_per_stage.emplace_back(stage_demand.begin(), stage_demand.end());
   }
 
   const Array<Bus> bus_array = {
@@ -109,8 +129,8 @@ constexpr double kEini2 = 120.0;
           .uid = Uid {1},
           .name = "hydro_gen_1",
           .bus = Uid {1},
-          .gcost = 1.0,  // cheapest → used maximally every phase
-          .capacity = 40.0,
+          .gcost = 1.0,  // cheapest → used maximally every block
+          .capacity = kCap1,
       },
       {
           .uid = Uid {2},
@@ -124,7 +144,7 @@ constexpr double kEini2 = 120.0;
           .name = "hydro_gen_2",
           .bus = Uid {1},
           .gcost = 2.0,  // dearer than gen1, far cheaper than thermal
-          .capacity = 40.0,
+          .capacity = kCap2,
       },
   };
   const Array<Demand> demand_array = {
@@ -173,9 +193,9 @@ constexpr double kEini2 = 120.0;
           .uid = Uid {1},
           .name = "rsv1",
           .junction = Uid {1},
-          .capacity = 300.0,
+          .capacity = 800.0,
           .emin = emin_per_stage,
-          .emax = 300.0,
+          .emax = 800.0,
           .eini = kEini1,
           .efin = 0.0,
           .fmin = -1000.0,
@@ -186,9 +206,9 @@ constexpr double kEini2 = 120.0;
           .uid = Uid {2},
           .name = "rsv2",
           .junction = Uid {2},
-          .capacity = 300.0,
+          .capacity = 800.0,
           .emin = emin_per_stage,
-          .emax = 300.0,
+          .emax = 800.0,
           .eini = kEini2,
           .efin = 0.0,
           .fmin = -1000.0,
@@ -200,10 +220,8 @@ constexpr double kEini2 = 120.0;
   // No natural inflow: the reservoirs draw down from their initial volume.
   Array<Flow> flow_array;
   {
-    std::vector<std::vector<double>> zero_2d(num_phases,
-                                             std::vector<double> {
-                                                 0.0,
-                                             });
+    std::vector<std::vector<double>> zero_2d(
+        num_stages, std::vector<double>(blocks_per_stage, 0.0));
     std::vector<std::vector<std::vector<double>>> zero_3d {zero_2d, zero_2d};
 
     Flow flow1;
@@ -286,7 +304,7 @@ constexpr double kEini2 = 120.0;
       .simulation = std::move(simulation),
       .system =
           {
-              .name = "sddp_unique_traj_2rsv",
+              .name = "sddp_unique_traj_2rsv_4blk",
               .bus_array = bus_array,
               .demand_array = demand_array,
               .generator_array = generator_array,
@@ -300,8 +318,9 @@ constexpr double kEini2 = 120.0;
 }
 
 /// Candidate: replace reservoir 1's native sub-topology with an AMPL-text
-/// reservoir (a `block_state` DecisionVariable + a within/cross-phase balance).
-/// Reservoir 2 stays native, so one solve mixes native + AMPL state coupling.
+/// reservoir (a `block_state` DecisionVariable + a per-block within/cross-stage
+/// balance).  Reservoir 2 stays native, so one solve mixes native + AMPL state
+/// coupling.
 [[nodiscard]] auto make_ampl_trajectory_candidate() -> Planning
 {
   auto p = make_unique_trajectory_two_reservoir_planning();
@@ -319,12 +338,12 @@ constexpr double kEini2 = 120.0;
                 [](const Turbine& t) { return t.uid == Uid {1}; });
   std::erase_if(sys.flow_array, [](const Flow& f) { return f.uid == Uid {1}; });
 
-  // vol1: per-block storage state, starts at kEini1, bounded [0, 300].
+  // vol1: per-block storage state, starts at kEini1, bounded [0, 800].
   sys.decision_variable_array.push_back(DecisionVariable {
       .uid = Uid {101},
       .name = "vol1",
       .lower_bound = OptReal {0.0},
-      .upper_bound = OptReal {300.0},
+      .upper_bound = OptReal {800.0},
       .scope = OptName {"block"},
       .state = OptBool {},
       .link = OptBool {true},
@@ -332,10 +351,11 @@ constexpr double kEini2 = 120.0;
       .initial_value = OptReal {kEini1},
   });
 
-  // Balance (inflow = 0 on every stage): vol1 - prev(vol1) + generation = 0.
-  // prev(vol1) at the first block resolves to the incoming column (the cross-
-  // phase / first-stage initial value); the efin terminal (vol1 >= 0) is
-  // already enforced by the DecisionVariable lower bound.
+  // Per-block balance (inflow = 0): vol1[b] - prev(vol1[b]) + generation[b] =
+  // 0. prev(vol1) at block 0 of a stage resolves to the incoming column (the
+  // previous stage's end-of-stage volume, or the initial value on the very
+  // first stage); at block b>0 it resolves to block b-1 within the stage.
+  // The efin terminal (vol1 >= 0) is already enforced by the lower bound.
   sys.user_constraint_array.push_back(UserConstraint {
       .uid = Uid {201},
       .name = "vol1_balance",
@@ -353,7 +373,7 @@ constexpr double kEini2 = 120.0;
 void run_sddp(PlanningLP& plp)
 {
   SDDPOptions opts;
-  opts.max_iterations = 12;
+  opts.max_iterations = 16;
   opts.convergence_tol = 1.0e-6;
   opts.cut_sharing = CutSharingMode::none;
   opts.enable_api = false;
@@ -371,8 +391,9 @@ void run_sddp(PlanningLP& plp)
   return planning;
 }
 
-/// End-of-phase volume of a NATIVE reservoir (the efin / cross-phase state
-/// column) across all phases of scene 0, from the converged forward pass.
+/// Per-(stage, block) volume of a NATIVE reservoir (its per-block `energy`
+/// columns) across all stages of scene 0, from the converged forward pass.
+/// Ordered (stage, block).
 [[nodiscard]] auto native_reservoir_trajectory(PlanningLP& plp, Uid rsv_uid)
     -> std::vector<double>
 {
@@ -395,14 +416,19 @@ void run_sddp(PlanningLP& plp)
       }
     }
     REQUIRE(rsv != nullptr);
-    const auto efin_col = rsv->efin_col_at(scenario, stage);
-    traj.push_back(sysp.linear_interface().get_col_sol()[efin_col]);
+    const auto& emap =
+        rsv->energy_cols_at(scenario, stage);  // block uid -> col
+    for (const auto& block : stage.blocks()) {
+      const auto it = emap.find(block.uid());
+      REQUIRE(it != emap.end());
+      traj.push_back(sysp.linear_interface().get_col_sol()[it->second]);
+    }
   }
   return traj;
 }
 
-/// End-of-phase volume of a `block_state` DecisionVariable (its last-block
-/// column == the registered cross-phase state) across all phases of scene 0.
+/// Per-(stage, block) volume of a `block_state` DecisionVariable across all
+/// stages of scene 0.  Ordered (stage, block).
 [[nodiscard]] auto block_state_trajectory(PlanningLP& plp, Uid dv_uid)
     -> std::vector<double>
 {
@@ -426,12 +452,35 @@ void run_sddp(PlanningLP& plp)
     }
     REQUIRE(dv != nullptr);
     const auto& bmap = dv->value_cols_at(scenario, stage);  // block uid -> col
-    const auto last_block_uid = stage.blocks().back().uid();  // end-of-phase
-    const auto it = bmap.find(last_block_uid);
-    REQUIRE(it != bmap.end());
-    traj.push_back(sysp.linear_interface().get_col_sol()[it->second]);
+    for (const auto& block : stage.blocks()) {
+      const auto it = bmap.find(block.uid());
+      REQUIRE(it != bmap.end());
+      traj.push_back(sysp.linear_interface().get_col_sol()[it->second]);
+    }
   }
   return traj;
+}
+
+/// Unique optimal per-block volume path for the reservoir feeding `gen1` (the
+/// cheaper unit, when `is_gen1`) or `gen2` (the remainder).  gen1 is used
+/// maximally each block (min(cap, demand)); gen2 serves what's left.  vol =
+/// eini − cumulative release, chained continuously across stages (each stage's
+/// incoming is the previous stage's end-of-stage volume).
+[[nodiscard]] auto expected_trajectory(double eini, bool is_gen1)
+    -> std::vector<double>
+{
+  std::vector<double> v;
+  v.reserve(static_cast<std::size_t>(total_blocks));
+  double cum = 0.0;
+  for (const auto& stage_demand : kDemand2D) {
+    for (const double d : stage_demand) {
+      const double g1 = std::min(kCap1, d);
+      const double g2 = d - g1;
+      cum += is_gen1 ? g1 : g2;
+      v.push_back(eini - cum);
+    }
+  }
+  return v;
 }
 
 [[nodiscard]] auto spread(const std::vector<double>& v) -> double
@@ -444,8 +493,8 @@ void run_sddp(PlanningLP& plp)
 }  // namespace user_storage_traj_test
 
 TEST_CASE(
-    "AMPL-text reservoir traces the native reservoir's per-phase SDDP "
-    "trajectory (non-degenerate 2-reservoir 6-phase)")
+    "AMPL-text reservoir traces the native reservoir's per-(stage,block) SDDP "
+    "trajectory (non-degenerate 2-reservoir, 6 stages x 4 blocks)")
 {
   using namespace user_storage_traj_test;  // NOLINT(google-build-using-namespace)
 
@@ -454,45 +503,34 @@ TEST_CASE(
   PlanningLP candidate(as_sddp(make_ampl_trajectory_candidate()));
   run_sddp(candidate);
 
-  // Reservoir-1 trajectory: native efin path vs the AMPL block_state path.
+  // Reservoir-1 trajectory: native per-block energy vs the AMPL block_state.
   const auto rsv1_native = native_reservoir_trajectory(native, Uid {1});
   const auto rsv1_ampl = block_state_trajectory(candidate, Uid {101});
   // Reservoir 2 stays native in both models — it must be unperturbed.
   const auto rsv2_native = native_reservoir_trajectory(native, Uid {2});
   const auto rsv2_cand = native_reservoir_trajectory(candidate, Uid {2});
 
-  REQUIRE(static_cast<int>(rsv1_native.size()) == num_phases);
-  REQUIRE(static_cast<int>(rsv1_ampl.size()) == num_phases);
+  REQUIRE(static_cast<int>(rsv1_native.size()) == total_blocks);
+  REQUIRE(static_cast<int>(rsv1_ampl.size()) == total_blocks);
+  REQUIRE(static_cast<int>(rsv2_native.size()) == total_blocks);
 
-  // The trajectory must genuinely move across phases — a flat path would make
+  // The trajectory must genuinely move block to block — a flat path would make
   // the comparison vacuous (and signal a degenerate / mis-built fixture).
-  CHECK(spread(rsv1_native) > 50.0);
-  CHECK(spread(rsv2_native) > 20.0);
+  CHECK(spread(rsv1_native) > 100.0);
+  CHECK(spread(rsv2_native) > 50.0);
 
-  // Hand-computed unique optimum (gen1 used maximally = min(40, demand) each
-  // phase; gen2 serves the remainder):
-  //   gen1 = {40,40,30,40,40,40}, cumsum {40,80,110,150,190,230}
-  //     -> rsv1 = 250 - cumsum = {210,170,140,100,60,20}
-  //   gen2 = {10,30, 0,40,20, 0}, cumsum {10,40, 40, 80,100,100}
-  //     -> rsv2 = 120 - cumsum = {110, 80, 80, 40, 20, 20}
-  const std::vector<double> rsv1_expected {210, 170, 140, 100, 60, 20};
-  const std::vector<double> rsv2_expected {110, 80, 80, 40, 20, 20};
+  // Unique optimum, computed directly from the demand schedule.
+  const auto rsv1_expected = expected_trajectory(kEini1, /*is_gen1=*/true);
+  const auto rsv2_expected = expected_trajectory(kEini2, /*is_gen1=*/false);
 
-  for (int i = 0; i < num_phases; ++i) {
-    // Core 1:1 check: AMPL reservoir == native reservoir, phase by phase.
-    CHECK(rsv1_ampl[static_cast<std::size_t>(i)]
-          == doctest::Approx(rsv1_native[static_cast<std::size_t>(i)])
-                 .epsilon(1e-4));
+  for (int i = 0; i < total_blocks; ++i) {
+    const auto k = static_cast<std::size_t>(i);
+    // Core 1:1 check: AMPL reservoir == native reservoir, block by block.
+    CHECK(rsv1_ampl[k] == doctest::Approx(rsv1_native[k]).epsilon(1e-4));
     // The unperturbed native reservoir 2 is identical in both solves.
-    CHECK(rsv2_cand[static_cast<std::size_t>(i)]
-          == doctest::Approx(rsv2_native[static_cast<std::size_t>(i)])
-                 .epsilon(1e-4));
-    // Both match the hand-derived unique trajectory (locks the numbers).
-    CHECK(rsv1_native[static_cast<std::size_t>(i)]
-          == doctest::Approx(rsv1_expected[static_cast<std::size_t>(i)])
-                 .epsilon(1e-3));
-    CHECK(rsv2_native[static_cast<std::size_t>(i)]
-          == doctest::Approx(rsv2_expected[static_cast<std::size_t>(i)])
-                 .epsilon(1e-3));
+    CHECK(rsv2_cand[k] == doctest::Approx(rsv2_native[k]).epsilon(1e-4));
+    // Both match the unique demand-driven trajectory.
+    CHECK(rsv1_native[k] == doctest::Approx(rsv1_expected[k]).epsilon(1e-3));
+    CHECK(rsv2_native[k] == doctest::Approx(rsv2_expected[k]).epsilon(1e-3));
   }
 }
