@@ -140,9 +140,14 @@ function(configure_install_rpath _target)
   list(FILTER _install_rpaths EXCLUDE REGEX "^$")
   list(REMOVE_DUPLICATES _install_rpaths)
 
-  # Always include $ORIGIN so the plugin can find sibling libraries
-  # when relocated (e.g. packaged alongside solver libs).
-  list(PREPEND _install_rpaths "$ORIGIN")
+  # Always include $ORIGIN so the consumer can find sibling libraries when
+  # relocated (e.g. packaged alongside solver libs), plus the relative paths
+  # that reach the shared libspdlog.so.1.15 shipped into <prefix>/lib from the
+  # two install layouts that use this helper: `$ORIGIN/../lib` for the binary in
+  # <prefix>/bin, and `$ORIGIN/../..` for a plugin in <prefix>/lib/gtopt/plugins.
+  # The non-applicable entry is a harmless dead RPATH on each consumer.  (The
+  # build-tree spdlog dir collected above is absolute and is gone after install.)
+  list(PREPEND _install_rpaths "$ORIGIN" "$ORIGIN/../lib" "$ORIGIN/../..")
 
   if(_install_rpaths)
     set_target_properties(${_target} PROPERTIES

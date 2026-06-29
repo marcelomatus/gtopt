@@ -5,12 +5,14 @@
  * @author    marcelo
  * @copyright BSD-3-Clause
  *
- * NOTE on logging: solver plugins are dlopen-loaded MODULE libraries and have
- * historically been unable to link the non-PIC static spdlog the core uses, so
- * (like the pre-shared-spdlog plugins) this backend reports any hard SCIP error
- * to stderr via std::fprintf rather than spdlog.  SCIP's own diagnostics are
- * suppressed (`display/verblevel = 0`); a failed SCIP_RETCODE only marks the
- * solve unsolved so the caller sees a non-optimal status — it never aborts.
+ * NOTE on logging: spdlog is now a shared library (libspdlog.so) that this
+ * dlopen-loaded MODULE plugin links against (via gtopt::gtopt), sharing the
+ * core's one global logger/registry — so hard SCIP errors route through
+ * `spdlog::error` like every other plugin (no more std::fprintf-to-stderr
+ * fallback).  SCIP's own per-iteration diagnostics remain on SCIP's native
+ * message handler (`display/verblevel = 0`, or its logfile under
+ * log_mode=detailed); a failed SCIP_RETCODE only marks the solve unsolved so
+ * the caller sees a non-optimal status — it never aborts.
  */
 
 #include <algorithm>
@@ -23,6 +25,7 @@
 #include <lpi/lpi.h>
 #include <scip/scip.h>
 #include <scip/scipdefplugins.h>
+#include <spdlog/spdlog.h>
 
 namespace gtopt
 {
@@ -649,7 +652,7 @@ void ScipSolverBackend::solve_()
 {
   SCIP* scip = nullptr;
   if (SCIPcreate(&scip) != SCIP_OKAY || scip == nullptr) {
-    std::fprintf(stderr, "gtopt[scip]: SCIPcreate failed\n");
+    spdlog::error("gtopt[scip]: SCIPcreate failed");
     m_sol_.solved = false;
     m_sol_.status = static_cast<int>(SCIP_STATUS_UNKNOWN);
     return;
@@ -665,9 +668,8 @@ void ScipSolverBackend::solve_()
                                                m_sol_,
                                                solving_time);
   if (rc != SCIP_OKAY) {
-    std::fprintf(stderr,
-                 "gtopt[scip]: solve failed (SCIP_RETCODE %d)\n",
-                 static_cast<int>(rc));
+    spdlog::error("gtopt[scip]: solve failed (SCIP_RETCODE {})",
+                  static_cast<int>(rc));
     m_sol_.solved = false;
     m_sol_.status = static_cast<int>(SCIP_STATUS_UNKNOWN);
   }

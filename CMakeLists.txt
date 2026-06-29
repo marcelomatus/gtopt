@@ -91,6 +91,14 @@ endif()
 # build (CPM_USE_LOCAL_PACKAGES OFF for this package only) because the local
 # package is the static, non-PIC variant.  SPDLOG_INSTALL YES so the .so is
 # installed alongside the binaries that now depend on it at runtime.
+#
+# NOTE: do NOT add EXCLUDE_FROM_ALL here.  Installing a target that is marked
+# EXCLUDE_FROM_ALL is undefined behaviour in CMake, and in practice it silently
+# DROPS spdlog's own SPDLOG_INSTALL rule — so the installed bin/gtopt and the
+# dlopen'd plugins end up with a DT_NEEDED on libspdlog.so.1.15 that nothing
+# ships (broken `ldd` on a clean machine).  The core always links spdlog, so
+# the exclusion would save nothing anyway.  Keep it in the default ALL target so
+# its install rule fires and the shared library lands in <prefix>/lib.
 set(_gtopt_save_cpm_local "${CPM_USE_LOCAL_PACKAGES}")
 set(CPM_USE_LOCAL_PACKAGES OFF)
 CPMAddPackage(
@@ -99,7 +107,6 @@ CPMAddPackage(
   VERSION 1.15.0
   OPTIONS "SPDLOG_USE_STD_FORMAT 1" "SPDLOG_INSTALL YES" "SPDLOG_BUILD_SHARED ON"
   SYSTEM YES
-  EXCLUDE_FROM_ALL YES
 )
 set(CPM_USE_LOCAL_PACKAGES "${_gtopt_save_cpm_local}")
 unset(_gtopt_save_cpm_local)

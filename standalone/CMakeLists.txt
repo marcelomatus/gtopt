@@ -45,6 +45,9 @@ file(GLOB sources CONFIGURE_DEPENDS
 
 add_executable(${PROJECT_NAME} ${sources})
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "gtopt")
+# NOTE: the install RPATH (incl. `$ORIGIN/../lib` so bin/gtopt resolves the
+# shipped libspdlog.so.1.15 in <prefix>/lib) is set by configure_install_rpath()
+# below — do NOT set INSTALL_RPATH here, it would be overwritten.
 
 target_link_libraries(
   ${PROJECT_NAME}
