@@ -22,6 +22,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_interface_labels_codec.hpp>
+#include <gtopt/lp_name_spill.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/utils.hpp>
 
@@ -36,6 +37,24 @@ void LinearInterface::generate_labels_from_maps(
   // metadata into compressed buffers, rehydrate it now on first
   // read.  No-op in modes that never compressed.
   ensure_labels_meta_decompressed();
+
+  // Spill-store reload: when names were kept under low-memory and the
+  // structural label metadata was spilled to the async store + dropped from
+  // the snapshot (so `load_flat` left the live vectors empty), repopulate them
+  // now from the store (cached after the first hit, so the repeated
+  // forward/backward/aperture error-LP dumps for one cell touch disk once).
+  // No-op when no store is attached — the live vectors are authoritative.
+  // Runs BEFORE the loops because `col_label_at` indexes post-flatten metadata
+  // at `i - m_col_labels_meta_->size()`, so the frozen size must be restored
+  // first or the cut/alpha rows would be mis-resolved.
+  if (m_name_store_ != nullptr && !m_spill_key_.empty()
+      && m_col_labels_meta_->empty() && m_row_labels_meta_->empty())
+  {
+    if (const LpLabelMeta* meta = m_name_store_->load(m_spill_key_)) {
+      detach_for_write(m_col_labels_meta_) = meta->col_labels;
+      detach_for_write(m_row_labels_meta_) = meta->row_labels;
+    }
+  }
 
   // Forced-all LabelMaker: `m_label_maker_` is whatever flatten
   // captured (typically `none`).  Here we want real labels always,
@@ -228,12 +247,13 @@ void LinearInterface::compress_labels_meta_if_needed()
   }
   // Drop the frozen flatten-side label metadata vectors to free
   // memory between release_backend and the next load_flat.  They are
-  // repopulated unconditionally by load_flat from the snapshot's
-  // `flat_lp.col_labels_meta` / `row_labels_meta`, so there is no
-  // need to serialise the labels into a separate compressed buffer
-  // here: the snapshot already owns the canonical copy and write_lp
-  // can only fire when the backend is loaded — which means load_flat
-  // just ran and the live vectors are populated.
+  // repopulated by load_flat from the snapshot's `flat_lp.col_labels_meta` /
+  // `row_labels_meta` — OR, when the metadata was spilled to the async
+  // `LpNameSpillStore` and dropped from the snapshot (names + low-memory),
+  // by the store reload at the top of `generate_labels_from_maps` (the only
+  // write_lp consumer).  Either way the canonical copy lives elsewhere
+  // (snapshot or store), so there is no need to serialise the labels into a
+  // separate compressed buffer here.
   //
   // Post-flatten vectors (cuts, alpha, cascade elastic) stay
   // populated: they are tiny and survive across cycles in

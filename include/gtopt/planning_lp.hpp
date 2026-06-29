@@ -19,6 +19,7 @@
 #include <utility>
 
 #include <gtopt/error.hpp>
+#include <gtopt/lp_name_spill.hpp>  // complete type: unique_ptr member + inline ctor
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
@@ -57,8 +58,18 @@ private:
   static auto create_systems(System& system,
                              SimulationLP& simulation,
                              const PlanningOptionsLP& options,
-                             const LpMatrixOptions& flat_opts)
+                             const LpMatrixOptions& flat_opts,
+                             LpNameSpillStore* name_store)
       -> scene_phase_systems_t;
+
+  /// Construct the run-lifetime async label-metadata spill store, or return
+  /// nullptr when spilling is disabled (names not kept, or monolithic — which
+  /// keeps a single resident LP whose label metadata is cheap).  Rooted at a
+  /// temp dir under `options.log_directory()`.  Defined out-of-line because
+  /// `LpNameSpillStore` is only forward-declared here.
+  [[nodiscard]] static auto make_name_store(const LpMatrixOptions& flat_opts,
+                                            const PlanningOptionsLP& options)
+      -> std::unique_ptr<LpNameSpillStore>;
 
   /// Build the aperture systems (if any) into `m_aperture_systems_`, owning
   /// the loaded reduced `System`s in `m_aperture_owned_systems_`.  Resolves
@@ -291,11 +302,13 @@ public:
             }())
       , m_options_(m_planning_.options)
       , m_simulation_(m_planning_.simulation, m_options_)
+      , m_name_store_(make_name_store(flat_opts, m_options_))
       , m_systems_(create_systems(
             m_planning_.system,
             m_simulation_,
             m_options_,
-            enforce_names_for_method(flat_opts, m_options_, m_planning_)))
+            enforce_names_for_method(flat_opts, m_options_, m_planning_),
+            m_name_store_.get()))
   {
     // Build the optional SDDP backward-pass aperture systems after the
     // forward systems exist (they share m_simulation_ and register into the
@@ -555,6 +568,13 @@ private:
   Planning m_planning_;
   PlanningOptionsLP m_options_;
   SimulationLP m_simulation_;
+
+  /// Run-lifetime async store that holds each cell's spilled label metadata
+  /// off-heap (Parquet) when names are kept under low-memory.  Declared BEFORE
+  /// `m_systems_` so it is constructed first: `create_systems` spills into it
+  /// during `m_systems_`' member-init.  Null when spilling is disabled.  Its
+  /// destructor joins the worker and removes the temp dir.
+  std::unique_ptr<LpNameSpillStore> m_name_store_;
 
   scene_phase_systems_t m_systems_;
 

@@ -32,6 +32,7 @@
 #include <gtopt/kirchhoff_cycle_basis.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/lp_fingerprint.hpp>
+#include <gtopt/lp_name_spill.hpp>
 #include <gtopt/map_reserve.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/mip_start.hpp>
@@ -598,6 +599,24 @@ constexpr auto create_linear_interface(auto& collections,
     // Off mode is untouched (labels always kept) — no regression; pass
     // `--lp-file` / `--lp-debug` (→ col_with_names) to keep real names.
     if (!flat_opts.col_with_names && !flat_opts.row_with_names) {
+      flat_lp.label_meta = nullptr;
+    } else if (flat_opts.name_store != nullptr && flat_lp.label_meta) {
+      // Names kept: spill the (dominant-cost) structural label metadata to the
+      // async store and free the resident copy.  `write_lp`'s
+      // `generate_labels_from_maps` reloads it (cached) on demand.  Key is per
+      // (kind, scene, phase) cell — aperture cells reuse (scene, phase) with a
+      // reduced structure, so the SystemKind discriminator is mandatory.
+      auto key = std::format("k{}_s{}_p{}",
+                             static_cast<int>(system_context.kind()),
+                             scene.uid().value(),
+                             phase.uid().value());
+      flat_opts.name_store->spill(
+          key,
+          LpLabelMeta {
+              .col_labels = flat_lp.label_meta->col_labels_meta,
+              .row_labels = flat_lp.label_meta->row_labels_meta,
+          });
+      li.set_name_store(flat_opts.name_store, std::move(key));
       flat_lp.label_meta = nullptr;
     }
     li.defer_initial_load(std::move(flat_lp));

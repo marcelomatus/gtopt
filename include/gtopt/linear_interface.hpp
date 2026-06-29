@@ -217,6 +217,7 @@ struct RowDiagnostics
 };
 
 class SystemLP;  // owner for the rebuild-mode back-pointer
+class LpNameSpillStore;  // async label-metadata spill store (non-owning)
 
 class LinearInterface
 {
@@ -2841,6 +2842,16 @@ public:
    */
   void set_label_maker(LabelMaker lm) noexcept { m_label_maker_ = lm; }
 
+  /// Attach the run-lifetime async metadata store and this cell's spill key.
+  /// Set by `create_linear_interface` after it spills (and drops) this LP's
+  /// label metadata; `generate_labels_from_maps` reloads from the store (on
+  /// demand, cached) when the live label vectors are empty.  Non-owning.
+  void set_name_store(LpNameSpillStore* store, std::string key) noexcept
+  {
+    m_name_store_ = store;
+    m_spill_key_ = std::move(key);
+  }
+
   /// @brief Returns the LabelMaker driving label generation for add_col/row.
   [[nodiscard]] constexpr const LabelMaker& label_maker() const noexcept
   {
@@ -3033,6 +3044,14 @@ private:
   std::string m_log_file_ {};
   std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
   LabelMaker m_label_maker_ {};  ///< Label generator + level gate
+
+  /// Non-owning back-pointer to the run-lifetime async metadata store and this
+  /// cell's spill key.  When set (names kept + non-monolithic), the structural
+  /// label metadata was spilled to the store and dropped from the snapshot;
+  /// `generate_labels_from_maps` reloads it from the store (cached) on demand.
+  /// Null when spilling is disabled (the live label vectors are authoritative).
+  LpNameSpillStore* m_name_store_ {nullptr};
+  std::string m_spill_key_ {};
 
   /// Name-to-index maps for duplicate detection and later lookup.
   /// Populated when names are enabled.

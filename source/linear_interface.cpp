@@ -910,6 +910,11 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // cloning even when the source had `LpNamesLevel::all`.  The
   // `clone_from_flat` route gets this for free via `load_flat`.
   cloned.m_label_maker_ = m_label_maker_;
+  // Propagate the async metadata store + spill key so the clone's `write_lp`
+  // can reload label metadata when its inherited live vectors are empty
+  // (aperture clones under low-memory + spill — see generate_labels_from_maps).
+  cloned.m_name_store_ = m_name_store_;
+  cloned.m_spill_key_ = m_spill_key_;
   // Propagate validation thresholds; stats are intentionally fresh on
   // the clone so each LP tracks only the writes that land on it.
   cloned.m_validation_options_ = m_validation_options_;
@@ -1014,6 +1019,8 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // source may have changed it via `set_label_maker` after load.  Reapply
   // the source's CURRENT setting so both clone routes are symmetric.
   cloned.m_label_maker_ = m_label_maker_;
+  cloned.m_name_store_ = m_name_store_;
+  cloned.m_spill_key_ = m_spill_key_;
   cloned.m_validation_options_ = m_validation_options_;
 
   // CloneKind dispatch — the metadata side.

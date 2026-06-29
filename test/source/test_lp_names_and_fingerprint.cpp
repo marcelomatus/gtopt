@@ -4,6 +4,7 @@
 ///        enforce_names_for_method, WorkPool memory gating, and fingerprint
 ///        simulation-stage expectations.
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -683,6 +684,88 @@ TEST_CASE(  // NOLINT
   if (std::filesystem::exists(lp_file)) {
     std::filesystem::remove(lp_file);
   }
+}
+
+// Pins the lp_error/lp_debug metadata-spill wiring end-to-end: under a
+// non-monolithic method with names kept and low_memory=compress,
+// `create_linear_interface` spills each cell's label metadata to the async
+// `LpNameSpillStore` and drops `FlatLP.label_meta`, so `load_flat` leaves the
+// frozen vectors EMPTY — and `write_lp` must reload them from the store to
+// emit real (non-generic) names.  Verified airtight: empty BEFORE write_lp,
+// repopulated + dotted-real AFTER.
+TEST_CASE(  // NOLINT
+    "PlanningLP low-memory spill: write_lp reloads real names from the store")
+{
+  const auto log_dir =
+      std::filesystem::temp_directory_path() / "gtopt_lp_name_spill_reload";
+  std::error_code ec;
+  std::filesystem::remove_all(log_dir, ec);
+
+  auto planning = make_3phase_hydro_planning();
+  planning.options.model_options.use_single_bus = OptBool {true};
+  planning.options.model_options.scale_objective = OptReal {1.0};
+  // sddp (non-monolithic) so `make_name_store` builds the store and the
+  // low-memory spill branch fires; `log_directory` roots the spill temp dir.
+  planning.options.method = MethodType::sddp;
+  planning.options.log_directory = log_dir.string();
+
+  // Names kept + compress → the spill path: each cell's label metadata is
+  // written to the store and dropped from the snapshot.
+  auto flat_opts = make_lp_matrix_options(
+      true, std::nullopt, false, std::nullopt, std::nullopt);
+  flat_opts.low_memory_mode = LowMemoryMode::compress;
+
+  PlanningLP plp(std::move(planning), flat_opts);
+
+  // The store was created (gate: names kept + non-monolithic) and roots its
+  // temp dir under `log_directory`.
+  CHECK(std::filesystem::exists(log_dir / "lp_name_meta"));
+
+  auto& sys = plp.systems().front()[first_phase_index()];
+  auto& li = sys.linear_interface();
+
+  // Reconstruct the backend: `load_flat` copies the snapshot's now-null
+  // `label_meta`, so the live frozen label vectors are EMPTY.  Nothing names
+  // the backend yet (`push_names_to_solver` runs only inside `write_lp`).
+  auto res = li.initial_solve();
+  REQUIRE(res.has_value());
+  // Under compress the backend auto-releases after the solve; reload it so
+  // label synthesis sees real rows/cols (the production error-LP path always
+  // writes against a freshly-solved, still-loaded backend).
+  if (li.is_backend_released()) {
+    sys.reconstruct_backend();
+  }
+  REQUIRE_FALSE(li.is_backend_released());
+  CHECK(li.flatten_col_count() == 0);  // dropped: not in the snapshot
+  CHECK(li.flatten_row_count() == 0);
+
+  // Synthesise the labels — `generate_labels_from_maps` reloads the metadata
+  // from the store first.  Use `materialize_labels` (not `write_lp`) because
+  // `write_lp` drops the formatted-name caches afterwards, so the names would
+  // not be observable through `row_index_to_name()`.
+  li.materialize_labels();
+
+  // The reload repopulated the frozen vectors from the store …
+  CHECK(li.flatten_row_count() > 0);
+  CHECK(li.flatten_col_count() > 0);
+  // … and the synthesised labels are REAL: the underscore-joined
+  // `class_var_uid_scene_phase_block` form (e.g. `bus_balance_1_1_1_1`),
+  // never the generic `c0`/`r0` fallback (a single token, no '_').  A single
+  // multi-component row label proves the metadata round-tripped.
+  const auto& rnames = li.row_index_to_name();
+  REQUIRE_FALSE(rnames.empty());
+  const bool any_real = std::ranges::any_of(
+      rnames,
+      [](const std::string& n) { return n.find('_') != std::string::npos; });
+  CHECK(any_real);
+
+  // The real `write_lp` path also succeeds end-to-end (reload served from the
+  // store cache this time).
+  const std::string lp_base = (log_dir / "reloaded").string();
+  auto wr = li.write_lp(lp_base);
+  CHECK(wr.has_value());
+
+  std::filesystem::remove_all(log_dir, ec);
 }
 
 TEST_CASE(  // NOLINT

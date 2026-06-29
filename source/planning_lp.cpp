@@ -28,6 +28,7 @@
 #include <gtopt/generator.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/lng_terminal.hpp>
+#include <gtopt/lp_name_spill.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <gtopt/planning_lp.hpp>
@@ -1166,6 +1167,10 @@ void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
     resolved_opts.low_memory_mode = m_options_.sddp_low_memory();
     resolved_opts.memory_codec = m_options_.sddp_memory_codec();
   }
+  // Aperture cells spill their label metadata to the same run-lifetime store
+  // (keyed per (kind, scene, phase) — the SystemKind discriminator keeps them
+  // distinct from their forward siblings).
+  resolved_opts.name_store = m_name_store_.get();
 
   const auto input_dir = std::string(m_options_.input_directory());
 
@@ -1247,10 +1252,28 @@ void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
   }
 }
 
+auto PlanningLP::make_name_store(const LpMatrixOptions& flat_opts,
+                                 const PlanningOptionsLP& options)
+    -> std::unique_ptr<LpNameSpillStore>
+{
+  // Spill only when names are kept (lp_file / lp_debug / lp_error →
+  // col/row_with_names) AND under a multi-cell method.  Monolithic keeps a
+  // single resident LP whose label metadata is cheap and forces
+  // low_memory=off (the spill site never fires), so a store there would just
+  // be an idle worker thread + empty temp dir.
+  const bool names = flat_opts.col_with_names || flat_opts.row_with_names;
+  if (!names || options.method_type_enum() == MethodType::monolithic) {
+    return nullptr;
+  }
+  return std::make_unique<LpNameSpillStore>(
+      std::filesystem::path(options.log_directory()) / "lp_name_meta");
+}
+
 auto PlanningLP::create_systems(System& system,
                                 SimulationLP& simulation,
                                 const PlanningOptionsLP& options,
-                                const LpMatrixOptions& flat_opts)
+                                const LpMatrixOptions& flat_opts,
+                                LpNameSpillStore* name_store)
     -> scene_phase_systems_t
 {
   system.expand_batteries();
@@ -1290,6 +1313,9 @@ auto PlanningLP::create_systems(System& system,
   // the "Loaded solver plugin" log before the "Building LP" banner so
   // the output order reflects setup → pool → build.
   auto resolved_opts = flat_opts;
+  // Thread the run-lifetime spill store down to each cell's
+  // `create_linear_interface` (null disables spilling).
+  resolved_opts.name_store = name_store;
   if (resolved_opts.solver_name.empty()) {
     resolved_opts.solver_name =
         std::string(SolverRegistry::instance().default_solver());

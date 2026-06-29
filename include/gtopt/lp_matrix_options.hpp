@@ -27,6 +27,8 @@
 namespace gtopt
 {
 
+class LpNameSpillStore;  // fwd-decl: non-owning back-pointer carried below
+
 // ─── LpMatrixOptions struct ──────────────────────────────────────────────────
 
 /**
@@ -146,6 +148,14 @@ struct LpMatrixOptions
   /// across LpMatrixOptions.
   std::optional<SceneUid> flatten_scene_uid {};
   std::optional<PhaseUid> flatten_phase_uid {};
+
+  /// Non-owning back-pointer to the run-lifetime async metadata store
+  /// (`PlanningLP::m_name_store_`).  When non-null (set only when names are
+  /// kept and the method is not monolithic), `create_linear_interface` spills
+  /// each cell's label metadata here and drops the resident copy; `write_lp`
+  /// reloads it on demand.  Null disables the spill (current behaviour).
+  /// Build-control carrier only — NOT merged, serialised, or compared.
+  LpNameSpillStore* name_store {nullptr};
 
   /// Merge optional fields from another LpMatrixOptions.
   /// Non-optional fields (eps, col_with_names, etc.) are not merged —
