@@ -130,6 +130,22 @@ private:
                                     const PhaseLP& phase,
                                     LinearProblem& lp);
 
+  /// `block_state` storage-coupling for one (scenario, stage): create the
+  /// INCOMING column (`value_in`) — first-stage fixed to `initial_value`,
+  /// same-phase-later-stage aliasing the previous stage's end column, or a
+  /// free cross-phase column linked via `defer_state_link` — and register the
+  /// last block's `value` column as the cross-phase state.  Precondition: the
+  /// per-block `value` columns for this (scenario, stage) are already in
+  /// `value_cols`.  Called only when `m_block_state_`.  Throws on a
+  /// multi-block non-chronological stage (the within-stage `prev()` lag would
+  /// be ill-defined) or a missing previous-stage end column.
+  void register_block_state(SystemContext& sc,
+                            const ScenarioLP& scenario,
+                            const StageLP& stage,
+                            LinearProblem& lp,
+                            double lower,
+                            double upper);
+
   /// Per-(scenario, stage) per-block column index map; populated by
   /// :meth:`add_to_lp` and read by :meth:`add_to_output` to emit the
   /// ``DecisionVariable/value`` solution columns.

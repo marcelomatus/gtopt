@@ -110,6 +110,11 @@ namespace
   // handles the boundary case via ``commitment.initial_status``.
   std::string normalised_attr {ref.attribute};
   static constexpr std::string_view PREV_SUFFIX {"_prev"};
+  // Convention shared with DecisionVariableLP: a `block_state` variable
+  // registers its cross-phase incoming column under `<attr>` + this suffix
+  // (i.e. `value` → `value_in`, == DecisionVariableLP::IncomingName).  Kept as
+  // a named constant (like PREV_SUFFIX) so the coupling is not a bare literal.
+  static constexpr std::string_view INCOMING_SUFFIX {"_in"};
 
   // ── prev(<ref>): lagged reference for block_state storage volumes ──────
   // Resolves to the previous chronological block's column within the stage.
@@ -130,7 +135,7 @@ namespace
       // (`value_in`); buid stays at the first block.  This is a coarse state
       // column, NOT an intra-stage lag, so it needs no chronological order
       // (in particular a single-block stage is fine here).
-      normalised_attr += "_in";
+      normalised_attr += INCOMING_SUFFIX;
     } else if (!stage.is_chronological()) {
       // Interior lag requires a chronological block sequence; without one
       // there is no well-defined "previous block".
