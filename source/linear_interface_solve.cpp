@@ -82,6 +82,15 @@ std::expected<int, Error> LinearInterface::initial_solve(
 {
   using Clock = std::chrono::steady_clock;
 
+  // Reconstruct the model from the compressed snapshot before solving.  Under
+  // LowMemoryMode::compress the LP is built straight into the snapshot and the
+  // backend is released WITHOUT ever loading the matrix, so the live backend is
+  // empty (0 rows / 0 cols).  resolve() and fix_integers_and_resolve() already
+  // do this; initial_solve() must too — otherwise the empty model reaches the
+  // backend (CLP/CBC null-deref in ClpPresolve → SIGSEGV; HiGHS/MindOpt error;
+  // CPLEX silently "solves" nothing).  No-op when not released (compress off).
+  ensure_backend();
+
   ++m_solver_stats_.initial_solve_calls;
   m_solver_stats_.total_ncols += get_numcols();
   m_solver_stats_.total_nrows += get_numrows();

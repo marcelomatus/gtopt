@@ -136,13 +136,27 @@ struct SolverTestReport
                                                    std::string_view test_name);
 
 /**
- * @brief Run the test suite against every solver known to SolverRegistry.
+ * @brief Return the solvers that are actually usable on this machine.
  *
- * Calls run_solver_tests() for each available solver in the order returned
- * by SolverRegistry::available_solvers() and prints a summary to stdout.
+ * `SolverRegistry::available_solvers()` lists every plugin that LOADED, but a
+ * plugin can load without being runnable on the current hardware (e.g. the
+ * cuOpt `.so` loads with no usable GPU).  This probes each loaded solver with a
+ * trivial feasible LP and keeps only those that solve it to optimality, so a
+ * present-but-unusable backend is excluded rather than reported as a failure.
+ * A note is printed to stdout for each skipped solver.
+ *
+ * @return Names of usable solvers, in `available_solvers()` order.
+ */
+[[nodiscard]] std::vector<std::string> identify_all_available_solvers();
+
+/**
+ * @brief Run the test suite against every USABLE solver.
+ *
+ * Calls identify_all_available_solvers() first, then run_solver_tests() for
+ * each survivor, printing a summary to stdout.
  *
  * @param verbose   Forward to run_solver_tests.
- * @return 0 if all tests for all solvers pass, 1 otherwise.
+ * @return 0 if all tests for all usable solvers pass, 1 otherwise.
  */
 [[nodiscard]] int check_all_solvers(bool verbose = false);
 

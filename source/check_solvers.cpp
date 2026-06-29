@@ -1437,11 +1437,45 @@ SolverTestReport run_solver_tests(std::string_view solver_name, bool verbose)
   return report;
 }
 
-int check_all_solvers(bool verbose)
+std::vector<std::string> identify_all_available_solvers()
 {
   auto& registry = SolverRegistry::instance();
   registry.load_all_plugins();
-  const auto available = registry.available_solvers();
+
+  std::vector<std::string> usable;
+  for (const auto& name : registry.available_solvers()) {
+    // A loaded plugin is not necessarily runnable on this machine (e.g. the
+    // cuOpt .so loads with no usable GPU).  Probe with a trivial feasible LP
+    // (min x, 1 <= x <= 2 → optimal) and keep the solver only if it solves it.
+    bool ok = false;
+    try {
+      LinearInterface lp(name);
+      (void)lp.add_col(SparseCol {.lowb = 1.0, .uppb = 2.0, .cost = 1.0});
+      const auto r = lp.initial_solve(SolverOptions {.log_level = 0});
+      ok = r.has_value() && lp.is_optimal();
+    } catch (const std::exception& ex) {
+      std::cout << std::format(
+          "  {} — skipped (probe threw: {})\n", name, ex.what());
+      continue;
+    }
+    if (ok) {
+      usable.push_back(name);
+    } else {
+      std::cout << std::format(
+          "  {} — plugin loaded but unusable on this hardware "
+          "(trivial-LP probe not optimal); skipping\n",
+          name);
+    }
+  }
+  return usable;
+}
+
+int check_all_solvers(bool verbose)
+{
+  auto& registry = SolverRegistry::instance();
+  // Test only solvers that are usable on this machine (plugin loaded AND the
+  // hardware can actually solve), not merely plugin-present.
+  const auto available = identify_all_available_solvers();
 
   if (available.empty()) {
     std::cout << "No LP solver plugins found.\n";

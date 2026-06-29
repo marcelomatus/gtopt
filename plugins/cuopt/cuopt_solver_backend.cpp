@@ -529,10 +529,15 @@ void CuOptSolverBackend::solve_()
         "cuOpt: forcing presolve OFF because a MIP start is set "
         "(cuOptAddMIPStart is unsupported with presolve on)");
   }
+  // Use PAPILO rather than cuOpt's PSLP presolver: PSLP (which CUOPT_PRESOLVE_
+  // DEFAULT resolves to) can declare an infeasible LP infeasible and then spin
+  // forever ("PSLP declares problem as infeasible" → hang), wedging any solve
+  // of an infeasible/degenerate model.  PAPILO is the mature open-source
+  // presolver and returns cleanly on infeasibility.
   cuOptSetIntegerParameter(settings,
                            CUOPT_PRESOLVE,
                            (m_options_.presolve && !has_mip_start)
-                               ? CUOPT_PRESOLVE_DEFAULT
+                               ? CUOPT_PRESOLVE_PAPILO
                                : CUOPT_PRESOLVE_OFF);
   if (has_mip_start) {
     check(cuOptAddMIPStart(settings,

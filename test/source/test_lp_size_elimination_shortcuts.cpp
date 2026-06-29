@@ -265,7 +265,14 @@ TEST_CASE(  // NOLINT
             .emin = 0.0,
             .emax = 1000.0,
             .eini = 500.0,
-            .fmin = 0.0,
+            // Baseline (fmax>0) forces a strictly-positive release so the
+            // free, zero-cost extraction column is bound away from 0 — making
+            // the long output deterministically carry non-zero rows for uid 1
+            // regardless of which optimal vertex the solver lands on (cbc/clp/
+            // highs otherwise leave the free column at its lower bound 0,
+            // dropping every row).  The zero variant (fmax==0) keeps
+            // fmin==fmax==0 so the elimination shortcut still fires.
+            .fmin = rsv_fmax > 0.0 ? 10.0 : 0.0,
             .fmax = rsv_fmax,
         },
     };

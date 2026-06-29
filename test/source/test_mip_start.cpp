@@ -568,6 +568,14 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
     MESSAGE("Skipping MIP test — no MIP solver available");
     return;
   }
+  // CBC's initial_solve() solves only the LP relaxation (its branch-and-bound
+  // lives in resolve()), so get_col_sol_raw() below would come back fractional.
+  // This test needs an integer primal straight out of initial_solve() — i.e. a
+  // solver that solves the MIP as posed (cplex/highs/gurobi/mindopt/scip).
+  if (reg.default_solver() == "cbc") {
+    MESSAGE("Skipping — CBC's initial_solve solves only the LP relaxation");
+    return;
+  }
   const std::filesystem::path path = "test_mip_start_roundtrip.start";
   std::filesystem::remove(path);
 

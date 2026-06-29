@@ -691,6 +691,12 @@ bool OsiSolverBackend::set_mip_start(const std::span<const double> col_values,
 
 void OsiSolverBackend::initial_solve()
 {
+  // NB: for CBC this solves only the LP relaxation; the MIP branch-and-bound
+  // lives in resolve().  Making initial_solve() run branchAndBound() for every
+  // CBC MIP was tried and reverted — it pushed otherwise-fast tests into
+  // intractable CBC B&B (hangs).  Callers that need an integer solution from a
+  // single CBC solve go through resolve(); tests that assert an integer primal
+  // straight out of initial_solve() are gated off CBC (see test_mip_start).
   m_solver_->initialSolve();
 }
 
