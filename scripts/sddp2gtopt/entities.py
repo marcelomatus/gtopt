@@ -45,6 +45,7 @@ class StudySpec:
     deficit_cost: float = 1000.0
     discount_rate: float = 0.0
     currency: str = "$"
+    block_hours: float = 0.0  # explicit per-block duration [h] (0 = derive)
 
 
 @dataclass
@@ -95,6 +96,14 @@ class ThermalSpec:
     system_ref: int | None = None
     bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
     is_import: bool = False  # backed by an interconnection import fuel (MEX/IMP)
+    max_gen: list[float] = field(default_factory=list)  # cprmxtgu pmax cap [MW/hour]
+    gcost_profile: list[float] = field(
+        default_factory=list
+    )  # hourly bid [$/MWh] from PRECIOSMEX (overrides scalar fuel gcost)
+    amm_tipo: str = ""  # RESTMEX constraint type: "<" (pmax), ">" (pmin), "=" (fix)
+    amm_profile: list[float | None] = field(
+        default_factory=list
+    )  # RESTMEX hourly RHS [MW]; None where the constraint is inactive that hour
 
 
 @dataclass
@@ -111,7 +120,7 @@ class HydroSpec:
     p_inst: float = 0.0
     vmin: float = 0.0
     vmax: float = 0.0
-    vinic: float = 0.0
+    vinic: float = 0.0  # raw PSR ``VInic`` (initial reservoir elevation, m)
     qmin: float = 0.0
     qmax: float = 0.0
     fp_med: float = 0.0
@@ -119,6 +128,17 @@ class HydroSpec:
     system_ref: int | None = None
     bus_number: int | None = None  # PSR network bus (multi-bus .dat path)
     gcost: float = 0.0  # water-value opportunity cost [$/MWh] (0 = free)
+    # Full hydro-topology fields (PSR ``chidro`` cascade + inflow + water value):
+    downstream_code: int | None = None  # PSR ``VAA`` — downstream plant NUM
+    committed: bool = True  # commith.dat on/off (off ⇒ pmax 0, water bypasses)
+    max_gen: list[float] = field(default_factory=list)  # cprmxhgu pmax cap [MW/hour]
+    eini: float = 0.0  # initial volume [hm³] (interpolated from VInic on cota–vol)
+    efin: float = 0.0  # expected end-of-horizon volume [hm³] (PSR ``volfincp``)
+    inflow: float = 0.0  # representative natural inflow [m³/s] (dispatch-start day)
+    inflow_profile: list[float] = field(
+        default_factory=list
+    )  # per-day natural inflow [m³/s] over the forecast horizon (from inflow.csv)
+    water_value: float = 0.0  # marginal water value [$/hm³] (for the boundary cut)
 
 
 @dataclass

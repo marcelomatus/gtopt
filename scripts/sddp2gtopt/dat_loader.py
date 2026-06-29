@@ -17,8 +17,12 @@ multi-bus network (``dbus``/``dcirc``) and reservoir hydro
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+from gtopt_shared.compressed_open import find_compressed_path
 
 from .dat_parsers import (
     BusDemandParser,
@@ -32,11 +36,16 @@ from .dat_parsers import (
     ThermalParser,
     VoltParser,
     find_dat,
+    parse_commitment,
+    parse_final_volumes,
+    parse_gen_constraints,
     parse_inflows,
+    parse_max_generation,
+    parse_renewable_profiles,
+    parse_renewables,
+    parse_unit_prices,
     parse_water_values,
 )
-from gtopt_shared.compressed_open import find_compressed_path
-
 from .entities import (
     BusSpec,
     CircuitSpec,
@@ -72,6 +81,7 @@ class DatCase:
     buses: list[BusSpec] = field(default_factory=list)
     circuits: list[CircuitSpec] = field(default_factory=list)
     multi_bus: bool = False
+    hydro_topology: bool = False
 
 
 # Per-unit reactance floor/cap (on a 100 MVA base).  Zero-impedance ties
@@ -129,6 +139,63 @@ def _infer_missing_kv(kv_by_bus: dict[int, float], circuits: list[CircuitSpec]) 
             break
 
 
+def _infer_blocks_per_day(profiles: dict[str, list[float]]) -> int:
+    """Infer the inflow's blocks-per-day from its run-length structure.
+
+    PSR inflow is constant within a day, so each plant's series is a run of
+    equal values per day; the GCD of all run lengths is the blocks-per-day
+    (e.g. a 6-hour, 4-block/day forecast → 4).  Falls back to a ~24-day daily
+    forecast when the GCD is degenerate.
+    """
+    from math import gcd  # pylint: disable=import-outside-toplevel
+
+    g = 0
+    n = 0
+    for prof in profiles.values():
+        n = max(n, len(prof))
+        run = 0
+        prev: float | None = None
+        for v in prof:
+            if prev is not None and abs(v - prev) > 1e-9:
+                g = gcd(g, run)
+                run = 0
+            run += 1
+            prev = v
+        g = gcd(g, run)
+    if g >= 2 and n % g == 0:
+        return g
+    return max(1, n // 24)
+
+
+def _apply_max_gen(
+    specs: list[Any],
+    path: Path,
+    installed: Callable[[Any], float],
+) -> int:
+    """Apply a PSR ``cprmx*`` max-generation cap to each spec's ``max_gen``.
+
+    Resolves the raw profile against each plant's installed capacity:
+    ``-1`` sentinels (no cap) and ``%G`` units become MW, and the cap is set
+    only when it actually binds (below installed).  Returns the count capped.
+    """
+    profiles, is_percent = parse_max_generation(path)
+    n_capped = 0
+    for s in specs:
+        prof = profiles.get(s.name)
+        if not prof:
+            continue
+        inst = installed(s)
+        if inst <= 0:
+            continue
+        cap = [
+            (inst if v < 0 else (v * inst / 100.0 if is_percent else v)) for v in prof
+        ]
+        if cap and min(cap) < inst - 1e-6:
+            s.max_gen = cap
+            n_capped += 1
+    return n_capped
+
+
 def is_dat_case(case_dir: str | Path) -> bool:
     """True if ``case_dir`` looks like a raw PSR ``.dat`` case.
 
@@ -156,7 +223,10 @@ def _demand_file(case_dir: Path) -> Path | None:
 
 
 def load_dat_case(
-    case_dir: str | Path, *, import_limit: float | None = None
+    case_dir: str | Path,
+    *,
+    import_limit: float | None = None,
+    blocks_per_stage: int = 0,
 ) -> DatCase:
     """Parse a PSR ``.dat`` case directory into a :class:`DatCase`.
 
@@ -166,6 +236,13 @@ def load_dat_case(
             import (Mexico/import-fuel generators) — the physical tie
             limit (GUA↔MEX ≈ 200 MW), used to stop the $0 import fuels
             flooding the dispatch.
+        blocks_per_stage: Hourly blocks grouped into each gtopt stage on the
+            multi-bus path.  Default ``0`` keeps a **single stage** — a
+            one-week NCP dispatch is deterministic and solves monolithic (like
+            the plexos2gtopt cases).  A positive value that divides the horizon
+            (e.g. 24 = daily) splits it into ≥ 2 stages so the case runs under
+            the SDDP / cascade methods, with reservoirs coupling storage across
+            stages — intended for genuine multi-week horizons.
 
     Raises:
         FileNotFoundError: If the mandatory ``sddp.dat`` is missing.
@@ -199,8 +276,13 @@ def load_dat_case(
     therm_path = find_dat(case_dir, *_THERMAL)
     if therm_path:
         thermals = ThermalParser(therm_path).parse(fuels=fuel_cost)
+        # Interconnection imports: a MEX/IMP-priced fuel, OR a unit named for a
+        # tie (MEX/ESA/HON/IMP/EDC).  The fuel test alone misses ESA-IMP /
+        # HON-IMP (their $0 fuels aren't MEX/IMP-named), so they'd flood uncapped.
         for t in thermals:
-            t.is_import = bool(t.fuel_refs) and t.fuel_refs[0] in import_fuels
+            t.is_import = (
+                bool(t.fuel_refs) and t.fuel_refs[0] in import_fuels
+            ) or t.name.upper().startswith(("MEX", "ESA", "HON", "IMP", "EDC"))
 
     # ── interconnection import cap ───────────────────────────────────────
     # The PSR fuel table prices Mexico/import fuels at ~$0 with large plant
@@ -221,43 +303,180 @@ def load_dat_case(
                 import_limit,
                 scale,
             )
-    # (import_limit is threaded explicitly below via the function argument)
+
+    # ── non-dispatchable renewables (cgndgu.dat + cpgndgu.dat) ───────────
+    # Wind (``-E``) / solar (``-F``) with a fixed hourly availability forecast.
+    # Modelled as generators capped at the forecast (``max_gen``) carrying the
+    # plant O&M cost, so PSR's must-take renewable energy (notably midday solar)
+    # enters the dispatch instead of being silently displaced by free imports.
+    gnd_path = find_compressed_path(case_dir / "cgndgu.dat")
+    if gnd_path is not None:
+        renewables = parse_renewables(gnd_path)
+        prof_path = find_compressed_path(case_dir / "cpgndgu.dat")
+        profiles = parse_renewable_profiles(prof_path) if prof_path else {}
+        for r in renewables:
+            prof = profiles.get(r.code)
+            if prof:
+                r.max_gen = prof
+        thermals.extend(renewables)
+        logger.info(
+            "loaded %d renewables (%d with hourly forecast)",
+            len(renewables),
+            sum(1 for r in renewables if r.max_gen),
+        )
+
+    # ── interconnection import prices (PRECIOSMEX.csv) ───────────────────
+    # The AMM's per-unit hourly bid is the authoritative import cost: only the
+    # contracted MEX-I tie is free, the other ties bid 250 $/MWh on the billed
+    # day (≈0 on look-ahead days).  The $0 fuel table makes them all free and
+    # they flood the dispatch — so override the interconnection gcost with the
+    # PRECIOSMEX series (ties not listed there inherit the regional INTER-SAL
+    # profile).  Domestic units keep their fuel-based cost (PRECIOSMEX ≈ fuel).
+    px_path = find_compressed_path(case_dir / "PRECIOSMEX.csv")
+    if px_path is not None:
+        prices = parse_unit_prices(px_path)
+        regional = next(
+            (v for k, v in prices.items() if k.upper() == "INTER-SAL"), None
+        )
+        n_px = 0
+        for t in thermals:
+            if not t.is_import:
+                continue
+            prof = prices.get(t.name) or prices.get(t.name.upper())
+            if prof is None and regional is not None:
+                prof = regional
+            if prof:
+                t.gcost_profile = prof
+                n_px += 1
+        logger.info("applied PRECIOSMEX import prices to %d interconnections", n_px)
+
+    # ── AMM operational constraints (RESTMEX.csv) ────────────────────────
+    # The market operator's per-unit generation limits (< pmax / > pmin / = fix,
+    # hourly).  Most are small self-supply units absent from this case, but the
+    # in-model ones (ORT-G, ZUN-G, TER-B, …) are bound faithfully.
+    rm_path = find_compressed_path(case_dir / "RESTMEX.csv")
+    if rm_path is not None:
+        cons = parse_gen_constraints(rm_path)
+        by_name = {spec.name.upper(): spec for spec in thermals}
+        n_rm = 0
+        for unit, (tp, rhs) in cons.items():
+            spec = by_name.get(unit.upper())
+            if spec is not None:
+                spec.amm_tipo = tp
+                spec.amm_profile = rhs
+                n_rm += 1
+        logger.info("applied %d/%d AMM constraints to in-model units", n_rm, len(cons))
 
     hydros: list[HydroSpec] = []
     hydro_path = find_dat(case_dir, *_HYDRO)
     if hydro_path:
         hydros = HydroParser(hydro_path).parse()
 
-    # ── hydro water values (watervcp.csv) → per-plant gcost [$/MWh] ──────
-    # PSR water value is k$/hm³; convert to $/MWh via the production factor
-    # (FPMed): $/MWh = WV·1000 / (FPMed·1e6/3600) = WV·3.6/FPMed.  Capped at
-    # the deficit cost (no resource should price above unserved energy).
+    # Full water-network mode kicks in when the ``chidro`` record carries real
+    # storage (``VMax`` > 0): reservoirs + turbines + junctions + inflow are
+    # emitted and the per-plant water value rides a single boundary cut on the
+    # reservoir end-volumes.  Otherwise hydros stay flattened to generators and
+    # the legacy gcost / inflow-cap stand-ins apply.
+    hydro_topology = any(h.vmax > 0.0 for h in hydros)
+
+    # ── hydro water values (watervcp.csv) ───────────────────────────────
+    # PSR water value is k$/hm³.  Two consumers:
+    #   * full topology → ``water_value`` [$/hm³] = WV·1000 on the boundary cut;
+    #   * legacy generators → ``gcost`` [$/MWh] = WV·3.6/FPMed (capped at the
+    #     deficit cost — no resource prices above unserved energy).
     wv_path = find_compressed_path(case_dir / "watervcp.csv")
     if wv_path is not None:
         wv = parse_water_values(wv_path)
         n_priced = 0
         for h in hydros:
             value = wv.get(h.name)
-            if value and value > 0 and h.fp_med > 0:
-                h.gcost = min(value * 3.6 / h.fp_med, study.deficit_cost)
+            if value and value > 0:
+                h.water_value = value * 1000.0
+                if h.fp_med > 0:
+                    h.gcost = min(value * 3.6 / h.fp_med, study.deficit_cost)
                 n_priced += 1
         logger.info("applied water values to %d hydro plant(s)", n_priced)
 
-    # ── inflow limit on run-of-river hydro (inflow.csv) ─────────────────
-    # Free run-of-river hydro (water value ≈ 0) would otherwise dispatch at
-    # full installed `Pot`, flooding the market.  Cap each such plant at the
-    # available water: pmax = min(Pot, inflow[m³/s] · FPMed[MW/(m³/s)]).
-    # Storage plants (priced > 0) keep `Pot`; their water value already
-    # governs dispatch.
+    # ── natural inflow (inflow.csv) ─────────────────────────────────────
+    # The forecast is a time-varying daily series; keep it as a per-day profile
+    # (NOT the horizon mean, which over-states dispatch-period water and floods
+    # run-of-river hydro).  The writer maps the profile onto the model's
+    # day/block grid; ``h.inflow`` keeps the representative mean for the legacy
+    # generator path and the topology emit-guard.
     inflow_path = find_compressed_path(case_dir / "inflow.csv")
     if inflow_path is not None:
         inflow = parse_inflows(inflow_path)
+        bpd = _infer_blocks_per_day(inflow)
+        for h in hydros:
+            prof = inflow.get(h.name)
+            if prof:
+                daily = [
+                    sum(prof[i : i + bpd]) / len(prof[i : i + bpd])
+                    for i in range(0, len(prof), bpd)
+                ]
+                h.inflow_profile = daily
+                h.inflow = sum(daily) / len(daily)
+
+    # ── expected end-of-horizon volume (volfincp.csv) → efin ─────────────
+    # PSR's solved end storage is the boundary-cut linearisation point.  SDDP
+    # does NOT assume vfin = vini: when no end-volume is shipped the final volume
+    # is left free and valued only by the future cost (the cut).  So efin is set
+    # ONLY from volfincp; reservoirs without it keep efin = 0 (no soft target)
+    # and are still priced via their water-value coefficient in the cut.
+    vfin_path = find_compressed_path(case_dir / "volfincp.csv")
+    if vfin_path is not None:
+        vfin = parse_final_volumes(vfin_path)
+        n_efin = 0
+        for h in hydros:
+            v = vfin.get(h.name)
+            if v is not None:
+                h.efin = v
+                n_efin += 1
+        logger.info("applied PSR end-volumes (efin) to %d hydro plant(s)", n_efin)
+
+    # ── max generation caps (cprmxhgu / cprmxtgu) → generator pmax ───────
+    # PSR's per-plant, per-hour maximum-generation limit (operational
+    # derating / availability) holds plants below installed capacity — the
+    # reason PSR's hydro dispatch (~498 MW) is far under installed.  Applied
+    # to ``pmax`` (NOT ``capacity`` — a distinct expansion concept).
+    mxh_path = find_compressed_path(case_dir / "cprmxhgu_u.dat")
+    if mxh_path is not None:
+        n = _apply_max_gen(hydros, mxh_path, lambda h: h.p_inst)
+        logger.info("max-gen cap (cprmxhgu): capped %d hydro plant(s)", n)
+    mxt_path = find_compressed_path(case_dir / "cprmxtgu_u.dat")
+    if mxt_path is not None:
+        n = _apply_max_gen(thermals, mxt_path, lambda t: t.pmax)
+        logger.info("max-gen cap (cprmxtgu): capped %d thermal plant(s)", n)
+
+    # ── hydro commitment (commith.dat) ──────────────────────────────────
+    # Units committed off this dispatch must not generate; gtopt pins their
+    # generator pmax to 0 and lets water bypass their turbine (drain) so the
+    # cascade still feeds downstream plants.
+    commit_path = find_compressed_path(case_dir / "commith.dat")
+    if commit_path is not None:
+        commit = parse_commitment(commit_path)
+        n_off = 0
+        for h in hydros:
+            if commit.get(h.name) is False:
+                h.committed = False
+                n_off += 1
+        logger.info("commitment (commith): %d hydro plant(s) committed OFF", n_off)
+
+    if hydro_topology:
+        # The water network governs hydro dispatch physically (turbine flow ≤
+        # inflow + storage release, valued by the boundary cut), so the
+        # generators carry no fuel cost and keep their installed capacity.
+        for h in hydros:
+            h.gcost = 0.0
+    else:
+        # Legacy generator model: cap free run-of-river hydro (water value ≈ 0)
+        # at the available water so it can't dispatch its full installed `Pot`
+        # and flood the market — pmax = min(Pot, inflow · FPMed).
         n_capped = 0
         for h in hydros:
-            q = inflow.get(h.name)
-            if h.gcost > 0.0 or q is None or h.fp_med <= 0.0:
-                continue  # priced storage hydro, or no inflow/FPMed data
-            avail = q * h.fp_med
+            if h.gcost > 0.0 or h.inflow <= 0.0 or h.fp_med <= 0.0:
+                continue
+            avail = h.inflow * h.fp_med
             if avail < h.p_inst:
                 h.p_inst = avail
                 n_capped += 1
@@ -293,11 +512,12 @@ def load_dat_case(
             kv = max(kv_by_bus.get(c.from_bus, 0.0), kv_by_bus.get(c.to_bus, 0.0))
             c.reactance_pu = _clamp_reactance(_ohm_to_pu(c.reactance_pu, kv))
             circuits.append(c)
-        # Route generators to their bus by name.
+        # Route generators to their bus by name (keeping a spec's own bus —
+        # e.g. a renewable's cgndgu bus — when dbus has no name mapping).
         for t in thermals:
-            t.bus_number = gen2bus.get(t.name)
+            t.bus_number = gen2bus.get(t.name, t.bus_number)
         for h in hydros:
-            h.bus_number = gen2bus.get(h.name)
+            h.bus_number = gen2bus.get(h.name, h.bus_number)
 
     multi_bus = bool(buses and circuits)
 
@@ -324,8 +544,26 @@ def load_dat_case(
             n_blocks = max(n_blocks, len(vals))
             uid += 1
         if n_blocks:
-            study.num_stages = 1
-            study.num_blocks = n_blocks
+            # The NCP demand is a flat hourly horizon (1 h per block).  Group it
+            # into daily stages so SDDP / cascade have ≥ 2 phases to decompose;
+            # only when the horizon divides evenly (else keep a single stage).
+            study.block_hours = 1.0
+            if (
+                blocks_per_stage
+                and 0 < blocks_per_stage < n_blocks
+                and (n_blocks % blocks_per_stage == 0)
+            ):
+                study.num_blocks = blocks_per_stage
+                study.num_stages = n_blocks // blocks_per_stage
+            else:
+                study.num_stages = 1
+                study.num_blocks = n_blocks
+            logger.info(
+                "time model: %d hourly blocks → %d stage(s) × %d block(s)",
+                n_blocks,
+                study.num_stages,
+                study.num_blocks,
+            )
     else:
         dem_path = _demand_file(case_dir)
         if dem_path:
@@ -365,4 +603,5 @@ def load_dat_case(
         buses=buses,
         circuits=circuits,
         multi_bus=multi_bus,
+        hydro_topology=hydro_topology,
     )

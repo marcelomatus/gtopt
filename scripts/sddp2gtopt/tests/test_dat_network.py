@@ -307,6 +307,389 @@ def test_import_limit_caps_aggregate(tmp_path: Path) -> None:
     assert by["G1"].pmax == pytest.approx(100.0)  # domestic untouched
 
 
+def test_water_network_and_boundary_cut() -> None:
+    """hydro_topology emits junctions/reservoirs/turbines/inflow + a boundary cut."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    hydros = [
+        # Storage plant (reservoir + water value) draining to the RoR plant.
+        HydroSpec(
+            code=601,
+            name="RES-H1",
+            reference_id=601,
+            p_inst=50.0,
+            fp_med=3.0,
+            qmax=15.0,
+            vmin=90.0,
+            vmax=340.0,
+            eini=200.0,
+            efin=150.0,  # expected end volume (distinct from eini → used by the cut)
+            inflow=33.5,
+            water_value=185907.0,  # $/hm³
+            downstream_code=602,
+            bus_number=1,
+        ),
+        HydroSpec(
+            code=602,
+            name="ROR-H2",
+            reference_id=602,
+            p_inst=50.0,
+            fp_med=3.0,
+            qmax=15.0,
+            inflow=5.0,
+            bus_number=1,
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="wn",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    system = planning["system"]
+    # One junction + turbine per plant; one reservoir (only RES-H1 has storage).
+    assert len(system["junction_array"]) == 2
+    assert len(system["turbine_array"]) == 2
+    assert len(system["reservoir_array"]) == 1
+    assert len(system["flow_array"]) == 2  # both have inflow
+
+    res = system["reservoir_array"][0]
+    assert res["name"] == "rs_RES-H1"
+    assert (res["emin"], res["emax"], res["eini"]) == (90.0, 340.0, 200.0)
+    assert res["use_state_variable"] is True
+    # hm³/(m³/s·h) conversion must be pinned (gtopt LP defaults absent → 3.6).
+    assert res["flow_conversion_rate"] == pytest.approx(0.0036)
+    # Soft end-of-horizon target at the expected end volume efin (150, NOT eini),
+    # priced at the water value.
+    assert res["efin"] == pytest.approx(150.0)
+    assert res["efin_cost"] == pytest.approx(185907.0)
+
+    # RES-H1 turbine routes to ROR-H2's junction (cascade); ROR-H2 is terminal.
+    tb = {t["name"]: t for t in system["turbine_array"]}
+    assert tb["tb_RES-H1"]["junction_b"] == "jn_ROR-H2"
+    assert "junction_b" not in tb["tb_ROR-H2"]
+    assert tb["tb_RES-H1"]["generator"] == "RES-H1"
+
+    # Hydro generators are free (water value rides the cut, not gcost).
+    gens = {g["name"]: g for g in system["generator_array"]}
+    assert gens["RES-H1"]["gcost"] == pytest.approx(0.0)
+
+    # Single-week dispatch → monolithic (default method, cut in monolithic_options).
+    assert "method" not in planning["options"]
+    assert planning["options"]["monolithic_options"]["boundary_cuts_file"]
+    # The cut CSV carries -water_value for the priced reservoir.
+    cut = planning["_boundary_cuts"]
+    header, row = cut.strip().splitlines()
+    assert header == "iteration,scene,rhs,rs_RES-H1"
+    cells = row.split(",")
+    assert float(cells[-1]) == pytest.approx(-185907.0)  # -WV
+    assert float(cells[2]) == pytest.approx(185907.0 * 150.0)  # rhs = WV·efin (150)
+
+
+def test_no_vfin_reservoir_priced_in_cut_without_efin_target() -> None:
+    """No shipped vfin → no efin target (vfin free in [vmin,vmax]); still in cut."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    # water_value > 0 but efin == 0 (volfincp absent) → must NOT assume vfin=vini.
+    hydros = [
+        HydroSpec(
+            code=701,
+            name="NOVF-H1",
+            reference_id=701,
+            p_inst=40.0,
+            fp_med=2.0,
+            qmax=10.0,
+            vmin=50.0,
+            vmax=200.0,
+            eini=120.0,
+            efin=0.0,  # no shipped end-volume
+            water_value=90000.0,
+            bus_number=1,
+        )
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="nv",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    res = planning["system"]["reservoir_array"][0]
+    # Bounds are the natural emin/emax (vmin<=vfin<=vmax); no end target imposed.
+    assert (res["emin"], res["emax"]) == (50.0, 200.0)
+    assert "efin" not in res and "efin_cost" not in res
+    # Still priced via the single cut (water-value coefficient), linearised at eini.
+    cut = planning["_boundary_cuts"]
+    header, row = cut.strip().splitlines()
+    assert header == "iteration,scene,rhs,rs_NOVF-H1"
+    cells = row.split(",")
+    assert float(cells[-1]) == pytest.approx(-90000.0)  # -WV
+    assert float(cells[2]) == pytest.approx(90000.0 * 120.0)  # rhs = WV·eini
+
+
+def test_max_gen_cap_sets_pmax_pmin_zero_no_uc() -> None:
+    """cprmx* cap drives generator pmax (not capacity); pmin is relaxed to 0.
+
+    The base dispatch has no unit commitment, so a forced ``GerMin`` must-run
+    would over-supply (free hydro becomes marginal, crashing the LMP).  pmin is
+    therefore emitted as 0 regardless of the parsed minimum; capacity stays at
+    installed and the pmax cap still follows the operational ``cprmx*`` profile.
+    """
+    from sddp2gtopt.entities import StudySpec  # ThermalSpec is imported above
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=4, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    thermals = [
+        # Constant cap below installed → scalar pmax = cap; capacity = installed.
+        ThermalSpec(
+            code=1,
+            name="GCAP",
+            reference_id=1,
+            pmin=0.0,
+            pmax=50.0,
+            g_segments=[(50.0, 30.0)],
+            bus_number=1,
+            max_gen=[20.0, 20.0, 20.0, 20.0],
+        ),
+        # Cap drops to 0 (maintenance); parsed pmin=4 is relaxed to 0 (no UC).
+        ThermalSpec(
+            code=2,
+            name="GMNT",
+            reference_id=2,
+            pmin=4.0,
+            pmax=30.0,
+            g_segments=[(30.0, 40.0)],
+            bus_number=1,
+            max_gen=[10.0, 10.0, 0.0, 0.0],
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=thermals,
+        hydros=[],
+        demands=[],
+        name="cap",
+        buses=buses,
+        circuits=circuits,
+    )
+    g = {x["name"]: x for x in planning["system"]["generator_array"]}
+    # GCAP: pmax = cap 20 (scalar), capacity stays installed 50, pmin 0.
+    assert g["GCAP"]["pmax"] == pytest.approx(20.0)
+    assert g["GCAP"]["capacity"] == pytest.approx(50.0)
+    assert g["GCAP"]["pmin"] == pytest.approx(0.0)
+    # GMNT: pmax is the per-block cap schedule; pmin relaxed to 0 (no must-run).
+    assert g["GMNT"]["pmax"] == [[10.0, 10.0, 0.0, 0.0]]
+    assert g["GMNT"]["pmin"] == pytest.approx(0.0)
+    assert g["GMNT"]["capacity"] == pytest.approx(30.0)
+
+
+def test_import_gcost_profile_and_renewable_emit() -> None:
+    """An import's PRECIOSMEX bid emits a time-varying gcost; a renewable
+    (capped by max_gen) emits at its O&M cost; both carry pmin 0 (no UC)."""
+    from sddp2gtopt.entities import StudySpec  # ThermalSpec is imported above
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=3, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    thermals = [
+        ThermalSpec(
+            code=1,
+            name="MEX-I2",
+            reference_id=1,
+            pmin=0.0,
+            pmax=30.0,
+            g_segments=[(30.0, 0.0)],
+            bus_number=1,
+            is_import=True,
+            gcost_profile=[250.0, 250.0, 0.0],  # 250 on the billed day, 0 ahead
+        ),
+        ThermalSpec(
+            code=2,
+            name="SOL-F",
+            reference_id=2,
+            pmin=0.0,
+            pmax=50.0,
+            g_segments=[(50.0, 1.5)],
+            bus_number=1,
+            max_gen=[0.0, 40.0, 20.0],  # hourly availability forecast
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=thermals,
+        hydros=[],
+        demands=[],
+        name="px",
+        buses=buses,
+        circuits=circuits,
+    )
+    g = {x["name"]: x for x in planning["system"]["generator_array"]}
+    assert g["MEX-I2"]["gcost"] == [[250.0, 250.0, 0.0]]  # time-varying import bid
+    assert g["MEX-I2"]["pmin"] == pytest.approx(0.0)
+    assert g["SOL-F"]["pmax"] == [[0.0, 40.0, 20.0]]  # forecast cap as pmax
+    assert g["SOL-F"]["gcost"] == pytest.approx(1.5)  # O&M cost
+
+
+def test_amm_constraint_overrides_bounds() -> None:
+    """A RESTMEX constraint overrides bounds: ``<``→pmax, ``>``→pmin (None→0)."""
+    from sddp2gtopt.entities import StudySpec  # ThermalSpec is imported above
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    thermals = [
+        ThermalSpec(
+            code=1,
+            name="ORT-G",
+            reference_id=1,
+            pmin=0.0,
+            pmax=15.84,
+            g_segments=[(15.84, 30.0)],
+            bus_number=1,
+            amm_tipo="<",
+            amm_profile=[14.6, 14.6],
+        ),
+        ThermalSpec(
+            code=2,
+            name="TER-B",
+            reference_id=2,
+            pmin=0.0,
+            pmax=50.0,
+            g_segments=[(50.0, 40.0)],
+            bus_number=1,
+            amm_tipo=">",
+            amm_profile=[7.0, None],
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=thermals,
+        hydros=[],
+        demands=[],
+        name="amm",
+        buses=buses,
+        circuits=circuits,
+    )
+    g = {x["name"]: x for x in planning["system"]["generator_array"]}
+    assert g["ORT-G"]["pmax"] == pytest.approx(14.6)  # < cap (constant → scalar)
+    assert g["ORT-G"]["pmin"] == pytest.approx(0.0)
+    assert g["TER-B"]["pmin"] == [[7.0, 0.0]]  # > floor; blank hour → 0
+    assert g["TER-B"]["pmax"] == pytest.approx(50.0)  # unchanged (installed)
+
+
+def test_committed_off_hydro_pmax_zero_turbine_drains() -> None:
+    """A committed-off hydro gets pmax 0 and a drain turbine (water bypasses)."""
+    from sddp2gtopt.entities import HydroSpec, StudySpec
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=2, deficit_cost=500.0)
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    hydros = [
+        HydroSpec(
+            code=601,
+            name="ON-H1",
+            reference_id=601,
+            p_inst=50.0,
+            fp_med=3.0,
+            qmax=15.0,
+            downstream_code=603,
+            inflow=30.0,
+            bus_number=1,
+            committed=True,
+        ),
+        HydroSpec(
+            code=603,
+            name="OFF-H3",  # committed off → pmax 0, turbine drains downstream
+            reference_id=603,
+            p_inst=50.0,
+            fp_med=3.0,
+            qmax=15.0,
+            bus_number=1,
+            committed=False,
+        ),
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=hydros,
+        demands=[],
+        name="cm",
+        buses=buses,
+        circuits=circuits,
+        hydro_topology=True,
+    )
+    g = {x["name"]: x for x in planning["system"]["generator_array"]}
+    assert g["ON-H1"]["pmax"] == pytest.approx(50.0)
+    assert g["OFF-H3"]["pmax"] == pytest.approx(0.0)  # off → cannot generate
+    tb = {t["name"]: t for t in planning["system"]["turbine_array"]}
+    assert "drain" not in tb["tb_ON-H1"]  # on: power = pf·flow
+    assert tb["tb_OFF-H3"]["drain"] is True  # off: power ≤ pf·flow → flow bypasses
+
+
+def test_multistage_emits_sddp_simulation() -> None:
+    """Daily staging emits phase/scene/aperture arrays for the SDDP run."""
+    from sddp2gtopt.entities import StudySpec
+
+    study = StudySpec(
+        stage_type=1, num_stages=3, num_blocks=24, block_hours=1.0, deficit_cost=500.0
+    )
+    buses = [BusSpec(number=1, name="A-230", base_kv=230.0)]
+    circuits = [CircuitSpec(from_bus=1, to_bus=1, reactance_pu=0.05, rating=300.0)]
+    demands = [
+        DemandSpec(
+            code=1,
+            name="d1",
+            reference_id=1,
+            bus_number=1,
+            block_values=[100.0] * 72,  # 3 stages × 24 blocks
+        )
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=[],
+        demands=demands,
+        name="ms",
+        buses=buses,
+        circuits=circuits,
+    )
+    sim = planning["simulation"]
+    assert len(sim["phase_array"]) == 3
+    assert sim["phase_array"][1] == {
+        "uid": 2,
+        "first_stage": 1,
+        "count_stage": 1,
+        "apertures": [1],
+    }
+    assert len(sim["scene_array"]) == 1
+    assert len(sim["aperture_array"]) == 1
+    assert sim["block_array"][0]["duration"] == pytest.approx(1.0)
+    # Demand reshaped into [stage][block].
+    lmax = planning["system"]["demand_array"][0]["lmax"]
+    assert len(lmax) == 3 and all(len(r) == 24 for r in lmax)
+
+
 def test_build_planning_hydro_cost() -> None:
     from sddp2gtopt.entities import HydroSpec, StudySpec
 

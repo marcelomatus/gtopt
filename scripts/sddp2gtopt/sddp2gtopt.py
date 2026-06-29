@@ -137,8 +137,13 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
     # Front-end selection: raw PSR `.dat` collection vs psrclasses.json.
     buses = None
     circuits = None
+    hydro_topology = False
     if is_dat_case(input_dir):
-        case = load_dat_case(input_dir, import_limit=options.get("import_limit"))
+        case = load_dat_case(
+            input_dir,
+            import_limit=options.get("import_limit"),
+            blocks_per_stage=int(options.get("blocks_per_stage", 0)),
+        )
         study = case.study
         systems = case.systems
         thermals = case.thermals
@@ -147,6 +152,7 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
         if case.multi_bus:
             buses = case.buses
             circuits = case.circuits
+            hydro_topology = case.hydro_topology
     else:
         loader = load_psrclasses(input_dir)
         study = parse_study(loader)
@@ -174,7 +180,25 @@ def convert_sddp_case(options: dict[str, Any]) -> int:
         buses=buses,
         circuits=circuits,
         hydro_cost=float(options.get("hydro_cost", 0.0)),
+        hydro_topology=hydro_topology,
     )
+
+    # A boundary cut (full hydro topology) ships as a sibling CSV; rewrite the
+    # reference to its absolute path so gtopt resolves it regardless of the run
+    # directory (``resolve_input`` passes absolute paths through unchanged).
+    cut_csv = planning.pop("_boundary_cuts", None)
+    if cut_csv is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        cut_path = (output_dir / "boundary_cuts.csv").resolve()
+        cut_path.write_text(cut_csv, encoding="utf-8")
+        # Rewrite the relative placeholder to an absolute path in whichever
+        # method options block the writer wired it into (monolithic for a
+        # single-week dispatch, sddp for a staged horizon).
+        for block in ("monolithic_options", "sddp_options"):
+            opts = planning["options"].get(block)
+            if isinstance(opts, dict) and "boundary_cuts_file" in opts:
+                opts["boundary_cuts_file"] = str(cut_path)
+        logger.info("wrote boundary cut: %s", cut_path)
 
     write_planning(planning, output_file)
     logger.info(

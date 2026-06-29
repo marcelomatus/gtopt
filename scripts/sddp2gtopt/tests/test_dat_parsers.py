@@ -15,6 +15,14 @@ from sddp2gtopt.dat_parsers import (
     HydroParser,
     SystemParser,
     ThermalParser,
+    _interp_cota_vol,
+    parse_commitment,
+    parse_gen_constraints,
+    parse_inflows,
+    parse_max_generation,
+    parse_renewable_profiles,
+    parse_renewables,
+    parse_unit_prices,
 )
 from sddp2gtopt.gtopt_writer import build_planning
 from sddp2gtopt.sddp2gtopt import convert_sddp_case, validate_sddp_case
@@ -64,6 +72,192 @@ def test_hydro_parser_picks_pot(dat_case_dir: Path) -> None:
     # Pot is the first decimal value, robust to blank fixed-width columns.
     assert by_name["HYDRO1"].p_inst == pytest.approx(30.0)
     assert by_name["HYDRO2"].p_inst == pytest.approx(20.0)
+
+
+def _fw_chidro_line(
+    num: int,
+    name: str,
+    vaa: int | str,
+    pot: float,
+    fpmed: float,
+    qmax: float,
+    vmin: float,
+    vmax: float,
+    vinic: float,
+) -> str:
+    """Render one PSR fixed-width ``chidro`` data row at the real offsets."""
+    buf = [" "] * 100
+
+    def put_right(val: object, end: int) -> None:
+        s = f"{val}"
+        buf[end - len(s) : end] = list(s)
+
+    put_right(num, 4)
+    s = f"{name}"
+    buf[5 : 5 + len(s)] = list(s)  # name left-justified
+    put_right(vaa, 27)
+    put_right(pot, 50)
+    put_right(fpmed, 58)
+    put_right(qmax, 74)
+    put_right(vmin, 82)
+    put_right(vmax, 90)
+    put_right(vinic, 98)
+    return "".join(buf).rstrip() + "\n"
+
+
+def test_interp_cota_vol() -> None:
+    curve = [(100.0, 10.0), (200.0, 30.0), (300.0, 90.0)]
+    assert _interp_cota_vol(150.0, curve) == pytest.approx(20.0)  # midpoint of seg 1
+    assert _interp_cota_vol(250.0, curve) == pytest.approx(60.0)
+    assert _interp_cota_vol(50.0, curve) == pytest.approx(10.0)  # clamp low
+    assert _interp_cota_vol(400.0, curve) == pytest.approx(90.0)  # clamp high
+    assert _interp_cota_vol(150.0, [(100.0, 10.0)]) is None  # < 2 points
+    assert _interp_cota_vol(150.0, [(None, None), (100.0, 10.0)]) is None
+
+
+def test_parse_max_generation(tmp_path: Path) -> None:
+    """cprmx* parses per-plant hourly max-gen profiles; reports MW vs %G."""
+    path = tmp_path / "cprmxhgu_u.dat"
+    path.write_text(
+        "Unidades   :    1  (1=MW,2=%G)\n"
+        "****          601 CHX-H1      \n"
+        "dd/mm/aaaa ....00h ....01h ....02h\n"
+        "21/06/2026   20.73   20.73   20.73\n"
+        "22/06/2026   20.73   20.73   20.73\n"
+        "****          602 LPA-B1      \n"
+        "dd/mm/aaaa ....00h ....01h ....02h\n"
+        "21/06/2026    10.1    10.1    10.1\n"
+        "22/06/2026     0.0     0.0     0.0\n",
+        encoding="latin-1",
+    )
+    profiles, is_pct = parse_max_generation(path)
+    assert is_pct is False
+    assert profiles["CHX-H1"] == [pytest.approx(20.73)] * 6
+    assert profiles["LPA-B1"] == [10.1, 10.1, 10.1, 0.0, 0.0, 0.0]
+
+
+def test_parse_inflows_returns_profile(tmp_path: Path) -> None:
+    """inflow.csv → the full per-stage profile, NOT the collapsed horizon mean."""
+    path = tmp_path / "inflow.csv"
+    path.write_text(
+        "Varies per block?,0,Unit,m3/s\n"
+        "Varies per sequence?,0\n"
+        "# of agents,1\n"
+        "Stag,Seq.,Blck,AGU-H1\n"
+        "1,1,1,2.0\n2,1,1,4.0\n3,1,1,6.0\n",
+        encoding="latin-1",
+    )
+    prof = parse_inflows(path)
+    assert prof["AGU-H1"] == [2.0, 4.0, 6.0]  # profile preserved, not mean 4.0
+
+
+def test_parse_renewables_and_profiles(tmp_path: Path) -> None:
+    """cgndgu → generators (PotIns front-anchored, O&M back-anchored, blanks ok);
+    cpgndgu → per-COD hourly forecast concatenated across days."""
+    cg = tmp_path / "cgndgu.dat"
+    cg.write_text(
+        "$version=3\n"
+        "!Num Name........ .Bus. Tipo #Uni .PotIns ..FatOpe ProbFal SFal Stat "
+        "....O&M CurtCos TechTyp\n"
+        "   1 SNT-E        16014    0   16   53.59       1.      0.    0     1"
+        "    0.63      0.      0.\n"
+        "   9 SDT-F         1445    0    1     40.       1.            0     9"
+        "      0.      0.      0.\n",
+        encoding="latin-1",
+    )
+    rens = {r.name: r for r in parse_renewables(cg)}
+    assert rens["SNT-E"].pmax == pytest.approx(53.59)
+    assert rens["SNT-E"].bus_number == 16014
+    assert rens["SNT-E"].g_segments[0][1] == pytest.approx(0.63)  # O&M back-anchored
+    assert rens["SNT-E"].is_import is False
+    # SDT-F has a blank ProbFal column → O&M still read correctly (back-anchored).
+    assert rens["SDT-F"].pmax == pytest.approx(40.0)
+    assert rens["SDT-F"].g_segments[0][1] == pytest.approx(0.0)
+
+    cp = tmp_path / "cpgndgu.dat"
+    cp.write_text(
+        "****    COD:    1 TP: 0\n"
+        "dd/mm/aaaa ....00h ....01h ....02h\n"
+        "21/06/2026  12.0  13.0  14.0\n"
+        "22/06/2026   1.0   2.0   3.0\n"
+        "****    COD:    9 TP: 0\n"
+        "dd/mm/aaaa ....00h ....01h ....02h\n"
+        "21/06/2026   5.0   6.0   7.0\n",
+        encoding="latin-1",
+    )
+    prof = parse_renewable_profiles(cp)
+    assert prof[1] == [12.0, 13.0, 14.0, 1.0, 2.0, 3.0]
+    assert prof[9] == [5.0, 6.0, 7.0]
+
+
+def test_parse_gen_constraints(tmp_path: Path) -> None:
+    """RESTMEX → {unit: (type, [hourly RHS|None])}; labels normalised, blanks None."""
+    path = tmp_path / "RESTMEX.csv"
+    path.write_text(
+        "#1,,,\n"
+        "Tipo,<,>,=\n"
+        "dd/mm/aaaa:hh,2-ORT-G DG,6-TER-B V,61-EDC-I\n"
+        "21/06/2026:00h,14.6,7.0,\n"
+        "21/06/2026:01h,14.6,,5.0\n",
+        encoding="latin-1",
+    )
+    c = parse_gen_constraints(path)
+    assert c["ORT-G"] == ("<", [14.6, 14.6])
+    assert c["TER-B"] == (">", [7.0, None])  # blank → None (inactive that hour)
+    assert c["EDC-I"] == ("=", [None, 5.0])
+
+
+def test_parse_unit_prices(tmp_path: Path) -> None:
+    """PRECIOSMEX.csv → per-unit hourly bids; quoted headers, blanks → 0."""
+    path = tmp_path / "PRECIOSMEX.csv"
+    path.write_text(
+        "dd/mm/aaaa:hh,'ARI-O','MEX-I','MEX-I2'\n"
+        "21/06/2026:00h,178.0,0,250\n"
+        "21/06/2026:01h,178.0,0,\n",
+        encoding="latin-1",
+    )
+    pr = parse_unit_prices(path)
+    assert pr["ARI-O"] == [178.0, 178.0]
+    assert pr["MEX-I"] == [0.0, 0.0]
+    assert pr["MEX-I2"] == [250.0, 0.0]  # blank cell → 0
+
+
+def test_parse_commitment(tmp_path: Path) -> None:
+    """commith parses per-hydro on/off flags."""
+    path = tmp_path / "commith.dat"
+    path.write_text(
+        "1! 601,!CHX-H1\n0! 603,!CHX-H3\n1! 605,!CHX-H5\n",
+        encoding="latin-1",
+    )
+    commit = parse_commitment(path)
+    assert commit == {"CHX-H1": True, "CHX-H3": False, "CHX-H5": True}
+
+
+def test_hydro_parser_fixed_width_storage(tmp_path: Path) -> None:
+    """Fixed-width chidro recovers storage (VMin/VMax), eini, QMax, topology."""
+    header = (
+        " NUM ...Nombre... .PV. .VAA .TAA #Uni Tipo ....Pot .FPMed. "
+        ".QMin.. .QMax.. .VMin.. .VMax.. .VInic.\n"
+    )
+    rows = _fw_chidro_line(
+        601, "RES-H1", 602, 50.73, 3.33333, 15.0, 90.0, 340.0, 200.0
+    ) + _fw_chidro_line(602, "ROR-H2", "", 50.94, 3.34666, 15.0, 0.0, 0.0, 0.0)
+    path = tmp_path / "chidroGU.dat"
+    path.write_text(header + rows, encoding="latin-1")
+    hydros = {h.name: h for h in HydroParser(path).parse()}
+
+    res = hydros["RES-H1"]
+    assert res.p_inst == pytest.approx(50.73)
+    assert res.fp_med == pytest.approx(3.33333)
+    assert res.qmax == pytest.approx(15.0)
+    assert (res.vmin, res.vmax) == (pytest.approx(90.0), pytest.approx(340.0))
+    assert res.downstream_code == 602
+    # No cota–vol table on this short line → eini = midpoint, clamped to range.
+    assert res.eini == pytest.approx(0.5 * (90.0 + 340.0))
+
+    ror = hydros["ROR-H2"]
+    assert ror.vmax == pytest.approx(0.0)  # run-of-river: no reservoir
+    assert ror.downstream_code is None  # blank VAA → terminal
 
 
 def test_demand_parser_flattens_hours(dat_case_dir: Path) -> None:

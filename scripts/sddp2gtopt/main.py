@@ -102,6 +102,17 @@ def make_parser() -> argparse.ArgumentParser:
         "import fuels flooding the dispatch (.dat path only).",
     )
     parser.add_argument(
+        "--blocks-per-stage",
+        type=int,
+        default=0,
+        help="hourly blocks grouped into each gtopt stage on the multi-bus .dat "
+        "path.  Default 0 = single stage: a one-week NCP dispatch is "
+        "deterministic and solves monolithic (like the plexos cases).  A "
+        "positive divisor of the horizon (e.g. 24 = daily) splits it into ≥ 2 "
+        "stages so the case runs SDDP / cascade — for genuine multi-week "
+        "horizons.",
+    )
+    parser.add_argument(
         "-l",
         "--log-level",
         default="INFO",
@@ -159,6 +170,7 @@ def main(argv: list[str] | None = None) -> None:
         "output_dir": args.output_dir,
         "hydro_cost": args.hydro_cost,
         "import_limit": args.import_limit,
+        "blocks_per_stage": args.blocks_per_stage,
     }
 
     if args.show_info:

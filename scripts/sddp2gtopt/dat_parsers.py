@@ -225,13 +225,78 @@ class ThermalParser(BaseTextParser):
         return out
 
 
-class HydroParser(BaseTextParser):
-    """Parse ``chidro*.dat`` → ``HydroSpec`` list (name + ``Pot``).
+# Fixed-width column map for the PSR ``chidro`` record (0-based [start:end)
+# half-open slices), derived from the header row
+# ``NUM ...Nombre... .PV. .VAA .TAA #Uni Tipo ....Pot .FPMed. .QMin.. .QMax..
+#  .VMin.. .VMax.. .VInic. … .Cota1. .Vol1.. .Cota2. .Vol2.. …``.
+_CHIDRO_COLS = {
+    "num": (0, 4),
+    "name": (4, 17),
+    "vaa": (23, 27),  # downstream plant NUM (Jusante)
+    "pot": (43, 50),  # installed power [MW]
+    "fpmed": (51, 58),  # production factor [MW/(m³/s)]
+    "qmax": (67, 74),  # max turbine flow [m³/s]
+    "vmin": (75, 82),  # min storage volume [hm³]
+    "vmax": (83, 90),  # max storage volume [hm³]
+    "vinic": (91, 98),  # initial elevation (cota) [m]
+}
+# Five (cota, volume) pairs of the reservoir curve: cota [m] → volume [hm³].
+_CHIDRO_COTA_VOL = (
+    (371, 378, 379, 386),
+    (387, 394, 395, 402),
+    (403, 410, 411, 418),
+    (419, 426, 427, 434),
+    (435, 442, 443, 450),
+)
 
-    The hydro record is fixed-width with optional blank topology columns,
-    so positional split is unreliable.  v0 only needs the installed power
-    for the zero-cost hydro flattening: the name is the 2nd token and
-    ``Pot`` is the first decimal value on the line.
+
+def _slice_float(line: str, start: int, end: int) -> float | None:
+    """Parse a fixed-width numeric field; ``None`` if blank/short/non-numeric."""
+    if len(line) < start:
+        return None
+    tok = line[start:end].strip()
+    return _to_float(tok) if tok and _is_number(tok) else None
+
+
+def _interp_cota_vol(
+    cota: float, pairs: list[tuple[float | None, float | None]]
+) -> float | None:
+    """Linear-interpolate a volume [hm³] from an elevation ``cota`` [m].
+
+    ``pairs`` is the reservoir's ascending (cota, volume) curve; values
+    outside the range clamp to the endpoints.  Returns ``None`` when the
+    curve has fewer than two points.
+    """
+    pts: list[tuple[float, float]] = sorted(
+        (c, v) for c, v in pairs if c is not None and v is not None
+    )
+    if len(pts) < 2:
+        return None
+    if cota <= pts[0][0]:
+        return pts[0][1]
+    if cota >= pts[-1][0]:
+        return pts[-1][1]
+    for i in range(1, len(pts)):
+        if cota <= pts[i][0]:
+            (c0, v0), (c1, v1) = pts[i - 1], pts[i]
+            span = c1 - c0
+            return v0 + (v1 - v0) * (cota - c0) / span if span else v0
+    return pts[-1][1]
+
+
+class HydroParser(BaseTextParser):
+    """Parse ``chidro*.dat`` → ``HydroSpec`` list.
+
+    The hydro record is fixed-width.  Beyond the installed power (``Pot``)
+    and production factor (``FPMed``) the parser now also recovers the
+    cascade topology (``VAA`` = downstream plant) and the storage state
+    (``VMin``/``VMax`` [hm³] and the initial volume, interpolated from the
+    initial elevation ``VInic`` over the reservoir's embedded cota–vol
+    curve) needed to build the full water network.
+
+    Power/FPMed are read by fixed-width slice with a whitespace-token
+    fallback, so narrow / hand-made fixtures (which omit the storage
+    columns) keep parsing — those simply carry no reservoir.
     """
 
     def parse(self) -> list[HydroSpec]:
@@ -242,22 +307,64 @@ class HydroParser(BaseTextParser):
             if len(toks) < 3 or not _is_number(toks[0]):
                 continue
             code = int(_to_float(toks[0]))
-            name = toks[1]
-            # The first two decimal values after the id columns are
-            # ``Pot`` (installed MW) then ``FPMed`` (MW per m³/s).
-            decimals = [_to_float(t) for t in toks[2:] if "." in t and _is_number(t)]
-            p_inst = decimals[0] if decimals else 0.0
-            fp_med = decimals[1] if len(decimals) > 1 else 0.0
+
+            # The record is real PSR fixed-width only when the ``Pot``/``FPMed``
+            # columns parse at their nominal offsets; narrow or hand-made
+            # fixtures fall back to whitespace tokens (``Pot``/``FPMed`` = the
+            # first two decimals) and carry no storage / cascade topology.
+            pot_fw = _slice_float(line, *_CHIDRO_COLS["pot"])
+            fp_fw = _slice_float(line, *_CHIDRO_COLS["fpmed"])
+
+            qmax = vmin = vmax = vinic = eini = 0.0
+            p_inst = fp_med = 0.0
+            downstream: int | None = None
+            if pot_fw is not None and fp_fw is not None and len(line) >= 58:
+                name = line[slice(*_CHIDRO_COLS["name"])].strip() or toks[1]
+                p_inst, fp_med = pot_fw, fp_fw
+                qmax = _slice_float(line, *_CHIDRO_COLS["qmax"]) or 0.0
+                vmin = _slice_float(line, *_CHIDRO_COLS["vmin"]) or 0.0
+                vmax = _slice_float(line, *_CHIDRO_COLS["vmax"]) or 0.0
+                vinic = _slice_float(line, *_CHIDRO_COLS["vinic"]) or 0.0
+                vaa = line[slice(*_CHIDRO_COLS["vaa"])].strip()
+                downstream = int(vaa) if vaa.isdigit() and int(vaa) != code else None
+                if vmax > 0.0:
+                    pairs = [
+                        (_slice_float(line, a, b), _slice_float(line, c, d))
+                        for a, b, c, d in _CHIDRO_COTA_VOL
+                    ]
+                    interp = _interp_cota_vol(vinic, pairs)
+                    eini = interp if interp is not None else 0.5 * (vmin + vmax)
+                    eini = min(max(eini, vmin), vmax)
+            else:
+                name = toks[1]
+                decimals = [
+                    _to_float(t) for t in toks[2:] if "." in t and _is_number(t)
+                ]
+                p_inst = decimals[0] if decimals else 0.0
+                fp_med = decimals[1] if len(decimals) > 1 else 0.0
+
             out.append(
                 HydroSpec(
                     code=code,
                     name=name,
                     reference_id=code,
                     p_inst=p_inst,
-                    fp_med=fp_med,
+                    fp_med=fp_med or 0.0,
+                    qmax=qmax,
+                    vmin=vmin,
+                    vmax=vmax,
+                    vinic=vinic,
+                    eini=eini,
+                    downstream_code=downstream,
                 )
             )
-        logger.info("parsed %s: %d hydro plant(s)", self.file_path.name, len(out))
+        n_res = sum(1 for h in out if h.vmax > 0.0)
+        logger.info(
+            "parsed %s: %d hydro plant(s) (%d with storage)",
+            self.file_path.name,
+            len(out),
+            n_res,
+        )
         return out
 
 
@@ -447,12 +554,15 @@ class BusDemandParser(BaseTextParser):
         return series
 
 
-def _parse_psr_block_csv_means(path: str | Path) -> dict[str, float]:
-    """Mean per-column over the block rows of a PSR ``Stag,Seq,Blck,…`` CSV.
+def _parse_psr_block_csv_profiles(path: str | Path) -> dict[str, list[float]]:
+    """Per-column **full time series** over a PSR ``Stag,Seq,Blck,…`` CSV.
 
-    Shared by the per-hydro water-value (``watervcp.csv``) and inflow
-    (``inflow.csv``) readers: the agent names are columns 3+ of the
-    ``Stag``-prefixed header row, the values one row per block.
+    The agent names are columns 3+ of the ``Stag``-prefixed header row; each
+    data row is one stage/block.  Returns ``{agent: [v_stage1, v_stage2, …]}``
+    preserving the per-stage values — callers decide whether to keep the whole
+    profile (inflow, time-varying) or reduce it (water value).  Collapsing this
+    to a single scalar throws away PSR's time resolution, so the profile form
+    is the primitive and the mean is derived from it.
     """
     from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
         read_text,
@@ -468,43 +578,300 @@ def _parse_psr_block_csv_means(path: str | Path) -> dict[str, float]:
         logger.warning("%s: no 'Stag' header row", path.name)
         return {}
     names = [h.strip() for h in lines[header_idx].split(",")][3:]
-    sums = [0.0] * len(names)
-    count = 0
+    cols: list[list[float]] = [[] for _ in names]
     for ln in lines[header_idx + 1 :]:
         cells = [c.strip() for c in ln.split(",")][3:]
-        if not cells:
+        if not cells or not any(cells):
             continue
-        for i in range(min(len(names), len(cells))):
-            if cells[i]:
-                sums[i] += _to_float(cells[i])
-        count += 1
-    if count == 0:
-        return {}
-    return {names[i]: sums[i] / count for i in range(len(names))}
+        for i in range(len(names)):
+            if i < len(cells) and cells[i]:
+                cols[i].append(_to_float(cells[i]))
+    return {names[i]: cols[i] for i in range(len(names)) if cols[i]}
+
+
+def _parse_psr_block_csv_means(path: str | Path) -> dict[str, float]:
+    """Mean per-column over a PSR ``Stag,Seq,Blck,…`` CSV (derived from the
+    full :func:`_parse_psr_block_csv_profiles`)."""
+    return {
+        n: (sum(v) / len(v)) for n, v in _parse_psr_block_csv_profiles(path).items()
+    }
 
 
 def parse_water_values(path: str | Path) -> dict[str, float]:
-    """Parse PSR ``watervcp.csv`` → ``{hydro_name: mean water value}``.
+    """Parse PSR ``watervcp.csv`` → ``{hydro_name: water value}``.
 
-    The PSR water-value output is in **k$/hm³** per hydro per block,
-    averaged over the horizon (clamped at 0 — tiny negatives are
-    numerical noise on run-of-river plants).  The loader converts
-    k$/hm³ → $/MWh via each plant's production factor ``FPMed``.
+    The PSR water-value output is in **k$/hm³** per hydro per stage.  Across the
+    horizon this NCP marginal is ~flat (it is the seasonal FCF slope, not a
+    sub-daily quantity), so the scalar mean is the right reduction here; the
+    loader converts k$/hm³ → the boundary-cut coefficient.  Clamped at 0 —
+    tiny negatives are numerical noise on run-of-river plants.
     """
     out = {n: max(0.0, v) for n, v in _parse_psr_block_csv_means(path).items()}
     logger.info("parsed %s: %d hydro water values", Path(path).name, len(out))
     return out
 
 
-def parse_inflows(path: str | Path) -> dict[str, float]:
-    """Parse PSR ``inflow.csv`` → ``{hydro_name: mean inflow [m³/s]}``.
+def parse_inflows(path: str | Path) -> dict[str, list[float]]:
+    """Parse PSR ``inflow.csv`` → ``{hydro_name: [inflow per stage] [m³/s]}``.
 
-    The dispatch-week inflow forecast (the NCP input, not an output),
-    averaged over the horizon.  The loader caps run-of-river hydro at
-    ``inflow · FPMed`` so free hydro can't exceed the available water.
+    The inflow forecast is **time-varying** (a daily series over the forecast
+    horizon), so it is returned as the full per-stage profile — NOT a scalar
+    mean.  Collapsing it to the horizon mean over-states the dispatch-period
+    water (the forecast extends past the dispatch and its later high-flow
+    stages inflate the mean), which floods run-of-river hydro.  The loader
+    maps this profile onto the model's day/block grid.
     """
-    out = {n: max(0.0, v) for n, v in _parse_psr_block_csv_means(path).items()}
-    logger.info("parsed %s: %d hydro inflows", Path(path).name, len(out))
+    out = {
+        n: [max(0.0, x) for x in v]
+        for n, v in _parse_psr_block_csv_profiles(path).items()
+    }
+    logger.info("parsed %s: %d hydro inflow profiles", Path(path).name, len(out))
+    return out
+
+
+def parse_renewables(path: str | Path) -> list[ThermalSpec]:
+    """Parse PSR ``cgndgu.dat`` → non-dispatchable renewables as generators.
+
+    Wind (``-E``) and solar (``-F``) plants; columns
+    ``Num Name Bus Tipo #Uni PotIns FatOpe ProbFal SFal Stat O&M CurtCos
+    TechTyp`` (some optional fields blank, so ``PotIns`` is read front-anchored
+    at index 5 and ``O&M`` back-anchored at ``-3``).  Each becomes a
+    :class:`ThermalSpec` with installed ``PotIns`` and the small O&M cost, so
+    the writer's generator path emits it; the hourly availability cap
+    (``max_gen``) is attached by the loader from
+    :func:`parse_renewable_profiles`.
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    path = Path(path)
+    out: list[ThermalSpec] = []
+    for ln in read_text(path, encoding="latin-1", errors="replace").splitlines():
+        s = ln.strip()
+        if not s or s[0] in "$!":
+            continue
+        toks = s.split()
+        if len(toks) < 9 or not toks[0].isdigit():
+            continue
+        code = int(toks[0])
+        pot = _to_float(toks[5])
+        om = max(0.0, _to_float(toks[-3]))
+        out.append(
+            ThermalSpec(
+                code=code,
+                name=toks[1],
+                reference_id=code,
+                pmin=0.0,
+                pmax=pot,
+                bus_number=int(_to_float(toks[2])),
+                g_segments=[(pot, om)],
+                is_import=False,
+            )
+        )
+    logger.info("parsed %s: %d renewable plants", path.name, len(out))
+    return out
+
+
+def parse_renewable_profiles(path: str | Path) -> dict[int, list[float]]:
+    """Parse PSR ``cpgndgu.dat`` → ``{code: [hourly availability MW]}``.
+
+    Blocks ``**** COD: N TP: …`` followed by a ``dd/mm/aaaa`` header and one
+    row per day of 24 hourly values; the days are concatenated into the
+    plant's full hourly generation forecast (its time-varying ``pmax`` cap).
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    path = Path(path)
+    out: dict[int, list[float]] = {}
+    cur: int | None = None
+    for ln in read_text(path, encoding="latin-1", errors="replace").splitlines():
+        if "COD:" in ln:
+            try:
+                cur = int(ln.split("COD:")[1].split()[0])
+                out[cur] = []
+            except (ValueError, IndexError):
+                cur = None
+            continue
+        if cur is None or "dd/mm" in ln.lower():
+            continue
+        toks = ln.split()
+        if toks and "/" in toks[0]:
+            out[cur].extend(_to_float(x) for x in toks[1:])
+    return {k: v for k, v in out.items() if v}
+
+
+def parse_unit_prices(path: str | Path) -> dict[str, list[float]]:
+    """Parse PSR ``PRECIOSMEX.csv`` → ``{unit_name: [hourly bid $/MWh]}``.
+
+    The AMM's per-unit hourly offer price (one column per unit, one row per
+    hour).  This is the authoritative dispatch cost — notably it prices the
+    interconnection imports (``MEX-I`` free, the other ties 250 $/MWh on the
+    billed day, ~0 on look-ahead days), which the $0 fuel table does not.
+    Blank cells become 0.
+    """
+    import csv  # pylint: disable=import-outside-toplevel
+    import io  # pylint: disable=import-outside-toplevel
+
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    text = read_text(Path(path), encoding="latin-1", errors="replace")
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return {}
+    names = [h.strip().strip("'\"") for h in rows[0]]
+    data = [r for r in rows[1:] if r and r[0].strip()]
+    out: dict[str, list[float]] = {}
+    for j in range(1, len(names)):
+        prof = [_to_float(r[j]) if j < len(r) and r[j].strip() else 0.0 for r in data]
+        if prof:
+            out[names[j]] = prof
+    logger.info("parsed %s: %d unit price series", Path(path).name, len(out))
+    return out
+
+
+def parse_gen_constraints(
+    path: str | Path,
+) -> dict[str, tuple[str, list[float | None]]]:
+    """Parse PSR ``RESTMEX.csv`` → ``{unit: (type, [hourly bound | None])}``.
+
+    The AMM operational constraints: a ``Tipo`` row of ``< > =`` over named
+    units (``2-ORT-G DG``, ``61-EDC-I`` …) with hourly right-hand-sides; blank
+    cells mean the constraint is inactive that hour.  ``<`` caps the unit's
+    generation (pmax), ``>`` floors it (pmin), ``=`` fixes it.  Unit labels are
+    normalised by stripping the leading ``N-`` index and trailing tag word.
+    """
+    import csv  # pylint: disable=import-outside-toplevel
+    import io  # pylint: disable=import-outside-toplevel
+    import re  # pylint: disable=import-outside-toplevel
+
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    rows = list(csv.reader(io.StringIO(read_text(Path(path), encoding="latin-1"))))
+    ti = next((i for i, r in enumerate(rows) if r and r[0].strip() == "Tipo"), None)
+    if ti is None or ti + 1 >= len(rows):
+        return {}
+    tipos = [t.strip() for t in rows[ti][1:]]
+    units = [re.sub(r"^\d+-", "", u).split()[0].strip() for u in rows[ti + 1][1:]]
+    data = [r for r in rows[ti + 2 :] if r and r[0].strip()]
+    out: dict[str, tuple[str, list[float | None]]] = {}
+    for j, (tp, unit) in enumerate(zip(tipos, units)):
+        vals: list[float | None] = [
+            _to_float(r[j + 1]) if j + 1 < len(r) and r[j + 1].strip() else None
+            for r in data
+        ]
+        if tp in "<>=" and any(v is not None for v in vals):
+            out[unit] = (tp, vals)
+    logger.info("parsed %s: %d AMM generation constraints", Path(path).name, len(out))
+    return out
+
+
+def parse_final_volumes(path: str | Path) -> dict[str, float]:
+    """Parse PSR ``volfincp.csv`` → ``{hydro_name: end-of-horizon volume [hm³]}``.
+
+    PSR's solved end-of-stage storage (a ``Stag,Seq,Blck,<res…>`` block CSV);
+    the **last** data row is the volume at the end of the horizon — the
+    reservoir's expected final volume ``efin``, the point at which the
+    boundary-cut future-cost function is linearised.
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    path = Path(path)
+    lines = read_text(path, encoding="latin-1", errors="replace").splitlines()
+    header_idx = next(
+        (i for i, ln in enumerate(lines) if ln.strip().lower().startswith("stag")),
+        None,
+    )
+    if header_idx is None:
+        logger.warning("%s: no 'Stag' header row", path.name)
+        return {}
+    names = [h.strip() for h in lines[header_idx].split(",")][3:]
+    last_cells: list[str] | None = None
+    for ln in lines[header_idx + 1 :]:
+        cells = [c.strip() for c in ln.split(",")][3:]
+        if any(cells):
+            last_cells = cells
+    if last_cells is None:
+        return {}
+    out: dict[str, float] = {}
+    for i in range(min(len(names), len(last_cells))):
+        if last_cells[i]:
+            out[names[i]] = _to_float(last_cells[i])
+    logger.info("parsed %s: %d hydro end-volumes", path.name, len(out))
+    return out
+
+
+def parse_max_generation(path: str | Path) -> tuple[dict[str, list[float]], bool]:
+    """Parse PSR ``cprmxhgu`` / ``cprmxtgu`` → ``{plant: [hourly max gen]}``.
+
+    Per-plant, per-hour maximum generation limit (operational derating /
+    availability), the PSR cap that holds plants below their installed
+    capacity.  Layout: a ``Unidades : N (1=MW, 2=%G)`` line, then per plant a
+    ``****  <code> <name>`` header, a ``dd/mm/aaaa <hours…>`` header and one
+    row per day of hourly values; days are concatenated into the horizon
+    series.  Returns ``(profiles, is_percent)`` — ``is_percent`` flags ``%G``
+    units (value is a percentage of installed capacity).  ``-1`` sentinels
+    (no cap) are passed through for the loader to resolve against installed.
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    lines = read_text(Path(path), encoding="latin-1", errors="replace").splitlines()
+    is_percent = False
+    out: dict[str, list[float]] = {}
+    cur: str | None = None
+    for ln in lines:
+        unit_m = re.search(r"Unidades\s*:\s*(\d)", ln)
+        if unit_m:
+            is_percent = unit_m.group(1) == "2"
+            continue
+        head_m = re.match(r"\*+\s+\d+\s+(\S+)", ln)
+        if head_m:
+            cur = head_m.group(1)
+            out.setdefault(cur, [])
+            continue
+        if cur is not None and re.match(r"\s*\d{2}/\d{2}/\d{4}", ln):
+            out[cur].extend(_to_float(t) for t in ln.split()[1:] if _is_number(t))
+    out = {k: v for k, v in out.items() if v}
+    logger.info(
+        "parsed %s: %d plant max-gen profiles (%s)",
+        Path(path).name,
+        len(out),
+        "%G" if is_percent else "MW",
+    )
+    return out, is_percent
+
+
+def parse_commitment(path: str | Path) -> dict[str, bool]:
+    """Parse PSR ``commith.dat`` → ``{hydro_name: committed}``.
+
+    Per-hydro on/off commitment flag (``1`` = committed, ``0`` = off for the
+    dispatch).  Layout: one line per unit, ``<flag>! <code>,!<name>``.  Units
+    committed off must not generate (their generator ``pmax`` is pinned to 0).
+    """
+    from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
+        read_text,
+    )
+
+    lines = read_text(Path(path), encoding="latin-1", errors="replace").splitlines()
+    out: dict[str, bool] = {}
+    for ln in lines:
+        m = re.match(r"\s*([01])\s*!\s*(\d+)\s*,?\s*!?\s*(\S+)", ln)
+        if m and m.group(3):
+            out[m.group(3).strip()] = m.group(1) == "1"
+    n_off = sum(1 for v in out.values() if not v)
+    logger.info(
+        "parsed %s: %d hydro commitments (%d off)", Path(path).name, len(out), n_off
+    )
     return out
 
 
