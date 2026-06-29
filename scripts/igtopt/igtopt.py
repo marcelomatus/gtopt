@@ -298,6 +298,37 @@ def _write_boundary_cuts_csv(df, input_path):
     return csv_path
 
 
+_INDEX_COLS = ("scenario", "stage", "block")
+
+
+def _wide_to_long(df):
+    """Convert a wide ``@``-sheet table to gtopt's long layout.
+
+    gtopt no longer accepts wide-format input tables (one ``uid:N`` value
+    column per element); every schedule table must be long — rows of
+    ``scenario, stage, block, uid, value``.  This melts the per-element
+    ``uid:N`` value columns into a single ``uid`` + ``value`` pair.
+
+    A table already in long layout (a ``uid`` column present) or one with no
+    ``uid:N`` value columns is returned unchanged.
+    """
+    if "uid" in df.columns:
+        return df  # already long
+    uid_cols = [c for c in df.columns if isinstance(c, str) and c.startswith("uid:")]
+    if not uid_cols:
+        return df  # nothing element-indexed to melt
+    index_cols = [c for c in _INDEX_COLS if c in df.columns]
+    long_df = df.melt(
+        id_vars=index_cols,
+        value_vars=uid_cols,
+        var_name="uid",
+        value_name="value",
+    )
+    # "uid:N" -> integer N
+    long_df["uid"] = long_df["uid"].str.slice(len("uid:")).astype(np.int64)
+    return long_df
+
+
 def df_to_file(
     df, input_path, cname, fname, input_format, compression, compression_level=None
 ):
@@ -305,14 +336,17 @@ def df_to_file(
     input_dir.mkdir(parents=True, exist_ok=True)
     input_file = input_dir / (fname + "." + input_format)
 
-    types = {}
-    btype = np.int32 if fname == "active" else np.float64
-    for c in df.columns:
-        types[c] = btype
+    # gtopt input tables are long-only: melt wide per-element columns into a
+    # single (uid, value) pair before writing.
+    df = _wide_to_long(df)
 
-    for c in ["scenario", "stage", "block"]:
-        if c in df.columns:
+    value_type = np.int32 if fname == "active" else np.float64
+    types = {}
+    for c in df.columns:
+        if c in _INDEX_COLS or c == "uid":
             types[c] = np.int32
+        else:  # the lone "value" column (or legacy non-melted value columns)
+            types[c] = value_type
 
     df = df.astype(types)
 

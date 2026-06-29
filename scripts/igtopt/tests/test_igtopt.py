@@ -63,6 +63,18 @@ def _run_igtopt(xlsx: pathlib.Path, tmp_path: pathlib.Path, extra_args=None):
     return json.loads(json_out.read_text())
 
 
+def _long_values(table, uid):
+    """Return the ``value`` column for a given ``uid`` from a long-layout
+    schedule table (``scenario, stage, block, uid, value``), ordered by block.
+
+    igtopt writes gtopt input tables in long layout (one row per
+    scenario/stage/block/uid), so a per-element profile is recovered by
+    filtering on ``uid`` and ordering by ``block``.
+    """
+    df = table.to_pandas().sort_values("block")
+    return df[df["uid"] == uid]["value"].tolist()
+
+
 # ---------------------------------------------------------------------------
 # Unit tests for df_to_str
 # ---------------------------------------------------------------------------
@@ -504,18 +516,16 @@ def test_igtopt_bat4b24_demand_lmax_parquet(tmp_path):
     assert lmax_path.exists(), "Demand/lmax.parquet not created"
 
     table = pq.read_table(str(lmax_path))
-    assert table.num_rows == 24, f"Expected 24 rows, got {table.num_rows}"
-    # Must have scenario, stage, block index columns + one column per demand.
-    # Element names ('d3', 'd4') are resolved to uid:N format by igtopt.
-    assert "scenario" in table.column_names
-    assert "stage" in table.column_names
-    assert "block" in table.column_names
-    # d3 has uid=1, d4 has uid=2 in bat4b24's demand_array
-    assert "uid:1" in table.column_names, (
-        f"'uid:1' not found – name-to-uid resolution failed. Got: {table.column_names}"
-    )
-    assert "uid:2" in table.column_names, (
-        f"'uid:2' not found – name-to-uid resolution failed. Got: {table.column_names}"
+    # Long layout: scenario, stage, block, uid, value — 24 blocks × 2 demands.
+    assert table.num_rows == 48, f"Expected 48 rows, got {table.num_rows}"
+    for col in ("scenario", "stage", "block", "uid", "value"):
+        assert col in table.column_names, (
+            f"'{col}' missing from long-layout table. Got: {table.column_names}"
+        )
+    # d3 has uid=1, d4 has uid=2 in bat4b24's demand_array; both must appear.
+    uids = set(table.column("uid").to_pylist())
+    assert {1, 2} <= uids, (
+        f"expected demand uids 1 and 2 in the long table, got {sorted(uids)}"
     )
 
 
@@ -532,9 +542,9 @@ def test_igtopt_bat4b24_demand_lmax_profile_values(tmp_path):
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
     lmax_path = tmp_path / "bat4b24" / "Demand" / "lmax.parquet"
     table = pq.read_table(str(lmax_path))
-    # After name-to-uid resolution: d3 (uid=1) → uid:1, d4 (uid=2) → uid:2
-    d3_vals = table.column("uid:1").to_pylist()
-    d4_vals = table.column("uid:2").to_pylist()
+    # Long layout: recover each demand's 24-hour profile by uid (d3→1, d4→2).
+    d3_vals = _long_values(table, 1)
+    d4_vals = _long_values(table, 2)
 
     # Reference values from bat_4b_24.json
     _D3_LMAX = [
@@ -609,11 +619,15 @@ def test_igtopt_bat4b24_generator_profile_parquet(tmp_path):
     assert profile_path.exists(), "GeneratorProfile/profile.parquet not created"
 
     table = pq.read_table(str(profile_path))
+    # Long layout: 24 blocks × 1 profile (gp_solar, uid=1).
     assert table.num_rows == 24, f"Expected 24 rows, got {table.num_rows}"
-    assert "block" in table.column_names
-    # 'gp_solar' has uid=1 in generator_profile_array → resolved to 'uid:1'
-    assert "uid:1" in table.column_names, (
-        f"'uid:1' not found – name-to-uid resolution failed. Got: {table.column_names}"
+    for col in ("block", "uid", "value"):
+        assert col in table.column_names, (
+            f"'{col}' missing from long-layout table. Got: {table.column_names}"
+        )
+    # 'gp_solar' has uid=1 in generator_profile_array.
+    assert 1 in set(table.column("uid").to_pylist()), (
+        f"expected profile uid 1, got {sorted(set(table.column('uid').to_pylist()))}"
     )
 
 
@@ -629,8 +643,8 @@ def test_igtopt_bat4b24_solar_profile_values(tmp_path):
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
     profile_path = tmp_path / "bat4b24" / "GeneratorProfile" / "profile.parquet"
     table = pq.read_table(str(profile_path))
-    # gp_solar has uid=1 in generator_profile_array → resolved to uid:1
-    vals = table.column("uid:1").to_pylist()
+    # Long layout: gp_solar has uid=1 in generator_profile_array.
+    vals = _long_values(table, 1)
 
     # Reference profile from bat_4b_24.json
     _SOLAR_PROFILE = [
@@ -1652,18 +1666,20 @@ def test_name_to_uid_resolution_end_to_end(tmp_path):
 
     _run_igtopt(_BAT4B24_XLSX, tmp_path)
 
-    # Demand: d3→uid:1, d4→uid:2
+    # Long layout: element names are resolved to integer uids in the `uid`
+    # column (d3→1, d4→2), and no element-name column survives.
     lmax = pq.read_table(str(tmp_path / "bat4b24" / "Demand" / "lmax.parquet"))
-    assert "uid:1" in lmax.column_names, "d3 not resolved to uid:1"
-    assert "uid:2" in lmax.column_names, "d4 not resolved to uid:2"
+    assert {1, 2} <= set(lmax.column("uid").to_pylist()), (
+        "d3/d4 not resolved to uids 1/2"
+    )
     assert "d3" not in lmax.column_names, "element name 'd3' still present"
     assert "d4" not in lmax.column_names, "element name 'd4' still present"
 
-    # GeneratorProfile: gp_solar→uid:1
+    # GeneratorProfile: gp_solar→uid 1
     prof = pq.read_table(
         str(tmp_path / "bat4b24" / "GeneratorProfile" / "profile.parquet")
     )
-    assert "uid:1" in prof.column_names, "gp_solar not resolved to uid:1"
+    assert 1 in set(prof.column("uid").to_pylist()), "gp_solar not resolved to uid 1"
     assert "gp_solar" not in prof.column_names, "element name 'gp_solar' still present"
 
 
