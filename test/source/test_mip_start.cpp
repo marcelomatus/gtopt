@@ -568,12 +568,17 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
     MESSAGE("Skipping MIP test — no MIP solver available");
     return;
   }
-  // CBC's initial_solve() solves only the LP relaxation (its branch-and-bound
-  // lives in resolve()), so get_col_sol_raw() below would come back fractional.
-  // This test needs an integer primal straight out of initial_solve() — i.e. a
-  // solver that solves the MIP as posed (cplex/highs/gurobi/mindopt/scip).
-  if (reg.default_solver() == "cbc") {
-    MESSAGE("Skipping — CBC's initial_solve solves only the LP relaxation");
+  // This test asserts an INTEGER primal straight out of initial_solve(), so it
+  // needs a solver that solves the MIP as posed in initial_solve()
+  // (cplex/highs/gurobi/mindopt/scip).  The COIN backend does not: `clp` is
+  // LP-only and `cbc`'s branch-and-bound lives in resolve(), so initial_solve()
+  // returns the (fractional) LP relaxation.  `has_mip_solver()` is true when
+  // cbc is present, so gate explicitly on the COIN solvers — and on the SAME
+  // solver the default-constructed LinearInterface below will use.  (On a
+  // COIN-only CI the default resolves to clp, not cbc, so both must be gated.)
+  const auto ds = reg.default_solver();
+  if (ds == "cbc" || ds == "clp") {
+    MESSAGE("Skipping — COIN (clp/cbc) initial_solve does not solve the MIP");
     return;
   }
   const std::filesystem::path path = "test_mip_start_roundtrip.start";
