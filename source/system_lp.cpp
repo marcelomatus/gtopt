@@ -1999,13 +1999,15 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   // nothing: the `has_integer_cols()` scan only runs when dual/rc output
   // is requested, and `fix_integers_and_resolve` itself is a no-op when
   // no integer column exists.  Enable crossover on the follow-up solve so
-  // a barrier backend produces clean vertex duals.
+  // a barrier backend produces clean vertex duals — `automatic` lets CPLEX
+  // pick the cheaper of primal/dual crossover (the monolithic dual-recovery
+  // pass does not need a specific algorithm, only a basic/vertex solution).
   const auto sel = options().write_out();
   const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
       || has_flag(sel.atoms, OutputFlags::reduced_cost);
   if (wants_duals && li.has_integer_cols()) {
     auto lp_opts = solver_options;
-    lp_opts.crossover = true;
+    lp_opts.crossover = CrossoverMode::automatic;
     auto fix = li.fix_integers_and_resolve(lp_opts);
     if (!fix) {
       // The MIP solve already succeeded; a failed dual-recovery re-solve

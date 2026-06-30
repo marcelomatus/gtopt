@@ -268,11 +268,18 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
 
   // Compute per-pass solver options: forward/backward options override
   // the base lp_opts when configured in SDDPOptions.
-  // Forward pass disables crossover for speed — duals are lazily
-  // computed via LinearInterface::ensure_duals() only when the backward
-  // pass actually needs them (e.g. no-aperture Benders cut generation).
+  // Forward pass crossover.  The INTENT is barrier WITHOUT crossover (none) —
+  // fast interior solves, vertex duals recovered later only where needed.
+  // But the no-aperture Benders path consumes this solve's duals DIRECTLY as
+  // the cut, and the interior (analytic-center) duals there make some
+  // SDDP/cascade runs overshoot (LB>UB) — see test_cascade_integration and
+  // test_sddp_async.  Until that cut path recovers VERTEX duals (a crossover
+  // or dual-simplex re-solve), the forward stays `automatic` (CPLEX crosses
+  // over → vertex duals), which is also the real pre-fix behaviour (the old
+  // `crossover=false` → `BarCrossAlg=-1` was silently rejected by CPLEX).
+  // `none` remains available opt-in via `forward_solver_options`.
   auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
-  fwd_opts.crossover = false;
+  fwd_opts.crossover = CrossoverMode::automatic;
   const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
 
   // Monitoring setup
@@ -925,7 +932,7 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
       // (needlessly re-solving 619/816 cells on juan/iplp just to refresh
       // their duals).
       auto sim_opts = fwd_opts;
-      sim_opts.crossover = true;
+      sim_opts.crossover = CrossoverMode::primal;
 
       // Bounded retry loop around Pass 1 so deeper infeasibility chains
       // don't loop forever; anything still infeasible after the last
@@ -1373,7 +1380,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
   // prices, etc.), which require vertex duals.  Training forward passes
   // keep crossover off because cuts use reduced costs only.
   auto sim_opts = fwd_opts;
-  sim_opts.crossover = true;
+  sim_opts.crossover = CrossoverMode::primal;
   const auto run_scene_simulation =
       [&](SceneIndex scene_index,
           IterationIndex sim_iteration_index) -> std::expected<double, Error>

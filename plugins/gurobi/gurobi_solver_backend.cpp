@@ -82,7 +82,11 @@ void apply_options_to_env(GRBenv* env, const SolverOptions& opts)
       break;
     case LPAlgo::barrier:
       GRBsetintparam(env, GRB_INT_PAR_METHOD, GRB_METHOD_BARRIER);
-      GRBsetintparam(env, GRB_INT_PAR_CROSSOVER, opts.crossover ? -1 : 0);
+      // Gurobi crossover: -1 = automatic (on), 0 = disabled.  Gurobi has no
+      // primal/dual selector, so any non-none mode maps to automatic.
+      GRBsetintparam(env,
+                     GRB_INT_PAR_CROSSOVER,
+                     opts.crossover == CrossoverMode::none ? 0 : -1);
       break;
     case LPAlgo::last_algo:
       break;

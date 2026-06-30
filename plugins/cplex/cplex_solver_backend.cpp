@@ -286,13 +286,43 @@ void apply_options_to_env(cpxenv* env, const SolverOptions& opts)
         break;
     }
 
-    // Apply crossover regardless of algorithm: CPLEX may auto-pick
-    // barrier under LPAlgo::default_algo (CPX_ALG_AUTOMATIC), and
-    // CPX_PARAM_BARCROSSALG defaults to 0 (automatic crossover).  Force
-    // the flag explicitly so opts.crossover==false truly disables it.
+    // Crossover control needs TWO CPLEX parameters working together:
+    //
+    //   1. CPX_PARAM_SOLUTIONTYPE decides WHETHER to cross over.  NONBASIC
+    //      keeps the barrier's interior point (no crossover); AUTO lets CPLEX
+    //      cross over to a basic/vertex solution.  The obvious-looking
+    //      `CPX_PARAM_BARCROSSALG = CPX_ALG_NONE (-1)` does NOT disable
+    //      crossover — per the CPLEX docs that value is DEPRECATED and
+    //      `CPXsetintparam` rejects it with `CPXERR_PARAM_TOO_SMALL` (rc
+    //      1014), leaving BarCrossAlg at its default 0.  SolutionType is the
+    //      supported switch — `CrossoverMode::none` maps here.
+    //
+    //   2. CPX_PARAM_BARCROSSALG decides WHICH crossover runs WHEN one is
+    //      performed: automatic(0) / primal(1) / dual(2).  Set every solve
+    //      because the env is reused / cloned and could otherwise inherit a
+    //      stale value; irrelevant when crossover is off (SolutionType=NONBASIC
+    //      skips crossover, so BarCrossAlg never runs).
+    //
+    // SolutionType applies to LP/QP; CPLEX ignores it for problems that need
+    // a basic solution, so it is safe to set before CPXlpopt or CPXmipopt.
+    const bool no_crossover = opts.crossover == CrossoverMode::none;
     CPXsetintparam(env,
-                   CPX_PARAM_BARCROSSALG,
-                   opts.crossover ? CPX_ALG_PRIMAL : CPX_ALG_NONE);
+                   CPX_PARAM_SOLUTIONTYPE,
+                   no_crossover ? CPX_NONBASIC_SOLN : CPX_AUTO_SOLN);
+    int barcross = CPX_ALG_AUTOMATIC;
+    switch (opts.crossover) {
+      case CrossoverMode::primal:
+        barcross = CPX_ALG_PRIMAL;
+        break;
+      case CrossoverMode::dual:
+        barcross = CPX_ALG_DUAL;
+        break;
+      case CrossoverMode::automatic:
+      case CrossoverMode::none:
+        barcross = CPX_ALG_AUTOMATIC;
+        break;
+    }
+    CPXsetintparam(env, CPX_PARAM_BARCROSSALG, barcross);
   }
 
   // SCRIND is intentionally NOT toggled here.  The screen-indicator is

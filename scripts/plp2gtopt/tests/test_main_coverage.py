@@ -369,15 +369,15 @@ class TestBuildOptions:
     def test_sddp_fast_path_invariant(self):
         # --solver-invariant selects the HYBRID config (off==compress
         # reproducibility, far cheaper than all-barrier):
-        #   * forward  — barrier + crossover=False (interior, unique trial
-        #     states) + presolve ON (cold barrier benefits from presolve);
+        #   * forward  — barrier + primal crossover (deterministic vertex
+        #     duals) + presolve ON (cold barrier benefits from presolve);
         #   * backward — warm dual + presolve OFF (fast; lp_reduction does the
         #     build-time structural reduction in place of CPLEX presolve).
         args = self._make_args(method="sddp", solver_invariant=True)
         opts = build_options(args)
         assert opts["sddp_options"]["forward_solver_options"] == {
             "algorithm": "barrier",
-            "crossover": False,
+            "crossover": "primal",
             "presolve": True,
         }
         assert opts["sddp_options"]["backward_solver_options"] == {

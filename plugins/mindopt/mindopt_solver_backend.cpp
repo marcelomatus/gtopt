@@ -84,7 +84,11 @@ void apply_options_to_env(MDOenv* env, const SolverOptions& opts)
       break;
     case LPAlgo::barrier:
       MDOsetintparam(env, MDO_INT_PAR_METHOD, 2);  // barrier/IPM
-      MDOsetintparam(env, MDO_INT_PAR_SOLUTION_TARGET, opts.crossover ? 0 : 2);
+      // SolutionTarget 0 = basic (crossover), 2 = interior (no crossover).
+      // MindOpt has no primal/dual selector, so any non-none mode → basic.
+      MDOsetintparam(env,
+                     MDO_INT_PAR_SOLUTION_TARGET,
+                     opts.crossover == CrossoverMode::none ? 2 : 0);
       break;
     case LPAlgo::last_algo:
       break;

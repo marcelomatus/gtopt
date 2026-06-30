@@ -156,7 +156,7 @@ TEST_CASE(
   auto res = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
       .log_level = 0,
-      .crossover = true,
+      .crossover = CrossoverMode::primal,
   });
   REQUIRE(res.has_value());
 
@@ -195,7 +195,7 @@ TEST_CASE(
   auto res = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
       .log_level = 0,
-      .crossover = false,
+      .crossover = CrossoverMode::none,
   });
   REQUIRE(res.has_value());
 
@@ -246,7 +246,7 @@ TEST_CASE(
   auto res1 = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
       .log_level = 0,
-      .crossover = true,
+      .crossover = CrossoverMode::primal,
   });
   REQUIRE(res1.has_value());
   const auto initial_duals = li.get_row_dual_raw();
@@ -263,7 +263,7 @@ TEST_CASE(
   auto res2 = li.resolve(SolverOptions {
       .algorithm = LPAlgo::barrier,
       .log_level = 0,
-      .crossover = false,
+      .crossover = CrossoverMode::none,
   });
   REQUIRE(res2.has_value());
 

@@ -268,7 +268,7 @@ solver_field_setters()
            { o.advanced_basis = require_bool(n, v); }},
           {"crossover",
            [](SolverOptions& o, std::string_view n, const std::string& v)
-           { o.crossover = require_bool(n, v); }},
+           { o.crossover = require_enum<CrossoverMode>(n, v); }},
           {"force_barrier_crossover",
            [](SolverOptions& o, std::string_view n, const std::string& v)
            { o.force_barrier_crossover = require_bool(n, v); }},

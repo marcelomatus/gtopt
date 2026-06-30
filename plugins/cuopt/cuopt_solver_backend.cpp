@@ -502,9 +502,11 @@ void CuOptSolverBackend::solve_()
       cuOptSetIntegerParameter(settings, CUOPT_METHOD, CUOPT_METHOD_CONCURRENT);
       break;
   }
-  // Crossover so barrier produces basic (vertex) duals/RC for LMPs.
-  cuOptSetIntegerParameter(
-      settings, CUOPT_CROSSOVER, m_options_.crossover ? 1 : 0);
+  // Crossover so barrier produces basic (vertex) duals/RC for LMPs.  cuOpt
+  // has no primal/dual selector, so any non-none mode enables crossover.
+  cuOptSetIntegerParameter(settings,
+                           CUOPT_CROSSOVER,
+                           m_options_.crossover == CrossoverMode::none ? 0 : 1);
 
   if (const auto tl = m_options_.time_limit; tl && *tl > 0.0) {
     cuOptSetFloatParameter(settings, CUOPT_TIME_LIMIT, *tl);
@@ -679,7 +681,7 @@ void CuOptSolverBackend::engage_robust_solve()
   loosen(m_options_.optimal_eps, 10.0);
   loosen(m_options_.feasible_eps, 10.0);
   m_options_.algorithm = LPAlgo::barrier;
-  m_options_.crossover = true;
+  m_options_.crossover = CrossoverMode::primal;
 }
 
 void CuOptSolverBackend::disengage_robust_solve() noexcept
@@ -733,7 +735,7 @@ SolverOptions CuOptSolverBackend::optimal_options() const
   // gtopt's LMP/dual consumers get vertex duals.  Users override via JSON.
   SolverOptions opts {};
   opts.algorithm = LPAlgo::barrier;
-  opts.crossover = true;
+  opts.crossover = CrossoverMode::primal;
   return opts;
 }
 

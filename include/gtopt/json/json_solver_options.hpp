@@ -22,6 +22,7 @@
 
 namespace daw::json
 {
+using gtopt::CrossoverMode;
 using gtopt::LPAlgo;
 using gtopt::OptName;
 using gtopt::OptReal;
@@ -49,7 +50,7 @@ struct SolverOptionsConstructor
                            OptSolverLogMode log_mode,
                            OptReal time_limit,
                            OptSolverScaling scaling,
-                           OptBool crossover,
+                           const OptName& crossover_str,
                            OptInt max_fallbacks,
                            OptBool memory_emphasis,
                            const OptName& param_file,
@@ -58,6 +59,11 @@ struct SolverOptionsConstructor
     LPAlgo algorithm = LPAlgo::barrier;
     if (algorithm_str.has_value()) {
       algorithm = gtopt::require_enum<LPAlgo>("algorithm", *algorithm_str);
+    }
+    CrossoverMode crossover = CrossoverMode::automatic;
+    if (crossover_str.has_value()) {
+      crossover =
+          gtopt::require_enum<CrossoverMode>("crossover", *crossover_str);
     }
     return SolverOptions {
         .algorithm = algorithm,
@@ -74,7 +80,7 @@ struct SolverOptionsConstructor
         .scaling = scaling.has_value()
             ? scaling
             : OptSolverScaling {SolverScaling::automatic},
-        .crossover = crossover.value_or(true),
+        .crossover = crossover,
         .advanced_basis = advanced_basis.value_or(false),
         .param_file = param_file,
         .max_fallbacks = max_fallbacks.value_or(2),
@@ -100,7 +106,7 @@ struct json_data_contract<SolverOptions>
                                 json_number_null<"log_mode", OptSolverLogMode>,
                                 json_number_null<"time_limit", OptReal>,
                                 json_number_null<"scaling", OptSolverScaling>,
-                                json_bool_null<"crossover", OptBool>,
+                                json_string_null<"crossover", OptName>,
                                 json_number_null<"max_fallbacks", OptInt>,
                                 json_bool_null<"memory_emphasis", OptBool>,
                                 json_string_null<"param_file", OptName>,
@@ -121,7 +127,7 @@ struct json_data_contract<SolverOptions>
         opt.log_mode,
         opt.time_limit,
         opt.scaling,
-        OptBool {opt.crossover},
+        OptName {gtopt::enum_name(opt.crossover)},
         OptInt {opt.max_fallbacks},
         opt.memory_emphasis,
         opt.param_file,

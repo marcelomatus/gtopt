@@ -312,7 +312,7 @@ TEST_CASE(  // NOLINT
   auto r1 = li.initial_solve(SolverOptions {
       .algorithm = LPAlgo::barrier,
       .log_level = 0,
-      .crossover = false,
+      .crossover = CrossoverMode::none,
   });
   REQUIRE(r1.has_value());
   REQUIRE(li.is_optimal());

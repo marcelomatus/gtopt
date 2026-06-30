@@ -141,6 +141,12 @@ def process_case(
     solve_cmd = [gtopt_bin, json_path.name]
     if lp_relax:
         solve_cmd.append("--no-scale")
+        # Barrier WITHOUT crossover for the LP-relax main solve — the whole
+        # point of the relax loop.  Maps to CPLEX SolutionType=NONBASIC (keep
+        # the interior point), so it genuinely skips crossover.  NOT set for
+        # MIP: branch & cut needs a basis at the root, so we let CPLEX cross
+        # over there (the dual-recovery pass also crosses over on its own).
+        solve_cmd += ["--set", "solver_options.crossover=none"]
     solve_cmd += ["-l", json_path.stem]
     res["solve_rc"] = run(solve_cmd, cwd=outdir, log=solve_log)
     res["solve_secs"] = round(time.time() - t0, 1)
@@ -172,10 +178,13 @@ def main() -> int:
     work = Path(args.work) if args.work else (Path.home() / "tmp" / default_work)
     work.mkdir(parents=True, exist_ok=True)
     report_name = "lp_relax_report.json" if lp_relax else "mip_report.json"
-    cases = sorted(d for d in SUPPORT.glob("pcp_*") if d.is_dir())
+    by_name = {d.name: d for d in SUPPORT.glob("pcp_*") if d.is_dir()}
     if args.cases:
-        wanted = set(args.cases)
-        cases = [c for c in cases if c.name in wanted]
+        # Preserve the caller's order (e.g. fastest-MIP-first) — do NOT
+        # re-sort, so the loop solves quick cases first and slow ones last.
+        cases = [by_name[n] for n in args.cases if n in by_name]
+    else:
+        cases = [by_name[n] for n in sorted(by_name)]
 
     report: list[dict] = []
     for case_dir in cases:

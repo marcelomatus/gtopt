@@ -264,17 +264,22 @@ auto solve_apertures_for_phase(
   //     seed defaults to barrier + crossover so the cut comes from a
   //     vertex.  Simplex (the warm re-solve) always has a basis, so
   //     crossover is a no-op there.
-  //   - `reduced_cost`: force barrier WITHOUT crossover.  The cut takes
-  //     the interior-point (analytic-center) reduced costs directly;
-  //     their tolerance-level noise is filtered by `cut_coeff_eps`.  This
-  //     skips the crossover cost on big cut-laden LPs where it dominates.
+  //   - `reduced_cost`: barrier; cut taken from reduced costs.  This used to
+  //     request `crossover = false` ("no crossover", interior reduced costs)
+  //     but on CPLEX the `BarCrossAlg = -1` was silently rejected, so the
+  //     solve always crossed over (auto → vertex reduced costs).
+  //     `automatic` reproduces that real, validated behaviour; their
+  //     tolerance-level noise is filtered by `cut_coeff_eps`.  Switching to
+  //     `CrossoverMode::none` now genuinely yields interior reduced costs,
+  //     which changes the cut sequence and breaks cascade LB≤UB checks — so
+  //     it is deferred to a deliberate, re-validated change, not flipped here.
   auto aperture_opts = opts;
   if (aperture_timeout > 0.0) {
     aperture_opts.time_limit = aperture_timeout;
   }
   if (aperture_solve_mode == ApertureSolveMode::reduced_cost) {
     aperture_opts.algorithm = LPAlgo::barrier;
-    aperture_opts.crossover = false;
+    aperture_opts.crossover = CrossoverMode::automatic;
   }
 
   // Build the effective aperture list for this phase
@@ -502,7 +507,7 @@ auto solve_apertures_for_phase(
           SolverOptions cold_opts = aperture_opts;
           if (capture_basis) {
             cold_opts.algorithm = LPAlgo::barrier;
-            cold_opts.crossover = true;
+            cold_opts.crossover = CrossoverMode::primal;
             cold_opts.force_barrier_crossover = true;
           }
           bool clone_has_basis = false;

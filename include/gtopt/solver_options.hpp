@@ -131,17 +131,21 @@ struct SolverOptions
    *  cut path consumes.
    *
    *  Exposed via JSON (`solver_options.crossover`) since dbeb01cb —
-   *  the previous "internal, not user-visible" caveat is obsolete.
+   *  the previous "internal, not user-visible" caveat is obsolete.  Was a
+   *  bool (true/false); now a `CrossoverMode` enum
+   *  (`auto`/`primal`/`dual`/`none`) so the crossover ALGORITHM is selectable,
+   *  not just on/off.  `--set solver_options.crossover=none|primal|dual|auto`.
    *
    *  Crossover converts the interior-point solution into a basic feasible
    *  solution, producing **vertex (basic)** dual values (row prices /
    *  reduced costs).
    *
-   *  `crossover` is the SINGLE knob governing duals after a barrier solve:
-   *
-   *  - `true` (default) — barrier crosses over to a vertex; `get_row_dual` /
-   *    `get_col_dual` return basic duals.
-   *  - `false` — the solve stops at the interior point.  CPLEX/HiGHS still
+   *  - `automatic` (default) — cross over to a vertex; let the solver pick the
+   *    cheaper of primal/dual crossover.  `get_row_dual` / `get_col_dual`
+   *    return basic duals.
+   *  - `primal` / `dual` — cross over via the named algorithm.  `primal` is
+   *    currently the best for the GTEP barrier solves when a basis is needed.
+   *  - `none` — the solve stops at the interior point.  CPLEX/HiGHS still
    *    expose the **interior** reduced costs / row prices, and
    *    `LinearInterface::ensure_duals()` uses them DIRECTLY (no lazy
    *    crossover re-solve).  The interior dual is the unique analytic-center
@@ -153,18 +157,20 @@ struct SolverOptions
    *    is the off≡compress invariance lever (slower per solve — barrier has
    *    no warm-start — so it is opt-in via `plp2gtopt --solver-invariant`).
    *
-   *  The SDDP forward pass and the elastic-filter clone set crossover=false
-   *  for speed; the aperture pass sets barrier+crossover=false for the same
+   *  The SDDP forward pass and the elastic-filter clone set crossover=none
+   *  for speed; the aperture pass sets barrier+crossover=none for the same
    *  reason.  Only meaningful when algorithm == barrier — simplex methods
    *  always produce vertex duals by construction.
    *
-   *  Backend mapping:
-   *  - CPLEX: true → `BARCROSSALG=1` (primal), false → `BARCROSSALG=-1`
-   *  - HiGHS: false → `run_crossover="off"`
-   *  - MindOpt: true → `SolutionTarget=0`, false → `SolutionTarget=2`
+   *  Backend mapping (see CrossoverMode):
+   *  - CPLEX: none → `SolutionType=NONBASIC`; else `SolutionType=AUTO` +
+   *    `BarCrossAlg` = auto(0)/primal(1)/dual(2).  (`BarCrossAlg=-1` is
+   *    deprecated/rejected — `none` uses SolutionType, not BarCrossAlg.)
+   *  - HiGHS: none → `run_crossover="off"`, else `"on"`
+   *  - MindOpt: none → `SolutionTarget=2`, else `SolutionTarget=0`
    *  - CLP: ignored (CLP barrier always does crossover)
    */
-  bool crossover {true};
+  CrossoverMode crossover {CrossoverMode::automatic};
 
   /** @brief Warm-start this solve from the resident (advanced) basis.
    *
@@ -308,18 +314,17 @@ struct SolverOptions
     if (!user.presolve) {
       presolve = user.presolve;
     }
-    if (!user.crossover) {
-      // `crossover` defaults to true on both sides (struct default
-      // for `user` and backend-optimal default).  Mirror the
-      // presolve sentinel: only the explicit "user wants OFF" case
-      // overrides the base — which is precisely the SDDP forward
-      // pass (`sddp_iteration.cpp:270 fwd_opts.crossover = false`)
-      // and the elastic-filter clone solve.  Without this line the
-      // user's `crossover = false` was silently dropped during the
-      // overlay, leaving CPLEX `CPX_PARAM_BARCROSSALG` at primal
-      // crossover on every forward solve — observed on juan/IPLP
-      // 2026-05-15 as `CPXPARAM_Barrier_Crossover 1` in every one
-      // of 4 K cplex_*.log files including pure forward passes.
+    if (user.crossover != CrossoverMode::automatic) {
+      // `crossover` defaults to `automatic` on both sides (struct default
+      // for `user` and backend-optimal default).  Mirror the presolve
+      // sentinel: only an explicit non-default choice (none/primal/dual)
+      // overrides the base — e.g. the SDDP forward pass
+      // (`sddp_iteration.cpp fwd_opts.crossover = CrossoverMode::none`) and
+      // the elastic-filter clone solve.  Without this the user's
+      // `crossover = none` was silently dropped during the overlay, leaving
+      // crossover ON on every forward solve — observed on juan/IPLP
+      // 2026-05-15 in every one of 4 K cplex_*.log files including pure
+      // forward passes.
       crossover = user.crossover;
     }
     // Cold-canonical flag (default false): only the explicit "user wants ON"

@@ -109,7 +109,7 @@ void apply_options_to_highs(Highs& highs, const SolverOptions& opts)
         if (const auto beps = opts.barrier_eps; beps && *beps > 0) {
           highs.setOptionValue("ipm_optimality_tolerance", *beps);
         }
-        if (!opts.crossover) {
+        if (opts.crossover == CrossoverMode::none) {
           highs.setOptionValue("run_crossover", "off");
         }
         break;

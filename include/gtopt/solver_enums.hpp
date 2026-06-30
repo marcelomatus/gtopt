@@ -150,6 +150,52 @@ inline constexpr auto solver_scaling_entries =
   return std::span {solver_scaling_entries};
 }
 
+// --- CrossoverMode -----------------------------------------------------------
+
+/**
+ * @brief Barrier crossover strategy after an interior-point (barrier) solve.
+ *
+ * Decides whether the solver crosses over from the barrier interior point to a
+ * basic (vertex) solution, and — when it does — which crossover runs.  Each
+ * backend maps these to its native parameters:
+ *
+ * | CrossoverMode | CPLEX SolutionType + BarCrossAlg | HiGHS run_crossover |
+ * |---------------|----------------------------------|---------------------|
+ * | automatic     | AUTO(0) + automatic(0)           | on                  |
+ * | primal        | AUTO(0) + primal(1)              | on                  |
+ * | dual          | AUTO(0) + dual(2)                | on                  |
+ * | none          | NONBASIC(2) — keep interior pt   | off                 |
+ *
+ * `automatic` (default) lets the solver pick the cheaper of primal/dual.
+ * `primal` is currently the best crossover for the GTEP barrier solves when a
+ * basis IS needed, so the internal vertex-dual paths request it explicitly.
+ * `none` keeps the interior point (no crossover) for speed — its duals are the
+ * analytic-center multipliers.  Note: CPLEX's deprecated `BarCrossAlg = -1`
+ * ("no crossover") is NOT how `none` is expressed — `CPXsetintparam` rejects
+ * that value; `none` maps to `SolutionType = NONBASIC` instead.
+ */
+enum class CrossoverMode : uint8_t
+{
+  automatic = 0,  ///< Cross over; let the solver choose primal/dual (default)
+  primal = 1,  ///< Cross over via primal crossover
+  dual = 2,  ///< Cross over via dual crossover
+  none = 3,  ///< No crossover — keep the barrier interior (non-basic) point
+};
+
+inline constexpr auto crossover_mode_entries =
+    std::to_array<EnumEntry<CrossoverMode>>({
+        {.name = "auto", .value = CrossoverMode::automatic},
+        {.name = "primal", .value = CrossoverMode::primal},
+        {.name = "dual", .value = CrossoverMode::dual},
+        {.name = "none", .value = CrossoverMode::none},
+    });
+
+/// ADL customization point for NamedEnum concept
+[[nodiscard]] constexpr auto enum_entries(CrossoverMode /*tag*/) noexcept
+{
+  return std::span {crossover_mode_entries};
+}
+
 // --- MipStartEffort ----------------------------------------------------------
 
 /**
@@ -236,6 +282,15 @@ struct formatter<gtopt::MipStartEffort> : formatter<string_view>
   auto format(gtopt::MipStartEffort effort, FormatContext& ctx) const
   {
     return formatter<string_view>::format(gtopt::enum_name(effort), ctx);
+  }
+};
+template<>
+struct formatter<gtopt::CrossoverMode> : formatter<string_view>
+{
+  template<typename FormatContext>
+  auto format(gtopt::CrossoverMode mode, FormatContext& ctx) const
+  {
+    return formatter<string_view>::format(gtopt::enum_name(mode), ctx);
   }
 };
 }  // namespace std

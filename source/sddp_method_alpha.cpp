@@ -1001,7 +1001,7 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // non-vertex — they cannot be used as a Farkas ray.  The crossover
   // step converts to a vertex optimum where row duals are well-
   // defined and α-free fcuts have non-trivial state coefficients.
-  elastic_opts.crossover = true;
+  elastic_opts.crossover = CrossoverMode::primal;
 
   // Scale the elastic penalty by cost_factor so it is consistent with all
   // other LP objective coefficients that go through stage_ecost / cost_factor.
