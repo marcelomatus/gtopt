@@ -36,16 +36,13 @@
 #include <gtopt/lp_replay_buffer.hpp>
 #include <gtopt/lp_snapshot_holder.hpp>
 #include <gtopt/lp_validation.hpp>
+#include <gtopt/matrix_stats.hpp>
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_stats.hpp>
 #include <gtopt/strong_index_vector.hpp>
-// NOLINTBEGIN(hicpp-move-const-arg)
-// NOLINTBEGIN(modernize-return-braced-init-list)
-// NOLINTBEGIN(performance-move-const-arg)
-// NOLINTBEGIN(readability-trailing-comma)
 
 namespace gtopt
 {
@@ -2237,6 +2234,9 @@ public:
     if (const auto sp = m_cache_.col_low(); !sp.empty()) {
       return sp;
     }
+    // A braced {ptr, count} return narrows the signed get_numcols() (int32) to
+    // span's unsigned size_type; the explicit span ctor is required.
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
     return std::span(backend().col_lower(), get_numcols());
   }
 
@@ -2250,6 +2250,9 @@ public:
     if (const auto sp = m_cache_.col_upp(); !sp.empty()) {
       return sp;
     }
+    // A braced {ptr, count} return narrows the signed get_numcols() (int32) to
+    // span's unsigned size_type; the explicit span ctor is required.
+    // NOLINTNEXTLINE(modernize-return-braced-init-list)
     return std::span(backend().col_upper(), get_numcols());
   }
 
@@ -2897,43 +2900,43 @@ public:
   /// @{
   [[nodiscard]] constexpr size_t lp_stats_nnz() const noexcept
   {
-    return m_stats_nnz_;
+    return m_stats_.nnz;
   }
   [[nodiscard]] constexpr size_t lp_stats_zeroed() const noexcept
   {
-    return m_stats_zeroed_;
+    return m_stats_.zeroed;
   }
   [[nodiscard]] constexpr double lp_stats_max_abs() const noexcept
   {
-    return m_stats_max_abs_;
+    return m_stats_.max_abs;
   }
   [[nodiscard]] constexpr double lp_stats_min_abs() const noexcept
   {
-    return m_stats_min_abs_;
+    return m_stats_.min_abs;
   }
   [[nodiscard]] constexpr std::optional<ColIndex> lp_stats_max_col()
       const noexcept
   {
-    return m_stats_max_col_;
+    return m_stats_.max_col;
   }
   [[nodiscard]] constexpr std::optional<ColIndex> lp_stats_min_col()
       const noexcept
   {
-    return m_stats_min_col_;
+    return m_stats_.min_col;
   }
   [[nodiscard]] constexpr const std::string& lp_stats_max_col_name()
       const noexcept
   {
-    return m_stats_max_col_name_;
+    return m_stats_.max_col_name;
   }
   [[nodiscard]] constexpr const std::string& lp_stats_min_col_name()
       const noexcept
   {
-    return m_stats_min_col_name_;
+    return m_stats_.min_col_name;
   }
   [[nodiscard]] constexpr const auto& lp_row_type_stats() const noexcept
   {
-    return m_row_type_stats_;
+    return m_stats_.row_type_stats;
   }
   /// @}
 
@@ -3058,18 +3061,22 @@ private:
   // Mutable for the lazy-materialisation path: caches populated by
   // `generate_labels_from_maps` (logically const) live here too.
   mutable std::shared_ptr<row_name_map_t> m_row_names_ {
-      std::make_shared<row_name_map_t>()};  ///< Row (constraint) name → idx
+      std::make_shared<row_name_map_t>(),
+  };  ///< Row (constraint) name → idx
   mutable std::shared_ptr<col_name_map_t> m_col_names_ {
-      std::make_shared<col_name_map_t>()};  ///< Column (variable) name → idx
+      std::make_shared<col_name_map_t>(),
+  };  ///< Column (variable) name → idx
   // Mutable so `generate_labels_from_maps` (logically const — it
   // returns new vectors; the state update is a caching detail) can
   // persist freshly-formatted labels for reuse on subsequent calls.
   mutable std::shared_ptr<StrongIndexVector<ColIndex, std::string>>
       m_col_index_to_name_ {
-          std::make_shared<StrongIndexVector<ColIndex, std::string>>()};
+          std::make_shared<StrongIndexVector<ColIndex, std::string>>(),
+      };
   mutable std::shared_ptr<StrongIndexVector<RowIndex, std::string>>
       m_row_index_to_name_ {
-          std::make_shared<StrongIndexVector<RowIndex, std::string>>()};
+          std::make_shared<StrongIndexVector<RowIndex, std::string>>(),
+      };
 
   Index m_base_numrows_ {};  ///< Row count before any cuts were added
   /// True once `save_base_numrows()` has fired.  Distinct from
@@ -3114,9 +3121,11 @@ private:
   /// scales (see `add_col_disposable` / `add_row_disposable`) so
   /// they never trigger the COW detach branch on the clone side.
   mutable std::shared_ptr<StrongIndexVector<ColIndex, double>> m_col_scales_ {
-      std::make_shared<StrongIndexVector<ColIndex, double>>()};
+      std::make_shared<StrongIndexVector<ColIndex, double>>(),
+  };
   mutable std::shared_ptr<StrongIndexVector<RowIndex, double>> m_row_scales_ {
-      std::make_shared<StrongIndexVector<RowIndex, double>>()};
+      std::make_shared<StrongIndexVector<RowIndex, double>>(),
+  };
   /// Per-column / per-row objective time-basis (Power / Energy / Raw),
   /// populated from `FlatLinearProblem::col_cost_scale_types` /
   /// `row_cost_scale_types` at `load_flat`.  Frozen after flatten (never
@@ -3127,10 +3136,12 @@ private:
   /// flatten) indices default to `Power` via `*_cost_scale_type_at`.
   mutable std::shared_ptr<std::vector<ConstraintScaleType>>
       m_col_cost_scale_types_ {
-          std::make_shared<std::vector<ConstraintScaleType>>()};
+          std::make_shared<std::vector<ConstraintScaleType>>(),
+      };
   mutable std::shared_ptr<std::vector<ConstraintScaleType>>
       m_row_cost_scale_types_ {
-          std::make_shared<std::vector<ConstraintScaleType>>()};
+          std::make_shared<std::vector<ConstraintScaleType>>(),
+      };
   /// Equilibration method used at load_flat() time.  Persisted so that
   /// `add_row` / `add_rows` (the post-build cut path) apply the same
   /// per-row scaling the bulk build did, keeping kappa stable as cuts
@@ -3142,17 +3153,12 @@ private:
   /// Mutated only via `load_flat` (source-side, before any clones)
   /// so the COW detach in `detach_for_write` is dormant in practice.
   mutable std::shared_ptr<VariableScaleMap> m_variable_scale_map_ {
-      std::make_shared<VariableScaleMap>()};
+      std::make_shared<VariableScaleMap>(),
+  };
 
-  size_t m_stats_nnz_ {};
-  size_t m_stats_zeroed_ {};
-  double m_stats_max_abs_ {};
-  double m_stats_min_abs_ {};
-  std::optional<ColIndex> m_stats_max_col_ {};
-  std::optional<ColIndex> m_stats_min_col_ {};
-  std::string m_stats_max_col_name_ {};
-  std::string m_stats_min_col_name_ {};
-  std::vector<FlatLinearProblem::RowTypeStatsEntry> m_row_type_stats_ {};
+  /// Matrix-wide numerical statistics captured after flatten.  Extracted into
+  /// its own value type (matrix_stats.hpp) as step 1 of decomposing this class.
+  MatrixStats m_stats_ {};
 
   struct FILEcloser
   {
@@ -3240,9 +3246,11 @@ private:
   /// `m_col_labels_meta_` references it.  `mutable` because the lazy
   /// decompression flow is triggered from const methods.
   mutable std::shared_ptr<std::vector<SparseColLabel>> m_col_labels_meta_ {
-      std::make_shared<std::vector<SparseColLabel>>()};
+      std::make_shared<std::vector<SparseColLabel>>(),
+  };
   mutable std::shared_ptr<std::vector<SparseRowLabel>> m_row_labels_meta_ {
-      std::make_shared<std::vector<SparseRowLabel>>()};
+      std::make_shared<std::vector<SparseRowLabel>>(),
+  };
 
   /// Label-only metadata for the **post-flatten** portion of the LP —
   /// extended by every `add_col(SparseCol)` / `add_row(SparseRow)`
@@ -3413,8 +3421,3 @@ private:
 };
 
 }  // namespace gtopt
-
-// NOLINTEND(hicpp-move-const-arg)
-// NOLINTEND(modernize-return-braced-init-list)
-// NOLINTEND(performance-move-const-arg)
-// NOLINTEND(readability-trailing-comma)

@@ -1198,15 +1198,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_row_labels_meta_count_ = 0;
 
   // Preserve coefficient statistics computed during flatten().
-  m_stats_nnz_ = flat_lp.stats_nnz;
-  m_stats_zeroed_ = flat_lp.stats_zeroed;
-  m_stats_max_abs_ = flat_lp.stats_max_abs;
-  m_stats_min_abs_ = flat_lp.stats_min_abs;
-  m_stats_max_col_ = flat_lp.stats_max_col;
-  m_stats_min_col_ = flat_lp.stats_min_col;
-  m_stats_max_col_name_ = flat_lp.stats_max_col_name;
-  m_stats_min_col_name_ = flat_lp.stats_min_col_name;
-  m_row_type_stats_ = flat_lp.row_type_stats;
+  m_stats_.nnz = flat_lp.stats_nnz;
+  m_stats_.zeroed = flat_lp.stats_zeroed;
+  m_stats_.max_abs = flat_lp.stats_max_abs;
+  m_stats_.min_abs = flat_lp.stats_min_abs;
+  m_stats_.max_col = flat_lp.stats_max_col;
+  m_stats_.min_col = flat_lp.stats_min_col;
+  m_stats_.max_col_name = flat_lp.stats_max_col_name;
+  m_stats_.min_col_name = flat_lp.stats_min_col_name;
+  m_stats_.row_type_stats = flat_lp.row_type_stats;
 
   for (auto i : flat_lp.colint) {
     m_backend_->set_integer(i);
