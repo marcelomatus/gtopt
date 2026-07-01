@@ -64,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
@@ -144,7 +144,7 @@ jobs:
 
       - name: Cache tectonic binary
         id: cache-tectonic
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.local/bin/tectonic
           key: tectonic-${{ runner.os }}
@@ -153,7 +153,7 @@ jobs:
       # document; cache them across runs so the white-paper build reuses the
       # package tree after the first successful run.
       - name: Cache tectonic LaTeX package cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/Tectonic
           key: tectonic-packages-${{ hashFiles('docs/white_paper/main.tex') }}
