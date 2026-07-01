@@ -17,6 +17,7 @@
  * - Multiple stages (time steps within phases)
  */
 
+#include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/scene.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/utils.hpp>
@@ -146,6 +147,17 @@ auto create_scene_array(const Simulation& simulation)
 }
 
 }  // namespace
+
+ArrowIndexCache& SimulationLP::arrow_index_cache() const
+{
+  // Lazily created on first use.  Callers hold array_index_mutex()
+  // (make_array_index does), so this creation is serialised — no extra lock
+  // here.  Shared across every per-cell SystemLP build (see header docs).
+  if (!m_arrow_index_cache_) {
+    m_arrow_index_cache_ = std::make_shared<ArrowIndexCache>();
+  }
+  return *m_arrow_index_cache_;
+}
 
 SimulationLP::SimulationLP(const Simulation& simulation,
                            const PlanningOptionsLP& options)
