@@ -8,10 +8,25 @@ inputs:
   version:
     description: GCC major version to install
     default: '14'
+  toolchain-ppa:
+    description: >
+      Add the ubuntu-toolchain-r/test PPA before installing.  Required for
+      GCC versions newer than the runner's default archive (e.g. gcc-15 on
+      ubuntu-24.04 / noble, which only ships gcc-14).  Harmless for versions
+      already in the archive.
+    default: 'false'
 
 runs:
   using: composite
   steps:
+    - name: add ubuntu-toolchain-r/test PPA
+      if: ${{ inputs.toolchain-ppa == 'true' }}
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y --no-install-recommends software-properties-common
+        sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+
     - name: install GCC
       shell: bash
       run: |

@@ -257,6 +257,20 @@ jobs:
           if ls build/plugins/libgtopt_solver_*.so >/dev/null 2>&1; then
             cp build/plugins/libgtopt_solver_*.so build/standalone/
           fi
+          # Ship the shared spdlog (SONAME libspdlog.so.1.15) alongside the
+          # binary.  The core and every plugin carry a DT_NEEDED on
+          # libspdlog.so.1.15 (spdlog is a shared lib so plugins share one
+          # logger), but a clean runner only has apt's libspdlog 1.12.  The
+          # binary and plugins have `$ORIGIN` first in their RUNPATH, so a
+          # sibling copy here resolves on any machine that downloads the
+          # artifact.  Dereference the symlink (-L) so a real regular file with
+          # the SONAME name is uploaded (upload-artifact drops symlinks).
+          spdlog_soname=$(find build -name 'libspdlog.so.1.15' 2>/dev/null | head -n1)
+          if [ -n "$spdlog_soname" ]; then
+            cp -L "$spdlog_soname" build/standalone/libspdlog.so.1.15
+          else
+            echo "::warning::libspdlog.so.1.15 not found under build/; downloaded gtopt may fail to run on a clean machine"
+          fi
           ls -la build/standalone/
 
       - name: upload gtopt binary
@@ -266,6 +280,7 @@ jobs:
           path: |
             build/standalone/gtopt
             build/standalone/libgtopt_solver_*.so
+            build/standalone/libspdlog.so.1.15
           retention-days: 7
           if-no-files-found: warn
 
@@ -564,6 +579,9 @@ jobs:
           cp ${{ runner.temp }}/gtopt-bin/gtopt $HOME/gtopt-install/bin/gtopt
           # Copy solver plugin libraries alongside the binary
           cp ${{ runner.temp }}/gtopt-bin/libgtopt_solver_*.so $HOME/gtopt-install/bin/ 2>/dev/null || true
+          # Copy the shared spdlog so the binary/plugins resolve their
+          # DT_NEEDED libspdlog.so.1.15 via $ORIGIN (apt only ships 1.12).
+          cp ${{ runner.temp }}/gtopt-bin/libspdlog.so.* $HOME/gtopt-install/bin/ 2>/dev/null || true
           chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: cache Next.js build
@@ -583,6 +601,21 @@ jobs:
         run: |
           cmake -S guiservice -B build-guiservice
           cmake --install build-guiservice --prefix $HOME/gtopt-install
+
+      - name: install guiservice runtime pyarrow
+        run: |
+          # guiservice/requirements.txt intentionally omits pyarrow so a full
+          # gtopt-scripts install (which provides a source-built pyarrow) is not
+          # clobbered by the PyPI wheel's bundled libarrow.  This job installs
+          # only the guiservice, so pyarrow — required by the gtopt_gui launcher
+          # dependency check (`import flask, pandas, pyarrow, requests`) — is
+          # absent.  Install the PyPI wheel ONLY when pyarrow is not already
+          # importable, so a pre-existing source build is never overwritten.
+          if python3 -c "import pyarrow" 2>/dev/null; then
+            echo "✓ pyarrow already available; leaving it untouched"
+          else
+            uv pip install --system pyarrow
+          fi
 
       - name: Verify launcher, systemd unit, and webservice build artefacts
         run: |

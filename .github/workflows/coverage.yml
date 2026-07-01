@@ -18,12 +18,12 @@ on:
   workflow_dispatch:
     inputs:
       compiler:
-        description: 'Compiler to use (clang or gcc)'
+        description: 'Compiler to use (gcc or clang)'
         type: choice
         options:
-          - clang
           - gcc
-        default: clang
+          - clang
+        default: gcc
   schedule:
     - cron: '0 2 * * 0'  # Every Sunday at 02:00 UTC
 
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
-    name: Coverage (${{ inputs.compiler || 'clang' }})
+    name: Coverage (${{ inputs.compiler || 'gcc' }})
 
     steps:
       - uses: actions/checkout@v6
@@ -56,38 +56,46 @@ jobs:
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: gtopt-clang-coverage-${{ inputs.compiler || 'clang' }}
+          key: gtopt-clang-coverage-${{ inputs.compiler || 'gcc' }}
           # Shared `gtopt-clang-` prefix lets coverage warm-start from the
           # ubuntu.yml / profile.yml caches and vice versa.  Object-flag
           # mismatch means no exact hits across workflows, but header parse
           # state still shaves time off the weekly cold start.
           restore-keys: |
-            gtopt-clang-coverage-${{ inputs.compiler || 'clang' }}-
-            gtopt-clang-Ubuntu-${{ inputs.compiler || 'clang' }}-
+            gtopt-clang-coverage-${{ inputs.compiler || 'gcc' }}-
+            gtopt-clang-Ubuntu-${{ inputs.compiler || 'gcc' }}-
             gtopt-clang-
-            coverage-${{ inputs.compiler || 'clang' }}-
-            Ubuntu-${{ inputs.compiler || 'clang' }}-
+            coverage-${{ inputs.compiler || 'gcc' }}-
+            Ubuntu-${{ inputs.compiler || 'gcc' }}-
           max-size: 2G
 
       - uses: actions/cache@v5
         with:
           path: "**/cpm_modules"
-          key: coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
+          key: coverage-${{ inputs.compiler || 'gcc' }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
           restore-keys: |
-            coverage-${{ inputs.compiler || 'clang' }}-cpm-modules-
-            Ubuntu-${{ inputs.compiler || 'clang' }}-cpm-modules-
+            coverage-${{ inputs.compiler || 'gcc' }}-cpm-modules-
+            Ubuntu-${{ inputs.compiler || 'gcc' }}-cpm-modules-
 
       - name: install dependencies
         uses: ./.github/actions/install-apt-deps
 
+      # Default coverage compiler is the regular g++ (matches local dev and the
+      # main Ubuntu build).  gcc-15 is not in the noble archive, so pull it from
+      # the toolchain PPA.  NOTE: do NOT default this to clang here — the only
+      # clang the coverage runtime pins is clang-21, which is a GH-sandbox-only
+      # toolchain and mis-compiles `views::join | std::ranges::to<...>()`.
       - name: setup gcc
-        if: ${{ (inputs.compiler || 'clang') == 'gcc' }}
+        if: ${{ (inputs.compiler || 'gcc') == 'gcc' }}
         uses: ./.github/actions/install-gcc
         with:
-          version: 14
+          version: 15
+          toolchain-ppa: 'true'
 
+      # Opt-in only (manual workflow_dispatch with compiler=clang).  install-clang
+      # pins clang-21 (sandbox toolchain); prefer gcc for scheduled runs.
       - name: install clang
-        if: ${{ (inputs.compiler || 'clang') == 'clang' }}
+        if: ${{ (inputs.compiler || 'gcc') == 'clang' }}
         uses: ./.github/actions/install-clang
         with:
           version: 21
@@ -101,7 +109,7 @@ jobs:
 
       - name: Configure coverage sub-project
         run: |
-          COMPILER="${{ inputs.compiler || 'clang' }}"
+          COMPILER="${{ inputs.compiler || 'gcc' }}"
           cmake -S coverage -B build-coverage \
             -DCOVERAGE_COMPILER="${COMPILER}" \
             -DCOVERAGE_OUTPUT_DIR="${PWD}/reports/coverage" \
@@ -113,7 +121,7 @@ jobs:
       - name: Upload C++ coverage HTML report
         uses: actions/upload-artifact@v7
         with:
-          name: cpp-coverage-report-${{ inputs.compiler || 'clang' }}
+          name: cpp-coverage-report-${{ inputs.compiler || 'gcc' }}
           path: reports/coverage/html/
           retention-days: 30
           if-no-files-found: warn
@@ -129,7 +137,7 @@ jobs:
       - name: Upload coverage.info artifact
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-info-${{ inputs.compiler || 'clang' }}
+          name: coverage-info-${{ inputs.compiler || 'gcc' }}
           path: reports/coverage/coverage.info
           retention-days: 14
           if-no-files-found: ignore
@@ -155,6 +163,6 @@ jobs:
           # -f is required because .gitignore blocks the "reports" directory
           git add -f reports/coverage/
           git commit --allow-empty \
-            -m "chore: update coverage report (${{ inputs.compiler || 'clang' }}) [skip ci]" \
+            -m "chore: update coverage report (${{ inputs.compiler || 'gcc' }}) [skip ci]" \
             || echo "Nothing to commit"
           git push || echo "Push failed (OK for PRs from forks)"

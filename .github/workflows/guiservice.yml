@@ -116,6 +116,21 @@ jobs:
           python3 -c "import flask; print(f'✓ Flask {flask.__version__} installed')"
           python3 -c "import pandas; print(f'✓ pandas {pandas.__version__} installed')"
 
+      - name: install guiservice runtime pyarrow
+        run: |
+          # guiservice/requirements.txt intentionally omits pyarrow so a full
+          # gtopt-scripts install (source-built pyarrow) is not clobbered by the
+          # PyPI wheel's bundled libarrow.  This job installs only the
+          # guiservice, so pyarrow — required by the gtopt_gui / gtopt_guisrv
+          # launcher dependency check — is absent.  Install the PyPI wheel ONLY
+          # when pyarrow is not already importable, never overwriting a source
+          # build.
+          if python3 -c "import pyarrow" 2>/dev/null; then
+            echo "✓ pyarrow already available; leaving it untouched"
+          else
+            uv pip install --system pyarrow
+          fi
+
       - name: Verify both launchers are installed
         run: |
           test -f $HOME/gtopt-install/bin/gtopt_gui
