@@ -111,7 +111,7 @@ jobs:
     name: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ccache must be set up before any compilation (including cmake feature
       # tests during configure).  Placing it first also means the cache is
@@ -397,7 +397,7 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
@@ -473,7 +473,7 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: download gtopt binary
         uses: actions/download-artifact@v8
@@ -538,7 +538,7 @@ jobs:
     name: test-installed-integrations (websrv + gui)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
