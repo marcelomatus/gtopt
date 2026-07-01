@@ -15,6 +15,8 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -46,24 +48,65 @@ namespace
       sid);
 }
 
-/// Check whether a SingleId matches any element in an array by uid or name.
-template<typename Elem>
-[[nodiscard]] auto single_id_exists(const SingleId& sid, const Array<Elem>& arr)
-    -> bool
+/// O(1) membership over an element array's uids and names.  Built once per
+/// array (see `IdIndexCache`) so referential-integrity validation runs in
+/// O(elements) instead of O(elements × targets): on a large system
+/// (case3375wp, 3375 buses) the old per-reference linear scan of `bus_array`
+/// via `std::ranges::any_of` was ~9% of LP-build wall time, all on the
+/// single-threaded load path.
+struct ElementIdIndex
 {
-  return std::visit(
-      [&arr](const auto& val) -> bool
-      {
-        if constexpr (std::is_same_v<std::decay_t<decltype(val)>, Uid>) {
-          return std::ranges::any_of(
-              arr, [&val](const auto& e) { return e.uid == val; });
-        } else {
-          return std::ranges::any_of(
-              arr, [&val](const auto& e) { return e.name == val; });
-        }
-      },
-      sid);
-}
+  std::unordered_set<Uid> uids;
+  // Views into the array elements' `name` strings; the array outlives the
+  // index (both are call-scoped in `check_referential_integrity`).
+  std::unordered_set<std::string_view> names;
+
+  template<typename Elem>
+  explicit ElementIdIndex(const Array<Elem>& arr)
+  {
+    uids.reserve(arr.size());
+    names.reserve(arr.size());
+    for (const auto& e : arr) {
+      uids.insert(e.uid);
+      names.insert(std::string_view {e.name});
+    }
+  }
+
+  /// True iff `sid` (a uid- or name-form reference) matches an element.
+  [[nodiscard]] auto contains(const SingleId& sid) const -> bool
+  {
+    return std::visit(
+        [this](const auto& val) -> bool
+        {
+          if constexpr (std::is_same_v<std::decay_t<decltype(val)>, Uid>) {
+            return uids.contains(val);
+          } else {
+            return names.contains(std::string_view {val});
+          }
+        },
+        sid);
+  }
+};
+
+/// Lazily builds and memoises one `ElementIdIndex` per target array, keyed by
+/// the array's address.  Scoped to a single `check_referential_integrity`
+/// call, so the addresses are stable and never reused across `System`s.
+class IdIndexCache
+{
+public:
+  template<typename Elem>
+  [[nodiscard]] auto index_for(const Array<Elem>& arr) -> const ElementIdIndex&
+  {
+    const auto* key = static_cast<const void*>(&arr);
+    if (const auto it = m_indices_.find(key); it != m_indices_.end()) {
+      return it->second;
+    }
+    return m_indices_.emplace(key, ElementIdIndex {arr}).first->second;
+  }
+
+private:
+  std::unordered_map<const void*, ElementIdIndex> m_indices_;
+};
 
 /// Check whether a SingleId names a synthetic ``<battery>_gen`` discharge
 /// generator that ``System::expand_batteries`` will materialise at LP-build
@@ -91,30 +134,33 @@ template<typename Elem>
       sid);
 }
 
-/// Validate that a SingleId field references a valid element.
-template<typename Elem>
-void check_ref(ValidationResult& result,
-               const SingleId& sid,
-               const Array<Elem>& arr,
-               std::string_view owner_kind,
-               std::string_view owner_name,
-               std::string_view field_name,
-               std::string_view target_kind)
-{
-  if (!single_id_exists(sid, arr)) {
-    result.errors.push_back(
-        std::format("{} '{}': {} references non-existent {} ({})",
-                    owner_kind,
-                    owner_name,
-                    field_name,
-                    target_kind,
-                    format_single_id(sid)));
-  }
-}
-
 /// Validate referential integrity of all components.
 void check_referential_integrity(ValidationResult& result, const System& sys)
 {
+  // One O(1) membership index per target array, built on first use, so the
+  // checks below run in O(elements) instead of O(elements × targets).  The
+  // generic lambda keeps `check_ref` call sites identical to the former free
+  // function that linearly scanned `arr` per reference.
+  IdIndexCache cache;
+  const auto check_ref = [&cache](ValidationResult& res,
+                                  const SingleId& sid,
+                                  const auto& arr,
+                                  std::string_view owner_kind,
+                                  std::string_view owner_name,
+                                  std::string_view field_name,
+                                  std::string_view target_kind)
+  {
+    if (!cache.index_for(arr).contains(sid)) {
+      res.errors.push_back(
+          std::format("{} '{}': {} references non-existent {} ({})",
+                      owner_kind,
+                      owner_name,
+                      field_name,
+                      target_kind,
+                      format_single_id(sid)));
+    }
+  };
+
   // Generator.bus -> Bus
   for (const auto& gen : sys.generator_array) {
     check_ref(
@@ -381,7 +427,7 @@ void check_referential_integrity(ValidationResult& result, const System& sys)
     // Accept both real generators and the synthetic ``<battery>_gen``
     // discharge generators created by ``expand_batteries`` (BESS reserve
     // provision from ``SSCC_Activation_BESS.csv`` targets these).
-    if (!single_id_exists(rp.generator, sys.generator_array)
+    if (!cache.index_for(sys.generator_array).contains(rp.generator)
         && !synthetic_battery_gen_exists(rp.generator, sys.battery_array))
     {
       result.errors.push_back(
