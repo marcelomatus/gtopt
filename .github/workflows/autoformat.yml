@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Check out the branch that was pushed (not a detached HEAD)
           ref: ${{ github.head_ref || github.ref_name }}
