@@ -87,3 +87,24 @@ cases/sddp_hydro_3phase/cuts/
 
 # Regenerated converter output (created on the fly by plexos2gtopt)
 support/new_bess_emissions/reference/PLEXOS20260517.json
+
+# gtopt LP-dump artefacts (lp_error / lp_debug), various namings, written to
+# the run CWD when solving in the repo root — intermediate, never source.
+ERROR*.lp
+INFO*.lp
+WARN*.lp
+WARNING*.lp
+debug*.lp
+*_scene_*_phase_*.lp
+monolithic.lp
+
+# Ad-hoc gtopt run output dirs (per-element results / cuts / solver logs)
+# dropped at the repo root or under case dirs.
+/logs/
+/cuts/
+cases/*/out*/
+
+# PSR reference/solution data extracted from the shipped .rar archives
+# (comparison inputs, regenerable via unrar — not source, keep out of git).
+support/luis/**/psr_ref/
+support/luis/**/PDD_DIARIO/

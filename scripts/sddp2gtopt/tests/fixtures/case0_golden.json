@@ -2,6 +2,7 @@
   "options": {
     "annual_discount_rate": 0.0,
     "model_options": {
+      "dc_line_reactance_threshold": 0.001,
       "demand_fail_cost": 500.0,
       "scale_objective": 1000,
       "use_kirchhoff": false,

@@ -42,7 +42,13 @@ gtopt FCF prices the terminal water:
 - **Sign/units** = PHYSICAL space, `value = -water_value` (`= -val*scale_objective`
   from the parquet). The loader negates (`row = -coeff`) and applies the NCP
   run's own `÷scale_objective` via `compose_physical`. `scale_objective=1` here.
-- **Multi-cut**: 2 rows (`iteration` 1,2) = the terminal cut family.
+- **Single converged cut**: 1 row = the terminal cut from the CONVERGED final
+  SDDP iteration only. The deterministic run converges in 2 iterations on the
+  ΔUB tolerance (iter-1 gap 91.67% → iter-2 gap 0.07% `[CONVERGED]`); iteration
+  1 is a pre-convergence (looser) cut and is NOT shipped. `extract_cuts.py`
+  defaults to `last` (converged-iteration only); pass `all` as the 6th arg to
+  emit the full multi-cut envelope once the run is STOCHASTIC (iterations then
+  visit different reservoir states and every cut matters).
 
 ## What it is (run #1)
 
@@ -70,7 +76,9 @@ to pursue. Compare your run with `cmp_day1.py <out_dir>`.
 
 ```
 python build_multiweek.py support/luis/ncp_pdd_22jun/ncp_pdd_22jun.json luis_12wk.json 12
-gtopt luis_12wk.json --solver cplex --set sddp_options.max_iterations=15 -d luis_12wk_out
+gtopt luis_12wk.json --solver cplex --set sddp_options.max_iterations=50 -d luis_12wk_out
+# max_iterations is just a cap; the deterministic run converges at iter 2 on the
+# ΔUB tolerance.  The extractor takes the converged (last) iteration by default:
 python extract_cuts.py luis_12wk_out/cuts/sddp_cuts.parquet luis_12wk.json \
     support/luis/ncp_pdd_22jun/ncp_pdd_22jun.json boundary_cuts_gtopt_fcf.csv 1
 ```

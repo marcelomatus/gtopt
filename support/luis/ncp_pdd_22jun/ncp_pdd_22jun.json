@@ -4,6 +4,7 @@
     "output_format": "csv",
     "output_compression": "uncompressed",
     "model_options": {
+      "dc_line_reactance_threshold": 0.001,
       "use_single_bus": false,
       "use_kirchhoff": true,
       "demand_fail_cost": 315.3,

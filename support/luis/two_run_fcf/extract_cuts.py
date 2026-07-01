@@ -41,9 +41,22 @@ d = tbl.to_pydict()
 phases = sorted(set(d["phase"]))
 term = forced_phase if forced_phase is not None else phases[-1]
 
+# Iteration selection: 'last' (default) = only the CONVERGED final-iteration cut
+# (correct for a deterministic run — all iterations visit the same state, so the
+# last is the tightest; earlier iterations are pre-convergence, looser cuts).
+# 'all' = every iteration's cut = the full multi-cut envelope (needed once the
+# run is STOCHASTIC and iterations visit different reservoir states).
+iter_sel = sys.argv[6] if len(sys.argv) > 6 else "last"
+iters_at_term = [
+    d["iteration"][i] for i in range(len(d["phase"])) if d["phase"][i] == term
+]
+last_iter = max(iters_at_term) if iters_at_term else None
+
 rows = []
 for i in range(len(d["phase"])):
     if d["phase"][i] != term:
+        continue
+    if iter_sel == "last" and d["iteration"][i] != last_iter:
         continue
     row = {
         "iteration": int(d["iteration"][i]),
