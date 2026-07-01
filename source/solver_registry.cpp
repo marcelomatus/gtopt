@@ -602,10 +602,17 @@ std::unique_ptr<SolverBackend> SolverRegistry::create(
 std::vector<std::string> SolverRegistry::available_solvers() const
 {
   const std::scoped_lock lock(m_mutex_);
-  return m_plugins_
+  // Use the `std::ranges::to(range)` call form, NOT the `range |
+  // std::ranges::to<...>()` pipe form: clang-21 with libstdc++-14 (the coverage
+  // build) fails to compile `views::join | std::ranges::to<...>()`
+  // ("function 'forward_like<...>' with deduced return type cannot be used
+  // before it is defined").  The call form — already used throughout
+  // flat_helper.hpp and simulation_lp.cpp — compiles on every toolchain.
+  return std::ranges::to<std::vector>(
+      m_plugins_
       | std::views::transform([](const auto& p) -> const auto&
                               { return p.solver_names; })
-      | std::views::join | std::ranges::to<std::vector>();
+      | std::views::join);
 }
 
 std::string_view SolverRegistry::default_solver()
