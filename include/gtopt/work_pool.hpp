@@ -51,8 +51,6 @@
 #include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
 #include <spdlog/spdlog.h>
-// NOLINTBEGIN(modernize-use-integer-sign-comparison,
-// performance-unnecessary-value-param)
 
 #ifdef __linux__
 #  include <pthread.h>
@@ -1102,14 +1100,14 @@ private:
       return;  // pool is shutting down — do not create new workers
     }
     const auto total = workers_.size();
-    if (total >= static_cast<std::size_t>(
-            max_threads_.load(std::memory_order_relaxed)))
+    if (std::cmp_greater_equal(total,
+                               max_threads_.load(std::memory_order_relaxed)))
     {
       return;
     }
     const auto active = active_threads_.load(std::memory_order_relaxed);
     const auto idle =
-        active < static_cast<int>(total) ? static_cast<int>(total) - active : 0;
+        std::cmp_less(active, total) ? static_cast<int>(total) - active : 0;
     const auto pending = static_cast<int>(task_queue_.size());
     if (pending <= idle) {
       // Existing idle workers can absorb the queue — `notify_all()`
@@ -1117,7 +1115,7 @@ private:
       return;
     }
     workers_.emplace_back(
-        [this, i = total](std::stop_token stoken)
+        [this, i = total](const std::stop_token& stoken)
         {
 #ifdef __linux__
           const auto thread_name = std::format("WP-{}-{}", name_, i);
@@ -1696,6 +1694,3 @@ public:
 };
 
 }  // namespace gtopt
-
-// NOLINTEND(modernize-use-integer-sign-comparison,
-// performance-unnecessary-value-param)

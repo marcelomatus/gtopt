@@ -25,7 +25,6 @@
 #include <gtopt/iteration.hpp>
 #include <gtopt/phase.hpp>
 #include <gtopt/scene.hpp>
-// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace gtopt
 {
@@ -78,40 +77,23 @@ struct SDDPLogTag
   // NOLINTNEXTLINE(google-explicit-constructor,hicpp-explicit-conversions)
   [[nodiscard]] operator std::string() const
   {
-    if (aperture_uid.has_value()) {
-      return as_label<void>("SDDP ",
-                            tag,
-                            " [i",
-                            iteration_uid,
-                            ' ',
-                            's',
-                            *scene_uid,
-                            ' ',
-                            'p',
-                            *phase_uid,
-                            ' ',
-                            'a',
-                            *aperture_uid,
-                            ']');
+    // Each optional is dereferenced only under its own has_value() guard,
+    // mirroring the std::formatter<SDDPLogTag> specialisation below.  The
+    // sddp_log(...) factories keep the nesting invariant (aperture ⊂ phase ⊂
+    // scene), but checking each level independently keeps the output
+    // well-formed for any construction and is provably safe to the analyzer.
+    std::string result = as_label<void>("SDDP ", tag, " [i", iteration_uid);
+    if (scene_uid.has_value()) {
+      result += as_label<void>(' ', 's', *scene_uid);
     }
     if (phase_uid.has_value()) {
-      return as_label<void>("SDDP ",
-                            tag,
-                            " [i",
-                            iteration_uid,
-                            ' ',
-                            's',
-                            *scene_uid,
-                            ' ',
-                            'p',
-                            *phase_uid,
-                            ']');
+      result += as_label<void>(' ', 'p', *phase_uid);
     }
-    if (scene_uid.has_value()) {
-      return as_label<void>(
-          "SDDP ", tag, " [i", iteration_uid, ' ', 's', *scene_uid, ']');
+    if (aperture_uid.has_value()) {
+      result += as_label<void>(' ', 'a', *aperture_uid);
     }
-    return as_label<void>("SDDP ", tag, " [i", iteration_uid, ']');
+    result += ']';
+    return result;
   }
 };
 
@@ -375,5 +357,3 @@ struct std::formatter<gtopt::FormatSI, CharT>  // NOLINT(cert-dcl58-cpp)
     return std::format_to(out, "{}{:.6f}", sign, a);
   }
 };
-
-// NOLINTEND(bugprone-unchecked-optional-access)

@@ -37,10 +37,10 @@ namespace
 // The probe is a debug-only diagnostic gated by an env var; the
 // global counter + mutex are inherent to its design (rate-limit and
 // serialise child processes across all worker threads).
-// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<int> g_probe_count {0};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::mutex g_probe_mutex;
-// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 [[nodiscard]] bool flag_enabled() noexcept
 {

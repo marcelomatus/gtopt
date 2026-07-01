@@ -12,7 +12,6 @@
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_lp_validation.hpp>
 #include <gtopt/lp_matrix_options.hpp>
-// NOLINTBEGIN(hicpp-move-const-arg, performance-move-const-arg)
 
 namespace daw::json
 {
@@ -51,7 +50,7 @@ struct LpMatrixOptionsConstructor
       opts.ruiz_tolerance = *ruiz_tolerance;
     }
     opts.compute_stats = compute_stats;
-    opts.validation = std::move(validation);
+    opts.validation = validation;
     return opts;
   }
 };
@@ -89,5 +88,3 @@ struct json_data_contract<LpMatrixOptions>
 };
 
 }  // namespace daw::json
-
-// NOLINTEND(hicpp-move-const-arg, performance-move-const-arg)

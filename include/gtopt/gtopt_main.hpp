@@ -21,7 +21,6 @@
 
 #include <gtopt/lp_matrix_options.hpp>
 #include <gtopt/solver_options.hpp>
-// NOLINTBEGIN(clang-analyzer-optin.performance.Padding)
 
 namespace gtopt
 {
@@ -42,6 +41,10 @@ struct Planning;  ///< Forward declaration; full type in gtopt/planning.hpp.
  *   });
  * @endcode
  */
+// Fields are grouped by role (required/IO/SDDP/flags) for readability;
+// MainOptions is instantiated once at startup, so the padding is immaterial
+// (optin performance hint, not a runtime cost worth 40 bytes of reordering).
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 struct MainOptions
 {
   // ---- required ----
@@ -492,5 +495,3 @@ void flush_default_logger_best_effort() noexcept;
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(clang-analyzer-optin.performance.Padding)
