@@ -159,8 +159,23 @@ ArrowIndexCache& SimulationLP::arrow_index_cache() const
   return *m_arrow_index_cache_;
 }
 
+std::shared_ptr<ArrowIndexCache> SimulationLP::arrow_index_cache_ptr() const
+{
+  // Ensure the cache exists (mirrors arrow_index_cache()'s lazy create), then
+  // hand out the shared owner so the cascade can propagate one warm cache
+  // across every per-level PlanningLP.  No lock here: called from the
+  // single-threaded cascade level loop between builds, not from the concurrent
+  // per-cell build path (which uses arrow_index_cache() under
+  // array_index_mutex()).
+  if (!m_arrow_index_cache_) {
+    m_arrow_index_cache_ = std::make_shared<ArrowIndexCache>();
+  }
+  return m_arrow_index_cache_;
+}
+
 SimulationLP::SimulationLP(const Simulation& simulation,
-                           const PlanningOptionsLP& options)
+                           const PlanningOptionsLP& options,
+                           std::shared_ptr<ArrowIndexCache> shared_index_cache)
     : m_simulation_(simulation)
     , m_options_(options)
     , m_block_array_(create_block_array(simulation))
@@ -209,6 +224,16 @@ SimulationLP::SimulationLP(const Simulation& simulation,
                     m_phase_array_.size());
               })))
 {
+  // Adopt a shared, run-lived arrow-index cache when the caller supplies one
+  // (the cascade passes the same cache to every per-level PlanningLP so the
+  // (Stage, Block) index stays warm across levels instead of being rebuilt
+  // cold each level).  When null, arrow_index_cache() lazily creates a
+  // per-instance cache as before.  Set here — before PlanningLP's
+  // create_systems() runs the per-cell builds that consult the cache.
+  if (shared_index_cache) {
+    m_arrow_index_cache_ = std::move(shared_index_cache);
+  }
+
   // Populate the (scenario_uid → scene_index) lookup by iterating each
   // scene's scenario list.  Scenes partition scenarios by construction
   // (see Simulation/Scene.first_scenario / count_scenario), so every

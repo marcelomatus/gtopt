@@ -71,8 +71,10 @@ public:
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */
-  explicit SimulationLP(const Simulation& simulation,
-                        const PlanningOptionsLP& options);
+  explicit SimulationLP(
+      const Simulation& simulation,
+      const PlanningOptionsLP& options,
+      std::shared_ptr<ArrowIndexCache> shared_index_cache = {});
 
   // Accessors
   /**
@@ -1459,6 +1461,15 @@ public:
   /// creation.  Defined out-of-line in simulation_lp.cpp because
   /// ArrowIndexCache is only forward-declared here (pimpl).
   [[nodiscard]] ArrowIndexCache& arrow_index_cache() const;
+
+  /// Returns the shared cache pointer so callers can propagate it across
+  /// SimulationLP instances.  The cascade passes it to each per-level
+  /// PlanningLP so the (cname, fname, uid) -> (Stage, Block) index stays warm
+  /// across levels instead of being rebuilt cold each level (a fresh
+  /// PlanningLP per level owns a fresh SimulationLP by value, so without this
+  /// the index-cache fix would be scoped to a single level).  Lazily creates
+  /// on first use.  Defined out-of-line (ArrowIndexCache is forward-declared).
+  [[nodiscard]] std::shared_ptr<ArrowIndexCache> arrow_index_cache_ptr() const;
 
   /// Mutex guarding arrow_index_cache() against the concurrent
   /// per-(scene, phase) SystemLP builds.

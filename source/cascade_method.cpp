@@ -18,6 +18,7 @@
 #include <vector>
 
 #include <daw/daw_read_file.h>
+#include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/as_label.hpp>
 #include <gtopt/cascade_method.hpp>
 #include <gtopt/cascade_progress.hpp>
@@ -179,6 +180,14 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     -> std::expected<int, Error>
 {
   PlanningLP* current_lp = nullptr;
+  // One arrow-index cache shared across every per-level PlanningLP so the
+  // (cname, fname, uid) -> (Stage, Block) input index is built once for the
+  // whole cascade and reused, instead of rebuilt cold each level (each level
+  // owns a fresh SimulationLP by value, so the per-run index-cache fix would
+  // otherwise be scoped to a single level).  Seeded by the first level that
+  // builds, then handed to every subsequent level's constructor.  Levels
+  // build sequentially, so there is no cross-level concurrency on the cache.
+  std::shared_ptr<ArrowIndexCache> shared_index_cache;
   std::unique_ptr<SDDPMethod> current_solver;
   ModelOptions prev_effective_model = m_cascade_opts_.model_options;
 
@@ -413,6 +422,11 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
     {
       current_lp = &planning_lp;
       current_solver.reset();
+      // Adopt the caller LP's (already-warm) index cache so downstream
+      // fresh-built levels reuse it instead of rebuilding it cold.
+      if (!shared_index_cache) {
+        shared_index_cache = planning_lp.simulation().arrow_index_cache_ptr();
+      }
       SPDLOG_INFO("Cascade [{}]: reusing caller PlanningLP", level_name);
     } else {
       auto modified_planning = clone_planning_with_overrides(
@@ -436,7 +450,15 @@ auto CascadePlanningMethod::solve(PlanningLP& planning_lp,
       }
 
       // State variable transfer uses structured keys — no LP names needed.
-      auto new_lp = std::make_unique<PlanningLP>(std::move(modified_planning));
+      // Pass the shared arrow-index cache so this level's per-cell builds
+      // reuse the warm (Stage, Block) index instead of rebuilding it cold;
+      // seed the cache from this level when it is the first to build.
+      const LpMatrixOptions level_flat_opts {};
+      auto new_lp = std::make_unique<PlanningLP>(
+          std::move(modified_planning), level_flat_opts, shared_index_cache);
+      if (!shared_index_cache) {
+        shared_index_cache = new_lp->simulation().arrow_index_cache_ptr();
+      }
       current_lp = new_lp.get();
       m_owned_lps_.push_back(std::move(new_lp));
       current_solver.reset();

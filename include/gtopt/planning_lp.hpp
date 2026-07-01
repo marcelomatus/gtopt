@@ -249,7 +249,8 @@ public:
   template<typename PlanningT>
     requires std::same_as<std::remove_cvref_t<PlanningT>, gtopt::Planning>
   explicit PlanningLP(PlanningT&& planning,
-                      const LpMatrixOptions& flat_opts = {})
+                      const LpMatrixOptions& flat_opts = {},
+                      std::shared_ptr<ArrowIndexCache> shared_index_cache = {})
       : m_planning_(  // NOLINT
             [&]() -> decltype(auto)
             {
@@ -301,7 +302,8 @@ public:
               return std::forward<PlanningT>(planning);
             }())
       , m_options_(m_planning_.options)
-      , m_simulation_(m_planning_.simulation, m_options_)
+      , m_simulation_(
+            m_planning_.simulation, m_options_, std::move(shared_index_cache))
       , m_name_store_(make_name_store(flat_opts, m_options_))
       , m_systems_(create_systems(
             m_planning_.system,
