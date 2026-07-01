@@ -65,13 +65,19 @@ template<typename Out, typename Inp, typename InputContext>
 auto make_collection(InputContext& input_context, const std::vector<Inp>& input)
     -> Collection<Out>
 {
-  return Collection<Out> {
-      std::ranges::to<std::vector<Out>>(
-          input
-          | std::ranges::views::transform(
-              [&](const auto& element)
-              { return Out {element, input_context}; })),
-  };
+  // Construct each LP object directly in its vector slot.  `Out{element, ...}`
+  // still copies the (preserved) system element into the LP object — the array
+  // outlives the collection and is reused by `rebuild_collections_if_needed` —
+  // but emplacing avoids the extra per-element MOVE that `std::ranges::to`
+  // incurred when materialising each `transform` prvalue and then moving it
+  // into the vector (Line(&&)/LineLP(&&) churn, ~3% of LP-build CPU on
+  // large systems).
+  std::vector<Out> elements;
+  elements.reserve(input.size());
+  for (const auto& element : input) {
+    elements.emplace_back(element, input_context);
+  }
+  return Collection<Out> {std::move(elements)};
 }
 
 /**
@@ -897,6 +903,11 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
       sim.register_ampl_element(class_name, obj.name, obj.uid);
     }
   }
+
+  // All element names accumulated above — bulk-load the (class, name) -> uid
+  // registry in one sorted pass (O(n log n)) instead of the former
+  // per-element sorted-vector inserts (O(n^2)).
+  sim.finalize_ampl_element_names();
 
   // AMPL parameter + iterator dispatch tables — populate via the helpers
   // in `ampl_dispatch_registry.cpp` (shims + registration glue).
