@@ -33,6 +33,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/low_memory_snapshot.hpp>
 #include <gtopt/lp_cache.hpp>
+#include <gtopt/lp_label_store.hpp>
 #include <gtopt/lp_replay_buffer.hpp>
 #include <gtopt/lp_snapshot_holder.hpp>
 #include <gtopt/lp_validation.hpp>
@@ -378,12 +379,12 @@ public:
   ///   - Diagnostics logging memory-saving hit rate at peak aperture
   ///     concurrency.
   ///
-  /// Reads `m_col_labels_meta_` because that's the largest-footprint
+  /// Reads `m_labels_.col_labels_meta` because that's the largest-footprint
   /// member and the most useful to track, but any of the eleven
   /// wrapped members would do.
   [[nodiscard]] auto col_labels_meta_use_count() const noexcept
   {
-    return m_col_labels_meta_.use_count();
+    return m_labels_.col_labels_meta.use_count();
   }
   [[nodiscard]] auto col_scales_use_count() const noexcept
   {
@@ -511,8 +512,8 @@ public:
   ///
   /// `generate_labels_from_maps` (the one path that turns label
   /// metadata into formatted strings) writes its results into
-  /// `m_col_index_to_name_` / `m_row_index_to_name_` (and the
-  /// underlying `m_col_names_` / `m_row_names_` dedup maps) as a
+  /// `m_labels_.col_index_to_name` / `m_labels_.row_index_to_name` (and the
+  /// underlying `m_labels_.col_names` / `m_labels_.row_names` dedup maps) as a
   /// memoization layer for repeat `write_lp` calls — but in
   /// production SDDP `write_lp` runs at most once per cell (debug
   /// `--lp-debug`, error-LP capture).  After the dump returns the
@@ -534,14 +535,14 @@ public:
   /// Idempotent and `noexcept`.
   void drop_formatted_label_caches() const noexcept
   {
-    detach_for_write(m_col_index_to_name_).clear();
-    detach_for_write(m_col_index_to_name_).shrink_to_fit();
-    detach_for_write(m_row_index_to_name_).clear();
-    detach_for_write(m_row_index_to_name_).shrink_to_fit();
-    detach_for_write(m_col_names_).clear();
-    detach_for_write(m_row_names_).clear();
-    m_label_string_pool_.clear();
-    m_label_string_pool_.shrink_to_fit();
+    detach_for_write(m_labels_.col_index_to_name).clear();
+    detach_for_write(m_labels_.col_index_to_name).shrink_to_fit();
+    detach_for_write(m_labels_.row_index_to_name).clear();
+    detach_for_write(m_labels_.row_index_to_name).shrink_to_fit();
+    detach_for_write(m_labels_.col_names).clear();
+    detach_for_write(m_labels_.row_names).clear();
+    m_labels_.label_string_pool.clear();
+    m_labels_.label_string_pool.shrink_to_fit();
   }
 
   /// Drop the legacy label-metadata buffers (compressed col/row label
@@ -562,12 +563,12 @@ public:
   /// a follow-up once all in-tree callers are confirmed redundant.
   void drop_label_meta_buffers() noexcept
   {
-    m_col_labels_meta_compressed_ = CompressedBuffer {};
-    m_row_labels_meta_compressed_ = CompressedBuffer {};
-    m_col_labels_meta_count_ = 0;
-    m_row_labels_meta_count_ = 0;
-    m_label_string_pool_.clear();
-    m_label_string_pool_.shrink_to_fit();
+    m_labels_.col_labels_meta_compressed = CompressedBuffer {};
+    m_labels_.row_labels_meta_compressed = CompressedBuffer {};
+    m_labels_.col_labels_meta_count = 0;
+    m_labels_.row_labels_meta_count = 0;
+    m_labels_.label_string_pool.clear();
+    m_labels_.label_string_pool.shrink_to_fit();
   }
 
   /**
@@ -715,19 +716,21 @@ public:
   }
 
   /// Number of structural columns / rows captured at `flatten` time
-  /// and still pinned in the frozen `m_col_labels_meta_` /
-  /// `m_row_labels_meta_` vector.  Indices in `[0, flatten_col_count())`
+  /// and still pinned in the frozen `m_labels_.col_labels_meta` /
+  /// `m_labels_.row_labels_meta` vector.  Indices in `[0, flatten_col_count())`
   /// are flatten-side; higher indices are post-flatten additions
-  /// (alpha, cuts, cascade elastic slacks, …).  `m_col_labels_meta_`
+  /// (alpha, cuts, cascade elastic slacks, …).  `m_labels_.col_labels_meta`
   /// may be nullptr only on a default-constructed `LinearInterface`
   /// before `load_flat`; in that case the count is 0.
   [[nodiscard]] auto flatten_col_count() const noexcept
   {
-    return m_col_labels_meta_ ? m_col_labels_meta_->size() : size_t {0};
+    return m_labels_.col_labels_meta ? m_labels_.col_labels_meta->size()
+                                     : size_t {0};
   }
   [[nodiscard]] auto flatten_row_count() const noexcept
   {
-    return m_row_labels_meta_ ? m_row_labels_meta_->size() : size_t {0};
+    return m_labels_.row_labels_meta ? m_labels_.row_labels_meta->size()
+                                     : size_t {0};
   }
 
   /// Resolve a column / row index into the appropriate metadata bucket
@@ -1097,7 +1100,7 @@ public:
    * `emit_col_to_backend`.  Captures only the label-meta fields of
    * `col` (class_name, variable_name, variable_uid, context) into a
    * per-clone-local extras vector + dedup map.  Never touches the
-   * shared `m_col_labels_meta_` or
+   * shared `m_labels_.col_labels_meta` or
    * `m_col_scales_` — designed for use on a `clone(CloneKind::shallow)`
    * where those structures are shared read-only with the source.
    *
@@ -1139,7 +1142,7 @@ public:
    * Companion to `add_col_disposable`.  Goes DIRECTLY to
    * `m_backend_->add_row`; captures only the label-meta fields of
    * `row` into a per-clone-local extras vector + dedup map.  Never
-   * touches the shared `m_row_labels_meta_`
+   * touches the shared `m_labels_.row_labels_meta`
    * or `m_row_scales_`.
    *
    * Asserts `row.scale == 1.0` (the elastic-filter fixing-row
@@ -1692,12 +1695,12 @@ public:
    *        synthesising real gtopt labels on demand.
    *
    * Sources, in priority order:
-   *   1. Pre-formatted strings in `m_col_index_to_name_` /
-   *      `m_row_index_to_name_` (populated at flatten when
+   *   1. Pre-formatted strings in `m_labels_.col_index_to_name` /
+   *      `m_labels_.row_index_to_name` (populated at flatten when
    *      `LpMatrixOptions::{col,row}_with_names` was set — i.e.
    *      `--lp-debug`).  Zero work if already present.
-   *   2. Structural metadata: `m_col_labels_meta_` /
-   *      `m_row_labels_meta_` (populated unconditionally at flatten).
+   *   2. Structural metadata: `m_labels_.col_labels_meta` /
+   *      `m_labels_.row_labels_meta` (populated unconditionally at flatten).
    *      Formatted via a local `LabelMaker{LpNamesLevel::all}` so
    *      the result matches what `--lp-debug` would have produced
    *      at flatten time.
@@ -1719,8 +1722,8 @@ public:
    * @param col_names  Output vector, resized to `get_num_cols()`.
    * @param row_names  Output vector, resized to `get_num_rows()`.
    */
-  /// Caches formatted labels back into `m_col_index_to_name_` /
-  /// `m_row_index_to_name_` so subsequent calls (repeat `write_lp`)
+  /// Caches formatted labels back into `m_labels_.col_index_to_name` /
+  /// `m_labels_.row_index_to_name` so subsequent calls (repeat `write_lp`)
   /// skip the `LabelMaker` pass.  The caches are declared `mutable`
   /// so this method remains logically const.
   void generate_labels_from_maps(std::vector<std::string>& col_names,
@@ -1817,7 +1820,7 @@ private:
 
   /// Append/update the col-label metadata for a freshly-added column.
   /// Called by `add_col(SparseCol)` and `add_col_raw` after the col
-  /// index is known.  Resizes `m_col_labels_meta_` so `m[col_idx]`
+  /// index is known.  Resizes `m_labels_.col_labels_meta` so `m[col_idx]`
   /// carries the 4-tuple LabelMaker needs, and inserts into
   /// `m_post_flatten_col_meta_index_` for eager duplicate detection.
   ///
@@ -1831,13 +1834,13 @@ private:
 
   /// Append/update the row-label metadata for a freshly-added row.
   /// Called by the `add_row(SparseRow)` entry points after the row
-  /// index is known.  Resizes `m_row_labels_meta_` so `m[row_idx]`
+  /// index is known.  Resizes `m_labels_.row_labels_meta` so `m[row_idx]`
   /// carries the 4-tuple LabelMaker needs.
   void track_row_label_meta(RowIndex row_idx, const SparseRow& row);
 
-  /// Compress the live `m_col_labels_meta_` / `m_row_labels_meta_`
-  /// vectors into their `_compressed_` backups and clear the live
-  /// copies.  Called from `release_backend` under
+  /// Compress the live `m_labels_.col_labels_meta` /
+  /// `m_labels_.row_labels_meta` vectors into their `_compressed_` backups and
+  /// clear the live copies.  Called from `release_backend` under
   /// `LowMemoryMode::compress`.  No-op in other modes.
   void compress_labels_meta_if_needed();
 
@@ -2851,8 +2854,8 @@ public:
   /// demand, cached) when the live label vectors are empty.  Non-owning.
   void set_name_store(LpNameSpillStore* store, std::string key) noexcept
   {
-    m_name_store_ = store;
-    m_spill_key_ = std::move(key);
+    m_labels_.name_store = store;
+    m_labels_.spill_key = std::move(key);
   }
 
   /// @brief Returns the LabelMaker driving label generation for add_col/row.
@@ -2863,34 +2866,33 @@ public:
 
   /// @name Name-to-index maps (col: level >= 0, row: level >= 1)
   /// @{
-
-  /// Column (variable) name → strong column index map.
-  using col_name_map_t = std::unordered_map<std::string, ColIndex>;
-  /// Row (constraint) name → strong row index map.
-  using row_name_map_t = std::unordered_map<std::string, RowIndex>;
+  //
+  // `col_name_map_t` / `row_name_map_t` are now declared at namespace
+  // scope in `lp_label_store.hpp` (unqualified uses below resolve to
+  // them via that include).
 
   [[nodiscard]] const row_name_map_t& row_name_map() const noexcept
   {
-    return *m_row_names_;
+    return *m_labels_.row_names;
   }
 
   [[nodiscard]] const col_name_map_t& col_name_map() const noexcept
   {
-    return *m_col_names_;
+    return *m_labels_.col_names;
   }
 
   /// Column index → name vector (empty string for unnamed columns).
   /// Populated alongside col_name_map when names are enabled.
   [[nodiscard]] const auto& col_index_to_name() const noexcept
   {
-    return *m_col_index_to_name_;
+    return *m_labels_.col_index_to_name;
   }
 
   /// Row index → name vector (empty string for unnamed rows).
   /// Populated alongside row_name_map when names are enabled.
   [[nodiscard]] const auto& row_index_to_name() const noexcept
   {
-    return *m_row_index_to_name_;
+    return *m_labels_.row_index_to_name;
   }
   /// @}
 
@@ -3048,35 +3050,16 @@ private:
   std::string m_log_tag_ {};  ///< Context tag prefixed to fallback warnings
   LabelMaker m_label_maker_ {};  ///< Label generator + level gate
 
-  /// Non-owning back-pointer to the run-lifetime async metadata store and this
-  /// cell's spill key.  When set (names kept + non-monolithic), the structural
-  /// label metadata was spilled to the store and dropped from the snapshot;
-  /// `generate_labels_from_maps` reloads it from the store (cached) on demand.
-  /// Null when spilling is disabled (the live label vectors are authoritative).
-  LpNameSpillStore* m_name_store_ {nullptr};
-  std::string m_spill_key_ {};
-
-  /// Name-to-index maps for duplicate detection and later lookup.
-  /// Populated when names are enabled.
-  // Mutable for the lazy-materialisation path: caches populated by
-  // `generate_labels_from_maps` (logically const) live here too.
-  mutable std::shared_ptr<row_name_map_t> m_row_names_ {
-      std::make_shared<row_name_map_t>(),
-  };  ///< Row (constraint) name → idx
-  mutable std::shared_ptr<col_name_map_t> m_col_names_ {
-      std::make_shared<col_name_map_t>(),
-  };  ///< Column (variable) name → idx
-  // Mutable so `generate_labels_from_maps` (logically const — it
-  // returns new vectors; the state update is a caching detail) can
-  // persist freshly-formatted labels for reuse on subsequent calls.
-  mutable std::shared_ptr<StrongIndexVector<ColIndex, std::string>>
-      m_col_index_to_name_ {
-          std::make_shared<StrongIndexVector<ColIndex, std::string>>(),
-      };
-  mutable std::shared_ptr<StrongIndexVector<RowIndex, std::string>>
-      m_row_index_to_name_ {
-          std::make_shared<StrongIndexVector<RowIndex, std::string>>(),
-      };
+  /// Name / label subsystem (name-to-index maps, frozen flatten-time
+  /// label metadata, per-instance post-flatten metadata, compressed
+  /// backups and string pool).  Extracted into its own value type
+  /// (lp_label_store.hpp) as step 3 of decomposing this class.  The COW
+  /// / clone semantics are carried verbatim by the aggregate: the
+  /// `shared_ptr` maps and frozen metadata are shared across clones via
+  /// atomic incref, while `m_labels_.post_flatten_*` are per-instance
+  /// value vectors that each clone owns independently.  See the fields'
+  /// doc comments in lp_label_store.hpp.
+  LpLabelStore m_labels_ {};
 
   Index m_base_numrows_ {};  ///< Row count before any cuts were added
   /// True once `save_base_numrows()` has fired.  Distinct from
@@ -3218,68 +3201,9 @@ private:
   /// ``compress`` / ``snapshot`` / ``rebuild``.
   LpReplayBuffer m_replay_ {};
 
-  /// Label-only metadata for the **frozen** flatten-time portion of the
-  /// LP — set ONCE by `load_flat` from `flat_lp.col_labels_meta` /
-  /// `row_labels_meta`, then never resized.  Indexed by the structural
-  /// `[0, flatten_col_count())` / `[0, flatten_row_count())` half of
-  /// the LP.  Post-flatten additions (cuts, slacks, alpha, cascade
-  /// elastic constraints) live in `m_post_flatten_col_labels_meta_` /
-  /// `m_post_flatten_row_labels_meta_` instead — see those fields and
-  /// `col_label_at(ColIndex)` / `row_label_at(RowIndex)` for lookup.
-  ///
-  /// Sharing model:
-  ///   * `shared_ptr<T>` so `clone(CloneKind::shallow)` hands the
-  ///     vector out to aperture clones via atomic incref — zero copy.
-  ///   * Because the vector is never resized post-`load_flat`, no
-  ///     mutating site detaches it; clones and source share the same
-  ///     storage forever (no copy-on-write churn on the first
-  ///     post-flatten add).
-  ///
-  /// Under `LowMemoryMode::compress`, `release_backend` compresses
-  /// these vectors into `m_col_labels_meta_compressed_` /
-  /// `m_row_labels_meta_compressed_` and clears the live copies.
-  /// Decompression is lazy-strict: it fires ONLY when
-  /// `generate_labels_from_maps` (the `write_lp` consumer) actually
-  /// needs to format strings — training / SDDP / simulation do not
-  /// touch the decompressed form.  The decompressed strings live in
-  /// `m_label_string_pool_` — the pool is never cleared while
-  /// `m_col_labels_meta_` references it.  `mutable` because the lazy
-  /// decompression flow is triggered from const methods.
-  mutable std::shared_ptr<std::vector<SparseColLabel>> m_col_labels_meta_ {
-      std::make_shared<std::vector<SparseColLabel>>(),
-  };
-  mutable std::shared_ptr<std::vector<SparseRowLabel>> m_row_labels_meta_ {
-      std::make_shared<std::vector<SparseRowLabel>>(),
-  };
-
-  /// Label-only metadata for the **post-flatten** portion of the LP —
-  /// extended by every `add_col(SparseCol)` / `add_row(SparseRow)`
-  /// that runs after `load_flat` has installed the structural matrix.
-  /// Hosts cut rows, alpha column, cascade elastic-target slacks +
-  /// constraints, and any other dynamic addition.
-  ///
-  /// Per-instance — never wrapped in `shared_ptr`, never shared with
-  /// clones.  A freshly-cloned `LinearInterface` starts with empty
-  /// post-flatten vectors regardless of the source's history; the
-  /// clone's own post-flatten additions land here independently of
-  /// the source's, which is the correct semantics for aperture clones
-  /// (each clone's elastic-filter slacks belong only to that clone).
-  ///
-  /// Lookup by index uses `col_label_at(ColIndex)` /
-  /// `row_label_at(RowIndex)`: indices in `[0, flatten_col_count())`
-  /// resolve against the frozen `m_col_labels_meta_`; indices in
-  /// `[flatten_col_count(), flatten_col_count() +
-  /// m_post_flatten_col_labels_meta_.size())` resolve against the
-  /// post-flatten vector with the offset subtracted.
-  ///
-  /// Not compressed: the post-flatten vector is small in practice
-  /// (alpha + a bounded set of cut rows / cascade elastic slacks) and
-  /// is mutated frequently — round-tripping it through the codec on
-  /// every release/reconstruct cycle would dominate the work that
-  /// flatten-side compression saves.  The frozen flatten-side vector
-  /// is the only one large enough to justify codec round-trips.
-  std::vector<SparseColLabel> m_post_flatten_col_labels_meta_ {};
-  std::vector<SparseRowLabel> m_post_flatten_row_labels_meta_ {};
+  // The name / label subsystem (frozen flatten-time metadata,
+  // per-instance post-flatten metadata, compressed backups and string
+  // pool) lives in `m_labels_` (declared above; see lp_label_store.hpp).
 
   /// Eager dedup index for post-flatten metadata (the per-instance
   /// post-flatten additions: α column, Benders cut rows, cascade
@@ -3291,26 +3215,6 @@ private:
   std::unordered_map<SparseRowLabel, RowIndex, SparseRowLabelHash>
       m_post_flatten_row_meta_index_ {};
 
-  /// Compressed backups of the metadata vectors — populated on
-  /// `release_backend` under `compress` mode, drained on the first
-  /// label-metadata read after reload.
-  ///
-  /// Intentionally NOT `shared_ptr`-wrapped: compression / decompression
-  /// only ever runs on the source LP (via `release_backend` and
-  /// `ensure_backend`); clones never compress.  The
-  /// `DecompressionGuard` around the aperture pass ensures the source
-  /// is in the decompressed state for the lifetime of any shallow
-  /// clone, so the source uniquely owns these buffers throughout.
-  mutable CompressedBuffer m_col_labels_meta_compressed_ {};
-  mutable CompressedBuffer m_row_labels_meta_compressed_ {};
-  mutable std::size_t m_col_labels_meta_count_ {0};
-  mutable std::size_t m_row_labels_meta_count_ {0};
-
-  /// Stable string storage backing decompressed `string_view`s in
-  /// `m_col_labels_meta_` / `m_row_labels_meta_`.  Reserved ahead of
-  /// decompression so `push_back` doesn't invalidate the views.
-  mutable std::vector<std::string> m_label_string_pool_ {};
-
   /// Per-clone-local label metadata for cols/rows added via
   /// `add_col_disposable` / `add_row_disposable` after a shallow
   /// clone.  Empty on the source LP and on freshly-constructed clones;
@@ -3319,7 +3223,7 @@ private:
   ///
   /// Mirror of the production path: `m_post_clone_*_metas_` is
   /// indexed-by-insertion order (SparseColLabel / SparseRowLabel,
-  /// same shape as `m_col_labels_meta_` / `m_row_labels_meta_`),
+  /// same shape as `m_labels_.col_labels_meta` / `m_labels_.row_labels_meta`),
   /// while `m_post_clone_*_meta_index_` is the dedup hash map (same
   /// role as `m_post_flatten_*_meta_index_`) — duplicate insertions
   /// throw with both indices, just like the production path.
