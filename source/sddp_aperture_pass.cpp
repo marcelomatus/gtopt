@@ -602,16 +602,33 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
                        m_options_.num_apertures,
                        m_options_.aperture_selection_mode);
 
-  // Cross-iteration first-aperture basis seed (aperture_seed_basis).  The
-  // seed pointer is read-only during the parallel chunk solves; the captured
-  // basis is written back into this cell's slot after they join.
+  // First-aperture basis seed.  Two sources:
+  //  * When basis_cross_mode reuses the forward basis in the backward pass
+  //    (forward_to_backward / full_cross), seed the first aperture from this
+  //    cell's `forward_basis` and DO NOT capture — the forward pass owns the
+  //    basis, so we store one fewer basis per (scene, phase) cell and free any
+  //    stale `aperture_warm_basis`.
+  //  * Otherwise the legacy `aperture_seed_basis` cross-iteration seed: seed
+  //    from and capture back into this cell's own `aperture_warm_basis`.
+  // Only meaningful with a vertex aperture mode (cold/warm), not reduced_cost.
   auto& warm_basis_slot = phase_states[phase_index].aperture_warm_basis;
-  const bool seed_on = m_options_.aperture_seed_basis
-      && m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
-  const Basis* const seed_ptr =
-      (seed_on && !warm_basis_slot.empty()) ? &warm_basis_slot : nullptr;
+  const bool vertex_mode =
+      m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
+  const bool reuse_forward = vertex_mode
+      && (m_options_.basis_cross_mode == BasisCrossMode::forward_to_backward
+          || m_options_.basis_cross_mode == BasisCrossMode::full_cross);
+  const bool seed_on = vertex_mode && m_options_.aperture_seed_basis;
   Basis captured_basis;
-  Basis* const capture_ptr = seed_on ? &captured_basis : nullptr;
+  const Basis* seed_ptr = nullptr;
+  Basis* capture_ptr = nullptr;
+  if (reuse_forward) {
+    const auto& fb = phase_states[phase_index].forward_basis;
+    seed_ptr = fb.empty() ? nullptr : &fb;
+    warm_basis_slot.clear();  // reclaim — forward_basis is the seed now
+  } else if (seed_on) {
+    seed_ptr = warm_basis_slot.empty() ? nullptr : &warm_basis_slot;
+    capture_ptr = &captured_basis;
+  }
 
   auto expected_cut = solve_apertures_for_phase(
       scene_index,
@@ -885,15 +902,28 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
                          m_options_.num_apertures,
                          m_options_.aperture_selection_mode);
 
-    // Cross-iteration first-aperture basis seed (same rationale as the sync
-    // path in `backward_pass_aperture_phase_impl`).
+    // First-aperture basis seed (same rationale as the sync path in
+    // `backward_pass_aperture_phase_impl`): reuse the forward basis under
+    // forward_to_backward / full_cross (no capture, saves one basis/cell),
+    // else the legacy per-cell aperture_warm_basis seed+capture.
     auto& warm_basis_slot = phase_states[phase_index].aperture_warm_basis;
-    const bool seed_on = m_options_.aperture_seed_basis
-        && m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
-    const Basis* const seed_ptr =
-        (seed_on && !warm_basis_slot.empty()) ? &warm_basis_slot : nullptr;
+    const bool vertex_mode =
+        m_options_.aperture_solve_mode != ApertureSolveMode::reduced_cost;
+    const bool reuse_forward = vertex_mode
+        && (m_options_.basis_cross_mode == BasisCrossMode::forward_to_backward
+            || m_options_.basis_cross_mode == BasisCrossMode::full_cross);
+    const bool seed_on = vertex_mode && m_options_.aperture_seed_basis;
     Basis captured_basis;
-    Basis* const capture_ptr = seed_on ? &captured_basis : nullptr;
+    const Basis* seed_ptr = nullptr;
+    Basis* capture_ptr = nullptr;
+    if (reuse_forward) {
+      const auto& fb = phase_states[phase_index].forward_basis;
+      seed_ptr = fb.empty() ? nullptr : &fb;
+      warm_basis_slot.clear();
+    } else if (seed_on) {
+      seed_ptr = warm_basis_slot.empty() ? nullptr : &warm_basis_slot;
+      capture_ptr = &captured_basis;
+    }
 
     auto expected_cut = solve_apertures_for_phase(
         scene_index,

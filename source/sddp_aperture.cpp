@@ -496,6 +496,13 @@ auto solve_apertures_for_phase(
           // efficiently, whereas primal would restart from a primal-infeasible
           // point.  Use dual for the warm re-solve.
           warm_opts.algorithm = LPAlgo::dual;
+          // CRITICAL: disable presolve for the warm solve.  CPLEX presolve
+          // rebuilds the model and DISCARDS the resident/seeded basis, so an
+          // "advanced basis" warm start with presolve on silently degrades to
+          // a cold solve — this is why the warm aperture mode measured as "not
+          // faster" and was left disabled.  With presolve off the dual simplex
+          // actually resumes from the basis in a few pivots.
+          warm_opts.presolve = false;
 
           // Coordinated-seed cold anchor: when the seed scheme is active, the
           // FIRST aperture (no resident basis — iteration 1) solves barrier +

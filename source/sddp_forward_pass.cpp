@@ -261,7 +261,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         seed = &state.backward_basis;  // backward → forward (cross)
       }
       if (seed != nullptr && li.set_basis(*seed)) {
+        // Warm start off the installed basis.  Auto-select DUAL simplex and
+        // disable presolve for THIS solve so the seeded basis is actually
+        // exploited: appended Benders cut rows keep the basis dual-feasible,
+        // so dual simplex resumes in a few pivots, while presolve would
+        // otherwise discard the basis.  The cold solves (iteration 1, cascade
+        // level changes) keep the pass default (barrier + crossover) so they
+        // still produce a vertex basis to capture for the next iteration.
+        // Empirically ~5-6x faster forward solves once warm (see the 2y
+        // cascade benchmark).  advanced_basis maps to CPLEX ADVIND=1.
         fwd_opts.advanced_basis = true;
+        fwd_opts.algorithm = LPAlgo::dual;
+        fwd_opts.presolve = false;
       }
     }
 

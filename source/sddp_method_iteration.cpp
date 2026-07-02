@@ -497,7 +497,11 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
         && !phase_states[phase_index].forward_basis.empty()
         && tgt_li.set_basis(phase_states[phase_index].forward_basis))
     {
+      // Warm start off the seeded basis: dual simplex + no presolve so the
+      // basis is exploited (mirrors the forward seed path).
       tgt_opts.advanced_basis = true;
+      tgt_opts.algorithm = LPAlgo::dual;
+      tgt_opts.presolve = false;
     }
 
     const auto t_tgt_resolve = Clock::now();
