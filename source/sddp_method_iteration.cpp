@@ -486,8 +486,27 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     auto r = tgt_li.resolve(opts);
     dt_tgt_resolve = elapsed_s(t_tgt_resolve);
 
-    if (r.has_value() && tgt_li.is_optimal()) {
-      const auto obj_phys = tgt_li.get_obj_value();
+    // A degenerate basis can hand back a non-finite objective under an
+    // `is_optimal()` status (observed 2026-07-02: NaN obj after the
+    // target LP absorbed an elastic fcut).  Never let it overwrite the
+    // valid forward-cached value — the solution / reduced costs from
+    // the same solve are equally untrustworthy, so skip the whole
+    // refresh and fall back to the forward-cached cut data, exactly
+    // like the non-optimal branch below.
+    const auto refreshed_obj = (r.has_value() && tgt_li.is_optimal())
+        ? std::optional<double> {tgt_li.get_obj_value()}
+        : std::nullopt;
+    if (refreshed_obj.has_value() && !std::isfinite(*refreshed_obj)) {
+      spdlog::warn(
+          "{}: backward_resolve_target returned non-finite obj ({}) under "
+          "an optimal status — keeping forward-cached cut data",
+          sddp_log("Backward",
+                   gtopt::uid_of(iteration_index),
+                   uid_of(scene_index),
+                   uid_of(phase_index)),
+          *refreshed_obj);
+    } else if (refreshed_obj.has_value()) {
+      const auto obj_phys = *refreshed_obj;
       const auto sol_phys = tgt_li.get_col_sol();
       const auto rc = tgt_li.get_col_cost_raw();
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);

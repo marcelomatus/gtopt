@@ -362,16 +362,25 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
     // is the classical "master state must be at least the
     // clone-feasible dep value" Benders fcut.
     const double pi = -duals[info.fixing_row];
+    // NaN guard mirrors build_multi_cuts: a degenerate elastic re-solve
+    // can return NaN duals under an optimal status, and `abs(NaN) < eps`
+    // is false — without this the NaN lands in the fcut row.
+    if (!std::isfinite(pi)) {
+      spdlog::warn(
+          "build_feasibility_cut_physical: non-finite dual pi={} at "
+          "fixing row {} — link skipped",
+          pi,
+          static_cast<int>(info.fixing_row));
+      continue;
+    }
     if (std::abs(pi) < cut_coeff_eps) {
       continue;
     }
 
-    const double sup_val = (info.sup_col != ColIndex {unknown_index})
-        ? sol_raw[info.sup_col]
-        : 0.0;
-    const double sdn_val = (info.sdn_col != ColIndex {unknown_index})
-        ? sol_raw[info.sdn_col]
-        : 0.0;
+    const double sup_val =
+        info.sup_col != ColIndex {unknown_index} ? sol_raw[info.sup_col] : 0.0;
+    const double sdn_val =
+        info.sdn_col != ColIndex {unknown_index} ? sol_raw[info.sdn_col] : 0.0;
     const double dx = sdn_val - sup_val;
 
     // PLP parity (osicallsc.cpp:727-730): drop the link when the slack
@@ -1038,9 +1047,9 @@ auto chinneck_filter_solve(const LinearInterface& li,
       continue;
     }
     const double sup_val =
-        (info.sup_col != ColIndex {unknown_index}) ? sol[info.sup_col] : 0.0;
+        info.sup_col != ColIndex {unknown_index} ? sol[info.sup_col] : 0.0;
     const double sdn_val =
-        (info.sdn_col != ColIndex {unknown_index}) ? sol[info.sdn_col] : 0.0;
+        info.sdn_col != ColIndex {unknown_index} ? sol[info.sdn_col] : 0.0;
     if (sup_val <= slack_tol && sdn_val <= slack_tol) {
       non_essential.push_back(static_cast<std::size_t>(i));
     } else {
@@ -1272,6 +1281,23 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     }
     const double pi = -duals[info.fixing_row];
 
+    // A degenerate basis at the elastic feasibility boundary can make
+    // the Phase-4 re-solve report optimal while returning NaN duals
+    // (observed 2026-07-02, ~1-in-3 on the ElasticFilterMode fixture).
+    // The magnitude filter below does NOT exclude NaN — IEEE 754 makes
+    // `abs(NaN) < eps` false — so guard explicitly or the NaN lands in
+    // the fcut row and wedges the solver.  Skipping the link only
+    // weakens this fcut, exactly like the eps filter.
+    if (!std::isfinite(pi)) {
+      spdlog::warn(
+          "build_multi_cuts: non-finite dual pi={} at fixing row {} — "
+          "link {} skipped",
+          pi,
+          static_cast<int>(info.fixing_row),
+          link_idx);
+      continue;
+    }
+
     // Per-link slack cost — read from the clone's slack columns so
     // the filter threshold automatically picks up whatever
     // ``relax_fixed_state_variable`` set, including the asymmetric
@@ -1328,12 +1354,10 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
     // Prior to 2026-04-22 this code used `v̂_phys + dx` directly,
     // silently miscomputing the cut RHS when var_scale ≠ 1 (e.g.
     // RALCO / ELTORO at √10).
-    const double sup_val = (info.sup_col != ColIndex {unknown_index})
-        ? sol_raw[info.sup_col]
-        : 0.0;
-    const double sdn_val = (info.sdn_col != ColIndex {unknown_index})
-        ? sol_raw[info.sdn_col]
-        : 0.0;
+    const double sup_val =
+        info.sup_col != ColIndex {unknown_index} ? sol_raw[info.sup_col] : 0.0;
+    const double sdn_val =
+        info.sdn_col != ColIndex {unknown_index} ? sol_raw[info.sdn_col] : 0.0;
     const double dx = sdn_val - sup_val;
 
     // PLP-style additive low-activation filter
