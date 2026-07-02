@@ -17,12 +17,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <vector>
 
 #include "scip_solver_backend.hpp"
 
-#include <lpi/lpi.h>
 #include <scip/scip.h>
 #include <scip/scipdefplugins.h>
 #include <spdlog/spdlog.h>
@@ -244,35 +242,26 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
 
   // Duals/reduced costs are only meaningful for a pure-LP optimum;
   // `any_integer` was determined before the solve (it also gated presolve).
-  // SCIP exposes the linear constraint dual via SCIPgetDualsolLinear after the
-  // LP relaxation.
   if (!any_integer && out.status == static_cast<int>(SCIP_STATUS_OPTIMAL)) {
-    // Row duals.  SCIPgetDualsolLinear() returns 0 in SOLVED stage (the value
-    // is not propagated back to the original constraint handle), so read the
-    // raw row prices from SCIP's LP interface, which still holds the last LP
-    // solve.  With presolve + propagation disabled (above), the LPI rows map
-    // 1:1 and in order to our constraints.
-    SCIP_LPI* lpi = nullptr;
-    int nlpi_rows = 0;
-    if (SCIPgetLPI(scip, &lpi) == SCIP_OKAY && lpi != nullptr
-        && SCIPlpiGetNRows(lpi, &nlpi_rows) == SCIP_OKAY
-        && nlpi_rows == model.num_rows)
-    {
-      std::vector<double> row_dual(static_cast<std::size_t>(model.num_rows),
-                                   0.0);
-      if (SCIPlpiGetSol(
-              lpi, nullptr, nullptr, row_dual.data(), nullptr, nullptr)
+    // Row duals via the high-level constraint API SCIPgetDualSolVal.  This is
+    // the version-robust way to read a linear constraint's dual in the SOLVED
+    // stage: unlike a raw 1:1 LPI row read (SCIPlpiGetSol), it stays correct
+    // when SCIP has internally rewritten a now-single-variable constraint —
+    // e.g. the commitment row `gen - 100*u <= 0` after `u` is pinned to 1
+    // becomes `gen <= 100` — into a variable *bound*.  That rewrite DROPS the
+    // row from the transformed LP (observed on SCIP 10: nlpi_rows < num_rows),
+    // which broke the old LPI approach: the row-count mismatch fell through to
+    // SCIPgetDualsolLinear, which returns 0 post-solve, zeroing every dual.
+    // SCIPgetDualSolVal reports the price via its `boundconstraint` path in
+    // exactly that case, so the recovered LMPs are matrix-consistent again.
+    for (int i = 0; i < model.num_rows; ++i) {
+      const auto u = static_cast<std::size_t>(i);
+      double dual_val = 0.0;
+      SCIP_Bool bound_constraint = FALSE;
+      if (SCIPgetDualSolVal(scip, conss[u], &dual_val, &bound_constraint)
           == SCIP_OKAY)
       {
-        for (int i = 0; i < model.num_rows; ++i) {
-          out.dual[static_cast<std::size_t>(i)] =
-              row_dual[static_cast<std::size_t>(i)];
-        }
-      }
-    } else {
-      for (int i = 0; i < model.num_rows; ++i) {
-        const auto u = static_cast<std::size_t>(i);
-        out.dual[u] = SCIPgetDualsolLinear(scip, conss[u]);
+        out.dual[u] = dual_val;
       }
     }
     // Column reduced costs.  With SCIP presolve disabled for this pure-LP solve
