@@ -7,7 +7,7 @@
  *
  * Disposable adds capture label metadata in per-clone-local extras
  * (`m_post_clone_*_metas_` + dedup map) instead of the shared
- * `m_col_labels_meta_`.  These tests verify:
+ * `m_labels_.col_labels_meta`.  These tests verify:
  *
  *  - The backend grows (col/row count increments).
  *  - Duplicate disposable insertions are rejected with both indices

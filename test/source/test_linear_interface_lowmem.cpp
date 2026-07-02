@@ -2043,7 +2043,7 @@ TEST_CASE(  // NOLINT
 
   // Build a flat snapshot so release_backend can reuse it.  Use the
   // SAME labels as the live LinearInterface so that load_flat()'s
-  // `m_col_labels_meta_ = flat_lp.col_labels_meta` overwrite preserves
+  // `m_labels_.col_labels_meta = flat_lp.col_labels_meta` overwrite preserves
   // the original metadata (the snapshot is the authoritative source
   // for structural labels in compress mode).
   LinearProblem lp;
@@ -2519,7 +2519,7 @@ TEST_CASE(  // NOLINT
   }
 
   // Build a flat snapshot whose metadata matches the live labels —
-  // this is what `load_flat` overlays back onto `m_col_labels_meta_`
+  // this is what `load_flat` overlays back onto `m_labels_.col_labels_meta`
   // after reconstruction.
   LinearProblem lp;
   const auto c1 = lp.add_col({
@@ -2654,12 +2654,11 @@ TEST_CASE(  // NOLINT
     "LinearInterface::materialize_labels — caches names and is idempotent")
 {
   // First call synthesises labels from metadata and populates
-  // `m_col_index_to_name_` / `m_row_index_to_name_`.  Subsequent calls
-  // hit the cache and must return identical strings.  Direct equality
-  // of three consecutive `generate_labels_from_maps` outputs proves
-  // the cache+name-map machinery is consistent on the steady-state
-  // path — a tight invariant the upcoming labels-TU split must
-  // preserve.
+  // `m_labels_.col_index_to_name` / `m_labels_.row_index_to_name`.  Subsequent
+  // calls hit the cache and must return identical strings.  Direct equality of
+  // three consecutive `generate_labels_from_maps` outputs proves the
+  // cache+name-map machinery is consistent on the steady-state path — a tight
+  // invariant the upcoming labels-TU split must preserve.
   LinearInterface li;
 
   for (int k = 1; k <= 4; ++k) {
@@ -2783,7 +2782,7 @@ TEST_CASE(  // NOLINT
     "LinearInterface::generate_labels_from_maps — throws on missing col meta")
 {
   // Defensive guard inside `generate_labels_from_maps`: if the live
-  // backend reports more cols than `m_col_labels_meta_` knows about
+  // backend reports more cols than `m_labels_.col_labels_meta` knows about
   // AND the index-to-name cache is empty for that col, the function
   // throws std::logic_error with a diagnostic message.
   //
@@ -2944,10 +2943,10 @@ TEST_CASE("LinearInterface — fully-dropped label_meta falls back, no throw")
 // Regression: under `LowMemoryMode::compress` the cell rebuild path
 // (`apply_post_load_replay`) re-adds `m_active_cuts_` through the bulk
 // `add_rows` API.  That path used to skip `track_row_label_meta`, leaving
-// `m_row_labels_meta_` shorter than the backend row count by exactly the
+// `m_labels_.row_labels_meta` shorter than the backend row count by exactly the
 // number of replayed cuts.  Any later `materialize_labels` /
 // `push_names_to_solver` / `write_lp` then threw
-// `std::logic_error("row N has no entry in m_row_labels_meta_")` — the
+// `std::logic_error("row N has no entry in m_labels_.row_labels_meta")` — the
 // failure mode observed on `support/juan/gtopt_iplp` SDDP runs.  This
 // test exercises a single labeled cut across a compress→reconstruct
 // cycle and asserts that label synthesis no longer throws.
@@ -3023,7 +3022,7 @@ TEST_CASE(  // NOLINT
   REQUIRE(li.get_numrows() == base_nrows + 1);
 
   // Pre-fix this threw `std::logic_error: row N has no entry in
-  // m_row_labels_meta_`.  Post-fix it succeeds and caches a non-empty
+  // m_labels_.row_labels_meta`.  Post-fix it succeeds and caches a non-empty
   // label for the replayed cut row.
   CHECK_NOTHROW(li.materialize_labels());
 
@@ -3573,10 +3572,11 @@ TEST_CASE(  // NOLINT
   REQUIRE(res.has_value());
 
   // release_backend under compress invokes compress_labels_meta_if_needed,
-  // which populates m_col_labels_meta_compressed_, m_row_labels_meta_
-  // compressed_, and grows m_label_string_pool_ (when labels exist on
-  // the LP).  The fixture has col_with_names + row_with_names, so the
-  // string pool will be non-empty after compression.
+  // which populates m_labels_.col_labels_meta_compressed,
+  // m_labels_.row_labels_meta compressed_, and grows
+  // m_labels_.label_string_pool (when labels exist on the LP).  The fixture has
+  // col_with_names + row_with_names, so the string pool will be non-empty after
+  // compression.
   li.set_low_memory(LowMemoryMode::compress);
   li.save_snapshot(FlatLinearProblem {flat});
   li.release_backend();
@@ -3772,7 +3772,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "LinearInterface — frozen m_col_labels_meta_ stays shared with "
+    "LinearInterface — frozen m_labels_.col_labels_meta stays shared with "
     "clone after post-flatten add (no detach-on-first-add tax)")
 {
   // The headline performance win of the metadata split: a shallow
@@ -3856,7 +3856,7 @@ TEST_CASE(  // NOLINT
 
   // Clone resolves source's structural post-flatten history (alpha
   // col + cut row) via its own value-copied post-flatten vectors —
-  // would throw "no entry in m_col_labels_meta_" without that copy
+  // would throw "no entry in m_labels_.col_labels_meta" without that copy
   // when the clone's write_lp tries to format inherited labels.
   REQUIRE(cloned.col_label_at(ColIndex {2}) != nullptr);
   CHECK(cloned.col_label_at(ColIndex {2})->variable_name == "alpha");
@@ -3952,10 +3952,10 @@ TEST_CASE(  // NOLINT
 {
   // Verify the lazy-decompression invariant: `add_col` /
   // `add_row` past load_flat must NOT decompress
-  // `m_col_labels_meta_compressed_` / `m_row_labels_meta_compressed_`.
-  // Decompression is reserved for `generate_labels_from_maps`
-  // (write_lp).  Probe the compression buffers via the public
-  // `col_labels_meta_use_count()` accessor and the private state
+  // `m_labels_.col_labels_meta_compressed` /
+  // `m_labels_.row_labels_meta_compressed`. Decompression is reserved for
+  // `generate_labels_from_maps` (write_lp).  Probe the compression buffers via
+  // the public `col_labels_meta_use_count()` accessor and the private state
   // change is detectable from `flatten_col_count()`: post-release
   // the live frozen vector is empty (size 0), but the count is
   // preserved across reload from the compressed buffer.
@@ -3978,7 +3978,7 @@ TEST_CASE(  // NOLINT
   li.release_backend();
   // Frozen live vector is now empty (compressed); count is 0 from
   // load_flat semantics on a non-rebuilt backend.  `flatten_col_count`
-  // reads `m_col_labels_meta_->size()` directly.
+  // reads `m_labels_.col_labels_meta->size()` directly.
   CHECK(li.flatten_col_count() == 0);
 
   // ensure_backend reloads the LP, and the frozen labels-meta is
@@ -4297,9 +4297,9 @@ TEST_CASE(  // NOLINT
 
 // ── Task 3: post-snapshot set_col_scale NOT replayed (scale lost) ───────────
 //
-// m_col_scales_ is reset by load_flat() from flat_lp.col_scales.  A
+// m_scaling_.col_scales is reset by load_flat() from flat_lp.col_scales.  A
 // post-snapshot call to set_col_scale(idx, 99.0) modifies the in-memory
-// m_col_scales_ but the snapshot was frozen before that call, so the
+// m_scaling_.col_scales but the snapshot was frozen before that call, so the
 // reconstructed backend will use construction-time scales (all 1.0 in the
 // simple fixture because no non-unit scales were set at flatten time).
 //
@@ -4380,11 +4380,12 @@ TEST_CASE(  // NOLINT
 
 // ── Task 3: col_scales shared_ptr survives multiple reconstruct cycles ───────
 //
-// col_scales_use_count() returns the shared_ptr use count for m_col_scales_.
-// Under compress mode, each reconstruct calls load_flat() which calls
-// detach_for_write(m_col_scales_).assign(...) — this replaces the vector
-// contents but the shared_ptr itself is retained by the LinearInterface.
-// The use count must stay at 1 (no leaked extra references) throughout.
+// col_scales_use_count() returns the shared_ptr use count for
+// m_scaling_.col_scales. Under compress mode, each reconstruct calls
+// load_flat() which calls detach_for_write(m_scaling_.col_scales).assign(...) —
+// this replaces the vector contents but the shared_ptr itself is retained by
+// the LinearInterface. The use count must stay at 1 (no leaked extra
+// references) throughout.
 TEST_CASE(  // NOLINT
     "LinearInterface — col_scales shared_ptr not leaked across reconstruct")
 {

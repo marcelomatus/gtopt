@@ -67,6 +67,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Shared arrow input-index cache**: the long-format input reader's
+  `(Stage, Block)` row index is built once and shared — across every
+  per-(scene, phase) LP cell within a run, and across cascade levels
+  (each level previously rebuilt it cold). LP-only build on a 5-year
+  8-scene case: 256 s → 30.7 s and 20 GiB → 7 GiB; the cascade
+  `transport → full_network` level transition: 213 s → 28 s (7.6×).
+- **`LinearInterface` decomposition (state)**: the matrix conditioning
+  statistics, the name/label subsystem, and the Ruiz/equilibration
+  scaling state were extracted into behaviour-free value types
+  (`MatrixStats`, `LpLabelStore`, `ScalingState` + relocated
+  `ScaledView` in `matrix_stats.hpp` / `lp_label_store.hpp` /
+  `lp_scaling.hpp`), each with isolation unit tests. Behaviour and COW
+  clone semantics are unchanged.
+- **clang-tidy hygiene**: every broad file-wide `NOLINTBEGIN/END`
+  blanket in production code was replaced by a real fix or a narrow,
+  documented per-site suppression.
 - **Options refactor**: SDDP options no longer require the `sddp_` prefix
   (e.g., `max_iterations` instead of `sddp_max_iterations`). Old names are
   still accepted for backward compatibility.

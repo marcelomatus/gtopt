@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
+#include <array>
+#include <span>
+
 #include <doctest/doctest.h>
 #include <gtopt/lp_scaling.hpp>
 
@@ -70,5 +73,97 @@ TEST_CASE("ScalingState value aggregate")  // NOLINT
     original.col_scales->push_back(9.0);
     REQUIRE(copy.col_scales->size() == 2);
     CHECK((*copy.col_scales)[ColIndex {1}] == doctest::Approx(9.0));
+  }
+}
+
+// ScaledView relocated to lp_scaling.hpp alongside ScalingState.  The
+// pre-existing direct test (test_linear_interface.cpp) covers only the
+// physical-bounds clamp with Op::multiply; these subcases pin the rest
+// of the contract in isolation.
+TEST_CASE("ScaledView element scaling")  // NOLINT
+{
+  constexpr std::array data {2.0, 4.0, 8.0};
+  constexpr std::array scales {0.5, 2.0, 1.5};
+
+  SUBCASE("multiply applies data[i] * scales[i]")
+  {
+    const ScaledView v {
+        data.data(), 3, scales.data(), scales.size(), ScaledView::Op::multiply};
+    REQUIRE(v.size() == 3);
+    CHECK(v[0] == doctest::Approx(1.0));
+    CHECK(v[1] == doctest::Approx(8.0));
+    CHECK(v[2] == doctest::Approx(12.0));
+  }
+
+  SUBCASE("divide applies data[i] / scales[i]")
+  {
+    const ScaledView v {
+        data.data(), 3, scales.data(), scales.size(), ScaledView::Op::divide};
+    CHECK(v[0] == doctest::Approx(4.0));
+    CHECK(v[1] == doctest::Approx(2.0));
+    CHECK(v[2] == doctest::Approx(8.0 / 1.5));
+  }
+
+  SUBCASE("global factor multiplies every element after per-element scale")
+  {
+    const ScaledView v {data.data(),
+                        3,
+                        scales.data(),
+                        scales.size(),
+                        ScaledView::Op::multiply,
+                        10.0};
+    CHECK(v[0] == doctest::Approx(10.0));
+    CHECK(v[2] == doctest::Approx(120.0));
+  }
+
+  SUBCASE("empty scales fall back to raw data (scale 1.0)")
+  {
+    const ScaledView v {data.data(), 3, nullptr, 0};
+    CHECK(v[0] == doctest::Approx(2.0));
+    CHECK(v[2] == doctest::Approx(8.0));
+  }
+
+  SUBCASE("raw-span constructor is an unscaled pass-through")
+  {
+    const ScaledView v {std::span<const double> {data}};
+    REQUIRE_FALSE(v.empty());
+    CHECK(v[1] == doctest::Approx(4.0));
+  }
+
+  SUBCASE("iterator visits every scaled element (range-for)")
+  {
+    const ScaledView v {
+        data.data(), 3, scales.data(), scales.size(), ScaledView::Op::multiply};
+    double sum = 0.0;
+    for (const double x : v) {
+      sum += x;
+    }
+    CHECK(sum == doctest::Approx(1.0 + 8.0 + 12.0));
+  }
+
+  SUBCASE("indexing accepts strong index types")
+  {
+    const ScaledView v {
+        data.data(), 3, scales.data(), scales.size(), ScaledView::Op::multiply};
+    CHECK(v[ColIndex {1}] == doctest::Approx(8.0));
+    CHECK(v[RowIndex {2}] == doctest::Approx(12.0));
+  }
+
+  SUBCASE("inverted clamp bounds are ignored (guard, no clamping)")
+  {
+    // lower > upper in raw space — the clamp guard must skip rather than
+    // produce a garbage std::clamp result.
+    constexpr std::array lower {5.0, 5.0, 5.0};
+    constexpr std::array upper {1.0, 1.0, 1.0};
+    const ScaledView v {data.data(),
+                        3,
+                        scales.data(),
+                        scales.size(),
+                        lower.data(),
+                        3,
+                        upper.data(),
+                        3,
+                        ScaledView::Op::multiply};
+    CHECK(v[1] == doctest::Approx(8.0));  // unclamped
   }
 }

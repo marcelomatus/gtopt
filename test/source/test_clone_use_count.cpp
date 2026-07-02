@@ -125,7 +125,7 @@ TEST_CASE("multiple shallow clones bump use_count linearly")
   CHECK(src.col_scales_use_count() == 4);
 }
 
-TEST_CASE("set_row_scale on shallow clone detaches m_row_scales_ only")
+TEST_CASE("set_row_scale on shallow clone detaches m_scaling_.row_scales only")
 {
   // The COW detach contract: only the touched member's shared_ptr
   // detaches.  Every other wrapped member stays shared.
@@ -136,7 +136,7 @@ TEST_CASE("set_row_scale on shallow clone detaches m_row_scales_ only")
   REQUIRE(src.col_labels_meta_use_count() == 2);
 
   // Mutate row scale on the clone — this calls detach_for_write
-  // internally on `m_row_scales_`.
+  // internally on `m_scaling_.row_scales`.
   cloned.set_row_scale(RowIndex {0}, 1.5);
 
   // The clone's row_scales is now its own (detached).  The source's
@@ -175,12 +175,12 @@ TEST_CASE("add_col_disposable on shallow clone leaves shared meta untouched")
 
 TEST_CASE(
     "add_col with non-empty meta on shallow clone leaves the frozen "
-    "m_col_labels_meta_ shared (post-flatten path)")
+    "m_labels_.col_labels_meta shared (post-flatten path)")
 {
   // After the metadata-split refactor (b9eaa, follow-up), production
   // `add_col(SparseCol)` writes into the per-instance
-  // `m_post_flatten_col_labels_meta_` / `m_post_flatten_col_meta_index_`
-  // — NOT the shared frozen `m_col_labels_meta_`.
+  // `m_labels_.post_flatten_col_labels_meta` / `m_post_flatten_col_meta_index_`
+  // — NOT the shared frozen `m_labels_.col_labels_meta`.
   // A shallow clone's first post-clone add therefore does NOT detach
   // the frozen vector: source and clone keep sharing the flatten-side
   // metadata via shared_ptr forever.  The clone's new entry lands in

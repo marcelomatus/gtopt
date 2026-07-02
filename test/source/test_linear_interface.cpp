@@ -2141,9 +2141,9 @@ TEST_CASE(  // NOLINT
 // ─── Clone independence and invariant tests ─────────────────────────────────
 //
 // These tests lock in the *observable* behavior of `LinearInterface::clone()`
-// so that the planned refactor (moving `m_col_scales_`,
-// `m_variable_scale_map_`, `m_label_maker_`, label-meta vectors, etc. behind
-// `std::shared_ptr<const T>` for cheap cloning + copy-on-write) cannot
+// so that the planned refactor (moving `m_scaling_.col_scales`,
+// `m_scaling_.variable_scale_map`, `m_label_maker_`, label-meta vectors, etc.
+// behind `std::shared_ptr<const T>` for cheap cloning + copy-on-write) cannot
 // regress these guarantees.  They must pass both with the current by-value
 // storage and with the future shared-pointer storage.
 //
@@ -2326,7 +2326,7 @@ TEST_CASE("LinearInterface::clone - preserves variable_scale_map lookups")
 // NOLINT
 {
   // Build a flat LP carrying a non-empty VariableScaleMap so that
-  // `load_flat` populates `m_variable_scale_map_`.
+  // `load_flat` populates `m_scaling_.variable_scale_map`.
   FlatLinearProblem flat;
   flat.ncols = 2;
   flat.nrows = 1;

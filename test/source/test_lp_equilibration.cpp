@@ -234,7 +234,7 @@ TEST_CASE("equilibrate_row_ruiz_in_place preserves dual invariance via divisor")
 
   CHECK(divisor == doctest::Approx(expected_divisor));
   // Scaling back should recover the col-scaled (not raw) coefficients,
-  // since the divisor is what the caller stores in m_row_scales_ for
+  // since the divisor is what the caller stores in m_scaling_.row_scales for
   // dual recovery.
   CHECK(elements[0] * divisor == doctest::Approx(expected_after_col_scale[0]));
   CHECK(elements[1] * divisor == doctest::Approx(expected_after_col_scale[1]));
@@ -274,7 +274,7 @@ TEST_CASE("add_row — row_max method normalises max|coeff| to 1")
 {
   // Simulate a row_max-equilibrated LP by marking the method *after*
   // adding columns, before any rows — mirrors how `load_flat` wires
-  // `m_equilibration_method_` from `FlatLinearProblem` at build time.
+  // `m_scaling_.equilibration_method` from `FlatLinearProblem` at build time.
   LinearInterface li;
   const auto c0 = li.add_col(SparseCol {
       .uppb = 1e6,
@@ -284,7 +284,7 @@ TEST_CASE("add_row — row_max method normalises max|coeff| to 1")
   });
   li.save_base_numrows();
 
-  // Inject the method into m_equilibration_method_ via the setter
+  // Inject the method into m_scaling_.equilibration_method via the setter
   // wire (add_row_equilibration happens inside add_row).
   li.set_equilibration_method(LpEquilibrationMethod::row_max);
 

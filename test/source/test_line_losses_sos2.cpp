@@ -489,7 +489,7 @@ TEST_CASE("make_config — L ≤ 0 clamped to 1, vacuous SOS2 collapses to off")
 // ── (10) Clone propagation regression (review P1-1) ────────────────
 //
 // ``LinearInterface::clone()`` previously skipped
-// ``m_sos2_set_count_`` while propagating ``m_obj_constant_raw_`` and
+// ``m_sos2_set_count_`` while propagating ``m_scaling_.obj_constant_raw`` and
 // other LI-side state — the cloned backend carried the SOS2
 // declarations correctly (CPXcloneprob) but ``cloned.sos2_set_count()``
 // returned 0 spuriously, leaving the LI-side counter out of sync with

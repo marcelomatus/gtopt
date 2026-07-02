@@ -1,8 +1,10 @@
 # `LinearInterface` split — implementation plan
 
-**Status:** Phase 1, 2a, 2b landed.  Remaining phases re-evaluated (see
-"Stopping here" below).
-**Date:** 2026-05-04
+**Status:** Phase 1, 2a, 2b landed (2026-05).  Remaining behaviour phases
+re-evaluated (see "Stopping here" below).  The *state* half of the
+deferred `LpModel` phase landed 2026-07 as three behaviour-free value
+groupings — see "2026-07 addendum".
+**Date:** 2026-05-04 (addendum 2026-07-02)
 **Source:** B2 from `docs/improvement_recommendations.md` (~1.5 weeks).
 **Companion plans:**
 * `docs/solver_backend_span_out_plan.md` — Phase 2 of the *plugin*-side
@@ -21,7 +23,7 @@
 | 2b    | `LpSnapshotHolder` (snapshot + codec + compression) | ✅ landed | [#463](https://github.com/marcelomatus/gtopt/pull/463) |
 | 2c    | `LpBackendOwner` (backend ptr + released + phase + ensure/reconstruct) | 🛑 deferred — see "Stopping here" |
 | 3     | `LpSolver` (initial_solve / resolve / fallback) | 🛑 deferred — see "Stopping here" |
-| 4     | `LpModel` (structural LP + label meta + scaling) | 🛑 deferred — see "Stopping here" |
+| 4     | `LpModel` (structural LP + label meta + scaling) | 🟡 state half landed 2026-07 as value groupings (`MatrixStats`, `LpLabelStore`, `ScalingState` — see addendum); behaviour half still deferred |
 
 After Phase 2b, `LinearInterface` extracted **3 distinct
 subsystems**:
@@ -71,6 +73,39 @@ If/when the remaining phases become worthwhile, they should
 probably be reconsidered with a fresh perspective — perhaps a
 true facade pattern with explicit policy parameters rather than
 an accumulation of holders.
+
+## 2026-07 addendum — the `LpModel` *state* landed as value groupings
+
+The deferred Phase 4 (`LpModel`) bundled two very different moves: the
+*state* (label-meta buffers, scale vectors, matrix stats) and the
+*behaviour* (`add_col`/`add_row`/`set_*` mutators).  In July 2026 the
+state half landed as three behaviour-free value aggregates, each a
+pure data grouping with `mutable`/COW semantics preserved verbatim and
+an isolation unit test (something impossible pre-extraction without
+standing up a solver backend):
+
+| Type | Header | State moved | Commit |
+|------|--------|-------------|--------|
+| `MatrixStats` | `matrix_stats.hpp` | 9 `m_stats_*` conditioning fields | `ca87e98b` |
+| `LpLabelStore` | `lp_label_store.hpp` | 15 name/label fields: COW-shared name maps + label-meta, per-instance post-flatten vectors, spill store, string pool, compressed caches | `7d08014e` |
+| `ScalingState` (+ `ScaledView` relocation) | `lp_scaling.hpp` | 7 scaling fields: COW-shared col/row scale + cost-scale-type vectors, variable-scale map, equilibration method, raw objective constant | (this commit) |
+
+The mutator *behaviour* stays on `LinearInterface` — consistent with
+the "Stopping here" rationale: moving it would be a code shuffle, not a
+boundary.  One label-adjacent member also deliberately stayed behind:
+`m_post_flatten_col_meta_index_`, the eager duplicate-detection index —
+it is coupled to the `add_col` mutator path, not to the label *storage*,
+so it belongs with the behaviour, not in `LpLabelStore`.  What changed since that assessment is that grouping the
+state alone turned out to carry most of the payoff (headers a
+downstream reader can understand in isolation, unit-testable
+invariants, ~350 fewer lines in `linear_interface.hpp`) at near-zero
+risk — each landing gated on a 100 % pass of the full C++ suite,
+including the SDDP aperture-clone COW tests.
+
+Related cleanup in the same series: the file-wide 4-check
+`NOLINTBEGIN` blanket in `linear_interface.hpp` (and every other broad
+blanket in `include/`+`source/`) was replaced by real fixes or narrow,
+documented per-site suppressions (`b4574196`).
 
 ---
 

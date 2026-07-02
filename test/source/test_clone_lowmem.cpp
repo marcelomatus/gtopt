@@ -96,7 +96,7 @@ TEST_CASE(
   src.save_snapshot(FlatLinearProblem {flat});
 
   // Shallow clone BEFORE the compression pass: the clone's
-  // `m_col_labels_meta_` etc. share the source's pointers
+  // `m_labels_.col_labels_meta` etc. share the source's pointers
   // (use_count == 2 on every wrapped member).
   auto cloned = src.clone(LinearInterface::CloneKind::shallow);
   REQUIRE(src.col_labels_meta_use_count() == 2);
@@ -359,7 +359,7 @@ TEST_CASE(
   flat.obj_constant_raw = 42.0;
   src.save_snapshot(FlatLinearProblem {flat});
 
-  // Re-`load_flat` so the live `m_obj_constant_raw_` mirrors the
+  // Re-`load_flat` so the live `m_scaling_.obj_constant_raw` mirrors the
   // snapshot's value (production does this via `reconstruct_backend`
   // post `release_backend`; here we do it directly to keep the
   // test scope tight).

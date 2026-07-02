@@ -164,7 +164,7 @@ public:
 
   /// Mutable reference to the dynamic-cols vector — needed by the
   /// `add_cols(span)` call in `apply_post_load_replay` which consumes
-  /// the span by value (and may extend `m_col_scales_` based on
+  /// the span by value (and may extend `m_scaling_.col_scales` based on
   /// `col.scale != 1.0` entries).
   [[nodiscard]] auto dynamic_cols_mut() noexcept -> std::vector<SparseCol>&
   {

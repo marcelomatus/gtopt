@@ -643,7 +643,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   const Uid slack_uid {dep};
   // Disposable adds: the elastic clone is throw-away, so the slack
   // cols / fixing row don't need to enter the shared metadata
-  // (`m_col_labels_meta_`).  Their label metadata
+  // (`m_labels_.col_labels_meta`).  Their label metadata
   // is captured into a per-clone-local extras vector + dedup map and
   // synthesised on demand by `generate_labels_from_maps` if a bad-LP
   // dump is ever requested — gtopt-formatted output identical to the

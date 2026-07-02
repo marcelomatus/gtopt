@@ -1003,7 +1003,7 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   // "illegal" (notably `-` in gtopt's `-1_` unknown-uid placeholder),
   // silently falling back to `R1, R2, ...`.  The sanitised form only
   // affects what OSI writes to `.lp` files; `LinearInterface`'s own
-  // `m_row_index_to_name_` / `m_col_index_to_name_` maps keep the
+  // `m_labels_.row_index_to_name` / `m_labels_.col_index_to_name` maps keep the
   // original names verbatim.
   // Sanitised names live only for the duration of this call: they are
   // copied into both the CLP-internal store (`copyNames`) and the OSI
