@@ -1018,6 +1018,15 @@ public:
         ApertureSolveMode::reduced_cost);
   }
 
+  /// Cross-pass simplex-basis warm-start reuse mode.  Default `off`
+  /// (no forward<->backward basis reuse).  See
+  /// `SddpOptions::basis_cross_mode` / `BasisCrossMode` for documentation.
+  [[nodiscard]] constexpr auto sddp_basis_cross_mode() const noexcept
+  {
+    return m_options_.sddp_options.basis_cross_mode.value_or(
+        BasisCrossMode::off);
+  }
+
   /**
    * @brief Gets the effective monolithic solver options.
    *

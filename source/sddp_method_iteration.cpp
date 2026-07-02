@@ -482,11 +482,40 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       m_lp_debug_writer_.write(tgt_li, stem);
     }
 
+    // Cross-pass warm start (BasisCrossMode::forward_to_backward /
+    // full_cross): seed this backward re-solve of LP_t from the forward
+    // pass's basis captured earlier this iteration for the same cell.  tgt_li
+    // IS the same system(scene, phase) LP the forward pass solved — only the
+    // dep_col bound-fix and any cuts appended this backward pass differ — so
+    // reconcile_basis extends the basis cleanly and the simplex repairs the
+    // rest.  Warm-start only: cannot change the cut (coefficients come from
+    // the converged reduced costs).  A local opts copy avoids mutating the
+    // shared const-ref options.
+    auto tgt_opts = opts;
+    if ((m_options_.basis_cross_mode == BasisCrossMode::forward_to_backward
+         || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+        && !phase_states[phase_index].forward_basis.empty()
+        && tgt_li.set_basis(phase_states[phase_index].forward_basis))
+    {
+      tgt_opts.advanced_basis = true;
+    }
+
     const auto t_tgt_resolve = Clock::now();
-    auto r = tgt_li.resolve(opts);
+    auto r = tgt_li.resolve(tgt_opts);
     dt_tgt_resolve = elapsed_s(t_tgt_resolve);
 
     if (r.has_value() && tgt_li.is_optimal()) {
+      // Cross-pass warm start (BasisCrossMode::backward_to_forward /
+      // full_cross): capture this backward basis to seed the NEXT iteration's
+      // forward solve of the same cell.  nullopt on backends without basis
+      // save/restore → capture skipped.
+      if (m_options_.basis_cross_mode == BasisCrossMode::backward_to_forward
+          || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+      {
+        if (auto basis = tgt_li.get_basis(); basis.has_value()) {
+          phase_states[phase_index].backward_basis = std::move(*basis);
+        }
+      }
       const auto obj_phys = tgt_li.get_obj_value();
       const auto sol_phys = tgt_li.get_col_sol();
       const auto rc = tgt_li.get_col_cost_raw();

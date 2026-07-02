@@ -75,6 +75,7 @@ namespace
   sddp_opts.aperture_chunk_size = options.sddp_aperture_chunk_size();
   sddp_opts.aperture_solve_mode = options.sddp_aperture_solve_mode();
   sddp_opts.aperture_seed_basis = options.sddp_aperture_seed_basis();
+  sddp_opts.basis_cross_mode = options.sddp_basis_cross_mode();
   sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
   sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
   sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();

@@ -787,6 +787,11 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Default false.  See `sddp_options.hpp::aperture_seed_basis`.
   bool aperture_seed_basis {false};
 
+  /// Cross-pass simplex-basis warm-start reuse between the forward and
+  /// backward passes.  Default `off`.  See `sddp_options.hpp::basis_cross_mode`
+  /// and `BasisCrossMode` for the full rationale.
+  BasisCrossMode basis_cross_mode {BasisCrossMode::off};
+
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
   /// dual simplex + no presolve, pivoting from the saved forward-pass
@@ -1411,6 +1416,16 @@ struct PhaseStateInfo
   /// captured; only populated/consumed when `aperture_seed_basis` is on.
   /// One per `(scene, phase)` cell — `O(cells)` memory, not per-aperture.
   Basis aperture_warm_basis {};
+  /// Cross-pass warm-start seed: the simplex basis captured from this cell's
+  /// FORWARD-pass solve last iteration, reused to warm-start the backward
+  /// dual/aperture solve (`BasisCrossMode::forward_to_backward`/`full_cross`).
+  /// Empty until first captured; only populated/consumed when
+  /// `basis_cross_mode` requests forward→backward reuse.  `O(cells)` memory.
+  Basis forward_basis {};
+  /// Cross-pass warm-start seed: the simplex basis captured from this cell's
+  /// BACKWARD-pass solve last iteration, reused to warm-start the next
+  /// forward solve (`BasisCrossMode::backward_to_forward`/`full_cross`).
+  Basis backward_basis {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

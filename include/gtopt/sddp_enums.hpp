@@ -447,6 +447,77 @@ inline constexpr auto aperture_solve_mode_entries =
   return std::span {aperture_solve_mode_entries};
 }
 
+// ─── BasisCrossMode ────────────────────────────────────────────────────────
+
+/**
+ * @brief Cross-pass simplex-basis warm-start reuse between the SDDP forward
+ *        and backward passes.
+ *
+ * SDDP solves the same per-(scene, phase) LP family in both the forward pass
+ * (trial-state simulation) and the backward pass (dual/aperture cut build).
+ * A simplex basis from one pass is a valid *warm start* for the other: bounds
+ * and appended cut rows change, but `reconcile_basis` extends the basis and
+ * the dual/primal simplex repairs any residual infeasibility.  A warm basis
+ * only saves pivots — it can never change the optimum or corrupt a cut (cut
+ * coefficients come from the converged solve), so every mode is correctness-
+ * neutral.  Reuse silently degrades to a cold solve on backends without basis
+ * save/restore (only CPLEX and HiGHS support it) and is gated off where the
+ * forward/backward row structure is not tail-append compatible (e.g.
+ * `aperture_drop_fcuts`, `aperture_system_file`).
+ *
+ * - `off` (default): no cross-pass basis reuse.
+ * - `warm`: reuse only within the same pass (today's `aperture_seed_basis`
+ *   resident-basis chain); no forward<->backward crossing.
+ * - `forward_to_backward`: the forward solve's basis seeds the backward
+ *   dual/aperture solve of the same (scene, phase).
+ * - `backward_to_forward`: the backward basis seeds the next forward solve.
+ * - `full_cross`: bidirectional, plus per-aperture basis caching.
+ */
+enum class BasisCrossMode : uint8_t
+{
+  off = 0,  ///< No cross-pass basis reuse (default).
+  warm = 1,  ///< Reuse only within the same pass (resident basis chain).
+  forward_to_backward = 2,  ///< Forward basis seeds the backward solve.
+  backward_to_forward = 3,  ///< Backward basis seeds the next forward solve.
+  full_cross = 4,  ///< Bidirectional + per-aperture basis caching.
+};
+
+/// Includes "fwd2bwd" / "bwd2fwd" / "cross" as convenience aliases.
+inline constexpr auto basis_cross_mode_entries =
+    std::to_array<EnumEntry<BasisCrossMode>>({
+        {.name = "off", .value = BasisCrossMode::off},
+        {.name = "warm", .value = BasisCrossMode::warm},
+        {
+            .name = "forward_to_backward",
+            .value = BasisCrossMode::forward_to_backward,
+        },
+        {
+            .name = "fwd2bwd",
+            .value = BasisCrossMode::forward_to_backward,
+            .is_alias = true,
+        },
+        {
+            .name = "backward_to_forward",
+            .value = BasisCrossMode::backward_to_forward,
+        },
+        {
+            .name = "bwd2fwd",
+            .value = BasisCrossMode::backward_to_forward,
+            .is_alias = true,
+        },
+        {.name = "full_cross", .value = BasisCrossMode::full_cross},
+        {
+            .name = "cross",
+            .value = BasisCrossMode::full_cross,
+            .is_alias = true,
+        },
+    });
+
+[[nodiscard]] constexpr auto enum_entries(BasisCrossMode /*tag*/) noexcept
+{
+  return std::span {basis_cross_mode_entries};
+}
+
 // ─── HotStartMode ──────────────────────────────────────────────────────────
 
 /**

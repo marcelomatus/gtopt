@@ -230,12 +230,28 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                             uid_of(scene_index),
                             uid_of(phase_index)));
 
+    // Cross-pass warm start (BasisCrossMode::backward_to_forward / full_cross):
+    // seed this forward solve from the backward basis captured last iteration
+    // for the same (scene, phase) cell.  A cross basis is only a warm start —
+    // `set_basis` rejects a dimension mismatch (returns false) and the simplex
+    // repairs any residual infeasibility — so it can never change the optimum
+    // or corrupt a cut, only save pivots.  A local opts copy keeps
+    // `advanced_basis` from leaking to phases that were not seeded.
+    auto fwd_opts = effective_opts;
+    if ((m_options_.basis_cross_mode == BasisCrossMode::backward_to_forward
+         || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+        && !state.backward_basis.empty()
+        && li.set_basis(state.backward_basis))
+    {
+      fwd_opts.advanced_basis = true;
+    }
+
     // Solve directly — already running in a pool thread.
     spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve begin",
                   gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
                   uid_of(phase_index));
-    auto result = li.resolve(effective_opts);
+    auto result = li.resolve(fwd_opts);
     spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve end status={}",
                   gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
@@ -857,6 +873,24 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // `li.get_col_sol()` for ~O(reservoirs + flow-rights + demands)
       // sparse lookups and the live backend serves them cheapest.
       system.accumulate_convergence_indicators(scene_index, phase_index);
+
+      // Cross-pass warm start (BasisCrossMode::forward_to_backward /
+      // full_cross): capture this forward solve's simplex basis to seed the
+      // backward dual re-solve of the same (scene, phase) cell later this
+      // iteration.  Must run before `release_backend()` (get_basis reads the
+      // live backend).  Training pass only: the simulation pass has no
+      // backward pass, and its fix-integers re-solve would overwrite the
+      // basis anyway.  get_basis() returns nullopt on backends without basis
+      // save/restore (only CPLEX/HiGHS support it) → capture is skipped.
+      if (!m_in_simulation_
+          && (m_options_.basis_cross_mode
+                  == BasisCrossMode::forward_to_backward
+              || m_options_.basis_cross_mode == BasisCrossMode::full_cross))
+      {
+        if (auto basis = li.get_basis(); basis.has_value()) {
+          state.forward_basis = std::move(*basis);
+        }
+      }
 
       // Release solver backend — no-op when low_memory is off.
       //
