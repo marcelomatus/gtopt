@@ -80,10 +80,63 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
                  table_result.error());
     return std::nullopt;
   }
-  // Accept long-layout aperture files transparently: pivot `[stage, block,
-  // uid, value]` (where `uid` is a scenario uid here) to the wide
-  // `[stage, block, uid:N…]` shape the scenario-column loop below expects.
-  // Reuses the same uid-agnostic helper as the field-file reader.
+  // Long-layout aperture files (`[stage, block, uid, value]`, the format
+  // plp2gtopt now emits — `uid` is the scenario uid here) are consumed
+  // DIRECTLY: each row already maps 1:1 to an `InnerKey{scenario, stage,
+  // block} -> value`, so we build the map straight from the long rows.  This
+  // avoids the earlier long->wide pivot (`pivot_long_to_wide` +
+  // `assemble_wide`), which materialised a full wide table only for the
+  // scenario-column loop below to iterate it straight back into this same
+  // map — pure round-trip work now that the on-disk format is long.  Fall
+  // back to the pivot only for the uncommon non-Int32/Double column types.
+  if (is_long_layout(*table_result)) {
+    ArrowTable lt = *table_result;
+    if (auto combined = lt->CombineChunks(); combined.ok()) {
+      lt = *combined;  // single contiguous chunk per column → chunk(0) is safe
+    }
+    auto ls_stage = lt->GetColumnByName("stage");
+    auto ls_block = lt->GetColumnByName("block");
+    auto ls_uid = lt->GetColumnByName("uid");  // scenario uid
+    auto ls_value = lt->GetColumnByName("value");
+    const bool direct_ok = ls_stage && ls_block && ls_uid && ls_value
+        && ls_stage->type()->id() == arrow::Type::INT32
+        && ls_block->type()->id() == arrow::Type::INT32
+        && ls_uid->type()->id() == arrow::Type::INT32
+        && ls_value->type()->id() == arrow::Type::DOUBLE;
+    if (direct_ok) {
+      const auto n_rows = lt->num_rows();
+      auto stage_a = std::static_pointer_cast<arrow::Int32Array>(
+          ls_stage->chunk(0));
+      auto block_a = std::static_pointer_cast<arrow::Int32Array>(
+          ls_block->chunk(0));
+      auto uid_a =
+          std::static_pointer_cast<arrow::Int32Array>(ls_uid->chunk(0));
+      auto val_a =
+          std::static_pointer_cast<arrow::DoubleArray>(ls_value->chunk(0));
+      ApertureDataCache::ElementData data;
+      data.reserve(static_cast<size_t>(n_rows));
+      for (int64_t row = 0; row < n_rows; ++row) {
+        data.try_emplace(
+            ApertureDataCache::InnerKey {
+                .scenario_uid = make_uid<Scenario>(uid_a->Value(row)),
+                .stage_uid = make_uid<Stage>(stage_a->Value(row)),
+                .block_uid = make_uid<Block>(block_a->Value(row)),
+            },
+            val_a->Value(row));
+      }
+      return FileResult {
+          .key =
+              {
+                  .class_name = info.class_name,
+                  .element_name = info.element_name,
+              },
+          .data = std::move(data),
+      };
+    }
+  }
+
+  // Wide-layout (or non-standard long) files: use as-is, or pivot the rare
+  // non-Int32/Double long file to the wide shape the loop below expects.
   const ArrowTable table = is_long_layout(*table_result)
       ? pivot_long_to_wide(*table_result)
       : *table_result;
