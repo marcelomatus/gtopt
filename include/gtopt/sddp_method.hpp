@@ -218,7 +218,7 @@ public:
   /// callers that install cuts on α directly.
   ///
   /// Both bounds are released: `lowb ← -DblMax`, `uppb ← +DblMax`.
-  /// Under `low_memory = compress` / `rebuild` the update is mirrored
+  /// Under `low_memory = compress` the update is mirrored
   /// into the `m_dynamic_cols_` entry via `update_dynamic_col_bounds`
   /// so `apply_post_load_replay` preserves the freed bounds across a
   /// release+reload cycle.  Under `LowMemoryMode::off` only the live

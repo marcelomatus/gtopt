@@ -287,7 +287,7 @@ auto SDDPMethod::install_aperture_backward_cut(
     // (recorded by `add_cut_row` above).  We must also drop it from
     // the replay buffer or it will reappear in every future aperture
     // clone (via `clone_from_flat(with_replay=true)`) and every
-    // backend reload (under compress/rebuild) — 2026-05-11 fix.
+    // backend reload (under compress) — 2026-05-11 fix.
     const std::array<int, 1> to_delete {static_cast<int>(cut_row)};
     src_li.delete_rows(to_delete);
     src_li.record_cut_deletion(to_delete);

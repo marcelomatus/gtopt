@@ -1617,7 +1617,7 @@ public:
     return m_options_.sddp_options.max_stored_cuts.value_or(0);
   }
 
-  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
+  /// Low memory mode: off or compress (default for SDDP/cascade).
   /// Resolved default is `compress` so SDDP/cascade runs release the solver
   /// backend between solves and keep an in-memory compressed flat-LP
   /// snapshot.  Set explicitly to `LowMemoryMode::off` (or `--memory-saving
