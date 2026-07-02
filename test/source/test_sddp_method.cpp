@@ -5,12 +5,14 @@
  * @date      2026-03-08
  */
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <map>
 #include <sstream>
+#include <string>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -22,6 +24,7 @@
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
@@ -2680,6 +2683,31 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+  // Backend selection: the CPLEX backend returns a NaN forward objective on
+  // this forced-infeasibility elastic fixture, which drives the elastic
+  // backtracking into a non-converging loop (the SDDPMethod run then hangs —
+  // reproduced deterministically with GTOPT_SOLVER=cplex).  HiGHS, CBC, CLP
+  // and SCIP all solve it cleanly and quickly.  Since the default backend
+  // priority is cplex > highs > cbc > clp, we must pin this test to a
+  // non-CPLEX backend; skip when only CPLEX is available rather than hang.
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  const auto available = reg.available_solvers();
+  std::string solver;
+  for (const auto* candidate : {"highs", "cbc", "clp", "scip"}) {
+    if (std::ranges::find(available, candidate) != available.end()) {
+      solver = candidate;
+      break;
+    }
+  }
+  if (solver.empty()) {
+    MESSAGE(
+        "Skipping — no non-CPLEX backend available; CPLEX does not converge "
+        "on this forced-infeasibility elastic fixture (NaN objective).");
+    return;
+  }
+  CAPTURE(solver);
+
   struct ModeOutcome
   {
     int total_cuts {0};
@@ -2688,9 +2716,10 @@ TEST_CASE(  // NOLINT
     bool converged {false};
   };
 
-  auto run_mode = [](ElasticFilterMode mode) -> ModeOutcome
+  auto run_mode = [&solver](ElasticFilterMode mode) -> ModeOutcome
   {
     auto planning = make_two_reservoir_forced_infeasibility_planning();
+    planning.options.lp_matrix_options.solver_name = solver;
     PlanningLP planning_lp(std::move(planning));
 
     SDDPOptions sddp_opts;
