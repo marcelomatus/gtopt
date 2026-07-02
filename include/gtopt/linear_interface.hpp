@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <concepts>
 #include <cstdint>
 #include <cstdio>
 #include <expected>
@@ -35,6 +34,7 @@
 #include <gtopt/lp_cache.hpp>
 #include <gtopt/lp_label_store.hpp>
 #include <gtopt/lp_replay_buffer.hpp>
+#include <gtopt/lp_scaling.hpp>
 #include <gtopt/lp_snapshot_holder.hpp>
 #include <gtopt/lp_validation.hpp>
 #include <gtopt/matrix_stats.hpp>
@@ -47,156 +47,6 @@
 
 namespace gtopt
 {
-
-/// Zero-copy lazy view that applies a per-element scale factor.
-///
-/// Models a random-access range: `view[i]` returns `data[i] * scales[i]`
-/// (or `data[i] / scales[i]` when constructed with `divides`).
-/// When scales are empty, returns raw data unchanged.
-///
-/// Optional physical-space clamp: when `lower_` and `upper_` spans are
-/// both non-empty, `operator[](i)` additionally clamps the result to
-/// `[lower_[i] * scales_[i], upper_[i] * scales_[i]]` — i.e., the clamp
-/// is applied *after* descaling, in the same physical space the caller
-/// sees.  Used by `LinearInterface::get_col_sol()` to scrub solver
-/// noise (value returned slightly outside its bound-box on an optimal
-/// solve) so downstream SDDP state propagation can pin clean values
-/// without causing next-phase infeasibility.
-///
-/// Accepts any integer-like index type (int, size_t, ColIndex, RowIndex).
-class ScaledView
-{
-public:
-  enum class Op : uint8_t
-  {
-    multiply,
-    divide,
-  };
-
-  constexpr ScaledView() noexcept = default;
-
-  // `n` / `nlo` / `nup` use `Index` (signed int32) to match the LP layer
-  // (`LinearInterface::get_numrows()` / `get_numcols()` and the solver
-  // backends).  `ns` stays `size_t` to match `std::vector::size()` which
-  // is the natural source of the scales-vector length.  The narrowing
-  // happens implicitly inside the `std::span(ptr, n)` paren-init below
-  // — single point of conversion, no caller-side casts needed.
-  constexpr ScaledView(const double* data,
-                       Index n,
-                       const double* scales,
-                       size_t ns,
-                       Op op = Op::multiply,
-                       double global_factor = 1.0) noexcept
-      : data_(data, n)
-      , scales_(scales, ns)
-      , op_(op)
-      , global_(global_factor)
-  {
-  }
-
-  /// Construct with physical-space clamp bounds (lower/upper in the
-  /// same raw-LP space as `data`; each element is descaled by `scales`
-  /// before clamping).  When either span is empty, clamping is skipped.
-  constexpr ScaledView(const double* data,
-                       Index n,
-                       const double* scales,
-                       size_t ns,
-                       const double* lower,
-                       Index nlo,
-                       const double* upper,
-                       Index nup,
-                       Op op = Op::multiply,
-                       double global_factor = 1.0) noexcept
-      : data_(data, n)
-      , scales_(scales, ns)
-      , lower_(lower, nlo)
-      , upper_(upper, nup)
-      , op_(op)
-      , global_(global_factor)
-  {
-  }
-
-  /// Construct from a raw span (no scaling).
-  constexpr explicit ScaledView(std::span<const double> raw) noexcept
-      : data_(raw)
-  {
-  }
-
-  /// Accepts any integer-like type (int, size_t, ColIndex, RowIndex, …).
-  template<typename T>
-    requires std::is_convertible_v<T, size_t>
-  [[nodiscard]] constexpr double operator[](T idx) const noexcept
-  {
-    const auto i = static_cast<size_t>(idx);
-    const double scale = (i < scales_.size()) ? scales_[i] : 1.0;
-    const double v = (i < scales_.size() && op_ == Op::divide)
-        ? data_[i] / scale
-        : data_[i] * scale;
-    double result = v * global_;
-    // Physical-space clamp: applied AFTER descaling so no further
-    // multiplication can re-violate the bound box.
-    if (i < lower_.size() && i < upper_.size()) {
-      const double lb_phys = lower_[i] * scale;
-      const double ub_phys = upper_[i] * scale;
-      if (lb_phys <= ub_phys) {  // guard against degenerate/inverted bounds
-        result = std::clamp(result, lb_phys, ub_phys);
-      }
-    }
-    return result;
-  }
-
-  [[nodiscard]] constexpr size_t size() const noexcept { return data_.size(); }
-  [[nodiscard]] constexpr bool empty() const noexcept { return data_.empty(); }
-
-  /// Iterator support for range-for loops.
-  class iterator
-  {
-  public:
-    using value_type = double;
-    using difference_type = ptrdiff_t;
-
-    constexpr iterator() noexcept = default;
-    constexpr iterator(const ScaledView* view, size_t pos) noexcept
-        : view_(view)
-        , pos_(pos)
-    {
-    }
-
-    constexpr double operator*() const noexcept { return (*view_)[pos_]; }
-    constexpr iterator& operator++() noexcept
-    {
-      ++pos_;
-      return *this;
-    }
-    constexpr iterator operator++(int) noexcept
-    {
-      auto tmp = *this;
-      ++pos_;
-      return tmp;
-    }
-    constexpr bool operator==(const iterator& o) const noexcept = default;
-
-  private:
-    const ScaledView* view_ {};
-    size_t pos_ {};
-  };
-
-  [[nodiscard]] constexpr iterator begin() const noexcept { return {this, 0}; }
-  [[nodiscard]] constexpr iterator end() const noexcept
-  {
-    return {this, data_.size()};
-  }
-
-private:
-  std::span<const double> data_ {};
-  std::span<const double> scales_ {};
-  std::span<const double>
-      lower_ {};  ///< Optional raw-LP lower bounds for clamp
-  std::span<const double>
-      upper_ {};  ///< Optional raw-LP upper bounds for clamp
-  Op op_ {Op::multiply};
-  double global_ {1.0};  ///< Uniform factor applied to every element
-};
 
 /// Diagnostics for a single LP row (constraint or cut).
 /// Used by kappa_warning=diagnose to identify ill-conditioned rows.
@@ -388,7 +238,7 @@ public:
   }
   [[nodiscard]] auto col_scales_use_count() const noexcept
   {
-    return m_col_scales_.use_count();
+    return m_scaling_.col_scales.use_count();
   }
 
   /// Test-only diagnostic: number of doubles currently held in the
@@ -466,7 +316,7 @@ public:
   }
   [[nodiscard]] auto row_scales_use_count() const noexcept
   {
-    return m_row_scales_.use_count();
+    return m_scaling_.row_scales.use_count();
   }
 
   /**
@@ -967,7 +817,7 @@ public:
   [[nodiscard]] ColIndex add_col(const SparseCol& col);
 
   /**
-   * @brief Adds a new column WITHOUT extending `m_col_scales_`.
+   * @brief Adds a new column WITHOUT extending `m_scaling_.col_scales`.
    *
    * Same as `add_col(SparseCol)` but **never** calls `set_col_scale`.
    * Asserts `col.scale == 1.0` so the caller can't accidentally lose
@@ -977,7 +827,7 @@ public:
    *
    * Mirrors `add_row_raw`'s contract: emit + label-meta tracking +
    * dedup, but no per-column / per-row scale-vector mutation.  This
-   * is the precondition for sharing `m_col_scales_` across aperture
+   * is the precondition for sharing `m_scaling_.col_scales` across aperture
    * clones via `std::shared_ptr` — the scale vector is frozen once
    * `load_flat` has populated it.
    *
@@ -1004,10 +854,10 @@ public:
    *
    * Mirrors `add_col(SparseCol)`'s contract: every column in the batch
    * routes through the same `cost / scale_objective` composition, and
-   * any non-unit `col.scale` extends `m_col_scales_` via
+   * any non-unit `col.scale` extends `m_scaling_.col_scales` via
    * `set_col_scale` (just like the singular path).  Use this for
    * batches of physical-space columns (the typical case).  For LP-raw
-   * batches that must skip `m_col_scales_` extension, use
+   * batches that must skip `m_scaling_.col_scales` extension, use
    * `add_cols_raw` instead.
    *
    * @param cols Sparse columns with physical-space cost / bounds.
@@ -1016,12 +866,12 @@ public:
   [[nodiscard]] ColIndex add_cols(std::span<const SparseCol> cols);
 
   /**
-   * @brief Bulk-add columns WITHOUT extending `m_col_scales_`.
+   * @brief Bulk-add columns WITHOUT extending `m_scaling_.col_scales`.
    *
    * Companion to `add_col_raw` for batches.  Same `cost /
    * scale_objective` composition as `add_cols` (i.e. `col.cost` is
    * still treated as physical and divided by `m_scale_objective_`),
-   * but `m_col_scales_` is never grown — so every entry must satisfy
+   * but `m_scaling_.col_scales` is never grown — so every entry must satisfy
    * `col.scale == 1.0`.  Used by post-flatten cut paths that need the
    * column scale vector to stay frozen so it can be shared across
    * aperture clones via `std::shared_ptr`.
@@ -1101,11 +951,11 @@ public:
    * `col` (class_name, variable_name, variable_uid, context) into a
    * per-clone-local extras vector + dedup map.  Never touches the
    * shared `m_labels_.col_labels_meta` or
-   * `m_col_scales_` — designed for use on a `clone(CloneKind::shallow)`
+   * `m_scaling_.col_scales` — designed for use on a `clone(CloneKind::shallow)`
    * where those structures are shared read-only with the source.
    *
    * Asserts `col.scale == 1.0` (the elastic-filter slack convention)
-   * — non-unit scales would require extending `m_col_scales_`, which
+   * — non-unit scales would require extending `m_scaling_.col_scales`, which
    * the disposable contract forbids.
    *
    * `generate_labels_from_maps` consults the per-clone extras when
@@ -1143,7 +993,7 @@ public:
    * `m_backend_->add_row`; captures only the label-meta fields of
    * `row` into a per-clone-local extras vector + dedup map.  Never
    * touches the shared `m_labels_.row_labels_meta`
-   * or `m_row_scales_`.
+   * or `m_scaling_.row_scales`.
    *
    * Asserts `row.scale == 1.0` (the elastic-filter fixing-row
    * convention).
@@ -1210,7 +1060,7 @@ public:
    *
    * Mirrors `add_row`'s contract for batches: when the LP is in the
    * post-flatten cut phase (`save_base_numrows()` has fired) AND
-   * `m_col_scales_` / equilibration are active, every row in the batch
+   * `m_scaling_.col_scales` / equilibration are active, every row in the batch
    * is treated as **physical-space** and routed through the per-row
    * compose_physical transform (col_scale × elem / scale_objective /
    * row-max).  Otherwise the bulk CSR fast path runs unchanged.
@@ -1648,7 +1498,7 @@ public:
   /// that need to add a constant AFTER `load_flat`.  Callers always
   /// pass values in *physical* (post-scale_objective) units; the
   /// API divides by `m_scale_objective_` internally so the running
-  /// `m_obj_constant_raw_` stays on the same raw scale as the
+  /// `m_scaling_.obj_constant_raw` stays on the same raw scale as the
   /// solver's value — `get_obj_value_raw()` then composes the two
   /// with a plain add.  Calls accumulate (additive); pass a
   /// negative `c` to subtract.
@@ -1667,10 +1517,10 @@ public:
   /// (forwarded via `flatten()`) plus any post-flatten
   /// `LinearInterface::add_obj_constant` calls.  Returns physical
   /// scale for API symmetry with the mutator, even though the
-  /// underlying storage is raw-scale `m_obj_constant_raw_`.
+  /// underlying storage is raw-scale `m_scaling_.obj_constant_raw`.
   [[nodiscard]] constexpr double get_obj_constant() const noexcept
   {
-    return m_obj_constant_raw_ * m_scale_objective_;
+    return m_scaling_.obj_constant_raw * m_scale_objective_;
   }
 
   /// Raw-scale view of the accumulated constant (LP units).  Useful
@@ -1679,7 +1529,7 @@ public:
   /// scale_objective`.
   [[nodiscard]] constexpr double get_obj_constant_raw() const noexcept
   {
-    return m_obj_constant_raw_;
+    return m_scaling_.obj_constant_raw;
   }
 
   /**
@@ -2194,8 +2044,8 @@ public:
     const auto n = get_numrows();
     return {backend().row_lower(),
             n,
-            m_row_scales_->data(),
-            m_row_scales_->size(),
+            m_scaling_.row_scales->data(),
+            m_scaling_.row_scales->size(),
             ScaledView::Op::multiply};
   }
 
@@ -2209,8 +2059,8 @@ public:
     const auto n = get_numrows();
     return {backend().row_upper(),
             n,
-            m_row_scales_->data(),
-            m_row_scales_->size(),
+            m_scaling_.row_scales->data(),
+            m_scaling_.row_scales->size(),
             ScaledView::Op::multiply};
   }
 
@@ -2275,8 +2125,8 @@ public:
     const auto n = get_numcols();
     return {backend().col_lower(),
             n,
-            m_col_scales_->data(),
-            m_col_scales_->size(),
+            m_scaling_.col_scales->data(),
+            m_scaling_.col_scales->size(),
             ScaledView::Op::multiply};
   }
 
@@ -2293,8 +2143,8 @@ public:
     const auto n = get_numcols();
     return {backend().col_upper(),
             n,
-            m_col_scales_->data(),
-            m_col_scales_->size(),
+            m_scaling_.col_scales->data(),
+            m_scaling_.col_scales->size(),
             ScaledView::Op::multiply};
   }
 
@@ -2366,8 +2216,8 @@ public:
     if (!m_cache_.is_optimal()) {
       return {data,
               n,
-              m_col_scales_->data(),
-              m_col_scales_->size(),
+              m_scaling_.col_scales->data(),
+              m_scaling_.col_scales->size(),
               ScaledView::Op::multiply};
     }
     // Source the col-bound vectors from the LI cache when populated
@@ -2388,8 +2238,8 @@ public:
       // has run since the post-solve snapshot.
       return {data,
               n,
-              m_col_scales_->data(),
-              m_col_scales_->size(),
+              m_scaling_.col_scales->data(),
+              m_scaling_.col_scales->size(),
               cached_low.data(),
               n,
               cached_upp.data(),
@@ -2400,14 +2250,14 @@ public:
       // No live backend, no cache — degraded path: return unclamped.
       return {data,
               n,
-              m_col_scales_->data(),
-              m_col_scales_->size(),
+              m_scaling_.col_scales->data(),
+              m_scaling_.col_scales->size(),
               ScaledView::Op::multiply};
     }
     return {data,
             n,
-            m_col_scales_->data(),
-            m_col_scales_->size(),
+            m_scaling_.col_scales->data(),
+            m_scaling_.col_scales->size(),
             backend().col_lower(),
             n,
             backend().col_upper(),
@@ -2463,15 +2313,15 @@ public:
     if (const auto sp = m_cache_.col_cost(); !sp.empty()) {
       return {sp.data(),
               n,
-              m_col_scales_->data(),
-              m_col_scales_->size(),
+              m_scaling_.col_scales->data(),
+              m_scaling_.col_scales->size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
     return {backend().reduced_cost(),
             n,
-            m_col_scales_->data(),
-            m_col_scales_->size(),
+            m_scaling_.col_scales->data(),
+            m_scaling_.col_scales->size(),
             ScaledView::Op::divide,
             m_scale_objective_};
   }
@@ -2488,8 +2338,8 @@ public:
    */
   [[nodiscard]] double get_col_scale(ColIndex index) const noexcept
   {
-    if (static_cast<size_t>(index) < m_col_scales_->size()) {
-      return (*m_col_scales_)[index];
+    if (static_cast<size_t>(index) < m_scaling_.col_scales->size()) {
+      return (*m_scaling_.col_scales)[index];
     }
     return 1.0;
   }
@@ -2505,7 +2355,7 @@ public:
    */
   void set_col_scale(ColIndex index, double scale)
   {
-    auto& cs = detach_for_write(m_col_scales_);
+    auto& cs = detach_for_write(m_scaling_.col_scales);
     const auto sz = static_cast<size_t>(index) + 1;
     if (sz > cs.size()) {
       cs.resize(sz, 1.0);
@@ -2520,7 +2370,7 @@ public:
    */
   [[nodiscard]] const auto& get_col_scales() const noexcept
   {
-    return *m_col_scales_;
+    return *m_scaling_.col_scales;
   }
 
   /// Objective time-basis of a column (Power / Energy / Raw), used by
@@ -2532,8 +2382,9 @@ public:
       ColIndex index) const noexcept
   {
     const auto i = static_cast<size_t>(index);
-    return i < m_col_cost_scale_types_->size() ? (*m_col_cost_scale_types_)[i]
-                                               : ConstraintScaleType::Power;
+    return i < m_scaling_.col_cost_scale_types->size()
+        ? (*m_scaling_.col_cost_scale_types)[i]
+        : ConstraintScaleType::Power;
   }
 
   /// Whole-vector view of per-column objective time-basis.  Empty when not
@@ -2541,7 +2392,7 @@ public:
   [[nodiscard]] std::span<const ConstraintScaleType> col_cost_scale_types()
       const noexcept
   {
-    return *m_col_cost_scale_types_;
+    return *m_scaling_.col_cost_scale_types;
   }
 
   /**
@@ -2555,8 +2406,8 @@ public:
    */
   [[nodiscard]] double get_row_scale(RowIndex index) const noexcept
   {
-    if (static_cast<size_t>(index) < m_row_scales_->size()) {
-      return (*m_row_scales_)[index];
+    if (static_cast<size_t>(index) < m_scaling_.row_scales->size()) {
+      return (*m_scaling_.row_scales)[index];
     }
     return 1.0;
   }
@@ -2572,7 +2423,7 @@ public:
    */
   void set_row_scale(RowIndex index, double scale)
   {
-    auto& rs = detach_for_write(m_row_scales_);
+    auto& rs = detach_for_write(m_scaling_.row_scales);
     const auto sz = static_cast<size_t>(index) + 1;
     if (sz > rs.size()) {
       rs.resize(sz, 1.0);
@@ -2586,7 +2437,7 @@ public:
    */
   [[nodiscard]] const auto& get_row_scales() const noexcept
   {
-    return *m_row_scales_;
+    return *m_scaling_.row_scales;
   }
 
   /// Objective time-basis of a row (Power / Energy / Raw), used by
@@ -2597,8 +2448,9 @@ public:
       RowIndex index) const noexcept
   {
     const auto i = static_cast<size_t>(index);
-    return i < m_row_cost_scale_types_->size() ? (*m_row_cost_scale_types_)[i]
-                                               : ConstraintScaleType::Power;
+    return i < m_scaling_.row_cost_scale_types->size()
+        ? (*m_scaling_.row_cost_scale_types)[i]
+        : ConstraintScaleType::Power;
   }
 
   /// Whole-vector view of per-row objective time-basis.  Empty when not
@@ -2606,7 +2458,7 @@ public:
   [[nodiscard]] std::span<const ConstraintScaleType> row_cost_scale_types()
       const noexcept
   {
-    return *m_row_cost_scale_types_;
+    return *m_scaling_.row_cost_scale_types;
   }
 
   /// Equilibration method in effect for this LP (selected by
@@ -2618,7 +2470,7 @@ public:
   [[nodiscard]] constexpr LpEquilibrationMethod equilibration_method()
       const noexcept
   {
-    return m_equilibration_method_;
+    return m_scaling_.equilibration_method;
   }
 
   /// Override the equilibration method recorded for this LP.  Normally
@@ -2628,7 +2480,7 @@ public:
   /// the `add_equilibrated_row` path.
   void set_equilibration_method(LpEquilibrationMethod method) noexcept
   {
-    m_equilibration_method_ = method;
+    m_scaling_.equilibration_method = method;
   }
 
   /**
@@ -2660,7 +2512,7 @@ public:
   /// VariableScaleMap moved from FlatLinearProblem during load_flat().
   [[nodiscard]] const VariableScaleMap& variable_scale_map() const noexcept
   {
-    return *m_variable_scale_map_;
+    return *m_scaling_.variable_scale_map;
   }
 
   /** @brief Lazily compute vertex duals via crossover if the backend
@@ -2741,8 +2593,8 @@ public:
     if (const auto sp = m_cache_.row_dual(); !sp.empty()) {
       return {sp.data(),
               n,
-              m_row_scales_->data(),
-              m_row_scales_->size(),
+              m_scaling_.row_scales->data(),
+              m_scaling_.row_scales->size(),
               ScaledView::Op::divide,
               m_scale_objective_};
     }
@@ -2758,8 +2610,8 @@ public:
     }
     return {backend().row_price(),
             n,
-            m_row_scales_->data(),
-            m_row_scales_->size(),
+            m_scaling_.row_scales->data(),
+            m_scaling_.row_scales->size(),
             ScaledView::Op::divide,
             m_scale_objective_};
   }
@@ -3071,73 +2923,21 @@ private:
   bool m_base_numrows_set_ {false};
 
   double m_scale_objective_ {1.0};  ///< Global objective divisor (from flatten)
-  /// Constant offset added to `get_obj_value_raw()`.  Stored on the
-  /// LP *raw* (post-scale_objective-division) cost scale so it
-  /// composes additively with the solver's raw value:
-  ///
-  ///   get_obj_value_raw() = solver_raw + m_obj_constant_raw_
-  ///   get_obj_value()     = get_obj_value_raw() × m_scale_objective_
-  ///
-  /// Propagated from `FlatLinearProblem::obj_constant_raw` at
-  /// `load_flat` time.  Copied through native clone / clone-from-flat
-  /// so clones report the same algebraic objective.  Default 0.0 —
-  /// every model that does not opt in keeps bit-identical raw / phys
-  /// reports.
-  ///
-  /// Public mutators `add_obj_constant` / `obj_constant` are declared
-  /// in the class's public section near `get_obj_value()` so callers
-  /// can adjust the constant POST-`load_flat`.  Callers always pass
-  /// values in *physical* units; the API divides by
-  /// `m_scale_objective_` before accumulating here.
-  double m_obj_constant_raw_ {0.0};
   /// Number of SOS2 sets pushed to the backend during ``load_flat``.
   /// Captured once at load time from ``FlatLinearProblem::sos2_sets``
   /// and exposed read-only via ``sos2_set_count()`` for issue #504
   /// unit tests.  ``0`` for the vast majority of LPs.
   std::size_t m_sos2_set_count_ {0};
-  /// Column / row scale vectors.  `shared_ptr` so shallow clones
-  /// can share with the source — see `CloneKind`.  The scale vectors
-  /// are populated in `load_flat` and only mutated post-flatten by
-  /// `set_col_scale` / `set_row_scale` (called when a non-unit
-  /// `col.scale` / `row.scale` is added via `add_col(SparseCol)` /
-  /// `add_row_raw`).  Disposable adds explicitly forbid non-unit
-  /// scales (see `add_col_disposable` / `add_row_disposable`) so
-  /// they never trigger the COW detach branch on the clone side.
-  mutable std::shared_ptr<StrongIndexVector<ColIndex, double>> m_col_scales_ {
-      std::make_shared<StrongIndexVector<ColIndex, double>>(),
-  };
-  mutable std::shared_ptr<StrongIndexVector<RowIndex, double>> m_row_scales_ {
-      std::make_shared<StrongIndexVector<RowIndex, double>>(),
-  };
-  /// Per-column / per-row objective time-basis (Power / Energy / Raw),
-  /// populated from `FlatLinearProblem::col_cost_scale_types` /
-  /// `row_cost_scale_types` at `load_flat`.  Frozen after flatten (never
-  /// mutated post-load), so `shared_ptr` lets shallow clones share without
-  /// copying — same lifecycle as `m_col_scales_`.  Consumed by
-  /// `OutputContext` to choose the inverse cost-factor family when reading
-  /// reduced costs / duals back to physical units.  Out-of-range (post-
-  /// flatten) indices default to `Power` via `*_cost_scale_type_at`.
-  mutable std::shared_ptr<std::vector<ConstraintScaleType>>
-      m_col_cost_scale_types_ {
-          std::make_shared<std::vector<ConstraintScaleType>>(),
-      };
-  mutable std::shared_ptr<std::vector<ConstraintScaleType>>
-      m_row_cost_scale_types_ {
-          std::make_shared<std::vector<ConstraintScaleType>>(),
-      };
-  /// Equilibration method used at load_flat() time.  Persisted so that
-  /// `add_row` / `add_rows` (the post-build cut path) apply the same
-  /// per-row scaling the bulk build did, keeping kappa stable as cuts
-  /// accumulate.  `none` means the caller opted out of equilibration
-  /// at build time and we leave new rows alone.
-  LpEquilibrationMethod m_equilibration_method_ {LpEquilibrationMethod::none};
-  /// Moved from flatten.  `shared_ptr` so shallow clones can share
-  /// it with the source instead of value-copying — see `CloneKind`.
-  /// Mutated only via `load_flat` (source-side, before any clones)
-  /// so the COW detach in `detach_for_write` is dormant in practice.
-  mutable std::shared_ptr<VariableScaleMap> m_variable_scale_map_ {
-      std::make_shared<VariableScaleMap>(),
-  };
+
+  /// Ruiz / equilibration scaling state captured after flatten:
+  /// column / row scale vectors, the per-column / per-row objective
+  /// time-basis (cost-scale-type) vectors, the variable-scale map, the
+  /// equilibration method, and the raw objective constant.  Extracted
+  /// into its own value type (lp_scaling.hpp) as step 4 (final) of
+  /// decomposing this class.  The `shared_ptr` fields are `mutable` and
+  /// COW-shared so shallow clones share via atomic incref; every default
+  /// initializer is preserved verbatim.
+  ScalingState m_scaling_ {};
 
   /// Matrix-wide numerical statistics captured after flatten.  Extracted into
   /// its own value type (matrix_stats.hpp) as step 1 of decomposing this class.

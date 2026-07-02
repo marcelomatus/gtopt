@@ -525,11 +525,11 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   // element `add_col(SparseCol)` loop because the bulk variant
   // dispatches column-by-column (no batched CSR insert is exposed
   // by LP backends for columns).  Each `add_col(SparseCol)` extends
-  // `m_col_scales_` when `col.scale != 1.0` — legitimate here
+  // `m_scaling_.col_scales` when `col.scale != 1.0` — legitimate here
   // because `α` is registered with `scale = scale_alpha`
   // (`sddp_method.cpp:434-453`) and the replay path holds the
   // unique reference to the shared metadata
-  // (`detach_for_write(m_col_scales_)` is a no-op).
+  // (`detach_for_write(m_scaling_.col_scales)` is a no-op).
   if (!source.dynamic_cols().empty()) {
     (void)add_cols(source.dynamic_cols());
   }
@@ -889,7 +889,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // under-report the obj-value by the substitution offset.
   // Propagate raw-scale obj constant so the clone's
   // `get_obj_value_raw()` matches the source after re-solve.
-  cloned.m_obj_constant_raw_ = m_obj_constant_raw_;
+  cloned.m_scaling_.obj_constant_raw = m_scaling_.obj_constant_raw;
   // SOS2 set count (issue #504).  The cloned backend (CPXcloneprob)
   // already carries the SOS2 declarations natively, but the LI-side
   // counter must follow it explicitly — without this the
@@ -899,7 +899,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // ``FlatLinearProblem::sos2_sets`` and therefore does not need this
   // line.
   cloned.m_sos2_set_count_ = m_sos2_set_count_;
-  cloned.m_equilibration_method_ = m_equilibration_method_;
+  cloned.m_scaling_.equilibration_method = m_scaling_.equilibration_method;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
@@ -929,11 +929,14 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // each underlying T into a fresh shared_ptr; `shallow` does an atomic
   // incref so source and clone share state.
   if (kind == CloneKind::deep) {
-    cloned.m_variable_scale_map_ = deep_copy_ptr(m_variable_scale_map_);
-    cloned.m_col_scales_ = deep_copy_ptr(m_col_scales_);
-    cloned.m_row_scales_ = deep_copy_ptr(m_row_scales_);
-    cloned.m_col_cost_scale_types_ = deep_copy_ptr(m_col_cost_scale_types_);
-    cloned.m_row_cost_scale_types_ = deep_copy_ptr(m_row_cost_scale_types_);
+    cloned.m_scaling_.variable_scale_map =
+        deep_copy_ptr(m_scaling_.variable_scale_map);
+    cloned.m_scaling_.col_scales = deep_copy_ptr(m_scaling_.col_scales);
+    cloned.m_scaling_.row_scales = deep_copy_ptr(m_scaling_.row_scales);
+    cloned.m_scaling_.col_cost_scale_types =
+        deep_copy_ptr(m_scaling_.col_cost_scale_types);
+    cloned.m_scaling_.row_cost_scale_types =
+        deep_copy_ptr(m_scaling_.row_cost_scale_types);
     cloned.m_labels_.col_labels_meta = deep_copy_ptr(m_labels_.col_labels_meta);
     cloned.m_labels_.row_labels_meta = deep_copy_ptr(m_labels_.row_labels_meta);
     cloned.m_labels_.col_names = deep_copy_ptr(m_labels_.col_names);
@@ -943,11 +946,11 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
     cloned.m_labels_.row_index_to_name =
         deep_copy_ptr(m_labels_.row_index_to_name);
   } else {  // shallow — atomic incref, source and clone share state
-    cloned.m_variable_scale_map_ = m_variable_scale_map_;
-    cloned.m_col_scales_ = m_col_scales_;
-    cloned.m_row_scales_ = m_row_scales_;
-    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
-    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
+    cloned.m_scaling_.variable_scale_map = m_scaling_.variable_scale_map;
+    cloned.m_scaling_.col_scales = m_scaling_.col_scales;
+    cloned.m_scaling_.row_scales = m_scaling_.row_scales;
+    cloned.m_scaling_.col_cost_scale_types = m_scaling_.col_cost_scale_types;
+    cloned.m_scaling_.row_cost_scale_types = m_scaling_.row_cost_scale_types;
     cloned.m_labels_.col_labels_meta = m_labels_.col_labels_meta;
     cloned.m_labels_.row_labels_meta = m_labels_.row_labels_meta;
     cloned.m_labels_.col_names = m_labels_.col_names;
@@ -1041,11 +1044,11 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // stays at one shared copy across N concurrent clones rather
   // than N independent copies.
   if (kind == CloneKind::shallow) {
-    cloned.m_variable_scale_map_ = m_variable_scale_map_;
-    cloned.m_col_scales_ = m_col_scales_;
-    cloned.m_row_scales_ = m_row_scales_;
-    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
-    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
+    cloned.m_scaling_.variable_scale_map = m_scaling_.variable_scale_map;
+    cloned.m_scaling_.col_scales = m_scaling_.col_scales;
+    cloned.m_scaling_.row_scales = m_scaling_.row_scales;
+    cloned.m_scaling_.col_cost_scale_types = m_scaling_.col_cost_scale_types;
+    cloned.m_scaling_.row_cost_scale_types = m_scaling_.row_cost_scale_types;
     cloned.m_labels_.col_labels_meta = m_labels_.col_labels_meta;
     cloned.m_labels_.row_labels_meta = m_labels_.row_labels_meta;
     cloned.m_labels_.col_names = m_labels_.col_names;
@@ -1133,36 +1136,36 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // value stored here is already on the same raw basis as the
   // solver's reported value — `get_obj_value_raw()` then composes
   // them with a plain add.
-  m_obj_constant_raw_ = flat_lp.obj_constant_raw;
+  m_scaling_.obj_constant_raw = flat_lp.obj_constant_raw;
 
   // Preserve per-column scale factors from LinearProblem.
-  detach_for_write(m_col_scales_)
+  detach_for_write(m_scaling_.col_scales)
       .assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
 
   // Preserve per-row equilibration scale factors (empty when disabled).
-  detach_for_write(m_row_scales_)
+  detach_for_write(m_scaling_.row_scales)
       .assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
 
   // Preserve per-column / per-row objective time-basis (Power / Energy /
   // Raw) so OutputContext can choose the inverse cost-factor family per
   // element when reading reduced costs / duals back to physical units.
-  detach_for_write(m_col_cost_scale_types_)
+  detach_for_write(m_scaling_.col_cost_scale_types)
       .assign(flat_lp.col_cost_scale_types.begin(),
               flat_lp.col_cost_scale_types.end());
-  detach_for_write(m_row_cost_scale_types_)
+  detach_for_write(m_scaling_.row_cost_scale_types)
       .assign(flat_lp.row_cost_scale_types.begin(),
               flat_lp.row_cost_scale_types.end());
 
   // Persist the equilibration method so the follow-up PR that migrates
   // Benders cut construction to physical accessors can apply the same
   // per-row scaling to post-build cut rows as the structural build did.
-  m_equilibration_method_ = flat_lp.equilibration_method;
+  m_scaling_.equilibration_method = flat_lp.equilibration_method;
 
   // Preserve VariableScaleMap for dynamic column auto-scaling.
   // `detach_for_write` is a no-op here in practice (load_flat runs
   // on the source LP before any clones exist), but the helper
   // guarantees correctness if a future caller reorders the lifecycle.
-  detach_for_write(m_variable_scale_map_) = flat_lp.variable_scale_map;
+  detach_for_write(m_scaling_.variable_scale_map) = flat_lp.variable_scale_map;
 
   // Preserve LabelMaker so dynamically added cols/rows after load_flat()
   // use the same LpNamesLevel as the original flatten() call.
@@ -1490,12 +1493,12 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 
 ColIndex LinearInterface::add_col_raw(const SparseCol& col)
 {
-  // Raw path: `m_col_scales_` stays frozen so it can be shared via
+  // Raw path: `m_scaling_.col_scales` stays frozen so it can be shared via
   // shared_ptr across aperture clones.  `col.scale` is intentionally
   // ignored here — callers either pre-apply any scaling to `col.cost`
   // (replay path) or are passing back a SparseCol from a previous
   // `add_col(...)` whose scale is already recorded in the persistent
-  // `m_col_scales_` snapshot from `load_flat`.  Either way, this path
+  // `m_scaling_.col_scales` snapshot from `load_flat`.  Either way, this path
   // does not (and must not) re-grow the scale vector.
   const auto col_idx = emit_col_to_backend(col);
   track_col_label_meta(col_idx, col);
@@ -1516,7 +1519,7 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
   ensure_backend();
   assert(col.scale == 1.0
          && "add_col_disposable: non-unit col.scale forbidden — "
-            "shared m_col_scales_ must not grow on a clone");
+            "shared m_scaling_.col_scales must not grow on a clone");
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
@@ -1583,7 +1586,7 @@ RowIndex LinearInterface::add_row_disposable(const SparseRow& row,
   ensure_backend();
   assert(row.scale == 1.0
          && "add_row_disposable: non-unit row.scale forbidden — "
-            "shared m_row_scales_ must not grow on a clone");
+            "shared m_scaling_.row_scales must not grow on a clone");
 
   // The low-level `add_row(name, ...)` helper applies
   // `normalize_bound` to the lb/ub itself (linear_interface.cpp
@@ -1737,7 +1740,7 @@ ColIndex LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
 {
   // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
   // dispatch via the shared `emit_cols_to_backend` helper, then capture
-  // label-meta.  `m_col_scales_` stays frozen so it can be shared
+  // label-meta.  `m_scaling_.col_scales` stays frozen so it can be shared
   // across aperture clones via `std::shared_ptr`.  `col.scale` is
   // intentionally ignored on every entry — see `add_col_raw` for the
   // rationale.
@@ -1895,15 +1898,15 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //                                     equilibration pass already
   //                                     normalised those rows, so a
   //                                     second pass would double-scale.
-  //  - m_equilibration_method_ == none && m_col_scales_ empty
+  //  - m_scaling_.equilibration_method == none && m_scaling_.col_scales empty
   //                                  → nothing to compose; physical ==
   //                                     LP in that case.
   //  - Otherwise                     → cut-phase physical row; apply
   //                                     col_scale + row-max.
   const bool is_cut_phase = m_base_numrows_set_;
-  const bool have_col_scales = !m_col_scales_->empty();
+  const bool have_col_scales = !m_scaling_.col_scales->empty();
   const bool have_equilibration =
-      m_equilibration_method_ != LpEquilibrationMethod::none;
+      m_scaling_.equilibration_method != LpEquilibrationMethod::none;
   // Objective-coupled cut rows (α-bearing SDDP / boundary cuts) must still
   // receive compose_physical's `÷ scale_objective` (step 1b) even when there
   // are no column scales and equilibration is off.  The objective itself was
@@ -1932,9 +1935,9 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   const auto infy = m_backend_->infinity();
 
   // 1. Physical → LP column scaling.  Columns beyond the stored
-  //    `m_col_scales_` extent default to scale 1.0 (matching
+  //    `m_scaling_.col_scales` extent default to scale 1.0 (matching
   //    `get_col_scale`).
-  const auto& col_scales_ref = *m_col_scales_;
+  const auto& col_scales_ref = *m_scaling_.col_scales;
   const auto n_col_scales = std::ssize(col_scales_ref);
   for (std::size_t k = 0; k < elements.size(); ++k) {
     const auto col = ColIndex {columns[k]};
@@ -2149,13 +2152,13 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   // Dispatch through the same `compose_physical` gate as the singular
   // `add_row` so bulk and per-row callers see the same physical ↔ LP
   // semantics for batches of post-flatten cut rows.  The gate state
-  // (`m_base_numrows_set_`, `m_col_scales_`, `m_equilibration_method_`)
-  // is invariant across the batch, so it is checked once and applied
-  // uniformly to every row.
+  // (`m_base_numrows_set_`, `m_scaling_.col_scales`,
+  // `m_scaling_.equilibration_method`) is invariant across the batch, so it is
+  // checked once and applied uniformly to every row.
   const bool is_cut_phase = m_base_numrows_set_;
-  const bool have_col_scales = !m_col_scales_->empty();
+  const bool have_col_scales = !m_scaling_.col_scales->empty();
   const bool have_equilibration =
-      m_equilibration_method_ != LpEquilibrationMethod::none;
+      m_scaling_.equilibration_method != LpEquilibrationMethod::none;
   // See the singular `add_row` gate: objective-coupled cut rows need the
   // `÷ scale_objective` composition even with no col_scales / equilibration,
   // so `physical == LP` only when `scale_objective == 1` too.
@@ -2197,7 +2200,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   std::vector<SparseRow> composed;
   composed.reserve(rows.size());
 
-  const auto& col_scales_ref = *m_col_scales_;
+  const auto& col_scales_ref = *m_scaling_.col_scales;
   const auto n_col_scales = std::ssize(col_scales_ref);
 
   for (const auto& row : rows) {
@@ -2649,7 +2652,7 @@ void LinearInterface::set_obj_coeff(const ColIndex index,
   //   objval[i] /= scale_objective          (global scale_objective divisor)
   // Using `get_col_scale(index)` matches the singular bound setter
   // pattern (`set_col_low`, `set_col_upp`) and degrades to 1.0 when
-  // `m_col_scales_` is empty (bare LinearInterface / unflattened LP),
+  // `m_scaling_.col_scales` is empty (bare LinearInterface / unflattened LP),
   // making this a pure pass-through in the unscaled case.
   const double cs = get_col_scale(index);
   set_obj_coeff_raw(index, physical_value * cs / m_scale_objective_);
@@ -3318,7 +3321,7 @@ double LinearInterface::get_obj_value_raw() const
   // have reported.
   const double solver_raw =
       m_backend_released_ ? m_cache_.obj_value() : m_backend_->obj_value();
-  return solver_raw + m_obj_constant_raw_;
+  return solver_raw + m_scaling_.obj_constant_raw;
 }
 
 double LinearInterface::get_obj_value() const
@@ -3336,11 +3339,11 @@ void LinearInterface::add_obj_constant(double c) noexcept
 {
   // Convert physical (caller-facing) → raw (storage) scale.  Mirrors
   // the `m_obj_constant_ / scale_obj` conversion done at `flatten()`
-  // time so that the running `m_obj_constant_raw_` always lives on
+  // time so that the running `m_scaling_.obj_constant_raw` always lives on
   // the same basis as the solver's value, letting
   // `get_obj_value_raw()` compose them with a plain add.
   const double c_raw = c / m_scale_objective_;
-  m_obj_constant_raw_ += c_raw;
+  m_scaling_.obj_constant_raw += c_raw;
 
   // Mirror the addition into the held snapshot's flat LP.  Scalar
   // fields on `FlatLinearProblem` (incl. `obj_constant_raw`,
