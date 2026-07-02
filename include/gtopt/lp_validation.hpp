@@ -182,6 +182,12 @@ struct LpValidationStats
   size_t bound_huge_count {};
   size_t rhs_huge_count {};
   size_t obj_huge_count {};
+  /// NaN values seen by any hook.  Unlike ±infinity (a legitimate
+  /// "no bound" sentinel the solvers handle correctly, silently skipped
+  /// by the magnitude checks), NaN is NEVER legitimate — a NaN row can
+  /// make CPLEX iterate forever (its termination tests never satisfy;
+  /// observed 2026-07-02 as a multi-hour wedge on a NaN Benders cut).
+  size_t nan_count {};
 
   /// First k_offenders_capped offenders for each kind (for the summary).
   OffenderList first_huge_coeffs {};
@@ -190,6 +196,7 @@ struct LpValidationStats
   OffenderList first_huge_bounds {};
   OffenderList first_huge_rhs {};
   OffenderList first_huge_obj {};
+  OffenderList first_nans {};
 
   /// Min/max |coefficient| seen across all note_coeff calls (for the
   /// summary verdict).  These are always tracked when validation is on,
@@ -212,6 +219,14 @@ struct LpValidationStats
                 std::string_view location,
                 const LpValidationOptions& cfg);
   void note_obj(double v,
+                std::string_view location,
+                const LpValidationOptions& cfg);
+
+  /// Record a NaN seen by any hook (`kind` names the hook for the log).
+  /// Always logged at ERROR (up to the per-kind cap) — NaN is a hard
+  /// modelling/numerics fault, unlike the threshold WARNs above.
+  void note_nan(double v,
+                std::string_view kind,
                 std::string_view location,
                 const LpValidationOptions& cfg);
 
@@ -239,7 +254,14 @@ struct LpValidationStats
     requires(!std::convertible_to<const Loc&, std::string_view>)
   void note_bound(double v, const Loc& loc, const LpValidationOptions& cfg)
   {
-    if (!cfg.effective_enable() || !std::isfinite(v)) {
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::isnan(v)) {  // never legitimate — count + ERROR
+      note_nan(v, "bound", std::format("{}", loc), cfg);
+      return;
+    }
+    if (!std::isfinite(v)) {  // ±inf: legitimate no-bound sentinel
       return;
     }
     if (std::abs(v) <= cfg.effective_bound_warn_max()) {
@@ -252,7 +274,14 @@ struct LpValidationStats
     requires(!std::convertible_to<const Loc&, std::string_view>)
   void note_rhs(double v, const Loc& loc, const LpValidationOptions& cfg)
   {
-    if (!cfg.effective_enable() || !std::isfinite(v)) {
+    if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::isnan(v)) {  // never legitimate — count + ERROR
+      note_nan(v, "rhs", std::format("{}", loc), cfg);
+      return;
+    }
+    if (!std::isfinite(v)) {  // ±inf: legitimate no-bound sentinel
       return;
     }
     if (std::abs(v) <= cfg.effective_rhs_warn_max()) {
@@ -266,6 +295,10 @@ struct LpValidationStats
   void note_obj(double v, const Loc& loc, const LpValidationOptions& cfg)
   {
     if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::isnan(v)) {  // never legitimate — count + ERROR
+      note_nan(v, "obj", std::format("{}", loc), cfg);
       return;
     }
     if (std::abs(v) <= cfg.effective_obj_warn_max()) {
@@ -282,6 +315,10 @@ struct LpValidationStats
     // location is only used in the warn / push_offender branches.
     // Skip the format unless we're outside the tiny/huge band.
     if (!cfg.effective_enable()) {
+      return;
+    }
+    if (std::isnan(v)) {  // never legitimate — count + ERROR
+      note_nan(v, "coeff", std::format("{}", loc), cfg);
       return;
     }
     const double abs_v = std::abs(v);
@@ -330,6 +367,10 @@ struct LpValidationStats
     if (!cfg.effective_enable()) {
       return;
     }
+    if (std::isnan(v)) {  // never legitimate — count + ERROR
+      note_nan(v, "coeff", std::format("row {} col {}", row, col), cfg);
+      return;
+    }
     const double abs_v = std::abs(v);
     if (abs_v == 0.0) {
       return;
@@ -356,7 +397,7 @@ struct LpValidationStats
   [[nodiscard]] constexpr size_t total_count() const noexcept
   {
     return coeff_huge_count + coeff_tiny_count + coeff_filtered_count
-        + bound_huge_count + rhs_huge_count + obj_huge_count;
+        + bound_huge_count + rhs_huge_count + obj_huge_count + nan_count;
   }
 
   /// Returns true when no validation event has been recorded.
@@ -374,12 +415,14 @@ struct LpValidationStats
     bound_huge_count = 0;
     rhs_huge_count = 0;
     obj_huge_count = 0;
+    nan_count = 0;
     first_huge_coeffs.clear();
     first_tiny_coeffs.clear();
     first_filtered_coeffs.clear();
     first_huge_bounds.clear();
     first_huge_rhs.clear();
     first_huge_obj.clear();
+    first_nans.clear();
     max_abs_coeff = 0.0;
     min_abs_coeff = std::numeric_limits<double>::infinity();
   }

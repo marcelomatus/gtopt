@@ -6,6 +6,8 @@
  * @copyright BSD-3-Clause
  */
 
+#include <limits>
+
 #include <doctest/doctest.h>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
@@ -536,6 +538,83 @@ TEST_CASE("LP_QUALITY: clean LP emits no FREE/bound lines")  // NOLINT
 
   CHECK(!logs.contains("FREE column"));
   CHECK(!logs.contains("with |bound|"));
+}
+
+TEST_CASE(
+    "LP validation: NaN is a hard ERROR, infinity stays silent")  // NOLINT
+{
+  // NaN is never legitimate LP data — a NaN row can make the solver
+  // iterate forever (observed 2026-07-02: multi-hour CPLEX wedge on a
+  // NaN Benders cut).  ±infinity, by contrast, is the standard
+  // "no bound" sentinel the solvers treat correctly, so it must keep
+  // its silent skip (no behavior change).
+  const auto cfg = make_validation_opts();
+  constexpr double nan_v = std::numeric_limits<double>::quiet_NaN();
+  constexpr double inf_v = std::numeric_limits<double>::infinity();
+
+  SUBCASE("every hook counts NaN and logs at ERROR")
+  {
+    test::LogCapture logs;
+    LpValidationStats st;
+    st.note_bound(nan_v, "colX", cfg);
+    st.note_rhs(nan_v, "rowY", cfg);
+    st.note_coeff(nan_v, "rowY colX", cfg);
+    st.note_obj(nan_v, "colX", cfg);
+    CHECK(st.nan_count == 4);
+    CHECK(st.first_nans.size() == 4);
+    CHECK(logs.contains("LP_VALIDATION NaN bound"));
+    CHECK(logs.contains("LP_VALIDATION NaN rhs"));
+    CHECK(logs.contains("LP_VALIDATION NaN coeff"));
+    CHECK(logs.contains("LP_VALIDATION NaN obj"));
+    // NaN must not leak into the magnitude counters or min/max tracking.
+    CHECK(st.bound_huge_count == 0);
+    CHECK(st.rhs_huge_count == 0);
+    CHECK(st.coeff_huge_count == 0);
+    CHECK(st.max_abs_coeff == doctest::Approx(0.0));
+    CHECK(!st.clean());  // total_count() includes nan_count
+  }
+
+  SUBCASE("infinity keeps its silent skip (legitimate no-bound sentinel)")
+  {
+    test::LogCapture logs;
+    LpValidationStats st;
+    st.note_bound(inf_v, "colX", cfg);
+    st.note_bound(-inf_v, "colX", cfg);
+    st.note_rhs(inf_v, "rowY", cfg);
+    CHECK(st.nan_count == 0);
+    CHECK(st.bound_huge_count == 0);
+    CHECK(st.rhs_huge_count == 0);
+    CHECK(st.clean());
+    CHECK(!logs.contains("LP_VALIDATION"));
+  }
+
+  SUBCASE("reset clears the NaN state")
+  {
+    LpValidationStats st;
+    st.note_rhs(nan_v, "rowY", cfg);
+    REQUIRE(st.nan_count == 1);
+    st.reset();
+    CHECK(st.nan_count == 0);
+    CHECK(st.first_nans.empty());
+    CHECK(st.clean());
+  }
+
+  SUBCASE("end-to-end: a NaN coefficient through add_row is flagged")
+  {
+    test::LogCapture logs;
+    LinearInterface li;
+    li.set_validation_options(cfg);
+    const auto x = li.add_col(SparseCol {
+        .uppb = 100.0,
+        .cost = 1.0,
+    });
+    SparseRow row;
+    row[x] = nan_v;
+    row.greater_equal(1.0);
+    (void)li.add_row(row);  // NOLINT
+    CHECK(li.lp_validation_stats().nan_count >= 1);
+    CHECK(logs.contains("LP_VALIDATION NaN"));
+  }
 }
 
 // NOLINTEND(misc-const-correctness)

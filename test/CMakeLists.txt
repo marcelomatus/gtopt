@@ -146,7 +146,12 @@ gtopt_require_solver_plugins(${PROJECT_NAME})
 enable_testing()
 include(TestParallelism)
 include("${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake")
-doctest_discover_tests(${PROJECT_NAME})
+# TIMEOUT backstop: a wedged solver call (e.g. a NaN row making CPLEX
+# iterate forever — observed 2026-07-02 as a 3.7 h hang on the
+# elastic-mode fixture) becomes a bounded failure instead of holding the
+# whole ctest run hostage.  3600 s clears the slowest legitimate SDDP
+# integration tests (~2400 s under a fully loaded -j20 run) with margin.
+doctest_discover_tests(${PROJECT_NAME} PROPERTIES TIMEOUT 3600)
 
 # ---- Coverage ----
 include(Coverage)

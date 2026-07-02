@@ -41,6 +41,10 @@ void LpValidationStats::note_coeff(double v,
   if (!cfg.effective_enable()) {
     return;
   }
+  if (std::isnan(v)) {  // guard min/max tracking from NaN poisoning
+    note_nan(v, "coeff", location, cfg);
+    return;
+  }
   const double abs_v = std::abs(v);
   if (abs_v == 0.0) {
     return;
@@ -76,7 +80,11 @@ void LpValidationStats::note_bound(double v,
   if (!cfg.effective_enable()) {
     return;
   }
-  if (!std::isfinite(v)) {
+  if (std::isnan(v)) {  // never legitimate — count + ERROR
+    note_nan(v, "bound", location, cfg);
+    return;
+  }
+  if (!std::isfinite(v)) {  // ±inf: legitimate no-bound sentinel
     return;
   }
   const double abs_v = std::abs(v);
@@ -99,7 +107,11 @@ void LpValidationStats::note_rhs(double v,
   if (!cfg.effective_enable()) {
     return;
   }
-  if (!std::isfinite(v)) {
+  if (std::isnan(v)) {  // never legitimate — count + ERROR
+    note_nan(v, "rhs", location, cfg);
+    return;
+  }
+  if (!std::isfinite(v)) {  // ±inf: legitimate no-bound sentinel
     return;
   }
   const double abs_v = std::abs(v);
@@ -122,6 +134,10 @@ void LpValidationStats::note_obj(double v,
   if (!cfg.effective_enable()) {
     return;
   }
+  if (std::isnan(v)) {  // never legitimate — count + ERROR
+    note_nan(v, "obj", location, cfg);
+    return;
+  }
   const double abs_v = std::abs(v);
   if (abs_v <= cfg.effective_obj_warn_max()) {
     return;
@@ -133,6 +149,24 @@ void LpValidationStats::note_obj(double v,
   }
   push_offender(first_huge_obj, location, v);
   ++obj_huge_count;
+}
+
+void LpValidationStats::note_nan(double v,
+                                 std::string_view kind,
+                                 std::string_view location,
+                                 const LpValidationOptions& cfg)
+{
+  // NaN is a hard modelling/numerics fault — unlike ±infinity (a
+  // legitimate "no bound" sentinel the solvers handle correctly), a NaN
+  // fed to the solver can make it iterate forever (NaN never satisfies
+  // its termination tests; observed 2026-07-02 as a multi-hour CPLEX
+  // wedge on a NaN Benders cut).  Logged at ERROR, not WARN.
+  const auto cap = static_cast<size_t>(cfg.effective_max_warnings_per_kind());
+  if (nan_count < cap) {
+    spdlog::error("LP_VALIDATION NaN {} at {}", kind, location);
+  }
+  push_offender(first_nans, location, v);
+  ++nan_count;
 }
 
 void LpValidationStats::note_filtered(double original,
@@ -168,13 +202,14 @@ void LpValidationStats::log_summary(spdlog::logger& lg) const
   }
   lg.info(
       "LP_VALIDATION summary: coeff_huge={} coeff_tiny={} filtered={} "
-      "bound_huge={} rhs_huge={} obj_huge={} |coeff|=[{:.3e},{:.3e}]",
+      "bound_huge={} rhs_huge={} obj_huge={} nan={} |coeff|=[{:.3e},{:.3e}]",
       coeff_huge_count,
       coeff_tiny_count,
       coeff_filtered_count,
       bound_huge_count,
       rhs_huge_count,
       obj_huge_count,
+      nan_count,
       (min_abs_coeff == std::numeric_limits<double>::infinity())
           ? 0.0
           : min_abs_coeff,

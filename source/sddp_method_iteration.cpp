@@ -584,6 +584,31 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        cut_offset);
   const auto dt_build = elapsed_s(t_build);
 
+  // Non-finite guard: a NaN cut row poisons the source LP — the post-cut
+  // `src_li.resolve()` below can then iterate forever inside the solver
+  // (NaN never satisfies its termination tests; observed 2026-07-02 as a
+  // multi-hour CPLEX wedge on the elastic-mode fixture, `cut z=nan`).
+  // Drop the cut — SDDP stays valid with one fewer underestimator this
+  // iteration — and scream so the NaN source (duals / trial values on
+  // the elastic path) gets investigated instead of hanging the run.
+  const bool cut_is_finite =
+      std::isfinite(cut.lowb)
+      && std::ranges::all_of(
+          cut.cmap, [](const auto& kv) { return std::isfinite(kv.second); });
+  if (!cut_is_finite) {
+    spdlog::error(
+        "SDDP Backward [i{} s{} p{}/{}]: NON-FINITE cut dropped (z={}, "
+        "rhs={}, links={}) — check duals/trial values on the elastic path",
+        gtopt::uid_of(iteration_index),
+        uid_of(scene_index),
+        uid_of(phase_index),
+        bwd_total_phases,
+        target_state.forward_full_obj_physical,
+        cut.lowb,
+        cut.cmap.size());
+    return cuts_added;
+  }
+
   // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
   // cut references α, then adds + records the row for low-memory
   // replay in one call.
