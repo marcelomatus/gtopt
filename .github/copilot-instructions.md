@@ -90,6 +90,7 @@ libarrow-dev libparquet-dev`) — no conda or `CMAKE_PREFIX_PATH` needed.
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
   ccache \
+  lld \
   coinor-libcbc-dev \
   libboost-container-dev libspdlog-dev \
   liblapack-dev libblas-dev \
