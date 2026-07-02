@@ -270,7 +270,10 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   const auto rc_view = rc_source.get_col_cost();
   for (const auto& link : links) {
     const auto rc_phys = rc_view[link.dependent_col];
-    if (std::abs(rc_phys) < cut_coeff_eps) {
+    // Guard against a non-finite reduced cost (same rationale as the dual
+    // guard in build_feasibility_cut_physical: `std::abs(NaN) < eps` is false,
+    // so a NaN would otherwise flow into `row.lowb` and yield a poisoned cut).
+    if (!std::isfinite(rc_phys) || std::abs(rc_phys) < cut_coeff_eps) {
       continue;
     }
     const auto v_hat_phys =
@@ -362,7 +365,14 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
     // is the classical "master state must be at least the
     // clone-feasible dep value" Benders fcut.
     const double pi = -duals[info.fixing_row];
-    if (std::abs(pi) < cut_coeff_eps) {
+    // A non-finite dual must never enter the cut.  Some backends (CPLEX on
+    // numerically ill-posed elastic clones) can return a NaN row dual; since
+    // `std::abs(NaN) < eps` is false, the tolerance test below would let it
+    // through and `row.lowb += pi * clamped` would set a NaN right-hand side,
+    // producing a cut that is infeasible for EVERY master value and poisons
+    // the LP on every subsequent solve.  Skip the link — a missing
+    // contribution only weakens the cut, it never invalidates it.
+    if (!std::isfinite(pi) || std::abs(pi) < cut_coeff_eps) {
       continue;
     }
 
