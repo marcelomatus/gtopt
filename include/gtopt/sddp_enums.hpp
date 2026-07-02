@@ -465,13 +465,15 @@ inline constexpr auto aperture_solve_mode_entries =
  * forward/backward row structure is not tail-append compatible (e.g.
  * `aperture_drop_fcuts`, `aperture_system_file`).
  *
- * - `off` (default): no cross-pass basis reuse.
- * - `warm`: reuse only within the same pass (today's `aperture_seed_basis`
- *   resident-basis chain); no forward<->backward crossing.
+ * - `off` (default): no basis reuse.
+ * - `warm`: same-direction reuse — each forward solve warm-starts from this
+ *   cell's OWN forward basis captured the previous iteration (forward→forward)
+ *   and saves its basis for the next one.  No forward<->backward crossing.
  * - `forward_to_backward`: the forward solve's basis seeds the backward
  *   dual/aperture solve of the same (scene, phase).
  * - `backward_to_forward`: the backward basis seeds the next forward solve.
- * - `full_cross`: bidirectional, plus per-aperture basis caching.
+ * - `full_cross`: forward→forward + both cross directions (forward seed prefers
+ *   its own forward basis, falling back to the backward basis on iteration 1).
  */
 enum class BasisCrossMode : uint8_t
 {

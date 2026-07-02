@@ -230,20 +230,39 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                             uid_of(scene_index),
                             uid_of(phase_index)));
 
-    // Cross-pass warm start (BasisCrossMode::backward_to_forward / full_cross):
-    // seed this forward solve from the backward basis captured last iteration
-    // for the same (scene, phase) cell.  A cross basis is only a warm start —
-    // `set_basis` rejects a dimension mismatch (returns false) and the simplex
-    // repairs any residual infeasibility — so it can never change the optimum
-    // or corrupt a cut, only save pivots.  A local opts copy keeps
-    // `advanced_basis` from leaking to phases that were not seeded.
+    // Basis warm start: seed this forward solve from a previously-captured
+    // simplex basis for the same (scene, phase) cell.  A seed basis is only a
+    // warm start — `set_basis` rejects a dimension mismatch (returns false)
+    // and the simplex repairs any residual infeasibility — so it can never
+    // change the optimum or corrupt a cut, only save pivots.  A local opts
+    // copy keeps `advanced_basis` from leaking to phases that were not seeded.
+    //
+    // Source selection by mode:
+    //   * warm / full_cross      → this cell's OWN forward basis from the
+    //     previous iteration (forward→forward same-direction reuse — the LP
+    //     differs only by appended cut rows, the closest seed there is).
+    //   * backward_to_forward    → the backward basis (cross reuse).
+    //   * full_cross             → prefer forward→forward, fall back to the
+    //     backward basis on the first iteration (forward basis still empty).
     auto fwd_opts = effective_opts;
-    if ((m_options_.basis_cross_mode == BasisCrossMode::backward_to_forward
-         || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
-        && !state.backward_basis.empty()
-        && li.set_basis(state.backward_basis))
     {
-      fwd_opts.advanced_basis = true;
+      const auto bcm = m_options_.basis_cross_mode;
+      const Basis* seed = nullptr;
+      if ((bcm == BasisCrossMode::warm || bcm == BasisCrossMode::full_cross)
+          && !state.forward_basis.empty())
+      {
+        seed = &state.forward_basis;  // forward → forward
+      }
+      if (seed == nullptr
+          && (bcm == BasisCrossMode::backward_to_forward
+              || bcm == BasisCrossMode::full_cross)
+          && !state.backward_basis.empty())
+      {
+        seed = &state.backward_basis;  // backward → forward (cross)
+      }
+      if (seed != nullptr && li.set_basis(*seed)) {
+        fwd_opts.advanced_basis = true;
+      }
     }
 
     // Solve directly — already running in a pool thread.
@@ -874,16 +893,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // sparse lookups and the live backend serves them cheapest.
       system.accumulate_convergence_indicators(scene_index, phase_index);
 
-      // Cross-pass warm start (BasisCrossMode::forward_to_backward /
-      // full_cross): capture this forward solve's simplex basis to seed the
-      // backward dual re-solve of the same (scene, phase) cell later this
-      // iteration.  Must run before `release_backend()` (get_basis reads the
-      // live backend).  Training pass only: the simulation pass has no
-      // backward pass, and its fix-integers re-solve would overwrite the
-      // basis anyway.  get_basis() returns nullopt on backends without basis
-      // save/restore (only CPLEX/HiGHS support it) → capture is skipped.
+      // Capture this forward solve's simplex basis for reuse.  It seeds the
+      // NEXT iteration's forward solve of this cell (forward→forward, modes
+      // warm / full_cross) and/or the backward dual re-solve later THIS
+      // iteration (forward→backward, modes forward_to_backward / full_cross).
+      // Must run before `release_backend()` (get_basis reads the live
+      // backend).  Training pass only: the simulation pass has no backward
+      // pass, and its fix-integers re-solve would overwrite the basis anyway.
+      // get_basis() returns nullopt on backends without basis save/restore
+      // (only CPLEX/HiGHS support it) → capture is skipped.
       if (!m_in_simulation_
-          && (m_options_.basis_cross_mode
+          && (m_options_.basis_cross_mode == BasisCrossMode::warm
+              || m_options_.basis_cross_mode
                   == BasisCrossMode::forward_to_backward
               || m_options_.basis_cross_mode == BasisCrossMode::full_cross))
       {
