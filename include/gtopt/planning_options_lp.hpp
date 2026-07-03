@@ -1675,6 +1675,17 @@ public:
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
   }
 
+  /** @brief Whether the user explicitly set the SDDP pool CPU factor.
+   *
+   * When false, `SDDPMethod` may auto-cap the resolved factor to 1.0 for
+   * many-scene runs (the scene×aperture backward tasks already saturate
+   * every core, so over-commit only adds scheduler contention).  When
+   * true, the resolved value is honored verbatim. */
+  [[nodiscard]] constexpr bool sddp_pool_cpu_factor_is_set() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.has_value();
+  }
+
   /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).
    *
    * Currently shares the `sddp_options.pool_cpu_factor` field with the
