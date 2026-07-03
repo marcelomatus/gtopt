@@ -656,6 +656,23 @@ private:
   /// ElasticSolveResult from benders_cut.hpp.
   using ElasticResult = ElasticSolveResult;
 
+  /// Scene-aware effective CPU over-commit factor for the SDDP work pools.
+  ///
+  /// When the user set `--cpu-factor` / `sddp_options.pool_cpu_factor`
+  /// explicitly (`pool_cpu_factor_user_set`), returns the resolved value
+  /// unchanged.  Otherwise applies the measured many-scene default:
+  /// the async backward pass fans out `num_scenes × aperture-chunks`
+  /// concurrent tasks, so once the run has enough scenes to saturate the
+  /// cores on its own, the historical 4× over-commit only adds scheduler
+  /// and futex contention (perf c2c: top contended cachelines are kernel
+  /// futex/scheduler locks) — A/B measured ~4% slower at 18/30 scenes.
+  /// We therefore cap the factor to 1.0 once
+  /// `num_scenes >= max(2, physical_concurrency() / 4)` — a
+  /// machine-scaled threshold (≥10 scenes on a 40-core box, ≥2 on a
+  /// small box).  Few-scene runs keep the 4× over-commit, which still
+  /// helps hide the clone-mutex / solver blocking there.
+  [[nodiscard]] double effective_pool_cpu_factor() const noexcept;
+
   [[nodiscard]] auto forward_pass(SceneIndex scene_index,
                                   const SolverOptions& opts,
                                   IterationIndex iteration_index)

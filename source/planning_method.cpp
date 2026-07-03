@@ -153,6 +153,7 @@ namespace
   // Async + work-pool resource limits
   sddp_opts.max_async_spread = options.sddp_max_async_spread();
   sddp_opts.pool_cpu_factor = options.sddp_pool_cpu_factor();
+  sddp_opts.pool_cpu_factor_user_set = options.sddp_pool_cpu_factor_is_set();
   sddp_opts.pool_memory_limit_mb = options.sddp_pool_memory_limit_mb();
 
   // Wire solve_timeout from forward solver's time_limit (if set)

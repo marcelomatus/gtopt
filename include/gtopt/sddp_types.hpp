@@ -978,7 +978,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// SDDP work pool CPU over-commit factor.  Multiplied by
   /// hardware_concurrency to set max pool threads.  Default 4.0 — extra
   /// threads keep CPUs busy while others block on the clone mutex.
+  ///
+  /// When the user did NOT set this explicitly (`pool_cpu_factor_user_set
+  /// == false`), `SDDPMethod::effective_pool_cpu_factor()` caps it to 1.0
+  /// for many-scene runs (see that helper for the threshold + rationale):
+  /// the scene×aperture backward tasks already saturate every core, so the
+  /// 4× over-commit only adds scheduler/futex contention.
   double pool_cpu_factor {4.0};
+
+  /// True when the user explicitly set `pool_cpu_factor` (via `--cpu-factor`
+  /// or `sddp_options.pool_cpu_factor` in JSON).  When true the value above
+  /// is honored verbatim; when false the scene-aware auto-cap may lower it.
+  bool pool_cpu_factor_user_set {false};
 
   /// Process memory limit in MB for the SDDP work pool.
   /// When non-zero, the pool blocks task dispatch if process RSS exceeds

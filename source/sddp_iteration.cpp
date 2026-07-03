@@ -239,9 +239,19 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // aperture solves regardless of how many cell tasks are mid-wait.
   // See `sddp_pool.hpp::make_sddp_work_pool` for the rationale.
   const auto cell_task_headroom = planning_lp().simulation().scene_count();
-  auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
-                                       m_options_.pool_memory_limit_mb,
-                                       cell_task_headroom);
+  // Scene-aware CPU over-commit: honors an explicit --cpu-factor, else caps
+  // to 1.0 for many-scene runs (which already saturate the cores via the
+  // scene×aperture task fan-out).  Log the decision so the auto-cap is
+  // visible alongside the "SDDP work pool started" line below.
+  const auto pool_cpu_factor = effective_pool_cpu_factor();
+  SPDLOG_INFO(
+      "SDDP work pool cpu_factor={:.3g} ({}: scenes={} cores={})",
+      pool_cpu_factor,
+      m_options_.pool_cpu_factor_user_set ? "user" : "auto",
+      cell_task_headroom,
+      physical_concurrency());
+  auto sddp_pool = make_sddp_work_pool(
+      pool_cpu_factor, m_options_.pool_memory_limit_mb, cell_task_headroom);
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();
