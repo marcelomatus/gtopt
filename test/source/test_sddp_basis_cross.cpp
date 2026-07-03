@@ -49,7 +49,8 @@ TEST_CASE("PlanningOptionsLP::sddp_basis_cross_mode defaults to off")  // NOLINT
   CHECK(plp.options().sddp_basis_cross_mode() == BasisCrossMode::off);
 }
 
-TEST_CASE("PlanningOptionsLP::sddp_basis_cross_mode respects explicit")  // NOLINT
+TEST_CASE(
+    "PlanningOptionsLP::sddp_basis_cross_mode respects explicit")  // NOLINT
 {
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.basis_cross_mode =
@@ -72,7 +73,8 @@ TEST_CASE("SddpOptions::merge propagates basis_cross_mode override")  // NOLINT
   CHECK(*base.basis_cross_mode == BasisCrossMode::full_cross);
 }
 
-TEST_CASE("SddpOptions::merge keeps base basis_cross_mode when absent")  // NOLINT
+TEST_CASE(
+    "SddpOptions::merge keeps base basis_cross_mode when absent")  // NOLINT
 {
   SddpOptions base;
   base.basis_cross_mode = BasisCrossMode::backward_to_forward;
@@ -93,10 +95,12 @@ TEST_CASE("BasisCrossMode - enum name parsing and aliases")  // NOLINT
           == BasisCrossMode::off);
     CHECK(require_enum<BasisCrossMode>("basis_cross_mode", "warm")
           == BasisCrossMode::warm);
-    CHECK(require_enum<BasisCrossMode>("basis_cross_mode", "forward_to_backward")
-          == BasisCrossMode::forward_to_backward);
-    CHECK(require_enum<BasisCrossMode>("basis_cross_mode", "backward_to_forward")
-          == BasisCrossMode::backward_to_forward);
+    CHECK(
+        require_enum<BasisCrossMode>("basis_cross_mode", "forward_to_backward")
+        == BasisCrossMode::forward_to_backward);
+    CHECK(
+        require_enum<BasisCrossMode>("basis_cross_mode", "backward_to_forward")
+        == BasisCrossMode::backward_to_forward);
     CHECK(require_enum<BasisCrossMode>("basis_cross_mode", "full_cross")
           == BasisCrossMode::full_cross);
   }
@@ -127,7 +131,8 @@ TEST_CASE("SDDPMethod - basis_cross_mode is bound-invariant vs off")  // NOLINT
   constexpr double kConvTol = 1e-5;
   constexpr double kParityTol = 1e-6;
 
-  const auto run_with_mode = [&](BasisCrossMode mode) -> std::pair<double, double>
+  const auto run_with_mode =
+      [&](BasisCrossMode mode) -> std::pair<double, double>
   {
     auto planning = make_3phase_hydro_planning();
     PlanningLP planning_lp(std::move(planning));

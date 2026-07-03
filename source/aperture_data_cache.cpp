@@ -105,10 +105,10 @@ auto load_one_file(const FileInfo& info) -> std::optional<FileResult>
         && ls_value->type()->id() == arrow::Type::DOUBLE;
     if (direct_ok) {
       const auto n_rows = lt->num_rows();
-      auto stage_a = std::static_pointer_cast<arrow::Int32Array>(
-          ls_stage->chunk(0));
-      auto block_a = std::static_pointer_cast<arrow::Int32Array>(
-          ls_block->chunk(0));
+      auto stage_a =
+          std::static_pointer_cast<arrow::Int32Array>(ls_stage->chunk(0));
+      auto block_a =
+          std::static_pointer_cast<arrow::Int32Array>(ls_block->chunk(0));
       auto uid_a =
           std::static_pointer_cast<arrow::Int32Array>(ls_uid->chunk(0));
       auto val_a =

@@ -1899,8 +1899,8 @@ void CplexSolverBackend::disengage_robust_solve() noexcept
 bool CplexSolverBackend::is_proven_optimal() const
 {
   const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
-  const bool status_optimal = stat == CPX_STAT_OPTIMAL
-      || stat == CPXMIP_OPTIMAL || stat == CPXMIP_OPTIMAL_TOL;
+  const bool status_optimal = stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
+      || stat == CPXMIP_OPTIMAL_TOL;
   if (!status_optimal) {
     return false;
   }

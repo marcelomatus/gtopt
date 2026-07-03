@@ -1429,7 +1429,8 @@ auto SDDPMethod::run_backward_pass_synchronized(
   // path stays the default.  Enable with GTOPT_PARALLEL_APERTURE_BACKWARD=1 to
   // evaluate it where it may pay off (large per-aperture solves, or
   // num_scenes << cores with expensive backward LPs).
-  static const bool tier2_opt_in = [] {
+  static const bool tier2_opt_in = []
+  {
     const char* env = std::getenv("GTOPT_PARALLEL_APERTURE_BACKWARD");
     return env != nullptr && env[0] != '\0' && env[0] != '0';
   }();
@@ -1482,7 +1483,12 @@ auto SDDPMethod::run_backward_pass_synchronized(
         futures.emplace_back(
             scene_index,
             aperture_coord->run_driver(
-                [this, scene_index, phase_index, offset, &opts, iteration_index,
+                [this,
+                 scene_index,
+                 phase_index,
+                 offset,
+                 &opts,
+                 iteration_index,
                  &pool]
                 {
                   return backward_pass_with_apertures_single_phase(
