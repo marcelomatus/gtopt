@@ -86,6 +86,16 @@ def apply_iterative_fast_path(
     sddp_opts.setdefault(
         "aperture_solve_mode", src_sddp.get("aperture_solve_mode") or "warm"
     )
+    # Cross-pass basis warm-start: reuse the forward basis in the forward
+    # (iter-to-iter), backward/tgt and aperture solves.  Pairs with the
+    # dual+advanced_basis forward/backward solver options above so every warm
+    # SDDP solve runs dual simplex off a reused basis (cold iter-1 keeps
+    # barrier to build a capturable vertex basis).  gtopt already defaults to
+    # full_cross; set it explicitly here so regenerated cases are self-
+    # documenting.
+    sddp_opts.setdefault(
+        "basis_cross_mode", src_sddp.get("basis_cross_mode") or "full_cross"
+    )
     if "aperture_chunk_size" not in sddp_opts:
         acs = src_sddp.get("aperture_chunk_size")
         # 0 = auto (parallel-safe manual-clone path): one task per aperture

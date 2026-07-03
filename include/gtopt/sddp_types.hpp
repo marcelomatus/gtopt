@@ -779,7 +779,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// resident chunk basis), or `reduced_cost` (barrier without crossover,
   /// interior-point reduced-cost cuts).  See
   /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
-  ApertureSolveMode aperture_solve_mode {ApertureSolveMode::reduced_cost};
+  ApertureSolveMode aperture_solve_mode {ApertureSolveMode::warm};
 
   /// Seed each iteration's first backward aperture from the previous
   /// iteration's first-aperture basis (dual warm start).  Orthogonal to
@@ -790,7 +790,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// Cross-pass simplex-basis warm-start reuse between the forward and
   /// backward passes.  Default `off`.  See `sddp_options.hpp::basis_cross_mode`
   /// and `BasisCrossMode` for the full rationale.
-  BasisCrossMode basis_cross_mode {BasisCrossMode::off};
+  BasisCrossMode basis_cross_mode {BasisCrossMode::full_cross};
 
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use

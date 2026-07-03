@@ -42,11 +42,14 @@ TEST_CASE("SddpOptions::basis_cross_mode defaults to nullopt")  // NOLINT
   CHECK_FALSE(opts.basis_cross_mode.has_value());
 }
 
-TEST_CASE("PlanningOptionsLP::sddp_basis_cross_mode defaults to off")  // NOLINT
+TEST_CASE("PlanningOptionsLP::sddp_basis_cross_mode defaults to full_cross")  // NOLINT
 {
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
-  CHECK(plp.options().sddp_basis_cross_mode() == BasisCrossMode::off);
+  // Default flipped off→full_cross (2026-07-03): warm-start everywhere +
+  // forward basis fed into the backward/aperture solves is the optimal SDDP
+  // config; convergence-safe (valid vertex-dual cuts).
+  CHECK(plp.options().sddp_basis_cross_mode() == BasisCrossMode::full_cross);
 }
 
 TEST_CASE(
