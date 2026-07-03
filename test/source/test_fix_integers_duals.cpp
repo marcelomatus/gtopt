@@ -54,6 +54,21 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
   return {};
 }
 
+/// True when @p solver recovers valid LP duals from the fix-integers pass on
+/// these fixtures.  Excludes the two backends that don't:
+///  - `cbc`: OsiCbc returns the LP-relaxation value instead of the MIP optimum
+///    here (`u` gates `gen` only via a ≤ row), so the "fixed" LP is not at the
+///    integer optimum and its duals are meaningless.
+///  - `gurobi`: an UNLICENSED gurobi plugin can slip past plugin validation in
+///    some build/plugin-set combinations and then solves to a degenerate,
+///    zero-dual result.  Licensed gurobi is not a practical gtopt MIP target
+///    (CPLEX / HiGHS / SCIP are), so skip rather than assert on it.
+/// The practical, tested MIP backends (cplex, highs, scip) all pass.
+[[nodiscard]] bool mip_solver_recovers_duals(const std::string& solver)
+{
+  return solver != "cbc" && solver != "gurobi";
+}
+
 const Array<Bus> single_bus = {
     {
         .uid = Uid {1},
@@ -107,20 +122,14 @@ TEST_CASE("fix_integers_and_resolve recovers duals on a small commitment MIP")
     MESSAGE("No MIP-capable solver available — skipping");
     return;
   }
-  // CBC quirk: on this fixture (LP relaxation is strictly cheaper than
-  // the MIP optimum because ``u`` only gates ``gen`` via a ≤ row),
-  // CBC's ``initial_solve`` returns the LP-relaxation value (u = 0.6)
-  // instead of the MIP optimum (u = 1).  Other backends (CPLEX, HiGHS)
-  // honour integrality here.  Skip rather than spend cycles wrapping
-  // CBC's ``OsiCbcSolverInterface`` MIP path — practical gtopt MIP
-  // usage targets CPLEX or HiGHS.
-  if (solver == "cbc") {
+  CAPTURE(solver);
+  if (!mip_solver_recovers_duals(solver)) {
     MESSAGE(
-        "Skipping — CBC backend returns LP-relaxation value on this MIP "
-        "fixture (known quirk; use CPLEX or HiGHS for integer problems)");
+        "Skipping — this backend does not recover fix-integers duals on this "
+        "fixture (cbc LP-relaxation quirk / unlicensed gurobi); the practical "
+        "gtopt MIP backends are CPLEX / HiGHS / SCIP");
     return;
   }
-  CAPTURE(solver);
 
   // Tiny unit-commitment MIP:
   //   load  ∈ [0, 60]            cost 0        (must serve 60)
@@ -280,6 +289,12 @@ TEST_CASE(  // NOLINT
     return;
   }
   CAPTURE(solver);
+  if (!mip_solver_recovers_duals(solver)) {
+    MESSAGE(
+        "Skipping — this backend does not recover fix-integers duals on this "
+        "fixture (cbc / unlicensed gurobi); use CPLEX / HiGHS / SCIP");
+    return;
+  }
 
   System system;
   system.name = "FixIntDuals_" + solver;
