@@ -479,7 +479,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
     std::span<const ScenarioLP> all_scenarios,
     std::span<const Aperture> aperture_defs,
     const SolverOptions& opts,
-    IterationIndex iteration_index) -> std::expected<int, Error>
+    IterationIndex iteration_index,
+    SDDPWorkPool* exec_pool) -> std::expected<int, Error>
 {
   auto& phase_states = m_scene_phase_states_[scene_index];
   int cuts_added = 0;
@@ -647,7 +648,7 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       m_options_.log_directory,
       uid_of(scene_index),
       uid_of(phase_index),
-      make_aperture_submit_fn(phase_index, iteration_index, nullptr),
+      make_aperture_submit_fn(phase_index, iteration_index, exec_pool),
       m_options_.aperture_timeout,
       m_options_.save_aperture_lp,
       m_aperture_cache_,
@@ -719,7 +720,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
     PhaseIndex phase_index,
     int cut_offset,
     const SolverOptions& opts,
-    IterationIndex iteration_index) -> std::expected<int, Error>
+    IterationIndex iteration_index,
+    SDDPWorkPool* exec_pool) -> std::expected<int, Error>
 {
   const auto& simulation = planning_lp().simulation();
   const auto& all_scenarios = simulation.scenarios();
@@ -752,7 +754,8 @@ auto SDDPMethod::backward_pass_with_apertures_single_phase(
                                            all_scenarios,
                                            *effective,
                                            opts,
-                                           iteration_index);
+                                           iteration_index,
+                                           exec_pool);
 }
 
 // ── Aperture backward pass ──────────────────────────────────────────────────

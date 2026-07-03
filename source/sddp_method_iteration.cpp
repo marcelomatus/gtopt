@@ -1410,6 +1410,42 @@ auto SDDPMethod::run_backward_pass_synchronized(
   std::vector<std::ptrdiff_t> per_scene_cuts_received(
       static_cast<std::size_t>(num_scenes), 0);
 
+  // Aperture Tier-2 parallelism (see
+  // docs/analysis/sddp-two-tier-workpool-migration.md).  The synchronized
+  // path runs one driver per scene; each driver solves its apertures INLINE
+  // (`make_aperture_submit_fn(..., nullptr)`), so backward parallelism is
+  // capped at num_scenes.  When num_scenes < cores those drivers alone leave
+  // cores idle.  In that regime run the scene drivers on a CoordinatorPool
+  // (off the memory/CPU-gated exec pool, so a blocked driver never starves
+  // its own aperture tasks) and hand aperture chunks to the shared pool as
+  // Tier-2 tasks — up to num_scenes × chunks per phase step, filling the
+  // machine.  When scenes already meet/exceed the core count the driver tier
+  // alone saturates, so we keep the lower-overhead inline path.
+  const auto hw_cores =
+      std::max<unsigned>(1U, std::thread::hardware_concurrency());
+  // Opt-in, OFF by default.  The Tier-2 aperture pool trades LP-clone
+  // reconstruction cost for core saturation; it was measured net-negative on
+  // the small 18-scene 2y case (clone cost > parallelism gain), so the inline
+  // path stays the default.  Enable with GTOPT_PARALLEL_APERTURE_BACKWARD=1 to
+  // evaluate it where it may pay off (large per-aperture solves, or
+  // num_scenes << cores with expensive backward LPs).
+  static const bool tier2_opt_in = [] {
+    const char* env = std::getenv("GTOPT_PARALLEL_APERTURE_BACKWARD");
+    return env != nullptr && env[0] != '\0' && env[0] != '0';
+  }();
+  const bool aperture_tier2 = tier2_opt_in && use_apertures
+      && static_cast<unsigned>(num_scenes) < hw_cores;
+  std::optional<CoordinatorPool> aperture_coord;
+  if (aperture_tier2) {
+    aperture_coord.emplace(static_cast<std::size_t>(num_scenes));
+    SPDLOG_INFO(
+        "SDDP Backward [i{}]: aperture Tier-2 ON (num_scenes={} < cores={}) — "
+        "aperture chunks dispatched to the work pool",
+        gtopt::uid_of(iteration_index),
+        num_scenes,
+        hw_cores);
+  }
+
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
   for (const auto phase_index :
@@ -1440,12 +1476,37 @@ auto SDDPMethod::run_backward_pass_synchronized(
       }
       const int offset = per_scene_cut_count[scene_index];
 
+      // Tier-2 path: driver on the coordinator (off the gated pool), aperture
+      // chunks submitted to `pool`.
+      if (aperture_tier2) {
+        futures.emplace_back(
+            scene_index,
+            aperture_coord->run_driver(
+                [this, scene_index, phase_index, offset, &opts, iteration_index,
+                 &pool]
+                {
+                  return backward_pass_with_apertures_single_phase(
+                      scene_index,
+                      phase_index,
+                      offset,
+                      opts,
+                      iteration_index,
+                      &pool);
+                }));
+        continue;
+      }
+
       auto fut = use_apertures
           ? pool.submit(
                 [this, scene_index, phase_index, offset, &opts, iteration_index]
                 {
                   return backward_pass_with_apertures_single_phase(
-                      scene_index, phase_index, offset, opts, iteration_index);
+                      scene_index,
+                      phase_index,
+                      offset,
+                      opts,
+                      iteration_index,
+                      /*exec_pool=*/nullptr);
                 },
                 bwd_req)
           : pool.submit(
