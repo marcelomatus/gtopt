@@ -69,6 +69,13 @@ struct ScipModel
   std::vector<double> row_ub {};
   std::vector<std::map<int, double>> row_entries {};
 
+  // ---- SOS2 sets (issue #504 L-secant chord) ----
+  // Each entry is one ordered list of column indices declared as a
+  // Type-2 Special-Ordered-Set.  Lowered to `SCIPcreateConsBasicSOS2`
+  // on every solve; deep-copied by `clone()` (a plain value copy), so
+  // `sos2_set_count()` survives a native backend clone.
+  std::vector<std::vector<int>> sos2_sets {};
+
   [[nodiscard]] ScipModel clone() const { return *this; }
 };
 
@@ -161,6 +168,12 @@ public:
   void set_coeff(int row, int col, double value) override;
   [[nodiscard]] bool supports_set_coeff() const noexcept override;
 
+  // ---- SOS constraints ----
+  /// Declare a Type-2 Special-Ordered-Set over the given columns.
+  /// Buffered into `m_model_.sos2_sets`; lowered to a native SCIP SOS2
+  /// constraint (`SCIPcreateConsBasicSOS2`) on every solve.
+  void add_sos2(std::span<const int> columns) override;
+
   // ---- variable types ----
   void set_continuous(int index) override;
   void set_integer(int index) override;
@@ -234,8 +247,23 @@ private:
   /// `resolve` (both rebuild from scratch — SCIP has no warm path here).
   void solve_();
 
+  /// Return a stable, correctly-sized host buffer for a solution getter
+  /// (primal / reduced / dual).  When the current `m_sol_` snapshot is
+  /// valid it is returned as-is; otherwise a zero-filled fallback of the
+  /// right length is materialised so callers that build a
+  /// `get_numcols()`/`get_numrows()`-sized view over the pointer never
+  /// dereference past the end (or a null pointer) on an unsolved / freshly
+  /// cloned LP — matching the always-valid-buffer contract the other
+  /// backends satisfy.
+  [[nodiscard]] const double* stable_col_buffer(const std::vector<double>& snap,
+                                                std::size_t n) const;
+  [[nodiscard]] const double* stable_row_buffer(const std::vector<double>& snap,
+                                                std::size_t n) const;
+
   ScipModel m_model_ {};
   ScipSolutionCache m_sol_ {};
+  mutable std::vector<double> m_zero_cols_ {};  ///< zero fallback (num cols)
+  mutable std::vector<double> m_zero_rows_ {};  ///< zero fallback (num rows)
   SolveEffort m_last_effort_ {};
   SolverOptions m_options_ {};
 
