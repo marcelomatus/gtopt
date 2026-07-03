@@ -47,11 +47,12 @@ plugin directory.
 
 #### GCC 14
 
-GCC 14 is required for C++26 support and is the verified CI fallback compiler:
+GCC 14 is required for C++26 support and is the verified CI fallback compiler.
+`lld` is the fast linker auto-detected by the build (see the dependency table):
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y gcc-14 g++-14
+sudo apt-get install -y gcc-14 g++-14 lld
 ```
 
 Verify:

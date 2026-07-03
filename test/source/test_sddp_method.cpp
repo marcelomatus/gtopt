@@ -2680,6 +2680,13 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+  // Runs on the default backend (CPLEX when available).  This fixture also
+  // regression-guards the CPLEX NaN fix: CPLEX used to return an OPTIMAL
+  // status with a NaN objective on these elastic clones, which sent the
+  // elastic backtracking into a non-converging hang.  The CPLEX backend now
+  // rejects a non-finite objective in `is_proven_optimal()`, so the fallback
+  // ladder / elastic path converges (see plugins/cplex/cplex_solver_backend).
+
   struct ModeOutcome
   {
     int total_cuts {0};

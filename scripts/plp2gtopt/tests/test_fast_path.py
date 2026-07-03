@@ -23,7 +23,7 @@ def test_defaults_on_empty_dicts() -> None:
     apply_iterative_fast_path(model_opts, sddp_opts)
     assert model_opts["lp_reduction"] is True
     assert sddp_opts["aperture_solve_mode"] == "warm"
-    assert sddp_opts["aperture_chunk_size"] == -1
+    assert sddp_opts["aperture_chunk_size"] == 0
     assert sddp_opts["forward_solver_options"] == {
         "algorithm": "dual",
         "advanced_basis": True,

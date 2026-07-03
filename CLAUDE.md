@@ -45,7 +45,7 @@ conda for Arrow/Parquet, and saves `tools/compile_commands.json` for clang-tidy.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-  ccache coinor-libcbc-dev libarrow-dev libparquet-dev \
+  ccache lld coinor-libcbc-dev libarrow-dev libparquet-dev \
   libboost-container-dev libspdlog-dev liblapack-dev libblas-dev \
   libjemalloc-dev \
   zlib1g-dev libzstd-dev zstd liblz4-dev lcov libcairo2-dev \
@@ -63,6 +63,12 @@ Use `-DCMAKE_BUILD_TYPE=Debug` instead when you need full symbols for gdb.
 > **Ninja recommended**: `-G Ninja` enables file-level dependency tracking,
 > allowing test sources to compile in parallel with library sources. Install
 > via `pip install ninja` or `apt install ninja-build`.
+
+> **`lld` fast linker**: `apt install lld` — `cmake_local/FastLinker.cmake`
+> auto-detects `ld.lld` and links with it (`GTOPT_FAST_LINKER=ON` by default;
+> no flags needed). The 65 MB `gtoptTests` binary relinks in ~1 s instead of
+> tens of seconds, so a full incremental build (ccache-cached compiles) is a
+> few seconds. Disable with `-DGTOPT_FAST_LINKER=OFF`.
 
 > **Critical**: install `ccache` **before** `cmake configure` — CMake bakes the
 > launcher path at configure time. If ccache was missing, delete build dir and

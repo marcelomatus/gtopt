@@ -218,7 +218,7 @@ public:
   /// callers that install cuts on α directly.
   ///
   /// Both bounds are released: `lowb ← -DblMax`, `uppb ← +DblMax`.
-  /// Under `low_memory = compress` / `rebuild` the update is mirrored
+  /// Under `low_memory = compress` the update is mirrored
   /// into the `m_dynamic_cols_` entry via `update_dynamic_col_bounds`
   /// so `apply_post_load_replay` preserves the freed bounds across a
   /// release+reload cycle.  Under `LowMemoryMode::off` only the live
@@ -891,15 +891,21 @@ private:
 
   /// Process a single backward-pass phase step (pi → pi-1) with apertures.
   /// @return Number of optimality cuts added during this step.
+  /// @param exec_pool  when non-null, aperture chunks are submitted to this
+  ///   pool (Tier-2 parallelism) instead of running inline on the caller
+  ///   thread.  Used by the synchronized backward pass when num_scenes <
+  ///   cores so the aperture dimension fills the otherwise-idle cores.
   [[nodiscard]] auto backward_pass_with_apertures_single_phase(
       SceneIndex scene_index,
       PhaseIndex phase_index,
       int cut_offset,
       const SolverOptions& opts,
-      IterationIndex iteration_index) -> std::expected<int, Error>;
+      IterationIndex iteration_index,
+      SDDPWorkPool* exec_pool = nullptr) -> std::expected<int, Error>;
 
   /// Implementation helper for aperture per-phase backward step.
-  /// Used by backward_pass_with_apertures_single_phase.
+  /// Used by backward_pass_with_apertures_single_phase.  @p exec_pool is
+  /// forwarded to `make_aperture_submit_fn` (null → inline apertures).
   [[nodiscard]] auto backward_pass_aperture_phase_impl(
       SceneIndex scene_index,
       PhaseIndex phase_index,
@@ -908,7 +914,8 @@ private:
       std::span<const ScenarioLP> all_scenarios,
       std::span<const Aperture> aperture_defs,
       const SolverOptions& opts,
-      IterationIndex iteration_index) -> std::expected<int, Error>;
+      IterationIndex iteration_index,
+      SDDPWorkPool* exec_pool = nullptr) -> std::expected<int, Error>;
 
   /// Install a Benders cut on the source-phase LP during the aperture
   /// backward pass.  Shared by both aperture entry points.

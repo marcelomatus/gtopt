@@ -1015,7 +1015,21 @@ public:
   [[nodiscard]] constexpr auto sddp_aperture_solve_mode() const noexcept
   {
     return m_options_.sddp_options.aperture_solve_mode.value_or(
-        ApertureSolveMode::reduced_cost);
+        ApertureSolveMode::warm);
+  }
+
+  /// Cross-pass simplex-basis warm-start reuse mode.  Default `full_cross`
+  /// (forward→forward warm reuse + forward basis fed into the backward/tgt
+  /// and aperture solves).  Combined with the seeded-solve auto-dual logic
+  /// this makes every warm SDDP solve run dual simplex off a reused basis
+  /// (cold iter-1 solves keep barrier to produce a capturable vertex basis).
+  /// Convergence-safe (cuts stay valid vertex duals); on degenerate problems
+  /// the trajectory can differ slightly from `off` while still converging.
+  /// See `SddpOptions::basis_cross_mode` / `BasisCrossMode`.
+  [[nodiscard]] constexpr auto sddp_basis_cross_mode() const noexcept
+  {
+    return m_options_.sddp_options.basis_cross_mode.value_or(
+        BasisCrossMode::full_cross);
   }
 
   /**
@@ -1608,7 +1622,7 @@ public:
     return m_options_.sddp_options.max_stored_cuts.value_or(0);
   }
 
-  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
+  /// Low memory mode: off or compress (default for SDDP/cascade).
   /// Resolved default is `compress` so SDDP/cascade runs release the solver
   /// backend between solves and keep an in-memory compressed flat-LP
   /// snapshot.  Set explicitly to `LowMemoryMode::off` (or `--memory-saving

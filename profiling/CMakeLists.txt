@@ -157,8 +157,18 @@ set(PROFILING_EXTRA_CMAKE_ARGS
 )
 
 # ---- Find required tools ------------------------------------------------
+# valgrind is OPTIONAL — only the profiling-callgrind / profiling-report
+# targets need it.  The profiling-perf and profiling-timing targets work
+# without it, so a perf-only profiling run (common on machines without
+# valgrind) must still configure.  (perf and GNU time are already optional
+# below.)  Install with `sudo apt install valgrind` to enable callgrind.
 include(FindValgrind)
-find_package(Valgrind REQUIRED)
+find_package(Valgrind)
+if(NOT VALGRIND_EXECUTABLE)
+  message(STATUS
+    "valgrind not found — profiling-callgrind / profiling-report disabled; "
+    "profiling-perf and profiling-timing remain available.")
+endif()
 
 find_program(GNU_TIME_EXECUTABLE NAMES time PATHS /usr/bin NO_DEFAULT_PATH)
 if(NOT GNU_TIME_EXECUTABLE)

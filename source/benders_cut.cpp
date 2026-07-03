@@ -270,7 +270,10 @@ auto build_benders_cut_physical(ColIndex alpha_col,
   const auto rc_view = rc_source.get_col_cost();
   for (const auto& link : links) {
     const auto rc_phys = rc_view[link.dependent_col];
-    if (std::abs(rc_phys) < cut_coeff_eps) {
+    // Guard against a non-finite reduced cost (same rationale as the dual
+    // guard in build_feasibility_cut_physical: `std::abs(NaN) < eps` is false,
+    // so a NaN would otherwise flow into `row.lowb` and yield a poisoned cut).
+    if (!std::isfinite(rc_phys) || std::abs(rc_phys) < cut_coeff_eps) {
       continue;
     }
     const auto v_hat_phys =
@@ -364,7 +367,8 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
     const double pi = -duals[info.fixing_row];
     // NaN guard mirrors build_multi_cuts: a degenerate elastic re-solve
     // can return NaN duals under an optimal status, and `abs(NaN) < eps`
-    // is false — without this the NaN lands in the fcut row.
+    // is false — without this the NaN lands in the fcut row and poisons the
+    // LP (a NaN RHS is infeasible for every master value).
     if (!std::isfinite(pi)) {
       spdlog::warn(
           "build_feasibility_cut_physical: non-finite dual pi={} at "

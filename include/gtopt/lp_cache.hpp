@@ -124,7 +124,7 @@ public:
   /// `SolverBackend::fill_col_lower` / `fill_col_upper`.  When
   /// non-empty these are the source of truth for `get_col_low_raw` /
   /// `get_col_upp_raw` and the `get_col_sol()` clamp path under
-  /// compress / rebuild — preventing each read from forcing the
+  /// `low_memory = compress` — preventing each read from forcing the
   /// CPLEX/MindOpt/Gurobi backend to allocate a full
   /// `numcols`-sized scratch on its own (`m_collb_` / `m_colub_`).
   /// Empty under `LowMemoryMode::off` (live backend serves bounds
