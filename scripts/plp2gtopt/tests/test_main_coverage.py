@@ -336,7 +336,7 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["model_options"]["lp_reduction"] is True
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
-        assert opts["sddp_options"]["aperture_chunk_size"] == -1
+        assert opts["sddp_options"]["aperture_chunk_size"] == 0
         assert opts["sddp_options"]["forward_solver_options"] == {
             "algorithm": "dual",
             "advanced_basis": True,
@@ -353,7 +353,7 @@ class TestBuildOptions:
         opts = build_options(args)
         assert opts["model_options"]["lp_reduction"] is True
         assert opts["sddp_options"]["aperture_solve_mode"] == "warm"
-        assert opts["sddp_options"]["aperture_chunk_size"] == -1
+        assert opts["sddp_options"]["aperture_chunk_size"] == 0
         assert opts["sddp_options"]["forward_solver_options"]["algorithm"] == "dual"
         assert opts["sddp_options"]["backward_solver_options"]["algorithm"] == "dual"
 

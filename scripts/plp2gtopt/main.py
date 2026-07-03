@@ -575,8 +575,8 @@ def build_options(args: argparse.Namespace) -> dict:
     # Iterative fast-path defaults (benchmarked plp2gtopt -> gtopt pipeline,
     # ~PLP parity on the CEN65 2-year case): provably-zero LP-column elision
     # (``lp_reduction``, ~-19% wall) + dual aperture warm-start
-    # (``aperture_solve_mode = warm`` over all-apertures-per-phase chunks via
-    # ``aperture_chunk_size = -1``) + dual simplex on the forward/backward
+    # (``aperture_solve_mode = warm`` with ``aperture_chunk_size = 0`` — auto,
+    # parallel per-aperture chunks) + dual simplex on the forward/backward
     # passes with an advanced (warm) basis.  The ``piecewise_direct`` loss
     # model is the default already (see ``line_losses_mode`` above).  All are
     # overridable.  Applied to BOTH ``sddp`` and ``cascade``: these top-level

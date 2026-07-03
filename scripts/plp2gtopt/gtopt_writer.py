@@ -658,7 +658,7 @@ class GTOptWriter(
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
             # Transport inherits the base warm aperture config
-            # (aperture_solve_mode=warm, aperture_chunk_size=-1, dual +
+            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
             # advanced_basis) — SAME as the warmup/uninodal levels, no
             # reduced_cost override.  The former override was motivated by a
             # 2026-06-08 measurement showing warm net-negative (warm/cold
@@ -693,7 +693,7 @@ class GTOptWriter(
             "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
             # Full_network inherits the base warm aperture config
-            # (aperture_solve_mode=warm, aperture_chunk_size=-1, dual +
+            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
             # advanced_basis) — same as every other level, no reduced_cost
             # override.  See the L2/transport comment: the former override's
             # "warm net-negative" rationale predated the warm-start presolve
@@ -1225,8 +1225,8 @@ class GTOptWriter(
         # Benchmarked plp2gtopt -> gtopt pipeline (~PLP parity on CEN65 2-year):
         #   * lp_reduction          — elide provably-zero LP columns (~-19% wall)
         #   * aperture_solve_mode   = warm   (dual aperture warm-start)
-        #   * aperture_chunk_size   = -1     (all apertures/phase per chunk,
-        #                                     one LP clone, warm-start reuse)
+        #   * aperture_chunk_size   = 0      (auto: parallel per-aperture
+        #                                     chunks — backward saturates cores)
         #   * forward/backward_solver_options.algorithm = dual + advanced_basis
         # These are applied here (not only in main.process_options, whose nested
         # opts the writer otherwise rebuilds from an allowlist) so they actually
