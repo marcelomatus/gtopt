@@ -39,7 +39,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 13;
+inline constexpr int k_solver_abi_version = 14;
 
 /// Per-solve effort reported by a backend: wall `seconds` plus deterministic
 /// `ticks` (a load-independent work unit).  Conventions for backends lacking
@@ -245,6 +245,34 @@ public:
       set_obj_coeff(i, values[i]);
     }
   }
+
+  /// Install a constant additive term on the objective — the solver's
+  /// NATIVE objective offset.  Reported objective value becomes
+  /// `Σ cⱼ xⱼ + raw_offset` (all backends normalise sign internally so the
+  /// term is *added*; CLP, which subtracts its stored offset, negates).
+  ///
+  /// Semantics: **ABSOLUTE set** in the RAW (scaled) objective units the
+  /// backend solves in — the caller pushes the running total, NOT a delta.
+  /// `LinearInterface::add_obj_constant` accumulates the total in
+  /// `m_scaling_.obj_constant_raw` and calls this with the new absolute value,
+  /// so two successive `add_obj_constant` calls end with a single
+  /// `set_obj_offset` carrying their sum.
+  ///
+  /// Why native (not folded post-solve): CPLEX / Gurobi / HiGHS compute the
+  /// MIP **relative** optimality gap against the reported objective.  Folding
+  /// a large boundary-cut / α-rebase constant only after the solve leaves the
+  /// solver's objective near zero, inflating the relative gap into a phantom
+  /// 100-170 % that stalls UC MIPs.  Handing the constant to the native offset
+  /// makes the solver's gap reflect the true objective.
+  ///
+  /// Backends store the value so `clone()` preserves it and re-apply it at
+  /// load/build (several backends reset the native problem on `load_problem`).
+  /// Default is a no-op for ABI/future compatibility, but every shipped plugin
+  /// overrides it: `LinearInterface::get_obj_value_raw()` reads the objective
+  /// straight from the backend (it no longer re-adds
+  /// `m_scaling_.obj_constant_raw`), so a backend that leaves this
+  /// unimplemented would silently drop the constant.
+  virtual void set_obj_offset(double /*raw_offset*/) noexcept {}
 
   // ---- row operations ----
 

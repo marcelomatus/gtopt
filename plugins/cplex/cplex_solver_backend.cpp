@@ -671,6 +671,14 @@ void CplexSolverBackend::load_problem(int ncols,
     gtopt::log_and_throw(
         std::format("CPLEX: CPXcopylp failed with status {}", status));
   }
+
+  // CPXcopylp resets the objective offset to 0 — re-establish the stored
+  // native offset so a reload (compress reconstruct) keeps it.  The
+  // LinearInterface also calls set_obj_offset right after load, so this is
+  // belt-and-suspenders; harmless when m_obj_offset_ == 0.
+  if (m_obj_offset_ != 0.0) {
+    CPXchgobjoffset(m_env_lp_.env(), m_env_lp_.lp(), m_obj_offset_);
+  }
 }
 
 int CplexSolverBackend::get_num_cols() const
@@ -773,6 +781,19 @@ void CplexSolverBackend::set_obj_coeffs(const double* values, int num_cols)
   std::vector<int> indices(static_cast<size_t>(num_cols));
   std::iota(indices.begin(), indices.end(), 0);
   CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), num_cols, indices.data(), values);
+}
+
+void CplexSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  Store for re-application after any CPXcopylp (load_problem)
+  // and for clone(), then push to CPLEX now.  CPXchgobjoffset makes CPLEX add
+  // `raw_offset` to every reported objective, so the MIP relative-gap is
+  // computed against the true objective rather than a near-zero residual.
+  m_obj_offset_ = raw_offset;
+  if (m_env_lp_.lp() != nullptr) {
+    invalidate_problem_data();
+    CPXchgobjoffset(m_env_lp_.env(), m_env_lp_.lp(), raw_offset);
+  }
 }
 
 void CplexSolverBackend::set_col_bounds_bulk(int num,
@@ -2105,6 +2126,9 @@ std::unique_ptr<SolverBackend> CplexSolverBackend::clone() const
   cloned->m_threads_ = m_threads_;
   cloned->m_presolve_ = m_presolve_;
   cloned->m_log_level_ = m_log_level_;
+  // CPXcloneprob deep-copies the objective offset natively; mirror the cached
+  // scalar so a later set_obj_offset/reload on the clone stays consistent.
+  cloned->m_obj_offset_ = m_obj_offset_;
   cloned->reset_env_lp();
 
   int status = 0;

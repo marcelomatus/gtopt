@@ -94,6 +94,7 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_obj_offset(double raw_offset) noexcept override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -249,6 +250,10 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+  /// Native objective offset (raw/scaled units).  Absolute value set via
+  /// `set_obj_offset` → `MDO_DBL_ATTR_OBJ_CON`; re-applied in load_problem and
+  /// carried by `MDOcopymodel` in clone().
+  double m_obj_offset_ {0.0};
 
   /// Snapshot of MindOpt tolerances captured by engage_robust_solve().
   struct RobustState

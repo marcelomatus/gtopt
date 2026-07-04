@@ -244,12 +244,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // scene×aperture task fan-out).  Log the decision so the auto-cap is
   // visible alongside the "SDDP work pool started" line below.
   const auto pool_cpu_factor = effective_pool_cpu_factor();
-  SPDLOG_INFO(
-      "SDDP work pool cpu_factor={:.3g} ({}: scenes={} cores={})",
-      pool_cpu_factor,
-      m_options_.pool_cpu_factor_user_set ? "user" : "auto",
-      cell_task_headroom,
-      physical_concurrency());
+  SPDLOG_INFO("SDDP work pool cpu_factor={:.3g} ({}: scenes={} cores={})",
+              pool_cpu_factor,
+              m_options_.pool_cpu_factor_user_set ? "user" : "auto",
+              cell_task_headroom,
+              physical_concurrency());
   auto sddp_pool = make_sddp_work_pool(
       pool_cpu_factor, m_options_.pool_memory_limit_mb, cell_task_headroom);
   const bool need_aux_pool =
@@ -1682,15 +1681,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             sp.feasible = false;
             sp.upper_bound = 0.0;
           } else {
-            // Per-scene UB = Σ forward_objective + α-rebase offset.
-            // The offset is zero unless
-            // `SDDPOptions::boundary_cuts_mean_shift` was enabled
-            // (see `m_scene_alpha_offsets_` and the install pass in
-            // `source/sddp_boundary_cuts.cpp`).  Without this term,
-            // shifted boundary cuts would silently push UB lower by
-            // `c̄_scene` and break the UB ↔ LB symmetry across the
-            // mean-shift flag.
-            sp.upper_bound = *fwd + scene_alpha_offset(scene);
+            // Per-scene UB = Σ forward_objective.  The α-rebase constant c̄ is
+            // folded into the first-phase master LP's native objective offset
+            // at boundary-cut load, so the forward-pass sum already carries it
+            // through phase 0's `get_obj_value()`.  Adding
+            // `scene_alpha_offset()` here would double-count.
+            sp.upper_bound = *fwd;
             sp.feasible = true;
           }
 
@@ -1770,17 +1766,15 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
           // UB and LB in different unit spaces, producing a
           // permanent ``≈ scale_objective − 1`` / ``scale_objective``
           // gap that never closed regardless of cut quality.
-          // Per-scene LB = master.get_obj_value() + α-rebase offset.
-          // Mirrors the UB adjustment above: when the mean-shift
-          // opt-in fired, the master LP's `get_obj_value()` is short
-          // by `c̄_scene`, so we add it back here for display
-          // symmetry.  `scene_alpha_offset()` returns 0 when no
-          // offset applies.
+          // Per-scene LB = master.get_obj_value().  The α-rebase constant c̄
+          // is folded into this first-phase master LP's native objective
+          // offset at boundary-cut load, so `get_obj_value()` already reflects
+          // the algebraically-original physical objective.  Adding
+          // `scene_alpha_offset()` here would double-count.
           sp.lower_bound = planning_lp()
                                .system(scene, first_phase_index())
                                .linear_interface()
-                               .get_obj_value()
-              + scene_alpha_offset(scene);
+                               .get_obj_value();
 
           tracker.report_complete(scene,
                                   sp.current_iteration_index,
@@ -1831,10 +1825,12 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                                  uid_of(scene)),
                         sim.error().message);
           } else {
-            // Simulation pass UB also picks up the α-rebase offset
-            // (zero unless `boundary_cuts_mean_shift` is enabled).
-            // Same rationale as the iteration UB site above.
-            sp.upper_bound = *sim + scene_alpha_offset(scene);
+            // Simulation pass UB = Σ forward_objective (run_scene_simulation
+            // → forward_pass).  Same rationale as the iteration UB site above:
+            // c̄ is folded into the first-phase master LP's native objective
+            // offset, so `*sim` already carries it through phase 0.  Adding
+            // `scene_alpha_offset()` here would double-count.
+            sp.upper_bound = *sim;
           }
           {
             int scenes_still_active = 0;

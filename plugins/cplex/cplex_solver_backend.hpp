@@ -128,6 +128,7 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_obj_offset(double raw_offset) noexcept override;
   void set_col_bounds_bulk(int num,
                            const int* indices,
                            const char* lu,
@@ -313,6 +314,10 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+  /// Native objective offset (raw/scaled units).  Absolute value set via
+  /// `set_obj_offset`; re-applied after `CPXcopylp` (which resets it) and
+  /// carried into `clone()` alongside the native `CPXcloneprob` copy.
+  double m_obj_offset_ {0.0};
 
   /// Snapshot of the CPLEX numerical-robustness parameters captured by
   /// engage_robust_solve().  When set, disengage_robust_solve() restores

@@ -84,9 +84,9 @@ SCIP_RETCODE apply_options_to_scip(SCIP* scip, const SolverOptions& opts)
   std::string out;
   out.reserve(raw.size());
   for (const char c : raw) {
-    out.push_back(
-        (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_') ? c
-                                                                       : '_');
+    out.push_back((std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_')
+                      ? c
+                      : '_');
   }
   // A leading digit is illegal for an LP-format token; prefix the generic
   // stem (which starts with a letter) so the gtopt label stays a substring.
@@ -115,6 +115,14 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
   const double inf = SCIPinfinity(scip);
   SCIP_CALL(SCIPsetObjsense(scip, SCIP_OBJSENSE_MINIMIZE));
 
+  // Native objective offset — SCIP reports `Σ cⱼ xⱼ + offset`.
+  // SCIPaddOrigObjoffset is ADDITIVE, but `scip_build_problem` runs on a FRESH
+  // SCIP instance every solve (buffer-and-replay), so a single add per build
+  // honours the absolute stored value on every rebuild.
+  if (model.obj_offset != 0.0) {
+    SCIP_CALL(SCIPaddOrigObjoffset(scip, model.obj_offset));
+  }
+
   vars.assign(static_cast<std::size_t>(model.num_cols), nullptr);
   for (int j = 0; j < model.num_cols; ++j) {
     const auto u = static_cast<std::size_t>(j);
@@ -130,8 +138,7 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
     // SCIP requires a non-NULL, unique variable name.  Prefer the pushed
     // gtopt label (sanitised) so write_lp carries real names; else "x<j>".
     const std::string generic = "x" + std::to_string(j);
-    const std::string vname =
-        (col_names != nullptr && u < col_names->size())
+    const std::string vname = (col_names != nullptr && u < col_names->size())
         ? sanitize_name((*col_names)[u], generic)
         : generic;
     SCIP_CALL(SCIPcreateVarBasic(
@@ -148,8 +155,7 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
     // (unlike SCIPcreateVarBasic, which treats NULL as auto-name).  Prefer the
     // pushed gtopt row label (sanitised); else a unique "c<i>".
     const std::string generic = "c" + std::to_string(i);
-    const std::string cname =
-        (row_names != nullptr && u < row_names->size())
+    const std::string cname = (row_names != nullptr && u < row_names->size())
         ? sanitize_name((*row_names)[u], generic)
         : generic;
     SCIP_CALL(SCIPcreateConsBasicLinear(
@@ -359,8 +365,7 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
       const double xj = out.primal[u];
       const double lb = model.col_lb[u];
       const double ub = model.col_ub[u];
-      const double tol =
-          1e-7 * (1.0 + std::max(std::abs(lb), std::abs(ub)));
+      const double tol = 1e-7 * (1.0 + std::max(std::abs(lb), std::abs(ub)));
       const bool interior = (xj > lb + tol) && (xj < ub - tol);
       out.reduced[u] = interior ? 0.0 : rc;
     }
@@ -524,6 +529,16 @@ void ScipSolverBackend::set_col_upper(int index, double value)
 void ScipSolverBackend::set_obj_coeff(int index, double value)
 {
   m_model_.col_obj[static_cast<std::size_t>(index)] = value;
+}
+
+void ScipSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  The host model carries the constant into the fresh SCIP
+  // instance via SCIPaddOrigObjoffset in scip_build_problem at solve time, and
+  // clone() deep-copies m_model_ — so storing it here is sufficient.  The
+  // LinearInterface re-calls this after every load_problem (which resets
+  // m_model_), keeping the offset current across reconstructs.
+  m_model_.obj_offset = raw_offset;
 }
 
 void ScipSolverBackend::add_row(int num_elements,
@@ -944,8 +959,8 @@ void ScipSolverBackend::write_lp(const char* filename)
   const std::string path = std::string(filename) + ".lp";
   if (SCIPincludeDefaultPlugins(scip) == SCIP_OKAY
       && SCIPcreateProbBasic(scip, m_prob_name_.c_str()) == SCIP_OKAY
-      && scip_build_problem(scip, m_model_, vars, conss, &m_col_names_,
-                            &m_row_names_)
+      && scip_build_problem(
+             scip, m_model_, vars, conss, &m_col_names_, &m_row_names_)
           == SCIP_OKAY)
   {
     SCIPwriteOrigProblem(scip, path.c_str(), "lp", FALSE);

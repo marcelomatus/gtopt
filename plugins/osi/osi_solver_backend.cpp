@@ -336,6 +336,15 @@ void OsiSolverBackend::load_problem(int ncols,
   reset_solver_();
   m_solver_->loadProblem(
       ncols, nrows, matbeg, matind, matval, collb, colub, obj, rowlb, rowub);
+
+  // loadProblem resets the ClpModel objective offset — re-establish the stored
+  // native offset (negated per ClpModel's subtract convention) so a reload
+  // keeps it.  The LinearInterface also calls set_obj_offset right after load.
+  if (m_obj_offset_ != 0.0) {
+    if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+      clp->getModelPtr()->setObjectiveOffset(-m_obj_offset_);
+    }
+  }
 }
 
 int OsiSolverBackend::get_num_cols() const
@@ -426,6 +435,19 @@ void OsiSolverBackend::set_col_upper(int index, double value)
 void OsiSolverBackend::set_obj_coeff(int index, double value)
 {
   m_solver_->setObjCoeff(index, value);
+}
+
+void OsiSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set (gtopt ADD convention).  ClpModel::getObjValue() computes
+  // `Σ cⱼ xⱼ − ClpObjOffset`, so store the NEGATED value to make the reported
+  // objective `Σ cⱼ xⱼ + raw_offset`.  Only the CLP-backed solver exposes the
+  // offset; a null (non-CLP) result is a benign skip.  LP-only backend, so
+  // this never influences a MIP relative-gap.
+  m_obj_offset_ = raw_offset;
+  if (auto* clp = as_clp(m_solver_.get(), m_type_); clp != nullptr) {
+    clp->getModelPtr()->setObjectiveOffset(-raw_offset);
+  }
 }
 
 void OsiSolverBackend::set_obj_coeffs(const double* values, int num_cols)
@@ -1087,6 +1109,10 @@ std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const
   cloned->m_threads_ = m_threads_;
   cloned->m_presolve_ = m_presolve_;
   cloned->m_log_level_ = m_log_level_;
+  // OsiSolverInterface::clone(true) deep-copies the ClpModel objective offset
+  // natively; mirror the cached scalar so a later set_obj_offset/reload on the
+  // clone stays consistent.
+  cloned->m_obj_offset_ = m_obj_offset_;
 
   if (!cloned->m_prep_.prob_name.empty()) {
     cloned->m_solver_->setStrParam(OsiProbName, cloned->m_prep_.prob_name);

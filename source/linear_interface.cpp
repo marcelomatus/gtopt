@@ -1138,6 +1138,14 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // them with a plain add.
   m_scaling_.obj_constant_raw = flat_lp.obj_constant_raw;
 
+  // Hand the LP-external objective constant to the backend's NATIVE objective
+  // offset so the solver's reported objective (and, critically, its MIP
+  // relative-gap) already includes it.  ABSOLUTE set — the raw constant is the
+  // running total, not a delta.  This re-establishes the offset on every
+  // (re)load, including the compress/low-memory reconstruct path where the
+  // backend is created fresh (default no-op until this call).
+  m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
+
   // Preserve per-column scale factors from LinearProblem.
   detach_for_write(m_scaling_.col_scales)
       .assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
@@ -3311,17 +3319,15 @@ bool LinearInterface::is_prim_infeasible() const
 
 double LinearInterface::get_obj_value_raw() const
 {
-  // Composed raw-scale obj: solver's value plus the LP-external
-  // `obj_constant_raw` (algebraic constants from variable
-  // substitutions, e.g. the P0 demand-failure `fail = lmax − load`
-  // rewrite).  Adding here — rather than only in `get_obj_value()`
-  // — keeps pre-substitution test assertions on `get_obj_value_raw()`
-  // bit-stable across formulations: the raw view reflects the
-  // algebraically-equivalent objective the pre-rewrite LP would
-  // have reported.
-  const double solver_raw =
-      m_backend_released_ ? m_cache_.obj_value() : m_backend_->obj_value();
-  return solver_raw + m_scaling_.obj_constant_raw;
+  // Raw-scale objective straight from the backend.  The LP-external
+  // `m_scaling_.obj_constant_raw` (algebraic constants from variable
+  // substitutions — e.g. the P0 demand-failure `fail = lmax − load` rewrite —
+  // and the boundary-cut / α-rebase constant) is now handed to the solver's
+  // NATIVE objective offset via `set_obj_offset` (on `load_flat` and every
+  // `add_obj_constant`), so `m_backend_->obj_value()` ALREADY includes it.
+  // Re-adding `m_scaling_.obj_constant_raw` here would double-count.  The
+  // released-backend cache mirrors the same offset-inclusive value.
+  return m_backend_released_ ? m_cache_.obj_value() : m_backend_->obj_value();
 }
 
 double LinearInterface::get_obj_value() const
@@ -3344,6 +3350,15 @@ void LinearInterface::add_obj_constant(double c) noexcept
   // `get_obj_value_raw()` compose them with a plain add.
   const double c_raw = c / m_scale_objective_;
   m_scaling_.obj_constant_raw += c_raw;
+
+  // Push the NEW ABSOLUTE total to the backend's native objective offset so
+  // the live solver's reported objective (and MIP relative-gap) reflects it
+  // immediately.  Guarded on a live backend: when released (low_memory), the
+  // snapshot mirror below carries the value and the next `load_flat`
+  // reconstruct re-applies it via `set_obj_offset`.
+  if (!m_backend_released_ && m_backend_ != nullptr) {
+    m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
+  }
 
   // Mirror the addition into the held snapshot's flat LP.  Scalar
   // fields on `FlatLinearProblem` (incl. `obj_constant_raw`,

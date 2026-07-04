@@ -90,6 +90,7 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_obj_offset(double raw_offset) noexcept override;
   void set_col_bounds_bulk(int num,
                            const int* indices,
                            const char* lu,
@@ -194,6 +195,10 @@ private:
   bool m_presolve_ {true};
   int m_log_level_ {0};
   bool m_load_failed_ {};
+  /// Native objective offset (raw/scaled units).  Absolute value set via
+  /// `set_obj_offset`; applied onto `HighsLp::offset_` before `passModel`
+  /// (load_problem + clone) and pushed live via `changeObjectiveOffset`.
+  double m_obj_offset_ {0.0};
   SolveEffort
       m_last_effort_ {};  // wall + ticks(=wall) of the most recent solve
 

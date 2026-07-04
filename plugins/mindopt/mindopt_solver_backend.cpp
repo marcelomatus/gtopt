@@ -423,6 +423,22 @@ void MindOptSolverBackend::load_problem(int ncols,
                           upper.data(),
                           nullptr);
   check_error(rc, "MDOaddrangeconstrs");
+
+  // Re-establish the native objective offset (MDOnewmodel starts it at 0) so a
+  // reload keeps it.  The LinearInterface also calls set_obj_offset after load.
+  if (m_obj_offset_ != 0.0) {
+    MDOsetdblattr(m_model_, MDO_DBL_ATTR_OBJ_CON, m_obj_offset_);
+  }
+}
+
+void MindOptSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  Store for the next load_problem / clone, and push to the
+  // live model (MDO_DBL_ATTR_OBJ_CON is the objective constant term).
+  m_obj_offset_ = raw_offset;
+  if (m_model_ != nullptr) {
+    MDOsetdblattr(m_model_, MDO_DBL_ATTR_OBJ_CON, raw_offset);
+  }
 }
 
 // ── dimensions ───────────────────────────────────────────────────────────
@@ -826,7 +842,11 @@ double MindOptSolverBackend::obj_value() const
 {
   double val = 0.0;
   MDOgetdblattr(m_model_, MDO_DBL_ATTR_PRIMAL_OBJ_VAL, &val);
-  return val;
+  // MindOpt's PRIMAL_OBJ_VAL does NOT fold in MDO_DBL_ATTR_OBJ_CON (unlike
+  // CPLEX's CPXgetobjval), so add the stored offset here to keep the reported
+  // objective offset-inclusive.  The native OBJ_CON is still set on the model
+  // (set_obj_offset) in case MindOpt's relative MIP-gap consults it internally.
+  return val + m_obj_offset_;
 }
 
 // ── solution hints ───────────────────────────────────────────────────────
@@ -1142,6 +1162,9 @@ std::unique_ptr<SolverBackend> MindOptSolverBackend::clone() const
   cloned->m_threads_ = m_threads_;
   cloned->m_presolve_ = m_presolve_;
   cloned->m_log_level_ = m_log_level_;
+  // MDOcopymodel deep-copies MDO_DBL_ATTR_OBJ_CON natively; mirror the cached
+  // scalar so a later set_obj_offset/reload on the clone is consistent.
+  cloned->m_obj_offset_ = m_obj_offset_;
 
   if (cloned->m_prep_.options.has_value()) {
     apply_options_to_env(cloned->m_env_, *cloned->m_prep_.options);

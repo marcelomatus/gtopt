@@ -104,6 +104,7 @@ public:
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
   void set_obj_coeffs(const double* values, int num_cols) override;
+  void set_obj_offset(double raw_offset) noexcept override;
 
   // ---- row ops ----
   void add_row(int num_elements,
@@ -220,6 +221,11 @@ private:
   int m_threads_ {0};
   bool m_presolve_ {true};
   int m_log_level_ {0};
+  /// Native objective offset (raw/scaled units), stored as gtopt's ADD
+  /// convention.  Applied to the underlying ClpModel as `-m_obj_offset_`
+  /// (ClpModel SUBTRACTS its stored offset).  LP-only backend, so this never
+  /// affects a MIP gap — kept for get_obj_value() consistency + reload/clone.
+  double m_obj_offset_ {0.0};
 
   /// Sanitised names cached from the most recent `push_names` call.
   /// Owned FILE* for set_log_filename; closed in clear_log_filename.
