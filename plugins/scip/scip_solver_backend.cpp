@@ -83,6 +83,14 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
   const double inf = SCIPinfinity(scip);
   SCIP_CALL(SCIPsetObjsense(scip, SCIP_OBJSENSE_MINIMIZE));
 
+  // Native objective offset — SCIP reports `Σ cⱼ xⱼ + offset`.
+  // SCIPaddOrigObjoffset is ADDITIVE, but `scip_build_problem` runs on a FRESH
+  // SCIP instance every solve (buffer-and-replay), so a single add per build
+  // honours the absolute stored value on every rebuild.
+  if (model.obj_offset != 0.0) {
+    SCIP_CALL(SCIPaddOrigObjoffset(scip, model.obj_offset));
+  }
+
   vars.assign(static_cast<std::size_t>(model.num_cols), nullptr);
   for (int j = 0; j < model.num_cols; ++j) {
     const auto u = static_cast<std::size_t>(j);
@@ -445,6 +453,16 @@ void ScipSolverBackend::set_col_upper(int index, double value)
 void ScipSolverBackend::set_obj_coeff(int index, double value)
 {
   m_model_.col_obj[static_cast<std::size_t>(index)] = value;
+}
+
+void ScipSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  The host model carries the constant into the fresh SCIP
+  // instance via SCIPaddOrigObjoffset in scip_build_problem at solve time, and
+  // clone() deep-copies m_model_ — so storing it here is sufficient.  The
+  // LinearInterface re-calls this after every load_problem (which resets
+  // m_model_), keeping the offset current across reconstructs.
+  m_model_.obj_offset = raw_offset;
 }
 
 void ScipSolverBackend::add_row(int num_elements,

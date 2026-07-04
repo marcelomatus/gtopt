@@ -153,11 +153,13 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
       // α' + c shifts the LP's reported objective by −c, so we add `c`
       // back via `add_obj_constant` on each scene's last-phase
       // LinearInterface — exactly the Python oracle's `obj_constant`
-      // restitution (`build_fcf_alpha_terms`).  SDDP instead folds the
-      // offset into UB/LB at display via `scene_alpha_offset`; the
-      // monolithic path reports `get_obj_value()` directly, so the
-      // restitution must live on the LP.  Offsets are zero when the
-      // shift is disabled, making this a no-op then.
+      // restitution (`build_fcf_alpha_terms`).  This is now unified with
+      // SDDP: `add_obj_constant` reaches the solver's NATIVE objective
+      // offset (see `SolverBackend::set_obj_offset`), and `SDDPMethod`
+      // performs the mirror fold into each scene's FIRST-phase master LP.
+      // In monolithic there is one LP per scene, so the last phase IS the
+      // whole LP.  Offsets are zero when the shift is disabled, making this
+      // a no-op then.
       const auto& offsets = bc_result->alpha_offsets_per_scene;
       const auto last_phase = planning_lp.simulation().last_phase_index();
       for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {

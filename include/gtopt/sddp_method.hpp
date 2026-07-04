@@ -384,10 +384,13 @@ public:
     return m_scene_phase_states_;
   }
 
-  /// Per-scene α-rebase offset (zero when not opted in via
-  /// `SDDPOptions::boundary_cuts_mean_shift`).  Added to UB / LB at
-  /// display so users see the algebraically-original objective even
-  /// when the LP carries shifted boundary cuts.
+  /// Per-scene α-rebase offset c̄ (zero when not opted in via
+  /// `SDDPOptions::boundary_cuts_mean_shift`).  The offset is now folded into
+  /// the first-phase master LP's NATIVE objective offset at boundary-cut load
+  /// (`initialize_solver`), so `get_obj_value()` — and by extension UB / LB —
+  /// already carries it; the display sites no longer add it (that would
+  /// double-count).  This accessor exposes the raw c̄ unchanged for tests and
+  /// for `populate_future_cost_output`.
   [[nodiscard]] constexpr double scene_alpha_offset(
       SceneIndex scene_index) const noexcept
   {

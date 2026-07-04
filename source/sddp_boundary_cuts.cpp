@@ -664,8 +664,8 @@ using namespace gtopt::detail;
     // ── α-rebase (mean-shift): zero-mean cut RHSs via obj_constant ──
     //
     // Opt-in via `options.boundary_cuts_mean_shift` (default off).
-    // Disabled-path leaves `scene_c_bar` all-zero so the install
-    // loop below skips the `add_obj_constant` call entirely — the
+    // Disabled-path leaves `scene_c_bar` all-zero, so the CALLER's
+    // `add_obj_constant` restitution is skipped entirely — the
     // pre-existing cut RHS magnitudes survive byte-identical and
     // every test that asserts on raw on-disk RHS continues to pass.
     //
@@ -676,12 +676,16 @@ using namespace gtopt::detail;
     // the per-scene mean of installed cut RHSs (post-`bc_discount`,
     // same units as `row.lowb`).
     //
-    // For each scene with at least one cut:
-    //   1. compute c̄_scene = mean(cut.lowb over cuts on this scene),
-    //   2. subtract c̄_scene from every cut.lowb on the scene,
-    //   3. call `li.add_obj_constant(c̄_scene)` on the scene's
-    //      last-phase LinearInterface so `get_obj_value()` reports
-    //      the algebraically-original physical objective.
+    // For each scene with at least one cut, this loader:
+    //   1. computes c̄_scene = mean(cut.lowb over cuts on this scene),
+    //   2. subtracts c̄_scene from every cut.lowb on the scene,
+    //   3. returns c̄_scene in `alpha_offsets_per_scene`.
+    // The CALLER then restores the algebraically-original objective by
+    // handing c̄ to the solver's NATIVE objective offset via
+    // `LinearInterface::add_obj_constant`: `MonolithicMethod` folds it into
+    // the single scene LP (last phase = whole LP), and `SDDPMethod` folds it
+    // into each scene's FIRST-phase master LP (see those files for why the
+    // first phase is the correct fold site under the SDDP decomposition).
     //
     // Effects / properties (enabled):
     //   * Cut RHS range is unchanged (mean shift, not rescale), but
@@ -695,7 +699,7 @@ using namespace gtopt::detail;
     //     first cut install releases α to `(−∞, +∞)`, where α can
     //     be negative.
     //   * c̄ = 0 (no cuts on a scene, or already zero-mean) is a
-    //     no-op shift — `add_obj_constant(0)` is harmless.
+    //     no-op shift — the caller's `add_obj_constant(0)` is harmless.
     //   * Loaded cut files round-trip correctly: c̄ is recomputed
     //     from the on-disk RHSs each time, and the recomputed value
     //     matches the original because the load is deterministic.
@@ -828,10 +832,13 @@ using namespace gtopt::detail;
           // registered (`sddp_method_alpha.cpp:107`) with
           // `cost = 1.0` (physical $), so the obj_value drop from
           // the substitution is exactly `−c̄` per scene — no
-          // `cost_factor` (= prob × disc × dur) multiplier.  Restore
-          // the algebraically-original objective at display by
-          // adding back the raw `c̄` via `scene_alpha_offset(scene)`
-          // at the four UB/LB display sites.
+          // `cost_factor` (= prob × disc × dur) multiplier.  The raw
+          // `c̄` is returned to the caller (`SDDPMethod`), which
+          // restores the algebraically-original objective by folding
+          // it into the first-phase master LP's NATIVE objective
+          // offset via `add_obj_constant` — so `get_obj_value()` (and
+          // thus every UB/LB site) already carries it; no display
+          // add-back remains.
           //
           // History: commit `ccd2833c` (2026-05-16) pre-multiplied
           // by `cf` claiming "α's coefficient is `cf`, not 1.0".
@@ -927,9 +934,10 @@ using namespace gtopt::detail;
       }
       // Log the per-scene mean-shift (the shift itself was applied
       // to `cut.lowb` in the pre-install pass above).  The c̄
-      // offsets are returned in `CutLoadResult` for SDDPMethod to
-      // add to UB / LB at display time — the LP stays purely in
-      // shifted space and `LinearInterface` is uninvolved.
+      // offsets are returned in `CutLoadResult`; `SDDPMethod` folds
+      // them into the first-phase master LP's native objective offset
+      // via `add_obj_constant`, so the reported UB / LB carry the
+      // pre-shift physical objective without any display add-back.
       const double c_bar = scene_c_bar[si];
       if (c_bar != 0.0) {
         SPDLOG_INFO(
@@ -978,10 +986,10 @@ using namespace gtopt::detail;
         .count = cuts_loaded,
         .max_iteration = max_iteration,
         // Return the per-scene α-rebase offsets (zero-filled when the
-        // shift is disabled).  SDDPMethod stores these and adds them
-        // back into UB / LB at display so the user sees physical
-        // (pre-shift) values regardless of how the cuts are stored
-        // internally on the LP.
+        // shift is disabled).  SDDPMethod folds these into the first-phase
+        // master LP's native objective offset (`add_obj_constant`) so the
+        // user sees physical (pre-shift) UB / LB values regardless of how
+        // the cuts are stored internally on the LP.
         .alpha_offsets_per_scene = std::move(scene_c_bar),
     };
 

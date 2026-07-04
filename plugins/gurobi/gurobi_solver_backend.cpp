@@ -362,6 +362,18 @@ std::string GurobiSolverBackend::get_prob_name() const
 
 // ── bulk load ────────────────────────────────────────────────────────────
 
+void GurobiSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  Store for the next load_problem / clone, and push to the
+  // live model (GRB_DBL_ATTR_OBJCON is the objective constant term).  Mark
+  // dirty so the deferred GRBupdatemodel picks it up before the next query.
+  m_obj_offset_ = raw_offset;
+  if (m_model_ != nullptr) {
+    GRBsetdblattr(m_model_, GRB_DBL_ATTR_OBJCON, raw_offset);
+    m_dirty_ = true;
+  }
+}
+
 void GurobiSolverBackend::load_problem(int ncols,
                                        int nrows,
                                        const int* matbeg,
@@ -464,6 +476,13 @@ void GurobiSolverBackend::load_problem(int ncols,
 
   m_rowlb_local_ = std::move(lower);
   m_rowub_local_ = std::move(upper);
+
+  // Re-establish the native objective offset (GRBnewmodel starts it at 0) so a
+  // reload keeps it.  The LinearInterface also calls set_obj_offset after load.
+  if (m_obj_offset_ != 0.0) {
+    GRBsetdblattr(m_model_, GRB_DBL_ATTR_OBJCON, m_obj_offset_);
+  }
+
   m_dirty_ = true;
 }
 
@@ -1303,6 +1322,9 @@ std::unique_ptr<SolverBackend> GurobiSolverBackend::clone() const
   cloned->m_log_level_ = m_log_level_;
   cloned->m_rowlb_local_ = m_rowlb_local_;
   cloned->m_rowub_local_ = m_rowub_local_;
+  // GRBcopymodeltoenv deep-copies GRB_DBL_ATTR_OBJCON natively; mirror the
+  // cached scalar so a later set_obj_offset/reload on the clone is consistent.
+  cloned->m_obj_offset_ = m_obj_offset_;
 
   if (cloned->m_prep_.options.has_value()) {
     apply_options_to_env(cloned->m_env_, *cloned->m_prep_.options);

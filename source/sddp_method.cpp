@@ -886,12 +886,42 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       auto result = load_boundary_cuts(bc_path);
       if (result.has_value()) {
         boundary_count = result->count;
-        // Capture the per-scene α-rebase offsets (zero unless the
-        // mean-shift opt-in fired and the scene received cuts).
-        // Used by SDDP UB / LB display sites to add c̄_scene back so
-        // the user sees the pre-shift physical objective regardless
-        // of the LP-side cut storage convention.
+        // Capture the per-scene α-rebase offsets c̄ (zero unless the
+        // mean-shift opt-in fired and the scene received cuts).  The
+        // accessor `scene_alpha_offset()` keeps exposing the raw c̄ for
+        // tests and for `populate_future_cost_output`.
         m_scene_alpha_offsets_ = std::move(result->alpha_offsets_per_scene);
+
+        // ── α-rebase restitution: fold c̄ into the LP objective ──────────
+        // The mean-shift substitution α' = α − c̄ (applied to the last-phase
+        // boundary cuts in `load_boundary_cuts_csv`) lowers the reported
+        // objective by c̄.  Fold c̄ back via `add_obj_constant` so it reaches
+        // the solver's NATIVE objective offset — the unified treatment shared
+        // with the monolithic path (`source/monolithic_method.cpp`), replacing
+        // the former per-display add-backs (removed in sddp_method_iteration /
+        // sddp_iteration).
+        //
+        // Why the FIRST phase (not the last, where the cuts live): SDDP is
+        // decomposed per (scene, phase).  The reported LB is the first-phase
+        // master's `get_obj_value()`, and the reported UB is the α-stripped
+        // forward-pass sum `Σ_p (obj_p − α_p)` — which picks up an additive
+        // constant only through phase 0's `get_obj_value()` (the sum strips α,
+        // not the constant).  Folding c̄ into phase 0 restores BOTH bounds by
+        // exactly c̄; a last-phase fold would leave the master LB short by c̄
+        // and break `on_lb ≈ on_ub`.  The argmin is unchanged, so cuts / trial
+        // values / convergence stay byte-identical — only the reported
+        // objective now carries c̄.
+        const auto master_phase = first_phase_index();
+        for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
+          const double c_bar = scene_alpha_offset(scene_index);
+          if (c_bar != 0.0) {
+            planning_lp()
+                .system(scene_index, master_phase)
+                .linear_interface()
+                .add_obj_constant(c_bar);
+          }
+        }
+
         SPDLOG_DEBUG(
             "SDDP: loaded {} boundary cuts from {}", result->count, bc_path);
       } else {

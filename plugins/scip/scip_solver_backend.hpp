@@ -69,6 +69,11 @@ struct ScipModel
   std::vector<double> row_ub {};
   std::vector<std::map<int, double>> row_entries {};
 
+  /// Native objective offset (raw/scaled units).  Absolute value; applied via
+  /// `SCIPaddOrigObjoffset` in `scip_build_problem` (once per fresh build, so
+  /// the additive SCIP call honours the absolute value on every rebuild).
+  double obj_offset {0.0};
+
   [[nodiscard]] ScipModel clone() const { return *this; }
 };
 
@@ -138,6 +143,7 @@ public:
   void set_col_lower(int index, double value) override;
   void set_col_upper(int index, double value) override;
   void set_obj_coeff(int index, double value) override;
+  void set_obj_offset(double raw_offset) noexcept override;
 
   // ---- row ops ----
   void add_row(int num_elements,

@@ -214,6 +214,16 @@ void CuOptSolverBackend::set_obj_coeff(int index, double value)
   m_model_.col_obj[static_cast<size_t>(index)] = value;
 }
 
+void CuOptSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  The host model carries the constant into
+  // `cuOptCreateRangedProblem` (`objective_offset`) at solve time, and
+  // `clone()` deep-copies m_model_ — so storing it here is sufficient.  The
+  // LinearInterface re-calls this after every load_problem (which resets
+  // m_model_), keeping the offset current across reconstructs.
+  m_model_.obj_offset = raw_offset;
+}
+
 // ---- row ops --------------------------------------------------------------
 
 void CuOptSolverBackend::add_row(int num_elements,

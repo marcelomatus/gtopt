@@ -271,6 +271,10 @@ void HighsSolverBackend::load_problem(int ncols,
   lp.num_col_ = ncols;
   lp.num_row_ = nrows;
   lp.sense_ = ObjSense::kMinimize;
+  // Native objective offset — HiGHS reports `Σ cⱼ xⱼ + offset_` and prices its
+  // MIP relative-gap against it.  Re-established on every (re)load; the
+  // LinearInterface also calls set_obj_offset right after load.
+  lp.offset_ = m_obj_offset_;
 
   // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   lp.col_cost_.assign(obj, obj + ncols);
@@ -365,6 +369,16 @@ void HighsSolverBackend::set_col_upper(int index, double value)
   const double current_lower =
       idx < lp.col_lower_.size() ? lp.col_lower_[idx] : 0.0;
   m_highs_->changeColBounds(index, current_lower, value);
+}
+
+void HighsSolverBackend::set_obj_offset(double raw_offset) noexcept
+{
+  // ABSOLUTE set.  Store for the next passModel (load_problem / clone) and
+  // push live onto the current model so an already-loaded LP reflects it.
+  m_obj_offset_ = raw_offset;
+  if (m_highs_->getNumCol() > 0 || m_highs_->getNumRow() > 0) {
+    m_highs_->changeObjectiveOffset(raw_offset);
+  }
 }
 
 void HighsSolverBackend::set_obj_coeff(int index, double value)
@@ -1057,6 +1071,9 @@ std::unique_ptr<SolverBackend> HighsSolverBackend::clone() const
   cloned->m_threads_ = m_threads_;
   cloned->m_presolve_ = m_presolve_;
   cloned->m_log_level_ = m_log_level_;
+  // passModel(getLp()) below carries HighsLp::offset_ natively; mirror the
+  // cached scalar so a later set_obj_offset/reload on the clone is consistent.
+  cloned->m_obj_offset_ = m_obj_offset_;
 
   // Suppress banner before passModel() (constructor's settings were
   // already applied by make_quiet_highs, but be explicit).

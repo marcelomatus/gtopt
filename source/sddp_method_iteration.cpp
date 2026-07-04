@@ -1137,14 +1137,12 @@ auto SDDPMethod::run_forward_pass_all_scenes(
     // the scene is healthy.
     rs.consecutive_structural_failures = 0;
     rs.terminal = false;
-    // Per-scene UB = Σ forward_objective + α-rebase offset (zero
-    // unless `SDDPOptions::boundary_cuts_mean_shift` is enabled,
-    // see `source/sddp_boundary_cuts.cpp` and
-    // `SDDPMethod::scene_alpha_offset`).  Same adjustment lives in
-    // the async path at `sddp_iteration.cpp:1577`; both must agree
-    // so the sync ↔ async UBs stay symmetric.
-    out.scene_upper_bounds[scene_index] =
-        *fwd + scene_alpha_offset(scene_index);
+    // Per-scene UB = Σ forward_objective.  The α-rebase constant c̄ is now
+    // folded into the first-phase master LP's native objective offset at
+    // boundary-cut load (see `SDDPMethod::initialize_solver`), so the
+    // forward-pass sum already carries it through phase 0's `get_obj_value()`.
+    // Adding `scene_alpha_offset()` here would double-count.
+    out.scene_upper_bounds[scene_index] = *fwd;
     ++out.scenes_solved;
     m_scenes_done_.fetch_add(1);
   }
@@ -1652,18 +1650,15 @@ void SDDPMethod::compute_iteration_bounds(
       continue;
     }
     upper += ir.scene_upper_bounds[scene];
-    // Per-scene LB = master.get_obj_value() + α-rebase offset.
-    // Mirrors the UB site above and the async path at
-    // `sddp_iteration.cpp:1663`: when the mean-shift opt-in fired,
-    // the master LP's `get_obj_value()` is short by `c̄_scene`, so
-    // we add it back here so the displayed LB matches the
-    // algebraically-original physical objective.  Zero when no
-    // shift was applied.
+    // Per-scene LB = master.get_obj_value().  The α-rebase constant c̄ is
+    // folded into this first-phase master LP's native objective offset at
+    // boundary-cut load, so `get_obj_value()` already reflects the
+    // algebraically-original physical objective.  Adding
+    // `scene_alpha_offset()` here would double-count.
     const double lb_si = planning_lp()
                              .system(scene, first_phase_index())
                              .linear_interface()
-                             .get_obj_value()
-        + scene_alpha_offset(scene);
+                             .get_obj_value();
     ir.scene_lower_bounds[scene] = lb_si;
     lower += lb_si;
   }
