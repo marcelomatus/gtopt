@@ -215,11 +215,11 @@ TEST_CASE("auto_scale_lng_terminals — explicit VariableScale entry → skipped
   });
   // Pre-populate with explicit scale for uid=1
   planning.options.variable_scales.push_back(VariableScale {
-      .class_name = LngTerminal::class_name,
-      .variable = "energy",
+      .class_name {LngTerminal::class_name},
+      .variable {"energy"},
       .uid = Uid {1},
       .scale = 42.0,
-      .name = "lng1",
+      .name {"lng1"},
   });
 
   PlanningLP::auto_scale_lng_terminals(planning, kTestInfinity);

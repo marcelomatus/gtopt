@@ -42,6 +42,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 
 #include <gtopt/basic_types.hpp>
@@ -59,20 +60,40 @@ namespace gtopt
  */
 struct VariableScale
 {
-  /// Element class (e.g. `"Bus"`, `"Reservoir"`).  Stored as a
-  /// `std::string_view` so call sites can assign canonical constexpr
-  /// constants (e.g. `system_class_name`, `Bus::class_name.full_name()`)
-  /// without an intermediate string copy.  When populated by JSON
-  /// deserialisation, the underlying buffer is the parser's
-  /// daw::json owning string pool (kept alive by `Planning`'s
-  /// `m_json_strings_` arena).  `VariableScaleMap` copies the view
-  /// into an owning `std::string` key on construction.
-  std::string_view class_name {};
-  std::string_view variable {};  ///< Variable name (e.g. "theta", "energy")
+  /// Element class (e.g. `"Bus"`, `"Reservoir"`).  Owning `std::string`:
+  /// JSON deserialisation binds these zero-copy into the *transient* parse
+  /// buffer that `parse_planning_json` frees on return, so a
+  /// `std::string_view` here dangled — a heap-use-after-free later read by
+  /// `auto_scale_reservoirs` (found by ThreadSanitizer).  Owning the string
+  /// is correct and cheap; the programmatic call sites just build a small
+  /// string from a constexpr `full_name()`.  `VariableScaleMap` still holds
+  /// `string_view` keys into these strings — the source must outlive the map
+  /// (contract unchanged).
+  std::string class_name {};
+  std::string variable {};  ///< Variable name (e.g. "theta", "energy")
   Uid uid {unknown_uid};  ///< Element UID (unknown_uid = all elements)
   Real scale {1.0};  ///< physical = LP × scale
-  std::string_view name {};  ///< Element name (informational)
+  std::string name {};  ///< Element name (informational)
 };
+
+// Structural guard for the heap-use-after-free fixed here (found by TSan in
+// `auto_scale_reservoirs`).  These fields are deserialised zero-copy from the
+// TRANSIENT JSON parse buffer (`json_string_raw`), which `parse_planning_json`
+// frees on return — so they MUST own their storage.  If someone regresses one
+// to `std::string_view`, the programmatic sites (`.class_name {constant}`)
+// would still compile — binding a view into static constexpr data, safe THERE
+// — but every JSON-deserialised entry would silently dangle again,
+// reintroducing the bug.  This turns that regression into a compile error.
+static_assert(std::is_same_v<decltype(VariableScale::class_name), std::string>,
+              "VariableScale::class_name must be an owning std::string, not a "
+              "std::string_view: it is JSON-deserialised from the transient "
+              "parse buffer (see the field comment).");
+static_assert(std::is_same_v<decltype(VariableScale::variable), std::string>,
+              "VariableScale::variable must be an owning std::string — see "
+              "class_name.");
+static_assert(std::is_same_v<decltype(VariableScale::name), std::string>,
+              "VariableScale::name must be an owning std::string — see "
+              "class_name.");
 
 /**
  * @brief Lookup table for variable scales built from an array of
