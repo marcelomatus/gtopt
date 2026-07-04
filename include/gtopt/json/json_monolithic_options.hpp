@@ -254,7 +254,8 @@ struct MipStartOptionsConstructor
       std::optional<MipStartScipRepair> scip_repair,
       std::optional<MipStartInject> inject,
       OptName from_file,
-      OptName dump_file) const
+      OptName dump_file,
+      OptName seed_solution_file) const
   {
     return MipStartOptions {
         .enabled = enabled,
@@ -265,6 +266,7 @@ struct MipStartOptionsConstructor
         .inject = inject.value_or(MipStartInject {}),
         .from_file = std::move(from_file),
         .dump_file = std::move(dump_file),
+        .seed_solution_file = std::move(seed_solution_file),
     };
   }
 };
@@ -282,7 +284,8 @@ struct json_data_contract<MipStartOptions>
                        json_class_null<"scip_repair", MipStartScipRepair>,
                        json_class_null<"inject", MipStartInject>,
                        json_string_null<"from_file", OptName>,
-                       json_string_null<"dump_file", OptName>>;
+                       json_string_null<"dump_file", OptName>,
+                       json_string_null<"seed_solution_file", OptName>>;
 
   static auto to_json_data(MipStartOptions const& opt)
   {
@@ -294,7 +297,8 @@ struct json_data_contract<MipStartOptions>
         std::optional<MipStartScipRepair> {opt.scip_repair},
         std::optional<MipStartInject> {opt.inject},
         opt.from_file,
-        opt.dump_file);
+        opt.dump_file,
+        opt.seed_solution_file);
   }
 };
 

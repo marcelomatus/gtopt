@@ -28,10 +28,14 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
+
+#include <gtopt/basic_types.hpp>
 
 namespace gtopt
 {
@@ -53,6 +57,12 @@ struct CommitmentRunInfo
   /// Unit status just before the first block (u[-1]); the first period's logic
   /// row uses it as `u_prev`.  0 = initially off, 1 = initially on.
   double initial_status {0.0};
+  /// UID of the generator this commitment belongs to.  Together with the
+  /// per-block `block_uids`, it is the semantic (generator, block) key an
+  /// external-commitment seed (`SeedCommitmentRule`) matches on — so a seed
+  /// from another day / another tool lines up by identity, not raw column
+  /// index.  `unknown_uid` when unset (the seed rule then skips the unit).
+  Uid uid {unknown_uid};
   std::vector<int> status_cols {};
   /// Startup (v) and shutdown (w) RAW column indices, parallel to
   /// `status_cols` (same chronological block ordering).  An entry is < 0 when
@@ -60,7 +70,29 @@ struct CommitmentRunInfo
   std::vector<int> startup_cols {};
   std::vector<int> shutdown_cols {};
   std::vector<double> durations {};
+  /// Block UIDs parallel to `status_cols` — the block half of the semantic
+  /// (generator, block) seed key.  Empty when no external seed is in play.
+  std::vector<Uid> block_uids {};
 };
+
+/// A dense external commitment seed: `seed_commitment_key(gen_uid, block_uid)`
+/// → status `u` (any value; the rule thresholds at 0.5).  Populated from an
+/// external solution (previous-day PLEXOS / gtopt, nearest-historical, an ML
+/// predictor, …) and consumed by `SeedCommitmentRule`.  The producer owns
+/// cross-day alignment (it emits keys in THIS case's (generator, block) space);
+/// gtopt just matches by identity.
+using SeedCommitmentMap = std::unordered_map<std::uint64_t, double>;
+
+/// Pack a (generator uid, block uid) pair into the `SeedCommitmentMap` key.
+/// Both uids are `int32`; cast through `uint32` so a negative sentinel keeps a
+/// stable bit pattern rather than sign-extending across the two halves.
+[[nodiscard]] constexpr std::uint64_t seed_commitment_key(
+    Uid gen_uid, Uid block_uid) noexcept
+{
+  return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(gen_uid))
+          << 32U)
+      | static_cast<std::uint64_t>(static_cast<std::uint32_t>(block_uid));
+}
 
 /// One storage / hydro injection unit's status (u) columns in chronological
 /// order, with a parallel flag marking which blocks the rule should seed ON.
@@ -179,6 +211,34 @@ public:
                           const DomainRuleContext& ctx) const override;
 };
 
+/// External-commitment seed rule: overwrite each commitment unit's status (u)
+/// with a value from an externally-supplied `SeedCommitmentMap`, matched by the
+/// semantic (generator uid, block uid) key.  Units / blocks absent from the
+/// seed are left at their rounded-relaxation value, so a partial seed (only the
+/// elements that exist in both the source solution and this case) is fine — the
+/// "existing elements" semantics.  Registered FIRST in the pipeline so the
+/// downstream rules repair FROM the seed: `CommitmentLogicRule` regenerates
+/// consistent v/w and `MinUpDownRule` mends run-lengths.  A strategy (previous-
+/// day PLEXOS / gtopt, nearest-historical, ML) is just a producer of the map;
+/// this rule is the single generic consumer.
+class SeedCommitmentRule final : public DomainRule
+{
+public:
+  explicit SeedCommitmentRule(SeedCommitmentMap seed)
+      : m_seed_(std::move(seed))
+  {
+  }
+  [[nodiscard]] std::string_view name() const noexcept override
+  {
+    return "seed_commitment";
+  }
+  [[nodiscard]] int apply(std::span<double> values,
+                          const DomainRuleContext& ctx) const override;
+
+private:
+  SeedCommitmentMap m_seed_;
+};
+
 /// An ordered set of `DomainRule`s applied as a pipeline.
 class DomainRulePipeline
 {
@@ -209,7 +269,12 @@ private:
 /// derives v/w from the final u).  Every rule is also data-gated: it no-ops
 /// when its slice of `DomainRuleContext` is empty, so registering by default is
 /// free for runs that don't supply the data.
+///
+/// When `seed` is non-empty a `SeedCommitmentRule` is registered FIRST (before
+/// every other rule), so an external commitment seed is the base the remaining
+/// rules repair.  An empty `seed` (the default) reproduces the legacy pipeline
+/// exactly.
 [[nodiscard]] DomainRulePipeline make_default_domain_rules(
-    const MipStartDomainRules& opts);
+    const MipStartDomainRules& opts, SeedCommitmentMap seed = {});
 
 }  // namespace gtopt

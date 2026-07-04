@@ -210,6 +210,14 @@ struct MipStartOptions
   /** @brief Optional path to DUMP this solve's integer solution to, after the
    * MIP solve completes.  A later run replays it via `from_file`. */
   OptName dump_file {};
+  /** @brief Optional path to an external commitment SEED — a CSV
+   * `generator_uid,block_uid,u` consumed by `SeedCommitmentRule` (registered
+   * FIRST in the domain pipeline).  Its (generator, block) statuses seed the
+   * rounded commitment for the elements it matches; unmatched elements keep the
+   * rounded-relaxation value, and the standard rules then repair v/w and
+   * run-lengths.  The generic loader — any strategy (previous-day PLEXOS /
+   * gtopt, nearest-historical, ML predictor) simply produces this CSV. */
+  OptName seed_solution_file {};
 
   void merge(MipStartOptions&& opts)
   {
@@ -221,6 +229,7 @@ struct MipStartOptions
     inject.merge(std::move(opts.inject));
     merge_opt(from_file, std::move(opts.from_file));
     merge_opt(dump_file, std::move(opts.dump_file));
+    merge_opt(seed_solution_file, std::move(opts.seed_solution_file));
 
     auto _ = std::move(opts);
   }
