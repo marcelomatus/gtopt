@@ -65,6 +65,11 @@ class ConversionOptions:
     spill_fcost_scale: float | None = None
     emin_eod_day1: bool | None = None
     battery_efin_pin: bool | None = None
+    # Exclude every PLEXOS Battery object (BESS) from the converted model,
+    # identified by PLEXOS class "Battery" (not name-matching).  Gates
+    # extraction, SSCC reserve provisions and UserConstraint battery terms
+    # consistently so the JSON loads with no unresolved references.
+    drop_batteries: bool | None = None
     hydro_min_mode: str | None = None
     # ── line losses / capacity ──────────────────────────────────────────
     nseg_losses: int | None = None
@@ -188,6 +193,7 @@ _ENV_BRIDGE: tuple[tuple[str, str, Any], ...] = (
     ("loss_sos2_auto", "GTOPT_LOSS_SOS2_AUTO", str),
     ("emin_eod_day1", "GTOPT_EMIN_EOD_DAY1", _str_bool_zero_one),
     ("battery_efin_pin", "GTOPT_BATTERY_PIN_EFIN", _str_bool_zero_one),
+    ("drop_batteries", "GTOPT_DROP_BATTERIES", _str_bool_one_only),
 )
 
 

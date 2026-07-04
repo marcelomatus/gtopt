@@ -490,6 +490,25 @@ def make_parser() -> argparse.ArgumentParser:
         help="drop the efin=eini pin (see --battery-efin-pin).",
     )
     parser.add_argument(
+        "--drop-batteries",
+        dest="drop_batteries",
+        action="store_true",
+        default=False,
+        help=(
+            "exclude ALL batteries (BESS) from the converted model, "
+            "identified by their PLEXOS class ``Battery`` (NOT by "
+            "name-matching).  Gates extraction, SSCC reserve provisions "
+            "and every UserConstraint battery coefficient term "
+            "(charge / discharge / energy / reserve provision) "
+            "consistently: ``battery_array`` is emitted empty, no "
+            "``provision_<bat>`` reserve rows are generated, and battery "
+            "UC terms are dropped as provably-zero contributions (a "
+            "dropped battery supplies 0 generation / load / reserve).  "
+            "Default OFF.  Use to produce a battery-free variant of a "
+            "PCP bundle without editing the source PLEXOS data."
+        ),
+    )
+    parser.add_argument(
         "--default-storage-loss",
         dest="default_storage_loss",
         action="store_true",
@@ -1120,6 +1139,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_sos2_auto": args.loss_sos2_auto,
         "emin_eod_day1": args.emin_eod_day1,
         "battery_efin_pin": args.battery_efin_pin,
+        "drop_batteries": args.drop_batteries,
         "soft_storage_bounds": getattr(args, "soft_storage_bounds", True),
         "auto_lift_lines": args.auto_lift_lines,
         "auto_lift_engine": args.auto_lift_engine,

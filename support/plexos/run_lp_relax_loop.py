@@ -65,12 +65,22 @@ def _grep_objective(log: Path) -> float | None:
 
 
 def process_case(
-    case_dir: Path, work: Path, gtopt_bin: str, *, lp_relax: bool = True
+    case_dir: Path,
+    work: Path,
+    gtopt_bin: str,
+    *,
+    lp_relax: bool = True,
+    time_limit: float = 7200.0,
 ) -> dict:
     name = case_dir.name
     d8 = name.replace("pcp_", "").replace("-", "")
     datos = case_dir / f"DATOS{d8}.zip.xz"
-    res: dict = {"case": name, "d8": d8, "mode": "lp-relax" if lp_relax else "mip"}
+    res: dict = {
+        "case": name,
+        "d8": d8,
+        "mode": "lp-relax" if lp_relax else "mip",
+        "time_limit": time_limit,
+    }
     if not datos.exists():
         res["error"] = f"missing {datos}"
         return res
@@ -147,6 +157,20 @@ def process_case(
         # MIP: branch & cut needs a basis at the root, so we let CPLEX cross
         # over there (the dual-recovery pass also crosses over on its own).
         solve_cmd += ["--set", "solver_options.crossover=none"]
+    else:
+        # MIP mode: disable the relax->round->domain_rules->inject warm start.
+        # On these PLEXOS cases its rounded commitment is infeasible (CPLEX:
+        # "No solution found from 1 MIP starts"), so CPLEX wastes the solve in
+        # repair and grinds the gap (10-19: 25 min, 1 solution).  With the
+        # warm start off CPLEX finds its own incumbent and converges far
+        # faster (10-19: ~352s to 1% gap).
+        solve_cmd += ["--set", "monolithic_options.mip_start.enabled=false"]
+    # Wall-clock cap (default 2h): CPLEX stops at the limit and returns the
+    # best incumbent found so far + its gap, rather than grinding the gap
+    # indefinitely.  Applies to both modes (LP-relax solves finish well
+    # inside it; the cap only bites the MIP).
+    if time_limit and time_limit > 0:
+        solve_cmd += ["--set", f"solver_options.time_limit={time_limit:g}"]
     solve_cmd += ["-l", json_path.stem]
     res["solve_rc"] = run(solve_cmd, cwd=outdir, log=solve_log)
     res["solve_secs"] = round(time.time() - t0, 1)
@@ -163,6 +187,13 @@ def main() -> int:
         action="store_true",
         help="MIP mode: convert WITHOUT --lp-relax (keep commitment "
         "integrality) and solve the full MIP.  Default is LP-relax.",
+    )
+    ap.add_argument(
+        "--time-limit",
+        type=float,
+        default=7200.0,
+        help="solver wall-clock limit in seconds (default 7200 = 2h). CPLEX "
+        "stops at the cap and returns the best incumbent found + its gap.",
     )
     ap.add_argument(
         "--gtopt-bin",
@@ -190,7 +221,13 @@ def main() -> int:
     for case_dir in cases:
         try:
             report.append(
-                process_case(case_dir, work, args.gtopt_bin, lp_relax=lp_relax)
+                process_case(
+                    case_dir,
+                    work,
+                    args.gtopt_bin,
+                    lp_relax=lp_relax,
+                    time_limit=args.time_limit,
+                )
             )
         except Exception as exc:  # noqa: BLE001
             report.append({"case": case_dir.name, "error": repr(exc)})
