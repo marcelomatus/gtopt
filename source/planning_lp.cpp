@@ -980,11 +980,11 @@ void PlanningLP::auto_scale_reservoirs(Planning& planning,
     const double energy_scale = scale_for(*emax / 1000.0);
     if (energy_scale > 1.0) {
       opts.variable_scales.push_back(VariableScale {
-          .class_name = Reservoir::class_name,
-          .variable = "energy",
+          .class_name {Reservoir::class_name.full_name()},
+          .variable {"energy"},
           .uid = rsv.uid,
           .scale = energy_scale,
-          .name = rsv.name,
+          .name {rsv.name},
       });
       ++energy_count;
     }
@@ -1064,11 +1064,11 @@ void PlanningLP::auto_scale_lng_terminals(Planning& planning,
     const double energy_scale = std::pow(10.0, std::ceil(std::log10(raw)));
 
     opts.variable_scales.push_back(VariableScale {
-        .class_name = LngTerminal::class_name,
-        .variable = "energy",
+        .class_name {LngTerminal::class_name.full_name()},
+        .variable {"energy"},
         .uid = lng.uid,
         .scale = energy_scale,
-        .name = lng.name,
+        .name {lng.name},
     });
     ++count;
   }

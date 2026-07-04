@@ -1922,8 +1922,8 @@ private:
     if (!has_entry(Bus::class_name, "theta")) {
       const auto st = opts.model_options.scale_theta.value_or(1.0);
       opts.variable_scales.push_back(VariableScale {
-          .class_name = Bus::class_name,
-          .variable = "theta",
+          .class_name {Bus::class_name.full_name()},
+          .variable {"theta"},
           .scale = st,
       });
     }
@@ -1935,8 +1935,8 @@ private:
         && opts.sddp_options.scale_alpha.has_value())
     {
       opts.variable_scales.push_back(VariableScale {
-          .class_name = sddp_class_name,
-          .variable = "alpha",
+          .class_name {sddp_class_name},
+          .variable {"alpha"},
           .scale = *opts.sddp_options.scale_alpha,
       });
     }
