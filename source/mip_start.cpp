@@ -13,6 +13,9 @@
 #include <string>
 #include <unordered_set>
 
+#include <arrow/api.h>
+#include <arrow/csv/api.h>
+#include <arrow/io/api.h>
 #include <gtopt/domain_rules.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/mip_start.hpp>
@@ -63,9 +66,24 @@ namespace detail
   }
   // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  Built
   // per call from the per-stage toggles in `ctx.opts.domain_rules`; the rules
-  // themselves are stateless and `const`-applied.
+  // themselves are stateless and `const`-applied.  An optional external
+  // commitment seed (any strategy's CSV) is loaded here and registered as the
+  // FIRST rule, so the seed is the base the remaining rules repair.
+  SeedCommitmentMap seed;
+  if (const auto& sf = ctx.opts.seed_solution_file;
+      sf.has_value() && !sf->empty())
+  {
+    if (auto loaded = load_seed_commitment(*sf)) {
+      seed = std::move(*loaded);
+    } else {
+      spdlog::warn("MIP-start[{}]: seed_solution_file '{}' not loaded: {}",
+                   generator_name,
+                   *sf,
+                   loaded.error().message);
+    }
+  }
   const DomainRulePipeline pipeline =
-      make_default_domain_rules(ctx.opts.domain_rules);
+      make_default_domain_rules(ctx.opts.domain_rules, std::move(seed));
   const int flipped = pipeline.apply(start,
                                      DomainRuleContext {
                                          .commitments = ctx.commitments,
@@ -329,6 +347,103 @@ std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
   spdlog::info(
       "MIP-start dump: wrote {} integer columns to '{}'", ints.size(), path);
   return {};
+}
+
+std::expected<SeedCommitmentMap, Error> load_seed_commitment(
+    const std::string& path)
+{
+  // Reuse the Arrow CSV reader — the same path boundary_cuts.csv takes
+  // (`sddp_cut_io.cpp`) — so header detection, CRLF, quoting, blank-line
+  // skipping and type inference are handled by a battle-tested reader instead
+  // of a bespoke parser.  Required header + columns: `generator_uid` (int),
+  // `block_uid` (int), `u` (0/1 status).
+  auto maybe_infile = arrow::io::ReadableFile::Open(path);
+  if (!maybe_infile.ok()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("MIP-start seed: cannot open '{}': {}",
+                               path,
+                               maybe_infile.status().ToString()),
+    });
+  }
+
+  auto read_options = arrow::csv::ReadOptions::Defaults();
+  auto parse_options = arrow::csv::ParseOptions::Defaults();
+  auto convert_options = arrow::csv::ConvertOptions::Defaults();
+  convert_options.column_types["generator_uid"] = arrow::int32();
+  convert_options.column_types["block_uid"] = arrow::int32();
+  convert_options.column_types["u"] = arrow::float64();
+  convert_options.include_missing_columns = false;
+
+  auto maybe_reader =
+      arrow::csv::TableReader::Make(arrow::io::default_io_context(),
+                                    *maybe_infile,
+                                    read_options,
+                                    parse_options,
+                                    convert_options);
+  if (!maybe_reader.ok()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("MIP-start seed: unreadable CSV '{}': {}",
+                               path,
+                               maybe_reader.status().ToString()),
+    });
+  }
+  auto maybe_table = (*maybe_reader)->Read();
+  if (!maybe_table.ok()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("MIP-start seed: parse failed on '{}': {}",
+                               path,
+                               maybe_table.status().ToString()),
+    });
+  }
+  // Combine chunks so the three columns are single, row-aligned arrays.
+  auto maybe_combined = (*maybe_table)->CombineChunks();
+  if (!maybe_combined.ok()) {
+    return std::unexpected(Error {
+        .code = ErrorCode::FileIOError,
+        .message = std::format("MIP-start seed: combine failed on '{}': {}",
+                               path,
+                               maybe_combined.status().ToString()),
+    });
+  }
+  const auto& table = *maybe_combined;
+
+  const auto gcol = table->GetColumnByName("generator_uid");
+  const auto bcol = table->GetColumnByName("block_uid");
+  const auto ucol = table->GetColumnByName("u");
+  if (gcol == nullptr || bcol == nullptr || ucol == nullptr) {
+    return std::unexpected(Error {
+        .code = ErrorCode::InvalidInput,
+        .message = std::format(
+            "MIP-start seed '{}': need columns generator_uid, block_uid, u",
+            path),
+    });
+  }
+
+  SeedCommitmentMap seed;
+  seed.reserve(static_cast<std::size_t>(table->num_rows()));
+  for (int ci = 0; ci < gcol->num_chunks(); ++ci) {
+    const auto ga =
+        std::dynamic_pointer_cast<arrow::Int32Array>(gcol->chunk(ci));
+    const auto ba =
+        std::dynamic_pointer_cast<arrow::Int32Array>(bcol->chunk(ci));
+    const auto ua =
+        std::dynamic_pointer_cast<arrow::DoubleArray>(ucol->chunk(ci));
+    if (!ga || !ba || !ua) {
+      continue;
+    }
+    for (int64_t i = 0; i < ga->length(); ++i) {
+      if (ga->IsValid(i) && ba->IsValid(i) && ua->IsValid(i)) {
+        seed[seed_commitment_key(ga->Value(i), ba->Value(i))] = ua->Value(i);
+      }
+    }
+  }
+  spdlog::info("MIP-start seed: loaded {} (generator,block) statuses from '{}'",
+               seed.size(),
+               path);
+  return seed;
 }
 
 std::expected<MipStartReport, Error> apply_mip_start(

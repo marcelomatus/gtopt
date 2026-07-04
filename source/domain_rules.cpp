@@ -145,9 +145,46 @@ int DomainRulePipeline::apply(std::span<double> values,
   return total;
 }
 
-DomainRulePipeline make_default_domain_rules(const MipStartDomainRules& opts)
+int SeedCommitmentRule::apply(std::span<double> values,
+                              const DomainRuleContext& ctx) const
+{
+  if (m_seed_.empty()) {
+    return 0;
+  }
+  int flipped = 0;
+  for (const auto& c : ctx.commitments) {
+    if (c.uid == unknown_uid) {
+      continue;  // no generator identity → cannot match a semantic seed
+    }
+    const std::size_t n = std::min(c.status_cols.size(), c.block_uids.size());
+    for (std::size_t t = 0; t < n; ++t) {
+      const auto it = m_seed_.find(seed_commitment_key(c.uid, c.block_uids[t]));
+      if (it == m_seed_.end()) {
+        continue;  // this (generator, block) is absent from the seed →
+                   // keep the rounded-relaxation value ("existing elements")
+      }
+      const bool want_on = (it->second >= 0.5);
+      auto& v = values[static_cast<std::size_t>(c.status_cols[t])];
+      if ((v >= 0.5) != want_on) {
+        ++flipped;
+      }
+      v = want_on ? 1.0 : 0.0;
+    }
+  }
+  return flipped;
+}
+
+DomainRulePipeline make_default_domain_rules(const MipStartDomainRules& opts,
+                                             SeedCommitmentMap seed)
 {
   DomainRulePipeline pipeline;
+  // External commitment seed runs FIRST: it lays down the base commitment that
+  // every following rule then repairs (v/w consistency via CommitmentLogicRule,
+  // run-length via MinUpDownRule).  An empty seed is skipped, reproducing the
+  // legacy pipeline exactly.
+  if (!seed.empty()) {
+    pipeline.add(std::make_unique<SeedCommitmentRule>(std::move(seed)));
+  }
   if (opts.min_up_down.value_or(true)) {
     pipeline.add(std::make_unique<MinUpDownRule>());
   }

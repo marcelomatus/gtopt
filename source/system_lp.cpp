@@ -1797,6 +1797,7 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
             .min_up_hours = comm.commitment().min_up_time.value_or(0.0),
             .min_down_hours = comm.commitment().min_down_time.value_or(0.0),
             .initial_status = comm.commitment().initial_status.value_or(0.0),
+            .uid = element<GeneratorLP>(comm.generator_sid()).uid(),
         };
         for (const auto& stage : phase().stages()) {
           const auto* ucols = comm.find_status_cols(scenario, stage);
@@ -1812,6 +1813,7 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
             }
             info.status_cols.push_back(static_cast<int>(it->second));
             info.durations.push_back(blk.duration());
+            info.block_uids.push_back(value_of(blk.uid()));
             int vcol = -1;
             int wcol = -1;
             if (vcols != nullptr) {

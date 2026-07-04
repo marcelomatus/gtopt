@@ -162,4 +162,20 @@ public:
 [[nodiscard]] std::expected<void, Error> dump_integer_solution(
     const LinearInterface& li, const std::string& path);
 
+/// Load an external commitment seed from a CSV read through the Arrow CSV
+/// reader (the same path as boundary_cuts.csv).  Required header + columns:
+/// `generator_uid` (int), `block_uid` (int), `u` (0/1 status, thresholded at
+/// 0.5 by `SeedCommitmentRule`); extra columns are ignored.  The PRODUCER owns
+/// cross-day alignment — it must emit keys in the TARGET case's (generator,
+/// block) uid space; gtopt matches purely by identity, so any strategy
+/// (previous-day PLEXOS / gtopt, nearest-historical, an ML predictor) is just a
+/// producer of this CSV.
+///
+/// @return the `(generator,block) → u` seed map, a `FileIOError` when the path
+///         cannot be opened / parsed, or an `InvalidInput` error when a
+///         required column is missing (a header-only file yields an empty map,
+///         which the pipeline treats as "no seed").
+[[nodiscard]] std::expected<SeedCommitmentMap, Error> load_seed_commitment(
+    const std::string& path);
+
 }  // namespace gtopt
