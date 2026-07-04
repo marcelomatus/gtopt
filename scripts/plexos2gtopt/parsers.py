@@ -3429,7 +3429,26 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
     from ``t_data`` on the System→Batteries collection. CEN PCP
     bundles ship a single ``Max Power`` (symmetric charge/discharge);
     efficiencies arrive in percent and are scaled to fractions here.
+
+    When ``GTOPT_DROP_BATTERIES=1`` (``--drop-batteries``) is set every
+    PLEXOS Battery object is excluded from the model — the function
+    returns an EMPTY tuple after logging the count of dropped objects
+    (mirrors the ``_AUX`` skip INFO below).  Downstream this empties
+    ``battery_array``, suppresses the SSCC BESS reserve provisions
+    (``extract_sscc_bess_provisions`` yields nothing for an empty
+    ``batteries``) and makes the UserConstraint builder drop every
+    Battery-class coefficient term as a provably-zero contribution.
     """
+    import os as _os  # noqa: PLC0415
+
+    if _os.environ.get("GTOPT_DROP_BATTERIES", "0").lower() in ("1", "true", "yes"):
+        n_batt = sum(1 for _ in db.objects_of_class("Battery"))
+        logger.info(
+            "--drop-batteries: excluding all %d PLEXOS Battery object(s) "
+            "(BESS) from the converted model.",
+            n_batt,
+        )
+        return ()
     bus_map = _battery_bus_map(db)
     ini_soc_pct: dict[str, list[float]] = {}
     if bundle.has("BESS_IniValue.csv"):
@@ -3571,9 +3590,9 @@ def extract_batteries(db: PlexosDb, bundle: PlexosBundle) -> tuple[BatterySpec, 
         # default ``GTOPT_BATTERY_PIN_EFIN=1`` keeps the historic
         # behaviour (efin=eini hard pin) so existing test cases
         # don't drift.
-        import os as _os_efin
-
-        _pin = _os_efin.environ.get("GTOPT_BATTERY_PIN_EFIN", "1").strip()
+        # ``_os`` was imported at the top of ``extract_batteries`` (for
+        # the ``--drop-batteries`` early return); reuse it here.
+        _pin = _os.environ.get("GTOPT_BATTERY_PIN_EFIN", "1").strip()
         pin_efin = _pin not in ("0", "false", "False", "no", "NO", "off")
         out.append(
             BatterySpec(
@@ -7987,6 +8006,7 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
     lax_refs: bool = False,
     reserves: tuple[ReserveSpec, ...] = (),
     plexos_legacy: bool = False,
+    drop_batteries: bool = False,
 ) -> tuple[UserConstraintSpec, ...]:
     """Translate PLEXOS ``Constraint`` objects into gtopt UserConstraints.
 
@@ -8733,6 +8753,32 @@ def extract_user_constraints(  # pylint: disable=too-many-arguments
                         constr.name,
                         accessor,
                         parent_name,
+                    )
+                    continue
+                # --drop-batteries: every PLEXOS Battery object was
+                # excluded from the model, so any Battery-class
+                # coefficient term — direct ``battery(<name>).charge /
+                # .discharge / .energy`` OR ``reserve_provision(
+                # "provision_<name>").{up,dn}`` — references an element
+                # gtopt never emits.  A dropped battery supplies 0
+                # generation / load / reserve, so the term contributes
+                # ``coeff × 0 = 0`` to the LHS: drop it silently exactly
+                # as ``unusable_provisions`` terms are dropped, rather
+                # than routing it to the fail-hard unresolved-reference
+                # path below.  Gated on the explicit ``drop_batteries``
+                # signal (NOT merely an empty Battery allow-list) so the
+                # strict dangling-reference contract is preserved for
+                # every non-flag conversion.
+                if drop_batteries and parent_class == "Battery":
+                    silent_zero_drops += 1
+                    logger.debug(
+                        "constraint %s: dropping Battery term "
+                        '%s("%s").%s (--drop-batteries: battery excluded; '
+                        "term contributes 0)",
+                        constr.name,
+                        gtopt_class,
+                        ref_name,
+                        accessor,
                     )
                     continue
                 # The term is unresolvable when EITHER the underlying
@@ -11467,6 +11513,19 @@ def extract_case(
         for p in case.reserve_provisions
         if not p.reserve_zones
     )
+    # ``--drop-batteries`` (``GTOPT_DROP_BATTERIES=1``): batteries were
+    # excluded from the model above (``extract_batteries`` returned ``()``),
+    # so ``case.batteries`` is empty and every Battery-class UC coefficient
+    # term must be dropped as a provably-zero contribution rather than
+    # tripping the hard-fail unresolved-reference contract.  Read the env
+    # signal directly (same bridge the extractor consults) and thread it
+    # into the UC builder.  Reuse the ``_os_rs`` alias already imported
+    # near the top of ``extract_case`` (avoids a second ``import os``).
+    drop_batteries = _os_rs.environ.get("GTOPT_DROP_BATTERIES", "0").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     base_ucs = extract_user_constraints(
         db,
         bundle,
@@ -11482,6 +11541,7 @@ def extract_case(
         lax_refs=lax_uc_refs,
         reserves=reserves,
         plexos_legacy=plexos_legacy,
+        drop_batteries=drop_batteries,
     )
     # Tighten oversized decision-variable big-M availability gates
     # (``output - 100000*dv <= 0``) down to the gated entity's real max
