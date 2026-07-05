@@ -124,6 +124,15 @@ public:
   [[nodiscard]] bool is_continuous(int index) const override;
   [[nodiscard]] bool is_integer(int index) const override;
 
+  // NOTE: add_sos2 is deliberately NOT overridden.  MindOpt 2.3.0 has a
+  // working MDOaddsos API but its optimizer mis-handles SOS2 on real
+  // models — silent NON-ENFORCEMENT (returns non-adjacent nonzeros
+  // while reporting OPTIMAL on the two-bus loss fixture) and spurious
+  // INFEASIBLE (meshed IEEE 4-bus, 5 SOS2 sets); both reproduced with
+  // minimal MDOreadmodel probes on 2026-07-05, independent of
+  // Presolve/Method settings.  The base-class fail-fast throw is safer
+  // than silently wrong results; revisit when upstream fixes it.
+
   // ---- solution access ----
   [[nodiscard]] const double* col_lower() const override;
   [[nodiscard]] const double* col_upper() const override;
