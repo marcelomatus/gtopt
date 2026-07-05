@@ -1160,6 +1160,15 @@ void PlanningLP::build_aperture_systems(const LpMatrixOptions& flat_opts)
   // (aperture systems only ever run under sddp/cascade).
   auto resolved_opts = flat_opts;
   if (resolved_opts.solver_name.empty()) {
+    // Planning-level pin first (options.lp_matrix_options.solver_name —
+    // programmatic, e.g. a test fixture pinning itself away from a
+    // backend); only when that is also empty fall through to the process
+    // default (GTOPT_SOLVER env / plugin priority).  Without this step
+    // the pin was silently ignored and cascade levels always re-resolved
+    // to the default solver.
+    resolved_opts.solver_name = m_options_.lp_solver_name();
+  }
+  if (resolved_opts.solver_name.empty()) {
     resolved_opts.solver_name =
         std::string(SolverRegistry::instance().default_solver());
   }
@@ -1316,6 +1325,15 @@ auto PlanningLP::create_systems(System& system,
   // Thread the run-lifetime spill store down to each cell's
   // `create_linear_interface` (null disables spilling).
   resolved_opts.name_store = name_store;
+  if (resolved_opts.solver_name.empty()) {
+    // Planning-level pin first (options.lp_matrix_options.solver_name —
+    // programmatic, e.g. a test fixture pinning itself away from a
+    // backend); only when that is also empty fall through to the process
+    // default (GTOPT_SOLVER env / plugin priority).  Without this step
+    // the pin was silently ignored and cascade levels always re-resolved
+    // to the default solver.
+    resolved_opts.solver_name = options.lp_solver_name();
+  }
   if (resolved_opts.solver_name.empty()) {
     resolved_opts.solver_name =
         std::string(SolverRegistry::instance().default_solver());

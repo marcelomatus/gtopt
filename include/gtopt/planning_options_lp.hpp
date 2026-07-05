@@ -739,6 +739,16 @@ public:
     return m_options_.lp_fingerprint.value_or(false);
   }
 
+  /// Solver backend pinned at the planning level via
+  /// ``options.lp_matrix_options.solver_name`` (programmatic API — the
+  /// field is not JSON-mapped).  Empty = no pin; callers fall through to
+  /// ``SolverRegistry::default_solver()`` (GTOPT_SOLVER env / priority).
+  [[nodiscard]] constexpr auto lp_solver_name() const noexcept
+      -> const std::string&
+  {
+    return m_options_.lp_matrix_options.solver_name;
+  }
+
   /**
    * @brief Gets the LP coefficient ratio threshold for conditioning
    * diagnostics.
