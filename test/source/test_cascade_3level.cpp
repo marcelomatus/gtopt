@@ -329,6 +329,14 @@ TEST_CASE(  // NOLINT
   constexpr std::size_t n_scenes = 10;
   constexpr double efin_target = 150.0;
 
+  const auto pinned_solver = pick_non_mindopt_solver();
+  if (pinned_solver.empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
+
   // run_case owns its PlanningLP so the LP stays alive while we read
   // level stats.  Returns nullopt only on solver failure.
   auto run_case = [&](const OptReal& efin_cost_opt)
@@ -339,6 +347,7 @@ TEST_CASE(  // NOLINT
       r.efin = OptReal {efin_target};
       r.efin_cost = efin_cost_opt;
     }
+    planning.options.lp_matrix_options.solver_name = pinned_solver;
     PlanningLP plp(std::move(planning));
 
     SDDPOptions base;

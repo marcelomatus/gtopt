@@ -98,6 +98,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Solver registry crash on failed plugin validation**: requesting a
+  solver whose plugin fails subprocess validation (e.g. a transient
+  license error) crashed with SIGSEGV instead of falling back to the
+  next backend — an erased-iterator increment in
+  `SolverRegistry::ensure_solver_loaded`.
+- **Planning-level solver pin honored**: the programmatic
+  `options.lp_matrix_options.solver_name` pin was silently ignored —
+  LP construction always re-resolved the default solver (GTOPT_SOLVER /
+  plugin priority), including across cascade levels.
+- **MindOpt backend**: `MDOstartenv` license validation is retried with
+  backoff (transient `MDO_INVALID_LICENSE` under heavy parallel load);
+  `LIBMILP_PATH` is self-derived from the loaded `libmindopt.so` so MIP
+  solves work without user environment setup.  SOS2 stays unsupported
+  on purpose: MindOpt 2.3.0 mis-handles SOS2 on real models (silent
+  non-enforcement or spurious infeasibility — verified with minimal
+  probes), so the fail-fast "switch solver" error is kept.
 - **Exit codes**: the solver now returns correct exit codes (0=optimal,
   1=non-optimal, 2=input error, 3=internal error) instead of always
   returning 0.

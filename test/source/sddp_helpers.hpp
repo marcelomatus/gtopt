@@ -15,6 +15,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/sddp_method.hpp>
+#include <gtopt/solver_registry.hpp>
 
 #include "fixture_helpers.hpp"
 
@@ -24,6 +25,28 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
+
+/// First available non-MindOpt LP solver backend, or "" when only MindOpt
+/// is available.
+///
+/// The dual±1 fixtures (deliberately degenerate ±1 state duals at the
+/// elastic feasibility boundary) wedge the MindOpt simplex: observed
+/// 2026-07-04 spinning >35 min at 100% CPU on solves that take seconds
+/// under CPLEX/HiGHS/CLP.  Tests built on those fixtures pin to a
+/// non-MindOpt backend via `planning.options.lp_matrix_options.solver_name`
+/// and skip when none is available — mirroring the CPLEX ElasticFilterMode
+/// pin (ee73972a).
+[[nodiscard]] inline auto pick_non_mindopt_solver() -> std::string
+{
+  auto& reg = gtopt::SolverRegistry::instance();
+  reg.load_all_plugins();
+  for (const auto* candidate : {"cplex", "highs", "cbc", "clp", "scip"}) {
+    if (reg.has_solver(candidate)) {
+      return candidate;
+    }
+  }
+  return {};
+}
 
 /// Create a 3-phase hydro+thermal planning problem.
 ///
