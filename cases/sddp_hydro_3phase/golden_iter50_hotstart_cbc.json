@@ -1,0 +1,39 @@
+{
+  "// description": [
+    "CBC golden variant for the SDDP cut-I/O hot-start round-trip case",
+    "(sddp_hydro_3phase_hotstart_save / _load).  Like the shared golden",
+    "this checks the converged policy reproduced from the loaded cut set,",
+    "but pins only the solver-robust invariants: total objective (phase 1",
+    "obj_value = 323 100), the drained terminal reservoir, and the",
+    "marginal balance dual.  CBC walks a different degenerate-optimum",
+    "corner than CLP, so the per-phase obj split and the phase-1 dispatch",
+    "pinned by the shared golden do not transfer.  No `solver_status`",
+    "block because iter=0 (sim-only) runs do not emit solver_status.json."
+  ],
+  "tolerance": {
+    "abs": 1.0,
+    "rel": 1.0e-4
+  },
+  "objective_value": 323100.0,
+  "solution_csv_rows": [
+    {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0}
+  ],
+  "element_samples": [
+    {
+      "// Reservoir final energy — end of phase 3, stage 3 (drained):": "",
+      "class": "Reservoir",
+      "stem": "efin_sol",
+      "filter": {"scene": 0, "phase": 3, "stage": 3},
+      "value_column": "uid:1",
+      "expected": 0.0
+    },
+    {
+      "// Bus balance dual = marginal cost — thermal gcost dominates:": "",
+      "class": "Bus",
+      "stem": "balance_dual",
+      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
+      "value_column": "uid:1",
+      "expected": 50.0
+    }
+  ]
+}

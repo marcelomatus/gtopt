@@ -123,8 +123,11 @@ TEST_CASE(  // NOLINT
   REQUIRE(b_upp != nullptr);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(a_low[i] == doctest::Approx(b_low[i]));
-    CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
+    // Exact-equality escape hatch: backends with true IEEE infinities
+    // (HiGHS) fail `inf == Approx(inf)` (inf - inf = NaN) on untouched
+    // infinite bounds; finite-sentinel backends (COIN DBL_MAX) don't.
+    CHECK((a_low[i] == b_low[i] || a_low[i] == doctest::Approx(b_low[i])));
+    CHECK((a_upp[i] == b_upp[i] || a_upp[i] == doctest::Approx(b_upp[i])));
   }
 }
 
@@ -165,8 +168,11 @@ TEST_CASE(  // NOLINT
   REQUIRE(b_upp != nullptr);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(a_low[i] == doctest::Approx(b_low[i]));
-    CHECK(a_upp[i] == doctest::Approx(b_upp[i]));
+    // Exact-equality escape hatch: backends with true IEEE infinities
+    // (HiGHS) fail `inf == Approx(inf)` (inf - inf = NaN) on untouched
+    // infinite bounds; finite-sentinel backends (COIN DBL_MAX) don't.
+    CHECK((a_low[i] == b_low[i] || a_low[i] == doctest::Approx(b_low[i])));
+    CHECK((a_upp[i] == b_upp[i] || a_upp[i] == doctest::Approx(b_upp[i])));
   }
   // Sanity: col 0 ends up at [3, 3], col 1 at [7, 7].
   CHECK(b_low[0] == doctest::Approx(3.0));
@@ -201,10 +207,13 @@ TEST_CASE(  // NOLINT
   backend->fill_col_upper(after_upp);
   for (int i = 0; i < BulkLP4::ncols; ++i) {
     CAPTURE(i);
-    CHECK(before_low.at(static_cast<size_t>(i))
-          == doctest::Approx(after_low.at(static_cast<size_t>(i))));
-    CHECK(before_upp.at(static_cast<size_t>(i))
-          == doctest::Approx(after_upp.at(static_cast<size_t>(i))));
+    const auto ui = static_cast<size_t>(i);
+    // Exact-equality escape hatch for true-IEEE-infinity backends
+    // (HiGHS): `inf == Approx(inf)` is false (inf - inf = NaN).
+    CHECK((before_low.at(ui) == after_low.at(ui)
+           || before_low.at(ui) == doctest::Approx(after_low.at(ui))));
+    CHECK((before_upp.at(ui) == after_upp.at(ui)
+           || before_upp.at(ui) == doctest::Approx(after_upp.at(ui))));
   }
 }
 
