@@ -14,6 +14,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -25,6 +26,7 @@
 #include <gtopt/ampl_variable.hpp>
 #include <gtopt/block_lp.hpp>
 #include <gtopt/integer_variable.hpp>
+#include <gtopt/map_reserve.hpp>
 #include <gtopt/phase_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -584,7 +586,7 @@ public:
   /// `PlanningLP` when PAMPL evaluation is requested.
   void set_need_ampl_variables(bool v) noexcept { m_need_ampl_variables_ = v; }
 
-  [[nodiscard]] constexpr bool need_ampl_variables() const noexcept
+  [[nodiscard]] bool need_ampl_variables() const noexcept
   {
     return m_need_ampl_variables_;
   }
@@ -1006,8 +1008,34 @@ public:
                              std::string_view element_name,
                              Uid element_uid)
   {
-    m_ampl_element_names_.insert_or_assign(
+    // Accumulate only; the flat_map is bulk-loaded once by
+    // `finalize_ampl_element_names()`.  Inserting one-at-a-time here shifted
+    // the sorted backing vector per element — O(n^2), ~4% of LP-build CPU on
+    // large systems (case3375wp).
+    m_ampl_element_names_pending_.emplace_back(
         AmplElementNameKey {class_name, element_name}, element_uid);
+  }
+
+  /// Bulk-load the AMPL element-name registry from the pending buffer filled
+  /// by `register_ampl_element`.  Sorting once and inserting in ascending key
+  /// order makes every `insert_or_assign` land at the end of the flat_map's
+  /// backing vector (O(1) amortised) rather than shifting it (O(n)), turning
+  /// the former O(n^2) build into O(n log n).  Call exactly once, after all
+  /// `register_ampl_element` calls (see `register_all_ampl_element_names`).
+  void finalize_ampl_element_names()
+  {
+    auto& pending = m_ampl_element_names_pending_;
+    // Stable sort by key so that, among duplicate (class, name) keys, the
+    // original registration order is preserved and the LAST one wins — exactly
+    // the previous per-element `insert_or_assign` semantics.
+    std::ranges::stable_sort(
+        pending, {}, &std::pair<AmplElementNameKey, Uid>::first);
+    map_reserve(m_ampl_element_names_, pending.size());
+    for (const auto& [key, element_uid] : pending) {
+      m_ampl_element_names_.insert_or_assign(key, element_uid);
+    }
+    pending.clear();
+    pending.shrink_to_fit();
   }
 
   /// Look up an element Uid by (class_name, name).  Read-only during
@@ -1389,7 +1417,14 @@ private:
   // maps.  When false (default), it is a no-op — the maps stay empty,
   // saving allocation/hashing overhead for runs without user constraints
   // or PAMPL evaluation.
-  bool m_need_ampl_variables_ {false};
+  //
+  // Atomic: every parallel SystemLP constructor writes this flag on the
+  // shared SimulationLP (PlanningLP::create_systems' work-pool tasks) while
+  // add_ampl_variable() reads it during the same parallel build — a
+  // TSan-confirmed data race.  All cells write the same value (derived from
+  // the shared System's user_constraint_array), so relaxed atomicity is both
+  // race-free and semantically correct.
+  std::atomic<bool> m_need_ampl_variables_ {false};
 
   // PAMPL variable registry — populated by each LP element's add_to_lp
   // and queried by element_column_resolver.cpp.
@@ -1408,6 +1443,9 @@ private:
   // thereafter.
   mutable std::once_flag m_ampl_registry_flag_;
   AmplElementNameMap m_ampl_element_names_;
+  // Scratch buffer for `register_ampl_element`, drained + shrunk by
+  // `finalize_ampl_element_names()`.  Empty (zero capacity) after registration.
+  std::vector<std::pair<AmplElementNameKey, Uid>> m_ampl_element_names_pending_;
   AmplCompoundMap m_ampl_compounds_;
   AmplScalarMap m_ampl_scalars_;
 

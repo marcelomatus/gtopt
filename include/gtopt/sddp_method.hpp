@@ -62,6 +62,7 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -563,6 +564,7 @@ public:
   /// during this solve".
   [[nodiscard]] double global_max_kappa() const noexcept
   {
+    const std::lock_guard lk {m_max_kappa_mutex_};
     double gmax = m_seed_max_kappa_;
     for (const auto& phase_kappas : m_max_kappa_) {
       for (const auto k : phase_kappas) {
@@ -588,6 +590,7 @@ public:
   [[nodiscard]] double current_iter_max_kappa(
       IterationIndex iter) const noexcept
   {
+    const std::lock_guard lk {m_max_kappa_mutex_};
     double imax = -1.0;
     for (std::size_t s = 0; s < m_max_kappa_iter_.size(); ++s) {
       const auto& phase_iters = m_max_kappa_iter_[SceneIndex {s}];
@@ -615,6 +618,7 @@ public:
   void seed_max_kappa(double kappa) noexcept
   {
     if (kappa >= 0.0) {
+      const std::lock_guard lk {m_max_kappa_mutex_};
       m_seed_max_kappa_ = std::max(m_seed_max_kappa_, kappa);
     }
   }
@@ -727,6 +731,7 @@ public:
                         PhaseIndex phase_index,
                         double kappa) noexcept
   {
+    const std::lock_guard lk {m_max_kappa_mutex_};
     if (kappa >= 0.0) {
       m_max_kappa_[scene_index][phase_index] =
           std::max(m_max_kappa_[scene_index][phase_index], kappa);
@@ -750,6 +755,7 @@ public:
   [[nodiscard]] double max_kappa(SceneIndex scene_index,
                                  PhaseIndex phase_index) const noexcept
   {
+    const std::lock_guard lk {m_max_kappa_mutex_};
     return m_max_kappa_[scene_index][phase_index];
   }
 
@@ -1083,6 +1089,15 @@ private:
   /// standalone SDDP runs).
   double m_seed_max_kappa_ {-1.0};
 
+  /// Guards every read/write of the per-(scene,phase) kappa grid
+  /// (`m_max_kappa_` / `m_max_kappa_iter_` / `m_seed_max_kappa_`).
+  /// `update_max_kappa` runs concurrently from parallel forward / backward /
+  /// aperture solve tasks (write-write on the same cell across apertures) and
+  /// the per-iter log reads the whole grid concurrently — TSan-confirmed data
+  /// race.  Contention is negligible: locked once per LP solve and once per
+  /// iteration log, never in an inner loop.
+  mutable std::mutex m_max_kappa_mutex_;
+
   /// Per-scene retry state for `SDDPOptions::forward_infeas_rollback`.
   /// Public struct definition lives in the upper public block so the
   /// `scene_retry_state()` accessor (declared above) can return it.
@@ -1126,7 +1141,9 @@ private:
   SDDPIterationCallback m_iteration_callback_ {};
   std::atomic<bool> m_stop_requested_ {false};
   /// When true, should_stop() returns false (simulation pass ignores stops).
-  bool m_in_simulation_ {false};
+  /// Atomic: the orchestrator toggles it (solve_async) while forward-pass
+  /// worker threads read it (sddp_forward_pass.cpp) — TSan-confirmed race.
+  std::atomic<bool> m_in_simulation_ {false};
   /// Two-phase simulation flag: false during Pass 1 (fcut collection, no
   /// crossover, no write_out), true during Pass 2 (crossover on, inline
   /// write_out fused into each cell's solve task).  Always false outside
