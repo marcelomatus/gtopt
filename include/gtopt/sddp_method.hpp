@@ -62,7 +62,6 @@
 #include <expected>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -564,10 +563,11 @@ public:
   /// during this solve".
   [[nodiscard]] double global_max_kappa() const noexcept
   {
-    const std::lock_guard lk {m_max_kappa_mutex_};
-    double gmax = m_seed_max_kappa_;
-    for (const auto& phase_kappas : m_max_kappa_) {
-      for (const auto k : phase_kappas) {
+    double gmax = relaxed_load(m_seed_max_kappa_);
+    for (std::size_t s = 0; s < m_max_kappa_.size(); ++s) {
+      auto& phase_kappas = m_max_kappa_[SceneIndex {s}];
+      for (std::size_t p = 0; p < phase_kappas.size(); ++p) {
+        const double k = relaxed_load(phase_kappas[PhaseIndex {p}]);
         if (k >= 0.0) {
           gmax = std::max(gmax, k);
         }
@@ -590,16 +590,16 @@ public:
   [[nodiscard]] double current_iter_max_kappa(
       IterationIndex iter) const noexcept
   {
-    const std::lock_guard lk {m_max_kappa_mutex_};
     double imax = -1.0;
     for (std::size_t s = 0; s < m_max_kappa_iter_.size(); ++s) {
-      const auto& phase_iters = m_max_kappa_iter_[SceneIndex {s}];
-      const auto& phase_vals = m_max_kappa_[SceneIndex {s}];
+      auto& phase_iters = m_max_kappa_iter_[SceneIndex {s}];
+      auto& phase_vals = m_max_kappa_[SceneIndex {s}];
       for (std::size_t p = 0; p < phase_iters.size(); ++p) {
-        if (phase_iters[PhaseIndex {p}] == iter
-            && phase_vals[PhaseIndex {p}] >= 0.0)
-        {
-          imax = std::max(imax, phase_vals[PhaseIndex {p}]);
+        if (relaxed_load(phase_iters[PhaseIndex {p}]) == iter) {
+          const double v = relaxed_load(phase_vals[PhaseIndex {p}]);
+          if (v >= 0.0) {
+            imax = std::max(imax, v);
+          }
         }
       }
     }
@@ -618,8 +618,7 @@ public:
   void seed_max_kappa(double kappa) noexcept
   {
     if (kappa >= 0.0) {
-      const std::lock_guard lk {m_max_kappa_mutex_};
-      m_seed_max_kappa_ = std::max(m_seed_max_kappa_, kappa);
+      relaxed_max(m_seed_max_kappa_, kappa);
     }
   }
 
@@ -748,12 +747,11 @@ public:
                         PhaseIndex phase_index,
                         double kappa) noexcept
   {
-    const std::lock_guard lk {m_max_kappa_mutex_};
+    double& cell = m_max_kappa_[scene_index][phase_index];
     if (kappa >= 0.0) {
-      m_max_kappa_[scene_index][phase_index] =
-          std::max(m_max_kappa_[scene_index][phase_index], kappa);
-    } else if (m_max_kappa_[scene_index][phase_index] < 0.0) {
-      m_max_kappa_[scene_index][phase_index] = kappa;
+      relaxed_max(cell, kappa);
+    } else if (relaxed_load(cell) < 0.0) {
+      relaxed_store(cell, kappa);
     }
   }
 
@@ -772,11 +770,41 @@ public:
   [[nodiscard]] double max_kappa(SceneIndex scene_index,
                                  PhaseIndex phase_index) const noexcept
   {
-    const std::lock_guard lk {m_max_kappa_mutex_};
-    return m_max_kappa_[scene_index][phase_index];
+    return relaxed_load(m_max_kappa_[scene_index][phase_index]);
   }
 
 private:
+  // ── Lock-free kappa-grid access (std::atomic_ref, relaxed) ──────────
+  // The kappa grid (m_max_kappa_ / m_max_kappa_iter_ / m_seed_max_kappa_) is a
+  // monotone diagnostic aggregate: cells only grow toward a max, no other
+  // state is published through them, and the whole-grid readers tolerate an
+  // eventually-consistent (smeared) snapshot.  So per-cell relaxed atomics
+  // replace what would otherwise be a grid mutex — no thread ever blocks.
+  // update_max_kappa runs concurrently from parallel forward/backward/aperture
+  // solve tasks (write-write on the same cell across apertures) while the
+  // per-iter log reads the whole grid: a TSan-confirmed race, now race-free.
+  // The grid members are `mutable` so the const readers can form a non-const
+  // atomic_ref.
+  template<class T>
+  [[nodiscard]] static T relaxed_load(T& cell) noexcept
+  {
+    return std::atomic_ref<T> {cell}.load(std::memory_order_relaxed);
+  }
+  template<class T>
+  static void relaxed_store(T& cell, T value) noexcept
+  {
+    std::atomic_ref<T> {cell}.store(value, std::memory_order_relaxed);
+  }
+  /// Fold `value` into `cell` as a running max, lock-free (CAS loop).
+  static void relaxed_max(double& cell, double value) noexcept
+  {
+    std::atomic_ref<double> ref {cell};
+    double cur = ref.load(std::memory_order_relaxed);
+    while (value > cur
+           && !ref.compare_exchange_weak(cur, value, std::memory_order_relaxed))
+    {}
+  }
+
   /// Run update_lp for a single phase, setting prev_phase_sys for
   /// cross-phase physical_eini lookup.  Returns the number of updated
   /// LP elements.
@@ -1090,7 +1118,7 @@ private:
 
   /// Per-(scene, phase) maximum kappa (condition number) across all LP
   /// solves (forward, backward, aperture).  Updated after every solve call.
-  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, double>>
+  mutable StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, double>>
       m_max_kappa_;
 
   /// Per-(scene, phase) iteration index of the most recent kappa
@@ -1101,7 +1129,8 @@ private:
   /// 0 will overwrite it; subsequent iters either update with a fresh
   /// observation or leave the prior iter index in place, which
   /// :meth:`current_iter_max_kappa(iter)` then rejects.
-  StrongIndexVector<SceneIndex, StrongIndexVector<PhaseIndex, IterationIndex>>
+  mutable StrongIndexVector<SceneIndex,
+                            StrongIndexVector<PhaseIndex, IterationIndex>>
       m_max_kappa_iter_;
 
   /// Baseline kappa seeded by an earlier solver via :meth:`seed_max_kappa`
@@ -1111,16 +1140,7 @@ private:
   /// crossover leaves the new level's LPs without a queryable basis.
   /// Negative sentinel ``-1.0`` means "no seed" (back-compat with
   /// standalone SDDP runs).
-  double m_seed_max_kappa_ {-1.0};
-
-  /// Guards every read/write of the per-(scene,phase) kappa grid
-  /// (`m_max_kappa_` / `m_max_kappa_iter_` / `m_seed_max_kappa_`).
-  /// `update_max_kappa` runs concurrently from parallel forward / backward /
-  /// aperture solve tasks (write-write on the same cell across apertures) and
-  /// the per-iter log reads the whole grid concurrently — TSan-confirmed data
-  /// race.  Contention is negligible: locked once per LP solve and once per
-  /// iteration log, never in an inner loop.
-  mutable std::mutex m_max_kappa_mutex_;
+  mutable double m_seed_max_kappa_ {-1.0};
 
   /// Per-scene retry state for `SDDPOptions::forward_infeas_rollback`.
   /// Public struct definition lives in the upper public block so the
