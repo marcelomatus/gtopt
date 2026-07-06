@@ -26,6 +26,7 @@
       "backward_solver_options": {
         "algorithm": "dual"
       },
+      "basis_cross_mode": "full_cross",
       "convergence_tol": 0.01,
       "cut_coeff_eps": 1e-08,
       "cut_sharing_mode": "multicut",

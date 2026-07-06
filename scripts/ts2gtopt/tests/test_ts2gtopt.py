@@ -866,9 +866,10 @@ class TestWriteSchedule:
         write_schedule(df, out, output_format="parquet")
         assert out.exists()
         check_df = pd.read_parquet(out)
-        # _duration should be dropped
+        # _duration should be dropped; output is gtopt's long layout
         assert "_duration" not in check_df.columns
-        assert "uid:1" in check_df.columns
+        assert "uid" in check_df.columns
+        assert "value" in check_df.columns
         assert len(check_df) == 2
 
     def test_write_csv(self, tmp_path):
@@ -897,7 +898,8 @@ class TestWriteSchedule:
         write_schedule(df, out)
         loaded = pd.read_parquet(out)
         assert loaded["scenario"].dtype == "int32"
-        assert loaded["uid:1"].dtype == "float64"
+        assert loaded["uid"].dtype == "int32"
+        assert loaded["value"].dtype == "float64"
 
     def test_duration_not_in_schedule_file(self, tmp_path):
         """_duration is planning metadata – never written to schedule files."""
@@ -908,7 +910,8 @@ class TestWriteSchedule:
         write_schedule(result, out)
         loaded = pd.read_parquet(out)
         assert "_duration" not in loaded.columns
-        assert "uid:1" in loaded.columns
+        assert "uid" in loaded.columns
+        assert "value" in loaded.columns
 
 
 # ---------------------------------------------------------------------------
@@ -1004,7 +1007,8 @@ class TestConvertTimeseries:
         assert df["scenario"].dtype == "int32"
         assert df["stage"].dtype == "int32"
         assert df["block"].dtype == "int32"
-        assert df["uid:1"].dtype == "float64"
+        assert df["uid"].dtype == "int32"
+        assert df["value"].dtype == "float64"
 
     def test_duration_not_in_output_file(self, tmp_path):
         """write_schedule must strip _duration from the Parquet file."""

@@ -55,6 +55,7 @@ import numpy as np
 import pandas as pd
 
 from gtopt_shared.csv_io import write_csv
+from gtopt_shared.dataframe import to_long_layout
 
 logger = logging.getLogger(__name__)
 
@@ -957,9 +958,10 @@ def write_schedule(
     """Write a projected schedule DataFrame to Parquet or CSV.
 
     Internal metadata columns (those whose names begin with ``_``, such as
-    ``_duration``) are **dropped** before writing so that the output matches
-    the standard gtopt schedule format:
-    ``scenario  stage  block  uid:1  uid:2  …``
+    ``_duration``) are **dropped** before writing, and the per-element
+    ``uid:N`` value columns are melted into gtopt's long input layout —
+    rows of ``scenario  stage  block  uid  value`` — which is the only
+    shape gtopt's input reader accepts (wide-format input was removed).
 
     The parent directory is created automatically if it does not exist.
 
@@ -988,6 +990,14 @@ def write_schedule(
     write_df = df.drop(
         columns=[c for c in df.columns if c.startswith("_")], errors="ignore"
     )
+
+    # gtopt input tables are long-only: melt the wide per-element ``uid:N``
+    # columns into a single (uid, value) pair.  Frames that are not a
+    # recognisable wide field table (already long, or structural) pass
+    # through unchanged.
+    long_df = to_long_layout(write_df)
+    if long_df is not None:
+        write_df = long_df
 
     if output_format == "parquet":
         probed = _probe_parquet_codec(compression)

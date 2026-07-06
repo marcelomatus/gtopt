@@ -882,13 +882,13 @@ def convert_plp_case(options: dict[str, Any]) -> int:
 
         # Final step: re-emit the per-element field tables (incl. apertures
         # and FlowRights) in long layout — tidy ``[<index cols>, uid,
-        # value]``.  gtopt auto-detects and reads either shape; long is the
-        # default because Power BI / Power Query prefer it (no unpivot) and
-        # it matches gtopt's own solve-output default.  Deliberately the
-        # LAST step so every in-pipeline reader (stats, PLP-vs-gtopt
-        # comparison, post-check validation) still sees the wide files;
-        # structural tables are skipped automatically.  Per-file detection
-        # on the gtopt side makes even a partial conversion safe to read.
+        # value]``.  gtopt's input reader is long-ONLY (wide-format input
+        # was removed 2026-06-27); ``layout: "wide"`` remains available for
+        # tooling that inspects the intermediate tables, but such a case
+        # cannot be fed to gtopt.  Deliberately the LAST step so every
+        # in-pipeline reader (stats, PLP-vs-gtopt comparison, post-check
+        # validation) still sees the wide files; structural tables are
+        # skipped automatically.
         if not excel_output and options.get("layout", "long") == "long":
             n_long = convert_tree_to_long(output_dir, options)
             logger.debug("Converted %d field file(s) to long layout", n_long)
