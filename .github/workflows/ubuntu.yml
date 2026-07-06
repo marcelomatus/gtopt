@@ -263,6 +263,13 @@ jobs:
           echo "$BLOCK"
           # Workflow-command annotation: newlines must be %0A-escaped.
           printf '::error title=ctest failures::%s\n' "$(printf '%s' "$BLOCK" | tr '\n' '\r' | sed 's/\r/%0A/g')"
+          # Re-run the failed tests serially and annotate their output so
+          # the exact failing assertions are visible from the checks API.
+          cd build
+          export GTOPT_SOLVER=clp
+          ctest --rerun-failed --output-on-failure > rerun_failed.log 2>&1 || true
+          DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
+          printf '::error title=failing test output::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
 
       - name: prepare gtopt artifact
         run: |
