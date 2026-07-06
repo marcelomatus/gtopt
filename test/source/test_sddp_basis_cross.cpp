@@ -42,7 +42,8 @@ TEST_CASE("SddpOptions::basis_cross_mode defaults to nullopt")  // NOLINT
   CHECK_FALSE(opts.basis_cross_mode.has_value());
 }
 
-TEST_CASE("PlanningOptionsLP::sddp_basis_cross_mode defaults to full_cross")  // NOLINT
+TEST_CASE(
+    "PlanningOptionsLP::sddp_basis_cross_mode defaults to full_cross")  // NOLINT
 {
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
