@@ -33,6 +33,8 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "solver_test_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -145,7 +147,7 @@ TEST_CASE("Converter.commitment unset: hard static lmin/pmin floor")  // NOLINT
   // Converter commitment emits integer u columns; pin a MIP-capable
   // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
   // guard in LinearInterface::load_flat.
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -200,7 +202,7 @@ TEST_CASE("Converter.commitment=true: lmin/pmin migrated to u-gated rows")
   // Converter commitment emits integer u columns; pin a MIP-capable
   // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
   // guard in LinearInterface::load_flat.
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -260,7 +262,7 @@ TEST_CASE("Converter.commitment lets battery idle (load=0 below lmin)")
   // Converter commitment emits integer u columns; pin a MIP-capable
   // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
   // guard in LinearInterface::load_flat.
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -350,7 +352,7 @@ TEST_CASE(  // NOLINT
   opts.lp_matrix_options.col_with_names = true;
   opts.lp_matrix_options.col_with_name_map = true;
   // MIP-capable pin — integer u columns (see above).
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
 
@@ -421,7 +423,7 @@ TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
   // Converter commitment emits integer u columns; pin a MIP-capable
   // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
   // guard in LinearInterface::load_flat.
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);

@@ -11,6 +11,8 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "solver_test_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -118,7 +120,7 @@ TEST_CASE("SimpleCommitmentLP - binary mode basic")
   // Binary (non-relaxed) commitment → integer columns; pin a MIP-capable
   // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
   // guard in LinearInterface::load_flat.
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
 
   const System system = {
       .name = "SimpleCommitTest",
@@ -216,7 +218,7 @@ TEST_CASE("SimpleCommitmentLP - must run")
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
   // Binary commitment → integer columns; MIP-capable pin (see above).
-  opts.lp_matrix_options.solver_name = "cbc";
+  opts.lp_matrix_options.solver_name = solver_test::first_mip_solver();
 
   const System system = {
       .name = "MustRunTest",

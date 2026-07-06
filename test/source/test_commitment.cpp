@@ -24,6 +24,8 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
+#include "solver_test_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
@@ -2920,7 +2922,7 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   // continuous_phases=none keeps the u binaries integer; pin a
   // MIP-capable solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip
   // the LP-only guard in LinearInterface::load_flat.
-  poptions.lp_matrix_options.solver_name = "cbc";
+  poptions.lp_matrix_options.solver_name = solver_test::first_mip_solver();
   PlanningOptionsLP options(std::move(poptions));
 
   Simulation simulation(tc.simulation);

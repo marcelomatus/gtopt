@@ -19,6 +19,8 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
+#include "solver_test_helpers.hpp"
+
 using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("LinearInterface - Constructor and basic operations")
@@ -1570,7 +1572,11 @@ TEST_CASE(  // NOLINT
   // Pin a MIP-capable solver: the LP carries an integer column, and
   // load_flat rejects integer columns on LP-only backends (an ambient
   // GTOPT_SOLVER=clp — CI's default — would otherwise throw here).
-  LinearInterface li {"cbc"};
+  const auto mip_solver = solver_test::first_mip_solver();
+  if (mip_solver.empty()) {
+    return;  // needs a MIP-capable backend for the integer column
+  }
+  LinearInterface li {mip_solver};
   li.load_flat(flat_lp);
 
   CHECK(li.get_numcols() == 2);
