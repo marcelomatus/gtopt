@@ -387,14 +387,15 @@ TEST_CASE("SddpOptions - Merge forward/backward solver_options")
 
 TEST_CASE("SddpOptions - aperture_solve_mode default and construction")
 {
-  SUBCASE("default is unset (resolves to reduced_cost at the accessor)")
+  SUBCASE("default is unset (resolves to warm at the accessor)")
   {
     const SddpOptions opts {};
     CHECK_FALSE(opts.aperture_solve_mode.has_value());
     // The accessor PlanningOptionsLP::sddp_aperture_solve_mode() resolves an
-    // absent field to reduced_cost (the default aperture mode).
-    CHECK(opts.aperture_solve_mode.value_or(ApertureSolveMode::reduced_cost)
-          == ApertureSolveMode::reduced_cost);
+    // absent field to warm (default flipped reduced_cost→warm 2026-07-03: the
+    // aperture warm-start is faster once presolve-off + parallel chunks land).
+    CHECK(opts.aperture_solve_mode.value_or(ApertureSolveMode::warm)
+          == ApertureSolveMode::warm);
   }
 
   SUBCASE("explicit reduced_cost")

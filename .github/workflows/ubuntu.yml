@@ -111,7 +111,7 @@ jobs:
     name: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # ccache must be set up before any compilation (including cmake feature
       # tests during configure).  Placing it first also means the cache is
@@ -134,7 +134,7 @@ jobs:
       # (CPM.cmake and the top-level CMakeLists with CPMAddPackage calls).
       # Previously used **/CMakeLists.txt / **/*.cmake which invalidated on
       # every unrelated CMake edit (63 files in the repo).
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-${{ env.ACTIVE_COMPILER }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
@@ -397,7 +397,7 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
@@ -415,7 +415,7 @@ jobs:
             ${{ github.workflow }}-clang-
           max-size: 2G
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: "**/cpm_modules"
           key: ${{ github.workflow }}-clang-tidy-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
@@ -473,7 +473,7 @@ jobs:
     needs: build
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: download gtopt binary
         uses: actions/download-artifact@v8
@@ -494,7 +494,7 @@ jobs:
           cache-dependency-path: webservice/package-lock.json
 
       - name: cache Next.js build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/webservice/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}
@@ -538,7 +538,7 @@ jobs:
     name: test-installed-integrations (websrv + gui)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python with uv
         uses: ./.github/actions/setup-python-uv
@@ -585,7 +585,7 @@ jobs:
           chmod +x $HOME/gtopt-install/bin/gtopt
 
       - name: cache Next.js build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/gtopt-install/share/gtopt/webservice/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('webservice/package-lock.json') }}-${{ hashFiles('webservice/src/**/*.ts', 'webservice/src/**/*.tsx', 'webservice/*.mjs', 'webservice/*.js', 'webservice/*.ts') }}

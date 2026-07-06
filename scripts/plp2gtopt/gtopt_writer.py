@@ -657,16 +657,18 @@ class GTOptWriter(
             "stationary_gap_ceiling": 0.85,
             "num_apertures": 8,
             "aperture_selection_mode": "stride",
-            # Big multi-bus LPs: warm-start aperture reuse is net-negative at
-            # this scale (warm/cold ≈1.2–1.4, measured 2026-06-08) AND the
-            # fast-path's serial chunk (-1) caps parallelism at S tasks/phase,
-            # idling cores at the phase barrier.  Override the inherited
-            # warm/-1 with cold barrier (reduced_cost: no crossover, the C++
-            # default) + auto chunk (0 → ~2× cores tasks/phase) so the
-            # backward aperture pass saturates the machine.  warm/-1 is kept
-            # only on the small warmup/uninodal levels where warm wins.
-            "aperture_solve_mode": "reduced_cost",
-            "aperture_chunk_size": 0,
+            # Transport inherits the base warm aperture config
+            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
+            # advanced_basis) — SAME as the warmup/uninodal levels, no
+            # reduced_cost override.  The former override was motivated by a
+            # 2026-06-08 measurement showing warm net-negative (warm/cold
+            # ≈1.2–1.4), but that predated the warm-start presolve fix: the
+            # seeded solve ran barrier + presolve, which discards the basis, so
+            # "warm" was silently a cold solve.  With presolve off on the warm
+            # re-solve the aperture warm-start is competitive at this scale
+            # too.  (Trade-off to watch: chunk=-1 serializes apertures per
+            # scene at the phase barrier — override aperture_chunk_size from the
+            # source conf if machine saturation matters more than warm reuse.)
         }
         # L3: num_apertures / aperture_selection_mode intentionally
         # unset → full per-phase list (docstring §2).
@@ -690,13 +692,14 @@ class GTOptWriter(
             # to 85 % via ``stationary_gap_ceiling`` below.
             "stationary_tol": 0.01,
             "stationary_gap_ceiling": 0.85,
-            # Largest LPs in the ladder (multi-bus + Kirchhoff, full aperture
-            # list).  Same rationale as L2 transport: cold barrier
-            # (reduced_cost) + auto chunk so the backward aperture pass runs
-            # ~2× cores tasks/phase instead of the fast-path's S serial
-            # tasks, and avoids the net-negative warm-start at this scale.
-            "aperture_solve_mode": "reduced_cost",
-            "aperture_chunk_size": 0,
+            # Full_network inherits the base warm aperture config
+            # (aperture_solve_mode=warm, aperture_chunk_size=0, dual +
+            # advanced_basis) — same as every other level, no reduced_cost
+            # override.  See the L2/transport comment: the former override's
+            # "warm net-negative" rationale predated the warm-start presolve
+            # fix (seeded solve ran barrier+presolve → basis discarded → "warm"
+            # was cold).  With presolve off the aperture warm-start is
+            # competitive even at full-network scale.
         }
 
         # ── Level array ────────────────────────────────────────────────
@@ -1222,8 +1225,8 @@ class GTOptWriter(
         # Benchmarked plp2gtopt -> gtopt pipeline (~PLP parity on CEN65 2-year):
         #   * lp_reduction          — elide provably-zero LP columns (~-19% wall)
         #   * aperture_solve_mode   = warm   (dual aperture warm-start)
-        #   * aperture_chunk_size   = -1     (all apertures/phase per chunk,
-        #                                     one LP clone, warm-start reuse)
+        #   * aperture_chunk_size   = 0      (auto: parallel per-aperture
+        #                                     chunks — backward saturates cores)
         #   * forward/backward_solver_options.algorithm = dual + advanced_basis
         # These are applied here (not only in main.process_options, whose nested
         # opts the writer otherwise rebuilds from an allowlist) so they actually

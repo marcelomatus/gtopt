@@ -357,6 +357,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   OptBool aperture_seed_basis {};
 
+  /** @brief Cross-pass simplex-basis warm-start reuse between the forward and
+   *         backward SDDP passes.
+   *
+   * Generalizes `aperture_seed_basis`: in addition to the within-backward
+   * resident-basis chain, the forward-pass solve's basis can seed the backward
+   * dual/aperture solve of the same `(scene, phase)` and vice versa (a
+   * bidirectional cross cache in `PhaseStateInfo`).  A cross basis is only a
+   * warm start — it cannot change the optimum or corrupt a cut — so every mode
+   * is correctness-neutral; it silently degrades to a cold solve on backends
+   * without basis save/restore (only CPLEX and HiGHS support it) and is gated
+   * off where the row structure is not tail-append compatible
+   * (`aperture_drop_fcuts`, `aperture_system_file`).
+   *
+   * See `BasisCrossMode`.  Default: `nullopt` → `off` (legacy behaviour).
+   */
+  std::optional<BasisCrossMode> basis_cross_mode {};
+
   /** @brief CSV file with boundary (future-cost) cuts for the last phase.
    *
    * These are analogous to PLP's "planos de embalse" — external optimality
@@ -466,12 +483,14 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// No cuts are saved.  Default: false.
   OptBool simulation_mode {};
 
-  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
-  /// Trades CPU time (reconstruction + optional decompression, or full
-  /// re-flatten under `rebuild`) for significant memory savings on large
-  /// problems.  Under `rebuild`, the initial up-front build loop is
-  /// skipped entirely and each per-(scene, phase) LP is built lazily
-  /// inside the same task that solves or clones it.
+  /// Low memory mode: off or compress (default for SDDP/cascade).
+  /// `compress` releases the solver backend after each per-(scene, phase)
+  /// solve and keeps only the flat LP snapshot (optionally compressed via
+  /// `memory_codec`), trading CPU time (reconstruction + decompression on the
+  /// next touch) for significant memory savings on large problems.
+  ///
+  /// (The former `rebuild` mode was removed 2026-05-13; the JSON aliases
+  /// `"rebuild"` and `"snapshot"` now both parse to `compress`.)
   ///
   /// When unset, `PlanningOptionsLP::sddp_low_memory()` resolves to
   /// `compress` for SDDP/cascade methods (the historical default was
@@ -768,6 +787,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
+    merge_opt(basis_cross_mode, opts.basis_cross_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);

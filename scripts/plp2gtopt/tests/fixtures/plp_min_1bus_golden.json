@@ -20,12 +20,13 @@
     "output_directory": "results",
     "output_format": "parquet",
     "sddp_options": {
-      "aperture_chunk_size": -1,
+      "aperture_chunk_size": 0,
       "aperture_drop_fcuts": true,
       "aperture_solve_mode": "warm",
       "backward_solver_options": {
         "algorithm": "dual"
       },
+      "basis_cross_mode": "full_cross",
       "convergence_tol": 0.01,
       "cut_coeff_eps": 1e-08,
       "cut_sharing_mode": "multicut",

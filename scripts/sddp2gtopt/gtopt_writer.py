@@ -76,6 +76,20 @@ def build_options(
         "use_kirchhoff": use_kirchhoff,
         "demand_fail_cost": float(study.deficit_cost),
         "scale_objective": 1.0 if hydro_topology else 1000,
+        # PSR networks carry near-zero-reactance bus-tie / coupler circuits
+        # (``reactance_pu`` ~5e-4, just above the ``_MIN_REACTANCE`` 1e-5 floor).
+        # Under ``use_kirchhoff`` those near-short-circuits attract
+        # disproportionate DC flow (f = Δθ / X) and saturate their ``tmax``,
+        # pinning bus angles so parallel higher-reactance ties — with ample
+        # spare capacity — cannot feed load pockets.  The result is spurious
+        # congestion + demand curtailment (a 58-bus, 335 MW GUA pocket priced
+        # at the 315 $/MWh fail cost).  Promote any circuit with
+        # ``|x_pu| < threshold`` to a KVL-free "DC line" (flow-bounded only) so
+        # power distributes by economics.  1e-3 removes the curtailment
+        # (9160 → 28 MWh on the GUA weekly case) and saturates (identical up to
+        # 1e-2); it sits safely between the coupler scale (~5e-4) and real
+        # transmission reactances (≳1e-2).
+        "dc_line_reactance_threshold": 1.0e-3,
     }
     if hydro_topology:
         model_options["auto_scale"] = True

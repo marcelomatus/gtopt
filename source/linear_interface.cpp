@@ -525,11 +525,11 @@ void LinearInterface::apply_post_load_replay(const LpReplayBuffer& source)
   // element `add_col(SparseCol)` loop because the bulk variant
   // dispatches column-by-column (no batched CSR insert is exposed
   // by LP backends for columns).  Each `add_col(SparseCol)` extends
-  // `m_col_scales_` when `col.scale != 1.0` — legitimate here
+  // `m_scaling_.col_scales` when `col.scale != 1.0` — legitimate here
   // because `α` is registered with `scale = scale_alpha`
   // (`sddp_method.cpp:434-453`) and the replay path holds the
   // unique reference to the shared metadata
-  // (`detach_for_write(m_col_scales_)` is a no-op).
+  // (`detach_for_write(m_scaling_.col_scales)` is a no-op).
   if (!source.dynamic_cols().empty()) {
     (void)add_cols(source.dynamic_cols());
   }
@@ -632,14 +632,14 @@ const SparseColLabel* LinearInterface::col_label_at(ColIndex idx) const noexcept
   // next `load_flat` (which repopulates it from the snapshot).  In
   // that window no consumer reads label metadata: `write_lp` requires
   // a loaded backend, which implies `load_flat` already ran.
-  if (m_col_labels_meta_) {
-    const auto& cm = *m_col_labels_meta_;
+  if (m_labels_.col_labels_meta) {
+    const auto& cm = *m_labels_.col_labels_meta;
     if (i < cm.size()) {
       return &cm[i];
     }
     const auto post_offset = i - cm.size();
-    if (post_offset < m_post_flatten_col_labels_meta_.size()) {
-      return &m_post_flatten_col_labels_meta_[post_offset];
+    if (post_offset < m_labels_.post_flatten_col_labels_meta.size()) {
+      return &m_labels_.post_flatten_col_labels_meta[post_offset];
     }
   }
   return nullptr;
@@ -651,14 +651,14 @@ const SparseRowLabel* LinearInterface::row_label_at(RowIndex idx) const noexcept
     return nullptr;
   }
   const auto i = static_cast<std::size_t>(idx);
-  if (m_row_labels_meta_) {
-    const auto& rm = *m_row_labels_meta_;
+  if (m_labels_.row_labels_meta) {
+    const auto& rm = *m_labels_.row_labels_meta;
     if (i < rm.size()) {
       return &rm[i];
     }
     const auto post_offset = i - rm.size();
-    if (post_offset < m_post_flatten_row_labels_meta_.size()) {
-      return &m_post_flatten_row_labels_meta_[post_offset];
+    if (post_offset < m_labels_.post_flatten_row_labels_meta.size()) {
+      return &m_labels_.post_flatten_row_labels_meta[post_offset];
     }
   }
   return nullptr;
@@ -889,7 +889,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // under-report the obj-value by the substitution offset.
   // Propagate raw-scale obj constant so the clone's
   // `get_obj_value_raw()` matches the source after re-solve.
-  cloned.m_obj_constant_raw_ = m_obj_constant_raw_;
+  cloned.m_scaling_.obj_constant_raw = m_scaling_.obj_constant_raw;
   // SOS2 set count (issue #504).  The cloned backend (CPXcloneprob)
   // already carries the SOS2 declarations natively, but the LI-side
   // counter must follow it explicitly — without this the
@@ -899,7 +899,7 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // ``FlatLinearProblem::sos2_sets`` and therefore does not need this
   // line.
   cloned.m_sos2_set_count_ = m_sos2_set_count_;
-  cloned.m_equilibration_method_ = m_equilibration_method_;
+  cloned.m_scaling_.equilibration_method = m_scaling_.equilibration_method;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
   cloned.m_log_tag_ = m_log_tag_;
@@ -913,8 +913,8 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // Propagate the async metadata store + spill key so the clone's `write_lp`
   // can reload label metadata when its inherited live vectors are empty
   // (aperture clones under low-memory + spill — see generate_labels_from_maps).
-  cloned.m_name_store_ = m_name_store_;
-  cloned.m_spill_key_ = m_spill_key_;
+  cloned.m_labels_.name_store = m_labels_.name_store;
+  cloned.m_labels_.spill_key = m_labels_.spill_key;
   // Propagate validation thresholds; stats are intentionally fresh on
   // the clone so each LP tracks only the writes that land on it.
   cloned.m_validation_options_ = m_validation_options_;
@@ -929,29 +929,34 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // each underlying T into a fresh shared_ptr; `shallow` does an atomic
   // incref so source and clone share state.
   if (kind == CloneKind::deep) {
-    cloned.m_variable_scale_map_ = deep_copy_ptr(m_variable_scale_map_);
-    cloned.m_col_scales_ = deep_copy_ptr(m_col_scales_);
-    cloned.m_row_scales_ = deep_copy_ptr(m_row_scales_);
-    cloned.m_col_cost_scale_types_ = deep_copy_ptr(m_col_cost_scale_types_);
-    cloned.m_row_cost_scale_types_ = deep_copy_ptr(m_row_cost_scale_types_);
-    cloned.m_col_labels_meta_ = deep_copy_ptr(m_col_labels_meta_);
-    cloned.m_row_labels_meta_ = deep_copy_ptr(m_row_labels_meta_);
-    cloned.m_col_names_ = deep_copy_ptr(m_col_names_);
-    cloned.m_row_names_ = deep_copy_ptr(m_row_names_);
-    cloned.m_col_index_to_name_ = deep_copy_ptr(m_col_index_to_name_);
-    cloned.m_row_index_to_name_ = deep_copy_ptr(m_row_index_to_name_);
+    cloned.m_scaling_.variable_scale_map =
+        deep_copy_ptr(m_scaling_.variable_scale_map);
+    cloned.m_scaling_.col_scales = deep_copy_ptr(m_scaling_.col_scales);
+    cloned.m_scaling_.row_scales = deep_copy_ptr(m_scaling_.row_scales);
+    cloned.m_scaling_.col_cost_scale_types =
+        deep_copy_ptr(m_scaling_.col_cost_scale_types);
+    cloned.m_scaling_.row_cost_scale_types =
+        deep_copy_ptr(m_scaling_.row_cost_scale_types);
+    cloned.m_labels_.col_labels_meta = deep_copy_ptr(m_labels_.col_labels_meta);
+    cloned.m_labels_.row_labels_meta = deep_copy_ptr(m_labels_.row_labels_meta);
+    cloned.m_labels_.col_names = deep_copy_ptr(m_labels_.col_names);
+    cloned.m_labels_.row_names = deep_copy_ptr(m_labels_.row_names);
+    cloned.m_labels_.col_index_to_name =
+        deep_copy_ptr(m_labels_.col_index_to_name);
+    cloned.m_labels_.row_index_to_name =
+        deep_copy_ptr(m_labels_.row_index_to_name);
   } else {  // shallow — atomic incref, source and clone share state
-    cloned.m_variable_scale_map_ = m_variable_scale_map_;
-    cloned.m_col_scales_ = m_col_scales_;
-    cloned.m_row_scales_ = m_row_scales_;
-    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
-    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
-    cloned.m_col_labels_meta_ = m_col_labels_meta_;
-    cloned.m_row_labels_meta_ = m_row_labels_meta_;
-    cloned.m_col_names_ = m_col_names_;
-    cloned.m_row_names_ = m_row_names_;
-    cloned.m_col_index_to_name_ = m_col_index_to_name_;
-    cloned.m_row_index_to_name_ = m_row_index_to_name_;
+    cloned.m_scaling_.variable_scale_map = m_scaling_.variable_scale_map;
+    cloned.m_scaling_.col_scales = m_scaling_.col_scales;
+    cloned.m_scaling_.row_scales = m_scaling_.row_scales;
+    cloned.m_scaling_.col_cost_scale_types = m_scaling_.col_cost_scale_types;
+    cloned.m_scaling_.row_cost_scale_types = m_scaling_.row_cost_scale_types;
+    cloned.m_labels_.col_labels_meta = m_labels_.col_labels_meta;
+    cloned.m_labels_.row_labels_meta = m_labels_.row_labels_meta;
+    cloned.m_labels_.col_names = m_labels_.col_names;
+    cloned.m_labels_.row_names = m_labels_.row_names;
+    cloned.m_labels_.col_index_to_name = m_labels_.col_index_to_name;
+    cloned.m_labels_.row_index_to_name = m_labels_.row_index_to_name;
   }
 
   // Post-flatten metadata is per-instance (never shared via shared_ptr
@@ -966,8 +971,10 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // semantics here — the per-clone divergence happens later when the
   // clone's own `add_col_disposable` / `add_row_disposable` writes
   // land in `m_post_clone_*_metas_`, never back into these vectors.
-  cloned.m_post_flatten_col_labels_meta_ = m_post_flatten_col_labels_meta_;
-  cloned.m_post_flatten_row_labels_meta_ = m_post_flatten_row_labels_meta_;
+  cloned.m_labels_.post_flatten_col_labels_meta =
+      m_labels_.post_flatten_col_labels_meta;
+  cloned.m_labels_.post_flatten_row_labels_meta =
+      m_labels_.post_flatten_row_labels_meta;
   cloned.m_post_flatten_col_meta_index_ = m_post_flatten_col_meta_index_;
   cloned.m_post_flatten_row_meta_index_ = m_post_flatten_row_meta_index_;
 
@@ -1019,8 +1026,8 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // source may have changed it via `set_label_maker` after load.  Reapply
   // the source's CURRENT setting so both clone routes are symmetric.
   cloned.m_label_maker_ = m_label_maker_;
-  cloned.m_name_store_ = m_name_store_;
-  cloned.m_spill_key_ = m_spill_key_;
+  cloned.m_labels_.name_store = m_labels_.name_store;
+  cloned.m_labels_.spill_key = m_labels_.spill_key;
   cloned.m_validation_options_ = m_validation_options_;
 
   // CloneKind dispatch — the metadata side.
@@ -1037,17 +1044,17 @@ LinearInterface LinearInterface::clone_from_flat(CloneKind kind) const
   // stays at one shared copy across N concurrent clones rather
   // than N independent copies.
   if (kind == CloneKind::shallow) {
-    cloned.m_variable_scale_map_ = m_variable_scale_map_;
-    cloned.m_col_scales_ = m_col_scales_;
-    cloned.m_row_scales_ = m_row_scales_;
-    cloned.m_col_cost_scale_types_ = m_col_cost_scale_types_;
-    cloned.m_row_cost_scale_types_ = m_row_cost_scale_types_;
-    cloned.m_col_labels_meta_ = m_col_labels_meta_;
-    cloned.m_row_labels_meta_ = m_row_labels_meta_;
-    cloned.m_col_names_ = m_col_names_;
-    cloned.m_row_names_ = m_row_names_;
-    cloned.m_col_index_to_name_ = m_col_index_to_name_;
-    cloned.m_row_index_to_name_ = m_row_index_to_name_;
+    cloned.m_scaling_.variable_scale_map = m_scaling_.variable_scale_map;
+    cloned.m_scaling_.col_scales = m_scaling_.col_scales;
+    cloned.m_scaling_.row_scales = m_scaling_.row_scales;
+    cloned.m_scaling_.col_cost_scale_types = m_scaling_.col_cost_scale_types;
+    cloned.m_scaling_.row_cost_scale_types = m_scaling_.row_cost_scale_types;
+    cloned.m_labels_.col_labels_meta = m_labels_.col_labels_meta;
+    cloned.m_labels_.row_labels_meta = m_labels_.row_labels_meta;
+    cloned.m_labels_.col_names = m_labels_.col_names;
+    cloned.m_labels_.row_names = m_labels_.row_names;
+    cloned.m_labels_.col_index_to_name = m_labels_.col_index_to_name;
+    cloned.m_labels_.row_index_to_name = m_labels_.row_index_to_name;
   }
 
   // Current-state replay: borrow the source's replay buffer and
@@ -1129,7 +1136,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // value stored here is already on the same raw basis as the
   // solver's reported value — `get_obj_value_raw()` then composes
   // them with a plain add.
-  m_obj_constant_raw_ = flat_lp.obj_constant_raw;
+  m_scaling_.obj_constant_raw = flat_lp.obj_constant_raw;
+
+  // Hand the LP-external objective constant to the backend's NATIVE objective
+  // offset so the solver's reported objective (and, critically, its MIP
+  // relative-gap) already includes it.  ABSOLUTE set — the raw constant is the
+  // running total, not a delta.  This re-establishes the offset on every
+  // (re)load, including the compress/low-memory reconstruct path where the
+  // backend is created fresh (default no-op until this call).
+  m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
 
   // Hand the LP-external objective constant to the backend's NATIVE objective
   // offset so the solver's reported objective (and, critically, its MIP
@@ -1140,33 +1155,33 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_backend_->set_obj_offset(m_obj_constant_raw_);
 
   // Preserve per-column scale factors from LinearProblem.
-  detach_for_write(m_col_scales_)
+  detach_for_write(m_scaling_.col_scales)
       .assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
 
   // Preserve per-row equilibration scale factors (empty when disabled).
-  detach_for_write(m_row_scales_)
+  detach_for_write(m_scaling_.row_scales)
       .assign(flat_lp.row_scales.begin(), flat_lp.row_scales.end());
 
   // Preserve per-column / per-row objective time-basis (Power / Energy /
   // Raw) so OutputContext can choose the inverse cost-factor family per
   // element when reading reduced costs / duals back to physical units.
-  detach_for_write(m_col_cost_scale_types_)
+  detach_for_write(m_scaling_.col_cost_scale_types)
       .assign(flat_lp.col_cost_scale_types.begin(),
               flat_lp.col_cost_scale_types.end());
-  detach_for_write(m_row_cost_scale_types_)
+  detach_for_write(m_scaling_.row_cost_scale_types)
       .assign(flat_lp.row_cost_scale_types.begin(),
               flat_lp.row_cost_scale_types.end());
 
   // Persist the equilibration method so the follow-up PR that migrates
   // Benders cut construction to physical accessors can apply the same
   // per-row scaling to post-build cut rows as the structural build did.
-  m_equilibration_method_ = flat_lp.equilibration_method;
+  m_scaling_.equilibration_method = flat_lp.equilibration_method;
 
   // Preserve VariableScaleMap for dynamic column auto-scaling.
   // `detach_for_write` is a no-op here in practice (load_flat runs
   // on the source LP before any clones exist), but the helper
   // guarantees correctness if a future caller reorders the lifecycle.
-  detach_for_write(m_variable_scale_map_) = flat_lp.variable_scale_map;
+  detach_for_write(m_scaling_.variable_scale_map) = flat_lp.variable_scale_map;
 
   // Preserve LabelMaker so dynamically added cols/rows after load_flat()
   // use the same LpNamesLevel as the original flatten() call.
@@ -1189,10 +1204,10 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // them from
   // `m_dynamic_cols_` / `m_active_cuts_` immediately after load_flat
   // returns.
-  detach_for_write(m_col_labels_meta_) = flat_lp.col_labels_meta();
-  detach_for_write(m_row_labels_meta_) = flat_lp.row_labels_meta();
-  m_post_flatten_col_labels_meta_.clear();
-  m_post_flatten_row_labels_meta_.clear();
+  detach_for_write(m_labels_.col_labels_meta) = flat_lp.col_labels_meta();
+  detach_for_write(m_labels_.row_labels_meta) = flat_lp.row_labels_meta();
+  m_labels_.post_flatten_col_labels_meta.clear();
+  m_labels_.post_flatten_row_labels_meta.clear();
   m_post_flatten_col_meta_index_.clear();
   m_post_flatten_row_meta_index_.clear();
 
@@ -1200,22 +1215,38 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // stale compressed buffer left over from a previous release_backend()
   // cycle so `ensure_labels_meta_decompressed()` doesn't later try to
   // overlay outdated metadata on top of the freshly-loaded vectors.
-  m_col_labels_meta_compressed_ = {};
-  m_row_labels_meta_compressed_ = {};
-  m_col_labels_meta_count_ = 0;
-  m_row_labels_meta_count_ = 0;
+  m_labels_.col_labels_meta_compressed = {};
+  m_labels_.row_labels_meta_compressed = {};
+  m_labels_.col_labels_meta_count = 0;
+  m_labels_.row_labels_meta_count = 0;
 
   // Preserve coefficient statistics computed during flatten().
-  m_stats_nnz_ = flat_lp.stats_nnz;
-  m_stats_zeroed_ = flat_lp.stats_zeroed;
-  m_stats_max_abs_ = flat_lp.stats_max_abs;
-  m_stats_min_abs_ = flat_lp.stats_min_abs;
-  m_stats_max_col_ = flat_lp.stats_max_col;
-  m_stats_min_col_ = flat_lp.stats_min_col;
-  m_stats_max_col_name_ = flat_lp.stats_max_col_name;
-  m_stats_min_col_name_ = flat_lp.stats_min_col_name;
-  m_row_type_stats_ = flat_lp.row_type_stats;
+  m_stats_.nnz = flat_lp.stats_nnz;
+  m_stats_.zeroed = flat_lp.stats_zeroed;
+  m_stats_.max_abs = flat_lp.stats_max_abs;
+  m_stats_.min_abs = flat_lp.stats_min_abs;
+  m_stats_.max_col = flat_lp.stats_max_col;
+  m_stats_.min_col = flat_lp.stats_min_col;
+  m_stats_.max_col_name = flat_lp.stats_max_col_name;
+  m_stats_.min_col_name = flat_lp.stats_min_col_name;
+  m_stats_.row_type_stats = flat_lp.row_type_stats;
 
+  // A non-empty `colint` means the model genuinely requires a MIP solve
+  // (LP-relaxed builds drop `is_integer` upstream, e.g. Commitment
+  // `relax` / continuous phases).  Loading integer columns into an
+  // LP-only backend used to "succeed" and then silently produce a
+  // zero-dispatch solution with status -1 — fail loudly instead.
+  if (!flat_lp.colint.empty() && !m_backend_->supports_mip()) {
+    const auto msg = std::format(
+        "Solver '{}' is LP-only but the problem has {} integer column(s) "
+        "(e.g. unit-commitment binaries).  Pick a MIP-capable solver "
+        "(--solver cbc/highs/cplex or the solver_name option), or relax "
+        "the integrality (e.g. Commitment `relax: true`).",
+        m_solver_name_,
+        flat_lp.colint.size());
+    SPDLOG_CRITICAL(msg);
+    throw std::runtime_error(msg);
+  }
   for (auto i : flat_lp.colint) {
     m_backend_->set_integer(i);
   }
@@ -1259,15 +1290,15 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   if (!flat_lp.colnm.empty()) {
     build_name_map.template operator()<ColIndex>(
         flat_lp.colnm,
-        detach_for_write(m_col_names_),
-        detach_for_write(m_col_index_to_name_));
+        detach_for_write(m_labels_.col_names),
+        detach_for_write(m_labels_.col_index_to_name));
   }
 
   if (!flat_lp.rownm.empty()) {
     build_name_map.template operator()<RowIndex>(
         flat_lp.rownm,
-        detach_for_write(m_row_names_),
-        detach_for_write(m_row_index_to_name_));
+        detach_for_write(m_labels_.row_names),
+        detach_for_write(m_labels_.row_index_to_name));
   }
 }
 
@@ -1323,7 +1354,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   // pre-formatted name when one is provided; duplicates surface at
   // the metadata layer.
   if (m_label_maker_.col_names_enabled() && !name.empty()) {
-    auto& cin = detach_for_write(m_col_index_to_name_);
+    auto& cin = detach_for_write(m_labels_.col_index_to_name);
     if (std::ssize(cin) <= index) {
       cin.resize(static_cast<size_t>(index) + 1);
     }
@@ -1390,10 +1421,10 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   // there, and reused on subsequent `write_lp` invocations
   // (Option B: always lazy + cache on first compute).
   //
-  // Post-flatten path: the frozen `m_col_labels_meta_` (set ONCE by
+  // Post-flatten path: the frozen `m_labels_.col_labels_meta` (set ONCE by
   // `load_flat`) is intentionally left untouched here.  Every column
   // added after `load_flat` lands in the per-instance
-  // `m_post_flatten_col_labels_meta_` vector; lookup via
+  // `m_labels_.post_flatten_col_labels_meta` vector; lookup via
   // `col_label_at(idx)` walks `[frozen | post-flatten]` and resolves
   // the right side based on `idx < flatten_col_count()`.  This skips
   // the eager `ensure_labels_meta_decompressed` round-trip that the
@@ -1412,10 +1443,10 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
     return;
   }
   const auto post_offset = i - frozen_count;
-  if (m_post_flatten_col_labels_meta_.size() <= post_offset) {
-    m_post_flatten_col_labels_meta_.resize(post_offset + 1);
+  if (m_labels_.post_flatten_col_labels_meta.size() <= post_offset) {
+    m_labels_.post_flatten_col_labels_meta.resize(post_offset + 1);
   }
-  m_post_flatten_col_labels_meta_[post_offset] = SparseColLabel {
+  m_labels_.post_flatten_col_labels_meta[post_offset] = SparseColLabel {
       .class_name = col.class_name,
       .variable_name = col.variable_name,
       .variable_uid = col.variable_uid,
@@ -1423,7 +1454,7 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   };
 
   // Eager metadata-based duplicate detection.  Key is the metadata
-  // slot just written into `m_post_flatten_col_labels_meta_`; no
+  // slot just written into `m_labels_.post_flatten_col_labels_meta`; no
   // separate label is constructed.  Unlabelled cols (no class_name
   // / no variable_name / unknown uid / monostate context) are
   // skipped so structural tests that build unnamed cells don't
@@ -1431,7 +1462,7 @@ void LinearInterface::track_col_label_meta(ColIndex col_idx,
   // `m_post_flatten_col_meta_index_` — duplicate post-flatten
   // insertions against any previously inserted post-flatten entry
   // on this instance are reported.
-  const auto& meta = m_post_flatten_col_labels_meta_[post_offset];
+  const auto& meta = m_labels_.post_flatten_col_labels_meta[post_offset];
   if (!is_empty_col_label(meta)) {
     auto [it, inserted] =
         m_post_flatten_col_meta_index_.try_emplace(meta, col_idx);
@@ -1494,12 +1525,12 @@ ColIndex LinearInterface::add_col(const SparseCol& col)
 
 ColIndex LinearInterface::add_col_raw(const SparseCol& col)
 {
-  // Raw path: `m_col_scales_` stays frozen so it can be shared via
+  // Raw path: `m_scaling_.col_scales` stays frozen so it can be shared via
   // shared_ptr across aperture clones.  `col.scale` is intentionally
   // ignored here — callers either pre-apply any scaling to `col.cost`
   // (replay path) or are passing back a SparseCol from a previous
   // `add_col(...)` whose scale is already recorded in the persistent
-  // `m_col_scales_` snapshot from `load_flat`.  Either way, this path
+  // `m_scaling_.col_scales` snapshot from `load_flat`.  Either way, this path
   // does not (and must not) re-grow the scale vector.
   const auto col_idx = emit_col_to_backend(col);
   track_col_label_meta(col_idx, col);
@@ -1520,7 +1551,7 @@ ColIndex LinearInterface::add_col_disposable(const SparseCol& col)
   ensure_backend();
   assert(col.scale == 1.0
          && "add_col_disposable: non-unit col.scale forbidden — "
-            "shared m_col_scales_ must not grow on a clone");
+            "shared m_scaling_.col_scales must not grow on a clone");
 
   const auto [lowb, uppb] = normalize_bounds(col.lowb, col.uppb);
   const auto index = m_backend_->get_num_cols();
@@ -1587,7 +1618,7 @@ RowIndex LinearInterface::add_row_disposable(const SparseRow& row,
   ensure_backend();
   assert(row.scale == 1.0
          && "add_row_disposable: non-unit row.scale forbidden — "
-            "shared m_row_scales_ must not grow on a clone");
+            "shared m_scaling_.row_scales must not grow on a clone");
 
   // The low-level `add_row(name, ...)` helper applies
   // `normalize_bound` to the lb/ub itself (linear_interface.cpp
@@ -1741,7 +1772,7 @@ ColIndex LinearInterface::add_cols_raw(std::span<const SparseCol> cols)
 {
   // Raw bulk path — mirrors `add_col_raw(SparseCol)`'s shape:
   // dispatch via the shared `emit_cols_to_backend` helper, then capture
-  // label-meta.  `m_col_scales_` stays frozen so it can be shared
+  // label-meta.  `m_scaling_.col_scales` stays frozen so it can be shared
   // across aperture clones via `std::shared_ptr`.  `col.scale` is
   // intentionally ignored on every entry — see `add_col_raw` for the
   // rationale.
@@ -1798,7 +1829,7 @@ RowIndex LinearInterface::add_row(const std::string& name,
   // track_row_label_meta.  The string path here just records the
   // pre-formatted name when one is provided.
   if (m_label_maker_.row_names_enabled() && !name.empty()) {
-    auto& rin = detach_for_write(m_row_index_to_name_);
+    auto& rin = detach_for_write(m_labels_.row_index_to_name);
     if (std::ssize(rin) <= index) {
       rin.resize(static_cast<size_t>(index) + 1);
     }
@@ -1812,8 +1843,8 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
                                            const SparseRow& row)
 {
   // Post-flatten path: see `track_col_label_meta` for full rationale.
-  // Frozen `m_row_labels_meta_` is left untouched here; per-instance
-  // `m_post_flatten_row_labels_meta_` absorbs every cut row, cascade
+  // Frozen `m_labels_.row_labels_meta` is left untouched here; per-instance
+  // `m_labels_.post_flatten_row_labels_meta` absorbs every cut row, cascade
   // elastic constraint, etc.  No `ensure_labels_meta_decompressed()`
   // round-trip — the frozen side stays compressed unless `write_lp`
   // explicitly needs strings.
@@ -1823,10 +1854,10 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
     return;  // frozen flatten-side row — load_flat is the sole writer
   }
   const auto post_offset = i - frozen_count;
-  if (m_post_flatten_row_labels_meta_.size() <= post_offset) {
-    m_post_flatten_row_labels_meta_.resize(post_offset + 1);
+  if (m_labels_.post_flatten_row_labels_meta.size() <= post_offset) {
+    m_labels_.post_flatten_row_labels_meta.resize(post_offset + 1);
   }
-  m_post_flatten_row_labels_meta_[post_offset] = SparseRowLabel {
+  m_labels_.post_flatten_row_labels_meta[post_offset] = SparseRowLabel {
       .class_name = row.class_name,
       .constraint_name = row.constraint_name,
       .variable_uid = row.variable_uid,
@@ -1841,7 +1872,7 @@ void LinearInterface::track_row_label_meta(RowIndex row_idx,
   // `try_emplace` is preserved on the replay path so subsequent
   // readers (`add_row_disposable`, `delete_rows` rebuild, `clone()`)
   // see a coherent dedup map.
-  const auto& meta = m_post_flatten_row_labels_meta_[post_offset];
+  const auto& meta = m_labels_.post_flatten_row_labels_meta[post_offset];
   if (!is_empty_row_label(meta)) {
     auto [it, inserted] =
         m_post_flatten_row_meta_index_.try_emplace(meta, row_idx);
@@ -1899,15 +1930,15 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   //                                     equilibration pass already
   //                                     normalised those rows, so a
   //                                     second pass would double-scale.
-  //  - m_equilibration_method_ == none && m_col_scales_ empty
+  //  - m_scaling_.equilibration_method == none && m_scaling_.col_scales empty
   //                                  → nothing to compose; physical ==
   //                                     LP in that case.
   //  - Otherwise                     → cut-phase physical row; apply
   //                                     col_scale + row-max.
   const bool is_cut_phase = m_base_numrows_set_;
-  const bool have_col_scales = !m_col_scales_->empty();
+  const bool have_col_scales = !m_scaling_.col_scales->empty();
   const bool have_equilibration =
-      m_equilibration_method_ != LpEquilibrationMethod::none;
+      m_scaling_.equilibration_method != LpEquilibrationMethod::none;
   // Objective-coupled cut rows (α-bearing SDDP / boundary cuts) must still
   // receive compose_physical's `÷ scale_objective` (step 1b) even when there
   // are no column scales and equilibration is off.  The objective itself was
@@ -1936,9 +1967,9 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   const auto infy = m_backend_->infinity();
 
   // 1. Physical → LP column scaling.  Columns beyond the stored
-  //    `m_col_scales_` extent default to scale 1.0 (matching
+  //    `m_scaling_.col_scales` extent default to scale 1.0 (matching
   //    `get_col_scale`).
-  const auto& col_scales_ref = *m_col_scales_;
+  const auto& col_scales_ref = *m_scaling_.col_scales;
   const auto n_col_scales = std::ssize(col_scales_ref);
   for (std::size_t k = 0; k < elements.size(); ++k) {
     const auto col = ColIndex {columns[k]};
@@ -2070,7 +2101,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
 
   // Lazy label: pass an empty name to the base `add_row`; the real
   // label is synthesised on demand by `generate_labels_from_maps`
-  // and cached in `m_row_index_to_name_` at `write_lp` time.
+  // and cached in `m_labels_.row_index_to_name` at `write_lp` time.
   const auto row_idx =
       add_row(std::string {}, columns.size(), columns, elements, lb, ub);
   if (composite_scale != 1.0) {
@@ -2153,13 +2184,13 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   // Dispatch through the same `compose_physical` gate as the singular
   // `add_row` so bulk and per-row callers see the same physical ↔ LP
   // semantics for batches of post-flatten cut rows.  The gate state
-  // (`m_base_numrows_set_`, `m_col_scales_`, `m_equilibration_method_`)
-  // is invariant across the batch, so it is checked once and applied
-  // uniformly to every row.
+  // (`m_base_numrows_set_`, `m_scaling_.col_scales`,
+  // `m_scaling_.equilibration_method`) is invariant across the batch, so it is
+  // checked once and applied uniformly to every row.
   const bool is_cut_phase = m_base_numrows_set_;
-  const bool have_col_scales = !m_col_scales_->empty();
+  const bool have_col_scales = !m_scaling_.col_scales->empty();
   const bool have_equilibration =
-      m_equilibration_method_ != LpEquilibrationMethod::none;
+      m_scaling_.equilibration_method != LpEquilibrationMethod::none;
   // See the singular `add_row` gate: objective-coupled cut rows need the
   // `÷ scale_objective` composition even with no col_scales / equilibration,
   // so `physical == LP` only when `scale_objective == 1` too.
@@ -2201,7 +2232,7 @@ void LinearInterface::add_rows(const std::span<const SparseRow> rows,
   std::vector<SparseRow> composed;
   composed.reserve(rows.size());
 
-  const auto& col_scales_ref = *m_col_scales_;
+  const auto& col_scales_ref = *m_scaling_.col_scales;
   const auto n_col_scales = std::ssize(col_scales_ref);
 
   for (const auto& row : rows) {
@@ -2375,16 +2406,17 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   invalidate_cached_optimal_on_mutation();
 
   // Update row scales, label metadata, and name maps for all new rows.
-  // `track_row_label_meta` is what keeps `m_row_labels_meta_` in sync with
-  // the backend row count — without it, a later `generate_labels_from_maps`
-  // call (e.g. through `write_lp` / `push_names_to_solver`) throws
-  // "row N has no entry in m_row_labels_meta_".  This bulk path is hit
-  // from `apply_post_load_replay` when a low-memory cell rebuilds and
-  // re-injects `m_active_cuts_`; the single-row `add_row_raw` path
-  // already calls `track_row_label_meta`, so mirroring it here keeps the
-  // size invariant across compress/replay cycles.
+  // `track_row_label_meta` is what keeps `m_labels_.row_labels_meta` in sync
+  // with the backend row count — without it, a later
+  // `generate_labels_from_maps` call (e.g. through `write_lp` /
+  // `push_names_to_solver`) throws "row N has no entry in
+  // m_labels_.row_labels_meta".  This bulk path is hit from
+  // `apply_post_load_replay` when a low-memory cell rebuilds and re-injects
+  // `m_active_cuts_`; the single-row `add_row_raw` path already calls
+  // `track_row_label_meta`, so mirroring it here keeps the size invariant
+  // across compress/replay cycles.
   //
-  // Bulk-grow `m_post_flatten_row_labels_meta_` and reserve the dedup
+  // Bulk-grow `m_labels_.post_flatten_row_labels_meta` and reserve the dedup
   // map up front: per-cut growth would resize-by-1 N times and rehash
   // the unordered_map several times across the batch, which dominates
   // the `track_row_label_meta` cost on the cut-replay hot path.
@@ -2396,8 +2428,8 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
         ? static_cast<size_t>(first_row_index) - frozen_count
         : 0U;
     const auto needed_size = first_post_offset + static_cast<size_t>(nrows);
-    if (m_post_flatten_row_labels_meta_.size() < needed_size) {
-      m_post_flatten_row_labels_meta_.resize(needed_size);
+    if (m_labels_.post_flatten_row_labels_meta.size() < needed_size) {
+      m_labels_.post_flatten_row_labels_meta.resize(needed_size);
     }
     m_post_flatten_row_meta_index_.reserve(m_post_flatten_row_meta_index_.size()
                                            + static_cast<size_t>(nrows));
@@ -2415,7 +2447,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
       const auto name = m_label_maker_.make_row_label(row);
       if (!name.empty()) {
         const auto i = static_cast<size_t>(bookkeep_idx);
-        auto& rin = detach_for_write(m_row_index_to_name_);
+        auto& rin = detach_for_write(m_labels_.row_index_to_name);
         if (rin.size() <= i) {
           rin.resize(i + 1);
         }
@@ -2439,7 +2471,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   // the label-metadata vector.  Iterate in reverse so positional
   // indices stay valid as we shrink each container.
   //
-  // Frozen invariant: `m_row_labels_meta_` (set by `load_flat`) is
+  // Frozen invariant: `m_labels_.row_labels_meta` (set by `load_flat`) is
   // never erased — only post-flatten rows (cuts, cascade elastic
   // constraints, …) are subject to `delete_rows`.  In production the
   // SDDP cut store only deletes indices `>= base_numrows()` which
@@ -2448,7 +2480,7 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   // skips frozen-side deletions silently rather than asserting, so
   // `row_label_at(idx)` semantics remain consistent if the caller
   // somehow passes a frozen index.
-  auto& rin = detach_for_write(m_row_index_to_name_);
+  auto& rin = detach_for_write(m_labels_.row_index_to_name);
   const auto frozen_count = flatten_row_count();
   for (const auto idx : indices | std::views::reverse) {
     const auto pos = static_cast<ptrdiff_t>(idx);
@@ -2459,9 +2491,9 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
       continue;
     }
     const auto post_pos = static_cast<std::size_t>(idx) - frozen_count;
-    if (post_pos < m_post_flatten_row_labels_meta_.size()) {
-      m_post_flatten_row_labels_meta_.erase(
-          m_post_flatten_row_labels_meta_.begin()
+    if (post_pos < m_labels_.post_flatten_row_labels_meta.size()) {
+      m_labels_.post_flatten_row_labels_meta.erase(
+          m_labels_.post_flatten_row_labels_meta.begin()
           + static_cast<ptrdiff_t>(post_pos));
     }
   }
@@ -2470,11 +2502,13 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
   // Row indices shifted on deletion, so every previously-registered
   // `(metadata → RowIndex)` pair on the post-flatten side is now
   // potentially stale.  Rebuild from the current
-  // `m_post_flatten_row_labels_meta_`.
+  // `m_labels_.post_flatten_row_labels_meta`.
   m_post_flatten_row_meta_index_.clear();
   m_post_flatten_row_meta_index_.reserve(
-      m_post_flatten_row_labels_meta_.size());
-  for (const auto [i, label] : enumerate(m_post_flatten_row_labels_meta_)) {
+      m_labels_.post_flatten_row_labels_meta.size());
+  for (const auto [i, label] :
+       enumerate(m_labels_.post_flatten_row_labels_meta))
+  {
     if (!label.class_name.empty() || !label.constraint_name.empty()
         || label.variable_uid != unknown_uid
         || !std::holds_alternative<std::monostate>(label.context))
@@ -2488,8 +2522,8 @@ void LinearInterface::delete_rows(const std::span<const int> indices)
 void LinearInterface::rebuild_row_name_maps()
 {
   if (m_label_maker_.duplicates_are_errors()) {
-    auto& rn = detach_for_write(m_row_names_);
-    const auto& rin = *m_row_index_to_name_;
+    auto& rn = detach_for_write(m_labels_.row_names);
+    const auto& rin = *m_labels_.row_index_to_name;
     rn.clear();
     rn.reserve(rin.size());
     for (const auto [i, name] : enumerate<RowIndex>(rin)) {
@@ -2535,7 +2569,8 @@ void LinearInterface::reset_from(const LinearInterface& source,
   }
 
   if (m_label_maker_.row_names_enabled()) {
-    detach_for_write(m_row_index_to_name_).resize(static_cast<size_t>(nrows));
+    detach_for_write(m_labels_.row_index_to_name)
+        .resize(static_cast<size_t>(nrows));
     rebuild_row_name_maps();
   }
   invalidate_cached_optimal_on_mutation();
@@ -2649,7 +2684,7 @@ void LinearInterface::set_obj_coeff(const ColIndex index,
   //   objval[i] /= scale_objective          (global scale_objective divisor)
   // Using `get_col_scale(index)` matches the singular bound setter
   // pattern (`set_col_low`, `set_col_upp`) and degrades to 1.0 when
-  // `m_col_scales_` is empty (bare LinearInterface / unflattened LP),
+  // `m_scaling_.col_scales` is empty (bare LinearInterface / unflattened LP),
   // making this a pure pass-through in the unscaled case.
   const double cs = get_col_scale(index);
   set_obj_coeff_raw(index, physical_value * cs / m_scale_objective_);
@@ -3231,7 +3266,7 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   };
 
   // Row name (if available)
-  const auto& rin = *m_row_index_to_name_;
+  const auto& rin = *m_labels_.row_index_to_name;
   if (static_cast<size_t>(row) < rin.size()) {
     diag.name = rin[row];
   }
@@ -3243,7 +3278,7 @@ RowDiagnostics LinearInterface::diagnose_row(const RowIndex row) const
   diag.rhs_ub = row_ub[row];
 
   // Scan all columns for non-zero coefficients in this row
-  const auto& cin = *m_col_index_to_name_;
+  const auto& cin = *m_labels_.col_index_to_name;
   for (const auto col : iota_range<ColIndex>(0, ncols)) {
     const double v = get_coeff_raw(row, col);
     if (v == 0.0) {
@@ -3309,13 +3344,13 @@ bool LinearInterface::is_prim_infeasible() const
 double LinearInterface::get_obj_value_raw() const
 {
   // Raw-scale objective straight from the backend.  The LP-external
-  // `obj_constant_raw` (algebraic constants from variable substitutions —
-  // e.g. the P0 demand-failure `fail = lmax − load` rewrite — and the
-  // boundary-cut / α-rebase constant) is now handed to the solver's NATIVE
-  // objective offset via `set_obj_offset` (on `load_flat` and every
+  // `m_scaling_.obj_constant_raw` (algebraic constants from variable
+  // substitutions — e.g. the P0 demand-failure `fail = lmax − load` rewrite —
+  // and the boundary-cut / α-rebase constant) is now handed to the solver's
+  // NATIVE objective offset via `set_obj_offset` (on `load_flat` and every
   // `add_obj_constant`), so `m_backend_->obj_value()` ALREADY includes it.
-  // Re-adding `m_obj_constant_raw_` here would double-count.  The released-
-  // backend cache mirrors the same offset-inclusive value.
+  // Re-adding `m_scaling_.obj_constant_raw` here would double-count.  The
+  // released-backend cache mirrors the same offset-inclusive value.
   return m_backend_released_ ? m_cache_.obj_value() : m_backend_->obj_value();
 }
 
@@ -3334,11 +3369,20 @@ void LinearInterface::add_obj_constant(double c) noexcept
 {
   // Convert physical (caller-facing) → raw (storage) scale.  Mirrors
   // the `m_obj_constant_ / scale_obj` conversion done at `flatten()`
-  // time so that the running `m_obj_constant_raw_` always lives on
+  // time so that the running `m_scaling_.obj_constant_raw` always lives on
   // the same basis as the solver's value, letting
   // `get_obj_value_raw()` compose them with a plain add.
   const double c_raw = c / m_scale_objective_;
-  m_obj_constant_raw_ += c_raw;
+  m_scaling_.obj_constant_raw += c_raw;
+
+  // Push the NEW ABSOLUTE total to the backend's native objective offset so
+  // the live solver's reported objective (and MIP relative-gap) reflects it
+  // immediately.  Guarded on a live backend: when released (low_memory), the
+  // snapshot mirror below carries the value and the next `load_flat`
+  // reconstruct re-applies it via `set_obj_offset`.
+  if (!m_backend_released_ && m_backend_ != nullptr) {
+    m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
+  }
 
   // Push the NEW ABSOLUTE total to the backend's native objective offset so
   // the live solver's reported objective (and MIP relative-gap) reflects it

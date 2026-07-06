@@ -157,14 +157,15 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   // Resolve required symbols.  reinterpret_cast is unavoidable here:
   // POSIX dlsym returns void* and the C++ standard provides no other
   // way to convert that to a function pointer.
-  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   auto* name_fn = reinterpret_cast<solver_plugin_name_fn>(
       ::dlsym(handle, "gtopt_plugin_name"));
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   auto* names_fn = reinterpret_cast<solver_plugin_names_fn>(
       ::dlsym(handle, "gtopt_solver_names"));
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   auto* factory_fn = reinterpret_cast<solver_backend_factory_fn>(
       ::dlsym(handle, "gtopt_create_backend"));
-  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
 
   if (name_fn == nullptr || names_fn == nullptr || factory_fn == nullptr) {
     const auto msg =
@@ -341,11 +342,14 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // from the parent via fork) does not fire inside the child — without
     // this, an uncaught exception → abort → doctest's SIGABRT handler
     // → spurious crash output that confuses doctest's test-rerun loop.
-    // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+    // SIG_DFL expands to a C-style cast and the ::signal result is
+    // deliberately discarded (best-effort child-side reset).
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
     ::signal(SIGABRT, SIG_DFL);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
     ::signal(SIGSEGV, SIG_DFL);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
     ::signal(SIGFPE, SIG_DFL);
-    // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
 
     try {
       auto* backend = plugin.create_fn(solver_name.c_str());
@@ -471,34 +475,40 @@ bool SolverRegistry::ensure_solver_loaded(std::string_view solver_name,
   const auto target = std::format("libgtopt_solver_{}.so", solver_name);
 
   // First pass: try the best-match filename.
-  for (auto it = m_pending_paths_.begin(); it != m_pending_paths_.end(); ++it) {
-    if (it->filename() == target) {
-      auto path = std::move(*it);
-      m_pending_paths_.erase(it);
-      load_plugin(path);
-      // Validate only the newly loaded plugin.
-      if (!m_plugins_.empty()) {
-        auto& last = m_plugins_.back();
-        std::erase_if(last.solver_names,
-                      [this, &last](const std::string& name)
-                      {
-                        if (!validate_solver_subprocess(last, name)) {
-                          m_load_errors_.push_back(std::format(
-                              "Solver '{}' removed: failed subprocess "
-                              "validation",
-                              name));
-                          return true;
-                        }
-                        return false;
-                      });
-        if (last.solver_names.empty()) {
-          m_plugins_.pop_back();
-        }
-      }
-      if (has_solver_unlocked(solver_name)) {
-        return true;
+  for (auto it = m_pending_paths_.begin(); it != m_pending_paths_.end();) {
+    if (it->filename() != target) {
+      ++it;
+      continue;
+    }
+    auto path = std::move(*it);
+    it = m_pending_paths_.erase(it);
+    load_plugin(path);
+    // Validate only the newly loaded plugin.
+    if (!m_plugins_.empty()) {
+      auto& last = m_plugins_.back();
+      std::erase_if(last.solver_names,
+                    [this, &last](const std::string& name)
+                    {
+                      if (!validate_solver_subprocess(last, name)) {
+                        m_load_errors_.push_back(std::format(
+                            "Solver '{}' removed: failed subprocess "
+                            "validation",
+                            name));
+                        return true;
+                      }
+                      return false;
+                    });
+      if (last.solver_names.empty()) {
+        m_plugins_.pop_back();
       }
     }
+    if (has_solver_unlocked(solver_name)) {
+      return true;
+    }
+    // Validation failed and removed the solver: keep scanning the
+    // remaining candidates.  `it` already points past the erased entry —
+    // incrementing the erased iterator here was UB (SIGSEGV in
+    // path::filename) whenever the requested solver failed validation.
   }
 
   // Second pass: try all remaining pending plugins.

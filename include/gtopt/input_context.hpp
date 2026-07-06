@@ -40,11 +40,15 @@ public:
     SPDLOG_DEBUG(
         "get_array_index: cname '{}' id '{} {}'", cname, id.first, id.second);
 
-    return make_array_index<Type,
-                            decltype(m_array_table_maps_),
-                            FSched,
-                            Uids...>(
-        m_system_context_.get(), cname, m_array_table_maps_, sched, id);
+    // The arrow input index is scene/phase-invariant, so it lives once on the
+    // shared SimulationLP and is reused across every per-cell build instead of
+    // being rebuilt (and the parquet re-read) per InputContext — that per-cell
+    // rebuild was the long-direct-input LP-build blow-up.  make_array_index
+    // fetches the shared cache from system_context.simulation() and takes its
+    // lock (the per-(scene, phase) SystemLP builds run concurrently); doing it
+    // there keeps the SimulationLP/SystemContext completeness off this header.
+    return make_array_index<Type, FSched, Uids...>(
+        m_system_context_.get(), cname, sched, id);
   }
 
   // Bring the template element_index from the base class into scope so that
@@ -61,13 +65,6 @@ public:
 
 private:
   std::reference_wrapper<const SystemContext> m_system_context_;
-
-  mutable std::tuple<
-      array_table_vector_uid_idx_t<ScenarioUid, StageUid, BlockUid>,
-      array_table_vector_uid_idx_t<ScenarioUid, StageUid>,
-      array_table_vector_uid_idx_t<StageUid, BlockUid>,
-      array_table_vector_uid_idx_t<StageUid>>
-      m_array_table_maps_;
 };
 
 }  // namespace gtopt

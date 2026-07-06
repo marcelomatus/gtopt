@@ -205,7 +205,7 @@ public:
   /// At construction, set from the user `var_scale` parameter (= the
   /// pre-equilibration col_scale).  After LP flatten, ruiz
   /// equilibration may have multiplied an additional `ruiz_factor`
-  /// into `LinearInterface::m_col_scales_[col()]`.  Call
+  /// into `LinearInterface::m_scaling_.col_scales[col()]`.  Call
   /// `set_var_scale()` post-flatten to sync this cached value to the
   /// authoritative `LinearInterface::get_col_scale(col())`, so that
   /// `col_sol_physical()` and `reduced_cost_physical()` agree with

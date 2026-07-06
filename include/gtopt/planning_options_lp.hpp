@@ -739,6 +739,16 @@ public:
     return m_options_.lp_fingerprint.value_or(false);
   }
 
+  /// Solver backend pinned at the planning level via
+  /// ``options.lp_matrix_options.solver_name`` (programmatic API — the
+  /// field is not JSON-mapped).  Empty = no pin; callers fall through to
+  /// ``SolverRegistry::default_solver()`` (GTOPT_SOLVER env / priority).
+  [[nodiscard]] constexpr auto lp_solver_name() const noexcept
+      -> const std::string&
+  {
+    return m_options_.lp_matrix_options.solver_name;
+  }
+
   /**
    * @brief Gets the LP coefficient ratio threshold for conditioning
    * diagnostics.
@@ -1015,7 +1025,21 @@ public:
   [[nodiscard]] constexpr auto sddp_aperture_solve_mode() const noexcept
   {
     return m_options_.sddp_options.aperture_solve_mode.value_or(
-        ApertureSolveMode::reduced_cost);
+        ApertureSolveMode::warm);
+  }
+
+  /// Cross-pass simplex-basis warm-start reuse mode.  Default `full_cross`
+  /// (forward→forward warm reuse + forward basis fed into the backward/tgt
+  /// and aperture solves).  Combined with the seeded-solve auto-dual logic
+  /// this makes every warm SDDP solve run dual simplex off a reused basis
+  /// (cold iter-1 solves keep barrier to produce a capturable vertex basis).
+  /// Convergence-safe (cuts stay valid vertex duals); on degenerate problems
+  /// the trajectory can differ slightly from `off` while still converging.
+  /// See `SddpOptions::basis_cross_mode` / `BasisCrossMode`.
+  [[nodiscard]] constexpr auto sddp_basis_cross_mode() const noexcept
+  {
+    return m_options_.sddp_options.basis_cross_mode.value_or(
+        BasisCrossMode::full_cross);
   }
 
   /**
@@ -1608,7 +1632,7 @@ public:
     return m_options_.sddp_options.max_stored_cuts.value_or(0);
   }
 
-  /// Low memory mode: off, compress (default for SDDP/cascade), or rebuild.
+  /// Low memory mode: off or compress (default for SDDP/cascade).
   /// Resolved default is `compress` so SDDP/cascade runs release the solver
   /// backend between solves and keep an in-memory compressed flat-LP
   /// snapshot.  Set explicitly to `LowMemoryMode::off` (or `--memory-saving
@@ -1659,6 +1683,17 @@ public:
   [[nodiscard]] constexpr auto sddp_pool_cpu_factor() const
   {
     return m_options_.sddp_options.pool_cpu_factor.value_or(4.0);
+  }
+
+  /** @brief Whether the user explicitly set the SDDP pool CPU factor.
+   *
+   * When false, `SDDPMethod` may auto-cap the resolved factor to 1.0 for
+   * many-scene runs (the scene×aperture backward tasks already saturate
+   * every core, so over-commit only adds scheduler contention).  When
+   * true, the resolved value is honored verbatim. */
+  [[nodiscard]] constexpr bool sddp_pool_cpu_factor_is_set() const
+  {
+    return m_options_.sddp_options.pool_cpu_factor.has_value();
   }
 
   /** @brief LP-build work-pool CPU over-commit factor (default: 2.0).

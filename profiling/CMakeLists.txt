@@ -23,6 +23,7 @@ Quick start::
   cmake --build build-profiling --target profiling-configure
   cmake --build build-profiling --target profiling-build
   cmake --build build-profiling --target profiling-callgrind
+  cmake --build build-profiling --target profiling-perf
   cmake --build build-profiling --target profiling-timing
   cmake --build build-profiling --target profiling-report
 
@@ -69,7 +70,18 @@ Targets
   Builds the gtopt standalone binary.
 
 ``profiling-callgrind``
-  Runs gtopt under valgrind --tool=callgrind.
+  Runs gtopt under valgrind --tool=callgrind (exact, deterministic
+  instruction counts — slow, small cases only).
+
+``profiling-perf``
+  Runs gtopt under ``perf record`` (sampled, near-zero overhead) and writes
+  ``perf-report.txt`` (hot functions + call graph) and ``perf-annotate.txt``
+  (hot source lines — the ``callgrind_annotate`` equivalent).  Prefers the
+  precise ``cycles:pp`` event, falling back to ``cycles`` then the
+  ``task-clock`` software event when the hardware PMU is unavailable
+  (containers / CI VMs); if perf cannot sample at all it writes a diagnostic
+  note and exits 0.  Best run on real hardware; NOT part of the default
+  ``profiling`` target.
 
 ``profiling-timing``
   Runs ``PROFILING_REPS`` repetitions timed with ``/usr/bin/time -v``.
@@ -125,6 +137,9 @@ set(PROFILING_REPS
 
 option(PROFILING_PYTHON "Run cProfile on plp2gtopt in addition to C++ profiling" ON)
 
+option(PROFILING_PERF
+       "Provide the profiling-perf target (perf record; sampled hot-line profiling)" ON)
+
 set(PROFILING_PLP_CASE
     "plp_dat_ex"
     CACHE STRING "Subdirectory under scripts/cases/ to profile with plp2gtopt"
@@ -142,8 +157,18 @@ set(PROFILING_EXTRA_CMAKE_ARGS
 )
 
 # ---- Find required tools ------------------------------------------------
+# valgrind is OPTIONAL — only the profiling-callgrind / profiling-report
+# targets need it.  The profiling-perf and profiling-timing targets work
+# without it, so a perf-only profiling run (common on machines without
+# valgrind) must still configure.  (perf and GNU time are already optional
+# below.)  Install with `sudo apt install valgrind` to enable callgrind.
 include(FindValgrind)
-find_package(Valgrind REQUIRED)
+find_package(Valgrind)
+if(NOT VALGRIND_EXECUTABLE)
+  message(STATUS
+    "valgrind not found — profiling-callgrind / profiling-report disabled; "
+    "profiling-perf and profiling-timing remain available.")
+endif()
 
 find_program(GNU_TIME_EXECUTABLE NAMES time PATHS /usr/bin NO_DEFAULT_PATH)
 if(NOT GNU_TIME_EXECUTABLE)
@@ -159,6 +184,10 @@ if(NOT GNU_TIME_EXECUTABLE)
 endif()
 
 find_program(PYTHON3_EXECUTABLE NAMES python3 python)
+
+# perf is optional: the profiling-perf target falls back to a no-op stub when
+# perf is missing (sudo apt install linux-perf).
+find_program(PERF_EXECUTABLE NAMES perf)
 
 # ---- Find the case JSON file at configure time --------------------------
 file(GLOB _case_json_files "${PROFILING_CASE}/*.json")
@@ -217,6 +246,9 @@ set(_all_dir "${_repo_root}/all")
 set(_profiling_build_dir "${CMAKE_BINARY_DIR}/gtopt-profiling-build")
 set(_gtopt_binary "${_profiling_build_dir}/standalone/gtopt")
 set(_callgrind_out "${PROFILING_OUTPUT_DIR}/callgrind.out")
+set(_perf_data "${PROFILING_OUTPUT_DIR}/perf.data")
+set(_perf_report "${PROFILING_OUTPUT_DIR}/perf-report.txt")
+set(_perf_annotate "${PROFILING_OUTPUT_DIR}/perf-annotate.txt")
 set(_timing_file "${PROFILING_OUTPUT_DIR}/timing.txt")
 set(_python_output_dir "${PROFILING_OUTPUT_DIR}/python")
 
@@ -234,6 +266,7 @@ endif()
 message(STATUS "=== gtopt Profiling Configuration ===")
 message(STATUS "  valgrind:    ${VALGRIND_EXECUTABLE}")
 message(STATUS "  callgrind_annotate: ${CALLGRIND_ANNOTATE_EXECUTABLE}")
+message(STATUS "  perf:        ${PERF_EXECUTABLE}")
 message(STATUS "  /usr/bin/time: ${GNU_TIME_EXECUTABLE}")
 message(STATUS "  python3:     ${PYTHON3_EXECUTABLE}")
 message(STATUS "  Case:        ${PROFILING_CASE}")
@@ -266,11 +299,13 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E echo "=== Profiling tool status ==="
   COMMAND ${CMAKE_COMMAND} -E echo "  valgrind:          ${VALGRIND_EXECUTABLE}"
   COMMAND ${CMAKE_COMMAND} -E echo "  callgrind_annotate: ${CALLGRIND_ANNOTATE_EXECUTABLE}"
+  COMMAND ${CMAKE_COMMAND} -E echo "  perf:              ${PERF_EXECUTABLE}"
   COMMAND ${CMAKE_COMMAND} -E echo "  /usr/bin/time:     ${GNU_TIME_EXECUTABLE}"
   COMMAND ${CMAKE_COMMAND} -E echo "  python3:           ${PYTHON3_EXECUTABLE}"
   COMMAND ${CMAKE_COMMAND} -E echo ""
   COMMAND ${CMAKE_COMMAND} -E echo "Install missing tools:"
   COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install valgrind"
+  COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install linux-perf"
   COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install time"
   COMMAND ${CMAKE_COMMAND} -E echo "  sudo apt install clang"
   COMMENT "Checking profiling tool dependencies"
@@ -374,9 +409,97 @@ message(STATUS "Timing log written to: ${_outfile}")
       COMMENT "Timing target skipped (GNU time not available)"
     )
   endif()
+
+  # ---- Target: profiling-perf -------------------------------------------
+  # Sampling counterpart to profiling-callgrind: near-zero overhead, so it
+  # profiles the real RelWithDebInfo binary at full speed and reports hot
+  # source lines via `perf annotate` (the callgrind_annotate equivalent).
+  if(PROFILING_PERF AND PERF_EXECUTABLE)
+    set(_perf_script "${CMAKE_BINARY_DIR}/run-perf.cmake")
+    set(_perf_script_content
+      [=[
+cmake_minimum_required(VERSION 3.19)
+set(_perf     "@PERF_EXECUTABLE@")
+set(_gtopt    "@_gtopt_binary@")
+set(_json     "@_work_json@")
+set(_case_dir "@PROFILING_CASE@")
+set(_data     "@_perf_data@")
+set(_report   "@_perf_report@")
+set(_annotate "@_perf_annotate@")
+
+# Prefer the precise hardware event, then a plain hardware event, then the
+# task-clock software event (needs no PMU — works in containers / CI VMs).
+set(_recorded FALSE)
+foreach(_ev IN ITEMS "cycles:pp" "cycles" "task-clock")
+  message(STATUS "profiling-perf: perf record -e ${_ev} --call-graph dwarf ...")
+  execute_process(
+    COMMAND "${_perf}" record --quiet -e "${_ev}" --call-graph dwarf
+            -o "${_data}" "${_gtopt}" "${_json}"
+    WORKING_DIRECTORY "${_case_dir}"
+    RESULT_VARIABLE _rc
+    ERROR_VARIABLE  _err
+  )
+  if(_rc EQUAL 0)
+    set(_recorded TRUE)
+    message(STATUS "profiling-perf: recorded with event '${_ev}'")
+    break()
+  endif()
+  message(STATUS "profiling-perf: event '${_ev}' unavailable (rc=${_rc})")
+endforeach()
+
+if(NOT _recorded)
+  # Never hard-fail: perf_event_open is commonly restricted on hosted CI VMs.
+  file(WRITE "${_report}"
+    "perf record failed for every event (cycles:pp, cycles, task-clock).\n"
+    "The hardware PMU is usually unavailable on GitHub-hosted / containerized\n"
+    "runners; run profiling-perf on real hardware, or lower the paranoia level:\n"
+    "  sudo sysctl -w kernel.perf_event_paranoid=1\n"
+    "Last perf error:\n${_err}\n")
+  file(WRITE "${_annotate}" "perf annotate unavailable (no perf.data recorded).\n")
+  message(WARNING "profiling-perf: perf could not sample; wrote diagnostics to ${_report}")
+  return()
+endif()
+
+# Hot functions + call graph.
+execute_process(
+  COMMAND "${_perf}" report --stdio --percent-limit 0.5 -i "${_data}"
+  OUTPUT_FILE "${_report}"
+  ERROR_QUIET
+)
+# Hot source lines — the callgrind_annotate equivalent.
+execute_process(
+  COMMAND "${_perf}" annotate --stdio -i "${_data}"
+  OUTPUT_FILE "${_annotate}"
+  ERROR_QUIET
+)
+message(STATUS "profiling-perf: hot functions    -> ${_report}")
+message(STATUS "profiling-perf: hot source lines -> ${_annotate}")
+]=]
+    )
+    file(WRITE "${_perf_script}" "${_perf_script_content}")
+    configure_file("${_perf_script}" "${_perf_script}" @ONLY)
+
+    add_custom_target(
+      profiling-perf
+      COMMAND ${CMAKE_COMMAND} -P "${_perf_script}"
+      COMMENT
+        "Profiling with perf record (sampled hot lines; best on real hardware)..."
+      USES_TERMINAL
+      VERBATIM
+    )
+    add_dependencies(profiling-perf profiling-build)
+  else()
+    add_custom_target(
+      profiling-perf
+      COMMAND ${CMAKE_COMMAND} -E echo
+        "Skipping profiling-perf: perf not found (sudo apt install linux-perf) or PROFILING_PERF=OFF"
+      COMMENT "profiling-perf skipped (perf unavailable)"
+    )
+    add_dependencies(profiling-perf profiling-build)
+  endif()
 else()
   # No case JSON — create stub targets
-  foreach(_stub_target profiling-callgrind profiling-timing)
+  foreach(_stub_target profiling-callgrind profiling-perf profiling-timing)
     add_custom_target(
       ${_stub_target}
       COMMAND ${CMAKE_COMMAND} -E echo

@@ -923,7 +923,7 @@ void SDDPMethod::capture_state_variable_values(
   //    `LinearInterface::get_col_scale(col())`.  At StateVariable
   //    construction time only the user-set var_scale is available
   //    (LP not yet flattened), but ruiz equilibration may have
-  //    multiplied an additional `ruiz_factor` into m_col_scales_
+  //    multiplied an additional `ruiz_factor` into m_scaling_.col_scales
   //    later.  Without this sync, `state_var.var_scale()` returns
   //    the pre-equilibration value while `LinearInterface::get_col_cost()`
   //    divides by the post-equilibration value — the two cut

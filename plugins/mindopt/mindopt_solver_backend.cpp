@@ -7,15 +7,20 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "mindopt_solver_backend.hpp"
 
 #include <Mindopt.h>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <gtopt/log_and_throw.hpp>
 #include <gtopt/solver_options.hpp>
@@ -27,6 +32,44 @@ namespace gtopt
 
 namespace
 {
+
+/// Make MIP solves work without user environment setup.
+///
+/// MindOpt's MILP engine (``libmindoptmilp.so``) is dlopen'ed lazily at
+/// the first MIP solve, located via ``$LIBMILP_PATH``.  When it is unset,
+/// LP solves work fine (``libmindopt.so`` itself is linked via rpath) but
+/// every MIP solve fails with "Failed to load mindoptmilp DLL" — observed
+/// 2026-07-05 as ~20 MIP/SOS2/commitment test failures.  Setting only
+/// ``MINDOPT_HOME`` does NOT help at runtime (the loader then derives an
+/// empty path — upstream quirk), so derive ``LIBMILP_PATH`` from the
+/// directory of the already-loaded ``libmindopt.so``; never override a
+/// user-provided value.
+void ensure_milp_path()
+{
+  static std::once_flag flag;
+  std::call_once(
+      flag,
+      []
+      {
+        if (::getenv("LIBMILP_PATH") != nullptr) {
+          return;
+        }
+        Dl_info info {};
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        if (::dladdr(reinterpret_cast<void*>(&MDOemptyenv), &info) == 0
+            || info.dli_fname == nullptr)
+        {
+          return;
+        }
+        const auto libdir = std::filesystem::path(info.dli_fname).parent_path();
+        // Single-threaded here in practice (first backend construction
+        // runs before solver worker pools spin up); overwrite=0 keeps any
+        // concurrently-set user value.
+        ::setenv("LIBMILP_PATH",
+                 libdir.c_str(),
+                 0);  // NOLINT(concurrency-mt-unsafe)
+      });
+}
 
 /// Apply every SolverOptions field onto a *fresh* MindOpt env.
 ///
@@ -201,6 +244,8 @@ void MindOptSolverBackend::reset_model_()
 
 MindOptSolverBackend::MindOptSolverBackend()
 {
+  ensure_milp_path();
+
   // Redirect stdout to /dev/null before any MindOpt calls.
   // MindOpt prints a banner to stdout that cannot be suppressed via API.
   const int saved_stdout = ::dup(STDOUT_FILENO);  // NOLINT(android-cloexec-dup)
@@ -210,21 +255,38 @@ MindOptSolverBackend::MindOptSolverBackend()
     ::close(devnull);
   }
 
-  int rc = MDOemptyenv(&m_env_);
-  if (rc != MDO_OKAY) {
-    // Restore stdout before throwing
-    if (saved_stdout >= 0) {
-      ::dup2(saved_stdout, STDOUT_FILENO);
-      ::close(saved_stdout);
+  // MDOstartenv re-validates the license file on every call.  Under heavy
+  // parallel load (e.g. ctest -j20 with each process spinning up several
+  // backends concurrently) the check fails transiently with
+  // MDO_INVALID_LICENSE even though the license is valid — observed
+  // 2026-07-04 as 158/4432 scattered test failures that all pass serially.
+  // Retry with exponential backoff, recreating the env from scratch each
+  // attempt (restarting a failed env has no documented semantics).
+  constexpr unsigned max_license_retries = 5;
+  int rc = MDO_OKAY;
+  for (unsigned attempt = 0;; ++attempt) {
+    rc = MDOemptyenv(&m_env_);
+    if (rc != MDO_OKAY) {
+      // Restore stdout before throwing
+      if (saved_stdout >= 0) {
+        ::dup2(saved_stdout, STDOUT_FILENO);
+        ::close(saved_stdout);
+      }
+      gtopt::log_and_throw(
+          std::format("MindOpt: MDOemptyenv failed (rc={})", rc));
     }
-    gtopt::log_and_throw(
-        std::format("MindOpt: MDOemptyenv failed (rc={})", rc));
+
+    MDOsetintparam(m_env_, MDO_INT_PAR_OUTPUT_FLAG, 0);
+    MDOsetintparam(m_env_, MDO_INT_PAR_LOG_TO_CONSOLE, 0);
+
+    rc = MDOstartenv(m_env_);
+    if (rc != MDO_INVALID_LICENSE || attempt >= max_license_retries) {
+      break;
+    }
+    MDOfreeenv(m_env_);
+    m_env_ = nullptr;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50U << attempt));
   }
-
-  MDOsetintparam(m_env_, MDO_INT_PAR_OUTPUT_FLAG, 0);
-  MDOsetintparam(m_env_, MDO_INT_PAR_LOG_TO_CONSOLE, 0);
-
-  rc = MDOstartenv(m_env_);
 
   // Restore stdout
   if (saved_stdout >= 0) {
@@ -670,6 +732,10 @@ bool MindOptSolverBackend::is_integer(int index) const
 {
   return !is_continuous(index);
 }
+
+// NOTE: add_sos2 is deliberately not implemented — see the rationale in
+// mindopt_solver_backend.hpp (MindOpt 2.3.0 SOS2 is unreliable: silent
+// non-enforcement and spurious infeasibility on real models).
 
 // ── cache helpers ────────────────────────────────────────────────────────
 

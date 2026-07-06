@@ -39,9 +39,12 @@ namespace gtopt
 
 bool is_codec_available(CompressionCodec codec) noexcept
 {
-  // NOLINTBEGIN(bugprone-branch-clone) — lz4/snappy bodies may be identical
-  // depending on which optional codec libraries are compiled in.
+  // The lz4/snappy case bodies collapse to `return true;` (matching the
+  // always-available codecs) only when GTOPT_HAS_LZ4/GTOPT_HAS_SNAPPY are
+  // defined; without them they return false.  The per-codec cases are kept
+  // separate so the availability map stays readable across build configs.
   switch (codec) {
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     case CompressionCodec::auto_select:
     case CompressionCodec::uncompressed:
     case CompressionCodec::zstd:
@@ -66,7 +69,6 @@ bool is_codec_available(CompressionCodec codec) noexcept
       return false;  // file-only codecs, not for in-memory use
   }
   return false;
-  // NOLINTEND(bugprone-branch-clone)
 }
 
 std::string_view codec_name(CompressionCodec codec) noexcept
@@ -157,13 +159,14 @@ std::vector<char> compress_gzip(std::span<const char> data)
   auto bound = compressBound(static_cast<uLong>(data.size()));
   std::vector<char> out(bound);
   auto out_len = static_cast<uLongf>(bound);
-  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
-  const auto rc = ::compress2(reinterpret_cast<Bytef*>(out.data()),
-                              &out_len,
-                              reinterpret_cast<const Bytef*>(data.data()),
-                              static_cast<uLong>(data.size()),
-                              /*level=*/1);
-  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
+  // zlib's C API works in `Bytef` (unsigned char); casting our char
+  // buffers to it is the standard, unavoidable interop pattern.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* const out_ptr = reinterpret_cast<Bytef*>(out.data());
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  const auto* const in_ptr = reinterpret_cast<const Bytef*>(data.data());
+  const auto rc = ::compress2(
+      out_ptr, &out_len, in_ptr, static_cast<uLong>(data.size()), /*level=*/1);
   if (rc != Z_OK) {
     throw std::runtime_error("gzip compress failed (zlib error "
                              + std::to_string(rc) + ")");
@@ -177,10 +180,12 @@ std::vector<char> decompress_gzip(std::span<const char> compressed,
 {
   std::vector<char> out(original_size);
   auto out_len = static_cast<uLongf>(original_size);
-  // NOLINTBEGIN(cppcoreguidelines-pro-type-reinterpret-cast)
+  // zlib's C API works in `Bytef` (unsigned char); casting our char
+  // buffers to it is the standard, unavoidable interop pattern.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   auto* const out_ptr = reinterpret_cast<Bytef*>(out.data());
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   const auto* const in_ptr = reinterpret_cast<const Bytef*>(compressed.data());
-  // NOLINTEND(cppcoreguidelines-pro-type-reinterpret-cast)
   const auto rc = ::uncompress(
       out_ptr, &out_len, in_ptr, static_cast<uLong>(compressed.size()));
   if (rc != Z_OK) {

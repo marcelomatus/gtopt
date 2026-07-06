@@ -45,14 +45,17 @@ void LinearInterface::generate_labels_from_maps(
   // forward/backward/aperture error-LP dumps for one cell touch disk once).
   // No-op when no store is attached — the live vectors are authoritative.
   // Runs BEFORE the loops because `col_label_at` indexes post-flatten metadata
-  // at `i - m_col_labels_meta_->size()`, so the frozen size must be restored
-  // first or the cut/alpha rows would be mis-resolved.
-  if (m_name_store_ != nullptr && !m_spill_key_.empty()
-      && m_col_labels_meta_->empty() && m_row_labels_meta_->empty())
+  // at `i - m_labels_.col_labels_meta->size()`, so the frozen size must be
+  // restored first or the cut/alpha rows would be mis-resolved.
+  if (m_labels_.name_store != nullptr && !m_labels_.spill_key.empty()
+      && m_labels_.col_labels_meta->empty()
+      && m_labels_.row_labels_meta->empty())
   {
-    if (const LpLabelMeta* meta = m_name_store_->load(m_spill_key_)) {
-      detach_for_write(m_col_labels_meta_) = meta->col_labels;
-      detach_for_write(m_row_labels_meta_) = meta->row_labels;
+    if (const LpLabelMeta* meta =
+            m_labels_.name_store->load(m_labels_.spill_key))
+    {
+      detach_for_write(m_labels_.col_labels_meta) = meta->col_labels;
+      detach_for_write(m_labels_.row_labels_meta) = meta->row_labels;
     }
   }
 
@@ -68,7 +71,7 @@ void LinearInterface::generate_labels_from_maps(
   // subsequent `generate_labels_from_maps` calls (after `add_col`
   // added new entries) hit the cache for already-formatted cols and
   // only format the tail.
-  auto& cin = detach_for_write(m_col_index_to_name_);
+  auto& cin = detach_for_write(m_labels_.col_index_to_name);
   if (cin.size() < ncols) {
     cin.resize(ncols);
   }
@@ -87,8 +90,8 @@ void LinearInterface::generate_labels_from_maps(
     // subsequent calls (repeat `write_lp`) avoid re-formatting.
     //
     // Three-tier lookup:
-    //   1. Frozen flatten-side `m_col_labels_meta_`              (load_flat).
-    //   2. Per-instance `m_post_flatten_col_labels_meta_`        (cuts,
+    //   1. Frozen flatten-side `m_labels_.col_labels_meta` (load_flat).
+    //   2. Per-instance `m_labels_.post_flatten_col_labels_meta`        (cuts,
     //      slacks, alpha, cascade elastic — every post-`load_flat`
     //      add_col tracked here by `track_col_label_meta`).
     //   3. Per-clone-local `m_post_clone_col_metas_`             (only
@@ -116,13 +119,13 @@ void LinearInterface::generate_labels_from_maps(
         }
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: col {} has no "
-            "entry in m_col_labels_meta_ (frozen size {}) / "
-            "m_post_flatten_col_labels_meta_ (size {}) or "
+            "entry in m_labels_.col_labels_meta (frozen size {}) / "
+            "m_labels_.post_flatten_col_labels_meta (size {}) or "
             "m_post_clone_col_metas_ (size {}) — col was added without "
             "metadata tracking.",
             i,
             flatten_col_count(),
-            m_post_flatten_col_labels_meta_.size(),
+            m_labels_.post_flatten_col_labels_meta.size(),
             m_post_clone_col_metas_.size()));
       }
       meta = it->second;
@@ -140,7 +143,7 @@ void LinearInterface::generate_labels_from_maps(
                       i));
     }
     cin[ci] = label;  // cache in index→name
-    auto& cn = detach_for_write(m_col_names_);
+    auto& cn = detach_for_write(m_labels_.col_names);
     if (auto [it, inserted] = cn.try_emplace(label, ci); !inserted) {
       throw std::runtime_error(std::format(
           "LinearInterface: duplicate col metadata — label '{}' synthesised "
@@ -155,7 +158,7 @@ void LinearInterface::generate_labels_from_maps(
 
   const auto nrows = static_cast<size_t>(m_backend_->get_num_rows());
   row_names.assign(nrows, std::string {});
-  auto& rin = detach_for_write(m_row_index_to_name_);
+  auto& rin = detach_for_write(m_labels_.row_index_to_name);
   if (rin.size() < nrows) {
     rin.resize(nrows);
   }
@@ -167,8 +170,8 @@ void LinearInterface::generate_labels_from_maps(
       continue;
     }
     // Three-tier lookup (same shape as the col side above):
-    //   1. Frozen flatten-side `m_row_labels_meta_`.
-    //   2. Per-instance `m_post_flatten_row_labels_meta_` (cut rows,
+    //   1. Frozen flatten-side `m_labels_.row_labels_meta`.
+    //   2. Per-instance `m_labels_.post_flatten_row_labels_meta` (cut rows,
     //      cascade elastic constraints, …).
     //   3. Per-clone-local `m_post_clone_row_metas_` (disposable inserts).
     SparseRowLabel meta;
@@ -190,13 +193,13 @@ void LinearInterface::generate_labels_from_maps(
         }
         throw std::logic_error(std::format(
             "LinearInterface::generate_labels_from_maps: row {} has no "
-            "entry in m_row_labels_meta_ (frozen size {}) / "
-            "m_post_flatten_row_labels_meta_ (size {}) or "
+            "entry in m_labels_.row_labels_meta (frozen size {}) / "
+            "m_labels_.post_flatten_row_labels_meta (size {}) or "
             "m_post_clone_row_metas_ (size {}) — row was added without "
             "metadata tracking.",
             i,
             flatten_row_count(),
-            m_post_flatten_row_labels_meta_.size(),
+            m_labels_.post_flatten_row_labels_meta.size(),
             m_post_clone_row_metas_.size()));
       }
       meta = it->second;
@@ -214,7 +217,7 @@ void LinearInterface::generate_labels_from_maps(
                       i));
     }
     rin[ri] = label;  // cache in index→name
-    auto& rn = detach_for_write(m_row_names_);
+    auto& rn = detach_for_write(m_labels_.row_names);
     if (auto [it, inserted] = rn.try_emplace(label, ri); !inserted) {
       throw std::runtime_error(std::format(
           "LinearInterface: duplicate row metadata — label '{}' synthesised "
@@ -231,10 +234,10 @@ void LinearInterface::generate_labels_from_maps(
 void LinearInterface::materialize_labels() const
 {
   // Trigger `generate_labels_from_maps` so caches
-  // (`m_col_index_to_name_` / `m_row_index_to_name_`) and name→index
-  // maps (`m_col_names_` / `m_row_names_`) are populated.  Discards
-  // the returned vectors — callers that need them directly should
-  // call `generate_labels_from_maps` themselves.
+  // (`m_labels_.col_index_to_name` / `m_labels_.row_index_to_name`) and
+  // name→index maps (`m_labels_.col_names` / `m_labels_.row_names`) are
+  // populated.  Discards the returned vectors — callers that need them directly
+  // should call `generate_labels_from_maps` themselves.
   std::vector<std::string> col_names;
   std::vector<std::string> row_names;
   generate_labels_from_maps(col_names, row_names);
@@ -259,13 +262,13 @@ void LinearInterface::compress_labels_meta_if_needed()
   // populated: they are tiny and survive across cycles in
   // m_post_flatten_*_meta_index_, which is per-instance and not
   // reseeded by load_flat.
-  if (!m_col_labels_meta_->empty()) {
-    auto& cm = detach_for_write(m_col_labels_meta_);
+  if (!m_labels_.col_labels_meta->empty()) {
+    auto& cm = detach_for_write(m_labels_.col_labels_meta);
     cm.clear();
     cm.shrink_to_fit();
   }
-  if (!m_row_labels_meta_->empty()) {
-    auto& rm = detach_for_write(m_row_labels_meta_);
+  if (!m_labels_.row_labels_meta->empty()) {
+    auto& rm = detach_for_write(m_labels_.row_labels_meta);
     rm.clear();
     rm.shrink_to_fit();
   }
@@ -274,7 +277,7 @@ void LinearInterface::compress_labels_meta_if_needed()
 void LinearInterface::ensure_labels_meta_decompressed() const
 {
   // No-op now that compress_labels_meta_if_needed() no longer
-  // serialises into m_col_labels_meta_compressed_ / m_row_labels_
+  // serialises into m_labels_.col_labels_meta_compressed / m_row_labels_
   // meta_compressed_.  The live vectors are repopulated directly by
   // load_flat from the snapshot, which is the only path that
   // produces a loaded backend — and write_lp (the only consumer of

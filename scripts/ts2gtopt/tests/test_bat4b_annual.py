@@ -553,40 +553,37 @@ class TestWriteFiles:
 
     @pytest.mark.integration
     def test_parquet_demand_schema(self, tmp_path):
-        """Demand Parquet file must have correct gtopt-compatible schema."""
+        """Demand Parquet file must be in gtopt's long input layout."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "demand_lmax.parquet")
-        assert "scenario" in df.columns
-        assert "stage" in df.columns
-        assert "block" in df.columns
-        assert "uid:1" in df.columns
-        assert "uid:2" in df.columns
-        assert "_duration" not in df.columns
+        assert list(df.columns) == ["scenario", "stage", "block", "uid", "value"]
+        assert sorted(df["uid"].unique()) == [1, 2]
         assert df["scenario"].dtype == "int32"
         assert df["stage"].dtype == "int32"
         assert df["block"].dtype == "int32"
-        assert df["uid:1"].dtype == "float64"
+        assert df["uid"].dtype == "int32"
+        assert df["value"].dtype == "float64"
 
     @pytest.mark.integration
     def test_parquet_demand_row_count(self, tmp_path):
-        """Demand Parquet: 1 scenario × 12 stages × 24 blocks = 288 rows."""
+        """Demand Parquet: 12 stages × 24 blocks × 2 demand uids = 576 rows."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "demand_lmax.parquet")
-        assert len(df) == 12 * 24
+        assert len(df) == 12 * 24 * 2
 
     @pytest.mark.integration
     def test_parquet_solar_row_count(self, tmp_path):
-        """Solar Parquet: 288 rows."""
+        """Solar Parquet: 12 stages × 24 blocks × 1 uid = 288 rows."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "solar_pmax.parquet")
         assert len(df) == 12 * 24
 
     @pytest.mark.integration
     def test_parquet_generator_row_count(self, tmp_path):
-        """Generator pmax Parquet: 288 rows."""
+        """Generator pmax Parquet: 12 stages × 24 blocks × 2 gen uids = 576 rows."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "generator_pmax.parquet")
-        assert len(df) == 12 * 24
+        assert len(df) == 12 * 24 * 2
 
     @pytest.mark.integration
     def test_write_bat4b_case_creates_json(self, tmp_path):
@@ -615,8 +612,9 @@ class TestWriteFiles:
         """Projected solar pmax must be within [0, SOLAR_PMAX_MW]."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "solar_pmax.parquet")
-        assert df["uid:3"].min() >= 0.0
-        assert df["uid:3"].max() <= SOLAR_PMAX_MW + 1e-6
+        solar = df[df["uid"] == 3]["value"]
+        assert solar.min() >= 0.0
+        assert solar.max() <= SOLAR_PMAX_MW + 1e-6
 
     @pytest.mark.integration
     def test_parquet_generator_maintenance_reflected(self, tmp_path):
@@ -624,18 +622,19 @@ class TestWriteFiles:
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="parquet")
         df = pd.read_parquet(tmp_path / "generator_pmax.parquet")
         # Stage 1 = January (g1 has maintenance)
-        jan_g1_mean = df[df["stage"] == 1]["uid:1"].mean()
+        jan_g1_mean = df[(df["stage"] == 1) & (df["uid"] == 1)]["value"].mean()
         assert jan_g1_mean < G1_PMAX_MW
 
     @pytest.mark.integration
     def test_csv_demand_readable(self, tmp_path):
-        """Demand CSV must be readable and contain correct columns."""
+        """Demand CSV must be readable and in the long input layout."""
         write_bat4b_timeseries(tmp_path, year=_YEAR, output_format="csv")
         df = pd.read_csv(tmp_path / "demand_lmax.csv")
         assert "scenario" in df.columns
-        assert "uid:1" in df.columns
-        assert "uid:2" in df.columns
-        assert len(df) == 12 * 24
+        assert "uid" in df.columns
+        assert "value" in df.columns
+        assert sorted(df["uid"].unique()) == [1, 2]
+        assert len(df) == 12 * 24 * 2
 
 
 # ---------------------------------------------------------------------------
@@ -716,47 +715,47 @@ class TestGtoptInputStructure:
 
     @pytest.mark.integration
     def test_lmax_file_schema(self, tmp_path):
-        """input/Demand/lmax.parquet has scenario,stage,block,uid:1,uid:2."""
+        """input/Demand/lmax.parquet is long: scenario,stage,block,uid,value."""
         write_bat4b_gtopt_input(tmp_path, year=_YEAR)
         df = pd.read_parquet(tmp_path / "Demand" / "lmax.parquet")
-        for col in ("scenario", "stage", "block", "uid:1", "uid:2"):
-            assert col in df.columns
+        assert list(df.columns) == ["scenario", "stage", "block", "uid", "value"]
         assert "_duration" not in df.columns
-        assert len(df) == 12 * 24
+        assert sorted(df["uid"].unique()) == [1, 2]
+        assert len(df) == 12 * 24 * 2
 
     @pytest.mark.integration
     def test_pmax_file_schema(self, tmp_path):
-        """input/Generator/pmax.parquet has scenario,stage,block,uid:1,uid:2."""
+        """input/Generator/pmax.parquet is long: scenario,stage,block,uid,value."""
         write_bat4b_gtopt_input(tmp_path, year=_YEAR)
         df = pd.read_parquet(tmp_path / "Generator" / "pmax.parquet")
-        for col in ("scenario", "stage", "block", "uid:1", "uid:2"):
-            assert col in df.columns
-        assert len(df) == 12 * 24
+        assert list(df.columns) == ["scenario", "stage", "block", "uid", "value"]
+        assert sorted(df["uid"].unique()) == [1, 2]
+        assert len(df) == 12 * 24 * 2
 
     @pytest.mark.integration
     def test_profile_file_schema(self, tmp_path):
-        """input/GeneratorProfile/profile.parquet has scenario,stage,block,uid:1."""
+        """input/GeneratorProfile/profile.parquet is long with only uid 1."""
         write_bat4b_gtopt_input(tmp_path, year=_YEAR)
         df = pd.read_parquet(tmp_path / "GeneratorProfile" / "profile.parquet")
-        for col in ("scenario", "stage", "block", "uid:1"):
-            assert col in df.columns
-        # Should NOT have uid:3 (the raw solar column – it was renamed/normalized)
-        assert "uid:3" not in df.columns
+        assert list(df.columns) == ["scenario", "stage", "block", "uid", "value"]
+        # Should NOT carry uid 3 (the raw solar uid – it was renamed/normalized)
+        assert sorted(df["uid"].unique()) == [1]
 
     @pytest.mark.integration
     def test_profile_values_in_0_1(self, tmp_path):
         """Solar profile factors must be in [0, 1]."""
         write_bat4b_gtopt_input(tmp_path, year=_YEAR)
         df = pd.read_parquet(tmp_path / "GeneratorProfile" / "profile.parquet")
-        assert df["uid:1"].min() >= 0.0
-        assert df["uid:1"].max() <= 1.0 + 1e-9
+        profile = df[df["uid"] == 1]["value"]
+        assert profile.min() >= 0.0
+        assert profile.max() <= 1.0 + 1e-9
 
     @pytest.mark.integration
     def test_pmax_g1_reduced_in_january(self, tmp_path):
         """January g1 projected pmax should be below nominal due to maintenance."""
         write_bat4b_gtopt_input(tmp_path, year=_YEAR)
         df = pd.read_parquet(tmp_path / "Generator" / "pmax.parquet")
-        jan_g1 = df[df["stage"] == 1]["uid:1"].mean()
+        jan_g1 = df[(df["stage"] == 1) & (df["uid"] == 1)]["value"].mean()
         assert jan_g1 < G1_PMAX_MW
 
     @pytest.mark.integration

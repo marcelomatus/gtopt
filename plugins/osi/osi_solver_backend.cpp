@@ -1025,7 +1025,7 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
   // "illegal" (notably `-` in gtopt's `-1_` unknown-uid placeholder),
   // silently falling back to `R1, R2, ...`.  The sanitised form only
   // affects what OSI writes to `.lp` files; `LinearInterface`'s own
-  // `m_row_index_to_name_` / `m_col_index_to_name_` maps keep the
+  // `m_labels_.row_index_to_name` / `m_labels_.col_index_to_name` maps keep the
   // original names verbatim.
   // Sanitised names live only for the duration of this call: they are
   // copied into both the CLP-internal store (`copyNames`) and the OSI
@@ -1057,16 +1057,35 @@ void OsiSolverBackend::push_names(const std::vector<std::string>& col_names,
 
 void OsiSolverBackend::write_lp(const char* filename)
 {
-  // CoinLpIO::setLpDataRowAndColNames validates rownames[nrow] as the
-  // objective function name slot.  OsiSolverInterface::getObjName()
-  // returns "" by default, which CoinLpIO treats as an invalid name and
-  // falls back to default "cons0/cons1/..." row labels — erasing all
-  // custom constraint names (including "sddp_fcut_...") from the LP file.
-  // Ensure the objective has a non-empty name before writing.
-  if (m_solver_->getObjName().empty()) {
-    m_solver_->setObjName("obj");
+  // Prefer writing through the concrete OsiClpSolverInterface.
+  //
+  // For the CBC backend `m_solver_` is an OsiCbcSolverInterface, which does
+  // NOT override writeLp — it inherits `OsiSolverInterface::writeLp`, whose
+  // implementation rebuilds the row/column name arrays by round-tripping
+  // through the virtual getRowName/getColName/getObjName accessors.  On
+  // recent COIN-OR releases (CoinUtils ≥ 2.11) that round-trip drops the
+  // custom names, so CoinLpIO rejects the set ("vnames[k]: Name is empty")
+  // and silently falls back to default `cons0/C0000000` labels — erasing
+  // every gtopt label (Gen./Bus./sddp_fcut_...) from the LP dump.
+  //
+  // The underlying ClpModel already holds the real names (populated by
+  // `push_names` via `ClpModel::copyNames`), and OsiClpSolverInterface::
+  // writeLp reads them straight from the model, so it emits correct labels.
+  // For the CLP backend `as_clp` returns `m_solver_` itself; for any other
+  // OSI backend it returns nullptr and we fall back to the generic path.
+  OsiSolverInterface* writer = as_clp(m_solver_.get(), m_type_);
+  if (writer == nullptr) {
+    writer = m_solver_.get();
   }
-  m_solver_->writeLp(filename);
+
+  // CoinLpIO::setLpDataRowAndColNames validates rownames[nrow] as the
+  // objective function name slot.  A default-empty objective name is
+  // treated as invalid and triggers the default-label fallback, so ensure
+  // the objective has a non-empty name before writing.
+  if (writer->getObjName().empty()) {
+    writer->setObjName("obj");
+  }
+  writer->writeLp(filename);
 }
 
 std::unique_ptr<SolverBackend> OsiSolverBackend::clone() const

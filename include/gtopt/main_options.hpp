@@ -32,7 +32,6 @@
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
 #include <spdlog/spdlog.h>
-// NOLINTBEGIN(misc-const-correctness)
 
 namespace gtopt
 {
@@ -117,7 +116,7 @@ template<typename T>
   }
   std::string lower;
   lower.reserve(s.size());
-  for (char c : s) {
+  for (const char c : s) {
     lower.push_back(static_cast<char>(std::tolower(c)));
   }
   if (lower == "auto") {
@@ -1530,5 +1529,3 @@ inline void merge_config_defaults(MainOptions& opts,
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(misc-const-correctness)

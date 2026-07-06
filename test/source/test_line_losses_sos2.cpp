@@ -71,6 +71,29 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 // trimmed to the L-secant + SOS2 axes — extra options like
 // kirchhoff_mode are not exercised here.
 
+/// Pin SOS2-emitting fixtures to CPLEX when it is available.
+///
+/// SOS2 semantics tests must run on a backend that truly enforces
+/// SOS2.  MindOpt 2.3.0 mis-handles SOS2 — silent NON-ENFORCEMENT on
+/// this very two-bus fixture (returns λ1/λ8 non-adjacent while
+/// reporting OPTIMAL) and spurious INFEASIBLE on the meshed IEEE 4-bus
+/// model; both verified with minimal MDOreadmodel probes 2026-07-05.
+/// The SOS2-emitting tests are already guarded by ``sos2_available()``
+/// (requires CPLEX), so pinning to CPLEX matches exactly the guarded
+/// configuration; on CLP-only CI the guard skips before the pin
+/// matters.
+inline void pin_sos2_capable_solver(LpMatrixOptions& bo, bool wants_sos2)
+{
+  if (!wants_sos2) {
+    return;
+  }
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (reg.has_solver("cplex")) {
+    bo.solver_name = "cplex";
+  }
+}
+
 struct TwoBusSos2Fixture
 {
   System system;
@@ -135,7 +158,9 @@ struct TwoBusSos2Fixture
       , opts {}
       , options(make_options(global_secant_segments, global_use_sos2))
       , sim_lp(simulation, options)
-      , sys_lp(system, sim_lp, build_opts())
+      , sys_lp(system,
+               sim_lp,
+               build_opts(loss_use_sos2 || global_use_sos2))
   {
   }
 
@@ -180,13 +205,14 @@ private:
     return PlanningOptionsLP(opts);
   }
 
-  static LpMatrixOptions build_opts()
+  static LpMatrixOptions build_opts(bool wants_sos2)
   {
     LpMatrixOptions bo;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
     bo.row_with_names = true;
     bo.row_with_name_map = true;
+    pin_sos2_capable_solver(bo, wants_sos2);
     return bo;
   }
 };
@@ -489,7 +515,7 @@ TEST_CASE("make_config — L ≤ 0 clamped to 1, vacuous SOS2 collapses to off")
 // ── (10) Clone propagation regression (review P1-1) ────────────────
 //
 // ``LinearInterface::clone()`` previously skipped
-// ``m_sos2_set_count_`` while propagating ``m_obj_constant_raw_`` and
+// ``m_sos2_set_count_`` while propagating ``m_scaling_.obj_constant_raw`` and
 // other LI-side state — the cloned backend carried the SOS2
 // declarations correctly (CPXcloneprob) but ``cloned.sos2_set_count()``
 // returned 0 spuriously, leaving the LI-side counter out of sync with
@@ -846,7 +872,7 @@ struct MultiBlockSos2Fixture
       , opts {}
       , options(make_options())
       , sim_lp(simulation, options)
-      , sys_lp(system, sim_lp, build_opts())
+      , sys_lp(system, sim_lp, build_opts(use_sos2))
   {
   }
 
@@ -906,13 +932,14 @@ private:
     return PlanningOptionsLP(opts);
   }
 
-  static LpMatrixOptions build_opts()
+  static LpMatrixOptions build_opts(bool wants_sos2)
   {
     LpMatrixOptions bo;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
     bo.row_with_names = true;
     bo.row_with_name_map = true;
+    test_line_losses_sos2_ns::pin_sos2_capable_solver(bo, wants_sos2);
     return bo;
   }
 };
@@ -1078,7 +1105,7 @@ struct FullEnvelopeFixture
       , opts {}
       , options(make_options())
       , sim_lp(simulation, options)
-      , sys_lp(system, sim_lp, build_opts())
+      , sys_lp(system, sim_lp, build_opts(use_sos2))
   {
   }
 
@@ -1117,13 +1144,14 @@ private:
     return PlanningOptionsLP {opts};
   }
 
-  static LpMatrixOptions build_opts()
+  static LpMatrixOptions build_opts(bool wants_sos2)
   {
     LpMatrixOptions bo;
     bo.col_with_names = true;
     bo.col_with_name_map = true;
     bo.row_with_names = true;
     bo.row_with_name_map = true;
+    test_line_losses_sos2_ns::pin_sos2_capable_solver(bo, wants_sos2);
     return bo;
   }
 };

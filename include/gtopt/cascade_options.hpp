@@ -10,7 +10,6 @@
 
 #include <gtopt/model_options.hpp>
 #include <gtopt/sddp_options.hpp>
-// NOLINTBEGIN(hicpp-move-const-arg, performance-move-const-arg)
 
 namespace gtopt
 {
@@ -212,7 +211,7 @@ struct CascadeLevel
       if (transition.has_value()) {
         transition->merge(*opts.transition);
       } else {
-        transition = std::move(opts.transition);
+        transition = opts.transition;
       }
     }
   }
@@ -276,5 +275,3 @@ struct CascadeOptions
 };
 
 }  // namespace gtopt
-
-// NOLINTEND(hicpp-move-const-arg, performance-move-const-arg)

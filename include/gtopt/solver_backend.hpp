@@ -254,9 +254,9 @@ public:
   /// Semantics: **ABSOLUTE set** in the RAW (scaled) objective units the
   /// backend solves in — the caller pushes the running total, NOT a delta.
   /// `LinearInterface::add_obj_constant` accumulates the total in
-  /// `m_obj_constant_raw_` and calls this with the new absolute value, so two
-  /// successive `add_obj_constant` calls end with a single `set_obj_offset`
-  /// carrying their sum.
+  /// `m_scaling_.obj_constant_raw` and calls this with the new absolute value,
+  /// so two successive `add_obj_constant` calls end with a single
+  /// `set_obj_offset` carrying their sum.
   ///
   /// Why native (not folded post-solve): CPLEX / Gurobi / HiGHS compute the
   /// MIP **relative** optimality gap against the reported objective.  Folding
@@ -269,8 +269,9 @@ public:
   /// load/build (several backends reset the native problem on `load_problem`).
   /// Default is a no-op for ABI/future compatibility, but every shipped plugin
   /// overrides it: `LinearInterface::get_obj_value_raw()` reads the objective
-  /// straight from the backend (it no longer re-adds `m_obj_constant_raw_`), so
-  /// a backend that leaves this unimplemented would silently drop the constant.
+  /// straight from the backend (it no longer re-adds
+  /// `m_scaling_.obj_constant_raw`), so a backend that leaves this
+  /// unimplemented would silently drop the constant.
   virtual void set_obj_offset(double /*raw_offset*/) noexcept {}
 
   // ---- row operations ----

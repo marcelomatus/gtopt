@@ -15,7 +15,6 @@
 #include <vector>
 
 #include <gtopt/basic_types.hpp>
-// NOLINTBEGIN(bugprone-branch-clone)
 
 namespace gtopt
 {
@@ -124,6 +123,13 @@ template<typename T, typename Vector>
   return std::visit(
       []<typename U>(const U& v) -> std::size_t
       {
+        // The scalar (`T`) branch and the defensive final `else`
+        // (unknown variant) both return 0, which bugprone-branch-clone
+        // flags as a repeated body — but they are distinct, documented
+        // type-dispatch cases in an `if constexpr` chain, not a copy-paste
+        // slip.  Keeping them separate preserves the per-alternative
+        // intent; merging would obscure it.
+        // NOLINTNEXTLINE(bugprone-branch-clone)
         if constexpr (std::is_same_v<U, T>) {
           return 0;  // Inline scalar — already counted by sizeof(parent).
         } else if constexpr (std::is_same_v<U, std::vector<T>>) {
@@ -164,5 +170,3 @@ template<typename T, typename Vector>
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(bugprone-branch-clone)

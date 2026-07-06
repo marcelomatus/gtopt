@@ -13,9 +13,11 @@
 
 #include <expected>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <string_view>
 
+#include <gtopt/arrow_index_cache.hpp>
 #include <gtopt/arrow_types.hpp>
 #include <gtopt/as_label.hpp>
 #include <gtopt/field_sched.hpp>
@@ -127,6 +129,12 @@ struct ArrayIndexBase
 
     const auto& [uid, name] = id;
 
+    // NOTE: cname/fname are already interned into the shared cache's run-lived
+    // storage by the make_array_index file_sched branch, so the string_view
+    // keys persisted below never dangle (the cache outlives the per-cell
+    // build).  Interning is not done here because this function's
+    // system_context parameter is the concrete (forward-declared)
+    // SystemContext type — a member access would require its full definition.
     const auto array_key = array_map_key {cname, fname, uid};
     SPDLOG_DEBUG("get_arrow_index: key '{} {} {}: {}'",
                  cname,
@@ -287,8 +295,21 @@ public:
                            class_name,
                            id.first,
                            id.second);
-              return get_arrow_index<Uid...>(
-                  system_context, class_name, fsched, id, array_map, table_map);
+              // Intern the class/field names into the shared cache's run-lived
+              // storage before they become persisted map keys — the incoming
+              // views are only valid for this build call, but the cache (and
+              // its string_view keys) outlives it.  system_context here is a
+              // deduced `const auto&`, so the .simulation() member access is
+              // resolved at instantiation (SystemContext is complete there).
+              // Runs under array_index_mutex() (held by make_array_index).
+              auto& index_cache =
+                  system_context.simulation().arrow_index_cache();
+              return get_arrow_index<Uid...>(system_context,
+                                             index_cache.intern(class_name),
+                                             index_cache.intern(fsched),
+                                             id,
+                                             array_map,
+                                             table_map);
             },
         },
         sched);
@@ -297,10 +318,9 @@ public:
   }
 };
 
-template<typename Type, typename Map, typename FieldSched, typename... Uid>
-constexpr auto make_array_index(const SystemContext& system_context,
+template<typename Type, typename FieldSched, typename... Uid>
+constexpr auto make_array_index(const auto& system_context,
                                 std::string_view class_name,
-                                Map& array_table_map,
                                 const FieldSched& sched,
                                 const Id& id)
 {
@@ -309,6 +329,19 @@ constexpr auto make_array_index(const SystemContext& system_context,
                id.first,
                id.second);
 
+  // The (cname, fname, uid) -> (Stage, Block) arrow index is scene/phase-
+  // invariant, so it is cached once on the shared SimulationLP and reused
+  // across every per-cell build, rather than rebuilt (and the parquet
+  // re-read) per InputContext.  Lock because the per-(scene, phase) SystemLP
+  // builds run concurrently; after warm-up each call is a cheap cache hit.
+  // The cache access lives here (where `system_context` is a deduced
+  // template parameter) so InputContext need not see SimulationLP complete.
+  auto& sim = system_context.simulation();
+  const std::scoped_lock lock {sim.array_index_mutex()};
+  // arrow_index_cache() lazily creates the cache; calling it under the lock
+  // serialises that creation too.
+  auto& array_table_map = sim.arrow_index_cache().maps;
+  using Map = std::remove_reference_t<decltype(array_table_map)>;
   return ArrayIndexTraits<Type, Map, FieldSched, Uid...>::make_array_index(
       system_context, class_name, array_table_map, sched, id);
 }

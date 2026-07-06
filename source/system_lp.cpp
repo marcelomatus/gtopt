@@ -65,13 +65,19 @@ template<typename Out, typename Inp, typename InputContext>
 auto make_collection(InputContext& input_context, const std::vector<Inp>& input)
     -> Collection<Out>
 {
-  return Collection<Out> {
-      std::ranges::to<std::vector<Out>>(
-          input
-          | std::ranges::views::transform(
-              [&](const auto& element)
-              { return Out {element, input_context}; })),
-  };
+  // Construct each LP object directly in its vector slot.  `Out{element, ...}`
+  // still copies the (preserved) system element into the LP object — the array
+  // outlives the collection and is reused by `rebuild_collections_if_needed` —
+  // but emplacing avoids the extra per-element MOVE that `std::ranges::to`
+  // incurred when materialising each `transform` prvalue and then moving it
+  // into the vector (Line(&&)/LineLP(&&) churn, ~3% of LP-build CPU on
+  // large systems).
+  std::vector<Out> elements;
+  elements.reserve(input.size());
+  for (const auto& element : input) {
+    elements.emplace_back(element, input_context);
+  }
+  return Collection<Out> {std::move(elements)};
 }
 
 /**
@@ -898,6 +904,11 @@ void register_all_ampl_element_names(SimulationLP& sim, const System& sys)
     }
   }
 
+  // All element names accumulated above — bulk-load the (class, name) -> uid
+  // registry in one sorted pass (O(n log n)) instead of the former
+  // per-element sorted-vector inserts (O(n^2)).
+  sim.finalize_ampl_element_names();
+
   // AMPL parameter + iterator dispatch tables — populate via the helpers
   // in `ampl_dispatch_registry.cpp` (shims + registration glue).
   register_ampl_param_dispatchers(sim);
@@ -1071,6 +1082,13 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   auto flat_opts = flat_opts_in;
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
+  }
+  // Likewise honor the planning-level solver pin when the caller passed
+  // no explicit solver (direct SystemLP construction, e.g. tests and
+  // embedders) — mirrors the create_systems resolution order:
+  // caller flat_opts → planning pin → SolverRegistry::default_solver().
+  if (flat_opts.solver_name.empty()) {
+    flat_opts.solver_name = system_context().options().lp_solver_name();
   }
   // create_linear_interface owns the snapshot installation: it either
   // load_flats + save_snapshots eagerly (low_memory off) or installs the

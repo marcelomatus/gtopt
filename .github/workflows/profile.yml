@@ -3,7 +3,11 @@ name: Profile
 # Profiling workflow for gtopt (C++) and Python scripts (plp2gtopt).
 #
 # C++ profiling strategy:
-#   - valgrind/callgrind for detailed call-graph profiling (accurate)
+#   - valgrind/callgrind for detailed call-graph profiling (accurate,
+#     deterministic instruction counts)
+#   - perf record (best-effort) for sampled hot-function/hot-line profiling
+#     of the real RelWithDebInfo binary; falls back to the task-clock software
+#     event and is non-fatal when the PMU is unavailable on the hosted runner
 #   - /usr/bin/time for wall-clock + peak RSS measurements
 #   - The gtopt binary is run with build_lp=true (default) to measure
 #     LP-creation time without solver overhead.
@@ -58,7 +62,7 @@ jobs:
     name: Profile (${{ inputs.case || 'cases/ieee_9b_ori' }})
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -76,7 +80,7 @@ jobs:
             Ubuntu-clang-
           max-size: 2G
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: "**/cpm_modules"
           key: profile-clang-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}
@@ -117,6 +121,14 @@ jobs:
 
       - name: Run full profiling analysis
         run: cmake --build build-profiling -j$(nproc)
+
+      # Best-effort: the profiling-perf target is not part of the default
+      # `profiling` build (perf's hardware PMU is usually unavailable on
+      # hosted runners).  It self-degrades to the task-clock software event
+      # and never hard-fails, but keep the CI step non-blocking regardless.
+      - name: Run perf profiling (best-effort)
+        continue-on-error: true
+        run: cmake --build build-profiling --target profiling-perf
 
       - name: Upload profiling artifacts
         uses: actions/upload-artifact@v7

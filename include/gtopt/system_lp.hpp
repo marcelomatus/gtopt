@@ -680,7 +680,7 @@ public:
   /// per-cell solve).  Callers that iterate every cell to write output
   /// should skip cells that return true to avoid overwriting the
   /// sim-pass output with values read from a rehydrated (possibly
-  /// un-solved) backend under `compress` / `rebuild`.
+  /// un-solved) backend under `compress`.
   [[nodiscard]] constexpr bool output_written() const noexcept
   {
     return m_output_written_;
@@ -954,7 +954,7 @@ public:
   ///
   /// History: a previous version of this function ran a shadow flatten
   /// to also populate ``m_collections_``, but that allocated hundreds
-  /// of MB per cell — under compress / rebuild it ballooned RSS by
+  /// of MB per cell — under compress it ballooned RSS by
   /// ~40% on the juan case (tens of thousands of flattens per run via
   /// the per-phase solve hot path).  Collections are now rehydrated
   /// only at the explicit call sites that need them

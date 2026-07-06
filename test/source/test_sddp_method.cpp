@@ -726,11 +726,21 @@ TEST_CASE(  // NOLINT
     return planning;
   };
 
+  const auto pinned_solver = pick_non_mindopt_solver();
+  if (pinned_solver.empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and this "
+        "2-reservoir aperture fixture wedges its simplex (see "
+        "pick_non_mindopt_solver).");
+    return;
+  }
+
   auto run_at = [&](int chunk_size,
                     bool warm_start = false,
                     bool seed_basis = false) -> double
   {
     auto planning = build_planning();
+    planning.options.lp_matrix_options.solver_name = pinned_solver;
     PlanningLP plp(std::move(planning));
     SDDPOptions sddp_opts;
     // Fixed iteration budget so K=1 and K=4 walk the same number of
@@ -2680,6 +2690,13 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+  // Runs on the default backend (CPLEX when available).  This fixture also
+  // regression-guards the CPLEX NaN fix: CPLEX used to return an OPTIMAL
+  // status with a NaN objective on these elastic clones, which sent the
+  // elastic backtracking into a non-converging hang.  The CPLEX backend now
+  // rejects a non-finite objective in `is_proven_optimal()`, so the fallback
+  // ladder / elastic path converges (see plugins/cplex/cplex_solver_backend).
+
   struct ModeOutcome
   {
     int total_cuts {0};
@@ -4377,6 +4394,14 @@ TEST_CASE(  // NOLINT
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
 
+  const auto pinned_solver = pick_non_mindopt_solver();
+  if (pinned_solver.empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
+
   constexpr double efin_target = 150.0;
   constexpr double feas_tol = 1e-3;
 
@@ -4404,6 +4429,7 @@ TEST_CASE(  // NOLINT
       r.efin = OptReal {170.0};
       r.efin_cost = efin_cost_opt;
     }
+    planning.options.lp_matrix_options.solver_name = pinned_solver;
     PlanningLP plp(std::move(planning));
 
     SDDPOptions sddp_opts;
@@ -6053,6 +6079,9 @@ namespace
       t.production_factor = *production_factor;
     }
   }
+  // dual±1 fixture wedges the MindOpt simplex — pin to another backend
+  // (callers skip when pick_non_mindopt_solver() returns "").
+  planning.options.lp_matrix_options.solver_name = pick_non_mindopt_solver();
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
@@ -6096,6 +6125,13 @@ TEST_CASE(  // NOLINT
     "and the cut RHS go negative")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  if (pick_non_mindopt_solver().empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
 
   // Sweep efin_cost from 0 (hard constraint) through orders of
   // magnitude.  Report:
@@ -6195,6 +6231,9 @@ struct ExtraSolver
     r.efin_cost = OptReal {500.0};
   }
   planning.options.lp_matrix_options.equilibration_method = equil;
+  // dual±1 fixture wedges the MindOpt simplex — pin to another backend
+  // (callers skip when pick_non_mindopt_solver() returns "").
+  planning.options.lp_matrix_options.solver_name = pick_non_mindopt_solver();
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
@@ -6260,6 +6299,13 @@ TEST_CASE(  // NOLINT
     "or demand_fail_cost?")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  if (pick_non_mindopt_solver().empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
 
   // Find the efin_cost threshold where min_LB first goes negative, for
   // different (demand_fail_cost, thermal_gcost) combinations.  If the
@@ -6335,6 +6381,13 @@ TEST_CASE(  // NOLINT
     "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot")
 {
   using namespace gtopt;  // NOLINT(google-build-using-namespace)
+
+  if (pick_non_mindopt_solver().empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
 
   const std::vector<ConfigResult> results = {
       run_efin500_config("baseline (resolve=true, default)",
@@ -6486,6 +6539,14 @@ TEST_CASE(  // NOLINT
   // misc-const-correctness, modernize-use-designated-initializers,
   // readability-container-contains, readability-trailing-comma)
 
+  const auto pinned_solver = pick_non_mindopt_solver();
+  if (pinned_solver.empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and the dual±1 "
+        "fixture wedges its simplex (see pick_non_mindopt_solver).");
+    return;
+  }
+
   const auto log_dir =
       std::filesystem::temp_directory_path() / "gtopt_dual1_bwd_resolve_diag";
   std::filesystem::remove_all(log_dir);
@@ -6495,6 +6556,7 @@ TEST_CASE(  // NOLINT
   for (auto& r : planning.system.reservoir_array) {
     r.efin_cost = OptReal {100.0};  // soft, IPLP-magnitude
   }
+  planning.options.lp_matrix_options.solver_name = pinned_solver;
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;

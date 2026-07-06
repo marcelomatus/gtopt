@@ -165,6 +165,11 @@ TEST_CASE("IEEE 4-bus + tangent_signed_flow L=4 SOS2: 5 SOS2 sets emitted")
 
   Planning base;
   base.merge(parse_planning_json(ieee4b_sos2_json));
+  // Pin the SOLVE to CPLEX, not just the availability check: MindOpt
+  // 2.3.0 mis-declares this meshed 5×SOS2 model infeasible (upstream
+  // defect — the same LP solves optimal with any single SOS2 set kept,
+  // or with the SOS section stripped; verified 2026-07-05).
+  base.options.lp_matrix_options.solver_name = "cplex";
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -329,6 +334,9 @@ TEST_CASE(
 
   Planning base;
   base.merge(parse_planning_json(selective_json));
+  // Pin to CPLEX — see the 5×SOS2 test above (MindOpt 2.3.0 upstream
+  // defect on this meshed fixture).
+  base.options.lp_matrix_options.solver_name = "cplex";
 
   PlanningLP planning_lp(std::move(base));
   auto result = planning_lp.resolve();
@@ -416,6 +424,10 @@ TEST_CASE(
     }
   )"));
 
+  // Pin BOTH solves to CPLEX: the L=4 leg trips the MindOpt 2.3.0
+  // multi-SOS2 defect (see the 5×SOS2 test above), and the objective
+  // comparison below needs solver-consistent tolerances anyway.
+  base_l1.options.lp_matrix_options.solver_name = "cplex";
   PlanningLP planning_lp_l1(std::move(base_l1));
   auto result_l1 = planning_lp_l1.resolve();
   REQUIRE(result_l1.has_value());
@@ -428,6 +440,7 @@ TEST_CASE(
   // L = 4 + SOS2.
   Planning base_l4;
   base_l4.merge(parse_planning_json(ieee4b_sos2_json));
+  base_l4.options.lp_matrix_options.solver_name = "cplex";
 
   PlanningLP planning_lp_l4(std::move(base_l4));
   auto result_l4 = planning_lp_l4.resolve();

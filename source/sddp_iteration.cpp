@@ -239,9 +239,18 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // aperture solves regardless of how many cell tasks are mid-wait.
   // See `sddp_pool.hpp::make_sddp_work_pool` for the rationale.
   const auto cell_task_headroom = planning_lp().simulation().scene_count();
-  auto sddp_pool = make_sddp_work_pool(m_options_.pool_cpu_factor,
-                                       m_options_.pool_memory_limit_mb,
-                                       cell_task_headroom);
+  // Scene-aware CPU over-commit: honors an explicit --cpu-factor, else caps
+  // to 1.0 for many-scene runs (which already saturate the cores via the
+  // scene×aperture task fan-out).  Log the decision so the auto-cap is
+  // visible alongside the "SDDP work pool started" line below.
+  const auto pool_cpu_factor = effective_pool_cpu_factor();
+  SPDLOG_INFO("SDDP work pool cpu_factor={:.3g} ({}: scenes={} cores={})",
+              pool_cpu_factor,
+              m_options_.pool_cpu_factor_user_set ? "user" : "auto",
+              cell_task_headroom,
+              physical_concurrency());
+  auto sddp_pool = make_sddp_work_pool(
+      pool_cpu_factor, m_options_.pool_memory_limit_mb, cell_task_headroom);
   const bool need_aux_pool =
       (!m_options_.apertures || !m_options_.apertures->empty())
       || !m_options_.log_directory.empty();
@@ -279,7 +288,21 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   // `crossover=false` → `BarCrossAlg=-1` was silently rejected by CPLEX).
   // `none` remains available opt-in via `forward_solver_options`.
   auto fwd_opts = m_options_.forward_solver_options.value_or(lp_opts);
-  fwd_opts.crossover = CrossoverMode::automatic;
+  // Crossover is only meaningful — and only needed for vertex duals — when the
+  // forward LP is solved by BARRIER (or the solver's default, which picks
+  // barrier on these LPs).  The simplex methods (primal/dual) already produce
+  // a vertex basis with vertex duals, so forcing crossover on them is a no-op
+  // at best and, by pinning `automatic`, would suppress a warm dual-simplex
+  // resolve.  Force crossover only for the barrier/default case; respect an
+  // explicit `forward_solver_options.algorithm = primal|dual` (settable via
+  // `--set sddp_options.forward_solver_options.algorithm=dual`), which is what
+  // the basis warm-start (`basis_cross_mode`) needs to actually exploit the
+  // seeded basis.
+  if (fwd_opts.algorithm == LPAlgo::barrier
+      || fwd_opts.algorithm == LPAlgo::default_algo)
+  {
+    fwd_opts.crossover = CrossoverMode::automatic;
+  }
   const auto bwd_opts = m_options_.backward_solver_options.value_or(lp_opts);
 
   // Monitoring setup

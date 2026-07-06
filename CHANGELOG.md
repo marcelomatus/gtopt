@@ -67,6 +67,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Shared arrow input-index cache**: the long-format input reader's
+  `(Stage, Block)` row index is built once and shared — across every
+  per-(scene, phase) LP cell within a run, and across cascade levels
+  (each level previously rebuilt it cold). LP-only build on a 5-year
+  8-scene case: 256 s → 30.7 s and 20 GiB → 7 GiB; the cascade
+  `transport → full_network` level transition: 213 s → 28 s (7.6×).
+- **`LinearInterface` decomposition (state)**: the matrix conditioning
+  statistics, the name/label subsystem, and the Ruiz/equilibration
+  scaling state were extracted into behaviour-free value types
+  (`MatrixStats`, `LpLabelStore`, `ScalingState` + relocated
+  `ScaledView` in `matrix_stats.hpp` / `lp_label_store.hpp` /
+  `lp_scaling.hpp`), each with isolation unit tests. Behaviour and COW
+  clone semantics are unchanged.
+- **clang-tidy hygiene**: every broad file-wide `NOLINTBEGIN/END`
+  blanket in production code was replaced by a real fix or a narrow,
+  documented per-site suppression.
 - **Options refactor**: SDDP options no longer require the `sddp_` prefix
   (e.g., `max_iterations` instead of `sddp_max_iterations`). Old names are
   still accepted for backward compatibility.
@@ -82,6 +98,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Solver registry crash on failed plugin validation**: requesting a
+  solver whose plugin fails subprocess validation (e.g. a transient
+  license error) crashed with SIGSEGV instead of falling back to the
+  next backend — an erased-iterator increment in
+  `SolverRegistry::ensure_solver_loaded`.
+- **Planning-level solver pin honored**: the programmatic
+  `options.lp_matrix_options.solver_name` pin was silently ignored —
+  LP construction always re-resolved the default solver (GTOPT_SOLVER /
+  plugin priority), including across cascade levels.
+- **MindOpt backend**: `MDOstartenv` license validation is retried with
+  backoff (transient `MDO_INVALID_LICENSE` under heavy parallel load);
+  `LIBMILP_PATH` is self-derived from the loaded `libmindopt.so` so MIP
+  solves work without user environment setup.  SOS2 stays unsupported
+  on purpose: MindOpt 2.3.0 mis-handles SOS2 on real models (silent
+  non-enforcement or spurious infeasibility — verified with minimal
+  probes), so the fail-fast "switch solver" error is kept.
 - **Exit codes**: the solver now returns correct exit codes (0=optimal,
   1=non-optimal, 2=input error, 3=internal error) instead of always
   returning 0.

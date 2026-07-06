@@ -1920,8 +1920,27 @@ void CplexSolverBackend::disengage_robust_solve() noexcept
 bool CplexSolverBackend::is_proven_optimal() const
 {
   const int stat = CPXgetstat(m_env_lp_.env(), m_env_lp_.lp());
-  return stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
+  const bool status_optimal = stat == CPX_STAT_OPTIMAL || stat == CPXMIP_OPTIMAL
       || stat == CPXMIP_OPTIMAL_TOL;
+  if (!status_optimal) {
+    return false;
+  }
+  // Guard against CPLEX reporting an OPTIMAL status with a non-finite
+  // objective.  On numerically ill-posed models (observed on the SDDP
+  // forced-infeasibility elastic clones) CPLEX can return status OPTIMAL yet
+  // an objective of NaN/±Inf — a corrupt "optimum" that is not usable.
+  // Reporting it as optimal let the NaN propagate into forward objectives /
+  // cut construction and hung the SDDP elastic backtracking.  Treating it as
+  // NOT optimal keeps the "optimal ⇒ finite objective" contract, so the
+  // LinearInterface algorithm-fallback ladder re-solves (and, failing that,
+  // the SDDP elastic/fallback path handles it) instead of trusting NaN.
+  double obj = 0.0;
+  if (CPXgetobjval(m_env_lp_.env(), m_env_lp_.lp(), &obj) != 0
+      || !std::isfinite(obj))
+  {
+    return false;
+  }
+  return true;
 }
 
 bool CplexSolverBackend::is_abandoned() const

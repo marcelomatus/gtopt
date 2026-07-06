@@ -1047,6 +1047,9 @@ def test_plp_case_2y_aperture_cache_loading(tmp_path):
     opts["max_iterations"] = 1
     opts["last_stage"] = 1
     opts["pasada_mode"] = "flow-turbine"
+    # gtopt's input reader is long-only — override the module-wide wide
+    # pin since this test actually runs the binary on the converted case.
+    opts["layout"] = "long"
     # Use the new default (suppress ``_ver`` arcs, drain on source) which
     # relaxes the LMAULE structural infeasibility at stage 51 phase 1
     # that previously blocked this test.
@@ -1107,6 +1110,8 @@ def test_plp_case_2y_aperture_sddp_backward_pass(tmp_path):
     opts["num_apertures"] = "all"
     opts["max_iterations"] = 1
     opts["last_stage"] = 4  # ≥2 phases → real SDDP (not monolithic collapse)
+    # gtopt's input reader is long-only — override the module-wide wide pin.
+    opts["layout"] = "long"
     opts["pasada_mode"] = "flow-turbine"
     opts["drop_spillway_waterway"] = True
     convert_plp_case(opts)
@@ -1149,6 +1154,8 @@ def test_plp_case_2y_boundary_cuts_loaded(tmp_path):
     opts["num_apertures"] = "0"
     opts["max_iterations"] = 1
     opts["last_stage"] = 6
+    # gtopt's input reader is long-only — override the module-wide wide pin.
+    opts["layout"] = "long"
     convert_plp_case(opts)
 
     # 1. Boundary cuts CSV must be generated from plpplem data

@@ -276,6 +276,26 @@ SDDPMethod::SDDPMethod(PlanningLP& planning_lp, SDDPOptions opts) noexcept
 {
 }
 
+double SDDPMethod::effective_pool_cpu_factor() const noexcept
+{
+  // Explicit user setting always wins.
+  if (m_options_.pool_cpu_factor_user_set) {
+    return m_options_.pool_cpu_factor;
+  }
+
+  // Scene-aware auto default (see header doc): the async backward pass
+  // spawns num_scenes × aperture-chunks concurrent tasks, so a run with
+  // enough scenes already saturates every core.  Above the machine-scaled
+  // threshold the historical 4× over-commit only buys scheduler/futex
+  // contention (A/B: ~4% slower at 18/30 scenes), so cap to 1.0.  Below
+  // it, keep the resolved over-commit to hide clone-mutex / solver
+  // blocking on few-task runs.
+  const auto num_scenes =
+      static_cast<unsigned>(planning_lp().simulation().scene_count());
+  const auto scene_threshold = std::max(2U, physical_concurrency() / 4U);
+  return num_scenes >= scene_threshold ? 1.0 : m_options_.pool_cpu_factor;
+}
+
 bool SDDPMethod::check_sentinel_stop() const
 {
   if (m_options_.sentinel_file.empty()) {
@@ -658,7 +678,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
   // solver work pool for ~16× speedup on that critical path.
   {
     auto pool = make_solver_work_pool(
-        m_options_.pool_cpu_factor,
+        effective_pool_cpu_factor(),
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
         /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,
@@ -975,7 +995,7 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
       && num_scenes * num_phases > 1)
   {
     auto pool = make_solver_work_pool(
-        m_options_.pool_cpu_factor,
+        effective_pool_cpu_factor(),
         /*cpu_threshold_override=*/0.0,
         /*scheduler_interval=*/std::chrono::milliseconds(50),
         /*memory_limit_mb=*/m_options_.pool_memory_limit_mb,

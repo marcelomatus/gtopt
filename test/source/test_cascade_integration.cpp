@@ -477,7 +477,16 @@ TEST_CASE("Cascade 3-level with network refinement then cuts (6-phase)")
   // Level 0: fast uninodal Benders to get rough solution.
   // Level 1: full network refinement.
   // Level 2: same network, inherits cuts from level 1 ⇒ faster convergence.
+  const auto pinned_solver = pick_non_mindopt_solver();
+  if (pinned_solver.empty()) {
+    MESSAGE(
+        "Skipping — only the MindOpt backend is available and this "
+        "cascade hydro fixture wedges its simplex (see "
+        "pick_non_mindopt_solver).");
+    return;
+  }
   auto planning = make_6phase_2bus_hydro_planning();
+  planning.options.lp_matrix_options.solver_name = pinned_solver;
   PlanningLP planning_lp(std::move(planning));
 
   SDDPOptions sddp_opts;

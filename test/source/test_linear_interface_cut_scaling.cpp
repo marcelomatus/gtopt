@@ -493,9 +493,9 @@ TEST_CASE(
 // original's primal-dual solution AND the physical objective.
 // Critical state to preserve across clone:
 //   - m_scale_objective_     (so get_obj_value agrees)
-//   - m_col_scales_          (so get_col_cost / get_col_sol agree)
-//   - m_row_scales_          (so get_row_dual / get_row_low agree)
-//   - m_equilibration_method_, m_base_numrows_, m_base_numrows_set_
+//   - m_scaling_.col_scales          (so get_col_cost / get_col_sol agree)
+//   - m_scaling_.row_scales          (so get_row_dual / get_row_low agree)
+//   - m_scaling_.equilibration_method, m_base_numrows_, m_base_numrows_set_
 //                            (so post-clone add_row dispatches correctly)
 //
 // The original `clone()` only copied the first three; the rest were
@@ -590,7 +590,7 @@ TEST_CASE(
 //
 // SDDP's feasibility-cut builder reads `get_row_dual()` on cloned
 // elastic-filter LPs (`benders_cut.cpp:229`).  If clone() does not
-// copy `m_row_scales_`, the cloned LP returns a wrong physical dual
+// copy `m_scaling_.row_scales`, the cloned LP returns a wrong physical dual
 // because the ScaledView formula `raw_dual × scale_objective /
 // row_scale[i]` reads `row_scale[i] = 1.0` (default) instead of the
 // composite scale recorded at insertion time.

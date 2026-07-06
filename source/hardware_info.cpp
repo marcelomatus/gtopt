@@ -35,10 +35,10 @@ namespace
 /// must observe the same clamp.  Encapsulating them in an instance
 /// would require threading a handle through every pool factory and the
 /// dozens of call sites that already rely on the free-function form.
-// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<unsigned> g_quota_cores {0};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::atomic<double> g_quota_pct {0.0};
-// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /// Probe the kernel topology files once.  Cached as a function-local
 /// static so repeated calls are free.  Result is independent of any

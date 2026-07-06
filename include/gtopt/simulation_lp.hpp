@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -42,6 +43,7 @@ namespace gtopt
 {
 
 class PlanningLP;
+struct ArrowIndexCache;  // gtopt/arrow_index_cache.hpp (pimpl; see members)
 /**
  * @class SimulationLP
  * @brief Linear programming representation of a power system simulation
@@ -71,8 +73,10 @@ public:
    * @throws std::runtime_error If component validation fails
    * @throws std::bad_alloc If memory allocation fails
    */
-  explicit SimulationLP(const Simulation& simulation,
-                        const PlanningOptionsLP& options);
+  explicit SimulationLP(
+      const Simulation& simulation,
+      const PlanningOptionsLP& options,
+      std::shared_ptr<ArrowIndexCache> shared_index_cache = {});
 
   // Accessors
   /**
@@ -1462,6 +1466,19 @@ private:
   AmplParamMap m_ampl_params_;
   AmplIterMap m_ampl_iters_;
 
+  // Shared, scene/phase-invariant arrow input-index cache (pimpl).  The
+  // (cname, fname, uid) -> (Stage, Block) row index built by the long-direct
+  // reader is identical for every (scene, phase) cell, so it is cached once
+  // here and reused, instead of being rebuilt (and the parquet re-read) per
+  // cell inside each InputContext.  Held behind a forward-declared
+  // ArrowIndexCache so this header need not include uid_traits.hpp (that
+  // would form an include cycle via uididx_traits.hpp).  Guarded by
+  // m_array_index_mtx_ because the per-(scene, phase) SystemLP builds run
+  // concurrently (one task per cell); the cache is also lazily created under
+  // that lock.  See InputContext::get_array_index / make_array_index.
+  mutable std::mutex m_array_index_mtx_;
+  mutable std::shared_ptr<ArrowIndexCache> m_arrow_index_cache_;
+
 public:
   /// Exposed so that `SystemLP`'s constructor can wrap the one-shot
   /// AMPL-registry population in `std::call_once`.  Not part of the
@@ -1472,6 +1489,31 @@ public:
   [[nodiscard]] std::once_flag& ampl_registry_flag() const noexcept
   {
     return m_ampl_registry_flag_;
+  }
+
+  /// Shared arrow input-index cache (see the member docs).  Used by
+  /// make_array_index so the scene/phase-invariant (Stage, Block) row index
+  /// is built once across all per-cell builds rather than rebuilt per
+  /// InputContext.  Lazily creates the cache on first use; callers MUST hold
+  /// array_index_mutex() (make_array_index does), which also serialises that
+  /// creation.  Defined out-of-line in simulation_lp.cpp because
+  /// ArrowIndexCache is only forward-declared here (pimpl).
+  [[nodiscard]] ArrowIndexCache& arrow_index_cache() const;
+
+  /// Returns the shared cache pointer so callers can propagate it across
+  /// SimulationLP instances.  The cascade passes it to each per-level
+  /// PlanningLP so the (cname, fname, uid) -> (Stage, Block) index stays warm
+  /// across levels instead of being rebuilt cold each level (a fresh
+  /// PlanningLP per level owns a fresh SimulationLP by value, so without this
+  /// the index-cache fix would be scoped to a single level).  Lazily creates
+  /// on first use.  Defined out-of-line (ArrowIndexCache is forward-declared).
+  [[nodiscard]] std::shared_ptr<ArrowIndexCache> arrow_index_cache_ptr() const;
+
+  /// Mutex guarding arrow_index_cache() against the concurrent
+  /// per-(scene, phase) SystemLP builds.
+  [[nodiscard]] std::mutex& array_index_mutex() const noexcept
+  {
+    return m_array_index_mtx_;
   }
 };
 

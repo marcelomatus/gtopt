@@ -56,7 +56,6 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
-// NOLINTBEGIN(readability-trailing-comma)
 
 namespace gtopt
 {
@@ -295,9 +294,7 @@ public:
 
   // For single char — store as a 1-character string, not as integer
   constexpr explicit string_holder(char c) noexcept
-      : int_buf_ {
-            c,
-        }
+      : int_buf_ {c}
       , int_len_ {1}
       , tag_(Tag::buf)
   {
@@ -1043,5 +1040,3 @@ template<detail::string_like T>
 }
 
 }  // namespace gtopt
-
-// NOLINTEND(readability-trailing-comma)

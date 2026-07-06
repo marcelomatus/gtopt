@@ -16,13 +16,13 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
-#include <cstdio>
 #include <vector>
 
 #include "scip_solver_backend.hpp"
 
-#include <lpi/lpi.h>
+#include <scip/cons_sos2.h>
 #include <scip/scip.h>
 #include <scip/scipdefplugins.h>
 #include <spdlog/spdlog.h>
@@ -71,14 +71,46 @@ SCIP_RETCODE apply_options_to_scip(SCIP* scip, const SolverOptions& opts)
   return SCIP_OKAY;
 }
 
+/// Sanitise a gtopt label into a SCIP-LP-writer-safe token: keep
+/// alphanumerics and `_`, map every other character to `_`.  Empty or
+/// all-illegal input falls back to @p generic so every var/cons still has a
+/// non-empty, unique-per-index name (the generic id embeds the index).
+[[nodiscard]] std::string sanitize_name(const std::string& raw,
+                                        const std::string& generic)
+{
+  if (raw.empty()) {
+    return generic;
+  }
+  std::string out;
+  out.reserve(raw.size());
+  for (const char c : raw) {
+    out.push_back((std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_')
+                      ? c
+                      : '_');
+  }
+  // A leading digit is illegal for an LP-format token; prefix the generic
+  // stem (which starts with a letter) so the gtopt label stays a substring.
+  if (std::isdigit(static_cast<unsigned char>(out.front())) != 0) {
+    return generic + "_" + out;
+  }
+  return out;
+}
+
 /// Build the original SCIP problem (vars + linear constraints) from `model`.
 /// Caller owns `vars`/`conss` and must release each (SCIPreleaseVar /
 /// SCIPreleaseCons) on the success path; on an early SCIP_CALL return the
 /// caller frees the whole SCIP instance, which releases them too.
+///
+/// When @p col_names / @p row_names are non-null and long enough, their
+/// sanitised entries name the SCIP variables / linear constraints so a
+/// `write_lp` dump carries gtopt labels; otherwise generic `x<j>` / `c<i>`
+/// names are used (the solve path, where names are irrelevant).
 SCIP_RETCODE scip_build_problem(SCIP* scip,
                                 const ScipModel& model,
                                 std::vector<SCIP_VAR*>& vars,
-                                std::vector<SCIP_CONS*>& conss)
+                                std::vector<SCIP_CONS*>& conss,
+                                const std::vector<std::string>* col_names,
+                                const std::vector<std::string>* row_names)
 {
   const double inf = SCIPinfinity(scip);
   SCIP_CALL(SCIPsetObjsense(scip, SCIP_OBJSENSE_MINIMIZE));
@@ -103,8 +135,12 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
           ? SCIP_VARTYPE_BINARY
           : SCIP_VARTYPE_INTEGER;
     }
-    // SCIP requires a non-NULL, unique variable name; generate "x<j>".
-    const std::string vname = "x" + std::to_string(j);
+    // SCIP requires a non-NULL, unique variable name.  Prefer the pushed
+    // gtopt label (sanitised) so write_lp carries real names; else "x<j>".
+    const std::string generic = "x" + std::to_string(j);
+    const std::string vname = (col_names != nullptr && u < col_names->size())
+        ? sanitize_name((*col_names)[u], generic)
+        : generic;
     SCIP_CALL(SCIPcreateVarBasic(
         scip, &vars[u], vname.c_str(), lb, ub, model.col_obj[u], vtype));
     SCIP_CALL(SCIPaddVar(scip, vars[u]));
@@ -116,9 +152,12 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
     const double lhs = clamp_inf(model.row_lb[u], inf);
     const double rhs = clamp_inf(model.row_ub[u], inf);
     // SCIPcreateConsBasicLinear runs strlen(name) — NULL is NOT allowed here
-    // (unlike SCIPcreateVarBasic, which treats NULL as auto-name).  Generate
-    // a unique "c<i>".
-    const std::string cname = "c" + std::to_string(i);
+    // (unlike SCIPcreateVarBasic, which treats NULL as auto-name).  Prefer the
+    // pushed gtopt row label (sanitised); else a unique "c<i>".
+    const std::string generic = "c" + std::to_string(i);
+    const std::string cname = (row_names != nullptr && u < row_names->size())
+        ? sanitize_name((*row_names)[u], generic)
+        : generic;
     SCIP_CALL(SCIPcreateConsBasicLinear(
         scip, &conss[u], cname.c_str(), 0, nullptr, nullptr, lhs, rhs));
     for (const auto& [col, val] : model.row_entries[u]) {
@@ -126,6 +165,34 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
           scip, conss[u], vars[static_cast<std::size_t>(col)], val));
     }
     SCIP_CALL(SCIPaddCons(scip, conss[u]));
+  }
+
+  // SOS2 sets (issue #504 L-secant chord).  Each set becomes one native
+  // SCIP SOS2 constraint enforcing at-most-two-adjacent-non-zero over its
+  // columns, in the listed (geometric breakpoint) order.  Natural-order
+  // weights (NULL) suffice — gtopt does not expose custom SOS2 weights.
+  // The SOS2 constraints are appended to `conss` so the caller releases
+  // them alongside the linear rows; the dual-recovery loop iterates only
+  // the first `model.num_rows` entries and never reaches them.
+  for (const auto& set : model.sos2_sets) {
+    if (set.size() < 2) {
+      continue;  // SOS2 over < 2 columns is vacuous
+    }
+    std::vector<SCIP_VAR*> sos_vars;
+    sos_vars.reserve(set.size());
+    for (const int col : set) {
+      sos_vars.push_back(vars[static_cast<std::size_t>(col)]);
+    }
+    const std::string sname = "sos2_" + std::to_string(conss.size());
+    SCIP_CONS* scons = nullptr;
+    SCIP_CALL(SCIPcreateConsBasicSOS2(scip,
+                                      &scons,
+                                      sname.c_str(),
+                                      static_cast<int>(sos_vars.size()),
+                                      sos_vars.data(),
+                                      nullptr));
+    SCIP_CALL(SCIPaddCons(scip, scons));
+    conss.push_back(scons);
   }
   return SCIP_OKAY;
 }
@@ -202,7 +269,7 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
 
   std::vector<SCIP_VAR*> vars;
   std::vector<SCIP_CONS*> conss;
-  SCIP_CALL(scip_build_problem(scip, model, vars, conss));
+  SCIP_CALL(scip_build_problem(scip, model, vars, conss, nullptr, nullptr));
 
   if (!mip_start.empty()) {
     SCIP_CALL(scip_install_mip_start(scip, model, mip_start, mip_effort, vars));
@@ -252,35 +319,26 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
 
   // Duals/reduced costs are only meaningful for a pure-LP optimum;
   // `any_integer` was determined before the solve (it also gated presolve).
-  // SCIP exposes the linear constraint dual via SCIPgetDualsolLinear after the
-  // LP relaxation.
   if (!any_integer && out.status == static_cast<int>(SCIP_STATUS_OPTIMAL)) {
-    // Row duals.  SCIPgetDualsolLinear() returns 0 in SOLVED stage (the value
-    // is not propagated back to the original constraint handle), so read the
-    // raw row prices from SCIP's LP interface, which still holds the last LP
-    // solve.  With presolve + propagation disabled (above), the LPI rows map
-    // 1:1 and in order to our constraints.
-    SCIP_LPI* lpi = nullptr;
-    int nlpi_rows = 0;
-    if (SCIPgetLPI(scip, &lpi) == SCIP_OKAY && lpi != nullptr
-        && SCIPlpiGetNRows(lpi, &nlpi_rows) == SCIP_OKAY
-        && nlpi_rows == model.num_rows)
-    {
-      std::vector<double> row_dual(static_cast<std::size_t>(model.num_rows),
-                                   0.0);
-      if (SCIPlpiGetSol(
-              lpi, nullptr, nullptr, row_dual.data(), nullptr, nullptr)
+    // Row duals via the high-level constraint API SCIPgetDualSolVal.  This is
+    // the version-robust way to read a linear constraint's dual in the SOLVED
+    // stage: unlike a raw 1:1 LPI row read (SCIPlpiGetSol), it stays correct
+    // when SCIP has internally rewritten a now-single-variable constraint —
+    // e.g. the commitment row `gen - 100*u <= 0` after `u` is pinned to 1
+    // becomes `gen <= 100` — into a variable *bound*.  That rewrite DROPS the
+    // row from the transformed LP (observed on SCIP 10: nlpi_rows < num_rows),
+    // which broke the old LPI approach: the row-count mismatch fell through to
+    // SCIPgetDualsolLinear, which returns 0 post-solve, zeroing every dual.
+    // SCIPgetDualSolVal reports the price via its `boundconstraint` path in
+    // exactly that case, so the recovered LMPs are matrix-consistent again.
+    for (int i = 0; i < model.num_rows; ++i) {
+      const auto u = static_cast<std::size_t>(i);
+      double dual_val = 0.0;
+      SCIP_Bool bound_constraint = FALSE;
+      if (SCIPgetDualSolVal(scip, conss[u], &dual_val, &bound_constraint)
           == SCIP_OKAY)
       {
-        for (int i = 0; i < model.num_rows; ++i) {
-          out.dual[static_cast<std::size_t>(i)] =
-              row_dual[static_cast<std::size_t>(i)];
-        }
-      }
-    } else {
-      for (int i = 0; i < model.num_rows; ++i) {
-        const auto u = static_cast<std::size_t>(i);
-        out.dual[u] = SCIPgetDualsolLinear(scip, conss[u]);
+        out.dual[u] = dual_val;
       }
     }
     // Column reduced costs.  With SCIP presolve disabled for this pure-LP solve
@@ -291,7 +349,25 @@ SCIP_RETCODE scip_build_and_solve(SCIP* scip,
     // gap).  Matches CLP.
     for (int j = 0; j < model.num_cols; ++j) {
       const auto u = static_cast<std::size_t>(j);
-      out.reduced[u] = SCIPgetVarRedcost(scip, vars[u]);
+      const double rc = SCIPgetVarRedcost(scip, vars[u]);
+      // Complementary-slackness cleanup: at an optimal primal-dual pair a
+      // column strictly interior to its bounds is basic, so its reduced
+      // cost is exactly 0.  SCIP's SoPlex can report a nonzero reduced
+      // cost for such a column when its optimal basis differs from the
+      // (equally optimal, degenerate) vertex whose primal we read — the
+      // shadow price then lands on BOTH the binding row dual and this
+      // interior column, double-counting the marginal.  Zeroing interior
+      // columns restores complementarity and matches CPLEX / HiGHS / CLP,
+      // which is what gtopt's SDDP dual accounting expects.  Columns at a
+      // bound (including the pinned lb==ub commitment columns of the
+      // dual-recovery re-solve) are strictly not interior, so their
+      // reduced cost is preserved untouched.
+      const double xj = out.primal[u];
+      const double lb = model.col_lb[u];
+      const double ub = model.col_ub[u];
+      const double tol = 1e-7 * (1.0 + std::max(std::abs(lb), std::abs(ub)));
+      const bool interior = (xj > lb + tol) && (xj < ub - tol);
+      out.reduced[u] = interior ? 0.0 : rc;
     }
   }
 
@@ -551,6 +627,12 @@ void ScipSolverBackend::delete_rows(int num, const int* indices)
 
 double ScipSolverBackend::get_coeff(int row, int col) const
 {
+  // Guard against an out-of-range row (e.g. a query on an empty LP with
+  // zero rows): `operator[]` on an empty vector is UB.  Absent rows carry
+  // no coefficients, so the matrix entry is 0.
+  if (row < 0 || row >= m_model_.num_rows) {
+    return 0.0;
+  }
   const auto& entries = m_model_.row_entries[static_cast<std::size_t>(row)];
   const auto it = entries.find(col);
   return it != entries.end() ? it->second : 0.0;
@@ -564,6 +646,17 @@ void ScipSolverBackend::set_coeff(int row, int col, double value)
 bool ScipSolverBackend::supports_set_coeff() const noexcept
 {
   return true;
+}
+
+void ScipSolverBackend::add_sos2(std::span<const int> columns)
+{
+  // SOS2 over fewer than two columns is vacuous (mirrors the base
+  // contract).  Otherwise buffer the ordered column list; it is lowered
+  // to a native SCIP SOS2 constraint on the next solve.
+  if (columns.size() < 2) {
+    return;
+  }
+  m_model_.sos2_sets.emplace_back(columns.begin(), columns.end());
 }
 
 void ScipSolverBackend::set_continuous(int index)
@@ -623,21 +716,50 @@ const double* ScipSolverBackend::row_upper() const
   return m_model_.row_ub.data();
 }
 
+const double* ScipSolverBackend::stable_col_buffer(
+    const std::vector<double>& snap, std::size_t n) const
+{
+  if (m_sol_.solved && snap.size() == n) {
+    return snap.data();
+  }
+  // Unsolved / freshly-cloned / size-mismatched: hand back a zero-filled
+  // buffer of the model's column count so a `get_numcols()`-sized view
+  // over the pointer stays in-bounds (matches the always-valid-buffer
+  // contract the OSI/HiGHS/CPLEX backends satisfy).
+  if (m_zero_cols_.size() != n) {
+    m_zero_cols_.assign(n, 0.0);
+  }
+  return m_zero_cols_.data();
+}
+
+const double* ScipSolverBackend::stable_row_buffer(
+    const std::vector<double>& snap, std::size_t n) const
+{
+  if (m_sol_.solved && snap.size() == n) {
+    return snap.data();
+  }
+  if (m_zero_rows_.size() != n) {
+    m_zero_rows_.assign(n, 0.0);
+  }
+  return m_zero_rows_.data();
+}
+
 const double* ScipSolverBackend::col_solution() const
 {
-  return m_sol_.solved && !m_sol_.primal.empty() ? m_sol_.primal.data()
-                                                 : nullptr;
+  return stable_col_buffer(m_sol_.primal,
+                           static_cast<std::size_t>(m_model_.num_cols));
 }
 
 const double* ScipSolverBackend::reduced_cost() const
 {
-  return m_sol_.solved && !m_sol_.reduced.empty() ? m_sol_.reduced.data()
-                                                  : nullptr;
+  return stable_col_buffer(m_sol_.reduced,
+                           static_cast<std::size_t>(m_model_.num_cols));
 }
 
 const double* ScipSolverBackend::row_price() const
 {
-  return m_sol_.solved && !m_sol_.dual.empty() ? m_sol_.dual.data() : nullptr;
+  return stable_row_buffer(m_sol_.dual,
+                           static_cast<std::size_t>(m_model_.num_rows));
 }
 
 double ScipSolverBackend::obj_value() const
@@ -761,7 +883,12 @@ SolverOptions ScipSolverBackend::optimal_options() const
   return {
       .algorithm = LPAlgo::default_algo,
       .presolve = true,
-      .max_fallbacks = 0,
+      // Match the other backends' fallback budget.  SCIP rebuilds cold and
+      // ignores the LPAlgo hint, so a fallback re-solve of an infeasible LP
+      // just re-proves infeasibility, but keeping the budget > 0 gives the
+      // LinearInterface its documented "(after algorithm fallback cycle)"
+      // diagnostics and fallback-solve accounting parity with CLP/HiGHS.
+      .max_fallbacks = 2,
   };
 }
 
@@ -832,7 +959,9 @@ void ScipSolverBackend::write_lp(const char* filename)
   const std::string path = std::string(filename) + ".lp";
   if (SCIPincludeDefaultPlugins(scip) == SCIP_OKAY
       && SCIPcreateProbBasic(scip, m_prob_name_.c_str()) == SCIP_OKAY
-      && scip_build_problem(scip, m_model_, vars, conss) == SCIP_OKAY)
+      && scip_build_problem(
+             scip, m_model_, vars, conss, &m_col_names_, &m_row_names_)
+          == SCIP_OKAY)
   {
     SCIPwriteOrigProblem(scip, path.c_str(), "lp", FALSE);
     for (auto*& c : conss) {
@@ -861,6 +990,7 @@ std::unique_ptr<SolverBackend> ScipSolverBackend::clone() const
   cloned->m_col_names_ = m_col_names_;
   cloned->m_row_names_ = m_row_names_;
   cloned->m_log_level_ = m_log_level_;
+  cloned->m_log_filename_ = m_log_filename_;
   return cloned;
 }
 

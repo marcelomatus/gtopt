@@ -117,6 +117,14 @@ contract — just formalize.
 
 ### B2. Split `LinearInterface` into 3–4 classes — ~1.5 weeks
 
+> **Status (2026-07): largely landed** — see
+> `docs/linear_interface_split_plan.md`.  `LpCache`, `LpReplayBuffer`
+> and `LpSnapshotHolder` were extracted 2026-05; the `LpModel` *state*
+> followed 2026-07 as the `MatrixStats` / `LpLabelStore` /
+> `ScalingState` value groupings.  The behaviour facades (`LpSolver`,
+> `LpLifecycle`) were evaluated and deliberately deferred — the plan
+> doc records why (churn without payoff).
+
 **What:** `LinearInterface` is 2917 + 2800 = 5700 lines.  Mixing
 structural LP, solver, lifecycle, cache, label-meta, validation,
 scaling.  Refactor into:

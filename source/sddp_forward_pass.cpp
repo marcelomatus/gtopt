@@ -230,12 +230,58 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                             uid_of(scene_index),
                             uid_of(phase_index)));
 
+    // Basis warm start: seed this forward solve from a previously-captured
+    // simplex basis for the same (scene, phase) cell.  A seed basis is only a
+    // warm start — `set_basis` rejects a dimension mismatch (returns false)
+    // and the simplex repairs any residual infeasibility — so it can never
+    // change the optimum or corrupt a cut, only save pivots.  A local opts
+    // copy keeps `advanced_basis` from leaking to phases that were not seeded.
+    //
+    // Source selection by mode:
+    //   * warm / full_cross      → this cell's OWN forward basis from the
+    //     previous iteration (forward→forward same-direction reuse — the LP
+    //     differs only by appended cut rows, the closest seed there is).
+    //   * backward_to_forward    → the backward basis (cross reuse).
+    //   * full_cross             → prefer forward→forward, fall back to the
+    //     backward basis on the first iteration (forward basis still empty).
+    auto fwd_opts = effective_opts;
+    {
+      const auto bcm = m_options_.basis_cross_mode;
+      const Basis* seed = nullptr;
+      if ((bcm == BasisCrossMode::warm || bcm == BasisCrossMode::full_cross)
+          && !state.forward_basis.empty())
+      {
+        seed = &state.forward_basis;  // forward → forward
+      }
+      if (seed == nullptr
+          && (bcm == BasisCrossMode::backward_to_forward
+              || bcm == BasisCrossMode::full_cross)
+          && !state.backward_basis.empty())
+      {
+        seed = &state.backward_basis;  // backward → forward (cross)
+      }
+      if (seed != nullptr && li.set_basis(*seed)) {
+        // Warm start off the installed basis.  Auto-select DUAL simplex and
+        // disable presolve for THIS solve so the seeded basis is actually
+        // exploited: appended Benders cut rows keep the basis dual-feasible,
+        // so dual simplex resumes in a few pivots, while presolve would
+        // otherwise discard the basis.  The cold solves (iteration 1, cascade
+        // level changes) keep the pass default (barrier + crossover) so they
+        // still produce a vertex basis to capture for the next iteration.
+        // Empirically ~5-6x faster forward solves once warm (see the 2y
+        // cascade benchmark).  advanced_basis maps to CPLEX ADVIND=1.
+        fwd_opts.advanced_basis = true;
+        fwd_opts.algorithm = LPAlgo::dual;
+        fwd_opts.presolve = false;
+      }
+    }
+
     // Solve directly — already running in a pool thread.
     spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve begin",
                   gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
                   uid_of(phase_index));
-    auto result = li.resolve(effective_opts);
+    auto result = li.resolve(fwd_opts);
     spdlog::trace("SDDP Forward [i{} s{} p{}]: resolve end status={}",
                   gtopt::uid_of(iteration_index),
                   uid_of(scene_index),
@@ -857,6 +903,26 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // `li.get_col_sol()` for ~O(reservoirs + flow-rights + demands)
       // sparse lookups and the live backend serves them cheapest.
       system.accumulate_convergence_indicators(scene_index, phase_index);
+
+      // Capture this forward solve's simplex basis for reuse.  It seeds the
+      // NEXT iteration's forward solve of this cell (forward→forward, modes
+      // warm / full_cross) and/or the backward dual re-solve later THIS
+      // iteration (forward→backward, modes forward_to_backward / full_cross).
+      // Must run before `release_backend()` (get_basis reads the live
+      // backend).  Training pass only: the simulation pass has no backward
+      // pass, and its fix-integers re-solve would overwrite the basis anyway.
+      // get_basis() returns nullopt on backends without basis save/restore
+      // (only CPLEX/HiGHS support it) → capture is skipped.
+      if (!m_in_simulation_
+          && (m_options_.basis_cross_mode == BasisCrossMode::warm
+              || m_options_.basis_cross_mode
+                  == BasisCrossMode::forward_to_backward
+              || m_options_.basis_cross_mode == BasisCrossMode::full_cross))
+      {
+        if (auto basis = li.get_basis(); basis.has_value()) {
+          state.forward_basis = std::move(*basis);
+        }
+      }
 
       // Release solver backend — no-op when low_memory is off.
       //

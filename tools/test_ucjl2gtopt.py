@@ -193,8 +193,11 @@ def _find_gtopt_binary() -> str | None:
     return shutil.which("gtopt")
 
 
-def _has_mip_solver(gtopt_bin: str) -> bool:
-    """``gtopt --solvers`` lists CPLEX / Gurobi when a MIP solver is loaded."""
+def _mip_solver_name(gtopt_bin: str) -> str | None:
+    """Return the first MIP-capable solver listed by ``gtopt --solvers``.
+
+    ``None`` when no CPLEX / Gurobi / MindOpt plugin is loaded.
+    """
     try:
         proc = subprocess.run(
             [gtopt_bin, "--solvers"],
@@ -204,9 +207,32 @@ def _has_mip_solver(gtopt_bin: str) -> bool:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return False
+        return None
     output = (proc.stdout + proc.stderr).lower()
-    return any(s in output for s in ("cplex", "gurobi", "mindopt"))
+    for name in ("cplex", "gurobi", "mindopt"):
+        if name in output:
+            return name
+    return None
+
+
+def _has_mip_solver(gtopt_bin: str) -> bool:
+    """``gtopt --solvers`` lists CPLEX / Gurobi when a MIP solver is loaded."""
+    return _mip_solver_name(gtopt_bin) is not None
+
+
+def _require_mip_solver(gtopt_bin: str) -> str:
+    """Skip the calling test unless a MIP-capable solver plugin is loaded.
+
+    Returns the solver name so the caller can pass it to ``_solve`` as an
+    explicit ``--solver`` pin.  Without the explicit pin, an ambient
+    ``GTOPT_SOLVER`` export (CI pins ``clp`` for the SDDP golden lookup)
+    would force these integer cases onto an LP-only backend, which yields
+    solve status -1 / zero dispatch instead of a MIP solve.
+    """
+    name = _mip_solver_name(gtopt_bin)
+    if name is None:
+        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    return name
 
 
 def _read_solution_status(results_dir: Path) -> tuple[int | None, float | None]:
@@ -353,12 +379,23 @@ def _read_commitment_status(
     )
 
 
-def _solve(gtopt_bin: str, json_path: Path, tmp_run: Path) -> tuple[int, str]:
+def _solve(
+    gtopt_bin: str,
+    json_path: Path,
+    tmp_run: Path,
+    solver: str | None = None,
+) -> tuple[int, str]:
     tmp_run.mkdir(exist_ok=True)
     case_json = tmp_run / json_path.name
     case_json.write_bytes(json_path.read_bytes())
+    cmd = [gtopt_bin, case_json.name]
+    if solver is not None:
+        # CLI --solver outranks every other pin (planning-level,
+        # GTOPT_SOLVER env) — used by MIP tests to stay MIP-capable
+        # under CI's ambient clp export.
+        cmd += ["--solver", solver]
     proc = subprocess.run(
-        [gtopt_bin, case_json.name],
+        cmd,
         cwd=str(tmp_run),
         capture_output=True,
         text=True,
@@ -965,14 +1002,13 @@ def test_real_case14_base_copperplate_mip_matches_ucjl(tmp_path: Path) -> None:
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_BASE, out, "--mip", "--copperplate")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, _ = _read_solution_status(tmp_path / "run" / "output")
@@ -1025,7 +1061,7 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
       2. Every ``status_sol`` value is a clean integer (within 1e-6 of 0
          or 1) — the smoking-gun pre-fix value was 0.947 caps.
       3. The MIP objective matches the LP-relaxation objective for the
-         same case (both equal -377 608.40).  A non-matching obj would
+         same case (both equal -372 186.71).  A non-matching obj would
          indicate the MIP found a worse integer corner than the LP
          bound, which would re-open the regression.
 
@@ -1033,14 +1069,13 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_BASE, out, "--mip")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
@@ -1064,8 +1099,13 @@ def test_real_case14_base_mip_full_network_status_clean_binary(
     # Pre-fix the MIP couldn't reach physical u = 1 on g1/g2 so the optimal
     # MIP was a strictly worse integer corner with obj ≈ +4 079 092 (curtail
     # 40 MW × $100 K/MW).  Post-fix the MIP attains the LP-relax obj.
-    assert obj == pytest.approx(-370_323.33, abs=1.0), (
-        f"MIP obj = {obj}, expected ≈ -369 876.86 (matches LP-relax) — "
+    # -372 186.71 since 99d4c146 (native set_obj_offset): the pre-offset
+    # MIP path terminated on a suboptimal incumbent that curtailed
+    # 32.5 MW and reported -370 323.33, 1 863.38 above the LP-relax
+    # bound; with the objective constant folded natively the MIP lands
+    # exactly on the LP-relax objective (zero integrality gap).
+    assert obj == pytest.approx(-372_186.71, abs=1.0), (
+        f"MIP obj = {obj}, expected ≈ -372 186.71 (matches LP-relax) — "
         f"a positive obj near +4 M would indicate the integer-scaling "
         f"regression where MIP can't commit g1/g2 and curtails instead"
     )
@@ -1106,8 +1146,7 @@ def test_real_case14_base_mip_full_network_row_max_equilibration(
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_BASE, out, "--mip")
@@ -1119,12 +1158,14 @@ def test_real_case14_base_mip_full_network_row_max_equilibration(
     options.setdefault("lp_matrix_options", {})["equilibration_method"] = "row_max"
     out.write_text(json.dumps(data))
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
     assert status == 0, f"MIP exit status = {status}, expected 0"
-    assert obj == pytest.approx(-370_323.33, abs=1.0)
+    # -372 186.71 since 99d4c146 (native set_obj_offset) — see
+    # test_real_case14_base_mip_full_network_status_clean_binary.
+    assert obj == pytest.approx(-372_186.71, abs=1.0)
 
     for gen_uid in range(1, 7):
         status_per_block = _read_commitment_status(
@@ -1217,14 +1258,13 @@ def test_real_case14_congested_mip_full_network(tmp_path: Path) -> None:
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_CONGESTED, out, "--mip")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
@@ -1270,14 +1310,13 @@ def test_real_case14_flex_mip_full_network(tmp_path: Path) -> None:
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_CASE14_FLEX, out, "--mip")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
@@ -1461,14 +1500,13 @@ def test_real_base_with_storage_mip_clean_binary(tmp_path: Path) -> None:
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     out = tmp_path / "g.json"
     proc = _run_converter(_VENDORED_BASE_WITH_STORAGE, out, "--mip")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
@@ -1628,8 +1666,7 @@ def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
     """
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     ucjl = tmp_path / "case118.json"
     ucjl.write_bytes(gzip.decompress(_VENDORED_CASE118_INITCOND.read_bytes()))
@@ -1637,7 +1674,7 @@ def test_real_case118_initcond_mip_clean_binary(tmp_path: Path) -> None:
     proc = _run_converter(ucjl, out, "--mip", "--no-contingencies")
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, obj = _read_solution_status(tmp_path / "run" / "output")
@@ -2589,8 +2626,7 @@ def _run_ucjl_cross_check(
 
     gtopt_bin = _find_gtopt_binary()
     assert gtopt_bin is not None
-    if not _has_mip_solver(gtopt_bin):
-        pytest.skip("no MIP solver plugin loaded (need CPLEX / Gurobi / MindOpt)")
+    mip_solver = _require_mip_solver(gtopt_bin)
 
     # The converter expects raw .json on stdin/argv — decompress .gz first.
     if fixture.suffix == ".gz":
@@ -2603,7 +2639,7 @@ def _run_ucjl_cross_check(
     proc = _run_converter(ucjl_path, out, "--mip", *extra_args)
     assert proc.returncode == 0, proc.stderr
 
-    rc, log = _solve(gtopt_bin, out, tmp_path / "run")
+    rc, log = _solve(gtopt_bin, out, tmp_path / "run", solver=mip_solver)
     assert rc == 0, log
 
     status, _ = _read_solution_status(tmp_path / "run" / "output")

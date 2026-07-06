@@ -49,7 +49,7 @@ jobs:
     name: Coverage (${{ inputs.compiler || 'gcc' }})
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -69,7 +69,7 @@ jobs:
             Ubuntu-${{ inputs.compiler || 'gcc' }}-
           max-size: 2G
 
-      - uses: actions/cache@v5
+      - uses: actions/cache@v6
         with:
           path: "**/cpm_modules"
           key: coverage-${{ inputs.compiler || 'gcc' }}-cpm-modules-${{ hashFiles('cmake/CPM.cmake', 'cmake/tools.cmake', 'CMakeLists.txt') }}

@@ -17,6 +17,7 @@
 namespace daw::json
 {
 using gtopt::ApertureSolveMode;
+using gtopt::BasisCrossMode;
 using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
 using gtopt::CompressionCodec;
@@ -66,6 +67,7 @@ struct SddpOptionsConstructor
       OptInt aperture_chunk_size,
       OptName aperture_solve_mode_str,
       OptBool aperture_seed_basis,
+      OptName basis_cross_mode_str,
       OptName boundary_cuts_file,
       OptName boundary_cuts_mode_str,
       OptName boundary_cut_sharing_mode_str,
@@ -146,6 +148,10 @@ struct SddpOptionsConstructor
           "aperture_solve_mode", *aperture_solve_mode_str);
     }
     opts.aperture_seed_basis = aperture_seed_basis;
+    if (basis_cross_mode_str) {
+      opts.basis_cross_mode = gtopt::require_enum<BasisCrossMode>(
+          "basis_cross_mode", *basis_cross_mode_str);
+    }
     opts.boundary_cuts_file = std::move(boundary_cuts_file);
     if (boundary_cuts_mode_str) {
       opts.boundary_cuts_mode = gtopt::require_enum<BoundaryCutsMode>(
@@ -241,6 +247,7 @@ struct json_data_contract<SddpOptions>
       json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"aperture_solve_mode", OptName>,
       json_bool_null<"aperture_seed_basis", OptBool>,
+      json_string_null<"basis_cross_mode", OptName>,
       json_string_null<"boundary_cuts_file", OptName>,
       json_string_null<"boundary_cuts_mode", OptName>,
       json_string_null<"boundary_cut_sharing_mode", OptName>,
@@ -305,6 +312,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_chunk_size,
         detail::enum_to_opt_name(opt.aperture_solve_mode),
         opt.aperture_seed_basis,
+        detail::enum_to_opt_name(opt.basis_cross_mode),
         opt.boundary_cuts_file,
         detail::enum_to_opt_name(opt.boundary_cuts_mode),
         detail::enum_to_opt_name(opt.boundary_cut_sharing_mode),

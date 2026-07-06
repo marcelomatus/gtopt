@@ -481,12 +481,66 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       m_lp_debug_writer_.write(tgt_li, stem);
     }
 
+    // Cross-pass warm start (BasisCrossMode::forward_to_backward /
+    // full_cross): seed this backward re-solve of LP_t from the forward
+    // pass's basis captured earlier this iteration for the same cell.  tgt_li
+    // IS the same system(scene, phase) LP the forward pass solved — only the
+    // dep_col bound-fix and any cuts appended this backward pass differ — so
+    // reconcile_basis extends the basis cleanly and the simplex repairs the
+    // rest.  Warm-start only: cannot change the cut (coefficients come from
+    // the converged reduced costs).  A local opts copy avoids mutating the
+    // shared const-ref options.
+    auto tgt_opts = opts;
+    if ((m_options_.basis_cross_mode == BasisCrossMode::forward_to_backward
+         || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+        && !phase_states[phase_index].forward_basis.empty()
+        && tgt_li.set_basis(phase_states[phase_index].forward_basis))
+    {
+      // Warm start off the seeded basis: dual simplex + no presolve so the
+      // basis is exploited (mirrors the forward seed path).
+      tgt_opts.advanced_basis = true;
+      tgt_opts.algorithm = LPAlgo::dual;
+      tgt_opts.presolve = false;
+    }
+
     const auto t_tgt_resolve = Clock::now();
-    auto r = tgt_li.resolve(opts);
+    auto r = tgt_li.resolve(tgt_opts);
     dt_tgt_resolve = elapsed_s(t_tgt_resolve);
 
-    if (r.has_value() && tgt_li.is_optimal()) {
-      const auto obj_phys = tgt_li.get_obj_value();
+    // A degenerate basis can hand back a non-finite objective under an
+    // `is_optimal()` status (observed 2026-07-02: NaN obj after the
+    // target LP absorbed an elastic fcut).  Never let it overwrite the
+    // valid forward-cached value — the solution / reduced costs from
+    // the same solve are equally untrustworthy, so skip the whole
+    // refresh and fall back to the forward-cached cut data, exactly
+    // like the non-optimal branch below.
+    const auto refreshed_obj = (r.has_value() && tgt_li.is_optimal())
+        ? std::optional<double> {tgt_li.get_obj_value()}
+        : std::nullopt;
+    if (refreshed_obj.has_value() && !std::isfinite(*refreshed_obj)) {
+      spdlog::warn(
+          "{}: backward_resolve_target returned non-finite obj ({}) under "
+          "an optimal status — keeping forward-cached cut data",
+          sddp_log("Backward",
+                   gtopt::uid_of(iteration_index),
+                   uid_of(scene_index),
+                   uid_of(phase_index)),
+          *refreshed_obj);
+    } else if (refreshed_obj.has_value()) {
+      // Cross-pass warm start (BasisCrossMode::backward_to_forward /
+      // full_cross): capture this backward basis to seed the NEXT iteration's
+      // forward solve of the same cell.  nullopt on backends without basis
+      // save/restore → capture skipped.  Only reached on a finite-optimal
+      // solve (the NaN branch above skips capture — never seed from a NaN
+      // basis).
+      if (m_options_.basis_cross_mode == BasisCrossMode::backward_to_forward
+          || m_options_.basis_cross_mode == BasisCrossMode::full_cross)
+      {
+        if (auto basis = tgt_li.get_basis(); basis.has_value()) {
+          phase_states[phase_index].backward_basis = std::move(*basis);
+        }
+      }
+      const auto obj_phys = *refreshed_obj;
       const auto sol_phys = tgt_li.get_col_sol();
       const auto rc = tgt_li.get_col_cost_raw();
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
@@ -582,6 +636,31 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
                                        gtopt::uid_of(iteration_index),
                                        cut_offset);
   const auto dt_build = elapsed_s(t_build);
+
+  // Non-finite guard: a NaN cut row poisons the source LP — the post-cut
+  // `src_li.resolve()` below can then iterate forever inside the solver
+  // (NaN never satisfies its termination tests; observed 2026-07-02 as a
+  // multi-hour CPLEX wedge on the elastic-mode fixture, `cut z=nan`).
+  // Drop the cut — SDDP stays valid with one fewer underestimator this
+  // iteration — and scream so the NaN source (duals / trial values on
+  // the elastic path) gets investigated instead of hanging the run.
+  const bool cut_is_finite =
+      std::isfinite(cut.lowb)
+      && std::ranges::all_of(
+          cut.cmap, [](const auto& kv) { return std::isfinite(kv.second); });
+  if (!cut_is_finite) {
+    spdlog::error(
+        "SDDP Backward [i{} s{} p{}/{}]: NON-FINITE cut dropped (z={}, "
+        "rhs={}, links={}) — check duals/trial values on the elastic path",
+        gtopt::uid_of(iteration_index),
+        uid_of(scene_index),
+        uid_of(phase_index),
+        bwd_total_phases,
+        target_state.forward_full_obj_physical,
+        cut.lowb,
+        cut.cmap.size());
+    return cuts_added;
+  }
 
   // Unified `add_cut_row`: releases α on `prev_phase_index` iff the
   // cut references α, then adds + records the row for low-memory
@@ -1374,6 +1453,43 @@ auto SDDPMethod::run_backward_pass_synchronized(
   std::vector<std::ptrdiff_t> per_scene_cuts_received(
       static_cast<std::size_t>(num_scenes), 0);
 
+  // Aperture Tier-2 parallelism (see
+  // docs/analysis/sddp-two-tier-workpool-migration.md).  The synchronized
+  // path runs one driver per scene; each driver solves its apertures INLINE
+  // (`make_aperture_submit_fn(..., nullptr)`), so backward parallelism is
+  // capped at num_scenes.  When num_scenes < cores those drivers alone leave
+  // cores idle.  In that regime run the scene drivers on a CoordinatorPool
+  // (off the memory/CPU-gated exec pool, so a blocked driver never starves
+  // its own aperture tasks) and hand aperture chunks to the shared pool as
+  // Tier-2 tasks — up to num_scenes × chunks per phase step, filling the
+  // machine.  When scenes already meet/exceed the core count the driver tier
+  // alone saturates, so we keep the lower-overhead inline path.
+  const auto hw_cores =
+      std::max<unsigned>(1U, std::thread::hardware_concurrency());
+  // Opt-in, OFF by default.  The Tier-2 aperture pool trades LP-clone
+  // reconstruction cost for core saturation; it was measured net-negative on
+  // the small 18-scene 2y case (clone cost > parallelism gain), so the inline
+  // path stays the default.  Enable with GTOPT_PARALLEL_APERTURE_BACKWARD=1 to
+  // evaluate it where it may pay off (large per-aperture solves, or
+  // num_scenes << cores with expensive backward LPs).
+  static const bool tier2_opt_in = []
+  {
+    const char* env = std::getenv("GTOPT_PARALLEL_APERTURE_BACKWARD");
+    return env != nullptr && env[0] != '\0' && env[0] != '0';
+  }();
+  const bool aperture_tier2 = tier2_opt_in && use_apertures
+      && static_cast<unsigned>(num_scenes) < hw_cores;
+  std::optional<CoordinatorPool> aperture_coord;
+  if (aperture_tier2) {
+    aperture_coord.emplace(static_cast<std::size_t>(num_scenes));
+    SPDLOG_INFO(
+        "SDDP Backward [i{}]: aperture Tier-2 ON (num_scenes={} < cores={}) — "
+        "aperture chunks dispatched to the work pool",
+        gtopt::uid_of(iteration_index),
+        num_scenes,
+        hw_cores);
+  }
+
   // Process phases backward: all scenes complete one phase before
   // sharing cuts and moving to the previous phase.
   for (const auto phase_index :
@@ -1404,12 +1520,42 @@ auto SDDPMethod::run_backward_pass_synchronized(
       }
       const int offset = per_scene_cut_count[scene_index];
 
+      // Tier-2 path: driver on the coordinator (off the gated pool), aperture
+      // chunks submitted to `pool`.
+      if (aperture_tier2) {
+        futures.emplace_back(
+            scene_index,
+            aperture_coord->run_driver(
+                [this,
+                 scene_index,
+                 phase_index,
+                 offset,
+                 &opts,
+                 iteration_index,
+                 &pool]
+                {
+                  return backward_pass_with_apertures_single_phase(
+                      scene_index,
+                      phase_index,
+                      offset,
+                      opts,
+                      iteration_index,
+                      &pool);
+                }));
+        continue;
+      }
+
       auto fut = use_apertures
           ? pool.submit(
                 [this, scene_index, phase_index, offset, &opts, iteration_index]
                 {
                   return backward_pass_with_apertures_single_phase(
-                      scene_index, phase_index, offset, opts, iteration_index);
+                      scene_index,
+                      phase_index,
+                      offset,
+                      opts,
+                      iteration_index,
+                      /*exec_pool=*/nullptr);
                 },
                 bwd_req)
           : pool.submit(

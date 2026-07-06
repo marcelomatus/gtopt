@@ -89,8 +89,7 @@ namespace gtopt
 /// Converted to the `is_backward` field of `SDDPTaskKey` by the factory
 /// (`forward → 0`, `backward → 1`) so the lexicographic key tuple keeps
 /// forward strictly ahead of backward at the same iteration.
-// NOLINTBEGIN(performance-enum-size) — int matches SDDPTaskKey tuple element
-// type
+// NOLINTNEXTLINE(performance-enum-size) — int matches SDDPTaskKey tuple element
 enum class SDDPPassDirection : int
 {
   forward = 0,
@@ -99,12 +98,12 @@ enum class SDDPPassDirection : int
 
 /// @brief Task kind for the `kind` field of `SDDPTaskKey`.
 /// LP solves (0) have higher priority than non-LP tasks (1).
+// NOLINTNEXTLINE(performance-enum-size) — int matches SDDPTaskKey tuple element
 enum class SDDPTaskKind : int
 {
   lp = 0,
   non_lp = 1,
 };
-// NOLINTEND(performance-enum-size)
 
 /// @brief SDDP solver task priority key.
 ///

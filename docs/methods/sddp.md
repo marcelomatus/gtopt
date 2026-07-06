@@ -1327,28 +1327,20 @@ mitigate this:
 
    - `off` (default): backend stays loaded; no FlatLinearProblem held.
      Maximum throughput, maximum memory.
-   - `snapshot`: backend released after every solve; the
-     FlatLinearProblem is kept in memory and replayed on the next
-     access via `LinearInterface::reconstruct_backend()`.  Cuts the
-     solver-resident memory but still pays one snapshot per cell.
-   - `compress`: same as `snapshot`, but the snapshot is compressed
+   - `compress` (default for SDDP/cascade): backend released after
+     every solve; the FlatLinearProblem is kept in memory — compressed
      (lz4 / zstd, ~2–4× ratio) when the backend is released and
-     decompressed on demand.
-   - `rebuild`: no FlatLinearProblem snapshot is kept.  The initial
-     up-front "Build LP" loop is **skipped entirely** — each
-     `(scene, phase)` LP is built lazily inside the same task that
-     solves or clones it (forward pass, backward source LP for
-     apertures, elastic-filter base LP, `--lp-only` validation).
-     Aperture clones still come from a single rebuild per phase per
-     iteration: the source LP is rebuilt once, every aperture task
-     clones it inline, and the source is discarded once the apertures
-     finish.  Persistent SDDP state — the alpha column added by the
-     solver and the accumulated Benders cuts — is preserved across
-     rebuilds via `m_dynamic_cols_` / `m_active_cuts_` on
-     `LinearInterface` and replayed on every rebuild, so SDDP
-     convergence is unchanged.  Lowest steady-state memory; highest
-     CPU cost — pick `rebuild` only when memory is the binding
-     constraint.
+     decompressed on demand — and replayed on the next access via
+     `LinearInterface::reconstruct_backend()`.  Cuts the
+     solver-resident memory but still pays one snapshot per cell.  The
+     codec is chosen by `memory_codec` (default `auto` → lz4).
+   - `snapshot` *(back-compat alias → `compress` with
+     `memory_codec = uncompressed`)*: same release/replay behaviour,
+     but the in-memory snapshot is left uncompressed.
+   - `rebuild` *(removed 2026-05-13)*: this mode formerly kept no
+     snapshot and rebuilt each `(scene, phase)` LP lazily; it was
+     removed.  The JSON value `"rebuild"` is now a back-compat alias
+     that parses to `compress`.
 
 5. **Warm-start pre-padding**: forward-pass solution vectors are padded
    with zeros at save time so that `set_warm_start_solution()` can use a

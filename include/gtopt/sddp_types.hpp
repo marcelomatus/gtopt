@@ -779,13 +779,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// resident chunk basis), or `reduced_cost` (barrier without crossover,
   /// interior-point reduced-cost cuts).  See
   /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
-  ApertureSolveMode aperture_solve_mode {ApertureSolveMode::reduced_cost};
+  ApertureSolveMode aperture_solve_mode {ApertureSolveMode::warm};
 
   /// Seed each iteration's first backward aperture from the previous
   /// iteration's first-aperture basis (dual warm start).  Orthogonal to
   /// `aperture_solve_mode`; only acts when the mode is `cold`/`warm`.
   /// Default false.  See `sddp_options.hpp::aperture_seed_basis`.
   bool aperture_seed_basis {false};
+
+  /// Cross-pass simplex-basis warm-start reuse between the forward and
+  /// backward passes.  Default `off`.  See `sddp_options.hpp::basis_cross_mode`
+  /// and `BasisCrossMode` for the full rationale.
+  BasisCrossMode basis_cross_mode {BasisCrossMode::full_cross};
 
   /// Enable warm-start optimizations for SDDP resolves (forward pass,
   /// backward pass, apertures, elastic filter).  When true, resolves use
@@ -978,7 +983,18 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// SDDP work pool CPU over-commit factor.  Multiplied by
   /// hardware_concurrency to set max pool threads.  Default 4.0 — extra
   /// threads keep CPUs busy while others block on the clone mutex.
+  ///
+  /// When the user did NOT set this explicitly (`pool_cpu_factor_user_set
+  /// == false`), `SDDPMethod::effective_pool_cpu_factor()` caps it to 1.0
+  /// for many-scene runs (see that helper for the threshold + rationale):
+  /// the scene×aperture backward tasks already saturate every core, so the
+  /// 4× over-commit only adds scheduler/futex contention.
   double pool_cpu_factor {4.0};
+
+  /// True when the user explicitly set `pool_cpu_factor` (via `--cpu-factor`
+  /// or `sddp_options.pool_cpu_factor` in JSON).  When true the value above
+  /// is honored verbatim; when false the scene-aware auto-cap may lower it.
+  bool pool_cpu_factor_user_set {false};
 
   /// Process memory limit in MB for the SDDP work pool.
   /// When non-zero, the pool blocks task dispatch if process RSS exceeds
@@ -1411,6 +1427,16 @@ struct PhaseStateInfo
   /// captured; only populated/consumed when `aperture_seed_basis` is on.
   /// One per `(scene, phase)` cell — `O(cells)` memory, not per-aperture.
   Basis aperture_warm_basis {};
+  /// Cross-pass warm-start seed: the simplex basis captured from this cell's
+  /// FORWARD-pass solve last iteration, reused to warm-start the backward
+  /// dual/aperture solve (`BasisCrossMode::forward_to_backward`/`full_cross`).
+  /// Empty until first captured; only populated/consumed when
+  /// `basis_cross_mode` requests forward→backward reuse.  `O(cells)` memory.
+  Basis forward_basis {};
+  /// Cross-pass warm-start seed: the simplex basis captured from this cell's
+  /// BACKWARD-pass solve last iteration, reused to warm-start the next
+  /// forward solve (`BasisCrossMode::backward_to_forward`/`full_cross`).
+  Basis backward_basis {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

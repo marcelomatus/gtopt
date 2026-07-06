@@ -75,6 +75,7 @@ namespace
   sddp_opts.aperture_chunk_size = options.sddp_aperture_chunk_size();
   sddp_opts.aperture_solve_mode = options.sddp_aperture_solve_mode();
   sddp_opts.aperture_seed_basis = options.sddp_aperture_seed_basis();
+  sddp_opts.basis_cross_mode = options.sddp_basis_cross_mode();
   sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
   sddp_opts.cut_prune_interval = options.sddp_cut_prune_interval();
   sddp_opts.prune_dual_threshold = options.sddp_prune_dual_threshold();
@@ -153,6 +154,7 @@ namespace
   // Async + work-pool resource limits
   sddp_opts.max_async_spread = options.sddp_max_async_spread();
   sddp_opts.pool_cpu_factor = options.sddp_pool_cpu_factor();
+  sddp_opts.pool_cpu_factor_user_set = options.sddp_pool_cpu_factor_is_set();
   sddp_opts.pool_memory_limit_mb = options.sddp_pool_memory_limit_mb();
 
   // Wire solve_timeout from forward solver's time_limit (if set)
