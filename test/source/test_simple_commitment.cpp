@@ -115,6 +115,10 @@ TEST_CASE("SimpleCommitmentLP - binary mode basic")
 
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Binary (non-relaxed) commitment → integer columns; pin a MIP-capable
+  // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
+  // guard in LinearInterface::load_flat.
+  opts.lp_matrix_options.solver_name = "cbc";
 
   const System system = {
       .name = "SimpleCommitTest",
@@ -211,6 +215,8 @@ TEST_CASE("SimpleCommitmentLP - must run")
 
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Binary commitment → integer columns; MIP-capable pin (see above).
+  opts.lp_matrix_options.solver_name = "cbc";
 
   const System system = {
       .name = "MustRunTest",

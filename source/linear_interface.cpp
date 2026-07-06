@@ -1223,6 +1223,22 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   m_stats_.min_col_name = flat_lp.stats_min_col_name;
   m_stats_.row_type_stats = flat_lp.row_type_stats;
 
+  // A non-empty `colint` means the model genuinely requires a MIP solve
+  // (LP-relaxed builds drop `is_integer` upstream, e.g. Commitment
+  // `relax` / continuous phases).  Loading integer columns into an
+  // LP-only backend used to "succeed" and then silently produce a
+  // zero-dispatch solution with status -1 — fail loudly instead.
+  if (!flat_lp.colint.empty() && !m_backend_->supports_mip()) {
+    const auto msg = std::format(
+        "Solver '{}' is LP-only but the problem has {} integer column(s) "
+        "(e.g. unit-commitment binaries).  Pick a MIP-capable solver "
+        "(--solver cbc/highs/cplex or the solver_name option), or relax "
+        "the integrality (e.g. Commitment `relax: true`).",
+        m_solver_name_,
+        flat_lp.colint.size());
+    SPDLOG_CRITICAL(msg);
+    throw std::runtime_error(msg);
+  }
   for (auto i : flat_lp.colint) {
     m_backend_->set_integer(i);
   }

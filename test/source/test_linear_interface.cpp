@@ -1566,8 +1566,11 @@ TEST_CASE(  // NOLINT
   flat_opts.row_with_name_map = true;
   auto flat_lp = lp.flatten(flat_opts);
 
-  // Load with name tracking enabled (LabelMaker travels via flat_lp)
-  LinearInterface li;
+  // Load with name tracking enabled (LabelMaker travels via flat_lp).
+  // Pin a MIP-capable solver: the LP carries an integer column, and
+  // load_flat rejects integer columns on LP-only backends (an ambient
+  // GTOPT_SOLVER=clp — CI's default — would otherwise throw here).
+  LinearInterface li {"cbc"};
   li.load_flat(flat_lp);
 
   CHECK(li.get_numcols() == 2);
@@ -1583,6 +1586,35 @@ TEST_CASE(  // NOLINT
 
   auto result = li.resolve();
   REQUIRE(result.has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "LinearInterface - load_flat rejects integer columns on an LP-only solver")
+{
+  using namespace gtopt;
+
+  LinearProblem lp("IntOnClp");
+
+  const auto col1 = lp.add_col({.lowb = 0.0, .uppb = 10.0, .cost = 1.0});
+  const auto col2 = lp.add_col({
+      .lowb = 0.0,
+      .uppb = 1.0,
+      .cost = 2.0,
+      .is_integer = true,
+  });
+
+  auto row1 = lp.add_row({.uppb = 8.0});
+  lp.set_coeff(row1, col1, 1.0);
+  lp.set_coeff(row1, col2, 1.0);
+
+  auto flat_lp = lp.flatten(LpMatrixOptions {});
+
+  // CLP is a pure LP solver: loading a MIP into it used to "succeed" and
+  // later produce a silent zero-dispatch status -1 solution.  It must now
+  // fail loudly at load time.
+  LinearInterface li {"clp"};
+  CHECK_THROWS_WITH_AS(
+      li.load_flat(flat_lp), doctest::Contains("LP-only"), std::runtime_error);
 }
 
 TEST_CASE("LinearInterface - load_flat without names (minimal)")  // NOLINT

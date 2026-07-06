@@ -2917,6 +2917,10 @@ TEST_CASE("continuous_phases=none keeps integer UC binaries")  // NOLINT
   poptions.model_options.demand_fail_cost = 1000.0;
   poptions.model_options.continuous_phases = "none";
   poptions.model_options.use_single_bus = true;
+  // continuous_phases=none keeps the u binaries integer; pin a
+  // MIP-capable solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip
+  // the LP-only guard in LinearInterface::load_flat.
+  poptions.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options(std::move(poptions));
 
   Simulation simulation(tc.simulation);

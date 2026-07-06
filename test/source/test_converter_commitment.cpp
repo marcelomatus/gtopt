@@ -142,6 +142,10 @@ TEST_CASE("Converter.commitment unset: hard static lmin/pmin floor")  // NOLINT
   const auto simulation = make_two_block_simulation();
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Converter commitment emits integer u columns; pin a MIP-capable
+  // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
+  // guard in LinearInterface::load_flat.
+  opts.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -193,6 +197,10 @@ TEST_CASE("Converter.commitment=true: lmin/pmin migrated to u-gated rows")
   const auto simulation = make_two_block_simulation();
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Converter commitment emits integer u columns; pin a MIP-capable
+  // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
+  // guard in LinearInterface::load_flat.
+  opts.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -249,6 +257,10 @@ TEST_CASE("Converter.commitment lets battery idle (load=0 below lmin)")
   const auto simulation = make_two_block_simulation();
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Converter commitment emits integer u columns; pin a MIP-capable
+  // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
+  // guard in LinearInterface::load_flat.
+  opts.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);
@@ -337,6 +349,8 @@ TEST_CASE(  // NOLINT
   opts.model_options.demand_fail_cost = 1000.0;
   opts.lp_matrix_options.col_with_names = true;
   opts.lp_matrix_options.col_with_name_map = true;
+  // MIP-capable pin — integer u columns (see above).
+  opts.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
 
@@ -404,6 +418,10 @@ TEST_CASE("Converter.commitment skipped when pmin/lmin = 0")  // NOLINT
   const auto simulation = make_two_block_simulation();
   PlanningOptions opts;
   opts.model_options.demand_fail_cost = 1000.0;
+  // Converter commitment emits integer u columns; pin a MIP-capable
+  // solver so an ambient GTOPT_SOLVER=clp (CI) doesn't trip the LP-only
+  // guard in LinearInterface::load_flat.
+  opts.lp_matrix_options.solver_name = "cbc";
   PlanningOptionsLP options {opts};
   SimulationLP sim_lp(simulation, options);
   SystemLP sys_lp(system, sim_lp);

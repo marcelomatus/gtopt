@@ -1083,6 +1083,13 @@ void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
   if (flat_opts.scale_objective == 1.0) {
     flat_opts.scale_objective = system_context().options().scale_objective();
   }
+  // Likewise honor the planning-level solver pin when the caller passed
+  // no explicit solver (direct SystemLP construction, e.g. tests and
+  // embedders) — mirrors the create_systems resolution order:
+  // caller flat_opts → planning pin → SolverRegistry::default_solver().
+  if (flat_opts.solver_name.empty()) {
+    flat_opts.solver_name = system_context().options().lp_solver_name();
+  }
   // create_linear_interface owns the snapshot installation: it either
   // load_flats + save_snapshots eagerly (low_memory off) or installs the
   // flat LP as a deferred snapshot via defer_initial_load (otherwise).
