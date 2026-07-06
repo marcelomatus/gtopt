@@ -14,12 +14,15 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "cuopt_solver_backend.hpp"
@@ -64,6 +67,31 @@ void check(cuopt_int_t status, const char* what)
   }
 }
 
+/// Process-global serialization mutex for every cuOpt C-API interaction.
+///
+/// cuOpt's library-global state is NOT thread-safe: its `rapids_logger`
+/// singleton and the lazy cuBLAS/raft handle init are shared across threads.
+/// gtopt's SDDP work pool dispatches multiple scene solves concurrently, so
+/// two overlapping `cuOptSolve`/`cuOptSet*` calls race — observed as either a
+/// pure-virtual abort (the logger's sink vtable mutated mid-call) or a hang
+/// (two threads in `cublasLtCtxInit` at once).  The single GPU time-slices
+/// kernels across contexts in Default compute mode, so serializing solves
+/// costs no real throughput.  See TODO(cuopt) S8 at the bottom of this file.
+///
+/// MULTI-GPU: this lock is *process-global* by design, not per-device, and is
+/// correct on any GPU count.  The `rapids_logger` singleton (root cause #1)
+/// lives in host memory and is shared across every device, so a per-GPU mutex
+/// would still race on it — a global lock is mandatory for correctness.  The
+/// trade-off is that it also serializes the GPU-compute portion across all
+/// devices, so it does NOT exploit multi-GPU parallelism.  That is acceptable
+/// today because this backend has no device-assignment logic (every
+/// `cuOptSolve` targets the default CUDA device).  True multi-GPU *scaling*
+/// requires per-instance device pinning (`cudaSetDevice`/CUDA_VISIBLE_DEVICES)
+/// plus a two-tier lock — a process-global lock only around the logger/settings
+/// init and a per-device lock around the solve — which is deferred to the
+/// GPU-aware work-pool work (see the resource-manager proposal, phase P1).
+std::mutex g_cuopt_global_mutex;
+
 }  // namespace
 
 CuOptSolverBackend::CuOptSolverBackend() = default;
@@ -81,6 +109,7 @@ std::string CuOptSolverBackend::solver_version() const
   cuopt_int_t maj = 0;
   cuopt_int_t min = 0;
   cuopt_int_t pat = 0;
+  const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
   cuOptGetVersion(&maj, &min, &pat);
   return std::format("{}.{}.{}", maj, min, pat);
 }
@@ -466,6 +495,13 @@ void CuOptSolverBackend::solve_()
     var_ub[static_cast<size_t>(j)] = to_cuopt_bound(m_model_.col_ub[j]);
   }
 
+  // Serialize every cuOpt C-API interaction below: the library's global
+  // logger/cuBLAS state is not thread-safe and the SDDP work pool drives
+  // several scene solves concurrently (see g_cuopt_global_mutex).  The
+  // host-side CSR lowering above is per-instance and stays outside the lock
+  // so it can overlap another thread's GPU solve.
+  const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
+
   // 2) Build the immutable problem object.  Ranged form maps gtopt's
   //    (row_lb, row_ub) pair directly — no sense/RHS conversion needed.
   cuOptOptimizationProblem problem = nullptr;
@@ -492,26 +528,51 @@ void CuOptSolverBackend::solve_()
   // Algorithm: gtopt LPAlgo -> cuOpt method.  cuOpt has a true dual-simplex
   // and barrier (cuDSS) in addition to PDLP; barrier+crossover yields clean
   // vertex duals (what gtopt's LMP path wants).
+  cuopt_int_t cuopt_method = CUOPT_METHOD_CONCURRENT;
   switch (m_options_.algorithm) {
     case LPAlgo::primal:
-      // PDLP: GPU first-order primal-dual. Fast and insensitive to LP
-      // conditioning/bound tightness, but returns a non-vertex point
-      // (no crossover unless CUOPT_CROSSOVER is set), so exact LMP duals
-      // are not guaranteed. Select via `--algorithm primal --solver cuopt`.
-      cuOptSetIntegerParameter(settings, CUOPT_METHOD, CUOPT_METHOD_PDLP);
+      // "primal" maps to CONCURRENT, NOT lone PDLP.  Lone PDLP (GPU
+      // first-order) has two failure modes that break gtopt: (1) it wedges
+      // the WSL2 CUDA driver in its per-iteration device->host convergence
+      // poll (unrecoverable hang — see g_cuopt_global_mutex / TODO S8), and
+      // (2) its infeasibility detection is unreliable, so it falsely reports
+      // tight-but-feasible LPs (e.g. an SDDP terminal phase with a hard
+      // reservoir target) as INFEASIBLE.  CONCURRENT still runs PDLP (and
+      // returns it when it wins the race) but always has a simplex leg that
+      // terminates with a correct vertex verdict.  Force true lone PDLP for
+      // benchmarking via the GTOPT_CUOPT_METHOD=pdlp env override below.
+      cuopt_method = CUOPT_METHOD_CONCURRENT;
       break;
     case LPAlgo::dual:
-      cuOptSetIntegerParameter(
-          settings, CUOPT_METHOD, CUOPT_METHOD_DUAL_SIMPLEX);
+      cuopt_method = CUOPT_METHOD_DUAL_SIMPLEX;
       break;
     case LPAlgo::barrier:
-      cuOptSetIntegerParameter(settings, CUOPT_METHOD, CUOPT_METHOD_BARRIER);
+      cuopt_method = CUOPT_METHOD_BARRIER;
       break;
     case LPAlgo::default_algo:
     case LPAlgo::last_algo:
-      cuOptSetIntegerParameter(settings, CUOPT_METHOD, CUOPT_METHOD_CONCURRENT);
+      cuopt_method = CUOPT_METHOD_CONCURRENT;
       break;
   }
+  // Optional runtime override: GTOPT_CUOPT_METHOD in
+  // {pdlp, dual, barrier, concurrent}.  Provided as a triage lever and a WSL2
+  // robustness escape hatch — PDLP's per-iteration device->host convergence
+  // poll (`get_norm_squared_delta_dual` -> `cuMemcpyAsync`) can wedge the WSL
+  // CUDA driver on some LPs, and a direct method (barrier/dual/concurrent)
+  // sidesteps that poll.
+  if (const char* env = std::getenv("GTOPT_CUOPT_METHOD"); env != nullptr) {
+    const std::string_view m {env};
+    if (m == "pdlp" || m == "primal") {
+      cuopt_method = CUOPT_METHOD_PDLP;
+    } else if (m == "dual") {
+      cuopt_method = CUOPT_METHOD_DUAL_SIMPLEX;
+    } else if (m == "barrier") {
+      cuopt_method = CUOPT_METHOD_BARRIER;
+    } else if (m == "concurrent") {
+      cuopt_method = CUOPT_METHOD_CONCURRENT;
+    }
+  }
+  cuOptSetIntegerParameter(settings, CUOPT_METHOD, cuopt_method);
   // Crossover so barrier produces basic (vertex) duals/RC for LMPs.  cuOpt
   // has no primal/dual selector, so any non-none mode enables crossover.
   cuOptSetIntegerParameter(settings,
@@ -741,10 +802,22 @@ void CuOptSolverBackend::apply_options(const SolverOptions& opts)
 
 SolverOptions CuOptSolverBackend::optimal_options() const
 {
-  // GPU PDLP/barrier is the strength; default to barrier + crossover so
-  // gtopt's LMP/dual consumers get vertex duals.  Users override via JSON.
+  // Default to CONCURRENT (cuOpt races PDLP + dual-simplex + barrier and
+  // returns the first to finish), with crossover so gtopt's LMP/dual
+  // consumers still get vertex duals.
+  //
+  // Why not pure barrier or pure PDLP: on some LPs (e.g. a terminal SDDP
+  // phase with a hard reservoir target) cuOpt's barrier reports non-optimal,
+  // which trips `LinearInterface::resolve`'s algorithm-fallback cycle
+  // (barrier -> dual -> primal).  The primal/PDLP leg then wedges the WSL2
+  // CUDA driver in its per-iteration device->host convergence poll (see
+  // g_cuopt_global_mutex notes and TODO S8) — an unrecoverable hang.
+  // CONCURRENT sidesteps both: it always has a simplex leg that terminates
+  // and returns a vertex solution, so no fallback (hence no lone PDLP) is
+  // ever needed.  Users can still force a single method via `--algorithm` or
+  // the GTOPT_CUOPT_METHOD env override.
   SolverOptions opts {};
-  opts.algorithm = LPAlgo::barrier;
+  opts.algorithm = LPAlgo::default_algo;
   opts.crossover = CrossoverMode::primal;
   return opts;
 }

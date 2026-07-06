@@ -1146,14 +1146,6 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // backend is created fresh (default no-op until this call).
   m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
 
-  // Hand the LP-external objective constant to the backend's NATIVE objective
-  // offset so the solver's reported objective (and, critically, its MIP
-  // relative-gap) already includes it.  ABSOLUTE set — the raw constant is the
-  // running total, not a delta.  This re-establishes the offset on every
-  // (re)load, including the compress/low-memory reconstruct path where the
-  // backend is created fresh (default no-op until this call).
-  m_backend_->set_obj_offset(m_obj_constant_raw_);
-
   // Preserve per-column scale factors from LinearProblem.
   detach_for_write(m_scaling_.col_scales)
       .assign(flat_lp.col_scales.begin(), flat_lp.col_scales.end());
@@ -3382,15 +3374,6 @@ void LinearInterface::add_obj_constant(double c) noexcept
   // reconstruct re-applies it via `set_obj_offset`.
   if (!m_backend_released_ && m_backend_ != nullptr) {
     m_backend_->set_obj_offset(m_scaling_.obj_constant_raw);
-  }
-
-  // Push the NEW ABSOLUTE total to the backend's native objective offset so
-  // the live solver's reported objective (and MIP relative-gap) reflects it
-  // immediately.  Guarded on a live backend: when released (low_memory), the
-  // snapshot mirror below carries the value and the next `load_flat`
-  // reconstruct re-applies it via `set_obj_offset`.
-  if (!m_backend_released_ && m_backend_ != nullptr) {
-    m_backend_->set_obj_offset(m_obj_constant_raw_);
   }
 
   // Mirror the addition into the held snapshot's flat LP.  Scalar
