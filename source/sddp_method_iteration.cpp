@@ -73,14 +73,17 @@ void SDDPMethod::update_max_kappa(SceneIndex scene_index,
   }
   const double kappa = *kappa_opt;
 
-  m_max_kappa_[scene_index][phase_index] =
-      std::max(m_max_kappa_[scene_index][phase_index], kappa);
-  // Track which iter this observation belongs to so the per-iter log
-  // clause can filter to "kappa observed *this iter*" instead of
-  // re-displaying the historical max every iteration (the CPLEX
-  // barrier-no-crossover case where only the LP-construction probe
-  // ever returned a value).
-  m_max_kappa_iter_[scene_index][phase_index] = iteration_index;
+  {
+    const std::lock_guard lk {m_max_kappa_mutex_};
+    m_max_kappa_[scene_index][phase_index] =
+        std::max(m_max_kappa_[scene_index][phase_index], kappa);
+    // Track which iter this observation belongs to so the per-iter log
+    // clause can filter to "kappa observed *this iter*" instead of
+    // re-displaying the historical max every iteration (the CPLEX
+    // barrier-no-crossover case where only the LP-construction probe
+    // ever returned a value).
+    m_max_kappa_iter_[scene_index][phase_index] = iteration_index;
+  }
 
   const auto& sim = planning_lp().planning().simulation;
   const auto mode = sim.kappa_warning.value_or(KappaWarningMode::warn);

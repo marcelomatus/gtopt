@@ -14,6 +14,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -589,7 +590,7 @@ public:
   /// `PlanningLP` when PAMPL evaluation is requested.
   void set_need_ampl_variables(bool v) noexcept { m_need_ampl_variables_ = v; }
 
-  [[nodiscard]] constexpr bool need_ampl_variables() const noexcept
+  [[nodiscard]] bool need_ampl_variables() const noexcept
   {
     return m_need_ampl_variables_;
   }
@@ -1420,7 +1421,14 @@ private:
   // maps.  When false (default), it is a no-op — the maps stay empty,
   // saving allocation/hashing overhead for runs without user constraints
   // or PAMPL evaluation.
-  bool m_need_ampl_variables_ {false};
+  //
+  // Atomic: every parallel SystemLP constructor writes this flag on the
+  // shared SimulationLP (PlanningLP::create_systems' work-pool tasks) while
+  // add_ampl_variable() reads it during the same parallel build — a
+  // TSan-confirmed data race.  All cells write the same value (derived from
+  // the shared System's user_constraint_array), so relaxed atomicity is both
+  // race-free and semantically correct.
+  std::atomic<bool> m_need_ampl_variables_ {false};
 
   // PAMPL variable registry — populated by each LP element's add_to_lp
   // and queried by element_column_resolver.cpp.
