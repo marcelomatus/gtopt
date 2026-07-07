@@ -51,6 +51,7 @@
 #include <gtopt/cpu_monitor.hpp>
 #include <gtopt/hardware_info.hpp>
 #include <gtopt/memory_monitor.hpp>
+#include <gtopt/resource_governor.hpp>
 #include <spdlog/spdlog.h>
 
 #ifdef __linux__
@@ -249,6 +250,14 @@ struct BasicTaskRequirements
   /// SDDP sim⇄wedge trap where `High` was used only for gate-bypass but also
   /// reordered ahead of every same-iteration training task.
   bool gate_bypass = false;
+  /// Dominant resource of the task.  `cpu` (default) keeps today's
+  /// behaviour.  `gpu` additionally gates dispatch on the process-global
+  /// GPU token bucket (ResourceGovernor) so GPU-backed solves (cuOpt) never
+  /// fan out to `cpu_factor x cores` concurrency — in Default compute mode
+  /// the device time-slices contexts, so oversubscription buys no
+  /// throughput and risks VRAM OOM.  Stamped by `SolverTier` from the
+  /// backend's declared `SolverResourceDescriptor`.
+  ResourceClass resource_class = ResourceClass::cpu;
   std::optional<std::string> name;
 };
 
@@ -477,6 +486,7 @@ private:
   // Reported in the pool's Final log line so operators see at a glance
   // which gate (if any) held work back.
   mutable std::atomic<size_t> throttled_cpu_ {0};
+  mutable std::atomic<size_t> throttled_gpu_ {0};
   mutable std::atomic<size_t> throttled_memory_pct_ {0};
   mutable std::atomic<size_t> throttled_free_memory_ {0};
   mutable std::atomic<size_t> throttled_process_rss_ {0};
@@ -1393,6 +1403,18 @@ private:
         tasks_pending_.fetch_sub(1, std::memory_order_relaxed);
         active_threads_.fetch_add(threads_needed, std::memory_order_relaxed);
         tasks_active_.fetch_add(1, std::memory_order_relaxed);
+
+        // GPU token: consume for GPU-class tasks, held (RAII) across
+        // execute() and released at end of this iteration.  An empty
+        // ticket means a cross-pool race took the last token between the
+        // dispatch gate and this acquire — execute anyway: the backend's
+        // process-global serialization mutex still guarantees correctness
+        // (behaviour never worse than pre-governor).
+        ResourceGovernor::Ticket resource_ticket;
+        if (task.requirements().resource_class == ResourceClass::gpu) {
+          resource_ticket =
+              ResourceGovernor::instance().try_admit(ResourceClass::gpu);
+        }
         // Stamp the admission time for the measured-memory rate limiter:
         // the dispatch gate and capacity growth both refuse to admit/grow
         // again until one memory-monitor interval has elapsed, so each
@@ -1454,6 +1476,11 @@ private:
           maybe_grow_max_threads_unlocked();
         }
 
+        // Return the GPU token (if held) BEFORE waking waiters so a
+        // throttled GPU task can be admitted on the very next gate check
+        // instead of one scheduler tick later.
+        resource_ticket = ResourceGovernor::Ticket {};
+
         // Wake any worker that was throttled by `current + threads_needed
         // > max_threads_`: one of those checks may now pass against the
         // freshly-decremented `active_threads_`.
@@ -1510,6 +1537,21 @@ private:
     // so admitting here is always safe.
     if (active_now == 0) {
       return true;
+    }
+
+    // ── GPU admission gate ─────────────────────────────────────────────
+    // GPU-class tasks are additionally gated on the process-global GPU
+    // token bucket (one token per device by default: Default compute mode
+    // time-slices contexts, so concurrent GPU solves add no throughput).
+    // Soft gate like CPU/memory: the universal progress guarantee above
+    // still admits when idle, and the post-pop try_admit tolerates
+    // cross-pool races (an empty ticket there means "execute anyway" —
+    // the backend's own serialization mutex carries correctness).
+    if (next_task.requirements().resource_class == ResourceClass::gpu
+        && !ResourceGovernor::instance().gpu_available())
+    {
+      throttled_gpu_.fetch_add(1, std::memory_order_relaxed);
+      return false;
     }
 
     // CPU check — only apply when threads are near saturation.

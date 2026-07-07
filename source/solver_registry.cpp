@@ -183,6 +183,15 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
   auto* infinity_fn = reinterpret_cast<solver_plugin_infinity_fn>(
       ::dlsym(handle, "gtopt_solver_infinity"));
 
+  // Optional symbol: `gtopt_solver_resource_descriptor` declares the
+  // solver's resource class (CPU vs GPU) + estimated per-solve VRAM so the
+  // work-pool admission layer can classify tasks before dispatch.  Plugins
+  // that don't export it (all CPU solvers) report nullptr — treated as
+  // CPU-class, today's behaviour.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  auto* resource_desc_fn = reinterpret_cast<solver_plugin_resource_desc_fn>(
+      ::dlsym(handle, "gtopt_solver_resource_descriptor"));
+
   // Check ABI version compatibility.  Plugins built against a different
   // SolverBackend vtable layout would crash at runtime; reject them
   // early with a clear diagnostic instead.
@@ -232,6 +241,7 @@ bool SolverRegistry::load_plugin(const std::filesystem::path& path)
       .dl_handle = handle,
       .create_fn = factory_fn,
       .infinity_fn = infinity_fn,  // may be nullptr (older plugins)
+      .resource_desc_fn = resource_desc_fn,  // may be nullptr (CPU solvers)
       .plugin_name = plugin_name,
       .solver_names = std::move(solver_names),
   });
@@ -274,6 +284,51 @@ std::optional<double> SolverRegistry::plugin_infinity(
     }
   }
   return std::nullopt;
+}
+
+// ── Plugin-level resource-descriptor query ─────────────────────────────────
+
+std::optional<SolverResourceDescriptor> SolverRegistry::resource_descriptor(
+    std::string_view solver_name)
+{
+  // Same resolution convention as plugin_infinity(): empty name means the
+  // process default solver; otherwise lazily load the providing plugin.
+  std::string resolved;
+  if (solver_name.empty()) {
+    resolved = std::string(default_solver());
+    solver_name = resolved;
+  } else {
+    const std::scoped_lock lock(m_mutex_);
+    if (!has_solver_unlocked(solver_name)) {
+      ensure_solver_loaded(solver_name);
+    }
+  }
+
+  const std::scoped_lock lock(m_mutex_);
+  for (const auto& plugin : m_plugins_) {
+    for (const auto& sn : plugin.solver_names) {
+      if (sn == solver_name) {
+        if (plugin.resource_desc_fn == nullptr) {
+          return std::nullopt;  // CPU solver / older plugin — CPU-class
+        }
+        SolverResourceDescriptor desc {};
+        const int version =
+            plugin.resource_desc_fn(std::string(solver_name).c_str(), &desc);
+        if (version <= 0) {
+          return std::nullopt;  // plugin doesn't know this solver name
+        }
+        return desc;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+bool SolverRegistry::is_gpu_backed(std::string_view solver_name)
+{
+  const auto desc = resource_descriptor(solver_name);
+  return desc.has_value()
+      && desc->resource_class == static_cast<int>(ResourceClass::gpu);
 }
 
 void SolverRegistry::reset_default_logger_after_fork() noexcept

@@ -139,6 +139,28 @@ public:
   [[nodiscard]] std::optional<double> plugin_infinity(
       std::string_view solver_name = {});
 
+  /** @brief Return the solver's resource descriptor WITHOUT instantiating a
+   *  `SolverBackend`.
+   *
+   * Loads the plugin if needed, then queries its optional
+   * `gtopt_solver_resource_descriptor` entry point.  Plugins that do not
+   * export the symbol (all CPU solvers today) return `std::nullopt` and the
+   * caller must treat the solver as CPU-class — today's behaviour, zero
+   * regression.  The work-pool admission layer uses this to classify solve
+   * tasks (CPU fan-out vs per-GPU-device token bucket) before dispatch.
+   *
+   * @param solver_name Solver to query. Empty defaults to `default_solver()`.
+   */
+  [[nodiscard]] std::optional<SolverResourceDescriptor> resource_descriptor(
+      std::string_view solver_name = {});
+
+  /** @brief True when the solver's declared resource class is `gpu`.
+   *
+   * Convenience over `resource_descriptor()`; false when the plugin exports
+   * no descriptor (CPU solvers) or the solver is unavailable.
+   */
+  [[nodiscard]] bool is_gpu_backed(std::string_view solver_name = {});
+
   /** @brief Return the directories that were searched for plugins. */
   [[nodiscard]] const std::vector<std::string>& searched_directories() const;
 
@@ -195,6 +217,11 @@ private:
     /// fall back to instance-level query (create-and-drop a backend
     /// just to read `infinity()`).
     solver_plugin_infinity_fn infinity_fn {};
+    /// Optional plugin entry: fills the solver's resource descriptor
+    /// (CPU vs GPU class + estimated per-solve VRAM) without instantiating
+    /// a backend.  nullptr for plugins that don't export it — treated as
+    /// CPU-class by `resource_descriptor()` / `is_gpu_backed()`.
+    solver_plugin_resource_desc_fn resource_desc_fn {};
     std::string plugin_name;
     std::vector<std::string> solver_names;
   };

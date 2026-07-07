@@ -731,6 +731,18 @@ void CuOptSolverBackend::solve_()
       cuOptGetReducedCosts(solution, m_sol_.reduced.data());
     }
     m_sol_.solved = true;
+  } else {
+    // TODO(cuopt) S5 resolved: a failed cuOptSolve — most importantly
+    // CUOPT_OUT_OF_MEMORY (VRAM exhaustion on large FP64 LPs) — must read
+    // as is_abandoned() so gtopt's algorithm/solver fallback chain engages
+    // (retry with another method, or fail over to a CPU backend) instead of
+    // an opaque "non-optimal" that would retry-storm the GPU.
+    spdlog::warn(
+        "cuopt: cuOptSolve failed with status {}{}",
+        solve_status,
+        solve_status == CUOPT_OUT_OF_MEMORY ? " (GPU out of memory)" : "");
+    m_sol_.solved = true;
+    m_sol_.termination = CUOPT_TERMINATION_STATUS_NUMERICAL_ERROR;
   }
 
   // 6) Tear down the immutable objects (cuOpt has no reuse path).

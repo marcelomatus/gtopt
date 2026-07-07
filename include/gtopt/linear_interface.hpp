@@ -1186,6 +1186,17 @@ public:
     return m_solver_name_;
   }
 
+  /// Dominant resource class of the backend (cpu for every solver that
+  /// doesn't declare otherwise; gpu for cuOpt).  Cached once at
+  /// construction from the plugin's `SolverResourceDescriptor` so the
+  /// per-solve read is lock-free.  `SolverTier` stamps this onto the work
+  /// pool's task requirements to gate GPU solves on the process-global
+  /// GPU token bucket.
+  [[nodiscard]] ResourceClass resource_class() const noexcept
+  {
+    return m_resource_class_;
+  }
+
   /// Const accessor for the embedded LP replay buffer.
   ///
   /// Used by regression tests to assert on replay-buffer state
@@ -2890,6 +2901,9 @@ private:
   std::unique_ptr<SolverBackend> m_backend_;
   std::string m_solver_name_ {};  ///< Solver name for backend reconstruction
   std::string m_solver_version_ {};  ///< Cached version for released backends
+  /// Backend's declared resource class (see resource_class()).  Set once in
+  /// the primary constructor; survives backend release/reconstruct.
+  ResourceClass m_resource_class_ {ResourceClass::cpu};
 
   /// Cached +infinity value queried from the backend whenever it is
   /// live (ctor and `load_flat`).  Used by `infinity()` /

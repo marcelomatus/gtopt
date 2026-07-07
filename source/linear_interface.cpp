@@ -46,6 +46,13 @@ LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
 {
   if (m_backend_) {
     m_cached_infinity_ = m_backend_->infinity();
+    // Resource class from the plugin's declared descriptor (CPU unless the
+    // plugin exports `gtopt_solver_resource_descriptor` saying otherwise).
+    // Cached so per-solve reads are lock-free; survives backend
+    // release/reconstruct (the solver name never changes on an instance).
+    m_resource_class_ = SolverRegistry::instance().is_gpu_backed(m_solver_name_)
+        ? ResourceClass::gpu
+        : ResourceClass::cpu;
   }
 }
 

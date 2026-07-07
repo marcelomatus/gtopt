@@ -27,6 +27,7 @@
 
 #include <gtopt/basis.hpp>
 #include <gtopt/solver_options.hpp>
+#include <gtopt/solver_resource.hpp>
 
 namespace gtopt
 {
@@ -864,5 +865,18 @@ using solver_plugin_abi_version_fn = int (*)();
 /// treats absence as a soft error and falls back to instance-level
 /// query (creates a backend, calls `infinity()`, drops it).
 using solver_plugin_infinity_fn = double (*)(const char* solver_name);
+
+/// Plugin resource-descriptor function type: fills @p out with the solver's
+/// @ref SolverResourceDescriptor (resource class + estimated per-solve GPU
+/// footprint) and returns the descriptor `struct_version` it wrote, or 0 when
+/// the solver name is unknown.  Queryable WITHOUT instantiating a backend so
+/// the work-pool admission layer can classify tasks before dispatch.
+///
+/// Optional (same convention as `gtopt_solver_infinity`): plugins that do not
+/// export `gtopt_solver_resource_descriptor` are treated as CPU-class —
+/// today's behaviour, zero regression.  The POD's own `struct_version` lets
+/// the descriptor grow without bumping `k_solver_abi_version`.
+using solver_plugin_resource_desc_fn = int (*)(const char* solver_name,
+                                               SolverResourceDescriptor* out);
 
 }  // namespace gtopt

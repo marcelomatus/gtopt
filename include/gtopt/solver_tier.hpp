@@ -60,8 +60,12 @@ public:
       return li.resolve(opts);
     }
 
-    auto fut =
-        m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
+    // Stamp the backend's declared resource class so GPU-backed solves
+    // (cuOpt) are gated on the process-global GPU token bucket instead of
+    // fanning out to cpu_factor x cores (see BasicTaskRequirements).
+    auto req = task_req;
+    req.resource_class = li.resource_class();
+    auto fut = m_pool_->submit([&li, &opts] { return li.resolve(opts); }, req);
     if (fut.has_value()) {
       // Release this task's worker slot (exact no-op when the caller is
       // not one of the pool's workers, e.g. a coordinator driver) while
@@ -89,8 +93,10 @@ public:
       return clone.resolve(opts);
     }
 
-    auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
-                               task_req);
+    auto req = task_req;
+    req.resource_class = clone.resource_class();
+    auto fut =
+        m_pool_->submit([&clone, &opts] { return clone.resolve(opts); }, req);
     if (fut.has_value()) {
       // See resolve_via_pool: yield the caller's slot during the wait.
       auto slot_guard = m_pool_->release_slot_while_blocking();
