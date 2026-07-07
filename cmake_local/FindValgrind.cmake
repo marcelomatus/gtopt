@@ -17,16 +17,13 @@ include_guard(GLOBAL)
 find_program(VALGRIND_EXECUTABLE NAMES valgrind)
 
 include(FindPackageHandleStandardArgs)
+# No unconditional FATAL_ERROR here: valgrind is optional for callers
+# like profiling/ (perf-only runs must still configure).  Callers that
+# genuinely require it should use `find_package(Valgrind REQUIRED)`,
+# which find_package_handle_standard_args turns into a hard error.
 find_package_handle_standard_args(
   Valgrind
   REQUIRED_VARS VALGRIND_EXECUTABLE
 )
-
-if(NOT Valgrind_FOUND)
-  message(FATAL_ERROR
-    "valgrind not found. Install it with:\n"
-    "  sudo apt-get install -y valgrind\n"
-  )
-endif()
 
 mark_as_advanced(VALGRIND_EXECUTABLE)

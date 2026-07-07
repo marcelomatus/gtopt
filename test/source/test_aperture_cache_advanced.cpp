@@ -283,3 +283,114 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 }  // namespace
 
 // NOLINTEND(google-global-names-in-headers)
+// ---------------------------------------------------------------------------
+// LONG-layout aperture file (stage, block, uid, value — the shape plp2gtopt
+// emits): must load via the long-direct fast path (no wide pivot) and
+// resolve per-(scenario, stage, block) lookups exactly like the wide shape.
+// ---------------------------------------------------------------------------
+TEST_CASE("ApertureDataCache long-layout file loads via direct path")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using aperture_test_helpers::write_test_parquet_long;
+
+  const TmpDir tmp("test_aperture_cache_long_direct");
+
+  // 2 stages × 2 blocks × 2 scenarios, fully dense: 8 long rows.
+  write_test_parquet_long(tmp.path / "Flow" / "RIVER_L.parquet",
+                          {0, 0, 1, 1, 0, 0, 1, 1},  // stage
+                          {0, 1, 0, 1, 0, 1, 0, 1},  // block
+                          {1, 1, 1, 1, 2, 2, 2, 2},  // scenario uid
+                          {10.0, 11.0, 20.0, 21.0, 110.0, 111.0, 120.0, 121.0});
+
+  const ApertureDataCache cache(tmp.path);
+  CHECK_FALSE(cache.empty());
+
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_L",
+                    make_uid<Scenario>(1),
+                    make_uid<Stage>(0),
+                    make_uid<Block>(0))
+            .value_or(-1.0)
+        == doctest::Approx(10.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_L",
+                    make_uid<Scenario>(1),
+                    make_uid<Stage>(1),
+                    make_uid<Block>(1))
+            .value_or(-1.0)
+        == doctest::Approx(21.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_L",
+                    make_uid<Scenario>(2),
+                    make_uid<Stage>(0),
+                    make_uid<Block>(1))
+            .value_or(-1.0)
+        == doctest::Approx(111.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_L",
+                    make_uid<Scenario>(2),
+                    make_uid<Stage>(1),
+                    make_uid<Block>(0))
+            .value_or(-1.0)
+        == doctest::Approx(120.0));
+
+  // A (scenario, stage, block) with no long row: absent, not zero.
+  CHECK_FALSE(cache
+                  .lookup("Flow",
+                          "RIVER_L",
+                          make_uid<Scenario>(3),
+                          make_uid<Stage>(0),
+                          make_uid<Block>(0))
+                  .has_value());
+}
+
+// ---------------------------------------------------------------------------
+// A SPARSE long aperture file (rows dropped for some cells) must expose
+// exactly the present rows — the long-direct map is row-for-row.
+// ---------------------------------------------------------------------------
+TEST_CASE("ApertureDataCache long-layout sparse rows")  // NOLINT
+{
+  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using aperture_test_helpers::write_test_parquet_long;
+
+  const TmpDir tmp("test_aperture_cache_long_sparse");
+
+  // Scenario 7 only has stage 1 rows; scenario 8 only block 0 rows.
+  write_test_parquet_long(tmp.path / "Flow" / "RIVER_S.parquet",
+                          {1, 1, 0, 1},  // stage
+                          {0, 1, 0, 0},  // block
+                          {7, 7, 8, 8},  // scenario uid
+                          {70.0, 71.0, 80.0, 81.0});
+
+  const ApertureDataCache cache(tmp.path);
+  CHECK_FALSE(cache.empty());
+
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_S",
+                    make_uid<Scenario>(7),
+                    make_uid<Stage>(1),
+                    make_uid<Block>(1))
+            .value_or(-1.0)
+        == doctest::Approx(71.0));
+  CHECK(cache
+            .lookup("Flow",
+                    "RIVER_S",
+                    make_uid<Scenario>(8),
+                    make_uid<Stage>(0),
+                    make_uid<Block>(0))
+            .value_or(-1.0)
+        == doctest::Approx(80.0));
+  // Dropped cell: absent.
+  CHECK_FALSE(cache
+                  .lookup("Flow",
+                          "RIVER_S",
+                          make_uid<Scenario>(7),
+                          make_uid<Stage>(0),
+                          make_uid<Block>(0))
+                  .has_value());
+}

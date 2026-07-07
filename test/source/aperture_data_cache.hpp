@@ -86,6 +86,49 @@ inline void write_test_parquet(
   REQUIRE(output->Close().ok());
 }
 
+/// Write a LONG-layout test parquet file (`stage, block, uid, value`) —
+/// the shape plp2gtopt emits and ApertureDataCache consumes via the
+/// long-direct fast path (no wide pivot).  `uid` carries the scenario uid.
+inline void write_test_parquet_long(const std::filesystem::path& filepath,
+                                    const std::vector<int32_t>& stages,
+                                    const std::vector<int32_t>& blocks,
+                                    const std::vector<int32_t>& scenario_uids,
+                                    const std::vector<double>& values)
+{
+  std::filesystem::create_directories(filepath.parent_path());
+
+  arrow::Int32Builder stage_b;
+  arrow::Int32Builder block_b;
+  arrow::Int32Builder uid_b;
+  arrow::DoubleBuilder value_b;
+  REQUIRE(stage_b.AppendValues(stages).ok());
+  REQUIRE(block_b.AppendValues(blocks).ok());
+  REQUIRE(uid_b.AppendValues(scenario_uids).ok());
+  REQUIRE(value_b.AppendValues(values).ok());
+
+  arrow::ArrayVector columns(4);
+  REQUIRE(stage_b.Finish(&columns[0]).ok());
+  REQUIRE(block_b.Finish(&columns[1]).ok());
+  REQUIRE(uid_b.Finish(&columns[2]).ok());
+  REQUIRE(value_b.Finish(&columns[3]).ok());
+
+  const auto schema = arrow::schema({
+      arrow::field("stage", arrow::int32()),
+      arrow::field("block", arrow::int32()),
+      arrow::field("uid", arrow::int32()),
+      arrow::field("value", arrow::float64()),
+  });
+  auto table = arrow::Table::Make(schema, columns);
+
+  auto output_result = arrow::io::FileOutputStream::Open(filepath.string());
+  REQUIRE(output_result.ok());
+  const auto& output = *output_result;
+  REQUIRE(
+      parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output)
+          .ok());
+  REQUIRE(output->Close().ok());
+}
+
 }  // namespace aperture_test_helpers
 
 TEST_CASE("ApertureDataCache default construction")  // NOLINT

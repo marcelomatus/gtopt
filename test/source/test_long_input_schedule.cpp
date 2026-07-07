@@ -395,3 +395,140 @@ TEST_CASE("long input STB double — missing block axis broadcasts")  // NOLINT
 
   std::filesystem::remove_all(tmp_root);
 }
+
+// ---------------------------------------------------------------------------
+// optval over a LONG arrow schedule (the optval_sched arrow arm): a present
+// cell returns its value; an absent (uid, cell) resolves to 0.0 under the
+// long zero-drop convention (absent row == present zero, NOT nullopt).
+// ---------------------------------------------------------------------------
+TEST_CASE("long input STB double — optval present and zero-fill")  // NOLINT
+{
+  const auto tmp_root =
+      std::filesystem::temp_directory_path() / "test_lis_stb_optval";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  // uid 1 present on all 3 cells; uid 2 misses the last cell.
+  lis_write_long_double(input_dir,
+                        "TestGen",
+                        "profile",
+                        {{"scenario", {1, 1, 1, 1, 1}},
+                         {"stage", {1, 2, 2, 1, 2}},
+                         {"block", {1, 2, 3, 1, 2}}},
+                        {1, 1, 1, 2, 2},
+                        {100.0, 200.0, 300.0, 1.5, 2.5});
+
+  const auto sim = lis_make_simulation();
+  const auto options = lis_options(input_dir);
+  SimulationLP simulation {sim, options};
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const OptSTBRealFieldSched fsched {
+      STBRealFieldSched {std::string {"profile"}}};
+  const OptSTBRealSched s2 {ic, "TestGen", Id {Uid {2}, "profile"}, fsched};
+
+  const auto present =
+      s2.optval(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1));
+  CHECK(present.value_or(-1.0) == doctest::Approx(1.5));
+
+  // Absent cell in the long file: zero-fill, not nullopt.
+  const auto absent =
+      s2.optval(make_uid<Scenario>(1), make_uid<Stage>(2), make_uid<Block>(3));
+  CHECK((absent.has_value() && *absent == doctest::Approx(0.0)));
+
+  std::filesystem::remove_all(tmp_root);
+}
+
+// ---------------------------------------------------------------------------
+// A long `value` column with a non-floating type read as a Real schedule
+// must fail loudly (is_compatible_double_type rejects int32) — silent
+// int->double reinterpretation would corrupt inputs.
+// ---------------------------------------------------------------------------
+TEST_CASE("long input STB double — int32 value column is rejected")  // NOLINT
+{
+  const auto tmp_root =
+      std::filesystem::temp_directory_path() / "test_lis_stb_badtype";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  lis_write_long_int(
+      input_dir,
+      "TestGen",
+      "profile",
+      {{"scenario", {1, 1, 1}}, {"stage", {1, 2, 2}}, {"block", {1, 2, 3}}},
+      {1, 1, 1},
+      {100, 200, 300});
+
+  const auto sim = lis_make_simulation();
+  const auto options = lis_options(input_dir);
+  SimulationLP simulation {sim, options};
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const STBRealFieldSched fsched {std::string("profile")};
+
+  // The mismatch may surface at index build or at first access depending
+  // on which layer touches the value column first — either way it must
+  // throw, never silently reinterpret.
+  const auto build_and_read = [&]
+  {
+    const STBRealSched sched {ic, "TestGen", Id {Uid {1}, "profile"}, fsched};
+    return sched.at(
+        make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1));
+  };
+  CHECK_THROWS_AS(build_and_read(), std::exception);
+
+  std::filesystem::remove_all(tmp_root);
+}
+
+// ---------------------------------------------------------------------------
+// A uid with NO rows in the long input file: the index build for that uid
+// must throw the explicit "Can't find element" error.  Constructing a
+// schedule for a PRESENT uid first also drives the table-map cache-hit
+// branch when the missing uid retries the load.
+// ---------------------------------------------------------------------------
+TEST_CASE(
+    "long input STB double — missing uid throws after cache hit")  // NOLINT
+{
+  const auto tmp_root =
+      std::filesystem::temp_directory_path() / "test_lis_stb_missing_uid";
+  std::filesystem::remove_all(tmp_root);
+  const auto input_dir = tmp_root / "input";
+
+  lis_write_long_double(
+      input_dir,
+      "TestGen",
+      "profile",
+      {{"scenario", {1, 1, 1}}, {"stage", {1, 2, 2}}, {"block", {1, 2, 3}}},
+      {1, 1, 1},
+      {100.0, 200.0, 300.0});
+
+  const auto sim = lis_make_simulation();
+  const auto options = lis_options(input_dir);
+  SimulationLP simulation {sim, options};
+  const System sys;
+  SystemLP system {sys, simulation};
+  const SystemContext sc {simulation, system};
+  const InputContext ic {sc};
+
+  const STBRealFieldSched fsched {std::string("profile")};
+
+  // Present uid loads fine (also fills the table cache).
+  const STBRealSched ok {ic, "TestGen", Id {Uid {1}, "profile"}, fsched};
+  CHECK(ok.at(make_uid<Scenario>(1), make_uid<Stage>(1), make_uid<Block>(1))
+        == doctest::Approx(100.0));
+
+  // uid 99 has no rows: the retry re-resolves the cached table (table-map
+  // hit) and must end in the explicit missing-element error.
+  CHECK_THROWS_WITH_AS(
+      (STBRealSched {ic, "TestGen", Id {Uid {99}, "profile"}, fsched}),
+      doctest::Contains("Can't find element"),
+      std::runtime_error);
+
+  std::filesystem::remove_all(tmp_root);
+}
