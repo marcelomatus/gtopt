@@ -34,7 +34,7 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace mip_start_integration_test  // NOLINT(misc-use-anonymous-namespace)
 {

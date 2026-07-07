@@ -5,7 +5,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_system.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("System daw json test 1")
 {

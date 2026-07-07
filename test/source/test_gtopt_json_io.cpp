@@ -26,10 +26,10 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness, readability-trailing-comma)
+using namespace gtopt;
+// NOLINTBEGIN(readability-trailing-comma)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 [[nodiscard]] auto unique_tmpdir(std::string_view name) -> std::filesystem::path
@@ -501,4 +501,4 @@ TEST_CASE("load_user_constraints: PAMPL file missing returns error")  // NOLINT
   CHECK(result.error().contains("user_constraint_file"));
 }
 
-// NOLINTEND(misc-const-correctness, readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

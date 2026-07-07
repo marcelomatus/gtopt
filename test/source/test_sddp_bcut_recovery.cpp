@@ -28,12 +28,12 @@
 #include <gtopt/sparse_row.hpp>
 #include <gtopt/state_variable.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(  // NOLINT
     "bcut recovery: StateVariable::reduced_cost survives add/delete rows")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Minimal LP used only as a scratch host for row add/delete.  No solve
   // required; we verify the state-variable cache is unaffected by the
@@ -82,7 +82,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "bcut recovery: build_benders_cut reflects refreshed reduced_cost")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Same shape as the StateVarLink ctor used inside SDDP: a
   // source/dependent column pair with a back-pointer to a real
@@ -135,7 +135,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "bcut recovery: delete_rows({added_row}) after add_row keeps LP consistent")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // End-to-end row-accounting test mirroring the recovery path:
   //   row_idx = li.add_row(expected_cut);
@@ -189,7 +189,7 @@ TEST_CASE(  // NOLINT
     "bcut recovery: delete_rows + record_cut_deletion drops cut from "
     "subsequent clone_from_flat(with_replay)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();

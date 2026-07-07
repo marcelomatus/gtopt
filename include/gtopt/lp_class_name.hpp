@@ -43,12 +43,9 @@ struct LPClassName
     std::size_t pos = 0;
     for (std::size_t i = 0; i < pfull_name.size(); ++i) {
       if (i > 0 && detail::snake_needs_underscore_before(pfull_name, i)) {
-        m_short_buf[pos++] =
-            '_';  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+        m_short_buf[pos++] = '_';
       }
-      m_short_buf[pos++] = detail::to_lower_char(
-          pfull_name
-              [i]);  // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+      m_short_buf[pos++] = detail::to_lower_char(pfull_name[i]);
     }
   }
 

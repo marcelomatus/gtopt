@@ -122,7 +122,10 @@ and cuts are not shared across scenes.
 | `solve_mode` | string | `"monolithic"` | `"monolithic"` or `"sequential"` |
 | `solve_timeout` | double | 18000.0 | LP solve timeout in seconds (0 = no timeout) |
 | `boundary_cuts_mode` | string | `"separated"` | `"noload"`, `"separated"`, or `"combined"` |
+| `boundary_cut_sharing_mode` | string | `"per_scene"` | Terminal-α sharing: `"per_scene"`, `"shared"`, or `"multicut"` (N `varphi_s` columns, one per scenario) |
 | `boundary_max_iterations` | int | `0` (all) | Max iterations to load from boundary file |
+| `solver_options` | object | — | Per-method LP solver overrides (merged over the global `solver_options`) |
+| `mip_start` | object | — | Initial-MIP-solution (warm-start) pipeline; see [4.5](#45-mip-warm-start-pipeline-mip_start) |
 
 ### 4.3 Solve Timeout
 
@@ -173,6 +176,44 @@ load all cuts (default).
 
 The CSV format is identical to the SDDP boundary cuts format
 (see [SDDP Method](sddp.md)).
+
+### 4.5 MIP warm-start pipeline (`mip_start`)
+
+For unit-commitment MIPs, `monolithic_options.mip_start` configures a
+staged pipeline that computes an initial integer solution and injects it
+into the backend before branch-and-cut:
+
+| Stage | Sub-object | What it does |
+|-------|------------|--------------|
+| 0 | `relax` | Solve/diagnose the LP relaxation (`check`, `report_saturated`, `on_infeasible`: `stop` / `warn` / `feasopt`; own `solver_options` overlay) |
+| 1 | `round` | Round the relaxation's integer columns (`threshold`, default 0.5) |
+| 2 | `domain_rules` | Power-system commitment repair: `min_up_down`, `commitment_logic`, `peak_injection` (battery/hydro peak-window seeding) |
+| 4 | `scip_repair` | Optional SCIP `completesol` feasibility repair of the candidate (requires the SCIP plugin; self-skips when absent) |
+| 5 | `inject` | Hand the candidate to the backend (`effort`: `repair` default / `check_feasibility` / …) |
+
+```json
+{
+  "monolithic_options": {
+    "mip_start": {
+      "enabled": true,
+      "round": { "threshold": 0.5 },
+      "scip_repair": { "enabled": true },
+      "inject": { "effort": "repair" }
+    }
+  }
+}
+```
+
+Three optional files extend the pipeline across runs and tools:
+
+| Field | Direction | Purpose |
+|-------|-----------|---------|
+| `dump_file` | write | Dump this solve's integer solution after the MIP completes |
+| `from_file` | read | **Replay** a previous `dump_file` instead of the round+rules candidate (enables cross-solver hand-off, e.g. HiGHS incumbent → cuOpt start) |
+| `seed_solution_file` | read | External commitment **seed** CSV (`generator_uid,block_uid,u`) consumed by `SeedCommitmentRule`, which runs first in the domain pipeline; unmatched elements keep the rounded value. Any producer works: previous-day PLEXOS/gtopt, uninodal cascade, an ML predictor |
+
+MIP starts are supported natively by CPLEX/Gurobi/HiGHS/SCIP/MindOpt;
+cuOpt and CBC buffer the start and replay it at solve time.
 
 ---
 

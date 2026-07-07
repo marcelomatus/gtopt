@@ -5,7 +5,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/resolve_planning_args.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

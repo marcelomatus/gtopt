@@ -18,7 +18,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/fmap.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("flat_map - Basic operations")
 {

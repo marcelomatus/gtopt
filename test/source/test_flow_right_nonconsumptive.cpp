@@ -23,7 +23,7 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique outer namespace so the anon-namespace helpers below do not
 // collide with identically-named helpers in sibling test files when CMake
@@ -31,7 +31,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace frnc_test
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 [[nodiscard]] Simulation make_single_block_simulation()

@@ -18,17 +18,16 @@
 #include <gtopt/main_options.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
 
 // ---- Helper to parse command-line args into a variables_map ----
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 po::variables_map parse_args(const std::vector<std::string>& args,
                              const po::options_description& desc)
 {
-  po::positional_options_description
-      pos_desc;  // NOLINT(misc-const-correctness)
+  po::positional_options_description pos_desc;
   pos_desc.add("system-file", -1);
 
   po::variables_map vm;
@@ -1084,4 +1083,4 @@ TEST_CASE(
   CHECK(planning.options.constraint_mode.value() == ConstraintMode::debug);
 }
 
-// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)

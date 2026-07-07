@@ -18,11 +18,11 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("SystemLP with FlowRight - basic LP construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -82,7 +82,7 @@ TEST_CASE("SystemLP with FlowRight - basic LP construction")
 TEST_CASE(  // NOLINT
     "SystemLP with FlowRight - does not change bus balance when added")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build two identical systems: one with FlowRight, one without.
   // Verify they produce the same objective (irrigation flow is accounting
@@ -156,7 +156,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SystemLP with FlowRight - zero fail_cost produces no deficit")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -210,7 +210,7 @@ TEST_CASE("SystemLP with FlowRight - zero fail_cost produces no deficit")
 
 TEST_CASE("SystemLP with VolumeRight - basic LP construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -276,7 +276,7 @@ TEST_CASE("SystemLP with VolumeRight - basic LP construction")
 TEST_CASE(  // NOLINT
     "SystemLP with VolumeRight - does not change bus balance when added")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto solve = [](bool with_irrigation) -> double
   {
@@ -353,7 +353,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with VolumeRight - multi-stage storage accumulation")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -420,7 +420,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with both FlowRight and VolumeRight together")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {.uid = Uid {1}, .name = "b1"},
@@ -499,7 +499,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SystemLP with FlowRight and hydro system - coexistence test")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Verify FlowRight coexists with hydro components without
   // interfering with the hydrological mass balance.

@@ -33,9 +33,11 @@
 #include <gtopt/solver_enums.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+#include "solver_test_helpers.hpp"
 
-namespace test_solver_obj_offset  // NOLINT(cert-dcl59-cpp,google-build-namespaces)
+using namespace gtopt;
+
+namespace test_solver_obj_offset
 {
 /// Build the closed-form fixture into `lp`; return the two column indices.
 /// When `integer_y` is true, `y` is declared integer (MIP path).
@@ -72,7 +74,7 @@ TEST_CASE(  // NOLINT
     "add_obj_constant - native offset shifts LP objective by exactly c "
     "(per solver)")
 {
-  using namespace test_solver_obj_offset;  // NOLINT(google-build-namespaces)
+  using namespace test_solver_obj_offset;
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
 
@@ -81,56 +83,67 @@ TEST_CASE(  // NOLINT
   bool tested_any = false;
 
   for (const auto& name : reg.available_solvers()) {
-    tested_any = true;
     CAPTURE(name);  // logs the failing plugin under ctest
 
-    // ── Baseline: no offset ──────────────────────────────────────────
-    double baseline_obj = 0.0;
-    double baseline_x = 0.0;
-    double baseline_y = 0.0;
-    {
-      LinearInterface lp(name);
-      const auto f = build_fixture(lp, /*integer_y=*/false);
-      REQUIRE(lp.initial_solve(opts).has_value());
-      REQUIRE(lp.is_optimal());
-      baseline_obj = lp.get_obj_value();
-      const auto sol = lp.get_col_sol();
-      baseline_x = sol[f.x];
-      baseline_y = sol[f.y];
-      CHECK(baseline_obj == doctest::Approx(23.0).epsilon(1e-6));
+    const bool ran = gtopt::solver_test::run_or_skip_license(
+        [&]
+        {
+          // ── Baseline: no offset ──────────────────────────────────────
+          double baseline_obj = 0.0;
+          double baseline_x = 0.0;
+          double baseline_y = 0.0;
+          {
+            LinearInterface lp(name);
+            const auto f = build_fixture(lp, /*integer_y=*/false);
+            REQUIRE(lp.initial_solve(opts).has_value());
+            REQUIRE(lp.is_optimal());
+            baseline_obj = lp.get_obj_value();
+            const auto sol = lp.get_col_sol();
+            baseline_x = sol[f.x];
+            baseline_y = sol[f.y];
+            CHECK(baseline_obj == doctest::Approx(23.0).epsilon(1e-6));
+          }
+
+          // ── Offset applied via add_obj_constant on the LIVE backend ──
+          LinearInterface lp(name);
+          const auto f = build_fixture(lp, /*integer_y=*/false);
+          REQUIRE(lp.initial_solve(opts).has_value());
+          REQUIRE(lp.is_optimal());
+
+          lp.add_obj_constant(c);
+          REQUIRE(lp.resolve(opts).has_value());
+          REQUIRE(lp.is_optimal());
+
+          // (1) Reported objective shifts by exactly c — since the
+          //     gtopt-side re-add is gone, this proves the offset reached
+          //     the solver.
+          CHECK(lp.get_obj_value()
+                == doctest::Approx(baseline_obj + c).epsilon(1e-6));
+
+          // (2) The argmin is unchanged (a constant does not move the
+          //     optimum).
+          {
+            const auto sol = lp.get_col_sol();
+            CHECK(sol[f.x] == doctest::Approx(baseline_x).epsilon(1e-6));
+            CHECK(sol[f.y] == doctest::Approx(baseline_y).epsilon(1e-6));
+          }
+
+          // (3) clone() preserves the offset: the cloned backend re-solves
+          //     to the same offset-inclusive objective without any further
+          //     add_obj_constant.
+          {
+            auto cloned = lp.clone();
+            REQUIRE(cloned.resolve(opts).has_value());
+            REQUIRE(cloned.is_optimal());
+            CHECK(cloned.get_obj_value()
+                  == doctest::Approx(baseline_obj + c).epsilon(1e-6));
+          }
+        });
+    if (!ran) {
+      MESSAGE("solver '" << name << "' license unavailable — skipping");
+      continue;
     }
-
-    // ── With offset applied via add_obj_constant on the LIVE backend ──
-    LinearInterface lp(name);
-    const auto f = build_fixture(lp, /*integer_y=*/false);
-    REQUIRE(lp.initial_solve(opts).has_value());
-    REQUIRE(lp.is_optimal());
-
-    lp.add_obj_constant(c);
-    REQUIRE(lp.resolve(opts).has_value());
-    REQUIRE(lp.is_optimal());
-
-    // (1) Reported objective shifts by exactly c — since the gtopt-side
-    //     re-add is gone, this proves the offset reached the solver.
-    CHECK(lp.get_obj_value()
-          == doctest::Approx(baseline_obj + c).epsilon(1e-6));
-
-    // (2) The argmin is unchanged (a constant does not move the optimum).
-    {
-      const auto sol = lp.get_col_sol();
-      CHECK(sol[f.x] == doctest::Approx(baseline_x).epsilon(1e-6));
-      CHECK(sol[f.y] == doctest::Approx(baseline_y).epsilon(1e-6));
-    }
-
-    // (3) clone() preserves the offset: the cloned backend re-solves to the
-    //     same offset-inclusive objective without any further add_obj_constant.
-    {
-      auto cloned = lp.clone();
-      REQUIRE(cloned.resolve(opts).has_value());
-      REQUIRE(cloned.is_optimal());
-      CHECK(cloned.get_obj_value()
-            == doctest::Approx(baseline_obj + c).epsilon(1e-6));
-    }
+    tested_any = true;
   }
 
   if (!tested_any) {
@@ -142,7 +155,7 @@ TEST_CASE(  // NOLINT
     "add_obj_constant - native offset reaches the MIP reported objective "
     "(per MIP solver)")
 {
-  using namespace test_solver_obj_offset;  // NOLINT(google-build-namespaces)
+  using namespace test_solver_obj_offset;
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
 
@@ -150,33 +163,42 @@ TEST_CASE(  // NOLINT
   const SolverOptions opts;
   bool tested_any = false;
 
-  for (const auto& name : reg.available_solvers()) {
-    if (!reg.supports_mip(name)) {
-      continue;  // LP-only backend — covered by the LP test above
-    }
-    tested_any = true;
+  // exact_mip_solvers() drops LP-only backends (covered by the LP test
+  // above) and cuOpt (thread-unsafe B&B logger; see helper doc).
+  for (const auto& name : gtopt::solver_test::exact_mip_solvers()) {
     CAPTURE(name);
 
-    LinearInterface lp(name);
-    const auto f = build_fixture(lp, /*integer_y=*/true);
-    REQUIRE(lp.initial_solve(opts).has_value());
-    REQUIRE(lp.is_optimal());
-    REQUIRE(lp.has_integer_cols());
-    const double mip_obj = lp.get_obj_value();
-    CHECK(mip_obj == doctest::Approx(23.0).epsilon(1e-6));
+    const bool ran = gtopt::solver_test::run_or_skip_license(
+        [&]
+        {
+          LinearInterface lp(name);
+          const auto f = build_fixture(lp, /*integer_y=*/true);
+          REQUIRE(lp.initial_solve(opts).has_value());
+          REQUIRE(lp.is_optimal());
+          REQUIRE(lp.has_integer_cols());
+          const double mip_obj = lp.get_obj_value();
+          CHECK(mip_obj == doctest::Approx(23.0).epsilon(1e-6));
 
-    // Apply the native offset and re-solve the MIP.  The offset must move the
-    // solver's reported optimal objective by exactly c — the property CPLEX's
-    // MIP relative-gap is computed against — while the integer optimum holds.
-    lp.add_obj_constant(c);
-    REQUIRE(lp.resolve(opts).has_value());
-    REQUIRE(lp.is_optimal());
-    CHECK(lp.get_obj_value() == doctest::Approx(mip_obj + c).epsilon(1e-6));
-    {
-      const auto sol = lp.get_col_sol();
-      CHECK(sol[f.y] == doctest::Approx(3.0).epsilon(1e-6));
-      CHECK(sol[f.x] == doctest::Approx(2.0).epsilon(1e-6));
+          // Apply the native offset and re-solve the MIP.  The offset must
+          // move the solver's reported optimal objective by exactly c —
+          // the property CPLEX's MIP relative-gap is computed against —
+          // while the integer optimum holds.
+          lp.add_obj_constant(c);
+          REQUIRE(lp.resolve(opts).has_value());
+          REQUIRE(lp.is_optimal());
+          CHECK(lp.get_obj_value()
+                == doctest::Approx(mip_obj + c).epsilon(1e-6));
+          {
+            const auto sol = lp.get_col_sol();
+            CHECK(sol[f.y] == doctest::Approx(3.0).epsilon(1e-6));
+            CHECK(sol[f.x] == doctest::Approx(2.0).epsilon(1e-6));
+          }
+        });
+    if (!ran) {
+      MESSAGE("solver '" << name << "' license unavailable — skipping");
+      continue;
     }
+    tested_any = true;
   }
 
   if (!tested_any) {
@@ -189,7 +211,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "add_obj_constant - successive calls accumulate; clone carries the sum")
 {
-  using namespace test_solver_obj_offset;  // NOLINT(google-build-namespaces)
+  using namespace test_solver_obj_offset;
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
   const auto solvers = reg.available_solvers();

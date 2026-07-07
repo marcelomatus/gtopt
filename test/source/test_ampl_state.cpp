@@ -42,12 +42,12 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace amplstate_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace amplstate_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -130,7 +130,7 @@ TEST_CASE("AMPL state var — schema round-trip of state/link")  // NOLINT
 
 TEST_CASE("AMPL state var — state without link is a hard error")  // NOLINT
 {
-  using namespace amplstate_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplstate_test;
 
   auto planning = parse_planning_json(make_json(R"({
       "uid": 1, "name": "s", "scope": "global", "state": true })"));
@@ -142,7 +142,7 @@ TEST_CASE("AMPL state var — state without link is a hard error")  // NOLINT
 
 TEST_CASE("AMPL state var — block-scoped state is a hard error")  // NOLINT
 {
-  using namespace amplstate_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplstate_test;
 
   // Default scope (block) + state:true → error.
   auto p1 = parse_planning_json(make_json(R"({
@@ -157,9 +157,9 @@ TEST_CASE("AMPL state var — block-scoped state is a hard error")  // NOLINT
 
 // ─── 4/5. Registration + cross-phase linking on the 3-phase fixture ────────
 
-namespace amplstate_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace amplstate_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// The 3-phase hydro fixture with a global `state` DecisionVariable spliced
@@ -186,7 +186,7 @@ auto make_state_var_planning() -> Planning
 TEST_CASE(  // NOLINT
     "AMPL state var — registered under UserStateVar in every phase")
 {
-  using namespace amplstate_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplstate_test;
 
   auto planning = make_state_var_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -218,7 +218,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AMPL state var — links across phases (dependent vars + last has none)")
 {
-  using namespace amplstate_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplstate_test;
 
   auto planning = make_state_var_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -265,7 +265,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AMPL state var — SDDP solve converges with a user state var present")
 {
-  using namespace amplstate_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplstate_test;
 
   auto planning = make_state_var_planning();
   planning.options.method = MethodType::sddp;

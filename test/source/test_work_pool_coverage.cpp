@@ -12,13 +12,13 @@
 #include <doctest/doctest.h>
 #include <gtopt/work_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── Double start is idempotent ─────────────────────────────────────────────
 
 TEST_CASE("WorkPool double start is a no-op")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -48,7 +48,7 @@ TEST_CASE("WorkPool double start is a no-op")  // NOLINT
 
 TEST_CASE("WorkPool double shutdown is safe")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -76,7 +76,7 @@ TEST_CASE("WorkPool double shutdown is safe")  // NOLINT
 
 TEST_CASE("WorkPool submit_lambda works")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -111,7 +111,7 @@ TEST_CASE("WorkPool submit_lambda works")  // NOLINT
 
 TEST_CASE("WorkPool format_statistics returns valid string")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -147,7 +147,7 @@ TEST_CASE("WorkPool format_statistics returns valid string")  // NOLINT
 
 TEST_CASE("WorkPool log_statistics does not throw")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const AdaptiveWorkPool pool(WorkPoolConfig {
       2,
@@ -165,7 +165,7 @@ TEST_CASE("WorkPool log_statistics does not throw")  // NOLINT
 
 TEST_CASE("WorkPool statistics track submission and completion")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -208,7 +208,7 @@ TEST_CASE("WorkPool statistics track submission and completion")  // NOLINT
 
 TEST_CASE("WorkPool Critical priority tasks execute")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -258,7 +258,7 @@ TEST_CASE("WorkPool Critical priority tasks execute")  // NOLINT
 
 TEST_CASE("Task age-based tie-breaking within same priority and key")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // When priority and key are identical, older tasks have higher priority
   Task<void, int64_t, std::less<>> first {
@@ -292,7 +292,7 @@ TEST_CASE("Task age-based tie-breaking within same priority and key")  // NOLINT
 
 TEST_CASE("Task age increases over time")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Task<void, int64_t, std::less<>> task {
       [] {},
@@ -313,7 +313,7 @@ TEST_CASE("Task age increases over time")  // NOLINT
 
 TEST_CASE("Task requirements accessor returns correct values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const TaskRequirements req {
       .estimated_threads = 3,
@@ -338,7 +338,7 @@ TEST_CASE("Task requirements accessor returns correct values")  // NOLINT
 
 TEST_CASE("ActiveTask is_ready and runtime")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   std::promise<void> prom;
   auto fut = prom.get_future();
@@ -365,7 +365,7 @@ TEST_CASE("ActiveTask is_ready and runtime")  // NOLINT
 
 TEST_CASE("BasicWorkPool with string key type")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -400,7 +400,7 @@ TEST_CASE("BasicWorkPool with string key type")  // NOLINT
 
 TEST_CASE("WorkPoolConfig default values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const WorkPoolConfig config;
 
@@ -414,7 +414,7 @@ TEST_CASE("WorkPoolConfig default values")  // NOLINT
 
 TEST_CASE("TaskStatus enum values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(static_cast<uint8_t>(TaskStatus::Success) == 0);
   CHECK(static_cast<uint8_t>(TaskStatus::Failed) == 1);
@@ -425,7 +425,7 @@ TEST_CASE("TaskStatus enum values")  // NOLINT
 
 TEST_CASE("TaskPriority enum ordering")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(TaskPriority::Low < TaskPriority::Medium);
   CHECK(TaskPriority::Medium < TaskPriority::High);
@@ -436,7 +436,7 @@ TEST_CASE("TaskPriority enum ordering")  // NOLINT
 
 TEST_CASE("WorkPool task exception propagation via future")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -464,10 +464,9 @@ TEST_CASE("WorkPool task exception propagation via future")  // NOLINT
 
 TEST_CASE("WorkPool void tasks complete successfully")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
-  // NOLINTBEGIN(misc-const-correctness)
 
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
@@ -494,5 +493,3 @@ TEST_CASE("WorkPool void tasks complete successfully")  // NOLINT
 
   pool.shutdown();
 }
-
-// NOLINTEND(misc-const-correctness)

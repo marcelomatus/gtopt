@@ -132,14 +132,14 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap the file body in a uniquely-named namespace so the inner
 // anonymous namespace doesn't collide with the other emission test
 // files when CMake batches them into a unity TU.
 namespace test_emission_genx_port
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // 1 MMBtu = 1.05506 GJ — IEEE / IAPWS conversion constant.

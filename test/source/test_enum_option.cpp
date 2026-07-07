@@ -12,13 +12,13 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/stage_enums.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── Generic framework tests ─────────────────────────────────────────────────
 
 TEST_CASE("enum_from_name returns matching value")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto result = enum_from_name(std::span {method_type_entries}, "sddp");
   REQUIRE(result.has_value());
@@ -27,7 +27,7 @@ TEST_CASE("enum_from_name returns matching value")  // NOLINT
 
 TEST_CASE("enum_from_name returns nullopt for unknown name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto result = enum_from_name(std::span {method_type_entries}, "bogus");
   CHECK_FALSE(result.has_value());
@@ -35,7 +35,7 @@ TEST_CASE("enum_from_name returns nullopt for unknown name")  // NOLINT
 
 TEST_CASE("enum_name returns canonical name for known value")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_name(std::span {method_type_entries}, MethodType::monolithic)
         == "monolithic");
@@ -44,7 +44,7 @@ TEST_CASE("enum_name returns canonical name for known value")  // NOLINT
 
 TEST_CASE("enum_name returns 'unknown' for out-of-range value")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_name(std::span {method_type_entries}, static_cast<MethodType>(99))
         == "unknown");
@@ -54,7 +54,7 @@ TEST_CASE("enum_name returns 'unknown' for out-of-range value")  // NOLINT
 
 TEST_CASE("ADL enum_from_name<E> and enum_name(E)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<MethodType>("monolithic") == MethodType::monolithic);
   CHECK(enum_from_name<MethodType>("sddp") == MethodType::sddp);
@@ -68,7 +68,7 @@ TEST_CASE("ADL enum_from_name<E> and enum_name(E)")  // NOLINT
 
 TEST_CASE("MethodType from_name and name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<MethodType>("monolithic").value_or(MethodType::sddp)
         == MethodType::monolithic);
@@ -84,7 +84,7 @@ TEST_CASE("MethodType from_name and name")  // NOLINT
 
 TEST_CASE("SolveMode from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<SolveMode>("monolithic").value_or(SolveMode::sequential)
         == SolveMode::monolithic);
@@ -97,7 +97,7 @@ TEST_CASE("SolveMode from_name")  // NOLINT
 
 TEST_CASE("BoundaryCutsMode from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<BoundaryCutsMode>("noload").value_or(
             BoundaryCutsMode::separated)
@@ -115,7 +115,7 @@ TEST_CASE("BoundaryCutsMode from_name")  // NOLINT
 
 TEST_CASE("DataFormat from_name and name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<DataFormat>("parquet").value_or(DataFormat::csv)
         == DataFormat::parquet);
@@ -131,7 +131,7 @@ TEST_CASE("DataFormat from_name and name")  // NOLINT
 
 TEST_CASE("CompressionCodec from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<CompressionCodec>("zstd").value_or(
             CompressionCodec::uncompressed)
@@ -167,7 +167,7 @@ TEST_CASE("CompressionCodec from_name")  // NOLINT
 
 TEST_CASE("CutSharingMode from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<CutSharingMode>("none").value_or(
             CutSharingMode::broadcast_mean)
@@ -187,7 +187,7 @@ TEST_CASE("CutSharingMode from_name")  // NOLINT
 
 TEST_CASE("ElasticFilterMode from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<ElasticFilterMode>("single_cut")
             .value_or(ElasticFilterMode::multi_cut)
@@ -212,7 +212,7 @@ TEST_CASE("ElasticFilterMode from_name")  // NOLINT
 
 TEST_CASE("HotStartMode from_name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<HotStartMode>("none").value_or(HotStartMode::replace)
         == HotStartMode::none);
@@ -230,7 +230,7 @@ TEST_CASE("HotStartMode from_name")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptionsLP opts;
 
@@ -263,7 +263,7 @@ TEST_CASE("PlanningOptionsLP enum accessors return correct defaults")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions raw;
   raw.method = MethodType::sddp;
@@ -285,7 +285,7 @@ TEST_CASE("PlanningOptionsLP enum accessors parse explicit values")  // NOLINT
 
 TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptionsLP opts;
   const auto warnings = opts.validate_enum_options();
@@ -295,7 +295,7 @@ TEST_CASE("validate_enum_options returns empty for valid defaults")  // NOLINT
 TEST_CASE("validate_enum_options returns empty for valid explicit values")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions raw;
   raw.method = MethodType::sddp;
@@ -318,7 +318,7 @@ TEST_CASE(
     "validate_enum_options returns empty for typed enum "
     "values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // With typed enum fields, invalid strings are rejected at JSON parse
   // time.  Validation of already-constructed Options always succeeds.
@@ -333,7 +333,7 @@ TEST_CASE(
     "validate_enum_options returns empty for multiple typed enum "
     "values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // With typed enum fields, invalid strings are rejected at JSON parse
   // time.  Multiple valid enum assignments always pass validation.
@@ -348,7 +348,7 @@ TEST_CASE(
 
 TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("cut_recovery_mode=replace maps to replace")
   {
@@ -388,7 +388,7 @@ TEST_CASE("sddp_cut_recovery_mode explicit values")  // NOLINT
 TEST_CASE(
     "StateVariableLookupMode enum from_name and name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<StateVariableLookupMode>("warm_start")
             .value_or(StateVariableLookupMode::cross_phase)
@@ -404,7 +404,7 @@ TEST_CASE(
 
 TEST_CASE("sddp_state_variable_lookup_mode default is warm_start")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptionsLP opts(PlanningOptions {});
   CHECK(opts.sddp_state_variable_lookup_mode()
@@ -413,7 +413,7 @@ TEST_CASE("sddp_state_variable_lookup_mode default is warm_start")  // NOLINT
 
 TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions raw;
   raw.sddp_options.state_variable_lookup_mode =
@@ -427,7 +427,7 @@ TEST_CASE("sddp_state_variable_lookup_mode cross_phase when set")  // NOLINT
 
 TEST_CASE("MonthType accepts English full names, case-insensitive")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<MonthType>("january") == MonthType::january);
   CHECK(enum_from_name<MonthType>("January") == MonthType::january);
@@ -439,7 +439,7 @@ TEST_CASE("MonthType accepts English full names, case-insensitive")  // NOLINT
 
 TEST_CASE("MonthType accepts Spanish full names, case-insensitive")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(enum_from_name<MonthType>("enero") == MonthType::january);
   CHECK(enum_from_name<MonthType>("Enero") == MonthType::january);
@@ -460,7 +460,7 @@ TEST_CASE("MonthType accepts Spanish full names, case-insensitive")  // NOLINT
 
 TEST_CASE("MonthType accepts 3-letter abbreviations (EN + ES)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // English abbreviations.
   CHECK(enum_from_name<MonthType>("jan") == MonthType::january);
@@ -488,7 +488,7 @@ TEST_CASE("MonthType accepts 3-letter abbreviations (EN + ES)")  // NOLINT
 
 TEST_CASE("MonthType reverse lookup returns canonical English name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // enum_name() walks the table in order and returns the first match by
   // value; English full names are listed first, so the canonical name
@@ -502,7 +502,7 @@ TEST_CASE("MonthType reverse lookup returns canonical English name")  // NOLINT
 
 TEST_CASE("MonthType rejects unknown names")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK_FALSE(enum_from_name<MonthType>("").has_value());
   CHECK_FALSE(enum_from_name<MonthType>("bogus").has_value());
@@ -515,7 +515,7 @@ TEST_CASE("MonthType rejects unknown names")  // NOLINT
 
 TEST_CASE("LowMemoryMode alias 'snapshot' still parses to compress")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Parsing must continue to accept the legacy alias.
   CHECK(enum_from_name<LowMemoryMode>("snapshot").value_or(LowMemoryMode::off)
@@ -537,7 +537,7 @@ TEST_CASE(
     "and 'rebuild'")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   try {
     (void)require_enum<LowMemoryMode>("low-memory", "xx");
@@ -555,7 +555,7 @@ TEST_CASE(
 TEST_CASE("require_enum<ElasticFilterMode> error message hides alias 'cut'")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // "cut" is a back-compat alias for "single_cut" — still parses.
   CHECK(require_enum<ElasticFilterMode>("elastic-mode", "cut")
@@ -580,7 +580,7 @@ TEST_CASE("require_enum<ElasticFilterMode> error message hides alias 'cut'")
 TEST_CASE("require_enum<CompressionCodec> error message hides alias 'none'")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(readability-static-accessed-through-instance)
 
   // "none" is an alias for "uncompressed" — still parses.

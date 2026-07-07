@@ -47,13 +47,12 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 /// Return a fresh OSI/CLP backend, or nullptr if the plugin is unavailable.
 [[nodiscard]] std::unique_ptr<SolverBackend> make_osi_clp_or_skip()
@@ -518,7 +517,7 @@ TEST_CASE("OSI/CLP backend: parallel create+load+clone is race-free")  // NOLINT
 // solve / re-solve cycle.
 // ────────────────────────────────────────────────────────────────────
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build a trivial feasible 1-var LP onto the backend so engage/resolve
@@ -643,5 +642,3 @@ TEST_CASE(  // NOLINT
   backend->disengage_robust_solve();
   CHECK(true);
 }
-
-// NOLINTEND(misc-const-correctness)

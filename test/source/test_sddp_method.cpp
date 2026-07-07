@@ -27,7 +27,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── Integration tests ─────────────────────────────────────────────────────
 
@@ -2556,7 +2556,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod - ElasticFilterMode comparison on shared hydro fixture")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct ModeOutcome
   {
@@ -2688,7 +2688,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod - ElasticFilterMode comparison on 2-reservoir fixture")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Runs on the default backend (CPLEX when available).  This fixture also
   // regression-guards the CPLEX NaN fix: CPLEX used to return an OPTIMAL
@@ -2796,7 +2796,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDP elastic branch — state_var rc stays finite (clone-leak guard)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_two_reservoir_forced_infeasibility_planning();
   PlanningLP plp(std::move(planning));
@@ -2897,7 +2897,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod forward backtracking — recovery 10-phase fixture")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct ModeCase
   {
@@ -2982,7 +2982,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod forward backtracking — recovery 10-phase two-reservoir")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two-reservoir variant: each elastic event produces TWO state-var
   // links in the cut, exercising:
@@ -3101,7 +3101,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod forward backtracking — no-recovery 10-phase fixture")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_backtracking_no_recovery_planning();
   PlanningLP plp(std::move(planning));
@@ -3173,7 +3173,7 @@ inline auto read_terminal_vol_end(PlanningLP& planning_lp,
                                   std::size_t reservoir_index,
                                   SceneIndex scene = SceneIndex {0}) -> double
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const auto& sim = planning_lp.simulation();
   const auto last_phase = sim.last_phase_index();
   const auto& phases_seq = sim.phases();
@@ -3219,7 +3219,7 @@ inline auto read_efin_row_dual(PlanningLP& planning_lp,
                                SceneIndex scene = SceneIndex {0})
     -> std::optional<double>
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const auto& sim = planning_lp.simulation();
   const auto last_phase = sim.last_phase_index();
   const auto& phases_seq = sim.phases();
@@ -3290,7 +3290,7 @@ inline auto read_efin_col_cost(PlanningLP& planning_lp,
                                std::size_t reservoir_index,
                                SceneIndex scene = SceneIndex {0}) -> double
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const auto& sim = planning_lp.simulation();
   const auto last_phase = sim.last_phase_index();
   const auto& phases_seq = sim.phases();
@@ -3322,7 +3322,7 @@ inline auto read_efin_col_cost(PlanningLP& planning_lp,
 TEST_CASE(  // NOLINT
     "SDDPMethod efin_cost — 10-phase 1-reservoir hard vs soft, terminal vol")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double efin_target = 150.0;
   constexpr double feas_tol = 1e-3;
@@ -3395,7 +3395,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod efin_cost — 10-phase 2-reservoir hard vs soft, terminal vol")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double efin_target = 150.0;
   constexpr double feas_tol = 1e-3;
@@ -3790,7 +3790,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod efin_cost — non-degenerate 2-reservoir dual_max>0 across "
     "solvers")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double efin_target = 150.0;
   // hydro_gen_2.gcost = 2.0 removes the gen1/gen3 cost-tie.
@@ -3908,7 +3908,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod low_memory_mode invariance — "
     "10-phase 2-reservoir hard + dual±1 soft")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double efin_target = 150.0;
   constexpr double feas_tol = 1e-3;
@@ -4154,7 +4154,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — low_memory parity 10-phase 2-reservoir hard/soft duals")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double efin_target = 150.0;
   constexpr double feas_tol = 1e-3;
@@ -4392,7 +4392,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing parity 2-scene 10-phase 2-reservoir "
     "hard/soft duals")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto pinned_solver = pick_non_mindopt_solver();
   if (pinned_solver.empty()) {
@@ -4672,7 +4672,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing parity 2-scene non-uniform prob [0.6, 0.4]")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double kProb1 = 0.6;
   constexpr double kProb2 = 0.4;
@@ -4983,7 +4983,7 @@ TEST_CASE(  // NOLINT
   // 1.16B vs UB ≈ 153M and the run wrote "[CONVERGED]" while the
   // LB was wildly off — a numerical scaling bug masquerading as a
   // converged answer.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
@@ -5023,7 +5023,7 @@ TEST_CASE(  // NOLINT
   // anonymous namespace).  Pre-rewrite, this site set
   // ``ir.converged = (gap < tol) && past_min`` — that primary gap
   // exit has been removed.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
@@ -5769,7 +5769,7 @@ TEST_CASE(
 //   * forward_fail_stop = false (allow cascade to walk back multiple phases)
 //   * cut_coeff_eps / elastic_penalty matched to the calibrated toy tolerances
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Equal probability assigned to each scene in the 2-scene 10-phase
@@ -5798,7 +5798,7 @@ inline auto make_2scene_10phase_2rsv_sddp_opts() -> SDDPOptions
 TEST_CASE(  // NOLINT
     "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing none converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_10phase_two_reservoir_planning();
   PlanningLP plp(std::move(planning));
@@ -5838,7 +5838,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing expected converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_10phase_two_reservoir_planning();
   PlanningLP plp(std::move(planning));
@@ -5877,7 +5877,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing accumulate "
     "converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_10phase_two_reservoir_planning();
   PlanningLP plp(std::move(planning));
@@ -5915,7 +5915,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing max converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_10phase_two_reservoir_planning();
   PlanningLP plp(std::move(planning));
@@ -5960,7 +5960,7 @@ TEST_CASE(  // NOLINT
   // (10%) of each other.  On a symmetric fixture the optimal policy is the
   // same regardless of how cuts are shared across scenes, so the converged
   // cost should be nearly mode-independent.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct ModeResult
   {
@@ -6055,7 +6055,7 @@ namespace
     std::optional<double> production_factor = std::nullopt)
     -> std::tuple<double, double, double>
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_backtracking_recovery_two_reservoir_planning();
   for (auto& r : planning.system.reservoir_array) {
@@ -6124,7 +6124,7 @@ TEST_CASE(  // NOLINT
     "DIAG: dual±1 efin_cost sweep — at what cost does the rc sign flip "
     "and the cut RHS go negative")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   if (pick_non_mindopt_solver().empty()) {
     MESSAGE(
@@ -6224,7 +6224,7 @@ struct ExtraSolver
     std::optional<double> scale_alpha_override,
     std::optional<ExtraSolver> bwd_solver)
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_backtracking_recovery_two_reservoir_planning();
   for (auto& r : planning.system.reservoir_array) {
@@ -6298,7 +6298,7 @@ TEST_CASE(  // NOLINT
     "DIAG: dual±1 — does LB-overshoot threshold scale with thermal_cost "
     "or demand_fail_cost?")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   if (pick_non_mindopt_solver().empty()) {
     MESSAGE(
@@ -6380,7 +6380,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   if (pick_non_mindopt_solver().empty()) {
     MESSAGE(
@@ -6530,14 +6530,9 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "DIAG: dual±1 + backward_resolve_target=true — LP dump + cut trace")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(abseil-string-find-str-contains, bugprone-argument-comment,
-  // bugprone-optional-value-conversion, bugprone-reserved-identifier,
-  // bugprone-unchecked-optional-access, cert-dcl37-c, cert-dcl51-cpp,
-  // cppcoreguidelines-pro-bounds-constant-array-index,
-  // cppcoreguidelines-pro-type-member-init, hicpp-member-init,
-  // misc-const-correctness, modernize-use-designated-initializers,
-  // readability-container-contains, readability-trailing-comma)
+  using namespace gtopt;
+  // NOLINTBEGIN(abseil-string-find-str-contains,
+  // bugprone-argument-comment,bugprone-optional-value-conversion,bugprone-reserved-identifier,bugprone-unchecked-optional-access,cert-dcl37-c,cert-dcl51-cpp,cppcoreguidelines-pro-type-member-init,hicpp-member-init,modernize-use-designated-initializers,readability-container-contains,readability-trailing-comma)
 
   const auto pinned_solver = pick_non_mindopt_solver();
   if (pinned_solver.empty()) {
@@ -6832,10 +6827,5 @@ TEST_CASE("SDDPMethod seed_max_kappa / global_max_kappa")  // NOLINT
   }
 }
 
-// NOLINTEND(abseil-string-find-str-contains, bugprone-argument-comment,
-// bugprone-optional-value-conversion, bugprone-reserved-identifier,
-// bugprone-unchecked-optional-access, cert-dcl37-c, cert-dcl51-cpp,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// cppcoreguidelines-pro-type-member-init, hicpp-member-init,
-// misc-const-correctness, modernize-use-designated-initializers,
-// readability-container-contains, readability-trailing-comma)
+// NOLINTEND(abseil-string-find-str-contains,
+// bugprone-argument-comment,bugprone-optional-value-conversion,bugprone-reserved-identifier,bugprone-unchecked-optional-access,cert-dcl37-c,cert-dcl51-cpp,cppcoreguidelines-pro-type-member-init,hicpp-member-init,modernize-use-designated-initializers,readability-container-contains,readability-trailing-comma)

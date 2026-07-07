@@ -33,10 +33,10 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
-namespace mono_bc  // NOLINT(google-build-namespaces)
+namespace mono_bc
 {
 
 /// Write a single-scene boundary cut `α + (−coeff)·rsv1.efin ≥ rhs`.
@@ -65,7 +65,7 @@ auto write_cut_file(const std::string& path,
 TEST_CASE(  // NOLINT
     "MonolithicMethod — boundary cut installs and binds (TASK 1)")
 {
-  using namespace mono_bc;  // NOLINT(google-build-using-namespace)
+  using namespace mono_bc;
 
   const auto cuts_file = (std::filesystem::temp_directory_path()
                           / "gtopt_test_mono_bc_install.csv")
@@ -135,7 +135,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod — α-rebase offset uses efin, not midpoint (TASK 2)")
 {
-  using namespace mono_bc;  // NOLINT(google-build-using-namespace)
+  using namespace mono_bc;
 
   // CSV layout (Python production convention, `write_boundary_cut_csv`):
   // each reservoir column carries `-water_value` — more stored water ⇒

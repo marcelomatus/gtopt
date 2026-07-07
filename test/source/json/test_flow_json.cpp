@@ -4,7 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_flow.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Flow JSON basic parsing")
 {

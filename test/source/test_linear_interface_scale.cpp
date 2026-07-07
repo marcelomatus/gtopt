@@ -15,7 +15,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {
@@ -1836,7 +1836,7 @@ TEST_CASE(
     "cols (regression test for emit_cols_to_backend bulk path)")
 {
   using namespace gtopt;  // NOLINT
-  // NOLINTBEGIN(misc-const-correctness, readability-trailing-comma)
+  // NOLINTBEGIN(readability-trailing-comma)
 
   // Build a base LP with one structural column (x0, scale=1) and
   // one binding row.  Then add a dynamic column (α, scale=10) with
@@ -1899,4 +1899,4 @@ TEST_CASE(
   CHECK(cost_after == doctest::Approx(cost_before));
 }
 
-// NOLINTEND(misc-const-correctness, readability-trailing-comma)
+// NOLINTEND(readability-trailing-comma)

@@ -110,7 +110,6 @@ auto sha256(std::string_view input) -> std::string
   // Process each 512-bit block.  Indices in the inner loops are bounded by
   // the loop limits (i < 16, i < 64) and the array sizes (w=64, k_sha256=64),
   // so unchecked subscript access is safe and is the hot path.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
   for (size_t offset = 0; offset < padded_len; offset += 64) {
     std::array<uint32_t, 64> w {};
     for (size_t i = 0; i < 16; ++i) {
@@ -153,7 +152,6 @@ auto sha256(std::string_view input) -> std::string
     h[6] += g;
     h[7] += hh;
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 
   // Format as hex string — write each 8-char chunk directly into
   // `result` via `format_to(back_inserter)`, avoiding the per-iteration

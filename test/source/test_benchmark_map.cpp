@@ -25,7 +25,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/fmap.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // this is only needed to mix std abd boost flat_map benchmarks in the same test
 // suite; if boost::flat_map is not

@@ -28,11 +28,10 @@
 #include <gtopt/scenario_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness,
-// readability-static-accessed-through-instance)
+using namespace gtopt;
+// NOLINTBEGIN(readability-static-accessed-through-instance)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ---------------------------------------------------------------
@@ -527,5 +526,4 @@ TEST_CASE(  // NOLINT
 
 }  // namespace
 
-// NOLINTEND(misc-const-correctness,
-// readability-static-accessed-through-instance)
+// NOLINTEND(readability-static-accessed-through-instance)

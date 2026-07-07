@@ -48,9 +48,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Walk every (scene, phase) cell and assert its backend is released.

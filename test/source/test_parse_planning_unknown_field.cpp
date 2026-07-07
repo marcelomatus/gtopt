@@ -25,7 +25,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/gtopt_json_io.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

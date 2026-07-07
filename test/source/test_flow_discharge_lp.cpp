@@ -26,13 +26,13 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── 1. Scalar discharge loaded as fixed LP bounds ──────────────────────────
 
 TEST_CASE("Flow discharge scalar loaded into LP bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // A constant discharge = 25.0 m³/s should produce flow columns with
   // lowb == uppb == 25.0 for every block.
@@ -200,7 +200,7 @@ TEST_CASE("Flow discharge scalar loaded into LP bounds")  // NOLINT
 
 TEST_CASE("Flow discharge per-block vector loaded into LP bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // discharge = [10.0, 30.0] for blocks 1 and 2 respectively.
   // Each block's flow column should have the corresponding bound.
@@ -371,7 +371,7 @@ TEST_CASE(  // NOLINT
     "Flow discharge multi-scenario 3D vector produces correct per-scenario "
     "bounds")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Scenario 1: discharge = 8 m³/s for all blocks
   // Scenario 2: discharge = 40 m³/s for all blocks
@@ -568,7 +568,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Flow discharge values affect hydro generation via junction balance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a hydro system where the inflow (discharge) directly affects how
   // much the hydro generator can produce.  With higher inflow, more hydro
@@ -718,7 +718,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Aperture update correctly replaces discharge bounds per-block")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a 2-scenario system with different per-block discharge values.
   // Verify that update_aperture replaces per-block values individually.
@@ -969,7 +969,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Two aperture clones with different discharge are independent")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 3 scenarios: dry=5, normal=20, wet=50
   // Clone 1 → update to normal; Clone 2 → update to wet.
@@ -1177,7 +1177,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Aperture discharge update measurably changes LP objective value")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Scenario 1 (base): low discharge = 5 m³/s
   // Scenario 2: high discharge = 80 m³/s

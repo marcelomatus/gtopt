@@ -17,9 +17,9 @@
 #include <gtopt/line_enums.hpp>
 #include <gtopt/line_losses.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 constexpr double kEps = 1e-12;

@@ -134,6 +134,20 @@ namespace detail
 template<typename T>
 concept string_like = std::is_convertible_v<const T&, std::string_view>;
 
+// Convert any string-like value to a std::string_view.  Char arrays
+// (string literals) go through std::data() — which takes the array by
+// reference — so no array-to-pointer decay appears at the call sites
+// (the pointer constructor keeps the usual strlen semantics).
+template<string_like T>
+[[nodiscard]] constexpr std::string_view to_string_view(T&& sv) noexcept
+{
+  if constexpr (std::is_array_v<std::remove_cvref_t<T>>) {
+    return std::string_view {std::data(sv)};
+  } else {
+    return std::string_view {std::forward<T>(sv)};
+  }
+}
+
 // Concept for types that are integral or implicitly convertible to an integral
 // type (e.g. strong::type<int, ...> with implicitly_convertible_to<int>).
 // This enables the fast std::to_chars path instead of std::format.
@@ -153,19 +167,6 @@ concept char_range = std::ranges::input_range<std::remove_cvref_t<T>>
 // Maximum chars needed for a 64-bit signed integer: "-9223372036854775808"
 inline constexpr std::size_t int_buf_size = 21;
 
-// Convert an integral value to a string using std::to_chars (no format string
-// parsing overhead).  Returns a std::string owning the converted text.
-template<integral_convertible T>
-[[nodiscard]] inline std::string int_to_string(const T& value)
-{
-  std::array<char, int_buf_size> buf {};
-  const auto ival = static_cast<std::int64_t>(value);
-  auto* const begin = buf.data();
-  auto* const end = begin + buf.size();
-  const auto [ptr, ec] = std::to_chars(begin, end, ival);
-  return {begin, ptr};
-}
-
 // Compile-time lookup table mapping integers 0–1023 to their string
 // representations.  The buffer and index are built entirely at compile
 // time so that cached_int_view() returns a std::string_view pointing
@@ -184,8 +185,6 @@ struct IntCacheData
   std::array<std::uint8_t, int_cache_size> lengths {};
 };
 
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,
-// misc-const-correctness)
 consteval IntCacheData build_int_cache() noexcept
 {
   IntCacheData data {};
@@ -201,7 +200,7 @@ consteval IntCacheData build_int_cache() noexcept
       pos += 2;  // char + NUL
     } else {
       // Write digits in reverse, then flip
-      std::size_t start = pos;
+      const std::size_t start = pos;
       std::size_t val = i;
       while (val > 0) {
         data.buf[pos] = static_cast<char>('0' + (val % 10));
@@ -213,9 +212,7 @@ consteval IntCacheData build_int_cache() noexcept
       std::size_t lo = start;
       std::size_t hi = pos - 1;
       while (lo < hi) {
-        char tmp = data.buf[lo];
-        data.buf[lo] = data.buf[hi];
-        data.buf[hi] = tmp;
+        std::swap(data.buf[lo], data.buf[hi]);
         ++lo;
         --hi;
       }
@@ -224,8 +221,6 @@ consteval IntCacheData build_int_cache() noexcept
   }
   return data;
 }
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,
-// misc-const-correctness)
 
 inline constexpr IntCacheData int_cache = build_int_cache();
 
@@ -238,10 +233,8 @@ inline constexpr IntCacheData int_cache = build_int_cache();
     return std::nullopt;
   }
   auto idx = static_cast<std::size_t>(n);
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
   return std::string_view(int_cache.buf.data() + int_cache.offsets[idx],
                           int_cache.lengths[idx]);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
 }
 
 /// String holder that avoids heap allocation for integral and string_view
@@ -268,16 +261,12 @@ class string_holder
 
 public:
   // For string-like types — zero allocation
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
   template<string_like T>
     requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
   constexpr explicit string_holder(T&& value) noexcept
-      : ext_(std::string_view(std::forward<T>(value)))
+      : ext_(to_string_view(std::forward<T>(value)))
   {
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
 
   // For const string refs — zero allocation, just view
   constexpr explicit string_holder(const std::string& s) noexcept
@@ -970,11 +959,7 @@ template<detail::string_like T>
   requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
 [[nodiscard]] constexpr LowercaseView lowercase(T&& sv) noexcept
 {
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
-  return LowercaseView(std::string_view(std::forward<T>(sv)));
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
+  return LowercaseView(detail::to_string_view(std::forward<T>(sv)));
 }
 
 /**
@@ -1032,11 +1017,7 @@ template<detail::string_like T>
   requires(!std::same_as<std::remove_cvref_t<T>, std::string>)
 [[nodiscard]] constexpr SnakeCaseView snake_case(T&& sv) noexcept
 {
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
-  return SnakeCaseView(std::string_view(std::forward<T>(sv)));
-  // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  // hicpp-no-array-decay)
+  return SnakeCaseView(detail::to_string_view(std::forward<T>(sv)));
 }
 
 }  // namespace gtopt

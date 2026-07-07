@@ -40,10 +40,9 @@
 #include "log_capture.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Common SDDPOptions used by both Branch 1 / Branch 2 tests.  Pinned
@@ -284,5 +283,3 @@ TEST_CASE(  // NOLINT
 }
 
 }  // namespace
-
-// NOLINTEND(misc-const-correctness)

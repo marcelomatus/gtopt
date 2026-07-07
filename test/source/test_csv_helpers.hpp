@@ -22,7 +22,7 @@
 #include <arrow/array.h>
 #include <gtopt/array_index_traits.hpp>
 
-namespace gtopt::test_helpers  // NOLINT(cert-dcl59-cpp)
+namespace gtopt::test_helpers
 {
 
 /// Extract the value at row @p i from an Arrow chunk as double (handles the

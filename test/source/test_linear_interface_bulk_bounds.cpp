@@ -28,10 +28,10 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_replay_buffer.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(readability-trailing-comma)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // 4-column, 1-row toy LP with a non-trivial col_scale on every column.

@@ -30,7 +30,7 @@
 
 #include "test_csv_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
@@ -261,7 +261,6 @@ static constexpr std::string_view ieee9b_ori_json = R"(
 TEST_CASE("IEEE 9-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(google-global-names-in-headers)
   auto planning = parse_planning_json(ieee9b_ori_json);
 
   CHECK(planning.system.name == "ieee_9b_ori");
@@ -411,5 +410,3 @@ TEST_CASE("IEEE 9-bus original - solution correctness")
 // removed alongside the rebuild mode itself (2026-05-13).  The
 // surviving release/reconstruct path is exercised by the compress-mode
 // tests in test_linear_interface_lowmem.cpp.
-
-// NOLINTEND(google-global-names-in-headers)

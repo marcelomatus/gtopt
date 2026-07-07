@@ -12,7 +12,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique outer namespace so unity-build batching can't collide these helper
 // names with another test file's mocks.

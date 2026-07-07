@@ -188,16 +188,8 @@ public:
               unsigned code = 0;
               const auto hex = m_text_.substr(m_pos_ + 1, 4);
               auto [p, ec] = std::from_chars(
-                  hex.data(),
-                  hex.data()
-                      + hex.size(),  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-                  code,
-                  16);
-              if (ec != std::errc {}
-                  || p
-                      != hex.data()
-                          + hex.size())  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-              {
+                  hex.data(), hex.data() + hex.size(), code, 16);
+              if (ec != std::errc {} || p != hex.data() + hex.size()) {
                 set_error("invalid \\u escape");
                 return {};
               }
@@ -248,11 +240,8 @@ public:
     }
     std::int64_t value = 0;
     const auto span = m_text_.substr(start, m_pos_ - start);
-    auto [ptr, ec] = std::from_chars(
-        span.data(),
-        span.data()
-            + span.size(),  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        value);
+    auto [ptr, ec] =
+        std::from_chars(span.data(), span.data() + span.size(), value);
     (void)ptr;
     if (ec != std::errc {}) {
       set_error("integer parse failed");
@@ -286,11 +275,8 @@ public:
     }
     double value = 0.0;
     const auto span = m_text_.substr(start, m_pos_ - start);
-    auto [ptr, ec] = std::from_chars(
-        span.data(),
-        span.data()
-            + span.size(),  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        value);
+    auto [ptr, ec] =
+        std::from_chars(span.data(), span.data() + span.size(), value);
     (void)ptr;
     if (ec != std::errc {}) {
       set_error("number parse failed");
@@ -318,7 +304,6 @@ public:
   /// caller can ignore unknown keys.  Recursion is bounded by the input
   /// nesting depth (a few levels for our payloads); not protected against
   /// pathological inputs because the file is only ever written by us.
-  // NOLINTNEXTLINE(misc-no-recursion)
   void skip_value()
   {
     const char c = peek();

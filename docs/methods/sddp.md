@@ -859,10 +859,15 @@ prefix, since the section name already provides the namespace).
 | `solve_timeout` | double | 180.0 | Forward-pass LP solve timeout in seconds (0 = no timeout) |
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
+| `aperture_chunk_size` | int | unset (auto = 1) | Apertures solved serially per pool task on a shared LP clone: `0`/unset = auto, `1` = one task per aperture (legacy), `K > 1` = K per task, `-1` = fully serial per scene (licence/memory-tight runs). CLI: `--aperture-chunk-size` |
+| `aperture_solve_mode` | string | `"reduced_cost"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs) |
+| `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
+| `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
 | `api_enabled` | bool | true | Enable SDDP monitoring API (JSON status file) |
 | `efficiency_update_skip` | int | 0 | Iterations to skip between efficiency coefficient updates |
 | `boundary_cuts_mode` | string | `"separated"` | Load mode: `"noload"`, `"separated"`, `"combined"` |
+| `boundary_cut_sharing_mode` | string | `"per_scene"` | Terminal-α sharing for boundary cuts: `"per_scene"`, `"shared"`, or `"multicut"` (one `varphi_s` column per scenario) |
 | `boundary_max_iterations` | int | 0 | Max SDDP iterations to load from boundary cuts (0 = all) |
 | `named_cuts_file` | string | `""` | CSV file with named multi-phase cuts (S4.15) |
 | `simulation_mode` | bool | `false` | Skip training, run simulation pass only (S4.5.1) |

@@ -26,14 +26,14 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── 1. State variable registration in multi-phase planning ─────────────────
 
 TEST_CASE(  // NOLINT
     "State variables: reservoir efin registered for each phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -70,7 +70,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "State variables: efin has dependent variable linking to next phase sini")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -125,7 +125,7 @@ TEST_CASE(  // NOLINT
     "State variable loading: battery with use_state_variable=true registers "
     "efin and links across phases")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a 2-phase planning with a battery that has use_state_variable=true
   auto block_array = make_uniform_blocks(4, 1.0);

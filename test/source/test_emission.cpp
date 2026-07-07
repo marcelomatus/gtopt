@@ -16,7 +16,7 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Emission default construction")  // NOLINT
 {

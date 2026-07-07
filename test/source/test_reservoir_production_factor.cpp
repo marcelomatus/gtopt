@@ -18,14 +18,14 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── evaluate_production_factor tests
 // ──────────────────────────────────────────────
 
 TEST_CASE("evaluate_production_factor with empty segments returns 1.0")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<ProductionFactorSegment> segments {};
   CHECK(evaluate_production_factor(segments, 0.0) == doctest::Approx(1.0));
@@ -34,7 +34,7 @@ TEST_CASE("evaluate_production_factor with empty segments returns 1.0")
 
 TEST_CASE("evaluate_production_factor with single segment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // constant = 1.2, slope = 0.0002, volume breakpoint = 0
   // efficiency(V) = 1.2 + 0.0002 * (V - 0) = 1.2 + 0.0002 * V
@@ -50,7 +50,7 @@ TEST_CASE("evaluate_production_factor with single segment")
 TEST_CASE(
     "evaluate_production_factor with multiple segments (concave envelope)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two segments creating a concave envelope (PLP FRendimientos style):
   // constant is the value AT the breakpoint (point-slope form).
@@ -73,7 +73,7 @@ TEST_CASE(
 
 TEST_CASE("evaluate_production_factor never returns negative")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // slope = -0.01 → at large volume, result would go negative
   const std::vector<ProductionFactorSegment> segments {
@@ -90,7 +90,7 @@ TEST_CASE("evaluate_production_factor never returns negative")
 
 TEST_CASE("ReservoirProductionFactor default construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ReservoirProductionFactor re;
 
@@ -105,7 +105,7 @@ TEST_CASE("ReservoirProductionFactor default construction")
 
 TEST_CASE("ReservoirProductionFactor attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   ReservoirProductionFactor re;
 
@@ -133,7 +133,7 @@ TEST_CASE("ReservoirProductionFactor attribute assignment")
 
 TEST_CASE("ProductionFactorSegment default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ProductionFactorSegment seg;
 
@@ -146,7 +146,7 @@ TEST_CASE("ProductionFactorSegment default values")
 
 TEST_CASE("Turbine main_reservoir field")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default has no main_reservoir")
   {
@@ -169,7 +169,7 @@ TEST_CASE("Turbine main_reservoir field")
 
 TEST_CASE("SystemLP with reservoir production factor element")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -366,7 +366,7 @@ TEST_CASE("SystemLP with reservoir production factor element")
 
 TEST_CASE("ReservoirProductionFactorLP - update_lp with different eini segment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // eini=100 → seg1 (volume < 800). update_lp iter=0/phase=0 uses eini.
   // The initial production_factor=1.0 from Turbine will be overwritten by
@@ -534,7 +534,7 @@ TEST_CASE(
     "ReservoirProductionFactorLP - update_lp with empty segments is "
     "no-op")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Empty segments → mean_production_factor is used directly, no update_lp
   const Array<Bus> bus_array = {
@@ -828,7 +828,7 @@ TEST_CASE(
     "ReservoirProductionFactorLP - primal col_sol respects generation = "
     "production_factor * flow")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Constant production factor pf = 2.0 (slope=0, constant=2.0).  Using a
   // flat segment makes the expected coefficient independent of the volume
@@ -1031,7 +1031,7 @@ TEST_CASE(
 TEST_CASE(
     "ReservoirProductionFactor: add_to_lp leaves coef = mean_production_factor")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Set up a single-reservoir hydro-only system.  The PF curve's value
   // at eini=500 is min(1.0+0.001*500, 1.5+0.0001*(500-800)) = min(1.5, 1.47)

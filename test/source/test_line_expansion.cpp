@@ -17,14 +17,14 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ── Transformer (tap_ratio + phase_shift_deg) tests ──────────────────────
 
 TEST_CASE(
     "Transformer with off-nominal tap ratio changes Kirchhoff susceptance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two-bus system: bus1 → bus2 via a transformer.
   // With tap_ratio = τ the effective susceptance is B/τ, so for equal
@@ -135,7 +135,7 @@ TEST_CASE(
 
 TEST_CASE("Phase-shifting transformer modifies Kirchhoff RHS")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Simple 2-bus system connected by a PST.  With a non-zero phase shift the
   // Kirchhoff equality RHS changes from 0 to -scale_theta * phi_rad; the LP
@@ -660,7 +660,7 @@ TEST_CASE(
 
 TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Minimal 2-bus system where a downstream demand forces LineLP capacity
   // expansion above the base `capacity`.  The `capainst` column is owned by
@@ -786,7 +786,7 @@ TEST_CASE("LineLP — capainst primal col_sol binds at capmin lower bound")
 
 TEST_CASE("LineLP — transport row dual equals congestion rent between buses")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // 2-bus system: a cheap generator at bus1 and an expensive generator at

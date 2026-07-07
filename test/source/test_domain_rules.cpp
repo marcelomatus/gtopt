@@ -22,7 +22,7 @@
 #include <gtopt/mip_start.hpp>
 #include <gtopt/monolithic_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace domain_rules_test  // NOLINT(misc-use-anonymous-namespace)
 {

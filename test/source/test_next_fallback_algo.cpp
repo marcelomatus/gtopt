@@ -18,7 +18,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/solver_enums.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ── Compile-time pin: cycle is barrier → dual → primal → barrier; ───────
 // ── default_algo and last_algo both map onto dual. ─────────────────────

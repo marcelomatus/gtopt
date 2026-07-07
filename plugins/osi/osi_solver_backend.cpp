@@ -402,9 +402,7 @@ void OsiSolverBackend::add_cols(int num_cols,
     if constexpr (std::is_same_v<CoinBigIndex, int>) {
       osi_clp->addCols(num_cols, colbeg, colind, colval, collb, colub, colobj);
     } else {
-      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       std::vector<CoinBigIndex> colbeg_big(colbeg, colbeg + num_cols + 1);
-      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       osi_clp->addCols(
           num_cols, colbeg_big.data(), colind, colval, collb, colub, colobj);
     }
@@ -412,14 +410,12 @@ void OsiSolverBackend::add_cols(int num_cols,
   }
 
   // Generic OSI fallback — per-column dispatch.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int c = 0; c < num_cols; ++c) {
     const int start = colbeg[c];
     const int count = colbeg[c + 1] - start;
     const CoinPackedVector vec(count, colind + start, colval + start);
     m_solver_->addCol(vec, collb[c], colub[c], colobj[c]);
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 void OsiSolverBackend::set_col_lower(int index, double value)
@@ -513,9 +509,7 @@ void OsiSolverBackend::add_rows(int num_rows,
     if constexpr (std::is_same_v<CoinBigIndex, int>) {
       osi_clp->addRows(num_rows, rowbeg, rowind, rowval, rowlb, rowub);
     } else {
-      // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       std::vector<CoinBigIndex> rowbeg_big(rowbeg, rowbeg + num_rows + 1);
-      // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
       osi_clp->addRows(
           num_rows, rowbeg_big.data(), rowind, rowval, rowlb, rowub);
     }
@@ -523,14 +517,12 @@ void OsiSolverBackend::add_rows(int num_rows,
   }
 
   // Generic OSI fallback — per-row dispatch.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (const int r : iota_range(0, num_rows)) {
     const int start = rowbeg[r];
     const int count = rowbeg[r + 1] - start;
     m_solver_->addRow(
         count, rowind + start, rowval + start, rowlb[r], rowub[r]);
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 void OsiSolverBackend::set_row_lower(int index, double value)
@@ -824,7 +816,7 @@ void OsiSolverBackend::disengage_robust_solve() noexcept
         OsiDoPresolveInInitial, s.presolve_passes > 0, OsiHintDo);
     m_solver_->setHintParam(
         OsiDoPresolveInResolve, s.presolve_passes > 0, OsiHintDo);
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Best-effort restore — swallow exceptions to keep noexcept.
   }
   m_saved_robust_state_.reset();
@@ -909,7 +901,7 @@ std::optional<double> OsiSolverBackend::get_kappa() const
       if (model != nullptr) {
         return model->largestDualError();
       }
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
       // CLP may throw on degenerate or empty models; treat as unavailable.
     }
   }

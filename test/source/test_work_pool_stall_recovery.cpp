@@ -19,19 +19,15 @@
 #include <doctest/doctest.h>
 #include <gtopt/work_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
-// NOLINTBEGIN(bugprone-argument-comment, cert-dcl59-cpp,
-// fuchsia-header-anon-namespaces, google-build-namespaces,
-// misc-anonymous-namespace-in-header)
+// NOLINTBEGIN(bugprone-argument-comment)
 {
 using TestPool = BasicWorkPool<>;
 
 }  // namespace
-// NOLINTEND(bugprone-argument-comment, cert-dcl59-cpp,
-// fuchsia-header-anon-namespaces, google-build-namespaces,
-// misc-anonymous-namespace-in-header)
+// NOLINTEND(bugprone-argument-comment)
 
 TEST_CASE(
     "WorkPool: top-level worker_loop catch survives exception "

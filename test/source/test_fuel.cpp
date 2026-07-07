@@ -27,12 +27,12 @@
 #include <gtopt/user_constraint.hpp>
 #include <gtopt/validate_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 [[nodiscard]] Simulation make_one_stage_one_block_simulation()
 {
@@ -173,7 +173,7 @@ TEST_CASE("Fuel construction and JSON round-trip")  // NOLINT
 TEST_CASE(
     "Generator with fuel + scalar heat_rate uses fuel-derived gcost")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // fuel.price = 10 $/GJ, heat_rate = 8 GJ/MWh, gcost = 2 $/MWh.
   // effective per-MWh = 10*8 + 2 = 82.  duration = 1, prob = 1.
@@ -268,7 +268,7 @@ TEST_CASE(
 TEST_CASE(
     "Generator with fuel + piecewise heat_rate_segments — convex")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Three convex segments:
   //   k=0: [0..100] MW @ heat_rate 7.0 GJ/MWh
@@ -604,7 +604,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("PAMPL — fuel('gas').price resolves as scalar parameter")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Fuel.price = 5; demand load capped via
   //   `fuel('gas').price * demand('d1').load <= 250`
   // ⇒ 5 · load ≤ 250 ⇒ load ≤ 50.  With cheap g1 ($1/MWh) and
@@ -684,7 +684,7 @@ TEST_CASE("PAMPL — fuel('gas').price resolves as scalar parameter")  // NOLINT
 // the wrong RHS shift.
 TEST_CASE("PAMPL — every Fuel attribute resolves to its field")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Distinct numeric values so the assertion uniquely identifies
   // which schedule was read.
   const Array<Fuel> fuel_array = {
@@ -782,7 +782,7 @@ TEST_CASE(
     "PAMPL — unknown Fuel attribute is a hard error (even in normal "
     "mode)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // The fuel branch in `resolve_single_param` falls through to
   // `return std::nullopt` for any attribute it doesn't recognise, and
   // `fuel.density` is not a registered LP variable either.  Hardening
@@ -852,7 +852,7 @@ TEST_CASE(
 TEST_CASE(
     "PAMPL — generator('g1').emission_rate resolves to its field")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // generator.emission_rate = 7 (distinct value to identify the
   // field).  load + 7 <= 12 ⇒ load <= 5 ⇒ obj = 9505 (as in the
   // fuel-attribute test).
@@ -913,7 +913,7 @@ TEST_CASE(
 TEST_CASE(
     "PAMPL — generator('g1').heat_rate resolves as scalar parameter")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Generator.heat_rate = 4; demand cap via
   //   `generator('g1').heat_rate * demand('d1').load <= 200`
   // ⇒ 4 · load ≤ 200 ⇒ load ≤ 50.  Same algebra as the fuel-price

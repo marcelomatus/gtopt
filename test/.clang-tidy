@@ -1,0 +1,34 @@
+---
+# Test-tree overrides — inherits the project root .clang-tidy and disables
+# checks that are pure noise for doctest test files.
+#
+# Unity-build artifact checks: gtoptTests compiles with CMake UNITY_BUILD
+# (test/CMakeLists.txt), so every test_*.cpp is #included into a
+# unity_N_cxx.cxx TU and clang-tidy classifies its contents as "header"
+# code.  That falsely triggers the in-header hygiene checks on two
+# sanctioned test idioms (see CLAUDE.md "Writing New Tests"):
+#
+#   using namespace gtopt;      – file-scope using in every test file
+#     google-global-names-in-headers
+#   namespace { ... helpers }   – anonymous-namespace test helpers
+#     cert-dcl59-cpp, google-build-namespaces,
+#     misc-anonymous-namespace-in-header
+#
+# Test-fixture noise:
+#   misc-const-correctness      – test bodies build fixtures incrementally
+#                                 and mutate them across SUBCASEs; the
+#                                 const-annotation churn adds nothing to
+#                                 test readability.
+#
+# Everything else (bugprone-*, performance-*, modernize-*, …) still
+# applies to tests at full strength — in particular
+# bugprone-unchecked-optional-access stays enabled: use value_or() /
+# (opt && *opt == x) patterns, never a NOLINT (CLAUDE.md rule).
+InheritParentConfig: true
+Checks: "\
+  -cert-dcl59-cpp,\
+  -google-build-namespaces,\
+  -google-global-names-in-headers,\
+  -misc-anonymous-namespace-in-header,\
+  -misc-const-correctness\
+  "

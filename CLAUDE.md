@@ -7,8 +7,8 @@
 
 **gtopt** is a C++ library and solver for **Generation and Transmission Expansion Planning (GTEP)**.
 It builds a sparse LP/MIP formulation of a multi-stage power system and solves it via
-pluggable LP solver backends (CLP, CBC, CPLEX, HiGHS) loaded at runtime as shared
-libraries. The repo also contains a Next.js web service, a Python/Flask GUI service,
+pluggable LP solver backends (CLP, CBC, CPLEX, HiGHS, Gurobi, MindOpt, SCIP,
+cuOpt) loaded at runtime as shared libraries. The repo also contains a Next.js web service, a Python/Flask GUI service,
 and Python utility scripts.
 
 ## Environment Setup
@@ -201,11 +201,20 @@ python -m pytest -m integration -q          # integration only
 
 ### clang-tidy suppressions in tests
 
+`test/.clang-tidy` (InheritParentConfig) already disables the unity-build
+artifact checks and `misc-const-correctness` for test code, so **no NOLINT
+is needed** on these test idioms:
+```cpp
+using namespace gtopt;   // plain — no NOLINT
+namespace                // anonymous helper namespace — no NOLINT
+{
+}  // namespace
+```
+
 Accepted NOLINTs:
 ```cpp
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+TEST_CASE("name")  // NOLINT
 ```
 
 **Never use `NOLINT(bugprone-unchecked-optional-access)`**. Use instead:
@@ -231,7 +240,7 @@ Tests in `test/source/test_<topic>.cpp` — auto-discovered via `CONFIGURE_DEPEN
 #include <doctest/doctest.h>
 #include <gtopt/<header>.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 {
@@ -244,7 +253,8 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 
 **Key rules:**
 1. `<doctest/doctest.h>` first, then project headers.
-2. `using namespace gtopt; // NOLINT(...)` at file scope.
+2. `using namespace gtopt;` at file scope (no NOLINT — `test/.clang-tidy`
+   covers it).
 3. Floating-point: `doctest::Approx(value)`, never `==` on doubles.
 4. `REQUIRE` for fatal, `CHECK` for non-fatal assertions.
 5. Never `NOLINT(bugprone-unchecked-optional-access)` — use `value_or` / `&&`.
@@ -306,7 +316,9 @@ Minimize total discounted cost (OPEX + CAPEX) over scenarios, stages, blocks.
 ### LP solver backends
 
 LP solver backends are loaded as dynamic plugins (`libgtopt_solver_*.so`)
-at runtime. The default is auto-detected by priority: cplex > highs > cbc > clp.
+at runtime. The default is auto-detected by priority:
+cplex > highs > mindopt > cbc > clp (gurobi, scip, and cuopt are opt-in via
+`--solver` or `GTOPT_SOLVER`).
 
 | CLI flag | Effect |
 |----------|--------|

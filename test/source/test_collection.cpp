@@ -7,7 +7,7 @@
 #include <gtopt/collection.hpp>
 #include <gtopt/lp_class_name.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {
@@ -275,6 +275,25 @@ TEST_CASE("Collection push_back duplicate name throws")
   CHECK_THROWS_AS(
       coll.push_back(test_object {.uid = 2, .name = "same", .value = 2}),
       std::runtime_error);
+}
+
+TEST_CASE("Collection push_back name-collision rolls back the uid insertion")
+{
+  gtopt::Collection<test_object> coll;
+  coll.push_back(test_object {.uid = 1, .name = "same", .value = 1});
+
+  // uid 2 is fresh but the name collides — the failed push_back must
+  // leave the collection exactly as it was (no stale uid_map entry).
+  CHECK_THROWS_AS(
+      coll.push_back(test_object {.uid = 2, .name = "same", .value = 2}),
+      std::runtime_error);
+  CHECK(coll.size() == 1);
+
+  // Re-using uid 2 with a fresh name must now succeed.
+  const auto idx =
+      coll.push_back(test_object {.uid = 2, .name = "other", .value = 3});
+  CHECK(idx == gtopt::ElementIndex<test_object> {1});
+  CHECK(coll.element(Uid {2}).value == 3);
 }
 
 TEST_CASE("Collection element_index by UID and name")

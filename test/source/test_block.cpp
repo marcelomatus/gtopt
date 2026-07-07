@@ -2,11 +2,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/block.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Block construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Block block;
 
@@ -18,7 +18,7 @@ TEST_CASE("Block construction and default values")
 
 TEST_CASE("Block attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Block block;
 
@@ -34,7 +34,7 @@ TEST_CASE("Block attribute assignment")
 
 TEST_CASE("Block designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Block block {
       .uid = Uid {10},
@@ -50,7 +50,7 @@ TEST_CASE("Block designated initializer construction")
 
 TEST_CASE("Block with zero duration")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Block block {
       .uid = Uid {99},
@@ -63,7 +63,7 @@ TEST_CASE("Block with zero duration")
 
 TEST_CASE("BlockUid and BlockIndex strong types")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const BlockUid buid = make_uid<Block>(42);
   const BlockIndex bidx {3};
@@ -79,7 +79,7 @@ TEST_CASE("BlockUid and BlockIndex strong types")
 
 TEST_CASE("Block array construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Block> blocks {
       {

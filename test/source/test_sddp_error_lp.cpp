@@ -46,8 +46,7 @@
 #include "log_capture.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 // Uniquely-named outer namespace: under the test unity build multiple .cpp
 // files are batched into one TU, so anonymous-namespace helpers with the same
@@ -376,5 +375,3 @@ TEST_CASE(  // NOLINT
 }
 
 }  // namespace test_sddp_error_lp_ns
-
-// NOLINTEND(misc-const-correctness)

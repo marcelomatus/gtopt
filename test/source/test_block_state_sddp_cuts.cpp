@@ -40,11 +40,11 @@
 
 #include "fixture_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace block_state_sddp_cuts_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace block_state_sddp_cuts_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 using gtopt::test_fixtures::make_single_stage_phases;
@@ -203,7 +203,7 @@ TEST_CASE(
     "block_state SDDP: water-value state gradient has the right sign "
     "(more initial volume ⇒ strictly lower cost)")
 {
-  using namespace block_state_sddp_cuts_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_sddp_cuts_test;
 
   // Scarce case: usable water = eini − terminal(20).  eini=50 ⇒ 30 usable;
   // eini=80 ⇒ 60 usable.  Each extra unit of water displaces 50 $/MWh thermal
@@ -222,7 +222,7 @@ TEST_CASE(
     "block_state SDDP: cuts round-trip through Parquet (UserReservoirState "
     "class name survives save/load)")
 {
-  using namespace block_state_sddp_cuts_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_sddp_cuts_test;
 
   const auto tmp_dir = std::filesystem::temp_directory_path();
   const auto cuts_file =

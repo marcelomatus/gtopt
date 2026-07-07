@@ -36,7 +36,7 @@
 
 #include "test_csv_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_helpers::read_uid_values_long;
 
 namespace
@@ -220,9 +220,7 @@ TEST_CASE(  // NOLINT
 {
   using namespace std::string_view_literals;
   // NOLINTBEGIN(bugprone-suspicious-stringview-data-usage,
-  // cppcoreguidelines-pro-bounds-constant-array-index,
-  // google-global-names-in-headers, modernize-use-designated-initializers,
-  // readability-trailing-comma)
+  // modernize-use-designated-initializers,readability-trailing-comma)
 
   const auto root = std::filesystem::temp_directory_path() / "gtopt_pf_inv_T3";
 
@@ -267,6 +265,4 @@ TEST_CASE(  // NOLINT
 }
 
 // NOLINTEND(bugprone-suspicious-stringview-data-usage,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// google-global-names-in-headers, modernize-use-designated-initializers,
-// readability-trailing-comma)
+// modernize-use-designated-initializers,readability-trailing-comma)

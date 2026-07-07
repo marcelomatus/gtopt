@@ -13,7 +13,7 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Options - Default construction")
 {
@@ -779,7 +779,7 @@ TEST_CASE(
     "PlanningOptionsLP - Solver options accessors with set values")  // NOLINT
 {
   using namespace gtopt;
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const PlanningOptions options {
       .solver_options =
@@ -796,4 +796,4 @@ TEST_CASE(
   CHECK(options_lp.solver_options().presolve == false);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

@@ -15,7 +15,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("OutputFlags - enum values and bitwise ops")  // NOLINT
 {
@@ -182,7 +182,7 @@ TEST_CASE(
   CHECK(sel.emits(OutputFlags::dual, "Junction"));
 }
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 auto make_single_gen_system()
 {

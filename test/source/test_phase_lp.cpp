@@ -6,7 +6,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/phase_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("PhaseLP construction")
 {

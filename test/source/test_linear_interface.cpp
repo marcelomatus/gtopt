@@ -21,7 +21,7 @@
 
 #include "solver_test_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("LinearInterface - Constructor and basic operations")
 {
@@ -929,7 +929,7 @@ TEST_CASE("LinearInterface - get_status and status checks")
 
 TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build a problem with a non-trivial basis matrix to get kappa > 1.
   // Use coefficients with different magnitudes to create a condition
@@ -993,7 +993,7 @@ TEST_CASE("LinearInterface - get_kappa returns meaningful condition number")
 
 TEST_CASE("LinearInterface - get_kappa with explicit solver")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Test kappa with each available solver backend.
   // HiGHS uses Highs::getKappa(exact=true) which computes the actual
@@ -1065,7 +1065,7 @@ TEST_CASE("LinearInterface - get_kappa with explicit solver")
 TEST_CASE(  // NOLINT
     "LinearInterface - get_kappa never returns the 1.0 sentinel silently")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -1411,7 +1411,7 @@ TEST_CASE("LinearInterface - duplicate row metadata throws eagerly at add_row")
 
 TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build a simple LP:  min 2x1 + 3x2  s.t.  x1 + x2 >= 5,  x1,x2 in [0,10]
   LinearInterface li;
@@ -1448,7 +1448,7 @@ TEST_CASE("LinearInterface - clone preserves solution")  // NOLINT
 TEST_CASE("LinearInterface - warm-start clone resolves after bound change")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // LP: min 2x1 + x2  s.t.  x1 + x2 >= 10,  x1 in [0,20], x2 in [0,20]
   // Optimal: x1=0, x2=10 → obj=10
@@ -1495,7 +1495,7 @@ TEST_CASE(
     "LinearInterface - warm-start clone works after barrier initial solve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // LP: min 3x1 + 2x2  s.t.  x1 + x2 >= 8,  x1 in [0,10], x2 in [0,10]
   LinearInterface li;
@@ -1652,7 +1652,7 @@ TEST_CASE("LinearInterface - load_flat without names (minimal)")  // NOLINT
 TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
@@ -1683,7 +1683,7 @@ TEST_CASE("LinearInterface - initial_solve returns error on infeasible LP")
 
 TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Create an infeasible LP: x >= 10 AND x <= 5
   LinearInterface li;
@@ -1706,7 +1706,7 @@ TEST_CASE("LinearInterface - resolve returns error on infeasible LP")  // NOLINT
 
 TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto col = li.add_col(SparseCol {
@@ -1719,7 +1719,7 @@ TEST_CASE("LinearInterface - get_coeff on empty LP returns zero")  // NOLINT
 
 TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
@@ -1747,7 +1747,7 @@ TEST_CASE("LinearInterface - set_coeff and get_coeff round trip")  // NOLINT
 
 TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   li.set_log_file("/tmp/test_direct_log");
@@ -1777,7 +1777,7 @@ TEST_CASE("LinearInterface - set_log_file direct call")  // NOLINT
 
 TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto x1 = li.add_col(SparseCol {
@@ -1801,7 +1801,7 @@ TEST_CASE("LinearInterface - solve with time_limit option")  // NOLINT
 
 TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearProblem lp("RowNames");
   const auto c1 = lp.add_col({
@@ -1857,7 +1857,7 @@ TEST_CASE("LinearInterface - row_index_to_name via load_flat")  // NOLINT
 
 TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   li.set_label_maker(LabelMaker {LpNamesLevel::all});
@@ -1904,7 +1904,7 @@ TEST_CASE("LinearInterface - row_index_to_name updated by add_row")  // NOLINT
 TEST_CASE(
     "LinearInterface - row_index_to_name rebuilt after delete_rows")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   li.set_label_maker(LabelMaker {LpNamesLevel::all});
@@ -2029,7 +2029,7 @@ TEST_CASE(
 
 TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearInterface li;
   li.set_label_maker(LabelMaker {LpNamesLevel::all});
@@ -2060,7 +2060,7 @@ TEST_CASE("LinearInterface - row_index_to_name populated at all")  // NOLINT
 
 TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Raw data slightly outside [0, 10] in raw space.  With scale=2.0
   // the physical values would be [-0.2, 8.0, 20.02], so the clamp
@@ -2131,9 +2131,7 @@ TEST_CASE("ScaledView - clamps to physical bounds when provided")  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface::get_col_sol respects clamp only at optimal")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index,
-  // misc-const-correctness)
+  using namespace gtopt;
 
   // Minimize -x s.t. 0 <= x <= 10.  Optimal at x = 10 (upper bound).
   LinearInterface interface;
@@ -2672,6 +2670,3 @@ TEST_CASE("LinearInterface — obj_constant propagates across clone()")
   REQUIRE(cloned.resolve().has_value());
   CHECK(cloned.get_obj_value() == doctest::Approx(99.0));
 }
-
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index,
-// misc-const-correctness)

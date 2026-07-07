@@ -26,7 +26,7 @@
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace

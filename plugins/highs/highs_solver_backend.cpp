@@ -276,13 +276,11 @@ void HighsSolverBackend::load_problem(int ncols,
   // LinearInterface also calls set_obj_offset right after load.
   lp.offset_ = m_obj_offset_;
 
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   lp.col_cost_.assign(obj, obj + ncols);
   lp.col_lower_.assign(collb, collb + ncols);
   lp.col_upper_.assign(colub, colub + ncols);
   lp.row_lower_.assign(rowlb, rowlb + nrows);
   lp.row_upper_.assign(rowub, rowub + nrows);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // Normalize bounds: clamp any value beyond ±kHighsInf to avoid
   // HiGHS warnings ("bounds >= 1e20 treated as +Infinity").
@@ -303,12 +301,10 @@ void HighsSolverBackend::load_problem(int ncols,
   // CSC matrix
   lp.a_matrix_.format_ = MatrixFormat::kColwise;
   if (ncols > 0) {
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     lp.a_matrix_.start_.assign(matbeg, matbeg + ncols + 1);
     const auto nnz = lp.a_matrix_.start_.back();
     lp.a_matrix_.index_.assign(matind, matind + nnz);
     lp.a_matrix_.value_.assign(matval, matval + nnz);
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 
   const auto status = m_highs_->passModel(std::move(lp));
@@ -347,7 +343,6 @@ void HighsSolverBackend::add_cols(int num_cols,
   // hands us (colbeg/colind/colval/collb/colub/colobj).  Single call
   // replaces a per-column add_col loop and the associated reallocations
   // of HiGHS's column metadata vectors.
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = colbeg[num_cols];
   m_highs_->addCols(
       num_cols, colobj, collb, colub, nnz, colbeg, colind, colval);
@@ -425,7 +420,6 @@ void HighsSolverBackend::set_col_bounds_bulk(int num,
   std::unordered_map<int, std::pair<double, double>> pending;
   pending.reserve(static_cast<size_t>(num));
 
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int i = 0; i < num; ++i) {
     const int col = indices[i];
     if (col < 0 || static_cast<size_t>(col) >= ncols) {
@@ -458,7 +452,6 @@ void HighsSolverBackend::set_col_bounds_bulk(int num,
         break;
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   if (pending.empty()) {
     return;
@@ -496,7 +489,6 @@ void HighsSolverBackend::add_rows(int num_rows,
                                   const double* rowlb,
                                   const double* rowub)
 {
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = rowbeg[num_rows];
   m_highs_->addRows(num_rows, rowlb, rowub, nnz, rowbeg, rowind, rowval);
 }
@@ -653,9 +645,7 @@ void HighsSolverBackend::set_col_solution(const double* sol)
   }
   HighsSolution solution;
   const auto ncols = m_highs_->getNumCol();
-  solution.col_value.assign(
-      sol,
-      sol + ncols);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  solution.col_value.assign(sol, sol + ncols);
   solution.value_valid = true;
   m_highs_->setSolution(solution);
 }
@@ -668,10 +658,7 @@ void HighsSolverBackend::set_row_price(const double* price)
   // HiGHS can accept dual values as part of the solution
   HighsSolution solution;
   const auto nrows = m_highs_->getNumRow();
-  solution.row_dual.assign(
-      price,
-      price
-          + nrows);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  solution.row_dual.assign(price, price + nrows);
   solution.dual_valid = true;
   m_highs_->setSolution(solution);
 }

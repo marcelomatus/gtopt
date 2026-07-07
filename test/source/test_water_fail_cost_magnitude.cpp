@@ -58,12 +58,12 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Tiny single-bus 1-stage 2-block hydro topology used by both test cases.
 /// Returns the simulation common to both reservoir/flow-right tests.
@@ -156,7 +156,7 @@ PlanningOptions make_magnitude_options()
 TEST_CASE(  // NOLINT
     "Reservoir.efin_cost slack threshold (auto-water-fail-cost magnitude)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr double kDemandFailCost = 568.0;  // max(falla.gcost)
   constexpr double kProdFactor = 10.0;  // MW per m³/s
@@ -352,10 +352,9 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight.fcost slack threshold (auto-water-fail-cost magnitude)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access,
-  // cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
-  // modernize-avoid-c-arrays, modernize-use-designated-initializers)
+  // cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)
 
   constexpr double kDemandFailCost = 568.0;  // max(falla.gcost) in this test
   constexpr double kProdFactor = 10.0;  // MW per m³/s
@@ -541,5 +540,4 @@ TEST_CASE(  // NOLINT
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access,
-// cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
-// modernize-avoid-c-arrays, modernize-use-designated-initializers)
+// cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)

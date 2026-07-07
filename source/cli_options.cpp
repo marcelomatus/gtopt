@@ -86,9 +86,13 @@ std::ostream& operator<<(std::ostream& os, const options_description& desc)
         ? std::format("-{} [ --{} ]", opt.short_name, opt.long_name)
         : std::format("     --{}", opt.long_name);
 
-    const auto value_part = (opt.takes_value && !opt.has_implicit)  // NOLINT
-        ? " arg"
-        : ((opt.takes_value && opt.has_implicit) ? " [=arg]" : "");  // NOLINT
+    const auto value_part = [&opt]() -> std::string_view
+    {
+      if (!opt.takes_value) {
+        return "";
+      }
+      return opt.has_implicit ? " [=arg]" : " arg";
+    }();
 
     os << std::format("  {}{}  {}\n", name_part, value_part, opt.description);
   }

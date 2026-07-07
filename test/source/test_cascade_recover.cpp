@@ -62,9 +62,9 @@
 #include "cascade_helpers.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace test_cascade_recover  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace test_cascade_recover
 {
 
 namespace

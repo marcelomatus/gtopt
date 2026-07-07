@@ -2,7 +2,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/unit_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

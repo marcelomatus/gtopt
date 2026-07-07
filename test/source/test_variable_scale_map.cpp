@@ -11,7 +11,7 @@
 #include <gtopt/basic_types.hpp>
 #include <gtopt/variable_scale.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("VariableScaleMap - Empty map returns default 1.0")
 {

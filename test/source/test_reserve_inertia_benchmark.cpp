@@ -37,8 +37,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, cert-err58-cpp)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access,cert-err58-cpp)
 
 // ═════════════════════════════════════════════════════════════════════════
 //   MATPOWER `t_case30_userfcns` reserve-benchmark, 3-generator subset
@@ -397,4 +397,4 @@ TEST_CASE("Inertia benchmark — RTS-GMLC (Coal_1 + Nuclear_1) inertia zone")
   CHECK(std::isfinite(obj_raw));
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, cert-err58-cpp)
+// NOLINTEND(bugprone-unchecked-optional-access,cert-err58-cpp)

@@ -14,9 +14,8 @@
 #include <gtopt/update_context.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(hicpp-move-const-arg, misc-const-correctness,
-// performance-move-const-arg)
+using namespace gtopt;
+// NOLINTBEGIN(hicpp-move-const-arg,performance-move-const-arg)
 
 namespace
 {
@@ -115,5 +114,4 @@ TEST_CASE("RuleBoundState supports trivial copy and move")  // NOLINT
   }
 }
 
-// NOLINTEND(hicpp-move-const-arg, misc-const-correctness,
-// performance-move-const-arg)
+// NOLINTEND(hicpp-move-const-arg,performance-move-const-arg)

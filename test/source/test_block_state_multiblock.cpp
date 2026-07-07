@@ -24,11 +24,11 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace block_state_mb_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace block_state_mb_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Solve a monolithic planning JSON and return the per-block volume solution
@@ -71,7 +71,7 @@ TEST_CASE(
     "block_state prev() interior-block lag + initial_value chains a 3-block "
     "stage")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // 1 chronological stage, 3 blocks.  vol[0] = initial_value(50) + 10 = 60;
   // vol[1] = vol[0] + 10 = 70; vol[2] = 80 — driven by the within-stage lag
@@ -106,7 +106,7 @@ TEST_CASE(
 TEST_CASE(
     "block_state prev() same-phase-later-stage incoming chains across stages")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // 1 phase, 2 stages (1 block each).  Stage 2's incoming column IS stage 1's
   // end-of-stage column (same LP), so vol chains: vol[s1]=60, vol[s2]=70.
@@ -142,7 +142,7 @@ TEST_CASE(
 TEST_CASE(
     "block_state on a multi-block non-chronological stage is a hard error")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // Same 3-block stage but WITHOUT chronological=true.  The within-stage
   // prev() lag has no well-defined previous block, so the build must throw
@@ -174,7 +174,7 @@ TEST_CASE(
 
 TEST_CASE("block_state: `* block.duration` weights the per-block balance by Δt")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // 1 chronological stage, 3 blocks with NON-UNIT durations {1, 2, 4}.  The
   // balance `vol - prev(vol) + generation * block.duration = 0` draws
@@ -214,7 +214,7 @@ TEST_CASE("block_state: `* block.duration` weights the per-block balance by Δt"
 TEST_CASE(
     "block_state: initial_value unset defaults the incoming to lower_bound")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // 1 stage, 1 block, NO initial_value, lower_bound = 10.  The first-stage
   // incoming column is fixed to the lower bound (10), not 0, so the balance
@@ -246,7 +246,7 @@ TEST_CASE(
 
 TEST_CASE("block_state: two independent block_state DVs do not cross-wire")
 {
-  using namespace block_state_mb_test;  // NOLINT(google-build-using-namespace)
+  using namespace block_state_mb_test;
 
   // Two block_state DVs in one 3-block chronological stage, each with its own
   // balance and initial value.  vol1: 60,70,80 (RHS 10, init 50); vol2:

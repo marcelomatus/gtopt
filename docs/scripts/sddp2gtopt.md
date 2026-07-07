@@ -93,8 +93,9 @@ gtopt --lp-only -s gtopt_demo/gtopt_demo.json
 | `INPUT_DIR` (positional)      | —       | SDDP case dir (alternative to `-i`)               |
 | `-i, --input-dir DIR`         | —       | Same as positional, takes precedence              |
 | `-o, --output-dir DIR`        | inferred| Output dir (`sddp_X` → `gtopt_X`; else `gtopt_<X>`)|
-| `--hydro-cost $/MWh`          | `0`     | Uniform hydro water-value stand-in (.dat path)     |
+| `--hydro-cost $/MWh`          | `0`     | Uniform hydro water-value stand-in (no-storage .dat)|
 | `--import-limit MW`           | —       | Cap aggregate interconnection import (GUA↔MEX ≈ 200)|
+| `--blocks-per-stage K`        | `0`     | `0` = single-stage monolithic; divisor of horizon → daily stages → sddp/cascade |
 | `--info`                      | off     | Print case summary and exit                       |
 | `--validate`                  | off     | Run schema sanity checks and exit                 |
 | `-l, --log-level LEVEL`       | `INFO`  | `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL`|
@@ -466,61 +467,77 @@ When both `dbus.dat` and `dcirc.dat` are present, the converter emits a
 
 Falls back to a single bus when `dbus`/`dcirc` are absent.
 
-### Hydro water-value pricing
+### Full hydro topology + water value
 
-A single-stage snapshot cannot *derive* water values (those come from the
-multi-stage SDDP cost-to-go) — so, exactly as PSR's NCP does, the
-converter **reads the water values and applies them as hydro costs**.
-When `watervcp.csv` is present it is auto-loaded: each plant's value
-(k$/hm³) is converted to $/MWh via its production factor —
-`gcost = WV · 3.6 / FPMed`, capped at the deficit cost — and set as that
-hydro's `gcost`.  Storage reservoirs price high (they hold water back);
-run-of-river plants (water value ≈ 0) stay free.  `--hydro-cost <$/MWh>`
-is a uniform fallback for plants without a water value.
+When `chidroGU.dat` carries real storage (any plant with `VMax > 0`) the
+converter builds the **entire hydraulic network** rather than flattening
+hydros to generators:
+
+- a **Junction** per plant (its headwater node), `drain`-enabled so
+  surplus water spills to sea (PSR `SerVer = 0`);
+- a **Reservoir** on that junction for every storage plant — `emin`/`emax`
+  = `VMin`/`VMax` [hm³], and the **initial volume** interpolated from the
+  initial *elevation* `VInic` (metres) over the reservoir's embedded
+  cota–vol curve; `use_state_variable` so the end-volume couples to the cut;
+- a **Turbine** per plant debiting its junction and crediting the
+  downstream plant's junction (cascade routing from `VAA`); terminal
+  plants drain to sea.  `production_factor = FPMed`, `capacity = QMax`;
+- a **Flow** injecting each plant's natural inflow (`inflow.csv`, m³/s).
+
+The hydro generators carry **no fuel cost** — dispatch is governed
+physically by the turbines and the water value rides a **single boundary
+cut** on the reservoir end-volumes: a `boundary_cuts.csv` whose per-reservoir
+column is `−WV` ($/hm³, from `watervcp.csv` × 1000) and `rhs = ΣWV·emax`,
+so the marginal cost of releasing stored water from reservoir *r* is `WVᵣ`.
+
+The case writes `scale_objective = 1` + `auto_scale` (the cut rows are
+divided by `scale_objective`, so a raw-money objective keeps the water
+value undistorted).
+
+When `chidroGU.dat` has **no** storage the legacy generator model still
+applies: per-plant `gcost = WV · 3.6 / FPMed` (capped at the deficit
+cost) and a run-of-river inflow cap (`pmax = min(Pot, inflow · FPMed)`),
+with `--hydro-cost <$/MWh>` as a uniform fallback.
+
+### Method: monolithic by default (sddp/cascade for multi-week)
+
+A one-week NCP dispatch is a **deterministic single-horizon** problem, so
+it solves **monolithically** (like the plexos2gtopt cases) — 1 stage ×
+N hourly blocks, the boundary cut wired into `monolithic_options`.
+
+`--blocks-per-stage K` (a divisor of the horizon, e.g. `24` = daily)
+splits the horizon into ≥ 2 stages and emits the SDDP decomposition layer
+(`phase_array` / `scene_array` / `aperture_array`), so the case runs under
+the **sddp** method (the cut moves to `sddp_options`) — and `cascade` by
+setting `options.method = cascade`.  Reservoir volumes then couple across
+stages.  This is intended for genuine **multi-week** horizons; for a
+single week it adds the seasonal water value only as a near-constant
+terminal term (the high-value reservoirs are small daily-regulation ponds,
+the large reservoir has ≈ 0 water value), so monolithic is the right default.
 
 ### The LMP cross-check (vs PDD `cmgbuscp.csv`)
 
-Cross-checking gtopt's bus duals against PSR's solved `cmgbuscp.csv`
-shows the multi-bus **topology + economics are reproduced**: the network
-builds and congests, storage-hydro water values are applied (83/102 GUA
-plants priced), run-of-river is inflow-limited (`inflow.csv × FPMed`),
-and the **interconnection import cap** (`--import-limit 200`, the EOR
-GUA↔MEX tie limit) stops the $0 Mexico import fuels (~1.8 GW) from
-flooding the dispatch.
-
-The import cap is the decisive lever — it lifts gtopt's LMPs from ~$3 to
-the right order of magnitude:
-
-| metric (PDD 22-Jun) | PSR `cmgbuscp` | gtopt (import-capped) | AMM 2025 spot |
-|---------------------|---------------:|----------------------:|--------------:|
-| time-mean LMP $/MWh | 141            | **58**                | ~85 (Jun ~80) |
-| peak-block LMP $/MWh| 165            | **88**                | —             |
-
-The residual ~2× gap is the **single-stage limitation**: PSR never prices
-below its **inter-temporal water-value floor** (~$93 even off-peak,
-because water saved now serves the peak later), whereas a single-stage
-snapshot lets free run-of-river hydro price to ~$0 off-peak.  Closing
-that requires the **multi-stage reservoir coupling** (volume state +
-boundary/FCF cuts) — the same mechanism PSR's SDDP uses to set the water
-value — which is the documented next step, not a single-stage fix.
-
-### Time model (v0)
-
-The NCP demand file is **hourly over the dispatch horizon**, so the
-converted planning is **single-stage with one block per demand hour**
-(e.g. a 7-day week → 1 stage × 168 hourly blocks).  Multi-stage SDDP
-horizons and reservoir hydro (`htopol`/`hinflw`) are follow-ons below.
+The multi-bus **topology + economics are reproduced**: the network builds
+and congests, the **interconnection import cap** (`--import-limit 200`,
+the EOR GUA↔MEX tie limit) stops the $0 Mexico import fuels (~1.8 GW)
+flooding the dispatch, and the system marginal cost lands in a sensible
+band (generation-weighted SRMC ≈ mid-$50s, peak > $400). PSR's `cmgbuscp`
+time-mean is ~141 (peak 165); AMM 2025 spot ~80–95. The residual gap is
+the **seasonal water-value floor**: PSR never prices below ~$93 even
+off-peak (water saved now serves later weeks), which a single-week
+horizon cannot impose unless the water value prices *every* hydro release.
 
 ### Example
 
 ```bash
-# Guatemalan AMM weekly NCP case (extracted .dat directory)
-sddp2gtopt --info  ./ncp_week
-sddp2gtopt -i ./ncp_week -o gtopt_ncp_week      # auto multi-bus if dbus+dcirc
-gtopt -s gtopt_ncp_week/gtopt_ncp_week.json -d out      # DC OPF, solves optimally
+# Guatemalan AMM daily NCP case (extracted .dat directory)
+sddp2gtopt --info  ./ncp_pdd
+sddp2gtopt -i ./ncp_pdd -o gtopt_ncp --import-limit 200   # multi-bus + water net
+gtopt -s gtopt_ncp/gtopt_ncp.json -d out                  # monolithic, optimal
 
-# price hydro at the water value to lift LMPs toward the PSR band
-sddp2gtopt -i ./ncp_week -o gtopt_ncp_week --hydro-cost 92
+# multi-week horizon: daily stages → SDDP (and cascade)
+sddp2gtopt -i ./ncp_month -o gtopt_ncp --import-limit 200 --blocks-per-stage 24
+gtopt -s gtopt_ncp/gtopt_ncp.json -d out --set options.method=cascade
 ```
 
 ---
@@ -533,9 +550,9 @@ full phased plan.
 
 | Phase | Deliverable                                                                       |
 |------:|-----------------------------------------------------------------------------------|
-| v1    | `.dat` fallback for cases without `psrclasses.json`                              |
-| v2    | Hydro reservoir + turbine + waterway from `PSRHydroPlant` + `htopol.dat`         |
-| v2    | Inflow time-series from `PSRGaugingStation` + AR-P stationary draw               |
+| ~~v1~~ ✅ | `.dat` fallback for cases without `psrclasses.json` (done)                    |
+| ~~v2~~ ✅ | Hydro reservoir + turbine + junction cascade from `chidroGU.dat` (`VAA`) + per-reservoir water-value boundary cut (done) |
+| ~~v2~~ ✅ | Inflow from `inflow.csv` injected as `Flow` per plant (done)                  |
 | v2    | Multi-segment thermal bid curves (already collected, only the writer changes)    |
 | v2    | Per-block demand shape from `Duracao(i)` weights                                 |
 | ~~v3~~ ✅ | Multi-bus DC OPF from `dbus.dat` + `dcirc.dat` + `Volt.dat` + `cpdexbus.dat` (done) |

@@ -34,8 +34,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -512,4 +512,4 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access)
+// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)

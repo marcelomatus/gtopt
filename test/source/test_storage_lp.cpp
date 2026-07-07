@@ -19,12 +19,12 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/variable_scale.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Helper: build a minimal system with a single battery and solve.
 /// Returns the SystemLP so callers can inspect LP structure.
@@ -155,7 +155,7 @@ Simulation make_two_stage_simulation()
 TEST_CASE(  // NOLINT
     "StorageLP daily_cycle battery produces feasible LP")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // daily_cycle=true forces use_state_variable=false internally and
   // applies dc_stage_scale = 24/stage_duration when the stage is long enough.
@@ -216,7 +216,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP daily_cycle skipped for short stages")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Stage duration = 2h (< 24h threshold), so dc_stage_scale = 1.0
   // (no daily-cycle scaling applied, even though daily_cycle=true).
@@ -246,7 +246,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP efin constraint enforces final energy >= efin")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -288,7 +288,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP to_physical with custom energy_scale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -332,7 +332,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP physical_eini returns default for first stage phase 0")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -368,7 +368,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP physical_efin returns LP solution when optimal")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -410,7 +410,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP two-stage coupled battery reuses efin as eini")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -451,7 +451,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP column and row accessors return valid indices")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -495,7 +495,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("StorageOptions default values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const StorageOptions opts;
   CHECK(opts.use_state_variable == true);
@@ -507,7 +507,7 @@ TEST_CASE("StorageOptions default values")  // NOLINT
 
 TEST_CASE("StorageOptions daily_cycle forces use_state_variable off")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // This tests the conceptual contract: when daily_cycle is true,
   // the effective use_state_variable is false.
@@ -525,7 +525,7 @@ TEST_CASE("StorageOptions daily_cycle forces use_state_variable off")  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP param accessors return correct values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -572,7 +572,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP per-block emin/emax — scalar broadcasts to every block")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // emin/emax scalar — should broadcast to every (stage, block).
   const Array<Battery> battery_array = {
@@ -607,7 +607,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP per-block emin/emax — 2-D nested array indexed per block")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // The simple simulation ships 1 stage × multiple blocks.  Stage 0
   // gets per-block emax overrides: blocks at successive uids carry
@@ -662,7 +662,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP soft_emin_col_at returns nullopt when inactive")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -693,7 +693,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP flow_scale defaults to 1.0 for batteries")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -721,7 +721,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP with annual_loss produces feasible LP")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -749,7 +749,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP with ecost adds cost to energy columns")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Battery> battery_array = {
       {
@@ -784,7 +784,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP soft_emin column has unique name (not colliding with eini)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Battery with soft_emin active — triggers both the eini column
   // (variable_name "eini") and the soft_emin slack column
@@ -881,7 +881,7 @@ TEST_CASE(  // NOLINT
     "StorageLP efin_cost unset → hard `efin` row: LP infeasible when "
     "vol_end < efin")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Battery with eini=10, efin=80.  With pmax_charge=5 and a 2-block
   // 1-h horizon, max end-state ≈ 10 + 2·5 = 20 MWh — well below 80.
@@ -917,7 +917,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP efin_cost > 0 → soft `efin` row: LP feasible at slack cost")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Same fixture as the hard-efin test above, but with efin_cost set.
   // The slack now carries the missing ~60 MWh at $50/MWh, so the LP
@@ -957,7 +957,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP efin_cost == 0 → behaves identically to unset (hard row)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // The slack-creation guard is ``efin_cost.has_value() && *efin_cost > 0``;
   // setting it to exactly 0 should NOT create the slack column (matching
@@ -993,7 +993,7 @@ TEST_CASE(  // NOLINT
     "StorageLP large reservoir-like battery (state variable, "
     "daily_cycle=false) builds and solves with efin_cost")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // "Large" battery operating like a reservoir:
   //  - daily_cycle = false (no per-stage SoC cycling)
@@ -1047,8 +1047,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "StorageLP combined efin_cost + soft_emin (plp_legacy emission)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   // 2-stage battery with eini=10:
   //   - Stage 1: soft_emin=15 + soft_emin_cost=5  (forces slack since
@@ -1117,9 +1116,9 @@ TEST_CASE(  // NOLINT
 // generator + cheap battery discharge, and checks:
 //   * strict_storage_emin=true  ⇒ EVERY block's energy stays >= emin;
 //   * strict_storage_emin=false ⇒ a block IS allowed to dip below emin.
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Build + solve a single-battery system with an explicit
 /// ``strict_storage_emin`` setting and a topology that incentivises a
@@ -1209,7 +1208,7 @@ double min_block_energy_with_strict(bool strict)
 TEST_CASE(  // NOLINT
     "StorageLP per-block emin floor binds under strict_storage_emin")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("strict=true keeps every block at or above emin")
   {
@@ -1226,5 +1225,3 @@ TEST_CASE(  // NOLINT
     CHECK(min_e < doctest::Approx(30.0));
   }
 }
-
-// NOLINTEND(misc-const-correctness)

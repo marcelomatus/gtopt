@@ -15,7 +15,7 @@
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/stage_month_guard.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {

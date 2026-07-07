@@ -11,9 +11,9 @@
 #include <gtopt/error.hpp>
 #include <gtopt/solve_outcome.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 using SolveResult = std::expected<int, Error>;

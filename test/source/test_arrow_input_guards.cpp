@@ -9,11 +9,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/arrow_input_guards.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_arrow_input_guards_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 [[nodiscard]] std::shared_ptr<arrow::Table> make_table(

@@ -7,7 +7,7 @@
 
 #include <doctest/doctest.h>
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 struct TestData
 {

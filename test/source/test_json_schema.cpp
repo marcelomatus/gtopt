@@ -6,7 +6,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json_schema.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap file-local helpers in a uniquely-named outer namespace so the
 // unity build cannot collide anonymous-namespace symbols across test

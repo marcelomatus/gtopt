@@ -25,7 +25,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_fuel_min_offtake_planning
 {

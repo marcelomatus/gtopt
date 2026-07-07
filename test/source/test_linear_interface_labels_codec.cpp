@@ -18,10 +18,9 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 // Build a vector of column labels covering every `LpContext` variant arm
 // plus a bare monostate entry.  Each label uses distinct strings so that

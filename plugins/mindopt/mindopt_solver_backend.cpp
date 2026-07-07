@@ -65,9 +65,7 @@ void ensure_milp_path()
         // Single-threaded here in practice (first backend construction
         // runs before solver worker pools spin up); overwrite=0 keeps any
         // concurrently-set user value.
-        ::setenv("LIBMILP_PATH",
-                 libdir.c_str(),
-                 0);  // NOLINT(concurrency-mt-unsafe)
+        ::setenv("LIBMILP_PATH", libdir.c_str(), 0);
       });
 }
 
@@ -427,7 +425,6 @@ void MindOptSolverBackend::load_problem(int ncols,
   // Step 2: convert CSC to CSR and add range constraints in batch
   // Build CSR from CSC
   const bool have_nnz = (ncols > 0 && matbeg != nullptr);
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto nnz = have_nnz ? matbeg[ncols] : 0;
 
   // Count entries per row
@@ -462,17 +459,14 @@ void MindOptSolverBackend::load_problem(int ncols,
       }
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // Build lower/upper arrays for range constraints
   std::vector<double> lower(static_cast<size_t>(nrows));
   std::vector<double> upper(static_cast<size_t>(nrows));
   for (int i = 0; i < nrows; ++i) {
     const auto idx = static_cast<size_t>(i);
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     lower[idx] = rowlb[i];
     upper[idx] = rowub[i];
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 
   rc = MDOaddrangeconstrs(m_model_,
@@ -549,9 +543,7 @@ void MindOptSolverBackend::add_cols(int num_cols,
   // (vtype=nullptr defaults to MDO_CONTINUOUS).  Const-cast is safe:
   // the API is non-modifying despite the non-const pointer signature
   // (mirrors the existing `MDOaddrangeconstrs` call site).
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = colbeg[num_cols];
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int rc = MDOaddvars(m_model_,
                             num_cols,
                             nnz,
@@ -641,9 +633,7 @@ void MindOptSolverBackend::add_rows(int num_rows,
   // a single solver call instead of N.  Const-cast is safe: MDO's API
   // is non-modifying despite the non-const pointer signature (mirrors
   // the existing `MDOaddrangeconstrs` call site in `load_problem`).
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = rowbeg[num_rows];
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int rc = MDOaddrangeconstrs(m_model_,
                                     num_rows,
                                     nnz,

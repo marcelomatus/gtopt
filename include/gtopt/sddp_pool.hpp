@@ -282,12 +282,13 @@ public:
   const int ceiling =
       std::max(1, base_threads + std::max(0, cell_task_headroom));
 
-  // With a memory limit the pool starts at ONE thread and grows toward
-  // `ceiling` under the live measured-memory controller (no fixed per-task
-  // estimate); each forward/backward task reconstructs ~one cell's flat LP,
-  // and the controller measures that marginal cost directly.  With no limit
-  // it runs at the ceiling.  We feed the helper the *effective* cpu_factor
-  // that reproduces `ceiling` (headroom folded in) so the ceiling is exact.
+  // Worker-thread count is DECOUPLED from the memory limit (see
+  // `memory_clamp_threads`): the pool always runs at `ceiling`, and the
+  // limit is enforced by the live measured-memory DISPATCH gate — each
+  // forward/backward task reconstructs ~one cell's flat LP, and the gate
+  // measures that marginal cost directly.  We feed the helper the
+  // *effective* cpu_factor that reproduces `ceiling` (headroom folded in)
+  // so the ceiling is exact.
   const double effective_cpu_factor = static_cast<double>(ceiling)
       / std::max(1.0, static_cast<double>(physical_concurrency()));
   const auto clamp = memory_clamp_threads(

@@ -7,7 +7,7 @@
 #include <gtopt/lp_context.hpp>
 #include <gtopt/lp_name_spill.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_lp_name_spill_ns
 {

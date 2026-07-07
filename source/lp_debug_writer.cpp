@@ -35,7 +35,7 @@ bool command_available(const char* cmd) noexcept
     // "command -v" is POSIX; "which" is not guaranteed but widely available.
     const std::string probe =
         std::string("command -v ") + cmd + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
+    // NOLINTNEXTLINE(cert-env33-c,bugprone-command-processor)
     return std::system(probe.c_str()) == 0;
   } catch (...) {
     return false;
@@ -48,7 +48,7 @@ bool run_external(const char* cmd, const std::string& arg) noexcept
 {
   try {
     const std::string full = std::string(cmd) + " " + arg + " >/dev/null 2>&1";
-    // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
+    // NOLINTNEXTLINE(cert-env33-c,bugprone-command-processor)
     return std::system(full.c_str()) == 0;
   } catch (...) {
     return false;
@@ -139,7 +139,7 @@ std::string try_gtopt_compress_lp(const std::string& src_path,
   }
   cmd += " " + src_path + " >/dev/null 2>&1";
 
-  // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
+  // NOLINTNEXTLINE(cert-env33-c,bugprone-command-processor)
   if (std::system(cmd.c_str()) != 0) {
     spdlog::debug("LpDebugWriter: gtopt_compress_lp returned non-zero for {}",
                   src_path);

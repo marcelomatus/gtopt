@@ -18,7 +18,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // -----------------------------------------------------------------------
 // Flow-connected turbine (exercises the uses_flow() branch)
@@ -27,7 +27,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE(  // NOLINT
     "TurbineLP — flow-connected turbine creates fconv constraint")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -158,7 +158,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — drain=true creates less_equal conversion constraint")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -292,7 +292,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — capacity constraint limits waterway flow")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -448,7 +448,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — drain=true with capacity exercises both paths")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -601,7 +601,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — flow turbine with custom production_factor solves correctly")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -733,7 +733,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — col_sol enforces discharge = generation / production_factor")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Minimal hydro chain: reservoir → waterway → turbine → generator → bus.
   // A 120 MW demand is served exclusively by the hydro generator (no
@@ -915,7 +915,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — conversion row dual is non-zero when turbine is marginal")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1108,7 +1108,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — built-in waterway (junction_a→junction_b) converts flow")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1258,7 +1258,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — terminal turbine (junction_a only) drains and generates")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1397,7 +1397,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "TurbineLP — built-in turbine substitutes turbine+waterway+ocean 1:1")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Shared electrical side: one hydro generator + an expensive thermal
   // backstop so the LP value depends on how much hydro the turbine yields.
@@ -1531,7 +1531,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "WaterwayLP — outflow (junction_b unset) ≡ waterway + ocean drain")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
   const Array<Generator> generator_array = {

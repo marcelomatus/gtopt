@@ -5,7 +5,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_scaling.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ScalingState was extracted from LinearInterface (step 4, final, of
 // decomposing that class, mirroring the MatrixStats / LpLabelStore

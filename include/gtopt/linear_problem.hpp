@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -234,6 +235,53 @@ struct FlatLinearProblem
   /// original names_level configuration.
   LabelMaker label_maker {};
 };
+
+/// Classify rows by constraint type (the second `_`-delimited token of the
+/// row name, or the whole name when it has no separator) and accumulate
+/// per-type count / nnz / min/max |coefficient|, sorted by descending
+/// per-type max/min ratio.  Pure helper extracted from
+/// `LinearProblem::flatten()` so the classification is unit-testable
+/// without building an LP.  `matind` holds the row index of each CSC entry
+/// in `matval`; `rownm` must have `nrows` entries.
+[[nodiscard]] std::vector<FlatLinearProblem::RowTypeStatsEntry>
+compute_row_type_stats(std::span<const double> matval,
+                       std::span<const FlatLinearProblem::index_t> matind,
+                       std::span<const std::string> rownm,
+                       std::size_t nrows);
+
+/// Result of `scan_bound_envelope` (LP_QUALITY Phase 3b): counts of
+/// pathological post-flatten bounds plus the first offender of each kind.
+struct BoundEnvelopeReport
+{
+  static constexpr auto npos = std::numeric_limits<std::size_t>::max();
+
+  std::size_t free_cols {0};  ///< Columns with BOTH bounds at ±infinity
+  std::size_t first_free_col {npos};
+  std::size_t big_cols {0};  ///< Columns with a large-but-finite bound
+  std::size_t first_big_col {npos};
+  std::size_t big_rows {0};  ///< Rows with a large-but-finite bound
+  std::size_t first_big_row {npos};
+
+  [[nodiscard]] constexpr bool any() const noexcept
+  {
+    return free_cols > 0 || big_cols > 0 || big_rows > 0;
+  }
+};
+
+/// Pure LP_QUALITY scan over the post-flatten bound vectors: counts FREE
+/// columns (both bounds at the ±`infinity` sentinel — no box for a
+/// first-order solver to project onto) and large-but-finite
+/// (|b| >= `large_bound`) column/row bounds, keeping the first offender
+/// of each kind.  Extracted from `LinearProblem::flatten()` so the
+/// classification is unit-testable without building an LP; the caller
+/// owns the logging.
+[[nodiscard]] BoundEnvelopeReport scan_bound_envelope(
+    std::span<const double> collb,
+    std::span<const double> colub,
+    std::span<const double> rowlb,
+    std::span<const double> rowub,
+    double infinity,
+    double large_bound) noexcept;
 
 /**
  * @class LinearProblem

@@ -30,9 +30,9 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Trivial 2-variable LP:  min x + y  s.t.  x + y >= 2,  x,y >= 0  →  obj = 2.
@@ -176,8 +176,6 @@ struct CuoptTrivialLP3
       / (std::string {"gtopt_cuopt_backend_"} + std::string {tag});
 }
 
-// NOLINTBEGIN(misc-const-correctness)
-
 TEST_CASE("cuOpt backend reports its name and capabilities")  // NOLINT
 {
   auto backend = make_cuopt_or_skip();
@@ -293,7 +291,5 @@ TEST_CASE("cuOpt open_log / close_log adjust the reported log level")  // NOLINT
   backend->close_log();
   CHECK(backend->get_log_level() == 0);
 }
-
-// NOLINTEND(misc-const-correctness)
 
 }  // namespace

@@ -11,7 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_cascade_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── CascadeTransition JSON ──────────────────────────────────────────────────

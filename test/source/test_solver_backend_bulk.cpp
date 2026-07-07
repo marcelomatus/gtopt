@@ -25,13 +25,12 @@
 #include <gtopt/solver_backend.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp, fuchsia-header-anon-namespaces,
-           // google-build-namespaces, misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 // Tiny 4-col / 2-row LP loaded directly via SolverBackend::load_problem.
 // Mirrors the structure used in test_osi_backend.cpp's OsiTrivialLP2 but

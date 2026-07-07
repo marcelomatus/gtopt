@@ -8,7 +8,7 @@
 #include <gtopt/carrier_converter.hpp>
 #include <gtopt/enum_option.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("CarrierConverter default values")  // NOLINT
 {

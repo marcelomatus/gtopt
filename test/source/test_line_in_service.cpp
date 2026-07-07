@@ -19,8 +19,8 @@
 #include <gtopt/planning.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 namespace
 {
@@ -189,4 +189,4 @@ TEST_CASE(
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

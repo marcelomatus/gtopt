@@ -24,7 +24,7 @@
 #include <gtopt/planning_options.hpp>
 #include <gtopt/variable_scale.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(readability-redundant-casting)
 
 namespace

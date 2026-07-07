@@ -7,7 +7,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_carrier_converter.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("CarrierConverter JSON round-trip — electrolyser")  // NOLINT
 {

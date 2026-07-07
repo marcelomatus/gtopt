@@ -12,6 +12,7 @@
 #include <format>
 #include <future>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 #include <gtopt/as_label.hpp>
@@ -33,13 +34,6 @@ namespace gtopt
 auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
     -> std::expected<int, Error>
 {
-  auto pool = make_solver_work_pool(
-      /*cpu_factor=*/2.0,
-      /*cpu_threshold_override=*/0.0,
-      /*scheduler_interval=*/std::chrono::milliseconds(50),
-      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb(),
-      /*pool_label=*/"MonolithicMethod solve pool");
-
   // ── Monitoring setup ──
   const auto solve_start = std::chrono::steady_clock::now();
   const auto num_scenes = static_cast<Index>(planning_lp.systems().size());
@@ -210,6 +204,21 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
   std::mutex times_mutex;
   std::vector<double> scene_times(num_scenes, 0.0);
 
+  // The pool is created AFTER every local the scene tasks capture by
+  // reference (effective_opts, scenes_done, times_mutex, scene_times):
+  // on any exception / early-error unwinding path the pool destructor
+  // then joins its still-running workers BEFORE those locals are
+  // destroyed (reverse declaration order).  With the pool declared
+  // first (the previous layout), a scene failing while its siblings
+  // were mid-solve destroyed `scene_times` et al. under the running
+  // tasks — a use-after-free.
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/2.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/planning_lp.options().sddp_pool_memory_limit_mb(),
+      /*pool_label=*/"MonolithicMethod solve pool");
+
   SolverMonitor monitor(api_update_interval);
   if (enable_api && !api_status_file.empty()) {
     monitor.start(*pool, solve_start, "MonolithicMonitor");
@@ -283,15 +292,41 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                         num_scenes);
             return r;
           });
-      futures.push_back(std::move(result.value()));
+      if (result.has_value()) {
+        futures.push_back(std::move(*result));
+      } else {
+        return std::unexpected(Error {
+            .code = ErrorCode::InternalError,
+            .message = std::format("Failed to submit scene {} to work pool",
+                                   scene_index),
+        });
+      }
     }
 
-    // Check all futures for errors
+    // Join ALL scene futures BEFORE acting on any failure: an early
+    // return while sibling scene tasks are still running would start
+    // destroying this frame ahead of the pool's worker join.  The pool
+    // now outlives the captured locals (see its declaration above), but
+    // draining first also keeps the error deterministic — the FIRST
+    // failed scene wins regardless of completion order.
+    std::optional<Error> first_error;
     for (auto& future : futures) {
-      if (auto result = future.get(); !result) {
-        monitor.stop();
-        return std::unexpected(std::move(result.error()));
+      try {
+        if (auto result = future.get(); !result && !first_error.has_value()) {
+          first_error = std::move(result.error());
+        }
+      } catch (const std::exception& e) {
+        if (!first_error.has_value()) {
+          first_error = Error {
+              .code = ErrorCode::InternalError,
+              .message = std::format("scene solve task threw: {}", e.what()),
+          };
+        }
       }
+    }
+    if (first_error.has_value()) {
+      monitor.stop();
+      return std::unexpected(std::move(*first_error));
     }
 
     // ── Kappa threshold checking ──

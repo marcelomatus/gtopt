@@ -1545,32 +1545,60 @@ auto SDDPMethod::run_backward_pass_synchronized(
         continue;
       }
 
-      auto fut = use_apertures
-          ? pool.submit(
-                [this, scene_index, phase_index, offset, &opts, iteration_index]
-                {
-                  return backward_pass_with_apertures_single_phase(
-                      scene_index,
-                      phase_index,
-                      offset,
-                      opts,
-                      iteration_index,
-                      /*exec_pool=*/nullptr);
-                },
-                bwd_req)
-          : pool.submit(
-                [this, scene_index, phase_index, offset, &opts, iteration_index]
-                {
-                  return backward_pass_single_phase(
-                      scene_index, phase_index, offset, opts, iteration_index);
-                },
-                bwd_req);
-      futures.emplace_back(scene_index, std::move(fut.value()));
+      const auto step_fn = [this,
+                            scene_index,
+                            phase_index,
+                            offset,
+                            &opts,
+                            iteration_index,
+                            use_apertures]() -> std::expected<int, Error>
+      {
+        return use_apertures
+            ? backward_pass_with_apertures_single_phase(scene_index,
+                                                        phase_index,
+                                                        offset,
+                                                        opts,
+                                                        iteration_index,
+                                                        /*exec_pool=*/nullptr)
+            : backward_pass_single_phase(
+                  scene_index, phase_index, offset, opts, iteration_index);
+      };
+      auto fut = pool.submit(step_fn, bwd_req);
+      if (fut.has_value()) {
+        futures.emplace_back(scene_index, std::move(*fut));
+      } else {
+        // Pool refused (enqueue failure) — run the step inline so the
+        // phase barrier stays complete.  The previous unchecked
+        // `fut.value()` threw `bad_expected_access` here and unwound
+        // while sibling scene tasks still referenced this frame.
+        std::promise<std::expected<int, Error>> inline_p;
+        try {
+          inline_p.set_value(step_fn());
+        } catch (...) {
+          inline_p.set_exception(std::current_exception());
+        }
+        futures.emplace_back(scene_index, inline_p.get_future());
+      }
     }
 
-    // Wait for all scenes to complete this phase step
+    // Wait for all scenes to complete this phase step.  Drain EVERY
+    // future before rethrowing an unexpected task exception: an early
+    // rethrow would unwind (destroying `per_scene_before`, `futures`,
+    // `scene_cuts` and the caller's `opts`) while sibling scene tasks
+    // are still running on the pool.
+    std::exception_ptr first_exc;
     for (auto& [scene_index, fut] : futures) {
-      auto step_result = fut.get();
+      std::expected<int, Error> step_result;
+      try {
+        step_result = fut.get();
+      } catch (...) {
+        if (first_exc == nullptr) {
+          first_exc = std::current_exception();
+        }
+        out.has_feasibility_issue = true;
+        m_scenes_done_.fetch_add(1);
+        continue;
+      }
       if (!step_result.has_value()) {
         SPDLOG_WARN("SDDP backward synchronized: scene {} phase {} failed: {}",
                     scene_index,
@@ -1583,6 +1611,9 @@ auto SDDPMethod::run_backward_pass_synchronized(
       out.total_cuts += *step_result;
       per_scene_cut_count[scene_index] += *step_result;
       m_scenes_done_.fetch_add(1);
+    }
+    if (first_exc != nullptr) {
+      std::rethrow_exception(first_exc);
     }
 
     // Share optimality cuts generated in this phase step across all scenes.
@@ -1695,6 +1726,10 @@ auto SDDPMethod::run_backward_pass_synchronized(
             bwd_req);
         if (fut.has_value()) {
           rel_futures.push_back(std::move(*fut));
+        } else {
+          // Pool refused (enqueue failure) — release inline so the cell
+          // is not silently left resident.
+          planning_lp().system(si, src_phase_index).release_backend();
         }
       }
       for (auto& f : rel_futures) {

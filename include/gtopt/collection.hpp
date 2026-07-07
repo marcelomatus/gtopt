@@ -160,6 +160,20 @@ class Collection
     return id;
   }
 
+  /// Shared failure path for uid/name collisions in `build_maps()` and
+  /// `push_back()`: one canonical message so the two sites never drift.
+  template<typename UidT, typename NameT>
+  [[noreturn]] static void throw_duplicate_id(const UidT& uid,
+                                              const NameT& name)
+  {
+    const auto msg = std::format("in class {}, non-unique uid {} or name {}",
+                                 Type::Element::class_name,
+                                 uid,
+                                 name);
+    SPDLOG_CRITICAL(msg);
+    throw std::runtime_error(msg);
+  }
+
 public:
   /// Public alias of the element type — used by tuple-iterating helpers
   /// (e.g. `SystemLP::bind_reservoir_caches`) that need to detect, at
@@ -181,24 +195,10 @@ public:
     for (index_t i = 0; auto&& e : element_vector) {
       auto&& [uid, name] = e.id();
 
-      if (!puid_map.emplace(uid, i).second) {
-        const auto msg =
-            std::format("in class {}, non-unique uid {} or name {}",
-                        Type::Element::class_name,
-                        uid,
-                        name);
-        SPDLOG_CRITICAL(msg);
-        throw std::runtime_error(msg);
-      }
-
-      if (!pname_map.emplace(name_t {name}, i).second) {
-        const auto msg =
-            std::format("in class {}, non-unique name {} or uid {}",
-                        Type::Element::class_name,
-                        name,
-                        uid);
-        SPDLOG_CRITICAL(msg);
-        throw std::runtime_error(msg);
+      if (!puid_map.emplace(uid, i).second
+          || !pname_map.emplace(name_t {name}, i).second)
+      {
+        throw_duplicate_id(uid, name);
       }
       ++i;
     }
@@ -209,9 +209,8 @@ public:
   }
 
   /**
-   * Special member functions with explicit noexcept specifications
-   * to enable move plannings and provide strong exception-safety
-   * guarantees.
+   * Special member functions: moves are noexcept so containers of
+   * Collections relocate instead of copying.
    */
   Collection(Collection&&) noexcept = default;
   Collection(const Collection&) = default;
@@ -246,21 +245,14 @@ public:
     const auto idx = element_vector.size();
 
     if (!uid_map.emplace(uid, idx).second) {
-      const auto msg = std::format("in class {}, non-unique uid {} or name {}",
-                                   Type::Element::class_name,
-                                   uid,
-                                   name);
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
+      throw_duplicate_id(uid, name);
     }
 
     if (!name_map.emplace(name_t {name}, idx).second) {
-      const auto msg = std::format("in class {}, non-unique name {} or uid {}",
-                                   Type::Element::class_name,
-                                   name,
-                                   uid);
-      SPDLOG_CRITICAL(msg);
-      throw std::runtime_error(msg);
+      // Roll back the uid insertion so a failed push_back leaves the
+      // collection exactly as it was.
+      uid_map.erase(uid);
+      throw_duplicate_id(uid, name);
     }
 
     // Use std::forward to preserve value category (lvalue/rvalue)
@@ -321,43 +313,32 @@ public:
 };
 
 /**
- * Visits each element in multiple collections and applies an operation to them.
- * Uses perfect forwarding throughout to minimize copies and maximize
- * performance.
- *
- * This function is marked noexcept to enable compiler plannings and
- * provide stronger exception safety guarantees.
+ * Visits each element in multiple collections and applies an operation to
+ * every one of them.
  *
  * @param collections Tuple of collections to visit
- * @param op Operation to apply to each element
- * @param args Additional arguments to forward to the operation
+ * @param op Operation applied to each element; a truthy return value is
+ *           counted as a successful visit
  * @return Count of successful operations
  */
-template<typename Collections, typename Op, typename... Args>
-constexpr auto visit_elements(Collections&& collections,
-                              Op op,
-                              Args&&... args)  // NOLINT
+template<typename Collections, typename Op>
+constexpr auto visit_elements(Collections&& collections, Op op)
 {
   std::size_t count = 0;
 
   std::apply(
       [&](auto&&... coll)
       {
-        (void)((... ||
-                [&]()
-                {
-                  if (coll.elements().empty()) {
-                    return false;
-                  }
-
-                  for (auto&& element :
-                       std::forward<decltype(coll)>(coll).elements()) {
-                    if (op(element, std::forward<Args>(args)...)) [[likely]] {
-                      ++count;
-                    }
-                  }
-                  return false;
-                }()));
+        (...,
+         [&]()
+         {
+           for (auto&& element :
+                std::forward<decltype(coll)>(coll).elements()) {
+             if (op(element)) [[likely]] {
+               ++count;
+             }
+           }
+         }());
       },
       std::forward<Collections>(collections));
 

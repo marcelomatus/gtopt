@@ -31,12 +31,12 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace ucbc_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucbc_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -113,7 +113,7 @@ auto make_json(std::string_view uc) -> std::string
 TEST_CASE(
     "UserConstraint block-coeff — baseline (no binding constraint)")  // NOLINT
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
   // Loose constraint; g1 serves all 300 MWh: 300 × 5 = 1500.
   const double obj = solve(R"({ "uid": 1, "name": "noop",
       "expression": "generator('g1').generation >= 0" })");
@@ -123,7 +123,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "UserConstraint block-coeff — profile binds only the blocks it selects")
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
 
   // Profile [1, 0, 0]: cap g1 at 40 in block 0 only (coeff 0 ⇒ no cap in
   // blocks 1,2 — `0 * g1 <= 40` is vacuous).
@@ -145,7 +145,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint block-coeff — distinct per-block caps via profile")
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
 
   // Coefficient profile [1, 1, 0]: cap g1<=40 in blocks 0,1; vacuous (0
   // coeff) in block 2.
@@ -161,7 +161,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint block-coeff — short profile broadcasts its last entry")
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
 
   // Profile [1] (length 1) broadcasts to all 3 blocks → uniform 1*g1<=40.
   //   3 × 3200 = 9600.
@@ -173,7 +173,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint block-coeff — scalar and uniform profile are identical")
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
 
   // Backward-compat: a scalar coefficient and an equivalent uniform profile
   // must assemble to the identical objective.
@@ -189,7 +189,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "UserConstraint block-coeff — bracketed expression round-trips JSON")  // NOLINT
 {
-  using namespace ucbc_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucbc_test;
 
   constexpr std::string_view uc_json = R"({
     "uid": 7,

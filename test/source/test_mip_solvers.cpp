@@ -26,25 +26,21 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-throwing-static-initialization,
-// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)
+#include "solver_test_helpers.hpp"
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-throwing-static-initialization,
+// bugprone-unchecked-optional-access,cert-err58-cpp)
+
+namespace
 {
 
-/// Return the list of loaded solvers that support MIP.
+/// Return the list of loaded solvers that support MIP.  Delegates to the
+/// shared helper, which excludes cuOpt (thread-unsafe B&B logger +
+/// non-bit-exact GPU branch-and-bound).
 [[nodiscard]] std::vector<std::string> mip_solvers()
 {
-  auto& reg = SolverRegistry::instance();
-  reg.load_all_plugins();
-  std::vector<std::string> result;
-  for (const auto& name : reg.available_solvers()) {
-    if (reg.supports_mip(name)) {
-      result.push_back(name);
-    }
-  }
-  return result;
+  return gtopt::solver_test::exact_mip_solvers();
 }
 
 // ── Shared fixtures ─────────────────────────────────────────────────────────
@@ -419,4 +415,4 @@ TEST_CASE(  // NOLINT
 }
 
 // NOLINTEND(bugprone-throwing-static-initialization,
-// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)
+// bugprone-unchecked-optional-access,cert-err58-cpp)

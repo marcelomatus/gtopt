@@ -5,7 +5,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/hardware_info.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("physical_concurrency returns a positive value")  // NOLINT
 {

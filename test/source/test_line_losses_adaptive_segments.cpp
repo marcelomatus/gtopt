@@ -20,11 +20,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/line_losses.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace line_losses_adaptive_test_ns  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace line_losses_adaptive_test_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Convenience: wrap two ``std::vector<double>`` calls into one

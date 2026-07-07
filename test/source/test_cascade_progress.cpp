@@ -13,9 +13,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/cascade_progress.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// One-shot temp-directory scope.  Removes itself on destruction so each

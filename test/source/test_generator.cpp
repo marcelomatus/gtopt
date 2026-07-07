@@ -7,7 +7,7 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Generator set_attrs functionality")
 {
@@ -391,7 +391,7 @@ TEST_CASE("GeneratorLP — soft pmin via pmin_fcost keeps the LP feasible")
 
 TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Deterministic LP where a cheap expandable generator must build capacity
   // (capainst) to cover a 50 MW demand. The base `capacity = 5` of the cheap
@@ -527,7 +527,7 @@ TEST_CASE("GeneratorLP — capainst primal col_sol expands to meet demand")
 
 TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Deterministic LP where a cheap generator at its capacity limit sets the
   // marginal rent on its capacity constraint. With demand > cheap capacity,
@@ -675,7 +675,7 @@ TEST_CASE("GeneratorLP — capacity row dual equals marginal cost minus gcost")
 
 TEST_CASE("GeneratorLP — integer_expmod MIP gives integer expansion modules")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Gate: this test requires a MIP-capable backend. When no MIP solver is

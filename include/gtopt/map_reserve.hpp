@@ -55,8 +55,10 @@ constexpr void map_reserve([[maybe_unused]] Map& map, [[maybe_unused]] Size n)
     auto containers = std::move(map).extract();
     containers.keys.reserve(static_cast<std::size_t>(n));
     containers.values.reserve(static_cast<std::size_t>(n));
-    map.replace(std::move(containers.keys),  // NOLINT
-                std::move(containers.values));
+    // extract() leaves `map` valid-but-empty and replace() refills it —
+    // this is the documented std::flat_map protocol, not a stale read.
+    // NOLINTNEXTLINE(bugprone-use-after-move,hicpp-invalid-access-moved)
+    map.replace(std::move(containers.keys), std::move(containers.values));
   }
   // else: std::map / std::set / std::multimap — no reserve, intentional no-op.
 }

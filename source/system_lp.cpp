@@ -1064,15 +1064,27 @@ namespace gtopt
 // every cell's write path (parallel under the cell pool) and read once
 // at the end of the run by the LP runner.  See
 // `SystemLP::total_write_ms` (header) for the rationale and the wall
-// vs. cumulative-wall semantics.  Defined inside `namespace gtopt`
-// (not in the file-anonymous namespace at the top of this TU) so the
-// `SystemLP::write_out` body — which lives here — can name them
-// directly, and so the static-getter implementations at the bottom of
-// the file can reach the same storage.
+// vs. cumulative-wall semantics.  The accumulators must outlive every
+// SystemLP instance (low_memory mode tears cells down before the final
+// report), so they are process-wide function-local statics exposed via
+// accessors rather than mutable namespace-scope globals.  Defined inside
+// `namespace gtopt` (not in the file-anonymous namespace at the top of
+// this TU) so the `SystemLP::write_out` body — which lives here — and
+// the static-getter implementations at the bottom of the file can reach
+// the same storage.
 namespace
 {
-std::atomic<double> g_write_out_total_ms {0.0};  // NOLINT
-std::atomic<std::size_t> g_write_out_cells {0};  // NOLINT
+std::atomic<double>& write_out_total_ms_counter() noexcept
+{
+  static std::atomic<double> total_ms {0.0};
+  return total_ms;
+}
+
+std::atomic<std::size_t>& write_out_cells_counter() noexcept
+{
+  static std::atomic<std::size_t> cells {0};
+  return cells;
+}
 }  // namespace
 
 void SystemLP::create_lp(const LpMatrixOptions& flat_opts_in)
@@ -1172,7 +1184,7 @@ void SystemLP::drop_for_write_out_done() noexcept
           (drop(colls), ...);
         },
         m_collections_);
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // `noexcept` contract — Collection move-assign is itself nothrow
     // on every used type, but defend against future changes that
     // could throw (e.g. allocator-aware move).  Best-effort: continue.
@@ -1232,7 +1244,7 @@ void SystemLP::clear_collections_for_eviction() noexcept
           (drop(colls), ...);
         },
         m_collections_);
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Collection move-assign is nothrow on every used type; defend
     // against future allocator-aware changes.  Best-effort.
   }
@@ -1495,7 +1507,7 @@ SystemLP& SystemLP::operator=(SystemLP&& other) noexcept
       spdlog::critical(
           "SystemLP move-assign across different System instances — "
           "this would leave m_system_context_ dangling.  Terminating.");
-    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    } catch (...) {
     }
     flush_default_logger_best_effort();
     std::terminate();
@@ -1654,8 +1666,9 @@ void SystemLP::write_out()
   // Feed the process-wide counters used by the runner's final
   // "Write output time" report.  See `SystemLP::total_write_ms` doc
   // for why the runner's own stopwatch is misleading under SDDP.
-  g_write_out_total_ms.fetch_add(total_cell_ms, std::memory_order_relaxed);
-  g_write_out_cells.fetch_add(1, std::memory_order_relaxed);
+  write_out_total_ms_counter().fetch_add(total_cell_ms,
+                                         std::memory_order_relaxed);
+  write_out_cells_counter().fetch_add(1, std::memory_order_relaxed);
 
   // Write LP fingerprint if requested
   if (options().lp_fingerprint()) {
@@ -2128,12 +2141,12 @@ int SystemLP::update_lp()
 // the header) so the atomics' definition stays in the .cpp TU.
 double SystemLP::total_write_ms() noexcept
 {
-  return g_write_out_total_ms.load(std::memory_order_relaxed);
+  return write_out_total_ms_counter().load(std::memory_order_relaxed);
 }
 
 std::size_t SystemLP::total_write_cells() noexcept
 {
-  return g_write_out_cells.load(std::memory_order_relaxed);
+  return write_out_cells_counter().load(std::memory_order_relaxed);
 }
 
 }  // namespace gtopt

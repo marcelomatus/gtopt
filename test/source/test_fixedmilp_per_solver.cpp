@@ -35,7 +35,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(
     "fix_mip_and_resolve_duals - committed duals per solver plugin")  // NOLINT

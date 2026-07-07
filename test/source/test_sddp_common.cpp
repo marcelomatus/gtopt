@@ -24,8 +24,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_common.hpp>
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── A. FormatSI buckets ────────────────────────────────────────────────────
 
@@ -370,5 +369,3 @@ TEST_CASE(
   CHECK(json.contains(R"("s": 0)"));
   CHECK(json.contains(R"("s": 1)"));
 }
-
-// NOLINTEND(google-global-names-in-headers)

@@ -14,7 +14,7 @@
 #include <gtopt/scenario.hpp>
 #include <gtopt/stage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace gtopt
 {

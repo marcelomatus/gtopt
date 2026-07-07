@@ -13,7 +13,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/single_id.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {

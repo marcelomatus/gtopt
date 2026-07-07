@@ -133,7 +133,7 @@ inline void write_test_parquet_long(const std::filesystem::path& filepath,
 
 TEST_CASE("ApertureDataCache default construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ApertureDataCache cache;
   CHECK(cache.empty());
@@ -142,7 +142,7 @@ TEST_CASE("ApertureDataCache default construction")  // NOLINT
 
 TEST_CASE("ApertureDataCache nonexistent directory")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ApertureDataCache cache(std::filesystem::temp_directory_path()
                                 / "nonexistent_aperture_cache_dir_xyz");
@@ -152,7 +152,7 @@ TEST_CASE("ApertureDataCache nonexistent directory")  // NOLINT
 
 TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const aperture_test_helpers::TmpDir tmp("test_aperture_cache_load");
 
@@ -279,7 +279,7 @@ TEST_CASE("ApertureDataCache loads parquet files")  // NOLINT
 
 TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const aperture_test_helpers::TmpDir tmp("test_aperture_cache_multi");
 
@@ -347,7 +347,7 @@ TEST_CASE("ApertureDataCache multiple classes and elements")  // NOLINT
 
 TEST_CASE("ApertureDataCache ignores non-parquet files")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const aperture_test_helpers::TmpDir tmp("test_aperture_cache_ignore");
 
@@ -366,7 +366,7 @@ TEST_CASE("ApertureDataCache ignores non-parquet files")  // NOLINT
 
 TEST_CASE("ApertureDataCache ignores files at root level")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const aperture_test_helpers::TmpDir tmp("test_aperture_cache_root_file");
 
@@ -394,7 +394,7 @@ TEST_CASE("ApertureDataCache ignores files at root level")  // NOLINT
 
 TEST_CASE("ApertureDataCache handles empty directory")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const aperture_test_helpers::TmpDir tmp("test_aperture_cache_empty_dir");
 

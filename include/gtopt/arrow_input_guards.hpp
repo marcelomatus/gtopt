@@ -82,7 +82,6 @@ inline void reject_nan_in_float_columns(const arrow::Table& table,
         const auto* data =
             std::static_pointer_cast<arrow::DoubleArray>(chunk)->raw_values();
         for (int64_t i = 0; i < length; ++i) {
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
           if (std::isnan(data[i])) {
             throw std::runtime_error(std::format(
                 "Parquet input '{}' column '{}' row {}: NaN values are "
@@ -97,7 +96,6 @@ inline void reject_nan_in_float_columns(const arrow::Table& table,
         const auto* data =
             std::static_pointer_cast<arrow::FloatArray>(chunk)->raw_values();
         for (int64_t i = 0; i < length; ++i) {
-          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
           if (std::isnan(data[i])) {
             throw std::runtime_error(std::format(
                 "Parquet input '{}' column '{}' row {}: NaN values are "

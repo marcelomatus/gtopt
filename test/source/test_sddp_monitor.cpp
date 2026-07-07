@@ -24,14 +24,14 @@
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_status.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── SolverStatusSnapshot tests
 // ───────────────────────────────────────────────
 
 TEST_CASE("SolverStatusSnapshot default construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SolverStatusSnapshot snap {};
 
@@ -48,7 +48,7 @@ TEST_CASE("SolverStatusSnapshot default construction")  // NOLINT
 
 TEST_CASE("SolverStatusSnapshot with custom values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SolverStatusSnapshot snap {
       .iteration_index = IterationIndex {5},
@@ -77,7 +77,7 @@ TEST_CASE("SolverStatusSnapshot with custom values")  // NOLINT
 
 TEST_CASE("SDDPIterationResult default construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SDDPIterationResult result {};
 
@@ -111,7 +111,7 @@ TEST_CASE(  // NOLINT
     "SDDPIterationResult scene_feasible — populated by copy from "
     "ForwardPassOutcome")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Synthesise a forward outcome with a 4-scene mix:  s0 / s2 / s3 feasible,
   // s1 infeasible.  The training-pass code path in
@@ -149,7 +149,7 @@ TEST_CASE(  // NOLINT
     "SDDPIterationResult scene_feasible — K/N count semantics for the "
     "feasible=K/N log clause")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // The log headline emits ``feasible=K/N`` only when K < N.  K is computed
   // as ``std::ranges::count(scene_feasible, uint8_t{1})``; N is
@@ -217,7 +217,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto tmp_file =
       (std::filesystem::temp_directory_path() / "gtopt_test_sddp_status.json")
@@ -318,7 +318,7 @@ TEST_CASE("write_solver_status produces valid JSON")  // NOLINT
 
 TEST_CASE("write_solver_status handles empty results")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_empty.json")
@@ -352,8 +352,7 @@ TEST_CASE(
     "write_solver_status shows converged status when "
     "converged")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_converged.json")
@@ -391,7 +390,7 @@ TEST_CASE(
     "build_iteration_status_json omits realtime/pool, "
     "no trailing brace")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SolverStatusSnapshot snap {
       .iteration_index = IterationIndex {2},
@@ -424,7 +423,7 @@ TEST_CASE(
     "build_realtime_status_json completes the document with "
     "pool/realtime keys")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SolverStatusSnapshot snap {
       .iteration_index = IterationIndex {1},
@@ -454,7 +453,7 @@ TEST_CASE(
     "update_status drives a periodic refresh write off "
     "the cached iteration JSON")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto tmp_file = (std::filesystem::temp_directory_path()
                          / "gtopt_test_sddp_status_periodic.json")
@@ -488,5 +487,3 @@ TEST_CASE(
 
   std::filesystem::remove(tmp_file);
 }
-
-// NOLINTEND(misc-const-correctness)

@@ -2,7 +2,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/matrix_stats.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // MatrixStats was extracted from LinearInterface (step 1 of decomposing that
 // class).  The point of the extraction is that these conditioning statistics

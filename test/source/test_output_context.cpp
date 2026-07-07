@@ -20,7 +20,7 @@
 #include <zlib.h>
 #include <zstd.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {
@@ -1372,7 +1372,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "OutputContext - write_out under low_memory=compress matches off baseline")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   auto [system, simulation] = make_basic_system();
 
   const auto tmpdir =

@@ -52,7 +52,7 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 

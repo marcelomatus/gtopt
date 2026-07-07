@@ -24,9 +24,9 @@
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build a SparseRow that looks like a real Benders cut:
@@ -449,7 +449,7 @@ TEST_CASE(  // NOLINT
   // Pins the early-return path
   // (`SceneCutStore::clear_with_lp` line ~196 — `if
   // (m_cuts_.empty()) return 0;`).
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Cannot use a real PlanningLP for this micro-test because
   // SDDPCutManager::clear_scene_cuts needs one.  Construct a

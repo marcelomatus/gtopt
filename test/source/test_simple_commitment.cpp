@@ -13,9 +13,9 @@
 
 #include "solver_test_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 const Array<Bus> bus_array = {
@@ -368,9 +368,9 @@ TEST_CASE("SimpleCommitmentLP - add_to_output via write_out")  // NOLINT
 TEST_CASE(  // NOLINT
     "SimpleCommitmentLP — MIP status u binary when pmin exceeds demand")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-throwing-static-initialization,
-  // bugprone-unchecked-optional-access, cert-err58-cpp)
+  // bugprone-unchecked-optional-access,cert-err58-cpp)
 
   auto& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -472,9 +472,9 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SimpleCommitmentLP — solved dispatch ∈ {0} ∪ [pmin, pmax] (off-or-min)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-throwing-static-initialization,
-  // bugprone-unchecked-optional-access, cert-err58-cpp)
+  // bugprone-unchecked-optional-access,cert-err58-cpp)
 
   auto& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -618,8 +618,8 @@ TEST_CASE(  // NOLINT
   }
 
   // NOLINTEND(bugprone-throwing-static-initialization,
-  // bugprone-unchecked-optional-access, cert-err58-cpp)
+  // bugprone-unchecked-optional-access,cert-err58-cpp)
 }
 
 // NOLINTEND(bugprone-throwing-static-initialization,
-// bugprone-unchecked-optional-access, cert-err58-cpp)
+// bugprone-unchecked-optional-access,cert-err58-cpp)

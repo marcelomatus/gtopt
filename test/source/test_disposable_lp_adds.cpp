@@ -33,8 +33,7 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 namespace
 {
@@ -310,7 +309,7 @@ TEST_CASE(
     "LinearInterface — compress + record_cut_deletion + dynamic_row "
     "reconstruct round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build a structural LP: min 2x1 + 3x2 s.t. x1 + x2 >= 5, 0 <= xi <= 10.
   LinearProblem lp;
@@ -435,5 +434,3 @@ TEST_CASE(
     CHECK(li.get_numrows() == static_cast<size_t>(base));
   }
 }
-
-// NOLINTEND(misc-const-correctness)

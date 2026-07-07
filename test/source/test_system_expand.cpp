@@ -34,7 +34,7 @@
 #include <gtopt/system.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── expand_reservoir_constraints tests ──────────────────────────────────────

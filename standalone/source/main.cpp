@@ -22,7 +22,7 @@
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 int main(int argc, char** argv)
 {

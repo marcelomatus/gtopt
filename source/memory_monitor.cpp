@@ -251,7 +251,11 @@ void MemoryMonitor::stop() noexcept
   running_.store(false, std::memory_order_relaxed);
   if (monitor_thread_.joinable()) {
     monitor_thread_.request_stop();
-    stop_cv_.notify_all();
+    // notify_stop() acquires stop_mutex_ before notifying — see the
+    // matching comment in CPUMonitor::stop(): a bare notify can be
+    // lost in the predicate-to-wait window and delay join() by up to
+    // monitor_interval_.
+    notify_stop();
     monitor_thread_.join();
   }
 }

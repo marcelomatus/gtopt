@@ -21,14 +21,14 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ── Shared fixture (same topology as test_flow_right.cpp Tier 2) ──────────
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 struct UFHydroFixture
 {

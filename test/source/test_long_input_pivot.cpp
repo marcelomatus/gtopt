@@ -6,9 +6,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/array_index_traits.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 [[nodiscard]] auto lip_i32(const std::vector<int32_t>& v) -> ArrowArray

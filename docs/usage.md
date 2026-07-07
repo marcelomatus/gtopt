@@ -67,7 +67,7 @@ Multiple system files can be provided and will be merged.
 | `-e` | `--matrix-eps` | `arg` | Epsilon for matrix sparsity (coefficients below this are zero) |
 | `-c` | `--lp-only` | `[=arg]` | Build the LP model and exit without solving |
 | `-T` | `--trace-log` | `arg` | Write trace-level log messages to this file |
-| | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs` (auto-detected by default) |
+| | `--solver` | `arg` | LP solver backend: `clp`, `cbc`, `cplex`, `highs`, `gurobi`, `mindopt`, `scip`, `cuopt`. Auto-detected by default (priority `cplex > highs > mindopt > cbc > clp`; override with `GTOPT_SOLVER` or this flag) |
 | | `--solvers` | | List available LP solver backends and exit |
 | | `--check-solvers` | `[=solver]` | Run the solver test suite against all (or a named) solver, then exit |
 | | `--sddp-num-apertures` | `arg` | SDDP backward-pass aperture count: `0`=disabled, `-1`=all, `N`=first N scenarios |

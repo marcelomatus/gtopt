@@ -27,8 +27,8 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/plant.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("Plant — default-constructed")
 {
@@ -335,4 +335,4 @@ TEST_CASE("Plant — without the cap row, both variants dispatch to peak")
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

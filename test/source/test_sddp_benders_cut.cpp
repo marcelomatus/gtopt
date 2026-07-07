@@ -24,7 +24,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ─── Free-function unit tests ───────────────────────────────────────────────

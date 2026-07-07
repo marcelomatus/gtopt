@@ -26,9 +26,9 @@
 
 #include "solver_test_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Helper: create a basic system with one bus, one demand, two generators,
@@ -3009,9 +3009,8 @@ TEST_CASE("CommitmentLP - add_to_output via write_out")  // NOLINT
 TEST_CASE(  // NOLINT
     "CommitmentLP — MIP u/v/w binary values for startup profile")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access,
-  // misc-const-correctness)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
 
   SolverRegistry& reg = SolverRegistry::instance();
   if (!reg.has_mip_solver()) {
@@ -3299,5 +3298,4 @@ TEST_CASE("Commitment JSON — `pmin` field accepted (new in 2026-05-20)")
   CHECK(std::get<double>(c.pmin.value_or(-1.0)) == doctest::Approx(25.0));
 }
 
-// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
-// misc-const-correctness)
+// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)

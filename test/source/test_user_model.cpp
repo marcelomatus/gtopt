@@ -37,12 +37,12 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace usermodel_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace usermodel_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -187,7 +187,7 @@ TEST_CASE("UserModel — parses inside a System; defaults stay empty")  // NOLIN
 
 TEST_CASE("UserModel — one var + one constraint adds one col + rows")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   const auto base_rows = solve_numrows(R"({ "uid": 1, "name": "empty" })");
   const auto base_cols = solve_numcols(R"({ "uid": 1, "name": "empty" })");
@@ -213,7 +213,7 @@ TEST_CASE("UserModel — one var + one constraint adds one col + rows")  // NOLI
 
 TEST_CASE("UserModel — bundled constraint resolves a bundled var")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   // The constraint references the var that is declared in the SAME bundle,
   // proving the internal DecisionVariableLP registers its column with the
@@ -247,7 +247,7 @@ TEST_CASE("UserModel — bundled constraint resolves a bundled var")  // NOLINT
 TEST_CASE(
     "UserModel — output capture lands under output/UserModel/<tag>")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   // `temp_directory_path()` honours $TMPDIR (never a hardcoded /tmp).
   const auto tmpdir =
@@ -348,7 +348,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "UserModel — tag unset → output dir is the element name")
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   // `temp_directory_path()` honours $TMPDIR (never a hardcoded /tmp).
   const auto tmpdir = std::filesystem::temp_directory_path()
@@ -425,7 +425,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("UserModel — global-scope emits one row, no collision")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   const auto base = solve_numrows(R"({ "uid": 1, "name": "empty" })");
 
@@ -451,7 +451,7 @@ TEST_CASE("UserModel — global-scope emits one row, no collision")  // NOLINT
 
 TEST_CASE("UserModel — all scopes build a feasible LP")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   for (const std::string_view scope : {"block", "stage", "phase", "global"}) {
     const auto um = std::format(
@@ -473,7 +473,7 @@ TEST_CASE("UserModel — all scopes build a feasible LP")  // NOLINT
 TEST_CASE(
     "UserModel — aux cols (abs lowering) are internal, not captured")  // NOLINT
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   // An `abs(...)` constraint lowers to an `abs_aux` column + 2 helper rows
   // PER block.  Those aux cols/rows are NOT registered in the AMPL registry
@@ -521,7 +521,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "UserModel — output capture survives SDDP low_memory=compress")
 {
-  using namespace usermodel_test;  // NOLINT(google-build-using-namespace)
+  using namespace usermodel_test;
 
   const auto tmpdir = std::filesystem::temp_directory_path()
       / "gtopt_user_model_compress_capture_test";

@@ -31,9 +31,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Add a synthetic optimality cut on (scene, phase) referencing α
@@ -89,7 +89,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 TEST_CASE(  // NOLINT
     "SDDPCutManager::clear_scene_cuts deletes rows and clears scene's vector")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -150,7 +150,7 @@ TEST_CASE(  // NOLINT
   //   3. Roll back S=0.
   //   4. Verify: m_scene_cuts_[0] is empty AND S=0's LP still has
   //      the shared cut row (proven by row count delta = 1, not 2).
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -234,7 +234,7 @@ TEST_CASE(  // NOLINT
   // across many phases (PLP-style backtrack chain installs fcuts
   // on phases p, p-1, p-2, …) so this is the closer-to-production
   // shape.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -302,7 +302,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPCutManager::clear_scene_cuts purges low-memory replay buffer")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   // Engage compress mode end-to-end so m_active_cuts_ is populated
@@ -370,7 +370,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPCutManager::clear_scene_cuts on empty scene_cuts is a no-op")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -412,7 +412,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPCutManager::clear_scene_cuts is independent across scenes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -459,7 +459,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "PlanningOptionsLP::sddp_forward_infeas_rollback defaults to true")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   // Default flipped 2026-04-30 (plan step 6).
@@ -473,7 +473,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "PlanningOptionsLP::sddp_forward_infeas_rollback respects explicit false")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.forward_infeas_rollback = false;
@@ -488,7 +488,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions::merge propagates forward_infeas_rollback override")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SddpOptions base;
   REQUIRE_FALSE(base.forward_infeas_rollback.has_value());
@@ -508,7 +508,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod ensure_initialized resets m_scene_retry_state_ on construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -556,7 +556,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stall-stop fires when failed scene sees no new cuts")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.forward_infeas_rollback = true;
@@ -591,7 +591,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stall-stop clears marker when peer cuts arrived")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.forward_infeas_rollback = true;
@@ -643,7 +643,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod stall-stop does NOT clear marker under cut_sharing=none "
     "even when peer cuts grew the global count")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   planning.options.sddp_options.forward_infeas_rollback = true;
@@ -702,7 +702,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod stall-stop is gated on forward_infeas_rollback option")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   // Flag deliberately omitted — defaults to false.
@@ -734,7 +734,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SddpOptions::merge propagates terminal_failure_threshold override")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SddpOptions base;
   REQUIRE_FALSE(base.terminal_failure_threshold.has_value());
@@ -750,7 +750,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod SceneRetryState defaults — terminal flag clean on init")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // A fresh SDDPMethod must seed every per-scene retry slot with
   // ``terminal = false`` and ``consecutive_structural_failures = 0``.
@@ -778,7 +778,7 @@ TEST_CASE(  // NOLINT
     "SDDPMethod terminal-skip: scene with terminal=true and zero new cuts "
     "is skipped at next dispatch")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Smoke test the dispatch-time skip path.  We synthesise the
   // post-failure state by hand:
@@ -834,8 +834,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod terminal-skip: scene un-terminals when global cut count grows")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Companion to the previous test: when fresh cuts arrive globally
   // (the snapshot stored at terminal-declaration is now stale), the
@@ -868,4 +868,4 @@ TEST_CASE(  // NOLINT
   CHECK_FALSE(rs0.terminal);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

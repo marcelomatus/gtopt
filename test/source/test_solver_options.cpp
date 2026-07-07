@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 
 #include <doctest/doctest.h>
@@ -22,11 +23,13 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+#include "solver_test_helpers.hpp"
+
+using namespace gtopt;
 
 TEST_CASE("SolverOptions - Default construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test default construction of SolverOptions
   const SolverOptions options {};
@@ -47,7 +50,7 @@ TEST_CASE("SolverOptions - Default construction")
 
 TEST_CASE("SolverLogMode - enumeration values and names")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(std::to_underlying(SolverLogMode::nolog) == 0);
   CHECK(std::to_underlying(SolverLogMode::detailed) == 1);
@@ -62,7 +65,7 @@ TEST_CASE("SolverLogMode - enumeration values and names")
 
 TEST_CASE("SolverScaling - enumeration values and names")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(std::to_underlying(SolverScaling::none) == 0);
   CHECK(std::to_underlying(SolverScaling::automatic) == 1);
@@ -81,7 +84,7 @@ TEST_CASE("SolverScaling - enumeration values and names")
 
 TEST_CASE("SolverOptions - Custom construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test constructing SolverOptions with custom values
   const SolverOptions options {
@@ -107,7 +110,7 @@ TEST_CASE("SolverOptions - Custom construction")
 
 TEST_CASE("SolverOptions - LPAlgo enumeration values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test the LPAlgo enumeration values
   CHECK(std::to_underlying(LPAlgo::default_algo) == 0);
@@ -119,7 +122,7 @@ TEST_CASE("SolverOptions - LPAlgo enumeration values")
 
 TEST_CASE("SolverOptions - JSON serialization and deserialization")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("with tolerance values")
   {
@@ -192,7 +195,7 @@ TEST_CASE("SolverOptions - JSON serialization and deserialization")
 
 TEST_CASE("SolverOptions - Usage with LinearInterface")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Create a minimal linear problem for testing
   FlatLinearProblem flat_lp;
@@ -239,7 +242,7 @@ TEST_CASE("SolverOptions - Usage with LinearInterface")
 
 TEST_CASE("SolverOptions - Numerical parameters")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test with different numerical parameter settings
 
@@ -280,7 +283,7 @@ TEST_CASE("SolverOptions - Numerical parameters")
 TEST_CASE(  // NOLINT
     "SolverOptions - merge() uses merge_opt (source wins) on optional fields")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("merge sets nullopt field from source")
   {
@@ -403,7 +406,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SolverOptions - overlay carries force_barrier_crossover")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Regression: `resolve()` builds the effective options via
   // `optimal_options().overlay(user)`, rebuilt field-by-field.
@@ -433,7 +436,7 @@ TEST_CASE("SolverOptions - overlay carries force_barrier_crossover")  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP merge: method-specific overrides global")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Verify that method-specific solver options (e.g. sddp forward)
   // override global solver_options, and global fills in the rest.
@@ -462,7 +465,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP merge: monolithic overrides global")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions planning;
   planning.solver_options.barrier_eps = 1e-8;
@@ -487,7 +490,7 @@ TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP: no method-specific falls back to "
     "global")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions planning;
   planning.solver_options.optimal_eps = 1e-6;
@@ -509,7 +512,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SolverOptions - Threading options")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test with different threading options
 
@@ -540,7 +543,7 @@ TEST_CASE("SolverOptions - Threading options")
 
 TEST_CASE("SolverOptions - Presolve and logging options")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test presolve and logging options
 
@@ -579,7 +582,7 @@ TEST_CASE("SolverOptions - Presolve and logging options")
 
 TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Verify that selecting the dual simplex algorithm still yields the correct
   // solution on the same simple 1x1 problem.
@@ -617,7 +620,7 @@ TEST_CASE("SolverOptions - Algorithm selection with dual simplex")  // NOLINT
 
 TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlatLinearProblem flat_lp;
   flat_lp.name = "primal_algo_test";
@@ -653,7 +656,7 @@ TEST_CASE("SolverOptions - Algorithm selection with primal simplex")  // NOLINT
 
 TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Verify all available algorithms solve:
   //   min  x + y
@@ -713,7 +716,7 @@ TEST_CASE("SolverOptions - All algorithms solve correctly on 2x2 LP")  // NOLINT
 // Barrier + threads tests (all available solvers including HiGHS)
 // ---------------------------------------------------------------------------
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build a 4-variable LP to exercise barrier:
@@ -723,7 +726,13 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 ///                  x3 + x4 >= 4
 ///        x1, x2, x3, x4 >= 0
 /// Optimal: x1=5, x2=0, x3=3, x4=1, obj=18.
-auto make_barrier_test_lp(std::string_view solver_name) -> LinearInterface
+/// Returns std::nullopt (after a doctest MESSAGE) when the backend cannot
+/// START because of a license failure — licensed solvers flake transiently
+/// under parallel test load even after plugin validation, and these
+/// all-solver sweeps must skip them rather than fail.  Any other exception
+/// propagates so real regressions surface.
+auto make_barrier_test_lp(std::string_view solver_name)
+    -> std::optional<LinearInterface>
 {
   FlatLinearProblem flat_lp;
   flat_lp.name = "barrier_threads_test";
@@ -739,14 +748,23 @@ auto make_barrier_test_lp(std::string_view solver_name) -> LinearInterface
   flat_lp.rowub = {1e30, 1e30, 1e30};
   flat_lp.colnm = {"x1", "x2", "x3", "x4"};
   flat_lp.rownm = {"r1", "r2", "r3"};
-  return LinearInterface(solver_name, flat_lp);
+  try {
+    return LinearInterface(solver_name, flat_lp);
+  } catch (const std::exception& e) {
+    if (gtopt::solver_test::is_license_failure(e)) {
+      MESSAGE("solver '" << solver_name
+                         << "' license unavailable — skipping: " << e.what());
+      return std::nullopt;
+    }
+    throw;
+  }
 }
 
 }  // namespace
 
 TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -758,7 +776,11 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 
     SUBCASE(solver_name.c_str())
     {
-      auto lp = make_barrier_test_lp(solver_name);
+      auto lp_opt = make_barrier_test_lp(solver_name);
+      if (!lp_opt) {
+        return;  // license unavailable — skipped
+      }
+      auto& lp = *lp_opt;
 
       const SolverOptions opts {
           .algorithm = LPAlgo::barrier,
@@ -784,7 +806,7 @@ TEST_CASE("SolverOptions - barrier with threads on all solvers")  // NOLINT
 TEST_CASE(
     "SolverOptions - barrier then resolve with dual on all solvers")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test the SDDP workflow: initial solve with barrier, then resolve with
   // dual simplex.  Validates the CPLEX resolve() fix.
@@ -798,7 +820,11 @@ TEST_CASE(
 
     SUBCASE(solver_name.c_str())
     {
-      auto lp = make_barrier_test_lp(solver_name);
+      auto lp_opt = make_barrier_test_lp(solver_name);
+      if (!lp_opt) {
+        return;  // license unavailable — skipped
+      }
+      auto& lp = *lp_opt;
 
       // Step 1: initial solve with barrier + threads
       const SolverOptions barrier_opts {
@@ -826,7 +852,7 @@ TEST_CASE(
 
 TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -845,7 +871,11 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 
       SUBCASE("initial_solve creates log file")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
         const auto log_stem = (log_dir / "initial_solve").string();
         lp.set_log_file(log_stem);
 
@@ -866,7 +896,11 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 
       SUBCASE("resolve creates log file")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
         const auto log_stem = (log_dir / "resolve").string();
         lp.set_log_file(log_stem);
 
@@ -898,7 +932,11 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 
       SUBCASE("nolog mode without log file does not create file")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
         // Do NOT call set_log_file — nolog should produce no file
 
         const auto log_stem = (log_dir / "nolog").string();
@@ -925,7 +963,7 @@ TEST_CASE("SolverOptions - log_mode detailed writes log file")  // NOLINT
 
 TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -939,7 +977,11 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
     {
       SUBCASE("barrier algorithm with custom settings")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
 
         const SolverOptions opts {
             .algorithm = LPAlgo::barrier,
@@ -960,7 +1002,11 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 
       SUBCASE("dual algorithm with presolve enabled")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
 
         const SolverOptions opts {
             .algorithm = LPAlgo::dual,
@@ -981,7 +1027,11 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 
       SUBCASE("options update on successive apply_options calls")
       {
-        auto lp = make_barrier_test_lp(solver_name);
+        auto lp_opt = make_barrier_test_lp(solver_name);
+        if (!lp_opt) {
+          return;  // license unavailable — skipped
+        }
+        auto& lp = *lp_opt;
 
         // First solve with barrier
         const SolverOptions opts1 {
@@ -1022,7 +1072,7 @@ TEST_CASE("SolverOptions - query methods reflect applied options")  // NOLINT
 TEST_CASE(
     "SolverOptions - max_fallbacks default and explicit values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is 2")
   {
@@ -1050,8 +1100,8 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "SolverOptions - PlanningOptionsLP applies SDDP max_fallbacks defaults")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness,
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
   // modernize-return-braced-init-list)
 
   SUBCASE("defaults: forward=2, backward=0")
@@ -1098,5 +1148,5 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness,
+// NOLINTEND(bugprone-unchecked-optional-access,
 // modernize-return-braced-init-list)

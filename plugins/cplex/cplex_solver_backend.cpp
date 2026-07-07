@@ -546,12 +546,7 @@ void CplexSolverBackend::load_problem(int ncols,
   for (int i = 0; i < nrows; ++i) {
     const auto idx = static_cast<size_t>(i);
     bounds_to_cplex(
-        rowlb[i],  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        rowub[i],  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-        cpx_inf,
-        sense[idx],
-        rhs[idx],
-        range[idx]);
+        rowlb[i], rowub[i], cpx_inf, sense[idx], rhs[idx], range[idx]);
   }
 
   // CPLEX requires sorted row indices within each column (CSC format).
@@ -575,12 +570,10 @@ void CplexSolverBackend::load_problem(int ncols,
   // column and asserts ascending row indices.  Use this on a new
   // backend or after a flatten refactor to confirm the invariant
   // before relying on the fast path.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto nnz =
       (ncols > 0) ? static_cast<size_t>(matbeg[ncols]) : size_t {0};
 
-  if (const auto* verify = std::getenv(
-          "GTOPT_CPLEX_VERIFY_MATIND_SORTED");  // NOLINT(concurrency-mt-unsafe)
+  if (const auto* verify = std::getenv("GTOPT_CPLEX_VERIFY_MATIND_SORTED");
       verify != nullptr && *verify == '1' && matind != nullptr)
   {
     for (int col = 0; col < ncols; ++col) {
@@ -601,7 +594,6 @@ void CplexSolverBackend::load_problem(int ncols,
       }
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // CPLEX requires all pointers to be non-null, even for zero-element
   // matrices.  Provide safe defaults when the caller passes nullptr —
@@ -646,7 +638,6 @@ void CplexSolverBackend::load_problem(int ncols,
   // Compute matcnt from matbeg differences (CPLEX 22.1 requires it).
   std::vector<int> matcnt(ncols_sz, 0);
   for (int c = 0; c < ncols; ++c) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     matcnt[static_cast<size_t>(c)] = safe_matbeg[c + 1] - safe_matbeg[c];
   }
 
@@ -727,9 +718,7 @@ void CplexSolverBackend::add_cols(int num_cols,
   // per-column CPXaddcols invocations — each of those reallocates the
   // internal column metadata array, so the bulk path is materially
   // faster on cold-start LPs with thousands of columns.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nzcnt = colbeg[num_cols];
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int status = CPXaddcols(m_env_lp_.env(),
                                 m_env_lp_.lp(),
                                 num_cols,
@@ -816,7 +805,6 @@ void CplexSolverBackend::set_col_bounds_bulk(int num,
   // unchanged.  Single allocation-free CPXchgbds dispatch.
   bool has_both = false;
   for (int i = 0; i < num; ++i) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     if (lu[i] == 'B') {
       has_both = true;
       break;
@@ -835,7 +823,6 @@ void CplexSolverBackend::set_col_bounds_bulk(int num,
   sides.reserve(static_cast<size_t>(num) * 2U);
   vals.reserve(static_cast<size_t>(num) * 2U);
   for (int i = 0; i < num; ++i) {
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     const char c = lu[i];
     if (c == 'B') {
       idx.push_back(indices[i]);
@@ -849,7 +836,6 @@ void CplexSolverBackend::set_col_bounds_bulk(int num,
       sides.push_back(c);
       vals.push_back(values[i]);
     }
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
   CPXchgbds(m_env_lp_.env(),
             m_env_lp_.lp(),
@@ -1023,8 +1009,7 @@ void CplexSolverBackend::delete_rows(int num, const int* indices)
   const int nrows = CPXgetnumrows(m_env_lp_.env(), m_env_lp_.lp());
   std::vector<int> delstat(static_cast<size_t>(nrows), 0);
   for (int i = 0; i < num; ++i) {
-    const auto idx = static_cast<size_t>(
-        indices[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    const auto idx = static_cast<size_t>(indices[i]);
     if (idx < delstat.size()) {
       delstat[idx] = 1;
     }

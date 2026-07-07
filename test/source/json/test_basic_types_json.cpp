@@ -7,7 +7,7 @@
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_field_sched.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(misc-use-internal-linkage)
 
 namespace test_basic_types_json

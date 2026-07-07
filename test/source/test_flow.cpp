@@ -2,11 +2,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/flow.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Flow construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Flow flow;
 
@@ -23,7 +23,7 @@ TEST_CASE("Flow construction and default values")
 
 TEST_CASE("Flow is_input method")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default direction is inflow")
   {
@@ -62,7 +62,7 @@ TEST_CASE("Flow is_input method")  // NOLINT
 
 TEST_CASE("Flow attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Flow flow;
 
@@ -82,7 +82,7 @@ TEST_CASE("Flow attribute assignment")
 
 TEST_CASE("Flow designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Flow flow {
       .uid = Uid {2},
@@ -102,7 +102,7 @@ TEST_CASE("Flow designated initializer construction")
 
 TEST_CASE("Flow with vector discharge schedule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Flow flow;
   flow.uid = 3;
@@ -126,7 +126,7 @@ TEST_CASE("Flow with vector discharge schedule")
 
 TEST_CASE("Flow with file schedule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Flow flow;
   flow.uid = 4;
@@ -141,8 +141,7 @@ TEST_CASE("Flow with file schedule")
 
 TEST_CASE("Flow without junction (flow-turbine mode)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   const Flow flow {
       .uid = Uid {5},
@@ -156,5 +155,3 @@ TEST_CASE("Flow without junction (flow-turbine mode)")
   CHECK_FALSE(flow.junction.has_value());
   CHECK(flow.uid == Uid {5});
 }
-
-// NOLINTEND(misc-const-correctness)

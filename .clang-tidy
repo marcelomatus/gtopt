@@ -29,6 +29,14 @@
 #   bugprone-lambda-function-name – __func__ in lambdas; harmless pattern
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access – []  preferred
 #                                  over .at() in hot LP-assembly paths
+#   cppcoreguidelines-pro-bounds-constant-array-index – sibling of the
+#                                  check above: runtime-indexed [] on
+#                                  std::array with loop-bounded indices is
+#                                  the hot path in label caches, SHA-256
+#                                  fingerprinting, and consteval table
+#                                  builders (where OOB already fails the
+#                                  compile).  gsl::at() is not a project
+#                                  dependency.
 #   clang-analyzer-{cplusplus.NewDeleteLeaks, – false positives with COIN-OR
 #     security.ArrayBound,
 #     core.uninitialized.UndefReturn,
@@ -85,6 +93,7 @@ Checks: "*,\
   -cppcoreguidelines-macro-to-enum,\
   -cppcoreguidelines-macro-usage,\
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,\
+  -cppcoreguidelines-pro-bounds-constant-array-index,\
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,\
   -fuchsia-default-arguments-calls,\
   -fuchsia-default-arguments-declarations,\

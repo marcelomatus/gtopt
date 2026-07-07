@@ -16,7 +16,7 @@
 #include <gtopt/json/json_options.hpp>
 #include <gtopt/json/json_parse_policy.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("json_options - Deserialization of Options from JSON")
 {

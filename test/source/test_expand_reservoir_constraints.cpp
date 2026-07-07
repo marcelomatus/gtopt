@@ -1,11 +1,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/system.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("expand_reservoir_constraints moves embedded seepage to system array")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -45,7 +45,7 @@ TEST_CASE(
     "expand_reservoir_constraints moves embedded discharge_limit to system "
     "array")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -88,7 +88,7 @@ TEST_CASE(
     "expand_reservoir_constraints moves embedded production_factor to system "
     "array")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -127,7 +127,7 @@ TEST_CASE(
 
 TEST_CASE("expand_reservoir_constraints preserves existing uid and name")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -157,7 +157,7 @@ TEST_CASE("expand_reservoir_constraints preserves existing uid and name")
 
 TEST_CASE("expand_reservoir_constraints handles multiple reservoirs")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -215,7 +215,7 @@ TEST_CASE("expand_reservoir_constraints handles multiple reservoirs")
 TEST_CASE(
     "expand_reservoir_constraints appends to existing system-level arrays")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   // Pre-existing system-level seepage
@@ -254,7 +254,7 @@ TEST_CASE(
 
 TEST_CASE("expand_reservoir_constraints is idempotent")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.reservoir_array = {
@@ -284,7 +284,7 @@ TEST_CASE("expand_reservoir_constraints is idempotent")
 TEST_CASE(
     "expand_reservoir_constraints reassigns duplicate uid from inline entry")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   // Pre-existing system-level seepage with uid=1
@@ -329,7 +329,7 @@ TEST_CASE(
 TEST_CASE(
     "expand_reservoir_constraints reassigns duplicate name from inline entry")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   // Pre-existing system-level seepage with name="COLBUN_seepage_1"

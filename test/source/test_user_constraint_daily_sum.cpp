@@ -39,13 +39,13 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions;
 // the nested anonymous namespace gives the helpers internal linkage.
-namespace ucds_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucds_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -126,7 +126,7 @@ auto make_json(std::string_view uc) -> std::string
 
 TEST_CASE("UserConstraint daily_sum — baseline (no constraint)")  // NOLINT
 {
-  using namespace ucds_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucds_test;
   // No daily limit: cheap g1 serves all 4800 MWh.
   //   cost = 4800 MWh × 5 = 24000.
   const double obj = solve(R"({ "uid": 1, "name": "noop",
@@ -137,7 +137,7 @@ TEST_CASE("UserConstraint daily_sum — baseline (no constraint)")  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint daily_sum — per-day energy budget binds independently")
 {
-  using namespace ucds_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucds_test;
 
   // Daily ENERGY budget on g1: Σ_day g1·Δt ≤ 1200 MWh.  Each day needs
   // 2400 MWh, so g1 supplies 1200 and the expensive g2 the other 1200,
@@ -160,7 +160,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint daily_sum — loose budget is non-binding")
 {
-  using namespace ucds_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucds_test;
   // Budget 3000 MWh/day > the 2400 MWh/day a single g1 could ever supply
   // (100 MW × 24 h = 2400) → never binds → cheap baseline 24000.
   const double obj = solve(R"({ "uid": 1, "name": "g1_loose",
@@ -172,7 +172,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "UserConstraint daily_sum — two-unit sum mirrors CANUTILLARreserve")
 {
-  using namespace ucds_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucds_test;
   // Σ_day (g1 + g2)·Δt ≤ 3000 MWh caps TOTAL daily energy below the
   // 2400×... no — total daily demand is 2400 MWh, so a 3000 cap is loose;
   // tighten to 1800 MWh/day total → 600 MWh/day of demand goes unserved at

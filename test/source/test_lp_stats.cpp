@@ -12,7 +12,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_stats.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ScenePhaseLPStats coeff_ratio")  // NOLINT
 {

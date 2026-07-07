@@ -9,7 +9,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Demand")
 {
@@ -1365,7 +1365,7 @@ TEST_CASE("DemandProfileLP - load bound by profile times capacity")
 
 TEST_CASE("DemandLP — capainst primal col_sol pinned by expmod module count")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP verifying that DemandLP (via CapacityObjectBase) exposes

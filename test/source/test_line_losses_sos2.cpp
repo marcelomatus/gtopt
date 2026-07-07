@@ -51,7 +51,7 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap the entire file body in a uniquely-named outer namespace so the
 // Unity-build (CMake batches many test cpp files into a single TU)
@@ -60,7 +60,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace test_line_losses_sos2_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── 2-bus fixture replicated from test_line_losses_tangent_signed_flow ──
@@ -561,9 +561,9 @@ TEST_CASE(
 // This is analytical — no LP solves required — and mirrors the
 // existing pattern.
 
-namespace test_line_losses_sos2_convergence_ns  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace test_line_losses_sos2_convergence_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 constexpr double kSos2Envelope = 200.0;

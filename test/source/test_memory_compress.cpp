@@ -16,7 +16,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/memory_compress.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {

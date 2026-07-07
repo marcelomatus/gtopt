@@ -50,11 +50,11 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace amplfcf_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace amplfcf_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 constexpr Uid kUserAlphaUid {4242};
@@ -236,7 +236,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "AmplFutureCost — user α matches the equivalent boundary-cut FCF (obj)")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   // ── Baseline: plain monolithic single-phase solve (to size the cut RHS) ──
   const double baseline_obj =
@@ -287,7 +287,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AmplFutureCost — use_user_alpha + boundary_cuts_file is std::unexpected")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   const auto cuts_file =
       (std::filesystem::temp_directory_path() / "gtopt_test_amplfcf_mx.csv")
@@ -317,7 +317,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "AmplFutureCost — user α with cost == 0 is std::unexpected")  // NOLINT
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   PlanningLP planning_lp(
       make_user_alpha_sddp_planning(1000.0, /*alpha_cost=*/0.0));
@@ -338,7 +338,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "AmplFutureCost — FutureCost.mean_shift=false beats SDDPOptions=true")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   // A boundary cut on the 3-phase fixture; a FutureCost element authors the
   // boundary fields (cuts_file + mean_shift=false).  SDDPOptions requests
@@ -428,7 +428,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AmplFutureCost 2c — user α drives SDDP recourse to the analytic optimum")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   constexpr double kW =
       90.0;  // $/dam³ — STRICTLY > differential → unique corner
@@ -588,7 +588,7 @@ TEST_CASE(  // NOLINT
     "FutureCost.single_cut_equality — false keeps `≥`, default/true installs "
     "`=`")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   const auto cuts_file =
       (std::filesystem::temp_directory_path() / "gtopt_test_single_cut_eq.csv")
@@ -648,7 +648,7 @@ TEST_CASE(  // NOLINT
     "FutureCost.single_cut_equality=false — single boundary `≥` cut is a "
     "faithful oracle for the user-authored `≥` FCF (2c)")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   constexpr double kW = 90.0;  // $/dam³ — same as the 2c user cut
   constexpr double kR = 45000.0;  // = W·emax — same as the 2c user cut
@@ -771,7 +771,7 @@ TEST_CASE(  // NOLINT
 // them is caught here, not only in the (slow) end-to-end SDDP tests.
 TEST_CASE("active_user_alpha_uid — guard preconditions")  // NOLINT
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   SUBCASE("nullopt when there is no FutureCost element")
   {
@@ -854,7 +854,7 @@ TEST_CASE("active_user_alpha_uid — guard preconditions")  // NOLINT
 TEST_CASE(  // NOLINT
     "AmplFutureCost — use_user_alpha without user_alpha_uid is std::unexpected")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   auto planning = make_2phase_linear_planning();
   planning.options.method = MethodType::sddp;
@@ -888,7 +888,7 @@ TEST_CASE(  // NOLINT
     "AmplFutureCost — user_alpha_uid matching no DecisionVariable is "
     "std::unexpected")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   auto planning = make_2phase_linear_planning();
   planning.options.method = MethodType::sddp;
@@ -923,7 +923,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AmplFutureCost — use_user_alpha + cut_sharing=multicut is std::unexpected")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   PlanningLP planning_lp(make_user_alpha_sddp_planning(1000.0, 1.0));
   SDDPOptions opts;
@@ -957,7 +957,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "AmplFutureCost — user α is not elastically zeroed (non-trivial LB)")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   constexpr double kW = 90.0;
   constexpr double kR = 45000.0;
@@ -1031,7 +1031,7 @@ TEST_CASE(  // NOLINT
     "DecisionVariable — obj_constant on a global-scope column adds the "
     "constant")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   const double baseline =
       solve_monolithic_obj(make_monolithic_planning(), /*boundary=*/"");
@@ -1077,7 +1077,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "DecisionVariable — cost_type=power on a global column folds prob×discount")
 {
-  using namespace amplfcf_test;  // NOLINT(google-build-using-namespace)
+  using namespace amplfcf_test;
 
   // A planning whose single (terminal) stage carries discount_factor = 0.5.
   const auto make_discounted = []

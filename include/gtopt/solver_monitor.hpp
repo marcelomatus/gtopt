@@ -89,10 +89,11 @@ namespace gtopt
   WorkPoolConfig pool_config {};
   pool_config.name = std::string {pool_label};
   // Use physical cores as the base — hyperthreads add little for
-  // compute-bound LP solves and inflate the thread count.  With a memory
-  // limit the pool starts at ONE thread and grows toward the
-  // `cpu_factor × cores` ceiling under the live measured-memory controller
-  // (no fixed per-task estimate); with no limit it runs at the ceiling.
+  // compute-bound LP solves and inflate the thread count.  Worker-thread
+  // count is DECOUPLED from any memory limit (see `memory_clamp_threads`):
+  // the pool always runs at the `cpu_factor × cores` ceiling, and a
+  // memory limit is enforced by the live measured-memory DISPATCH gate
+  // (`BasicWorkPool::can_dispatch_task`), not by clamping workers.
   const auto clamp =
       memory_clamp_threads(cpu_factor, memory_limit_mb, pool_config.name);
   pool_config.max_threads = clamp.initial_threads;

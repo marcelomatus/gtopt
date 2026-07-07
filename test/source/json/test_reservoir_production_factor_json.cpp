@@ -5,7 +5,7 @@
 #include <gtopt/json/json_reservoir_production_factor.hpp>
 #include <gtopt/reservoir_production_factor.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ProductionFactorSegment daw json round-trip")
 {

@@ -4,7 +4,7 @@
 #include <gtopt/json/json_parse_policy.hpp>
 #include <gtopt/json/json_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("JSON Planning - Serialize empty")
 {

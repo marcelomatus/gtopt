@@ -10,8 +10,8 @@
 #include <gtopt/cascade_options.hpp>
 #include <gtopt/json/json_cascade_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, readability-trailing-comma)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
 
 // ── CascadeTransition ───────────────────────────────────────────────────────
 
@@ -817,4 +817,4 @@ TEST_CASE("CascadeOptions - different-size level_array still replaces")
   CHECK(*base.level_array[0].name == "only");
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, readability-trailing-comma)
+// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)

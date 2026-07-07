@@ -27,12 +27,12 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // compute_scene_weights() unit tests
@@ -41,7 +41,7 @@ using namespace gtopt;  // NOLINT(google-build-using-namespace)
 TEST_CASE(  // NOLINT
     "compute_scene_weights — all feasible, runtime rescale normalises to 1")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 2 scenes, each with 1 scenario of probability_factor = 1.0
   Simulation sim;
@@ -85,7 +85,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_scene_weights — one infeasible scene, runtime rescale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Simulation sim;
   sim.scenario_array = {
@@ -128,7 +128,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_scene_weights — all infeasible, equal weight fallback")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Simulation sim;
   sim.scenario_array = {
@@ -170,7 +170,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_scene_weights — non-runtime mode preserves raw weights")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Simulation sim;
   sim.scenario_array = {
@@ -211,7 +211,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_scene_weights — empty scenes use fallback weight 1.0")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // If scene_feasible has entries but scenes span is smaller, the code
   // falls back to weight=1.0 for feasible scenes beyond scenes.size()
@@ -229,7 +229,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_scene_weights — single scene runtime returns 1.0")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Simulation sim;
   sim.scenario_array = {{.uid = Uid {1}, .probability_factor = 0.8}};
@@ -260,7 +260,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("compute_convergence_gap — basic positive gap")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // gap = (UB - LB) / max(1, |UB|) = (200 - 100) / 200 = 0.5
   CHECK(compute_convergence_gap(200.0, 100.0) == doctest::Approx(0.5));
@@ -268,14 +268,14 @@ TEST_CASE("compute_convergence_gap — basic positive gap")  // NOLINT
 
 TEST_CASE("compute_convergence_gap — equal bounds gives zero gap")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(compute_convergence_gap(150.0, 150.0) == doctest::Approx(0.0));
 }
 
 TEST_CASE("compute_convergence_gap — small UB uses denominator 1.0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // |UB| < 1 => denom = 1.0
   // gap = (0.5 - 0.3) / 1.0 = 0.2
@@ -284,7 +284,7 @@ TEST_CASE("compute_convergence_gap — small UB uses denominator 1.0")  // NOLIN
 
 TEST_CASE("compute_convergence_gap — negative upper bound")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // UB=-10, LB=-20 => gap = (-10 - (-20)) / max(1, 10) = 10/10 = 1.0
   CHECK(compute_convergence_gap(-10.0, -20.0) == doctest::Approx(1.0));
@@ -292,7 +292,7 @@ TEST_CASE("compute_convergence_gap — negative upper bound")  // NOLINT
 
 TEST_CASE("compute_convergence_gap — zero bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // UB=0, LB=0 => gap = 0 / max(1, 0) = 0
   CHECK(compute_convergence_gap(0.0, 0.0) == doctest::Approx(0.0));
@@ -301,7 +301,7 @@ TEST_CASE("compute_convergence_gap — zero bounds")  // NOLINT
 TEST_CASE("compute_convergence_gap — LB exceeds UB gives negative gap")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // This can happen due to floating-point rounding at convergence
   // gap = (100 - 101) / max(1, 100) = -0.01
@@ -311,7 +311,7 @@ TEST_CASE("compute_convergence_gap — LB exceeds UB gives negative gap")
 TEST_CASE(  // NOLINT
     "compute_convergence_gap — large UB large LB small relative gap")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // UB=1e9, LB=1e9 - 1 => gap ≈ 1e-9
   const double ub = 1e9;
@@ -328,7 +328,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — warm_start disabled still converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -348,7 +348,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_coeff_eps filters tiny coefficients")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -368,7 +368,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — apertures=empty forces plain backward pass")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -389,7 +389,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — min_iterations forces extra iterations")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -410,7 +410,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — max_iterations=1 returns one iteration plus final fwd")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -430,7 +430,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — max_iterations=0 returns empty (simulation only)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -449,7 +449,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — convergence gap decreases over iterations")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -473,7 +473,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — lower bound non-decreasing")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -497,7 +497,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — scale_alpha=1 converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -517,7 +517,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — alpha bounds affect convergence")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -537,7 +537,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut sharing expected mode with single scene")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -558,7 +558,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — stored_cuts populated after solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -581,7 +581,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — iteration result fields populated correctly")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -610,7 +610,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — 2-scene problem with cut sharing accumulate")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));
@@ -630,7 +630,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod — 2-scene problem with cut sharing max")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));

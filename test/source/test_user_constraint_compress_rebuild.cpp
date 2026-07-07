@@ -39,12 +39,12 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace uc_compress_rebuild_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace uc_compress_rebuild_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -138,7 +138,7 @@ auto make_json(std::string_view uc_body) -> std::string
 TEST_CASE(  // NOLINT
     "User constraint - generator.generation resolves under compress rebuild")
 {
-  using namespace uc_compress_rebuild_test;  // NOLINT(google-build-using-namespace)
+  using namespace uc_compress_rebuild_test;
 
   // The canonical failing case: a single generator output reference.
   const auto tmpdir = build_solve_writeout(
@@ -158,7 +158,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "User constraint - sum() over generators resolves under compress rebuild")
 {
-  using namespace uc_compress_rebuild_test;  // NOLINT(google-build-using-namespace)
+  using namespace uc_compress_rebuild_test;
 
   // `sum(generator(all)...)` additionally exercises the element-metadata
   // registry (register_ampl_element_metadata), which release_ampl_cell()

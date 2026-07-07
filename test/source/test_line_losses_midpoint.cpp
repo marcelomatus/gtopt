@@ -28,8 +28,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/line_losses.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using namespace gtopt::line_losses;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
+using namespace gtopt::line_losses;
 
 namespace test_line_losses_midpoint  // NOLINT
 {

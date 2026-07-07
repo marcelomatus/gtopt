@@ -28,8 +28,7 @@
 #include <gtopt/scenario.hpp>
 #include <gtopt/scene.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 namespace
 {
@@ -207,5 +206,3 @@ TEST_CASE(
   CHECK(p.simulation.scenario_array[1].probability_factor.value_or(-1.0)
         == doctest::Approx(0.5));
 }
-
-// NOLINTEND(misc-const-correctness)

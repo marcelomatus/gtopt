@@ -40,12 +40,12 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/validate_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_line_commitment_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── Canonical 2-bus fixture ─────────────────────────────────────────

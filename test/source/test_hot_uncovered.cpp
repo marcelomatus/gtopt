@@ -30,13 +30,13 @@
 #include <gtopt/system_lp.hpp>
 #include <parquet/arrow/writer.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ── Item 4: string_holder rvalue string constructor (as_label.hpp:209) ──
 
 TEST_CASE("string_holder rvalue string takes ownership")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build an rvalue string that is long enough to avoid SSO (>= 22 chars)
   // so that the move is observable (the original is left empty).
@@ -60,7 +60,7 @@ TEST_CASE("string_holder rvalue string takes ownership")  // NOLINT
 
 TEST_CASE("as_label with rvalue string exercises owned path")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Construct a temporary string that will be passed as rvalue
   auto result = as_label(std::string("Rvalue"), "const_ref");
@@ -76,7 +76,7 @@ TEST_CASE("as_label with rvalue string exercises owned path")  // NOLINT
 
 TEST_CASE("LineLP inactive bus early return")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two buses: b2 is inactive. Line connects b1-b2.
   // The line should hit the inactive-bus early return.
@@ -168,7 +168,7 @@ TEST_CASE("LineLP inactive bus early return")  // NOLINT
 
 TEST_CASE("LineLP loop line exercises add_to_output early return")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Use PlanningLP to exercise the full pipeline including add_to_output.
   // A loop line (bus_a == bus_b) should hit the early return in both
@@ -259,7 +259,7 @@ TEST_CASE("LineLP loop line exercises add_to_output early return")  // NOLINT
 
 TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Piecewise mode requires: R > 0, V > 0, loss_segments >= 2.
   // Sender allocation routes loss to the sending bus only.
@@ -367,7 +367,7 @@ TEST_CASE("LineLP piecewise mode with sender loss allocation")  // NOLINT
 
 TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Bidirectional mode also calls apply_loss_allocation.
   // Sender allocation with R/V parameters.
@@ -474,7 +474,7 @@ TEST_CASE("LineLP bidirectional mode with sender loss allocation")  // NOLINT
 
 // ── Item 1: wide input (bare UID column) is rejected, not resolved ──
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Write a wide Parquet schedule file with a bare UID column name (e.g. "1")
@@ -527,8 +527,7 @@ void write_bare_uid_parquet(const std::filesystem::path& input_dir,
 
 TEST_CASE("Wide bare-UID Parquet schedule is rejected")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   // Create a temporary directory for the test
   const auto tmp_root =
@@ -621,5 +620,3 @@ TEST_CASE("Wide bare-UID Parquet schedule is rejected")  // NOLINT
 
   std::filesystem::remove_all(tmp_root);
 }
-
-// NOLINTEND(misc-const-correctness)

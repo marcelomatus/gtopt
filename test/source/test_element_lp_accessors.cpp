@@ -29,12 +29,12 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Minimal 1-stage / 1-block simulation used by the electrical fixture.
 [[nodiscard]] Simulation make_single_stage_simulation()

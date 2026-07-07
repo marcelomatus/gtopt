@@ -28,8 +28,8 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE(  // NOLINT
     "SddpOptions::backward_resolve_target defaults to nullopt")
@@ -95,4 +95,4 @@ TEST_CASE(  // NOLINT
   CHECK(*base.backward_resolve_target);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

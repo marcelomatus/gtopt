@@ -24,7 +24,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("FutureCost element saves alpha to the SDDP solution")  // NOLINT
 {

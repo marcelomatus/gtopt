@@ -17,10 +17,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_snapshot_holder.hpp>
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── Helper: build a tiny non-empty FlatLinearProblem ─────────────────────
@@ -165,5 +164,3 @@ TEST_CASE("LpSnapshotHolder set_flat_lp replaces wholesale")  // NOLINT
 }
 
 }  // namespace
-
-// NOLINTEND(google-global-names-in-headers)

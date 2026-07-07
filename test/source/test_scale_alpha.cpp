@@ -15,16 +15,16 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/sddp_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 TEST_CASE("scale_alpha - default-constructed SddpOptions has nullopt")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const SddpOptions opts {};
   CHECK_FALSE(opts.scale_alpha.has_value());
@@ -32,7 +32,7 @@ TEST_CASE("scale_alpha - default-constructed SddpOptions has nullopt")
 
 TEST_CASE("scale_alpha - PlanningOptionsLP returns 0 for auto-scale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptions planning_opts {};
   const PlanningOptionsLP lp_opts {
@@ -46,7 +46,7 @@ TEST_CASE("scale_alpha - PlanningOptionsLP returns 0 for auto-scale")
 
 TEST_CASE("scale_alpha - explicit value overrides default")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions planning_opts {
       .sddp_options =
@@ -63,7 +63,7 @@ TEST_CASE("scale_alpha - explicit value overrides default")
 
 TEST_CASE("scale_alpha - merge fills missing scale_alpha")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SddpOptions base {};
   SddpOptions overlay {
@@ -78,7 +78,7 @@ TEST_CASE("scale_alpha - merge fills missing scale_alpha")
 
 TEST_CASE("scale_alpha - merge overwrites existing scale_alpha")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SddpOptions base {
       .scale_alpha = 1000.0,
@@ -95,8 +95,7 @@ TEST_CASE("scale_alpha - merge overwrites existing scale_alpha")
 
 TEST_CASE("scale_alpha - merge does not overwrite when overlay is nullopt")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   SddpOptions base {
       .scale_alpha = 1000.0,
@@ -110,5 +109,3 @@ TEST_CASE("scale_alpha - merge does not overwrite when overlay is nullopt")
 }
 
 }  // namespace
-
-// NOLINTEND(misc-const-correctness)

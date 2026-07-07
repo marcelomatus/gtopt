@@ -66,11 +66,11 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_sienna_5bus_cascading_hydro_port
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── 5-bus skeleton (matches the upstream bundle's bus.csv) ──────────

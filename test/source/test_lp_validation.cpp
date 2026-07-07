@@ -18,8 +18,7 @@
 
 #include "log_capture.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 namespace
 {
@@ -616,5 +615,3 @@ TEST_CASE(
     CHECK(logs.contains("LP_VALIDATION NaN"));
   }
 }
-
-// NOLINTEND(misc-const-correctness)
