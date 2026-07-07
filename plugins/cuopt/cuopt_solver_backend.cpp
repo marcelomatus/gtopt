@@ -27,8 +27,16 @@
 
 #include "cuopt_solver_backend.hpp"
 
-#include <cuopt/linear_programming/constants.h>
-#include <cuopt/linear_programming/cuopt_c.h>
+// cuOpt ≥ 25.12 renamed the C-API include tree from linear_programming/ to
+// mathematical_optimization/ (the old cuopt_c.h remains as a deprecated
+// shim, constants.h was removed outright); support both layouts.
+#if __has_include(<cuopt/mathematical_optimization/cuopt_c.h>)
+#  include <cuopt/mathematical_optimization/constants.h>
+#  include <cuopt/mathematical_optimization/cuopt_c.h>
+#else
+#  include <cuopt/linear_programming/constants.h>
+#  include <cuopt/linear_programming/cuopt_c.h>
+#endif
 #include <gtopt/log_and_throw.hpp>
 #include <spdlog/spdlog.h>
 
