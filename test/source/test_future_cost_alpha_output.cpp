@@ -46,6 +46,15 @@ TEST_CASE("FutureCost element saves alpha to the SDDP solution")  // NOLINT
 
     auto planning = make_3phase_hydro_planning();
     planning.options.method = MethodType::sddp;
+    // Real write_out below: route the element streams to a scratch dir so
+    // the FutureCostLP::add_to_output emission itself is exercised (the
+    // registry checks alone never call it).
+    const auto out_dir = std::filesystem::temp_directory_path()
+        / ("gtopt_test_fc_alpha_outdir_"
+           + std::to_string(static_cast<int>(mode)));
+    std::filesystem::remove_all(out_dir);
+    planning.options.output_directory = out_dir.string();
+    planning.options.output_format = DataFormat::csv;
     // A FutureCost element makes each (scene, phase) cell carry a FutureCostLP
     // that emits its α at write_out — without it nothing routes the stream.
     planning.system.future_cost_array.push_back(
@@ -102,6 +111,35 @@ TEST_CASE("FutureCost element saves alpha to the SDDP solution")  // NOLINT
     // surfaced through the persistent SimulationLP.
     CHECK(any_offset_set);
 
+    // Drive the actual emission: FutureCostLP::add_to_output runs per cell
+    // inside write_out and must produce FutureCost/alpha* streams (plus a
+    // rebase* stream on the offset-bearing scene).
+    planning_lp.write_out();
+    const auto fc_dir = out_dir / "FutureCost";
+    REQUIRE(std::filesystem::is_directory(fc_dir));
+    std::size_t alpha_files = 0;
+    std::size_t rebase_files = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(fc_dir)) {
+      const auto stem = entry.path().filename().string();
+      if (stem.starts_with("alpha")) {
+        ++alpha_files;
+        // Each alpha CSV must carry at least a header and one data row.
+        std::ifstream ifs(entry.path());
+        std::string header;
+        std::string row;
+        CHECK(static_cast<bool>(std::getline(ifs, header)));
+        CHECK(static_cast<bool>(std::getline(ifs, row)));
+      }
+      if (stem.starts_with("rebase")) {
+        ++rebase_files;
+      }
+    }
+    CHECK(alpha_files > 0);
+    // any_offset_set was asserted above, so the c_bar != 0 branch must have
+    // emitted at least one rebase stream.
+    CHECK(rebase_files > 0);
+
+    std::filesystem::remove_all(out_dir);
     std::filesystem::remove(cuts_file);
   };
 

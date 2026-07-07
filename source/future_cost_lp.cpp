@@ -17,7 +17,10 @@
  */
 
 #include <cstddef>
+#include <deque>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 #include <variant>
@@ -38,6 +41,30 @@
 
 namespace gtopt
 {
+
+namespace
+{
+
+/// Interned storage for the multicut stream names ("alpha_<s>").
+///
+/// `OutputContext`'s `ClassFieldName` map key stores `string_view`s and
+/// documents a static-storage contract (names must outlive the deferred
+/// flush).  The single-α name (`AlphaName`) already satisfies it; the
+/// per-source-scene multicut names are dynamic, so intern them once with
+/// stable addresses (deque never relocates).  `write_out` runs one task
+/// per scene in parallel, hence the mutex.
+auto alpha_stream_name(std::size_t source_scene) -> std::string_view
+{
+  static std::mutex mutex;
+  static std::deque<std::string> pool;
+  const std::scoped_lock lock {mutex};
+  while (pool.size() <= source_scene) {
+    pool.emplace_back("alpha_" + std::to_string(pool.size()));
+  }
+  return pool[source_scene];
+}
+
+}  // namespace
 
 bool FutureCostLP::add_to_global_lp(const SystemContext& /*sc*/,
                                     const SceneLP& /*scene*/,
@@ -106,8 +133,9 @@ bool FutureCostLP::add_to_output(OutputContext& out) const
   // scene-phase context is irrelevant on the read side — we just place the
   // single terminal-block entry under every scenario of this scene.
   for (std::size_t s = 0; s < acols.size(); ++s) {
-    const auto name =
-        multi ? ("alpha_" + std::to_string(s)) : std::string(AlphaName);
+    // Static-storage names only: the OutputContext field map keys hold
+    // string_views until the deferred flush (see alpha_stream_name).
+    const std::string_view name = multi ? alpha_stream_name(s) : AlphaName;
     STBIndexHolder<ColIndex> cols;
     for (const auto& scenario : scene.scenarios()) {
       cols[std::tuple {scenario.uid(), last_stage.uid()}][last_block] =

@@ -61,10 +61,10 @@ public:
   /// Piece-2 step A: inert plumbing.  The α / boundary-cut / rebase logic
   /// migrates here from `sddp_method_alpha.cpp` + `sddp_boundary_cuts.cpp` in
   /// step D, guarded by the mean_shift bound-consistency regression test.
-  [[nodiscard]] bool add_to_global_lp(const SystemContext& sc,
-                                      const SceneLP& scene,
-                                      const PhaseLP& phase,
-                                      LinearProblem& lp);
+  [[nodiscard]] static bool add_to_global_lp(const SystemContext& sc,
+                                             const SceneLP& scene,
+                                             const PhaseLP& phase,
+                                             LinearProblem& lp);
 
   /// Emits the α / `varphi_s` solution(s) + the per-scene rebase constant c̄ to
   /// `FutureCost/{alpha|alpha_<s>, rebase}`.  SELF-FINDS its data at write
