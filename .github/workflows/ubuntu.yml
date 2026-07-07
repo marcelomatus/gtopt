@@ -249,6 +249,28 @@ jobs:
           FAILED=$(grep -c "Failed" ctest_output.log || echo 0)
           echo "Total: $TOTAL | Passed: $PASSED | Failed: $FAILED"
 
+      # Surface the failing test names as a check-run annotation so they
+      # are visible from the checks API (and the PR UI) without opening
+      # the raw job log.  `ctest` exits with a fixed code 8 on any test
+      # failure, so the annotation is the only cheap way to see WHICH
+      # tests failed from outside an authenticated session.
+      - name: report failed tests
+        if: failure()
+        run: |
+          [ -f build/ctest_output.log ] || exit 0
+          BLOCK=$(sed -n '/The following tests FAILED:/,$p' build/ctest_output.log | head -40)
+          [ -n "$BLOCK" ] || exit 0
+          echo "$BLOCK"
+          # Workflow-command annotation: newlines must be %0A-escaped.
+          printf '::error title=ctest failures::%s\n' "$(printf '%s' "$BLOCK" | tr '\n' '\r' | sed 's/\r/%0A/g')"
+          # Re-run the failed tests serially and annotate their output so
+          # the exact failing assertions are visible from the checks API.
+          cd build
+          export GTOPT_SOLVER=clp
+          ctest --rerun-failed --output-on-failure > rerun_failed.log 2>&1 || true
+          DETAIL=$(grep -vE "^\s+\[[0-9]{4}-" rerun_failed.log | head -120)
+          printf '::error title=failing test output::%s\n' "$(printf '%s' "$DETAIL" | tr '\n' '\r' | sed 's/\r/%0A/g' | cut -c1-60000)"
+
       - name: prepare gtopt artifact
         run: |
           # Copy solver plugin libraries next to the binary so that the

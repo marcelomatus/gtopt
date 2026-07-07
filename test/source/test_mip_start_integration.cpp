@@ -42,6 +42,25 @@ namespace mip_start_integration_test  // NOLINT(misc-use-anonymous-namespace)
 namespace
 {
 
+/// First loaded solver that can actually solve a MIP, or "" when none is.
+///
+/// The commitment fixture below carries integer status binaries, and
+/// `LinearInterface::load_flat` rejects integer columns on an LP-only
+/// backend — so the LP must be pinned to a MIP-capable solver instead of
+/// inheriting the ambient default (CI exports GTOPT_SOLVER=clp for the
+/// SDDP golden lookup, which would trip the guard).
+[[nodiscard]] std::string pick_mip_solver()
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  for (const auto* name : {"cplex", "highs", "cbc", "scip", "gurobi"}) {
+    if (reg.has_solver(name) && reg.supports_mip(name)) {
+      return name;
+    }
+  }
+  return {};
+}
+
 const Array<Bus> single_bus = {
     {
         .uid = Uid {1},
@@ -138,9 +157,8 @@ TEST_CASE(  // NOLINT
     "MipStart integration: warmstart through SystemLP::resolve keeps "
     "commitment status integral")
 {
-  SolverRegistry& reg = SolverRegistry::instance();
-  reg.load_all_plugins();
-  if (!reg.has_mip_solver()) {
+  const auto mip_solver = pick_mip_solver();
+  if (mip_solver.empty()) {
     MESSAGE("Skipping MIP-start integration test — no MIP solver available");
     return;
   }
@@ -152,6 +170,7 @@ TEST_CASE(  // NOLINT
   poptions.model_options.use_single_bus = true;
   poptions.lp_matrix_options.col_with_names = true;
   poptions.lp_matrix_options.col_with_name_map = true;
+  poptions.lp_matrix_options.solver_name = mip_solver;
   // Enable the MIP-start hook: this is the surface under test.
   poptions.monolithic_options.mip_start.emplace();
   poptions.monolithic_options.mip_start->enabled = true;
@@ -256,9 +275,8 @@ TEST_CASE(  // NOLINT
     "self-skips "
     "cleanly without the SCIP plugin")
 {
-  SolverRegistry& reg = SolverRegistry::instance();
-  reg.load_all_plugins();
-  if (!reg.has_mip_solver()) {
+  const auto mip_solver = pick_mip_solver();
+  if (mip_solver.empty()) {
     MESSAGE("Skipping MIP-start integration test — no MIP solver available");
     return;
   }
@@ -277,6 +295,7 @@ TEST_CASE(  // NOLINT
   poptions.model_options.use_single_bus = true;
   poptions.lp_matrix_options.col_with_names = true;
   poptions.lp_matrix_options.col_with_name_map = true;
+  poptions.lp_matrix_options.solver_name = mip_solver;
   poptions.monolithic_options.mip_start.emplace();
   poptions.monolithic_options.mip_start->enabled = true;
   poptions.monolithic_options.mip_start->scip_repair.enabled = true;
