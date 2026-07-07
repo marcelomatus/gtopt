@@ -7,7 +7,7 @@
 #include <gtopt/error.hpp>
 #include <gtopt/utils.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 static_assert(gtopt::detail::to_lower_char('A') == 'a');
 
@@ -148,6 +148,22 @@ TEST_CASE("as_label basic functionality")
     CHECK(as_label("ABC") == "ABC");
     CHECK(as_label("Hello World") == "Hello World");
     CHECK(as_label("MiXeD") == "MiXeD");
+  }
+
+  SUBCASE("detail::to_string_view over every string-like shape")
+  {
+    // char-array literal — routed through std::data(), strlen semantics
+    CHECK(detail::to_string_view("literal") == "literal");
+    // char buffer with early NUL keeps strlen semantics (stops at NUL);
+    // a language array is the very shape under test here.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,hicpp-avoid-c-arrays,modernize-avoid-c-arrays)
+    constexpr char buf[8] = {'h', 'i', '\0', 'x', 'x', 'x', 'x', '\0'};
+    CHECK(detail::to_string_view(buf) == "hi");
+    // string_view and lvalue std::string pass through untouched
+    constexpr std::string_view sv = "view";
+    CHECK(detail::to_string_view(sv) == "view");
+    const std::string s = "owned";
+    CHECK(detail::to_string_view(s) == "owned");
   }
 
   SUBCASE("lowercase helper")

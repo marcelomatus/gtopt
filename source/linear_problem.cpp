@@ -38,23 +38,12 @@ namespace
 // `Index` value): the iterator's `difference_type` is `ptrdiff_t` (signed,
 // wider than `Index`), so the conversion is widening — no narrowing /
 // `static_cast` / `-1` sentinel is involved.
-template<typename T>
+// Single implementation for any strong index (ColIndex / RowIndex):
+// returns nullptr when `idx` is empty or out of range.
+template<typename T, typename IndexT>
+  requires requires(const IndexT& strong) { strong.value_of(); }
 [[nodiscard]] inline auto try_at(const std::vector<T>& vec,
-                                 std::optional<ColIndex> idx) noexcept
-    -> const T*
-{
-  if (!idx) {
-    return nullptr;
-  }
-  const auto i = idx->value_of();
-  if (i < 0 || std::cmp_greater_equal(i, vec.size())) {
-    return nullptr;
-  }
-  return std::addressof(*std::next(vec.cbegin(), i));
-}
-template<typename T>
-[[nodiscard]] inline auto try_at(const std::vector<T>& vec,
-                                 std::optional<RowIndex> idx) noexcept
+                                 const std::optional<IndexT>& idx) noexcept
     -> const T*
 {
   if (!idx) {
@@ -603,80 +592,7 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // equilibration so stats reflect the actual matrix sent to the solver.
   std::vector<FlatLinearProblem::RowTypeStatsEntry> row_type_stats_vec;
   if (do_stats && !rownm.empty()) {
-    std::vector<double> row_max(nrows, 0.0);
-    std::vector<double> row_min(nrows, std::numeric_limits<double>::max());
-    std::vector<size_t> row_nnz(nrows, 0);
-
-    for (size_t k = 0; k < matval.size(); ++k) {
-      const auto r = static_cast<size_t>(matind[k]);
-      const double av = std::abs(matval[k]);
-      if (av > 0.0) {
-        ++row_nnz[r];
-        row_max[r] = std::max(row_max[r], av);
-        row_min[r] = std::min(row_min[r], av);
-      }
-    }
-
-    auto extract_row_type = [](std::string_view name) -> std::string_view
-    {
-      if (name.empty()) {
-        return "unknown";
-      }
-      const auto first_sep = name.find('_');
-      if (first_sep == std::string_view::npos) {
-        return name;
-      }
-      const auto rest = name.substr(first_sep + 1);
-      const auto second_sep = rest.find('_');
-      return rest.substr(0, second_sep);
-    };
-
-    struct TypeAccum
-    {
-      size_t count {};
-      size_t nnz {};
-      double max_abs {};
-      double min_abs {std::numeric_limits<double>::max()};
-    };
-    std::unordered_map<std::string_view, TypeAccum> type_map;
-    map_reserve(type_map, 32);
-
-    for (size_t r = 0; r < nrows; ++r) {
-      const auto type = extract_row_type(rownm[r]);
-      auto& acc = type_map[type];
-      ++acc.count;
-      acc.nnz += row_nnz[r];
-      acc.max_abs = std::max(acc.max_abs, row_max[r]);
-      if (row_nnz[r] > 0) {
-        acc.min_abs = std::min(acc.min_abs, row_min[r]);
-      }
-    }
-
-    row_type_stats_vec.reserve(type_map.size());
-    for (auto& [type, acc] : type_map) {
-      row_type_stats_vec.push_back({
-          .type = std::string(type),
-          .count = acc.count,
-          .nnz = acc.nnz,
-          .max_abs = acc.max_abs,
-          .min_abs = acc.min_abs,
-      });
-    }
-
-    std::ranges::sort(
-        row_type_stats_vec,
-        [](const auto& a, const auto& b)
-        {
-          const double ra = (a.min_abs > 0.0
-                             && a.min_abs < std::numeric_limits<double>::max())
-              ? a.max_abs / a.min_abs
-              : 1.0;
-          const double rb = (b.min_abs > 0.0
-                             && b.min_abs < std::numeric_limits<double>::max())
-              ? b.max_abs / b.min_abs
-              : 1.0;
-          return ra > rb;
-        });
+    row_type_stats_vec = compute_row_type_stats(matval, matind, rownm, nrows);
   }
 
   // ── Global objective scaling ──────────────────────────────────────
@@ -893,41 +809,17 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
   // Reports a count plus the first offending element name at warn level;
   // gated by the same validation toggle as the coefficient verdict.
   if (opts.validation.effective_enable()) {
-    const double inf = m_infinity_;
     constexpr double kLargeBound = 1.0e7;
-    const auto is_inf = [inf](double b) { return std::abs(b) >= inf; };
-    const auto is_big = [&](double b)
-    { return !is_inf(b) && std::abs(b) >= kLargeBound; };
+    const auto envelope = scan_bound_envelope(
+        collb, colub, rowlb, rowub, m_infinity_, kLargeBound);
+    const auto [free_cols,
+                first_free_col,
+                big_cols,
+                first_big_col,
+                big_rows,
+                first_big_row] = envelope;
 
-    constexpr auto npos = std::numeric_limits<std::size_t>::max();
-    std::size_t free_cols = 0;
-    std::size_t first_free_col = npos;
-    std::size_t big_cols = 0;
-    std::size_t first_big_col = npos;
-    std::size_t big_rows = 0;
-    std::size_t first_big_row = npos;
-
-    for (std::size_t c = 0; c < collb.size(); ++c) {
-      if (collb[c] <= -inf && colub[c] >= inf) {
-        if (free_cols++ == 0) {
-          first_free_col = c;
-        }
-      }
-      if (is_big(collb[c]) || is_big(colub[c])) {
-        if (big_cols++ == 0) {
-          first_big_col = c;
-        }
-      }
-    }
-    for (std::size_t r = 0; r < rowlb.size(); ++r) {
-      if (is_big(rowlb[r]) || is_big(rowub[r])) {
-        if (big_rows++ == 0) {
-          first_big_row = r;
-        }
-      }
-    }
-
-    if (free_cols > 0 || big_cols > 0 || big_rows > 0) {
+    if (envelope.any()) {
       const std::string ctx_prefix = (opts.flatten_scene_uid.has_value()
                                       && opts.flatten_phase_uid.has_value())
           ? std::format("[s{} p{}] ",
@@ -1046,6 +938,124 @@ auto LinearProblem::flatten(const LpMatrixOptions& opts) -> FlatLinearProblem
       .variable_scale_map = std::move(m_vsm_),
       .label_maker = effective_lm,
   };
+}
+
+std::vector<FlatLinearProblem::RowTypeStatsEntry> compute_row_type_stats(
+    std::span<const double> matval,
+    std::span<const FlatLinearProblem::index_t> matind,
+    std::span<const std::string> rownm,
+    std::size_t nrows)
+{
+  std::vector<double> row_max(nrows, 0.0);
+  std::vector<double> row_min(nrows, std::numeric_limits<double>::max());
+  std::vector<size_t> row_nnz(nrows, 0);
+
+  for (size_t k = 0; k < matval.size(); ++k) {
+    const auto r = static_cast<size_t>(matind[k]);
+    const double av = std::abs(matval[k]);
+    if (av > 0.0) {
+      ++row_nnz[r];
+      row_max[r] = std::max(row_max[r], av);
+      row_min[r] = std::min(row_min[r], av);
+    }
+  }
+
+  auto extract_row_type = [](std::string_view name) -> std::string_view
+  {
+    if (name.empty()) {
+      return "unknown";
+    }
+    const auto first_sep = name.find('_');
+    if (first_sep == std::string_view::npos) {
+      return name;
+    }
+    const auto rest = name.substr(first_sep + 1);
+    const auto second_sep = rest.find('_');
+    return rest.substr(0, second_sep);
+  };
+
+  struct TypeAccum
+  {
+    size_t count {};
+    size_t nnz {};
+    double max_abs {};
+    double min_abs {std::numeric_limits<double>::max()};
+  };
+  std::unordered_map<std::string_view, TypeAccum> type_map;
+  map_reserve(type_map, 32);
+
+  for (size_t r = 0; r < nrows; ++r) {
+    const auto type = extract_row_type(rownm[r]);
+    auto& acc = type_map[type];
+    ++acc.count;
+    acc.nnz += row_nnz[r];
+    acc.max_abs = std::max(acc.max_abs, row_max[r]);
+    if (row_nnz[r] > 0) {
+      acc.min_abs = std::min(acc.min_abs, row_min[r]);
+    }
+  }
+
+  std::vector<FlatLinearProblem::RowTypeStatsEntry> stats;
+  stats.reserve(type_map.size());
+  for (auto& [type, acc] : type_map) {
+    stats.push_back({
+        .type = std::string(type),
+        .count = acc.count,
+        .nnz = acc.nnz,
+        .max_abs = acc.max_abs,
+        .min_abs = acc.min_abs,
+    });
+  }
+
+  std::ranges::sort(
+      stats,
+      [](const auto& a, const auto& b)
+      {
+        const double ra =
+            (a.min_abs > 0.0 && a.min_abs < std::numeric_limits<double>::max())
+            ? a.max_abs / a.min_abs
+            : 1.0;
+        const double rb =
+            (b.min_abs > 0.0 && b.min_abs < std::numeric_limits<double>::max())
+            ? b.max_abs / b.min_abs
+            : 1.0;
+        return ra > rb;
+      });
+  return stats;
+}
+
+BoundEnvelopeReport scan_bound_envelope(std::span<const double> collb,
+                                        std::span<const double> colub,
+                                        std::span<const double> rowlb,
+                                        std::span<const double> rowub,
+                                        double infinity,
+                                        double large_bound) noexcept
+{
+  const auto is_inf = [infinity](double b) { return std::abs(b) >= infinity; };
+  const auto is_big = [&](double b)
+  { return !is_inf(b) && std::abs(b) >= large_bound; };
+
+  BoundEnvelopeReport report;
+  for (std::size_t c = 0; c < collb.size(); ++c) {
+    if (collb[c] <= -infinity && colub[c] >= infinity) {
+      if (report.free_cols++ == 0) {
+        report.first_free_col = c;
+      }
+    }
+    if (is_big(collb[c]) || is_big(colub[c])) {
+      if (report.big_cols++ == 0) {
+        report.first_big_col = c;
+      }
+    }
+  }
+  for (std::size_t r = 0; r < rowlb.size(); ++r) {
+    if (is_big(rowlb[r]) || is_big(rowub[r])) {
+      if (report.big_rows++ == 0) {
+        report.first_big_row = r;
+      }
+    }
+  }
+  return report;
 }
 
 }  // namespace gtopt

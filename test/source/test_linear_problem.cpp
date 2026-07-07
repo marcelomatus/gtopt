@@ -3,7 +3,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Linear problem test 0")
 {
@@ -613,7 +613,7 @@ TEST_CASE("Linear problem flatten with epsilon filtering")
 TEST_CASE(
     "Linear problem flatten compute_stats with col names and zeroed count")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearProblem lp("stats_test");
 
@@ -776,7 +776,7 @@ TEST_CASE("flatten name map skips empty column names")
 
 TEST_CASE("flatten row_max equilibration normalizes row max to 1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearProblem lp("row_eq_test");
 
@@ -863,7 +863,7 @@ TEST_CASE("flatten row_max equilibration normalizes row max to 1")  // NOLINT
 
 TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build a small LP: min x s.t. x >= 5, solve, verify dual unscaling.
   // Row: [1000] * x >= 5000  (large coefficient for scaling test)
@@ -917,7 +917,7 @@ TEST_CASE("LinearInterface row_max equilibration unscales duals")  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface row_max equilibration handles dynamically added rows")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build LP with one row, enable row_max equilibration, then add a new row
   // after construction (simulating SDDP cut addition).  get_row_dual()
@@ -969,7 +969,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("flatten per-row-type coefficient stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Without metadata on SparseRow, row names are empty and
   // row_type_stats cannot extract type tokens from names.
@@ -1012,7 +1012,7 @@ TEST_CASE("flatten per-row-type coefficient stats")  // NOLINT
 
 TEST_CASE("flatten per-row-type stats empty without row names")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearProblem lp("no_row_names_test");
   const auto c0 = lp.add_col(SparseCol {.cost = 1.0});
@@ -1031,7 +1031,7 @@ TEST_CASE("flatten per-row-type stats empty without row names")  // NOLINT
 
 TEST_CASE("flatten per-row-type stats empty without compute_stats")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   LinearProblem lp("no_stats_test");
   const auto c0 = lp.add_col(SparseCol {.cost = 1.0});
@@ -1054,7 +1054,7 @@ TEST_CASE("flatten per-row-type stats empty without compute_stats")  // NOLINT
 
 TEST_CASE("flatten ruiz scaling equilibrates rows and columns")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Matrix:
   //   Row 0: [1000, 0.01]    bounds [0, 500]
@@ -1179,7 +1179,7 @@ TEST_CASE("flatten ruiz scaling equilibrates rows and columns")  // NOLINT
 
 TEST_CASE("flatten ruiz scaling on identity-like matrix is near no-op")
 {  // NOLINT
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // A well-scaled matrix: all coefficients near 1.0.
   // Ruiz should converge in 1 iteration with scales ≈ 1.0.
@@ -1215,7 +1215,7 @@ TEST_CASE("flatten ruiz scaling on identity-like matrix is near no-op")
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling solves correctly and unscales duals")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // min x s.t. 1000*x >= 5000, 0 <= x <= 100, cost = 1
   // Optimal: x = 5, obj = 5, dual = 1/1000 = 0.001
@@ -1258,7 +1258,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface ruiz scaling 2-var LP produces correct solution")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // min 2x + 3y s.t.
   //   1000*x +    1*y >= 2000   (binding: x ≈ 2)
@@ -1325,7 +1325,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   CHECK(enum_name(LpEquilibrationMethod::none) == "none");
   CHECK(enum_name(LpEquilibrationMethod::row_max) == "row_max");
@@ -1342,7 +1342,7 @@ TEST_CASE("LpEquilibrationMethod enum_name round-trip")  // NOLINT
 
 TEST_CASE("FastSqrtMethod enum_name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   CHECK(enum_name(FastSqrtMethod::ieee_halve) == "ieee_halve");
   CHECK(enum_name(FastSqrtMethod::newton1) == "newton1");
@@ -1358,7 +1358,7 @@ TEST_CASE("FastSqrtMethod enum_name round-trip")  // NOLINT
 TEST_CASE(  // NOLINT
     "Ruiz scaling all fast_sqrt methods produce equivalent solutions")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Same 2-var LP from the ruiz 2-var test:
   //   min 2x + 3y s.t.
@@ -1522,4 +1522,99 @@ TEST_CASE("LinearProblem - empty metadata rows/cols skip uniqueness check")
   b.uppb = 10.0;
   std::ignore = lp.add_row(std::move(b));
   CHECK(lp.get_numrows() == 2);
+}
+
+// ── flatten() helpers extracted for unit testing ────────────────────────
+
+TEST_CASE("compute_row_type_stats groups rows by '_'-delimited type token")
+{
+  // 3 rows, 2 types: "bus_balance_1" & "bus_balance_2" → "balance";
+  // "cap" (no separator) → "cap".  CSC entries: row0 {2, 4}, row1 {8},
+  // row2 {0.5}.
+  const std::vector<double> matval = {2.0, 4.0, 8.0, 0.5};
+  const std::vector<FlatLinearProblem::index_t> matind = {0, 0, 1, 2};
+  const std::vector<std::string> rownm = {
+      "bus_balance_1",
+      "bus_balance_2",
+      "cap",
+  };
+
+  const auto stats = compute_row_type_stats(matval, matind, rownm, 3);
+  REQUIRE(stats.size() == 2);
+
+  // Sorted by descending max/min ratio: "balance" (8/2 = 4) before
+  // "cap" (0.5/0.5 = 1).
+  CHECK(stats[0].type == "balance");
+  CHECK(stats[0].count == 2);
+  CHECK(stats[0].nnz == 3);
+  CHECK(stats[0].max_abs == doctest::Approx(8.0));
+  CHECK(stats[0].min_abs == doctest::Approx(2.0));
+
+  CHECK(stats[1].type == "cap");
+  CHECK(stats[1].count == 1);
+  CHECK(stats[1].nnz == 1);
+  CHECK(stats[1].max_abs == doctest::Approx(0.5));
+  CHECK(stats[1].min_abs == doctest::Approx(0.5));
+}
+
+TEST_CASE("compute_row_type_stats classifies empty names as unknown")
+{
+  const std::vector<double> matval = {1.0};
+  const std::vector<FlatLinearProblem::index_t> matind = {0};
+  const std::vector<std::string> rownm = {""};
+
+  const auto stats = compute_row_type_stats(matval, matind, rownm, 1);
+  REQUIRE(stats.size() == 1);
+  CHECK(stats[0].type == "unknown");
+}
+
+TEST_CASE("scan_bound_envelope flags free and large-but-finite bounds")
+{
+  constexpr double inf = 1.0e30;
+  constexpr double big = 1.0e7;
+
+  SUBCASE("free column: both bounds at the infinity sentinel")
+  {
+    const std::vector<double> collb = {0.0, -inf};
+    const std::vector<double> colub = {1.0, inf};
+    const std::vector<double> rowlb = {0.0};
+    const std::vector<double> rowub = {1.0};
+
+    const auto report =
+        scan_bound_envelope(collb, colub, rowlb, rowub, inf, big);
+    CHECK(report.any());
+    CHECK(report.free_cols == 1);
+    CHECK(report.first_free_col == 1);
+    CHECK(report.big_cols == 0);
+    CHECK(report.big_rows == 0);
+  }
+
+  SUBCASE("large-but-finite bounds are counted; infinite ones are not")
+  {
+    const std::vector<double> collb = {0.0, 0.0};
+    const std::vector<double> colub = {2.0e7, inf};  // col0 big, col1 inf
+    const std::vector<double> rowlb = {-3.0e8, 0.0};  // row0 big
+    const std::vector<double> rowub = {inf, 5.0};
+
+    const auto report =
+        scan_bound_envelope(collb, colub, rowlb, rowub, inf, big);
+    CHECK(report.free_cols == 0);
+    CHECK(report.big_cols == 1);
+    CHECK(report.first_big_col == 0);
+    CHECK(report.big_rows == 1);
+    CHECK(report.first_big_row == 0);
+  }
+
+  SUBCASE("clean bounds produce an empty report")
+  {
+    const std::vector<double> collb = {0.0};
+    const std::vector<double> colub = {100.0};
+    const std::vector<double> rowlb = {0.0};
+    const std::vector<double> rowub = {50.0};
+
+    const auto report =
+        scan_bound_envelope(collb, colub, rowlb, rowub, inf, big);
+    CHECK_FALSE(report.any());
+    CHECK(report.first_free_col == BoundEnvelopeReport::npos);
+  }
 }

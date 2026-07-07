@@ -18,8 +18,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/cli_options.hpp>
 
-using namespace gtopt::cli;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt::cli;
 
 // ---- variables_map tests ----
 
@@ -178,6 +177,24 @@ TEST_CASE("cli options_description - streaming output")
   CHECK(output.find("-h") != std::string::npos);
   CHECK(output.find("--count") != std::string::npos);
   CHECK(output.find("show help") != std::string::npos);
+}
+
+TEST_CASE("cli options_description - streaming value-part rendering")
+{
+  options_description desc("Opts");
+  desc.add_options()("flag", "plain flag")("count,c", value<int>(), "a count")(
+      "quiet,q", value<bool>().implicit_value(/*v=*/true), "be quiet");
+
+  std::ostringstream oss;
+  oss << desc;
+  const auto output = oss.str();
+
+  // plain flag renders no value hint (two spaces straight to description)
+  CHECK(output.find("--flag  plain flag") != std::string::npos);
+  // required value renders " arg"
+  CHECK(output.find("--count ] arg") != std::string::npos);
+  // implicit value renders " [=arg]"
+  CHECK(output.find("--quiet ] [=arg]") != std::string::npos);
 }
 
 // ---- command_line_parser tests ----
@@ -534,5 +551,3 @@ TEST_CASE("cli typed_value - implicit_value sets flag and value")
   CHECK(tv.has_implicit);
   CHECK(tv.implicit_val == 42);
 }
-
-// NOLINTEND(google-global-names-in-headers)
