@@ -12,7 +12,7 @@
 #include <gtopt/json/json_system.hpp>
 #include <gtopt/system.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("FutureCost JSON binding + enum conversion")  // NOLINT
 {

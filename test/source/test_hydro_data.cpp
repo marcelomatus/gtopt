@@ -7,11 +7,11 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Junction construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Junction junction;
 
@@ -23,7 +23,7 @@ TEST_CASE("Junction construction and default values")
 
 TEST_CASE("Junction attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Junction junction;
 
@@ -41,7 +41,7 @@ TEST_CASE("Junction attribute assignment")
 
 TEST_CASE("Junction with drain disabled")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Junction junction;
 
@@ -56,7 +56,7 @@ TEST_CASE("Junction with drain disabled")
 
 TEST_CASE("Turbine construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Turbine turbine;
 
@@ -74,7 +74,7 @@ TEST_CASE("Turbine construction and default values")
 
 TEST_CASE("Turbine attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Turbine turbine;
 
@@ -108,7 +108,7 @@ TEST_CASE("Turbine attribute assignment")
 
 TEST_CASE("Turbine with time-varying conversion rate")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Turbine turbine;
 
@@ -128,7 +128,7 @@ TEST_CASE("Turbine with time-varying conversion rate")
 
 TEST_CASE("Waterway construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Waterway waterway;
 
@@ -160,7 +160,7 @@ TEST_CASE("Waterway construction and default values")
 
 TEST_CASE("Waterway attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Waterway waterway;
 
@@ -192,7 +192,7 @@ TEST_CASE("Waterway attribute assignment")
 
 TEST_CASE("Waterway with time-block flow limits")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Waterway waterway;
 
@@ -228,7 +228,7 @@ TEST_CASE("Waterway with time-block flow limits")
 
 TEST_CASE("Reservoir construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Reservoir reservoir;
 
@@ -276,7 +276,7 @@ TEST_CASE("Reservoir construction and default values")
 
 TEST_CASE("Reservoir attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Reservoir reservoir;
 
@@ -326,7 +326,7 @@ TEST_CASE("Reservoir attribute assignment")
 
 TEST_CASE("Reservoir with time-varying volume limits")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Reservoir reservoir;
 
@@ -387,7 +387,7 @@ TEST_CASE("Reservoir with time-varying volume limits")
 
 TEST_CASE("Reservoir use_state_variable defaults and explicit set")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is nullopt (coupled by convention)")
   {

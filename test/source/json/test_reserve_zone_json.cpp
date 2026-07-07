@@ -5,7 +5,7 @@
 #include <gtopt/json/json_reserve_zone.hpp>
 #include <gtopt/reserve_zone.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ReserveZone daw json test - basic fields")
 {

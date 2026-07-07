@@ -46,7 +46,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Uniquely-named outer namespace so helper symbols never collide with
 // other test translation units under a CMake unity build.

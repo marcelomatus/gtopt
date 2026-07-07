@@ -13,7 +13,7 @@
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/sparse_col.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ---------------------------------------------------------------------------
 // build_benders_cut_physical — physical-space cut builder intended for
@@ -31,7 +31,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("build_benders_cut_physical basic cut")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ColIndex alpha {
       0,
@@ -97,7 +97,7 @@ TEST_CASE("build_benders_cut_physical basic cut")  // NOLINT
 
 TEST_CASE("build_benders_cut_physical with empty links")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ColIndex alpha {
       0,
@@ -116,7 +116,7 @@ TEST_CASE("build_benders_cut_physical with empty links")  // NOLINT
 TEST_CASE(
     "build_benders_cut_physical eps filter drops tiny rc terms")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ColIndex alpha {
       0,
@@ -178,7 +178,7 @@ TEST_CASE("build_benders_cut_physical preserves physical-space contract")
   // scale_alpha / scale_objective arithmetic.  Coefficients and RHS
   // are taken verbatim from the physical inputs so that add_row on an
   // equilibrated LP can safely fold col_scales and row-max.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ColIndex alpha {
       0,
@@ -224,7 +224,7 @@ TEST_CASE("build_benders_cut_physical preserves physical-space contract")
 
 TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Hand-rolled StateVariable objects.  ColIndex in the state_var is the
   // source column (what the cut will coefficient on); the `var_scale` and
@@ -287,7 +287,7 @@ TEST_CASE("build_benders_cut_physical state_var overload matches span overload")
 
 TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const StateVariable::LPKey key0 {
       .scene_index = first_scene_index(),
@@ -335,7 +335,7 @@ TEST_CASE("build_benders_cut_physical state_var overload eps filters small rc")
 TEST_CASE(
     "build_benders_cut_physical state_var overload — scale_objective sweep")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // The state_var overload's contract is:
   //   row_coef[source_col] = -reduced_cost_physical(scale_obj)
@@ -421,7 +421,7 @@ TEST_CASE(
 TEST_CASE(
     "build_benders_cut_physical state_var overload handles null state_var")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Test-fixture convention: a link with state_var==nullptr contributes
   // nothing to the cut (no coefficient, no RHS adjustment).
@@ -444,7 +444,7 @@ TEST_CASE(
 
 TEST_CASE("average_benders_cut with empty vector")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<SparseRow> empty;
   auto avg = average_benders_cut(empty);
@@ -453,7 +453,7 @@ TEST_CASE("average_benders_cut with empty vector")  // NOLINT
 
 TEST_CASE("average_benders_cut with single cut")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto cut = SparseRow {
       .lowb = 10.0,
@@ -484,7 +484,7 @@ TEST_CASE("average_benders_cut with single cut")  // NOLINT
 
 TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto cut1 = SparseRow {
       .lowb = 10.0,
@@ -534,7 +534,7 @@ TEST_CASE("average_benders_cut with multiple cuts")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut empty")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<SparseRow> empty;
   const std::vector<double> weights;
@@ -544,7 +544,7 @@ TEST_CASE("weighted_average_benders_cut empty")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -568,7 +568,7 @@ TEST_CASE("weighted_average_benders_cut size mismatch")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -591,7 +591,7 @@ TEST_CASE("weighted_average_benders_cut zero total weight")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -618,7 +618,7 @@ TEST_CASE("weighted_average_benders_cut single cut")  // NOLINT
 
 TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -662,7 +662,7 @@ TEST_CASE("weighted_average_benders_cut multiple cuts")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts empty")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<SparseRow> empty;
   auto acc = accumulate_benders_cuts(empty);
@@ -671,7 +671,7 @@ TEST_CASE("accumulate_benders_cuts empty")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -694,7 +694,7 @@ TEST_CASE("accumulate_benders_cuts single cut")  // NOLINT
 
 TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto c1 = SparseRow {
       .lowb = 10.0,
@@ -749,7 +749,7 @@ TEST_CASE("accumulate_benders_cuts multiple cuts sums")  // NOLINT
 
 TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearInterface li;
   // source columns
@@ -824,7 +824,7 @@ TEST_CASE("propagate_trial_values sets bounds")  // NOLINT
 TEST_CASE(  // NOLINT
     "propagate_trial_values state-variable overload: matching col_scales")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Simulate phase 0 (source) and phase 1 (dependent) as a single
   // LinearInterface with two columns, each carrying col_scale = √10.
@@ -895,7 +895,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "propagate_trial_values state-variable overload: mismatched col_scales")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Cross-phase scale drift — the scenario where the OLD code's
   // hidden `var_scale(src) == col_scale(dep)` invariant breaks.
@@ -976,7 +976,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "propagate_trial_values state-variable overload: null state_var")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // When `state_var == nullptr`, the trial defaults to 0.0 physical
   // and the dependent column is pinned at 0.
@@ -1006,7 +1006,7 @@ TEST_CASE(
 
 TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto dep = li.add_col(SparseCol {
@@ -1065,7 +1065,7 @@ TEST_CASE("relax_fixed_state_variable relaxes a fixed column")  // NOLINT
 
 TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto dep = li.add_col(SparseCol {
@@ -1102,7 +1102,7 @@ TEST_CASE("relax_fixed_state_variable skips unfixed column")  // NOLINT
 
 TEST_CASE("BendersCut default construction and counter")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   BendersCut bc;
   CHECK(bc.pool() == nullptr);
@@ -1117,7 +1117,7 @@ TEST_CASE("BendersCut default construction and counter")  // NOLINT
 
 TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   ElasticSolveResult elastic;
   elastic.link_infos = {
@@ -1158,7 +1158,7 @@ TEST_CASE("build_multi_cuts with no relaxed links returns empty")  // NOLINT
 
 TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a simple LP with one state variable link:
   // min x1 + 1000*alpha  s.t.  x1 >= 5, alpha >= 0
@@ -1224,7 +1224,7 @@ TEST_CASE("elastic_filter_solve free function succeeds")  // NOLINT
 TEST_CASE(  // NOLINT
     "elastic filter slack cost = penalty × var_scale (per-physical-unit)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Slack-cost convention for SDDP feasibility cuts (see
   // `relax_fixed_state_variable` in source/benders_cut.cpp):
@@ -1437,7 +1437,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("PLP parity — default elastic_penalty is 1.0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // PLP osicallsc.cpp:658 passes objs=1.0 flat to every slack when
   // AgrElastici calls with objs=0 (plp-agrespd.f:673).  gtopt's
   // default must match so the elastic clone prices slacks at unit
@@ -1448,7 +1448,7 @@ TEST_CASE("PLP parity — default elastic_penalty is 1.0")  // NOLINT
 
 TEST_CASE("PLP parity — default cut_coeff_eps is 1e-8")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // PLP FactEPS = 1e-8 (getopts.f:231) drives both the ray-zero
   // threshold (osicallsc.cpp:723) and the dx filter scale
   // (osicallsc.cpp:727).  gtopt's cut_coeff_eps must match.
@@ -1459,7 +1459,7 @@ TEST_CASE("PLP parity — default cut_coeff_eps is 1e-8")  // NOLINT
 TEST_CASE(  // NOLINT
     "Slack cost = penalty × dep_scale_phys (col_scale invariance)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // ``relax_fixed_state_variable`` prices each slack at
   // ``penalty × dep_scale_phys`` so the cost-PER-PHYSICAL-UNIT-of-
   // dep-relaxed is invariant under col_scale.  Since 1 LP-unit of
@@ -1514,7 +1514,7 @@ TEST_CASE(  // NOLINT
     "PLP parity — dx filter uses additive form "
     "`(|trial|+1e-8)*cut_coeff_eps > |dx|`")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // PLP osicallsc.cpp:727 drops the link when the slack activation
   // |dx| is below `(|b|+1e-8)*eps`.  gtopt's previous relative form
   // `|π·dx| < 1e-12·(|π·v̂|+1e-8)` is ~4 orders looser on large-RHS
@@ -1537,7 +1537,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("PLP parity — outward perturbation is zero (abs form)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // PLP plp-agrespd.f:791 applies `rhs += FactEPS*|rhs|` with
   // FactEPS = 1e-8 (relative).  gtopt uses 0 — the per-link clamp
   // in `build_multi_cuts` keeps the cut at the box edge exactly,
@@ -1626,7 +1626,7 @@ struct ChinneckFixture
 TEST_CASE(  // NOLINT
     "chinneck_filter_solve filters non-essential link")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // trial1 = 5  (≤ ub1 = 10 — feasible, link non-essential)
   // trial2 = 100 (> ub2 = 50  — infeasible, link essential)
@@ -1653,7 +1653,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "chinneck_filter_solve preserves all when full IIS")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Both trial values infeasible — every relaxed bound is essential.
   ChinneckFixture fx {500.0, 500.0};
@@ -1674,7 +1674,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "chinneck_filter_solve all-feasible trials yield zero-active result")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Both trial values within bounds — no slack should activate.
   ChinneckFixture fx {3.0, 20.0};
@@ -1698,7 +1698,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "chinneck IIS-filtered build_multi_cuts emits cuts only on IIS subset")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Mixed: link 1 non-essential, link 2 essential.
   ChinneckFixture fx {5.0, 100.0};
@@ -1726,7 +1726,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "ElasticFilterMode parses all four named modes plus aliases")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(parse_elastic_filter_mode("single_cut")
         == ElasticFilterMode::single_cut);
@@ -1747,7 +1747,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "ElasticFilterMode every value yields a usable dispatch on a single LP")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Same LP, sweep all three modes.  We don't run a full SDDP solve
   // here — that's covered by integration tests — but we verify the
@@ -1971,7 +1971,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts arithmetic — dep_clone_phys scales with dep_scale_phys")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Formula: dep_clone_phys = v_hat_phys + dx * dep_scale_phys
   // With v_hat=0, dx=5 (sdn activated), dep_scale_phys ∈ {1, √10, 10}:
   //   dep_clone_phys = 5 * scale.
@@ -2002,7 +2002,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts arithmetic — kFactEps niter perturbation grows RHS")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // kFactEps = 0.01 * cut_coeff_eps * niter.  With cut_coeff_eps=1.0:
   //   niter=0  → kFactEps=0   → eps_term=0        → rhs unchanged
   //   niter=10 → kFactEps=0.1 → eps_term=0.1·|rhs| → rhs grows 10%
@@ -2040,7 +2040,7 @@ TEST_CASE(  // NOLINT
     "build_multi_cuts arithmetic — negative pi (sup-active): cut bounds source "
     "above")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // When sup activates (dep went DOWN), dx < 0, pi < 0.
   // dep_clone_phys = v_hat + dx * dep_scale_phys = 50 + (-40)*1 = 10.
   // rhs_base = pi * 10 = -1e3 * 10 = -1e4.
@@ -2075,7 +2075,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts arithmetic — clamping to [source_low, source_upp]")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Three clamping scenarios: within range, below low, above upp.
 
   constexpr double pi = 1e3;
@@ -2112,7 +2112,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "chinneck_filter_solve arithmetic — IIS classification is scale-invariant")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // The IIS classification in chinneck_filter_solve works by comparing
   // raw LP slack values (sdn_val, sup_val) to slack_tol.  Crucially these
   // are raw LP values, NOT physical.  Because the LP constraints are written
@@ -2211,7 +2211,7 @@ struct PushUpLP
 TEST_CASE(  // NOLINT
     "build_multi_cuts — dep col_scale sweep: implied bound tracks dep_scale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // dep fixed at 0 (LP), push-up constraint dep_LP >= 5.
   // After elastic, sdn=5 (LP), dx=5, dep_clone_phys = 5 * scale.
   // Expected: cut.lowb / cut.coeff(source=99) ≈ 5 * scale.
@@ -2263,7 +2263,7 @@ TEST_CASE(  // NOLINT
     "build_multi_cuts — niter escalation: larger niter yields larger implied "
     "bound")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // dep fixed at 0 (LP), push-up constraint dep_LP >= 5, dep_scale=1.
   //
   // The cut filter at the top of ``build_multi_cuts`` drops a cut when
@@ -2313,7 +2313,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "build_multi_cuts — two links with different dep col_scales")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Two dep columns in one LP:
   //   dep1: col_scale=10, fixed at 0, push dep1_LP >= 5 → implied ≈ 50 phys
   //   dep2: col_scale=1,  fixed at 0, push dep2_LP >= 3 → implied ≈  3 phys
@@ -2473,7 +2473,7 @@ struct ChinneckLBFixture
 TEST_CASE(  // NOLINT
     "chinneck_filter_solve — IIS classification invariant under dep col_scale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // x1: trial=5 (at lb, non-essential), x2: trial=3 < lb=50 (essential).
   // Regardless of dep_scale2 ∈ {1, 10, 100}, the LP-space classification
   // must be identical: link1 non-essential, link2 essential.
@@ -2504,7 +2504,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "chinneck IIS + build_multi_cuts — cut implied bound tracks dep col_scale")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // x2: trial=3 (LP), lb=50 (LP), dep_scale ∈ {1, 10, 100}.
   // After chinneck + build_multi_cuts, cut on link2 (source=100):
   //   dep_clone_phys = sdn_LP * dep_scale = 47 * dep_scale.
@@ -2784,7 +2784,7 @@ TEST_CASE(  // NOLINT
     "build_multi_cuts — strict ``> source_upp`` filter drops the "
     "FactEps-amplified saturated cut while ``niter=0`` keeps it")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two parallel scenarios on the same elastic clone:
   //
@@ -2879,10 +2879,9 @@ TEST_CASE(  // NOLINT
     "build_multi_cuts — unbounded source_upp sentinel does not "
     "false-trigger saturation drop")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, hicpp-move-const-arg,
-  // misc-const-correctness, performance-move-const-arg,
-  // readability-trailing-comma)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
+  // hicpp-move-const-arg,performance-move-const-arg,readability-trailing-comma)
 
   // Regression for the ±DblMax sentinel handling on `source_upp` /
   // `source_low`.  Naïve relative tolerance `1e-9 * (source_upp -
@@ -2957,6 +2956,5 @@ TEST_CASE(  // NOLINT
   CHECK(cuts[0].cmap.contains(link.source_col));
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, hicpp-move-const-arg,
-// misc-const-correctness, performance-move-const-arg,
-// readability-trailing-comma)
+// NOLINTEND(bugprone-unchecked-optional-access,
+// hicpp-move-const-arg,performance-move-const-arg,readability-trailing-comma)

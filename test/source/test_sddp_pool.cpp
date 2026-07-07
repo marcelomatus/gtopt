@@ -12,13 +12,13 @@
 #include <doctest/doctest.h>
 #include <gtopt/sddp_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── SDDPTaskKey and constant tests ──────────────────────────────────────────
 
 TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("SDDPTaskKey is a 4-tuple (iter, is_backward, phase_rank, kind)")
   {
@@ -73,7 +73,7 @@ TEST_CASE("SDDPTaskKey type and constants")  // NOLINT
 
 TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using STask = Task<void, SDDPTaskKey, std::less<>>;
   using SReq = BasicTaskRequirements<SDDPTaskKey>;
@@ -223,7 +223,7 @@ TEST_CASE("Task<SDDPTaskKey> ordering is lexicographic")  // NOLINT
 
 TEST_CASE("SDDPWorkPool type traits")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("key_type is SDDPTaskKey")
   {
@@ -243,7 +243,7 @@ TEST_CASE("SDDPWorkPool type traits")  // NOLINT
 
 TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("submit task with SDDP tuple key")
   {
@@ -362,7 +362,7 @@ TEST_CASE("SDDPWorkPool submit and execute")  // NOLINT
 
 TEST_CASE("make_sddp_work_pool factory")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("creates and starts SDDPWorkPool")
   {
@@ -418,7 +418,7 @@ TEST_CASE(  // NOLINT
   // additional slots so aperture-parallelism is not silently capped
   // at `(cpu_factor × physical_concurrency) − num_scenes`.  This
   // test pins that the parameter actually adds to `max_threads`.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("zero headroom matches base size")
   {
@@ -469,7 +469,7 @@ TEST_CASE("make_sddp_work_pool memory-governance defaults")  // NOLINT
   // memory% — so unrelated processes can't collapse the pool to one worker,
   // and an off-mode resident LP set doesn't serialize for no memory gain.
   // The system gates are demoted to near-OOM backstops.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("unset memory_limit auto-enables an own-RSS budget")
   {

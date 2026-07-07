@@ -22,13 +22,13 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/strong_index_vector.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── SceneUid vs SceneIndex ─────────────────────────────────────────────────
 
 TEST_CASE("SceneUid and SceneIndex are distinct strong types")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("they are different types")
   {
@@ -87,7 +87,7 @@ TEST_CASE("SceneUid and SceneIndex are distinct strong types")  // NOLINT
 
 TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("they are different types")
   {
@@ -136,7 +136,7 @@ TEST_CASE("PhaseUid and PhaseIndex are distinct strong types")  // NOLINT
 
 TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("scene: UID-based lookup finds correct data")
   {
@@ -192,7 +192,7 @@ TEST_CASE("UID must not be used as array index in StrongIndexVector")  // NOLINT
 
 TEST_CASE("StoredCut preserves strong-typed scene and phase UIDs")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const StoredCut cut {
       .type = CutType::Optimality,

@@ -25,8 +25,8 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ── Enum string round-trip ────────────────────────────────────────
 
@@ -441,4 +441,4 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(tmpdir);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

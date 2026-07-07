@@ -30,7 +30,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace uc_diagnostics_test  // unique outer namespace (unity-build safe)
 {

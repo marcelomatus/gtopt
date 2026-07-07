@@ -5,11 +5,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/user_param.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("UserParam construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const UserParam param;
 
@@ -20,7 +20,7 @@ TEST_CASE("UserParam construction and default values")
 
 TEST_CASE("UserParam with scalar value")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   UserParam param;
   param.name = "pct_elec";
@@ -34,7 +34,7 @@ TEST_CASE("UserParam with scalar value")
 
 TEST_CASE("UserParam with monthly values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   UserParam param;
   param.name = "irr_seasonal";
@@ -55,7 +55,7 @@ TEST_CASE("UserParam with monthly values")
 
 TEST_CASE("UserParam designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const UserParam param {
       .name = "max_gen",
@@ -68,7 +68,7 @@ TEST_CASE("UserParam designated initializer construction")
 
 TEST_CASE("UserParamMap lookup")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   UserParamMap params;
 
@@ -94,7 +94,7 @@ TEST_CASE("UserParamMap lookup")
 
 TEST_CASE("UserParam with zero value")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const UserParam param {
       .name = "zero_param",
@@ -107,7 +107,7 @@ TEST_CASE("UserParam with zero value")
 
 TEST_CASE("UserParam with negative value")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   const UserParam param {

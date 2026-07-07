@@ -11,7 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_inertia_provision.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("InertiaProvision json — basic fields with Uid zone refs")
 {

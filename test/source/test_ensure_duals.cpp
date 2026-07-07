@@ -12,7 +12,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("LinearInterface - ensure_duals no-op before solve")  // NOLINT
 {

@@ -7,7 +7,7 @@
 #include <gtopt/simulation.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("BlockLP default construction")
 {

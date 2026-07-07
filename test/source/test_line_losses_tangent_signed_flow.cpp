@@ -44,7 +44,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap the entire file body in a uniquely-named non-anonymous outer
 // namespace so the Unity-build (CMake batches many test cpp files into
@@ -53,7 +53,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace test_line_losses_tangent_signed_flow_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 namespace tangent_signed_flow_test
 {

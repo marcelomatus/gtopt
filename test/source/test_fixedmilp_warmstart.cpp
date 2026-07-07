@@ -25,7 +25,7 @@
 #include <gtopt/solver_registry.hpp>
 #include <unistd.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_fixedmilp_warmstart_ns
 {
@@ -36,7 +36,7 @@ namespace
 
 std::filesystem::path make_tmp_dir()
 {
-  const char* tmp = std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
+  const char* tmp = std::getenv("TMPDIR");
   std::filesystem::path base = (tmp != nullptr && *tmp != '\0')
       ? std::filesystem::path {tmp}
       : std::filesystem::path {std::getenv("HOME")} / "tmp";  // NOLINT

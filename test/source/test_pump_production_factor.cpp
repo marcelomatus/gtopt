@@ -23,10 +23,10 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-argument-comment, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-argument-comment)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build a Colbun-Machicura pumped-storage system.
@@ -552,4 +552,4 @@ TEST_CASE(  // NOLINT
   CHECK(result.value() == 0);
 }
 
-// NOLINTEND(bugprone-argument-comment, misc-const-correctness)
+// NOLINTEND(bugprone-argument-comment)

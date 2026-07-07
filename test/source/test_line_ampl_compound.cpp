@@ -40,8 +40,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace line_ampl_test
 {
@@ -862,7 +861,7 @@ TEST_CASE(  // NOLINT
   //     `sign · x_τ · row_scale` where sign = ±1 from the cycle
   //     traversal, and the bidirectional segments mirror with
   //     opposite signs.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions opts;
   opts.model_options.use_single_bus = false;
@@ -1087,5 +1086,3 @@ TEST_CASE(  // NOLINT
   // Demand constraint still works.
   (void)find_row(lp, "uc_demand_constraint_");
 }
-
-// NOLINTEND(google-global-names-in-headers)

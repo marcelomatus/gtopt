@@ -29,8 +29,8 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Plumbing
@@ -171,4 +171,4 @@ TEST_CASE("SDDPMethod - basis_cross_mode is bound-invariant vs off")  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

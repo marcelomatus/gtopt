@@ -27,9 +27,9 @@
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── IEEE 9-bus base JSON (no losses, single 1-h block) ──────────────────────

@@ -13,19 +13,19 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 // ─── build_effective_apertures ──────────────────────────────────────────────
 
 TEST_CASE(
     "build_effective_apertures — empty phase_apertures uses all active")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -55,7 +55,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — inactive apertures are excluded")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -77,7 +77,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — deduplicates phase_apertures with counts")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -117,7 +117,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — preserves first-appearance order")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -151,7 +151,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — unknown UIDs in phase_apertures are skipped")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -174,7 +174,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — empty defs yields empty result")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {};
   const auto result = build_effective_apertures(defs, {});
@@ -190,7 +190,7 @@ TEST_CASE(
     "build_effective_apertures — non-contiguous duplicates "
     "accumulate counts")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -222,7 +222,7 @@ TEST_CASE(
 TEST_CASE(
     "build_effective_apertures — inactive apertures in phase list are skipped")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<Aperture> defs {
       {
@@ -251,7 +251,7 @@ TEST_CASE(
 TEST_CASE(
     "build_synthetic_apertures — creates N apertures with equal probability")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
@@ -296,7 +296,7 @@ TEST_CASE(
 
 TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
@@ -322,7 +322,7 @@ TEST_CASE("build_synthetic_apertures — caps at scenario count")  // NOLINT
 TEST_CASE(
     "build_synthetic_apertures — single aperture gets probability 1.0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<ScenarioLP> scenarios {
       ScenarioLP {
@@ -517,7 +517,7 @@ TEST_CASE(
 
 TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ApertureValueFn fn = [](StageUid /*st*/,
                                 BlockUid /*bl*/) -> std::optional<double>
@@ -530,7 +530,7 @@ TEST_CASE("ApertureValueFn — lambda returning value")  // NOLINT
 
 TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ApertureValueFn fn = [](StageUid /*st*/,
                                 BlockUid /*bl*/) -> std::optional<double>
@@ -542,7 +542,7 @@ TEST_CASE("ApertureValueFn — lambda returning nullopt")  // NOLINT
 
 TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Simulate a cache lookup pattern
   std::map<std::pair<int, int>, double> cache {
@@ -584,7 +584,7 @@ TEST_CASE("ApertureValueFn — cache-backed lambda")  // NOLINT
 
 TEST_CASE("ApertureCutResult default construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ApertureCutResult result;
   CHECK(result.weight == doctest::Approx(0.0));
@@ -600,7 +600,7 @@ TEST_CASE("ApertureCutResult default construction")  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture with empty aperture_array falls back to Benders")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
@@ -626,7 +626,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture with synthetic apertures converges")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
@@ -652,7 +652,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture timeout triggers fallback")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_2scenario_planning();
   PlanningLP plp(std::move(planning));
@@ -674,7 +674,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SDDPMethod aperture on single-scenario problem uses Benders")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
@@ -700,7 +700,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — single-scene under-saturated → 1")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // 14 apertures × 1 scene = 14 work units; pool target = 2 × 16 = 32.
   // Under-saturated → chunk_size 1 (no warm-start chunking needed).
   CHECK(compute_auto_aperture_chunk_size(
@@ -712,7 +712,7 @@ TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — multi-scene saturated, raw value "
     "rounded DOWN to strictly-previous power of 2")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // 14 apertures × 16 scenes = 224 work units; target = 32 →
   // K_raw = ⌈224/32⌉ = 7 → bit_floor(7-1) = bit_floor(6) = 4.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 2.0) == 4);
@@ -728,7 +728,7 @@ TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — heavy oversubscription caps at A "
     "AFTER strictly-previous pow-2 rounding")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // 80 apertures × 32 scenes = 2560 work units; target = 32 →
   // K_raw = 80 → bit_floor(80-1) = bit_floor(79) = 64, min(64, 80) = 64.
   CHECK(compute_auto_aperture_chunk_size(80, 32, 16, 2.0) == 64);
@@ -740,7 +740,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — strictly-previous-pow-2 ladder")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Sweep every K_raw ∈ [1, 17] under a single-scene fixture chosen so
   // K_raw = max_apertures_per_phase exactly (pf=1, cores=1 collapses
   // the target to 1, so K_raw = A · S = A · 1 = A).  Each cell pins
@@ -766,7 +766,7 @@ TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — production juan/IPLP shape "
     "16 × 16 × 20-core → K=4")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // The juan/IPLP production case: 16 apertures per phase × 16 scenes,
   // pf=2 on a 20-physical-core box.  K_raw = ⌈16·16 / (2·20)⌉ =
   // ⌈6.4⌉ = 7 → bit_floor(7) = 4.  Empirically the fastest auto K
@@ -777,7 +777,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — degenerate inputs collapse to 1")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Any zero/negative dimension → safe no-chunking default.
   CHECK(compute_auto_aperture_chunk_size(0, 16, 16, 2.0) == 1);
   CHECK(compute_auto_aperture_chunk_size(14, 0, 16, 2.0) == 1);
@@ -791,7 +791,7 @@ TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — single core stretches K to A "
     "AFTER pow-2 rounding")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // 1 core, target = 2.  14×1 / 2 = 7 → bit_floor(7) = 4.
   CHECK(compute_auto_aperture_chunk_size(14, 1, 1, 2.0) == 4);
   // 14×16 / 2 = 112 → bit_floor(112) = 64 → capped at A=14.
@@ -802,7 +802,7 @@ TEST_CASE(  // NOLINT
     "compute_auto_aperture_chunk_size — parallel_factor scales target "
     "inversely (then strictly-previous pow-2 round)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // pf=1 halves the target → doubles K_raw vs pf=2 (modulo ceil).
   // 14×16 / (1·16) = 14 → bit_floor(14-1) = bit_floor(13) = 8.
   CHECK(compute_auto_aperture_chunk_size(14, 16, 16, 1.0) == 8);
@@ -825,7 +825,7 @@ static_assert(compute_auto_aperture_chunk_size(16, 16, 20, 2.0) == 4);
 TEST_CASE(
     "select_apertures — nullopt num_apertures returns full copy")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
   const auto out = select_apertures(phase_aps, std::nullopt);
   REQUIRE(out.size() == 3);
@@ -836,7 +836,7 @@ TEST_CASE(
 
 TEST_CASE("select_apertures — head mode picks first N entries")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -853,7 +853,7 @@ TEST_CASE("select_apertures — head mode picks first N entries")  // NOLINT
 
 TEST_CASE("select_apertures — head is the default mode")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
   const auto out = select_apertures(phase_aps, std::optional<int> {2});
   REQUIRE(out.size() == 2);
@@ -863,7 +863,7 @@ TEST_CASE("select_apertures — head is the default mode")  // NOLINT
 
 TEST_CASE("select_apertures — N = 0 returns empty (every mode)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
   CHECK(select_apertures(
             phase_aps, std::optional<int> {0}, ApertureSelectionMode::head)
@@ -879,7 +879,7 @@ TEST_CASE("select_apertures — N = 0 returns empty (every mode)")  // NOLINT
 TEST_CASE(
     "select_apertures — N >= size returns full copy (every mode)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}};
   for (auto mode : {ApertureSelectionMode::head,
                     ApertureSelectionMode::stride,
@@ -894,7 +894,7 @@ TEST_CASE(
 
 TEST_CASE("select_apertures — negative N is treated as 0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}};
   CHECK(select_apertures(
             phase_aps, std::optional<int> {-5}, ApertureSelectionMode::head)
@@ -903,7 +903,7 @@ TEST_CASE("select_apertures — negative N is treated as 0")  // NOLINT
 
 TEST_CASE("select_apertures — empty input passes through")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {};
   CHECK(select_apertures(phase_aps, std::nullopt).empty());
   CHECK(select_apertures(phase_aps, std::optional<int> {4}).empty());
@@ -912,7 +912,7 @@ TEST_CASE("select_apertures — empty input passes through")  // NOLINT
 TEST_CASE(
     "select_apertures — stride mode picks evenly spaced entries")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // 8 entries with N=4 under endpoint-inclusive formula
   // i*(total-1)/(n-1) = i*7/3:  i=0→0, i=1→2, i=2→4, i=3→7.
   // Picks wettest (Uid{1}) and driest (Uid{8}) plus two interior.
@@ -942,7 +942,7 @@ TEST_CASE(
   // NOT the wettest.  This is the canonical single-representative sample
   // for stride semantics; use head/tail for the wettest/driest extremes.
   // 4 entries: indices 0,1,2,3 → median = phase_apertures[4/2=2] = Uid{30}.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -959,7 +959,7 @@ TEST_CASE(
     "select_apertures — stride mode N=1 odd-length picks median")  // NOLINT
 {
   // 5 entries: median = phase_apertures[5/2=2] = Uid{30}.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -978,7 +978,7 @@ TEST_CASE(
 {
   // stride N=2: must include wettest (index 0) AND driest (index total-1).
   // Uses the formula i*(total-1)/(n-1): i=0 → 0, i=1 → total-1.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -999,7 +999,7 @@ TEST_CASE(
 {
   // 6 entries with N=3: indices i*(6-1)/(3-1) = 0, 2, 5.
   // → Uid{10}, Uid{30}, Uid{60} (first, middle-ish, last).
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -1021,7 +1021,7 @@ TEST_CASE(
 {
   // Pin the enum name/from_name contract for all three modes and their
   // canonical aliases.  This is the primary entry-point test for item 8.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   CHECK(enum_name(ApertureSelectionMode::head) == "head");
   CHECK(enum_name(ApertureSelectionMode::stride) == "stride");
   CHECK(enum_name(ApertureSelectionMode::tail) == "tail");
@@ -1055,7 +1055,7 @@ TEST_CASE(
 
 TEST_CASE("select_apertures — tail mode picks last N entries")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {
       Uid {10},
       Uid {20},
@@ -1072,7 +1072,7 @@ TEST_CASE("select_apertures — tail mode picks last N entries")  // NOLINT
 
 TEST_CASE("select_apertures — tail mode N=1 picks the driest")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}};
   const auto out = select_apertures(
       phase_aps, std::optional<int> {1}, ApertureSelectionMode::tail);
@@ -1082,7 +1082,7 @@ TEST_CASE("select_apertures — tail mode N=1 picks the driest")  // NOLINT
 
 TEST_CASE("select_apertures — head and tail are mirrors")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   const std::vector<Uid> phase_aps {Uid {1}, Uid {2}, Uid {3}, Uid {4}};
   const auto head = select_apertures(
       phase_aps, std::optional<int> {2}, ApertureSelectionMode::head);
@@ -1127,7 +1127,7 @@ struct ApertureBag
 
 TEST_CASE("partition_apertures — empty input → empty output")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   std::vector<ApertureEntry> empty;
   CHECK(partition_apertures(empty, 4).empty());
   CHECK(partition_apertures(empty, 1).empty());
@@ -1136,7 +1136,7 @@ TEST_CASE("partition_apertures — empty input → empty output")  // NOLINT
 
 TEST_CASE("partition_apertures — K=1 yields one chunk per aperture")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   ApertureBag bag {5};
   const auto chunks = partition_apertures(bag.entries, 1);
   REQUIRE(chunks.size() == 5);
@@ -1148,7 +1148,7 @@ TEST_CASE("partition_apertures — K=1 yields one chunk per aperture")  // NOLIN
 
 TEST_CASE("partition_apertures — K>=N yields exactly one chunk")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   ApertureBag bag {7};
   for (int k : {7, 8, 100}) {
     const auto chunks = partition_apertures(bag.entries, k);
@@ -1161,7 +1161,7 @@ TEST_CASE("partition_apertures — K>=N yields exactly one chunk")  // NOLINT
 
 TEST_CASE("partition_apertures — K=0 or K<0 collapse to K=1")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   ApertureBag bag {3};
   for (int k : {0, -1, -100}) {
     const auto chunks = partition_apertures(bag.entries, k);
@@ -1175,7 +1175,7 @@ TEST_CASE("partition_apertures — K=0 or K<0 collapse to K=1")  // NOLINT
 TEST_CASE(  // NOLINT
     "partition_apertures — N=10, K=3 yields chunks of sizes [3,3,3,1]")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   ApertureBag bag {10};
   const auto chunks = partition_apertures(bag.entries, 3);
   REQUIRE(chunks.size() == 4);
@@ -1196,9 +1196,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(
     "partition_apertures — N=4, K=2 yields two chunks of size 2")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-argument-comment, bugprone-unchecked-optional-access,
-  // misc-const-correctness)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-argument-comment,bugprone-unchecked-optional-access)
   ApertureBag bag {4};
   const auto chunks = partition_apertures(bag.entries, 2);
   REQUIRE(chunks.size() == 2);
@@ -1209,5 +1208,4 @@ TEST_CASE(
   CHECK(&chunks[1].front() == &bag.entries[2]);
 }
 
-// NOLINTEND(bugprone-argument-comment, bugprone-unchecked-optional-access,
-// misc-const-correctness)
+// NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)

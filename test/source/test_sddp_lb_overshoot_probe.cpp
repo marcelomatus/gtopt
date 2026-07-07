@@ -31,7 +31,7 @@
 
 #include "sddp_helpers.hpp"  // IWYU pragma: keep — fixture helpers used in build_nphase_mscenario_planning
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

@@ -34,9 +34,9 @@
 #include <gtopt/lp_context.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Build a 2-col / 1-row base LP, flatten, and load into the given

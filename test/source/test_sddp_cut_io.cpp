@@ -47,10 +47,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Helper to create scene_phase_states matching a PlanningLP.
@@ -991,5 +990,3 @@ TEST_CASE(
     CHECK_FALSE(is_final_state_col("vfin"));
   }
 }
-
-// NOLINTEND(misc-const-correctness)

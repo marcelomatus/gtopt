@@ -4,8 +4,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reservoir.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("Reservoir basic fields deserialization")
 {
@@ -295,4 +295,4 @@ TEST_CASE("Reservoir daily_cycle JSON round-trip")  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

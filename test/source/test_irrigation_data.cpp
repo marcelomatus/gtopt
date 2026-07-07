@@ -10,11 +10,11 @@
 #include <gtopt/flow_right.hpp>
 #include <gtopt/volume_right.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Irrigation data: FlowRight construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const FlowRight fr;
 
@@ -30,7 +30,7 @@ TEST_CASE("Irrigation data: FlowRight construction and default values")
 
 TEST_CASE("Irrigation data: FlowRight attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
 
@@ -58,7 +58,7 @@ TEST_CASE("Irrigation data: FlowRight attribute assignment")
 
 TEST_CASE("FlowRight with seasonal target schedule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 101;
@@ -94,7 +94,7 @@ TEST_CASE("FlowRight with seasonal target schedule")
 
 TEST_CASE("VolumeRight construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const VolumeRight vr;
 
@@ -122,7 +122,7 @@ TEST_CASE("VolumeRight construction and default values")
 
 TEST_CASE("VolumeRight attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   VolumeRight vr;
 
@@ -153,14 +153,14 @@ TEST_CASE("VolumeRight attribute assignment")
 
 TEST_CASE("VolumeRight default constants")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(VolumeRight::default_flow_conversion_rate == doctest::Approx(0.0036));
 }
 
 TEST_CASE("VolumeRight use_state_variable defaults and explicit set")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is nullopt (coupled by convention)")
   {
@@ -188,7 +188,7 @@ TEST_CASE("VolumeRight use_state_variable defaults and explicit set")
 
 TEST_CASE("FlowRight with direction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 102;
@@ -202,7 +202,7 @@ TEST_CASE("FlowRight with direction")
 
 TEST_CASE("FlowRight with fmax for variable mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 103;
@@ -222,7 +222,7 @@ TEST_CASE("FlowRight with fmax for variable mode")
 
 TEST_CASE("FlowRight uvalue field")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 110;
@@ -259,7 +259,7 @@ TEST_CASE("FlowRight uvalue field")
 
 TEST_CASE("FlowRight fcost as schedule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 112;
@@ -288,7 +288,7 @@ TEST_CASE("FlowRight fcost as schedule")
 
 TEST_CASE("FlowRight use_average flag")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 105;
@@ -306,7 +306,7 @@ TEST_CASE("FlowRight use_average flag")
 
 TEST_CASE("VolumeRight with right_reservoir and direction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   VolumeRight vr;
   vr.uid = 201;
@@ -324,7 +324,7 @@ TEST_CASE("VolumeRight with right_reservoir and direction")
 
 TEST_CASE("RightBoundSegment default construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const RightBoundSegment seg;
   CHECK(seg.volume == doctest::Approx(0.0));
@@ -334,7 +334,7 @@ TEST_CASE("RightBoundSegment default construction")
 
 TEST_CASE("evaluate_bound_rule - Laja 4-zone cushion model")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Laja irrigation formula:
   //   Rights = 570 + 0.00*min(V,1200) + 0.40*min(max(V-1200,0),700)
@@ -402,7 +402,7 @@ TEST_CASE("evaluate_bound_rule - Laja 4-zone cushion model")
 
 TEST_CASE("evaluate_bound_rule - step function (Maule style)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Simple step function: 0 below 500, 100 above 500
   const RightBoundRule rule {
@@ -430,7 +430,7 @@ TEST_CASE("evaluate_bound_rule - step function (Maule style)")
 
 TEST_CASE("evaluate_bound_rule - floor clamp")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const RightBoundRule rule {
       .reservoir = Uid {1},
@@ -454,7 +454,7 @@ TEST_CASE("evaluate_bound_rule - floor clamp")
 
 TEST_CASE("evaluate_bound_rule - empty segments returns cap or 0")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("no cap, no segments → 0")
   {
@@ -476,7 +476,7 @@ TEST_CASE("evaluate_bound_rule - empty segments returns cap or 0")
 
 TEST_CASE("FlowRight bound_rule field")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 110;
@@ -511,8 +511,8 @@ TEST_CASE("FlowRight bound_rule field")
 
 TEST_CASE("VolumeRight bound_rule field")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness, readability-math-missing-parentheses)
+  using namespace gtopt;
+  // NOLINTBEGIN(readability-math-missing-parentheses)
 
   VolumeRight vr;
   vr.uid = 210;
@@ -545,4 +545,4 @@ TEST_CASE("VolumeRight bound_rule field")
   CHECK(std::get<Uid>(vr.bound_rule->reservoir) == 1);
 }
 
-// NOLINTEND(misc-const-correctness, readability-math-missing-parentheses)
+// NOLINTEND(readability-math-missing-parentheses)

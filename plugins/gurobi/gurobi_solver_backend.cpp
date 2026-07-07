@@ -160,8 +160,7 @@ void apply_log_filename_to_env(GRBenv* env,
 /// validation.  This pre-check avoids the hang entirely.
 [[nodiscard]] bool has_local_license()
 {
-  // 1. Explicit path via GRB_LICENSE_FILE
-  // NOLINTNEXTLINE(concurrency-mt-unsafe) — read-only getenv
+  // 1. Explicit path via GRB_LICENSE_FILE (read-only getenv)
   if (const char* lic = std::getenv("GRB_LICENSE_FILE");
       lic != nullptr && std::filesystem::exists(lic))
   {
@@ -169,7 +168,6 @@ void apply_log_filename_to_env(GRBenv* env,
   }
 
   // 2. <GUROBI_HOME>/gurobi.lic
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* home = std::getenv("GUROBI_HOME"); home != nullptr
       && std::filesystem::exists(std::format("{}/gurobi.lic", home)))
   {
@@ -177,7 +175,6 @@ void apply_log_filename_to_env(GRBenv* env,
   }
 
   // 3. ~/gurobi.lic
-  // NOLINTNEXTLINE(concurrency-mt-unsafe)
   if (const char* uhome = std::getenv("HOME"); uhome != nullptr
       && std::filesystem::exists(std::format("{}/gurobi.lic", uhome)))
   {
@@ -415,7 +412,6 @@ void GurobiSolverBackend::load_problem(int ncols,
 
   // Step 2: convert CSC to CSR and add range constraints in batch
   const bool have_nnz = (ncols > 0 && matbeg != nullptr);
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const auto nnz = have_nnz ? matbeg[ncols] : 0;
 
   // Count entries per row
@@ -450,17 +446,14 @@ void GurobiSolverBackend::load_problem(int ncols,
       }
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 
   // Build lower/upper arrays for range constraints
   std::vector<double> lower(static_cast<size_t>(nrows));
   std::vector<double> upper(static_cast<size_t>(nrows));
   for (int i = 0; i < nrows; ++i) {
     const auto idx = static_cast<size_t>(i);
-    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     lower[idx] = rowlb[i];
     upper[idx] = rowub[i];
-    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
 
   rc = GRBaddrangeconstrs(m_model_,
@@ -534,9 +527,7 @@ void GurobiSolverBackend::add_cols(int num_cols,
   // All new vars are continuous (vtype=nullptr defaults to 'C').  Const-
   // cast is safe — GRB's API is non-modifying despite the non-const
   // pointer signature (mirrors the existing `GRBaddrangeconstrs` call).
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = colbeg[num_cols];
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int rc = GRBaddvars(m_model_,
                             num_cols,
                             nnz,
@@ -632,9 +623,7 @@ void GurobiSolverBackend::add_rows(int num_rows,
   // solver call instead of N.  Const-cast is safe — GRB's API is
   // non-modifying despite the non-const pointer signature (mirrors the
   // existing `GRBaddrangeconstrs` call site in `load_problem`).
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int nnz = rowbeg[num_rows];
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const int rc = GRBaddrangeconstrs(m_model_,
                                     num_rows,
                                     nnz,
@@ -650,10 +639,8 @@ void GurobiSolverBackend::add_rows(int num_rows,
   // set_row_upper / set_row_bounds keep returning correct values.
   // The previous per-row loop appended one bound per iteration; the
   // bulk path just appends in one chunk.
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_rowlb_local_.insert(m_rowlb_local_.end(), rowlb, rowlb + num_rows);
   m_rowub_local_.insert(m_rowub_local_.end(), rowub, rowub + num_rows);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_dirty_ = true;
 }
 

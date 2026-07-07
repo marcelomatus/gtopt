@@ -11,7 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_stage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Stage JSON basic parsing")
 {

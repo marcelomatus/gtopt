@@ -36,7 +36,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap the file body in a uniquely-named non-anonymous outer namespace
 // so the Unity build cannot collide with same-named helpers in sibling
@@ -44,7 +44,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace test_line_flow_always_bounded_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Any column upper/lower bound whose magnitude reaches this threshold

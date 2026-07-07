@@ -61,13 +61,13 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique outer namespace to avoid collisions when CMake batches into a
 // unity TU.
 namespace test_emission_rts_gmlc_port
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Conversion factor LBS/MMBTU → tCO2/GJ.

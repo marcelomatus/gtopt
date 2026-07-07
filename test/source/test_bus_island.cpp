@@ -8,12 +8,12 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Helper: build a PlanningOptionsLP with Kirchhoff enabled.
 ///
@@ -66,7 +66,7 @@ auto make_no_kirchhoff_options() -> PlanningOptionsLP
 
 TEST_CASE("DisjointSetUnion basic operations")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("singleton sets")
   {
@@ -111,7 +111,7 @@ TEST_CASE("DisjointSetUnion basic operations")  // NOLINT
 
 TEST_CASE("Island detection - single connected island")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 3 buses in a triangle: b0—b1—b2—b0
   Array<Bus> buses = {
@@ -173,7 +173,7 @@ TEST_CASE("Island detection - single connected island")  // NOLINT
 
 TEST_CASE("Island detection - two disconnected islands")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Island A: buses 0,1   Island B: buses 2,3
   Array<Bus> buses = {
@@ -232,7 +232,7 @@ TEST_CASE("Island detection - two disconnected islands")  // NOLINT
 
 TEST_CASE("Island detection - isolated bus (no lines)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Bus 0 connected to bus 1; bus 2 isolated
   Array<Bus> buses = {
@@ -275,7 +275,7 @@ TEST_CASE("Island detection - isolated bus (no lines)")  // NOLINT
 TEST_CASE(
     "Island detection - user-specified reference bus respected")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // User already set reference_theta on bus 1
   Array<Bus> buses = {
@@ -326,7 +326,7 @@ TEST_CASE(
 
 TEST_CASE("Island detection - single bus mode skipped")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -361,7 +361,7 @@ TEST_CASE("Island detection - single bus mode skipped")  // NOLINT
 
 TEST_CASE("Island detection - kirchhoff disabled skipped")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -395,7 +395,7 @@ TEST_CASE("Island detection - kirchhoff disabled skipped")  // NOLINT
 
 TEST_CASE("Island detection - self-loop line ignored")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -432,7 +432,7 @@ TEST_CASE("Island detection - self-loop line ignored")  // NOLINT
 
 TEST_CASE("Island detection - line without reactance ignored")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -468,7 +468,7 @@ TEST_CASE("Island detection - line without reactance ignored")  // NOLINT
 
 TEST_CASE("Island detection - single bus returns 0")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -488,7 +488,7 @@ TEST_CASE("Island detection - single bus returns 0")  // NOLINT
 
 TEST_CASE("Island detection - name-based SingleId")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Array<Bus> buses = {
       {
@@ -534,7 +534,7 @@ TEST_CASE("Island detection - name-based SingleId")  // NOLINT
 TEST_CASE(
     "Runtime island fix - line inactive at stage 2 creates island")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 3 buses in a chain: b1 — l1 — b2 — l2 — b3
   // Line l1 is inactive at stage 2, splitting {b1} from {b2, b3}.
@@ -668,7 +668,7 @@ TEST_CASE(
 TEST_CASE(
     "Runtime island fix - all lines active produces no warning")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Simple 2-bus system, all lines always active.
   // No runtime island fix should be needed.
@@ -766,8 +766,7 @@ TEST_CASE(
 TEST_CASE(
     "Runtime island fix - multi-stage with island at one stage")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   // 4 buses: b1-l1-b2-l2-b3-l3-b4
   // l2 inactive at stage 2 only, splitting into {b1,b2} and {b3,b4}
@@ -920,5 +919,3 @@ TEST_CASE(
   REQUIRE(result.has_value());
   CHECK(result.value() == 1);
 }
-
-// NOLINTEND(misc-const-correctness)

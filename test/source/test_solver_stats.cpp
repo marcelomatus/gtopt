@@ -15,7 +15,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_stats.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ---------------------------------------------------------------------------
 // Pure struct behaviour (no backend)
@@ -239,7 +239,6 @@ TEST_CASE("SolverStats reset restores default state")  // NOLINT
 // ---------------------------------------------------------------------------
 
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 struct SimpleLp
 {

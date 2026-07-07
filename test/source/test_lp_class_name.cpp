@@ -14,9 +14,9 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_class_name.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
-// modernize-avoid-c-arrays, modernize-use-designated-initializers)
+using namespace gtopt;
+// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,
+// hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)
 
 TEST_CASE("LPClassName single-word class")  // NOLINT
 {
@@ -98,5 +98,5 @@ TEST_CASE("LPClassName various project class names")  // NOLINT
   }
 }
 
-// NOLINTEND(cppcoreguidelines-avoid-c-arrays, hicpp-avoid-c-arrays,
-// modernize-avoid-c-arrays, modernize-use-designated-initializers)
+// NOLINTEND(cppcoreguidelines-avoid-c-arrays,
+// hicpp-avoid-c-arrays,modernize-avoid-c-arrays,modernize-use-designated-initializers)

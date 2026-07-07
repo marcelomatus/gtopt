@@ -30,13 +30,13 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint_enums.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions;
 // the nested anonymous namespace gives the helpers internal linkage.
-namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucscope_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -139,7 +139,7 @@ TEST_CASE("UserConstraint scope — enum parsing")  // NOLINT
 
 TEST_CASE("UserConstraint scope — block default = one row per block")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // A stage-level attribute (capainst) shares one LP column across all
   // blocks, so a per-block constraint over it still emits one row PER
@@ -164,7 +164,7 @@ TEST_CASE("UserConstraint scope — block default = one row per block")  // NOLI
 
 TEST_CASE("UserConstraint scope — stage emits one row per stage")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // Same constraint at block vs stage scope over a 3-block stage:
   // block → 3 rows, stage → 1 row, so block has exactly +2 rows.
@@ -180,7 +180,7 @@ TEST_CASE("UserConstraint scope — stage emits one row per stage")  // NOLINT
 
 TEST_CASE("UserConstraint scope — phase emits one row per cell")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // Single (scene, phase) cell here, so phase-scope is also exactly one
   // row — same count as stage-scope in this single-stage case.
@@ -197,7 +197,7 @@ TEST_CASE("UserConstraint scope — phase emits one row per cell")  // NOLINT
 TEST_CASE(
     "UserConstraint scope — global emits one row, no dedup collision")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // One global constraint → exactly one row for the whole cell.
   const auto blk = solve_numrows(R"({
@@ -226,7 +226,7 @@ TEST_CASE(
 
 TEST_CASE("UserConstraint scope — unknown value is a hard error")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   auto planning = parse_planning_json(make_json(R"({
       "uid": 1, "name": "uc", "scope": "fortnight",
@@ -237,7 +237,7 @@ TEST_CASE("UserConstraint scope — unknown value is a hard error")  // NOLINT
 
 TEST_CASE("UserConstraint scope — coarse scope solves correctly")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // Sanity: a stage-scoped bound on a stage-level attribute (capainst is
   // one column across blocks) constrains the LP and still solves.  All
@@ -268,9 +268,9 @@ TEST_CASE("UserConstraint scope — coarse scope solves correctly")  // NOLINT
 // carries its OWN phase/global row (so the second scene's row is not silently
 // dropped).
 
-namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucscope_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -353,7 +353,7 @@ auto make_2scene_2phase_json(std::string_view uc_block) -> std::string
 TEST_CASE(
     "UserConstraint scope — multi-scene phase/global rows do not collapse")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   constexpr auto expr = R"("expression": "generator('g1').generation <= 150")";
 
@@ -448,7 +448,7 @@ TEST_CASE(
 TEST_CASE(
     "UserConstraint sum{} time-agg — dur[b] weighting limits ENERGY")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // sum{b in stage} dur[b] * generation <= 1200  caps g1 ENERGY at 1200 MWh.
   // g1 serves 1200 MWh (cost 6000); remaining 1200 MWh fails
@@ -462,7 +462,7 @@ TEST_CASE(
 TEST_CASE(
     "UserConstraint sum{} time-agg — unweighted = per-block MW COUNT")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // sum{b in stage} generation <= 90  caps the SUM of per-block MW at 90
   // (NOT energy): g1 = 30 MW/block ⇒ 30 × 8 = 240 MWh/block × 3 = 720 MWh
@@ -485,7 +485,7 @@ TEST_CASE(
 TEST_CASE(
     "UserConstraint sum{} time-agg — slack at stage scope solves")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // A non-binding energy budget leaves g1 free → unconstrained obj 12000.
   const double obj = solve_obj(R"({
@@ -522,9 +522,9 @@ TEST_CASE(
 // `sum{b in day}` subsumes `daily_sum` (P1-3) — but daily_sum stays working.
 // ══════════════════════════════════════════════════════════════════════════
 
-namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucscope_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -591,7 +591,7 @@ auto make_2day_json(std::string_view uc) -> std::string
 TEST_CASE(
     "UserConstraint daily_sum still works (energy budget per day)")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // daily_sum + energy: each DAY's g1 energy ≤ 1000 MWh.  Per day g1 serves
   // 1000 MWh (cost 5000), fails 1400 MWh (1 400 000) → 1 405 000 per day,
@@ -605,7 +605,7 @@ TEST_CASE(
 TEST_CASE(
     "UserConstraint sum{b in day} ENERGY mirrors daily_sum+energy")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // The block-scoped time-agg form: one row per day (the `day` window),
   // energy-weighted via dur[b], same 1000 MWh/day budget as the daily_sum
@@ -645,9 +645,9 @@ TEST_CASE(
 //   scope=stage  + stage window   → OK (window == scope: whole-stage budget)
 //   scope=block  + ANY window     → OK (per-block path is never coarse)
 
-namespace ucscope_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucscope_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build (and resolve) the 2-day model with @p uc spliced in; return true
@@ -672,7 +672,7 @@ TEST_CASE(
     "UserConstraint day-window under coarse scope is rejected "
     "(no silent day-drop)")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // The exact historical defect: stage scope + `sum{b in day}` dropped day1.
   // Now the construction must throw rather than under-budget.
@@ -686,7 +686,7 @@ TEST_CASE(
 TEST_CASE(
     "UserConstraint time-agg finer-than-scope — full lossy class errors")  // NOLINT
 {
-  using namespace ucscope_test;  // NOLINT(google-build-using-namespace)
+  using namespace ucscope_test;
 
   // ── Lossy combinations: every one must ERROR (no silent sub-unit drop). ──
   // scope=stage + day window

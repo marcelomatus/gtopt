@@ -80,9 +80,9 @@
 #include "cascade_helpers.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Read one (scene, phase) shard of a hive-partitioned parquet output
@@ -425,7 +425,7 @@ TEST_CASE(  // NOLINT
     "Cascade output: served demand + finite duals "
     "across (memory_mode × max_iterations)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // ── LowMemoryMode::off — backend stays resident ─────────────────
   SUBCASE("off, max_iters=0 (sim pass only)")

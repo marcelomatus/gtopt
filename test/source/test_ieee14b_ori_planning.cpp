@@ -30,7 +30,7 @@
 
 #include "test_csv_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
@@ -479,9 +479,7 @@ TEST_CASE("IEEE 14-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
   // NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays,
-  // cppcoreguidelines-pro-bounds-constant-array-index,
-  // google-global-names-in-headers, hicpp-avoid-c-arrays, llvm-use-ranges,
-  // modernize-avoid-c-arrays)
+  // hicpp-avoid-c-arrays,llvm-use-ranges,modernize-avoid-c-arrays)
   auto planning = parse_planning_json(ieee14b_ori_json);
 
   CHECK(planning.system.name == "ieee_14b_ori");
@@ -632,6 +630,4 @@ TEST_CASE("IEEE 14-bus original - solution correctness")
 }
 
 // NOLINTEND(cppcoreguidelines-avoid-c-arrays,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// google-global-names-in-headers, hicpp-avoid-c-arrays, llvm-use-ranges,
-// modernize-avoid-c-arrays)
+// hicpp-avoid-c-arrays,llvm-use-ranges,modernize-avoid-c-arrays)

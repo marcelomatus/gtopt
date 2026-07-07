@@ -20,10 +20,9 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── R1: default state ────────────────────────────────────────────────────
@@ -271,5 +270,3 @@ TEST_CASE("LpReplayBuffer clear() RELEASES active-cut capacity")  // NOLINT
 }
 
 }  // namespace
-
-// NOLINTEND(google-global-names-in-headers)

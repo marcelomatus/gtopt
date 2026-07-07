@@ -230,7 +230,10 @@ public:
     static void parse_name_spec(const std::string& spec,
                                 option_definition& def);
 
-    options_description& parent_;  // NOLINT
+    // Back-reference into the parent description; `adder` is a transient
+    // builder returned by add_options() and never outlives its parent.
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    options_description& parent_;
   };
 
   [[nodiscard]] adder add_options() { return adder(*this); }

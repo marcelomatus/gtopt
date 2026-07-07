@@ -44,7 +44,7 @@
 #include <gtopt/reserve_provision.hpp>
 #include <gtopt/reserve_zone.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Generator.gcost — 2-D per-block JSON parses as TB")  // NOLINT
 {

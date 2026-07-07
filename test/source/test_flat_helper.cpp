@@ -5,7 +5,7 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/stage_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 /**
  * @test Verify active element accessor functionality
@@ -18,7 +18,6 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("Active Elements Accessors")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(misc-const-correctness)
   const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
@@ -279,7 +278,7 @@ TEST_CASE("Flat Helper - Edge Cases")
 // outer-key-missing case.
 TEST_CASE("Flat Helper - STBIndexHolder tolerates partial-block elision")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptionsLP options;
   const Simulation psimulation = {
@@ -825,5 +824,3 @@ TEST_CASE("FlatHelper - GSTB flat sparse with non-zero UIDs")  // NOLINT
   CHECK(values[1] == doctest::Approx(0.0));  // missing
   CHECK(valid[1] == false);
 }
-
-// NOLINTEND(misc-const-correctness)

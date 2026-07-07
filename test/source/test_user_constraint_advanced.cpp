@@ -21,7 +21,7 @@
 
 #include "log_capture.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // clang-format off
 
@@ -2413,7 +2413,6 @@ TEST_CASE(
 TEST_CASE("User constraint - unknown penalty_class string throws runtime_error")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(misc-const-correctness)
 
   // A typo in `penalty_class` must be a hard error at construction
   // time, not a silent fallback to `raw`.  The 2026-04 fail-fast audit
@@ -2429,5 +2428,3 @@ TEST_CASE("User constraint - unknown penalty_class string throws runtime_error")
 
   CHECK_THROWS_AS(build(), std::runtime_error);
 }
-
-// NOLINTEND(misc-const-correctness)

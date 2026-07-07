@@ -47,13 +47,13 @@
 #include <gtopt/pampl_parser.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions;
 // the nested anonymous namespace gives the helpers internal linkage.
-namespace rts_pampl_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace rts_pampl_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // clang-format off
@@ -238,7 +238,7 @@ constexpr double kBaseObj = 300.0 * 4.4231;
 
 TEST_CASE("RTS-24 PAMPL - baseline DC-OPF dispatches the cheapest unit")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
 
   // Sanity anchor: with no user constraints the load is served entirely by
   // the $4.4231/MWh base-load unit.
@@ -248,7 +248,7 @@ TEST_CASE("RTS-24 PAMPL - baseline DC-OPF dispatches the cheapest unit")
 TEST_CASE(
     "RTS-24 PAMPL - group capacity cap (PGenMaxMin) forces costlier dispatch")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // AMPL PGenMaxMin, aggregated: cap the base-load unit below its optimal
   // 300 MW so 100 MW must come from the $12.3883/MWh mid-merit unit.
   constexpr std::string_view src =
@@ -263,7 +263,7 @@ TEST_CASE(
 
 TEST_CASE("RTS-24 PAMPL - sum() element aggregation cap is binding")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // System-wide style cap on a generator group: Σ over {g_base, g_mid}
   // <= 250 forces at least 50 MW onto the peaker.
   constexpr std::string_view src =
@@ -279,7 +279,7 @@ TEST_CASE("RTS-24 PAMPL - sum() element aggregation cap is binding")
 TEST_CASE(
     "RTS-24 PAMPL - corridor thermal limit (Thermal1/2) builds and solves")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // AMPL Thermal1/Thermal2: a two-sided signed flow limit on a corridor,
   // tighter than the line's native rating.  The LP must remain feasible
   // (demand can reroute / redispatch) and never cheaper than the base.
@@ -293,7 +293,7 @@ TEST_CASE(
 
 TEST_CASE("RTS-24 PAMPL - soft spinning-reserve floor (penalty + named slack)")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // Soft constraint with a per-UC named slack column.  The floor (50 MW of
   // mid-merit) is cheaper to honour ($7.965/MWh redispatch) than to violate
   // (penalty $1000/MWh), so the optimizer satisfies it physically.
@@ -311,7 +311,7 @@ TEST_CASE("RTS-24 PAMPL - soft spinning-reserve floor (penalty + named slack)")
 
 TEST_CASE("RTS-24 PAMPL - soft floor is violated (penalty paid) when cheaper")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // An unsatisfiable floor (g_mid pmax is 155) with a tiny penalty: the LP
   // stays feasible by paying the slack rather than the constraint rendering
   // it infeasible — the defining property of a soft constraint.
@@ -327,7 +327,7 @@ TEST_CASE("RTS-24 PAMPL - soft floor is violated (penalty paid) when cheaper")
 
 TEST_CASE("RTS-24 PAMPL - dur-weighted energy budget (sum{} time aggregation)")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // `sum{b in stage} dur[b] * generation` caps ENERGY (MWh).  Demand is
   // 2400 MWh; a 1200 MWh budget forces 1200 MWh of curtailment at
   // $1000/MWh, dwarfing the $5/MWh generation cost.
@@ -346,7 +346,7 @@ TEST_CASE("RTS-24 PAMPL - dur-weighted energy budget (sum{} time aggregation)")
 
 TEST_CASE("RTS-24 PAMPL - unweighted sum{} caps per-block MW, not energy")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // Without `dur[b] *` the row caps the SUM of per-block MW (3 blocks), not
   // energy: <= 90 means total MW across blocks <= 90, i.e. average 30 MW/block
   // against 100 MW demand — heavy curtailment, distinct from the energy form.
@@ -359,7 +359,7 @@ TEST_CASE("RTS-24 PAMPL - unweighted sum{} caps per-block MW, not energy")
 
 TEST_CASE("RTS-24 PAMPL - per-block scheduled RHS overrides the inline tail")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // The inline `<= 0` is the fallback; the rhs vector overrides it per block.
   // A 150 MW ceiling on the single block caps g1 below the 300 MW it would
   // otherwise produce in the DC-OPF, forcing 150 MW onto the mid-merit unit.
@@ -375,7 +375,7 @@ TEST_CASE("RTS-24 PAMPL - per-block scheduled RHS overrides the inline tail")
 
 TEST_CASE("RTS-24 PAMPL - for(...) domain scoping and inactive keyword")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // A `for(stage in all, block in all)` domain clause plus an `inactive`
   // row that must contribute nothing.  The active cap on g_base binds; the
   // inactive one (a 1 MW ceiling) would be wildly binding if it took effect.
@@ -393,7 +393,7 @@ TEST_CASE("RTS-24 PAMPL - for(...) domain scoping and inactive keyword")
 
 TEST_CASE("RTS-24 PAMPL - multiple feature families compose in one file")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // A realistic operating-policy bundle: param + named slack + group cap +
   // soft reserve floor + system cap + scheduled RHS, all in one block, must
   // parse, build and solve together.
@@ -421,7 +421,7 @@ TEST_CASE("RTS-24 PAMPL - multiple feature families compose in one file")
 
 TEST_CASE("RTS-24 PAMPL - parsed UserConstraint fields are populated correctly")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // Verify the PAMPL header metadata (description, penalty, rhs schedule,
   // slack_name, active flag) round-trips into UserConstraint, independent of
   // the LP solve.
@@ -459,7 +459,7 @@ TEST_CASE("RTS-24 PAMPL - parsed UserConstraint fields are populated correctly")
 
 TEST_CASE("RTS-24 PAMPL - .pampl file round-trips through parse_file()")
 {
-  using namespace rts_pampl_test;  // NOLINT(google-build-using-namespace)
+  using namespace rts_pampl_test;
   // Exercise the filesystem-loading API (the path otherwise only hit by
   // gtopt_main): write a small .pampl, read it back via parse_file(), attach
   // its constraints, then build + solve the DC-OPF.

@@ -22,7 +22,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/lp_matrix_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

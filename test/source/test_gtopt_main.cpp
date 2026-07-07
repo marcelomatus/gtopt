@@ -30,7 +30,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {
@@ -2046,7 +2046,7 @@ TEST_CASE(
 /// against the global-only check used previously.
 TEST_CASE("gtopt_main - has_no_shedding_penalty cross-checks demand_array")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // ── (a) global=0, no per-demand → warning should fire ──────────
   {

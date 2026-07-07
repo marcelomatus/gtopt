@@ -4,7 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reservoir_seepage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ReservoirSeepage daw json test 1")
 {

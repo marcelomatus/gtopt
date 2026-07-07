@@ -21,9 +21,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ─── Helper: minimal LP with names ─────────────────────────────────────────
@@ -261,7 +261,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("WorkPoolConfig memory defaults")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const WorkPoolConfig config;
 
@@ -272,7 +272,7 @@ TEST_CASE("WorkPoolConfig memory defaults")  // NOLINT
 
 TEST_CASE("WorkPoolConfig custom memory caps")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -297,11 +297,10 @@ TEST_CASE("WorkPoolConfig custom memory caps")  // NOLINT
 
 TEST_CASE("WorkPool statistics include memory fields")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
-  // NOLINTBEGIN(bugprone-argument-comment,
-  // cppcoreguidelines-pro-bounds-constant-array-index, misc-const-correctness)
+  // NOLINTBEGIN(bugprone-argument-comment)
 
   AdaptiveWorkPool pool(WorkPoolConfig {
       2,
@@ -997,5 +996,4 @@ TEST_CASE("LpNamesLevel ordering")  // NOLINT
 
 }  // namespace
 
-// NOLINTEND(bugprone-argument-comment,
-// cppcoreguidelines-pro-bounds-constant-array-index, misc-const-correctness)
+// NOLINTEND(bugprone-argument-comment)

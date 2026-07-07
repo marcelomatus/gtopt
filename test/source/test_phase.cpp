@@ -4,11 +4,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/phase.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Phase construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Phase phase;
 
@@ -23,7 +23,7 @@ TEST_CASE("Phase construction and default values")
 
 TEST_CASE("Phase is_active default behaviour")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is active when unset")
   {
@@ -48,7 +48,7 @@ TEST_CASE("Phase is_active default behaviour")  // NOLINT
 
 TEST_CASE("Phase attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Phase phase;
 
@@ -67,7 +67,7 @@ TEST_CASE("Phase attribute assignment")
 
 TEST_CASE("Phase designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Phase phase {
       .uid = Uid {2},
@@ -86,7 +86,7 @@ TEST_CASE("Phase designated initializer construction")
 
 TEST_CASE("Phase with apertures")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Phase phase;
   phase.uid = 3;
@@ -100,7 +100,7 @@ TEST_CASE("Phase with apertures")
 
 TEST_CASE("Phase with dynamic_extent covers all stages")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Phase phase {
       .uid = Uid {1},
@@ -116,7 +116,7 @@ TEST_CASE("Phase with dynamic_extent covers all stages")
 
 TEST_CASE("PhaseUid and PhaseIndex strong types")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PhaseUid puid = make_uid<Phase>(5);
   const PhaseIndex pidx {2};
@@ -127,7 +127,7 @@ TEST_CASE("PhaseUid and PhaseIndex strong types")
 
 TEST_CASE("Phase array construction")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Phase> phases {
       {

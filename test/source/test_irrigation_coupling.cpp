@@ -15,12 +15,12 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/volume_right_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(  // NOLINT
     "FlowRight variable mode - fmax creates variable column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -115,7 +115,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight subtracts from physical junction balance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Hydro system with junction + FlowRight (always consumptive)
   const Array<Bus> bus_array = {
@@ -262,7 +262,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight subtracts from physical reservoir balance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -411,7 +411,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "VolumeRight right_reservoir coupling - child connects to parent balance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -506,7 +506,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight use_average - creates stage-average qeh variable")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -654,7 +654,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "FlowRight use_average with variable mode partition")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // A partition where qeh is created for the total supply
   // and the variable withdrawal rights.  Tests that both
@@ -773,7 +773,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 4.1 - VolumeRight + reservoir mass balance closes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Single reservoir with no inflow, hydro generator dispatched to
   // meet demand.  A VolumeRight is coupled to reservoir extraction
@@ -945,7 +945,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 4.2 - FlowRight bound_rule zone transition")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two-segment bound_rule attached to a FlowRight: when reservoir
   // volume is below 100 hm³ the cap is low (5 m³/s); above 100 hm³ the
@@ -1129,7 +1129,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 4.3 - Two competing VolumeRights on one reservoir")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two VolumeRights both draw from the same physical reservoir.
   // A user constraint partitions reservoir extraction between them:
@@ -1290,7 +1290,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 4.4 - Multi-stage state link uses single shared column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Within a single phase, the SDDP-style storage chain reuses the
   // same column for efin[N] and eini[N+1] (storage_lp.hpp:475).
@@ -1469,7 +1469,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 5.1 - FlowRight upstream of turbine starves hydro generation")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Topology: rsv → j_up → ww → j_down (drain), turbine on ww.
   // A FlowRight at j_up withdraws water, reducing the flow available
@@ -1630,7 +1630,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 5.2 - Multiple FlowRights on one junction sum to a binding total")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two FlowRights on the same downstream junction j_down both pull
   // water out.  Their combined discharge competes with the turbine
@@ -1798,7 +1798,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Tier 5.3 - FlowRight fail_cost trades deficit against penalty")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // FlowRight with discharge=100 m³/s on a system whose only water
   // source is a small reservoir (eini=2 hm³) and no inflow.

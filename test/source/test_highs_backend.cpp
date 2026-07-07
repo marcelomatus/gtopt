@@ -49,13 +49,12 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 /// Return a fresh HiGHS backend, or nullptr if the plugin is unavailable.
 [[nodiscard]] std::unique_ptr<SolverBackend> make_highs_or_skip()
@@ -536,5 +535,3 @@ TEST_CASE("HiGHS backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
 }
-
-// NOLINTEND(misc-const-correctness)

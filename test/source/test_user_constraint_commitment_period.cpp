@@ -42,11 +42,11 @@
 // returns an explicit naming-enabled LpMatrixOptions so col_name_map() /
 // row_name_map() are populated.
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace ucp  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ucp
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// 1 bus, 1 demand, 1 generator, 1 stage of 4 hourly blocks, 1 scenario.

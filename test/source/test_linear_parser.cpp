@@ -11,7 +11,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_parser.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_SUITE("LinearParser")
 {

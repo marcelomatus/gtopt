@@ -27,7 +27,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/turbine_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace per_block_fuel_turbine_test  // NOLINT
 {

@@ -18,9 +18,9 @@
 #include <gtopt/lp_matrix_enums.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 constexpr double kInfinity = std::numeric_limits<double>::infinity();
 }  // namespace

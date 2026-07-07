@@ -16,16 +16,16 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ─── Aperture semantics in cascade levels ──────────────────────────────────
 
 TEST_CASE("Cascade level aperture semantics")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -93,7 +93,7 @@ TEST_CASE("Cascade level aperture semantics")  // NOLINT
 
 TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -146,7 +146,7 @@ TEST_CASE("Cascade 2-level with optimality cut inheritance")  // NOLINT
 
 TEST_CASE("Cascade reuses LP when model_options absent")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -192,7 +192,7 @@ TEST_CASE("Cascade reuses LP when model_options absent")  // NOLINT
 
 TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -262,7 +262,7 @@ TEST_CASE("Cascade 3-level mixed transitions")  // NOLINT
 
 TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_5phase_reservoir_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -315,7 +315,7 @@ TEST_CASE("Cascade 5-phase with dual threshold cut filter")  // NOLINT
 
 TEST_CASE("Cascade global convergence_tol applies to all levels")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));

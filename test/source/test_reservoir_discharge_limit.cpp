@@ -8,11 +8,11 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ReservoirDischargeLimit construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ReservoirDischargeLimit ddl;
 
@@ -27,7 +27,7 @@ TEST_CASE("ReservoirDischargeLimit construction and default values")
 
 TEST_CASE("ReservoirDischargeLimit attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   ReservoirDischargeLimit ddl;
 
@@ -58,7 +58,7 @@ TEST_CASE("ReservoirDischargeLimit attribute assignment")
 
 TEST_CASE("ReservoirDischargeLimitSegment construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ReservoirDischargeLimitSegment seg;
 
@@ -69,7 +69,7 @@ TEST_CASE("ReservoirDischargeLimitSegment construction")
 
 TEST_CASE("find_active_rdl_segment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::vector<ReservoirDischargeLimitSegment> segments = {
       {.volume = 0.0, .slope = 6.9868e-5, .intercept = 15.787},
@@ -109,7 +109,7 @@ TEST_CASE("find_active_rdl_segment")
 
 TEST_CASE("select_rdl_coeffs")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("empty segments returns zeros")
   {
@@ -138,7 +138,7 @@ TEST_CASE("select_rdl_coeffs")
 
 TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -283,7 +283,7 @@ TEST_CASE("ReservoirDischargeLimitLP - basic single-block LP constraint")
 
 TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // With multiple blocks, qeh should be the weighted average of flows
   const Array<Bus> bus_array = {
@@ -439,7 +439,7 @@ TEST_CASE("ReservoirDischargeLimitLP - multi-block averaging constraint")
 
 TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // ReservoirDischargeLimit with empty segments should not add any constraints
   const Array<Bus> bus_array = {
@@ -589,7 +589,7 @@ TEST_CASE("ReservoirDischargeLimitLP - empty segments is a no-op")
 
 TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Set a very tight discharge limit and verify the LP respects it
   const Array<Bus> bus_array = {
@@ -756,7 +756,7 @@ TEST_CASE("ReservoirDischargeLimitLP - binding discharge limit")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Two segments: seg1 for V < 5000, seg2 for V >= 5000.
   // eini=5000 → seg2 at construction. update_lp iter=0/phase=0 uses eini →
@@ -923,7 +923,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with piecewise segments")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // eini=1000 → seg1 (volume < 5000). update_lp iter=0/phase=0 uses eini.
   const Array<Bus> bus_array = {
@@ -1088,7 +1088,7 @@ TEST_CASE("ReservoirDischargeLimitLP - update_lp with different eini segment")
 
 TEST_CASE("ReservoirDischargeLimitLP - update_lp is a no-op without segments")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // ReservoirDischargeLimit with 1 segment → update_lp returns 0
   const Array<Bus> bus_array = {
@@ -1380,7 +1380,7 @@ TEST_CASE(
     "ReservoirDischargeLimitLP - block flow binds at peak cap and dvol row "
     "dual is non-zero")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(readability-container-data-pointer)
 
   // Derivation (single block, duration = 1 h, stage duration = 1 h):

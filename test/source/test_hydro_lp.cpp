@@ -15,11 +15,11 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -113,7 +113,7 @@ TEST_CASE("SystemLP with hydro components - junction, waterway, reservoir")
 
 TEST_CASE("SystemLP with flow component")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -194,7 +194,7 @@ TEST_CASE("SystemLP with flow component")
 
 TEST_CASE("SystemLP with multi-stage hydro system")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
 
@@ -311,7 +311,7 @@ TEST_CASE("SystemLP with multi-stage hydro system")
 TEST_CASE(  // NOLINT
     "Reservoir energy_scale invariance – same solution for different scales")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Helper lambda: builds and solves a hydro LP with the given energy scale
   // via variable_scales option, returns the objective value.
@@ -498,7 +498,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Reservoir variable_scales option – invariance and LP coefficient change")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct ScaleResult
   {
@@ -727,7 +727,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Reservoir flow variable_scale – objective invariance with volume+flow")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Helper: builds and solves a hydro LP with energy_scale and optional
   // flow_scale via variable_scales, returns the objective value.
@@ -927,7 +927,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "ReservoirLP - extraction column primal value matches turbine draw")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1076,7 +1076,7 @@ TEST_CASE(  // NOLINT
 /// matches the 100 MW demand exactly, so no thermal back-up is used.
 TEST_CASE("WaterwayLP flow column solution matches forced water balance")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1219,7 +1219,7 @@ TEST_CASE("WaterwayLP flow column solution matches forced water balance")
 /// of j_up (where the inflow surplus is absorbed).
 TEST_CASE("JunctionLP drain col primal absorbs flow surplus")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1387,7 +1387,7 @@ TEST_CASE("JunctionLP drain col primal absorbs flow surplus")  // NOLINT
 TEST_CASE(  // NOLINT
     "ReservoirLP — storage-balance row dual reflects water scarcity")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {
@@ -1559,7 +1559,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "ReservoirLP spillway_capacity=0 omits reservoir_drain column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Bus> bus_array = {
       {

@@ -17,10 +17,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/linear_problem.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-misplaced-widening-cast)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Tests check raw LP coefficients without row equilibration.

@@ -8,7 +8,7 @@
 #include <gtopt/json/json_thermal_node.hpp>
 #include <gtopt/json/json_thermal_storage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ThermalNode JSON round-trip")  // NOLINT
 {

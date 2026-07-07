@@ -8,7 +8,7 @@
 #include <gtopt/ammonia_storage.hpp>
 #include <gtopt/carrier.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("AmmoniaNode default values + carrier tag")  // NOLINT
 {

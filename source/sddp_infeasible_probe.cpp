@@ -82,7 +82,7 @@ std::mutex g_probe_mutex;
   std::string out;
   // popen is intentional: the whole point of the probe is to verify
   // gtopt's verdict against a fresh out-of-process CPLEX solve.
-  // NOLINTNEXTLINE(cert-env33-c, bugprone-command-processor)
+  // NOLINTNEXTLINE(cert-env33-c,bugprone-command-processor)
   FILE* pipe = ::popen(cmd.c_str(), "r");
   if (pipe == nullptr) {
     return out;

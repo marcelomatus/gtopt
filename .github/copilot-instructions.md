@@ -7,7 +7,8 @@ Transmission Expansion Planning (GTEP)**. It minimizes the total expected cost
 of operation and expansion of electrical power systems (CAPEX + OPEX). It
 supports single-bus and multi-bus DC power flow (Kirchhoff's laws), Parquet/CSV/JSON
 I/O, and a sparse-matrix LP/MIP formulation via pluggable LP solver backends
-(CLP, CBC, CPLEX, HiGHS) loaded dynamically at runtime.
+(CLP, CBC, CPLEX, HiGHS, Gurobi, MindOpt, SCIP, cuOpt) loaded dynamically at
+runtime.
 
 The repository also contains:
 - `standalone/` – thin `main()` wrapper that builds the `gtopt` binary
@@ -536,22 +537,21 @@ Format violations are warnings only, not CI failures.
 
 ### clang-tidy suppressions in test code
 
-Three inline `// NOLINT` patterns are accepted in test code:
+`test/.clang-tidy` (with `InheritParentConfig: true`) disables the checks
+that fire only as unity-build artifacts (`google-global-names-in-headers`,
+`cert-dcl59-cpp`, `google-build-namespaces`,
+`misc-anonymous-namespace-in-header`) plus `misc-const-correctness`, so
+`using namespace gtopt;` and anonymous helper namespaces need **no NOLINT**
+in test files.
+
+Accepted inline `// NOLINT` patterns in test code:
 
 ```cpp
 // 1. After std::move – use-after-move is intentional in tests
 CHECK(b.empty());  // NOLINT(bugprone-use-after-move,hicpp-invalid-access-moved)
 
-// 2. using namespace at file scope in .hpp test files – clang-tidy applies
-//    header rules to all .hpp files, but test helpers use .hpp only for
-//    #include-based aggregation (included by *_all.cpp), not as API headers.
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-
-// 3. Anonymous namespace in .hpp test files – same rationale as above.
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
-{
-// ... helper functions ...
-}  // namespace
+// 2. On TEST_CASE lines (doctest macro internals)
+TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 ```
 
 **Never use `// NOLINT(bugprone-unchecked-optional-access)`.**
@@ -632,7 +632,7 @@ Tests live in `test/source/test_<topic>.cpp`. The framework is
 #include <doctest/doctest.h>
 #include <gtopt/<header>.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 {
@@ -653,9 +653,9 @@ TEST_CASE("<ComponentName> basic behavior")  // NOLINT
 ### Rules for test files
 
 1. **Include order**: `<doctest/doctest.h>` first, then project headers.
-2. **`using namespace gtopt;  // NOLINT(google-global-names-in-headers)`** at file scope.
-   The NOLINT is required because test helpers use `.hpp` extension (for `#include`-based
-   aggregation by `*_all.cpp`) but clang-tidy applies header rules to all `.hpp` files.
+2. **`using namespace gtopt;`** at file scope — no NOLINT needed;
+   `test/.clang-tidy` disables the in-header hygiene checks that unity-build
+   inclusion would otherwise trigger.
 3. One `TEST_CASE` per logical concept; use `SUBCASE` for variants.
 4. Floating-point comparisons: use `doctest::Approx(value)` – never `==` on doubles.
 5. `REQUIRE` to stop the test case on first failure; `CHECK` for non-fatal checks.

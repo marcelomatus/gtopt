@@ -251,7 +251,7 @@ public:
   explicit PlanningLP(PlanningT&& planning,
                       const LpMatrixOptions& flat_opts = {},
                       std::shared_ptr<ArrowIndexCache> shared_index_cache = {})
-      : m_planning_(  // NOLINT
+      : m_planning_(
             [&]() -> decltype(auto)
             {
               if constexpr (!std::is_const_v<

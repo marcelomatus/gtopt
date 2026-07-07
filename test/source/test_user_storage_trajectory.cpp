@@ -66,12 +66,12 @@
 
 #include "fixture_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace user_storage_traj_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace user_storage_traj_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 using gtopt::test_fixtures::make_single_stage_phases;
@@ -524,7 +524,7 @@ TEST_CASE(
     "AMPL-text reservoir traces the native reservoir's per-(stage,block) SDDP "
     "trajectory (non-degenerate 2-reservoir, 6 stages x 4 blocks)")
 {
-  using namespace user_storage_traj_test;  // NOLINT(google-build-using-namespace)
+  using namespace user_storage_traj_test;
 
   PlanningLP native(as_sddp(make_unique_trajectory_two_reservoir_planning()));
   run_sddp(native);

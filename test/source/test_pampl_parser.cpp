@@ -12,7 +12,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/pampl_parser.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_SUITE("PamplParser")
 {
@@ -20,7 +20,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("Bare expression assigns uid and auto-name")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result =
         PamplParser::parse("generator('G1').generation <= 100;", Uid {1});
@@ -39,7 +39,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header sets name")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs =
         PamplParser::parse(
@@ -56,7 +56,7 @@ TEST_SUITE("PamplParser")
   // ── Header: penalty clause → soft constraint ─────────────────────────────
   TEST_CASE("constraint header with penalty sets soft cost")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     SUBCASE("penalty after name")
     {
@@ -119,7 +119,7 @@ TEST_SUITE("PamplParser")
   // ── Header: rhs clause → per-block (scheduled) RHS ───────────────────────
   TEST_CASE("constraint header with rhs clause sets per-block schedule")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     SUBCASE("rhs vector maps onto single-row TB matrix [[...]]")
     {
@@ -208,7 +208,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header with description (double quotes)")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs = PamplParser::parse(
                           "constraint gen_limit \"Max generation for G1\": "
@@ -223,7 +223,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("constraint header with description (single quotes)")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs = PamplParser::parse(
                           "constraint gen_limit 'Max generation for G1': "
@@ -240,7 +240,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("inactive constraint sets active=false")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs =
         PamplParser::parse(
@@ -256,7 +256,7 @@ TEST_SUITE("PamplParser")
 
   TEST_CASE("Multiple constraints are parsed in order")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const std::string src = R"(
 constraint first: generator('G1').generation <= 100;
@@ -282,7 +282,7 @@ sum(generator(all).generation) <= 1000;
 
   TEST_CASE("Hash comments are ignored")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const std::string src = R"(
 # This is a comment
@@ -298,7 +298,7 @@ constraint gen_limit:
 
   TEST_CASE("Double-slash comments are ignored")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const std::string src = R"(
 // Double-slash comment
@@ -315,7 +315,7 @@ constraint gen_limit:
 
   TEST_CASE("UID sequence starts at start_uid")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs = PamplParser::parse(
                           "constraint a: generator('G1').generation <= 100;\n"
@@ -332,7 +332,7 @@ constraint gen_limit:
 
   TEST_CASE("For-clause in expression is preserved")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs =
         PamplParser::parse(
@@ -349,7 +349,7 @@ constraint gen_limit:
 
   TEST_CASE("Single-quote element id in expression")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto& ucs =
         PamplParser::parse("constraint q: generator('G1').generation <= 100;")
@@ -362,7 +362,7 @@ constraint gen_limit:
 
   TEST_CASE("Empty source produces empty result")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK(PamplParser::parse("").constraints.empty());
     CHECK(PamplParser::parse("  # just a comment\n  ").constraints.empty());
@@ -372,7 +372,7 @@ constraint gen_limit:
 
   TEST_CASE("Missing semicolon throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK_THROWS_AS(
         (void)PamplParser::parse("generator('G1').generation <= 100"),
@@ -381,7 +381,7 @@ constraint gen_limit:
 
   TEST_CASE("Missing constraint name after 'constraint' keyword throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK_THROWS_AS((void)PamplParser::parse(
                         "constraint : generator('G1').generation <= 100;"),
@@ -390,7 +390,7 @@ constraint gen_limit:
 
   TEST_CASE("'inactive' without 'constraint' keyword throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK_THROWS_AS((void)PamplParser::parse(
                         "inactive oops: generator('G1').generation <= 100;"),
@@ -401,7 +401,7 @@ constraint gen_limit:
 
   TEST_CASE("Scalar param declaration")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result = PamplParser::parse("param pct_elec = 35;");
 
@@ -414,7 +414,7 @@ constraint gen_limit:
 
   TEST_CASE("Scalar param value supports arithmetic + param refs")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     SUBCASE("division chain (1000/24/7)")
     {
@@ -456,7 +456,7 @@ constraint gen_limit:
 
   TEST_CASE("Monthly param declaration")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result = PamplParser::parse(
         "param irr[month] = [0, 0, 0, 100, 100, 100, "
@@ -474,7 +474,7 @@ constraint gen_limit:
 
   TEST_CASE("Params and constraints mixed")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const std::string src = R"(
 # Define parameters
@@ -498,7 +498,7 @@ constraint gen_cap:
 
   TEST_CASE("Monthly param with wrong element count throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK_THROWS_AS((void)PamplParser::parse("param bad[month] = [1, 2, 3];"),
                     std::invalid_argument);
@@ -506,7 +506,7 @@ constraint gen_cap:
 
   TEST_CASE("Negative param values")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
     // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
     const auto result = PamplParser::parse("param offset = -42.5;");
@@ -518,7 +518,7 @@ constraint gen_cap:
 
   TEST_CASE("var declaration captured in declared_vars")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result = PamplParser::parse(
         "var slack_HYDRO_FLOOR; "
@@ -530,7 +530,7 @@ constraint gen_cap:
 
   TEST_CASE("var slack_<NAME> binds to constraint's slack_name")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result = PamplParser::parse(
         "var slack_HYDRO_FLOOR; "
@@ -543,7 +543,7 @@ constraint gen_cap:
 
   TEST_CASE("Multiple var idents in one declaration")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     const auto result = PamplParser::parse(
         "var slack_A, slack_B, slack_C; "
@@ -560,7 +560,7 @@ constraint gen_cap:
 
   TEST_CASE("var without matching slack_<NAME> leaves slack_name unset")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     // ``var XYZ;`` is captured in declared_vars but does NOT match
     // ``slack_<constraint_name>`` for the only constraint, so
@@ -576,7 +576,7 @@ constraint gen_cap:
 
   TEST_CASE("Missing semicolon on var throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     // No `;` between var and constraint — must error out cleanly.
     CHECK_THROWS_AS(
@@ -586,14 +586,14 @@ constraint gen_cap:
 
   TEST_CASE("var without identifier throws")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     CHECK_THROWS_AS((void)PamplParser::parse("var ;"), std::invalid_argument);
   }
 
   TEST_CASE("Duplicate var name is captured once")
   {
-    using namespace gtopt;  // NOLINT(google-build-using-namespace)
+    using namespace gtopt;
 
     // The unordered_set dedup means a repeat declaration is silently
     // ignored; the public declared_vars vector keeps unique names in

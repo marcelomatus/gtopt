@@ -4,7 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_reserve_provision.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ReserveProvision daw json test - basic fields")
 {

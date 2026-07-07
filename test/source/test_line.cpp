@@ -11,7 +11,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Line construction and default values")
 {

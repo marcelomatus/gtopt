@@ -42,16 +42,13 @@
 
 #include "fixture_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(bugprone-argument-comment, google-global-names-in-headers)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-argument-comment)
 
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
-using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
-    make_single_stage_phases;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
-    make_uniform_blocks;  // NOLINT(google-global-names-in-headers)
-using gtopt::test_fixtures::  // NOLINT(google-global-names-in-headers)
-    make_uniform_stages;  // NOLINT(google-global-names-in-headers)
+using gtopt::test_fixtures::make_single_stage_phases;
+using gtopt::test_fixtures::make_uniform_blocks;
+using gtopt::test_fixtures::make_uniform_stages;
 
 namespace
 {
@@ -965,6 +962,6 @@ TEST_CASE(  // NOLINT
         == doctest::Approx(222.0));
 }
 
-// NOLINTEND(bugprone-argument-comment, google-global-names-in-headers)
+// NOLINTEND(bugprone-argument-comment)
 
 // NOLINTEND(bugprone-argument-comment)

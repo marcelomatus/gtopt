@@ -33,7 +33,7 @@
 
 #include "test_csv_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_helpers::read_uid_values_long;
 
 // clang-format off
@@ -189,7 +189,6 @@ static constexpr std::string_view ieee4b_ori_json = R"(
 TEST_CASE("IEEE 4-bus original - JSON parse and structure check")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(google-global-names-in-headers)
   auto planning = parse_planning_json(ieee4b_ori_json);
 
   CHECK(planning.system.name == "ieee_4b_ori");
@@ -304,5 +303,3 @@ TEST_CASE("IEEE 4-bus original - solution correctness")
 
   std::filesystem::remove_all(out_dir);
 }
-
-// NOLINTEND(google-global-names-in-headers)

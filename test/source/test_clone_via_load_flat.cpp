@@ -56,7 +56,7 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {
@@ -629,7 +629,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "clone_from_flat(with_replay) — SDDP-like LP with α + cut + pin")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // --- 1. Build the structural LP and freeze.
   auto problem = build_feature_problem();
@@ -728,7 +728,7 @@ TEST_CASE(  // NOLINT
     "clone_from_flat(with_replay) — chinneck Phase-1 + slacks "
     "equivalence with native clone")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // --- Same SDDP-like setup as the previous test.
   auto problem = build_feature_problem();
@@ -924,7 +924,7 @@ TEST_CASE(  // NOLINT
     "clone() equivalence — every LowMemoryMode reaches the same "
     "live-backend state")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Native clone() must produce a clone whose live backend state
   // matches the source's live backend state in every mode — that's
   // the contract callers (elastic, aperture, ad-hoc) rely on.
@@ -952,7 +952,7 @@ TEST_CASE(  // NOLINT
     "clone_from_flat(with_replay) — equivalence with native clone "
     "in compress mode (where m_replay_ is populated)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
@@ -987,7 +987,7 @@ TEST_CASE(  // NOLINT
     "clone_from_flat(with_replay) — reproduces live backend including "
     "α and cuts under off mode (2026-05-11 fix regression guard)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Regression guard for the 2026-05-11 fix to the aperture-clone
   // path on juan/IPLP: under `LowMemoryMode::off` the replay buffer
   // (`m_replay_`) used to be gated off — `record_*_if_tracked` was
@@ -1042,7 +1042,7 @@ TEST_CASE(  // NOLINT
     "clone equivalence — native vs clone_from_flat across "
     "all LowMemoryMode values (off, compress, rebuild)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Cross-mode invariance: regardless of low_memory_mode, the
   // manual clone (`clone_from_flat(with_replay=true)`) and the
   // native clone (`clone(shallow)` → CPXcloneprob) must produce
@@ -1091,7 +1091,7 @@ TEST_CASE(  // NOLINT
     "Critical SDDP path: zero-obj + slack relaxation produces "
     "feasible LP in compress mode via both clone routes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
 
@@ -1149,7 +1149,7 @@ TEST_CASE(  // NOLINT
     "Critical SDDP path: parallel cloning under compress mode "
     "produces equivalent results across N threads")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // The deadlock fix in commit fe2ed42d serialises native clone()
   // under a process-global mutex.  This test verifies the manual+
   // replay path also runs correctly across N parallel threads
@@ -1205,7 +1205,7 @@ TEST_CASE(  // NOLINT
     "Throwaway clone short-circuit: bound writes don't grow "
     "pending_col_bounds on clone or source")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
@@ -1253,8 +1253,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Borrow-from-source replay leaves source's replay buffer untouched")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, readability-trailing-comma)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
 
   auto fix = make_sddp_like_source(LowMemoryMode::compress);
   auto& src = fix.src;
@@ -1284,4 +1284,4 @@ TEST_CASE(  // NOLINT
   CHECK(src.replay_buf().pending_col_bounds_size() == pending_before);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, readability-trailing-comma)
+// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)

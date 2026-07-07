@@ -39,7 +39,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(  // NOLINT
     "load_boundary_cuts_csv — full SDDP solve with boundary-cut file")

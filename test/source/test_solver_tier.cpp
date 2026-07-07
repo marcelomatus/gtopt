@@ -17,7 +17,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_tier.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Uniquely-named outer namespace so the anon-namespace helper does not
 // collide with other test files under CMake unity builds.

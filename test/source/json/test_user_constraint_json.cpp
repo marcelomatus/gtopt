@@ -15,7 +15,7 @@
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("UserConstraint JSON deserialization")
 {
@@ -290,7 +290,7 @@ TEST_CASE("enum_from_name<ConstraintScaleType> — all valid values")
 
 TEST_CASE("UserConstraint slack_name field — round-trip")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const UserConstraint uc {
       .uid = 7,
@@ -309,7 +309,7 @@ TEST_CASE("UserConstraint slack_name field — round-trip")
 
 TEST_CASE("UserConstraint slack_name field — absent ⇒ nullopt")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const std::string json = R"({"uid": 1, "name": "X", "expression": "x <= 0"})";
   const auto uc = daw::json::from_json<UserConstraint>(json);

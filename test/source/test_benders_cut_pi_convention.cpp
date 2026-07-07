@@ -38,7 +38,7 @@
 #include "sddp_helpers.hpp"
 #include "solver_test_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── Test 1: REMOVED ───────────────────────────────────────────────────────
 //
@@ -60,7 +60,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE(
     "SDDPMethod 2-phase linear pi convention - no-scale baseline")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_linear_planning();
   // Force everything off:
@@ -104,7 +104,7 @@ TEST_CASE(
 TEST_CASE(
     "SDDPMethod 2-phase pi convention - variable_scales no ruiz")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_linear_planning();
   planning.options.model_options.scale_objective = 1.0;
@@ -173,7 +173,7 @@ TEST_CASE(
 TEST_CASE(
     "build_benders_cut_physical pi convention - synthetic 2-link")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const StateVariable::LPKey key {
       .scene_index = first_scene_index(),
@@ -348,7 +348,7 @@ TEST_CASE(
 TEST_CASE(
     "build_benders_cut_physical pi convention - LinearInterface ovld")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a tiny LP via LinearProblem → flatten → LinearInterface so
   // that scale_objective is correctly carried through.
@@ -449,7 +449,7 @@ TEST_CASE(
 // keeps duals well-conditioned.
 TEST_CASE("SDDPMethod 2-phase pi convention - cut row dual sanity")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2phase_linear_planning();
   planning.options.model_options.scale_objective = 1.0;
@@ -522,7 +522,7 @@ TEST_CASE("SDDPMethod 2-phase pi convention - cut row dual sanity")  // NOLINT
 // test catches it.
 TEST_CASE("SDDPMethod 2-phase pi convention - var_scale invariance")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto run = [](double rsv_scale)
   {
@@ -596,7 +596,7 @@ TEST_CASE("SDDPMethod 2-phase pi convention - var_scale invariance")  // NOLINT
 // the solver's pivot path, but the gap must close in both.
 TEST_CASE("SDDPMethod 2-phase pi convention - ruiz consistency")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto run = [](LpEquilibrationMethod method)
   {
@@ -704,8 +704,7 @@ TEST_CASE(
     "build_benders_cut_physical — cut row dual matches analytical "
     "prediction on 2-scene 10-phase 2-reservoir fixture")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
 
   // Build a fresh Planning with the desired scaling/equilibration, then run
   // SDDP to convergence.  Returns just the iteration trace + the FIRST
@@ -907,5 +906,3 @@ TEST_CASE(
     }
   }
 }
-
-// NOLINTEND(misc-const-correctness)

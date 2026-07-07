@@ -8,7 +8,7 @@
 #include <gtopt/json/json_ammonia_node.hpp>
 #include <gtopt/json/json_ammonia_storage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("AmmoniaNode JSON round-trip")  // NOLINT
 {

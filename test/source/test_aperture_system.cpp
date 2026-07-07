@@ -42,7 +42,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 TEST_CASE("aperture_system_file: data-model bindings round-trip")
@@ -192,8 +192,7 @@ TEST_CASE("aperture_system build: parallel SystemLP + state registry")
   const auto base = make_3phase_hydro_planning();
   const std::string planning_json = daw::json::to_json(base);
   // Honour the project $TMPDIR convention (never hardcode /tmp).
-  const char* const td =
-      std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
+  const char* const td = std::getenv("TMPDIR");
   const auto tmp =
       (td != nullptr && *td != '\0' ? fs::path(td) : fs::temp_directory_path())
       / "gtopt_aperture_system_build_test.json";

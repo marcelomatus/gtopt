@@ -27,7 +27,7 @@
 #include <gtopt/solver_enums.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace mip_start_test  // NOLINT(misc-use-anonymous-namespace)
 {

@@ -2,7 +2,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_label_store.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // LpLabelStore was extracted from LinearInterface (step 3 of decomposing that
 // class, mirroring the MatrixStats precedent).  The extraction is

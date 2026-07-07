@@ -30,11 +30,11 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/uid.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace ivp  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ivp
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── Minimal 1-bus / 1-stage / 1-block / 1-scenario fixture ──────────────────
@@ -563,7 +563,7 @@ TEST_CASE(
 TEST_CASE(
     "SystemContext::add_integer_col: CommitmentLP populates registry")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "iv_choke_test";

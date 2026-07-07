@@ -8,7 +8,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/allowance_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("AllowancePool default values")  // NOLINT
 {

@@ -152,7 +152,6 @@ template<typename Type = Uid, typename TUids>
       1e15,
   };
   const auto idx = static_cast<std::size_t>(digits < 15 ? digits : 15);
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
   const double scale = kScales[idx];
   return std::round(v * scale) / scale;
 }

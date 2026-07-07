@@ -25,11 +25,11 @@
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/planning_enums.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-misplaced-widening-cast, misc-const-correctness,
-// modernize-use-ranges, readability-math-missing-parentheses)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-misplaced-widening-cast,
+// modernize-use-ranges,readability-math-missing-parentheses)
 
-namespace  // NOLINT(cert-dcl59-cpp,google-build-namespaces,fuchsia-header-anon-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Build a synthetic FlatLinearProblem for compression testing.
@@ -472,5 +472,5 @@ TEST_CASE("compress_flat_lp with double round-trip through CompressedBuffer")
   verify_flp_equal(flp, expected);
 }
 
-// NOLINTEND(bugprone-misplaced-widening-cast, misc-const-correctness,
-// modernize-use-ranges, readability-math-missing-parentheses)
+// NOLINTEND(bugprone-misplaced-widening-cast,
+// modernize-use-ranges,readability-math-missing-parentheses)

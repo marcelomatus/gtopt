@@ -2,11 +2,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/scenario.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Scenario construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Scenario scenario;
 
@@ -20,7 +20,7 @@ TEST_CASE("Scenario construction and default values")
 
 TEST_CASE("Scenario is_active default behaviour")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is active when unset")
   {
@@ -45,7 +45,7 @@ TEST_CASE("Scenario is_active default behaviour")  // NOLINT
 
 TEST_CASE("Scenario attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Scenario scenario;
 
@@ -61,7 +61,7 @@ TEST_CASE("Scenario attribute assignment")
 
 TEST_CASE("Scenario designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Scenario scenario {
       .uid = Uid {2},
@@ -78,7 +78,7 @@ TEST_CASE("Scenario designated initializer construction")
 
 TEST_CASE("Scenario with zero probability")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Scenario scenario {
       .uid = Uid {3},
@@ -92,7 +92,7 @@ TEST_CASE("Scenario with zero probability")
 
 TEST_CASE("ScenarioUid and ScenarioIndex strong types")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ScenarioUid suid = make_uid<Scenario>(7);
   const ScenarioIndex sidx {4};
@@ -103,7 +103,7 @@ TEST_CASE("ScenarioUid and ScenarioIndex strong types")
 
 TEST_CASE("Scenario array with probability weighting")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Scenario> scenarios {
       {

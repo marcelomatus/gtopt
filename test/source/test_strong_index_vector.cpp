@@ -4,7 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/strong_index_vector.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace  // NOLINT
 {

@@ -4,7 +4,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Waterway JSON basic parsing")
 {

@@ -10,11 +10,11 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("FlowRight construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const FlowRight fr;
 
@@ -36,7 +36,7 @@ TEST_CASE("FlowRight construction and default values")
 
 TEST_CASE("FlowRight attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
 
@@ -66,7 +66,7 @@ TEST_CASE("FlowRight attribute assignment")
 
 TEST_CASE("FlowRight designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const FlowRight fr {
       .uid = Uid {2},
@@ -91,7 +91,7 @@ TEST_CASE("FlowRight designated initializer construction")
 
 TEST_CASE("FlowRight with bound rule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 3;
@@ -131,7 +131,7 @@ TEST_CASE("FlowRight with bound rule")
 
 TEST_CASE("FlowRight with monthly target schedule")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   FlowRight fr;
   fr.uid = 4;
@@ -170,7 +170,7 @@ TEST_CASE("FlowRight with monthly target schedule")
 
 TEST_CASE("FlowRight with different purposes")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("irrigation purpose")
   {
@@ -217,10 +217,10 @@ TEST_CASE("FlowRight with different purposes")  // NOLINT
 // construction.  Maps to ladder Tier 2 in
 // `~/.claude/projects/-home-marce-git-gtopt/memory/project_irrigation_test_ladder.md`.
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 struct FlowRightHydroFixture
 {

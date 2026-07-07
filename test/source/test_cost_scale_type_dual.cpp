@@ -53,9 +53,9 @@
 #include <gtopt/turbine.hpp>
 #include <gtopt/waterway.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace cost_scale_type_dual_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace cost_scale_type_dual_test
 {
 
 /// Plain-old-data inputs.  Returned by value so each test owns its own

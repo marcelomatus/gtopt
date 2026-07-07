@@ -12,7 +12,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ---------------------------------------------------------------------------
 // share_cuts_for_phase — none mode (no-op)
@@ -20,7 +20,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 
 TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
@@ -59,7 +59,7 @@ TEST_CASE("share_cuts_for_phase none mode is a no-op")  // NOLINT
 
 TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // With only 1 scene, no sharing is possible regardless of mode
   auto planning = make_3phase_hydro_planning();
@@ -100,7 +100,7 @@ TEST_CASE("share_cuts_for_phase single scene returns early")  // NOLINT
 
 TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(planning);
@@ -131,7 +131,7 @@ TEST_CASE("share_cuts_for_phase with empty cuts is a no-op")  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate mode sums all cuts")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -184,7 +184,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected mode sums scene-averaged cuts")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -237,7 +237,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase max mode adds all cuts to all scenes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -299,7 +299,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate with one empty scene")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -339,7 +339,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected with empty cuts returns early")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -382,7 +382,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase none mode — characterization: no rows added")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -439,7 +439,7 @@ TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate mode — characterization: "
     "coeffs and rhs are plain sums")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Non-uniform scene probabilities to keep parity with the `expected` test;
   // accumulate mode IGNORES probabilities (sums without weights).
@@ -532,7 +532,7 @@ TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected mode — characterization: "
     "per-scene average then accumulate (probabilities unused)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Non-uniform scene probabilities (0.7 / 0.3): a textbook probability-
   // weighted expectation would produce different coefficients than the
@@ -636,7 +636,7 @@ TEST_CASE(  // NOLINT
     "share_cuts_for_phase max mode — characterization: "
     "each cut broadcast verbatim to every scene")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -795,7 +795,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "cut_sharing uniform N=2 expected is sum of singletons (PLP parity)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Uniform p=1/N: PLP's `DO II = IBeg, IEnd` broadcast mode.
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
@@ -904,7 +904,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "cut_sharing non-uniform probabilities are IGNORED by expected mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Extreme skew: 0.9 / 0.1.
   auto planning = make_2scene_3phase_hydro_planning(0.9, 0.1);
@@ -980,7 +980,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "cut_sharing uniform N=2 M=2 expected vs accumulate differ by mean")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -1064,7 +1064,7 @@ TEST_CASE(  // NOLINT
     "cut_sharing uniform N=3 single-cut-per-scene expected = N × mean "
     "(all coeffs)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Build a 3-scene planning fixture by tweaking the 2-scene helper.
   // The helper constructor does not expose N=3, so we use the 2-scene
@@ -1155,7 +1155,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "cut_sharing free-function N=3 uniform weights match arithmetic mean")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto make_cut = [](double lb, double c0, double c1)
   {
@@ -1240,7 +1240,7 @@ TEST_CASE(  // NOLINT
 // `bound_alpha_for_cut` never fired and α stayed at `lowb = uppb = 0`.
 // ---------------------------------------------------------------------------
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Threshold below which a lower bound is considered "effectively −∞".
@@ -1301,7 +1301,7 @@ SparseRow make_alpha_referring_cut(const PlanningLP& plp,
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase accumulate — optimality cut releases α^phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -1351,7 +1351,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase expected — optimality cut releases α^phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
   PlanningLP plp(std::move(planning));
@@ -1387,7 +1387,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase max — optimality cut releases α^phase")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -1427,9 +1427,9 @@ TEST_CASE(  // NOLINT
   // so a shared cut on pure state coefficients must NOT release the
   // pin.  This pins the gate so a future regression that flips the
   // policy ("always free on share") would surface here.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-unchecked-optional-access, hicpp-use-auto,
-  // modernize-use-auto)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-unchecked-optional-access,
+  // hicpp-use-auto,modernize-use-auto)
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -1474,7 +1474,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "alpha_cols_on_cell — multicut registers N future-cost columns")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -1511,7 +1511,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "alpha_cols_on_cell — single-α modes register one future-cost column")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP plp(std::move(planning));
@@ -1542,7 +1542,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "share_cuts_for_phase multicut broadcasts every scene's cut to all scenes")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
@@ -1591,5 +1591,5 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, hicpp-use-auto,
-// modernize-use-auto)
+// NOLINTEND(bugprone-unchecked-optional-access,
+// hicpp-use-auto,modernize-use-auto)

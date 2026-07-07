@@ -23,12 +23,12 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/validate_planning.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 /// Build a minimal single-bus, single-stage planning for monolithic
 /// tests.
@@ -195,7 +195,7 @@ auto make_multi_scenario_planning() -> Planning
 
 TEST_CASE("MonolithicMethod - default member values")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const MonolithicMethod method;
 
@@ -218,7 +218,7 @@ TEST_CASE("MonolithicMethod - default member values")  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - kappa tracking with warn mode")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_monolithic_test_planning(KappaWarningMode::warn, 1e9);
   PlanningLP planning_lp(std::move(planning));
@@ -240,7 +240,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - kappa_warning=none skips check")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_monolithic_test_planning(KappaWarningMode::none, 1.0);
   PlanningLP planning_lp(std::move(planning));
@@ -261,7 +261,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - kappa_warning=save_lp with low threshold")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_monolithic_test_planning(KappaWarningMode::save_lp, 1.0);
   PlanningLP planning_lp(std::move(planning));
@@ -289,7 +289,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - probability validation (sum to 1)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_multi_scenario_planning();
 
@@ -307,7 +307,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - probability rescaling for non-unit sums")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_multi_scenario_planning();
   planning.simulation.scenario_array[0].probability_factor = 3.0;
@@ -341,7 +341,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - lp_debug writes LP files")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_monolithic_test_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -370,7 +370,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "MonolithicMethod - multi-scenario parallel solve")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_multi_scenario_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -391,7 +391,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SolveMode enum_entries - all entries present")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const auto entries = enum_entries(SolveMode {});
 
@@ -404,7 +404,7 @@ TEST_CASE("SolveMode enum_entries - all entries present")  // NOLINT
 
 TEST_CASE("SolveMode enum_from_name round-trip")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-optional-value-conversion)
 
   const auto mono = enum_from_name<SolveMode>("monolithic");

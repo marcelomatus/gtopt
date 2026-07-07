@@ -226,7 +226,6 @@ double resolve_scalar_param(const std::vector<UserParam>& params,
 
 double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params);
 
-// NOLINTNEXTLINE(misc-no-recursion)
 double parse_value_factor(Scanner& sc, const std::vector<UserParam>& params)
 {
   sc.skip_ws_comments();
@@ -256,7 +255,6 @@ double parse_value_factor(Scanner& sc, const std::vector<UserParam>& params)
   return sc.read_number();
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 double parse_value_term(Scanner& sc, const std::vector<UserParam>& params)
 {
   double acc = parse_value_factor(sc, params);
@@ -276,7 +274,6 @@ double parse_value_term(Scanner& sc, const std::vector<UserParam>& params)
   return acc;
 }
 
-// NOLINTNEXTLINE(misc-no-recursion)
 double parse_value_expr(Scanner& sc, const std::vector<UserParam>& params)
 {
   double acc = parse_value_term(sc, params);

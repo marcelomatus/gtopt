@@ -281,7 +281,6 @@ public:
       return get_bus(id);
     } else {
       constexpr auto idx = lp_type_index_v<Element>;
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
       if (m_collection_ptrs_[idx] == nullptr) {
         throw std::logic_error(std::format(
             "SystemContext::get_element(ObjectSingleId): collection<{}> "
@@ -289,7 +288,6 @@ public:
             "SystemLP::register_collections())",
             typeid(Element).name()));
       }
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
       return static_cast<const Collection<Element>*>(m_collection_ptrs_[idx])
           ->element(id);
     }
@@ -300,7 +298,6 @@ public:
       -> const Element&
   {
     constexpr auto idx = lp_type_index_v<Element>;
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
     if (m_collection_ptrs_[idx] == nullptr) {
       throw std::logic_error(std::format(
           "SystemContext::get_element(ElementIndex): collection<{}> "
@@ -308,7 +305,6 @@ public:
           "SystemLP::register_collections())",
           typeid(Element).name()));
     }
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
     return static_cast<const Collection<Element>*>(m_collection_ptrs_[idx])
         ->element(id);
   }

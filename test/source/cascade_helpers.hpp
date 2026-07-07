@@ -16,8 +16,7 @@
 
 #include "fixture_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -377,5 +376,3 @@ inline auto make_6phase_2bus_hydro_planning() -> Planning
       .system = std::move(system),
   };
 }
-
-// NOLINTEND(google-global-names-in-headers)

@@ -16,7 +16,7 @@
 #include <gtopt/thermal_node.hpp>
 #include <gtopt/thermal_storage_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_thermal_storage_lp_smoke
 {

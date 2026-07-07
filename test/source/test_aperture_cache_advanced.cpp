@@ -11,18 +11,18 @@
 
 #include "aperture_data_cache.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using aperture_test_helpers::TmpDir;
 using aperture_test_helpers::write_test_parquet;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
+using namespace gtopt;
 
 TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const TmpDir tmp("test_aperture_cache_multistage");
 
@@ -109,7 +109,7 @@ TEST_CASE("ApertureDataCache multi-stage multi-block lookup")  // NOLINT
 
 TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const TmpDir tmp("test_aperture_cache_bulk");
 
@@ -189,8 +189,7 @@ TEST_CASE("ApertureDataCache many scenarios bulk loading")  // NOLINT
 
 TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(google-global-names-in-headers)
+  using namespace gtopt;
 
   const TmpDir tmp("test_aperture_cache_multi_elem");
 
@@ -281,5 +280,3 @@ TEST_CASE("ApertureDataCache multiple elements in same class")  // NOLINT
 }
 
 }  // namespace
-
-// NOLINTEND(google-global-names-in-headers)

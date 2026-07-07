@@ -4,7 +4,7 @@
 #include <gtopt/stage_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("schedule test vector")
 {
@@ -167,7 +167,7 @@ TEST_CASE("schedule test 3")
 TEST_CASE(
     "FieldSched2 / OptTBRealSched — scalar broadcast across (stage, block)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // FieldSched2<Real> = variant<Real, vector<vector<Real>>, FileSched>.
   // Storing a scalar puts the value in the ``Real`` alternative.  The
@@ -188,7 +188,7 @@ TEST_CASE(
 
 TEST_CASE("FieldSched2 / OptTBRealSched — empty optional yields no value")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const OptSchedule<Real, StageUid, BlockUid> sched_empty;
   CHECK_FALSE(sched_empty.has_value());
@@ -198,7 +198,7 @@ TEST_CASE("FieldSched2 / OptTBRealSched — empty optional yields no value")
 
 TEST_CASE("FieldSched2 — 2-D ``[[block, …], …]`` shape construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 2 stages × 3 blocks: stage 0 = {10, 20, 30}, stage 1 = {40, 50, 60}.
   // Constructing the FieldSched2 stores the alternative correctly.
@@ -218,7 +218,7 @@ TEST_CASE("FieldSched2 — 2-D ``[[block, …], …]`` shape construction")
 TEST_CASE(
     "FieldSched2 — per-stage list encoded as Mx1 nested array (PLP shape)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // PLP-style per-stage data: each stage has a single per-stage value.
   // Encoded as a M×1 nested vector — one stage row, each row has a

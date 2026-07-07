@@ -33,8 +33,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-argument-comment, readability-math-missing-parentheses)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-argument-comment,readability-math-missing-parentheses)
 
 namespace
 {
@@ -584,4 +584,4 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// NOLINTEND(bugprone-argument-comment, readability-math-missing-parentheses)
+// NOLINTEND(bugprone-argument-comment,readability-math-missing-parentheses)

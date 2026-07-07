@@ -17,7 +17,7 @@
 #include "fixture_helpers.hpp"
 #include "log_capture.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -1164,7 +1164,6 @@ TEST_CASE("PlanningLP - auto_scale_theta uses median X/V² on mixed voltages")
 TEST_CASE("PlanningLP - auto_scale_theta with const Planning")
 {
   using namespace gtopt;
-  // NOLINTBEGIN(google-global-names-in-headers, misc-const-correctness)
 
   // Const planning → auto_scale_theta is skipped, uses default
   const Simulation simulation = {
@@ -2611,5 +2610,3 @@ TEST_CASE("PlanningLP - write_out respects output_skipped")  // NOLINT
   std::error_code ec;
   std::filesystem::remove_all(fx.tmp_dir, ec);
 }
-
-// NOLINTEND(google-global-names-in-headers, misc-const-correctness)

@@ -37,7 +37,7 @@
 #include <gtopt/planning_options.hpp>
 #include <gtopt/planning_options_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── write_out ─────────────────────────────────────────────────────────────
 
@@ -294,7 +294,7 @@ TEST_CASE("PlanningOptions defaults: use_single_bus explicit true")  // NOLINT
 // `output_compression`, `write_out`, `model_options.demand_fail_cost`)
 // so any future name rename through the canonicalize step is caught.
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 auto round_trip_planning(std::string_view input)
 {

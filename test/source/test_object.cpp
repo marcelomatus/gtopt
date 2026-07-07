@@ -2,11 +2,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/object.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("ObjectAttrs construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ObjectAttrs attrs;
 
@@ -17,7 +17,7 @@ TEST_CASE("ObjectAttrs construction and default values")
 
 TEST_CASE("ObjectAttrs attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   ObjectAttrs attrs;
 
@@ -33,7 +33,7 @@ TEST_CASE("ObjectAttrs attribute assignment")
 
 TEST_CASE("ObjectAttrs designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const ObjectAttrs attrs {
       .uid = Uid {99},
@@ -48,7 +48,7 @@ TEST_CASE("ObjectAttrs designated initializer construction")
 
 TEST_CASE("ObjectAttrs with inactive status")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   ObjectAttrs attrs;
   attrs.active = false;
@@ -59,7 +59,7 @@ TEST_CASE("ObjectAttrs with inactive status")
 
 TEST_CASE("id() free function creates Id from object")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct TestObj
   {
@@ -77,7 +77,7 @@ TEST_CASE("id() free function creates Id from object")  // NOLINT
 
 TEST_CASE("id() with default-constructed object")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   struct TestObj
   {

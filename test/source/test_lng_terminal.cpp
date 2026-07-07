@@ -14,8 +14,7 @@
 #include <gtopt/system_lp.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
 TEST_CASE("LngTerminal default construction")  // NOLINT
 {
@@ -56,7 +55,6 @@ TEST_CASE("LngGeneratorLink construction")  // NOLINT
 }
 
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 /// Helper: minimal system with 1 bus, 1 generator, 1 demand, 1 LNG terminal.
 /// The generator is linked to the LNG terminal with a heat rate.
@@ -429,5 +427,3 @@ TEST_CASE("LngTerminalLP - add_to_output via write_out")  // NOLINT
 
   std::filesystem::remove_all(tmpdir);
 }
-
-// NOLINTEND(misc-const-correctness)

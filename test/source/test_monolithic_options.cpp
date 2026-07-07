@@ -8,11 +8,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/monolithic_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("MonolithicOptions - Default construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const MonolithicOptions opts {};
 
@@ -25,7 +25,7 @@ TEST_CASE("MonolithicOptions - Default construction")
 
 TEST_CASE("MonolithicOptions - Construction with all fields")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const MonolithicOptions opts {
       .solve_mode = SolveMode::sequential,
@@ -58,7 +58,7 @@ TEST_CASE("MonolithicOptions - Construction with all fields")
 
 TEST_CASE("MonolithicOptions - Merge fills missing fields")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   MonolithicOptions base {
       .solve_mode = SolveMode::monolithic,
@@ -84,7 +84,7 @@ TEST_CASE("MonolithicOptions - Merge fills missing fields")
 
 TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   MonolithicOptions base {
       .solve_mode = SolveMode::sequential,
@@ -107,7 +107,7 @@ TEST_CASE("MonolithicOptions - Merge overwrites existing (overlay wins)")
 
 TEST_CASE("MonolithicOptions - Merge nested solver_options")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   SUBCASE("both set: inner merge")

@@ -3,7 +3,7 @@
 #include <gtopt/json_canonicalize.hpp>
 #include <gtopt/names_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

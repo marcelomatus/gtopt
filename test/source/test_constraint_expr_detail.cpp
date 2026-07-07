@@ -12,8 +12,7 @@
 #include <gtopt/constraint_expr.hpp>
 #include <gtopt/linear_parser.hpp>
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("detail::eval_if_atom — scalar comparison operators")  // NOLINT
 {
@@ -136,5 +135,3 @@ TEST_CASE("detail::check_convexity — LowerEnvelope (min)")  // NOLINT
   CHECK_FALSE(detail::check_convexity(CK::LowerEnvelope, CT::EQUAL, +1.0));
   CHECK_FALSE(detail::check_convexity(CK::LowerEnvelope, CT::RANGE, +1.0));
 }
-
-// NOLINTEND(google-global-names-in-headers)

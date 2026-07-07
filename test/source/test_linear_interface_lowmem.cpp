@@ -18,7 +18,7 @@
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ---------------------------------------------------------------------------
 // Algorithm fallback cycle tests
@@ -27,7 +27,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Infeasible LP: x >= 10 AND x <= 5 — no algorithm can solve it.
   // The fallback cycle should try all 3 algorithms and still fail,
@@ -63,7 +63,7 @@ TEST_CASE("LinearInterface - algorithm fallback on infeasible initial_solve")
 TEST_CASE("LinearInterface - algorithm fallback on infeasible resolve")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Same infeasible LP tested via resolve path.
   for (const auto algo :
@@ -98,7 +98,7 @@ TEST_CASE(
     "LinearInterface - optimal LP succeeds without fallback for all algorithms")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Feasible LP: min x + y, s.t. x + y >= 4, x,y >= 0  →  obj = 4.
   // All algorithms should succeed on the first attempt (no fallback needed).
@@ -136,7 +136,7 @@ TEST_CASE(
     "LinearInterface - fallback cycle on resolve after feasible "
     "initial_solve")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Solve a feasible LP, then make it infeasible via bound change and resolve.
   // The fallback cycle should engage and ultimately fail.
@@ -188,7 +188,7 @@ TEST_CASE(
 TEST_CASE(  // NOLINT
     "LinearInterface — non-optimal release flips cached is_optimal flag")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build a one-col / one-row LP via `LinearProblem` + `flatten` +
   // `load_flat` so we have a snapshot to reconstruct from later
@@ -277,7 +277,7 @@ TEST_CASE(  // NOLINT
     "LinearInterface — ensure_duals tolerates released backend with "
     "empty dual cache (cascade-transition regression)")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // ─── Build a one-col / one-row LP via the snapshot path so we have
   // a flat to reconstruct from if needed.
@@ -374,7 +374,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Infeasible LP with max_fallbacks=0: should fail immediately without
   // the "fallback" keyword in the error message.
@@ -417,7 +417,7 @@ TEST_CASE("LinearInterface - max_fallbacks=0 disables fallback")  // NOLINT
 
 TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Infeasible LP with max_fallbacks=1: should try one fallback and still
   // fail, but the error should mention "fallback".
@@ -448,7 +448,6 @@ TEST_CASE("LinearInterface - max_fallbacks=1 tries one alternative")  // NOLINT
 /// Helper: build a simple LP with 2 variables and 1 constraint, flatten it,
 /// load it into a LinearInterface, and return (li, flat_lp, x1, x2).
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 /// Build a LinearInterface with labeled columns and rows directly via
 /// add_col / add_row (no flatten path).  Used to exercise the label
@@ -2395,7 +2394,6 @@ TEST_CASE(  // NOLINT
 // byte-for-byte equality, exercising every `LpContext` variant arm.
 
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 struct LabelSnapshot
 {
@@ -3049,7 +3047,7 @@ TEST_CASE(  // NOLINT
   // `save_base_numrows` and thus pre-advances to `Frozen`), so the
   // `Building → Frozen` transition can be observed directly through
   // the consolidator's call.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearProblem lp;
   const auto c1 = lp.add_col(SparseCol {.uppb = 10.0, .cost = 2.0});
@@ -3121,7 +3119,7 @@ TEST_CASE(  // NOLINT
   // this test only checks the legitimate ordering: low-mem
   // configured first, then cuts arrive, no freeze required.  The
   // assertion's correctness is verified by the structure alone.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearProblem lp;
   std::ignore = lp.add_col(SparseCol {.uppb = 10.0, .cost = 1.0});
@@ -3150,7 +3148,7 @@ TEST_CASE(  // NOLINT
     "LinearInterface::phase advances through Building → Frozen → "
     "BackendReleased → Reconstructed")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Step 2 of
   // `docs/analysis/investigations/linear_interface/linear_interface_lifecycle_plan_2026-04-30.md`
@@ -3195,7 +3193,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface::freeze_for_cuts equals legacy 3-call sequence")
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Build the same simple LP twice — once via the legacy 3-call
   // dance, once via the new consolidator — and assert every
@@ -3256,7 +3254,7 @@ TEST_CASE(  // NOLINT
   // `linear_interface.cpp`.  Pin that behaviour so a future
   // refactor can't accidentally make `off` mode start retaining
   // snapshots.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto [li, flat, x1, x2] = make_simple_li_lp();
   // make_simple_li_lp already calls save_base_numrows, so phase is
@@ -3296,7 +3294,7 @@ TEST_CASE(  // NOLINT
   // Build a fully-labelled LP inline (the `make_simple_li_lp` helper
   // builds unlabelled cols, which would trip
   // `generate_labels_from_maps` at the col side).
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearProblem lp;
   const auto c1 = lp.add_col(SparseCol {
@@ -3388,7 +3386,7 @@ TEST_CASE(  // NOLINT
   // Pre-fix the bulk path tracked metadata; post-fix the no-op
   // early return inside `replay_active_cuts` makes this trivially
   // safe — but the test pins the contract.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto [li, flat, x1, x2] = make_simple_li_lp();
   auto res = li.initial_solve();
@@ -4024,7 +4022,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface — set_col_low_raw throws on out-of-range ColIndex")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   LinearInterface li;
   const auto x0 = li.add_col(SparseCol {
@@ -4052,8 +4050,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "LinearInterface — set_col_upp_raw throws on out-of-range ColIndex")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(misc-const-correctness)
+  using namespace gtopt;
   // NOLINTBEGIN(readability-qualified-auto)
   // NOLINTBEGIN(readability-trailing-comma)
 
@@ -4808,7 +4805,7 @@ TEST_CASE(
     "LinearInterface — compress: reconstruct evicts stale presolve-tightened "
     "col-bound cache (ab46e0d1a)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+  using namespace gtopt;
 
   // Regression for ab46e0d1a.  Under LowMemoryMode::compress,
   // `populate_solution_cache_post_solve()` snapshots the solver's live
@@ -4886,6 +4883,5 @@ TEST_CASE(
   CHECK(li.get_col_upp_raw()[cx] >= inf * 0.5);  // still unbounded above
 }
 
-// NOLINTEND(misc-const-correctness)
 // NOLINTEND(readability-qualified-auto)
 // NOLINTEND(readability-trailing-comma)

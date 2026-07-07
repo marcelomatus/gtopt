@@ -2,11 +2,11 @@
 #include <doctest/doctest.h>
 #include <gtopt/iteration.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Iteration construction and default values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Iteration iter;
 
@@ -17,7 +17,7 @@ TEST_CASE("Iteration construction and default values")
 
 TEST_CASE("Iteration should_update_lp default behaviour")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default is true when unset")
   {
@@ -42,7 +42,7 @@ TEST_CASE("Iteration should_update_lp default behaviour")  // NOLINT
 
 TEST_CASE("Iteration attribute assignment")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Iteration iter;
 
@@ -56,7 +56,7 @@ TEST_CASE("Iteration attribute assignment")
 
 TEST_CASE("Iteration designated initializer construction")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Iteration iter {
       .index = 10,
@@ -71,7 +71,7 @@ TEST_CASE("Iteration designated initializer construction")
 
 TEST_CASE("IterationIndex strong type")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const IterationIndex idx {3};
   CHECK(idx == IterationIndex {3});
@@ -79,7 +79,7 @@ TEST_CASE("IterationIndex strong type")
 
 TEST_CASE("Iteration array for SDDP control")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Array<Iteration> iterations {
       {

@@ -5,7 +5,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_SUITE("SparseRow")
 {

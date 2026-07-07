@@ -5,10 +5,10 @@
 #include <doctest/doctest.h>
 #include <gtopt/lp_fingerprint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness, performance-inefficient-vector-operation)
+using namespace gtopt;
+// NOLINTBEGIN(performance-inefficient-vector-operation)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 TEST_CASE("LpFingerprint basic computation")  // NOLINT
@@ -327,4 +327,4 @@ TEST_CASE("LpFingerprint JSON output")  // NOLINT
 
 }  // namespace
 
-// NOLINTEND(misc-const-correctness, performance-inefficient-vector-operation)
+// NOLINTEND(performance-inefficient-vector-operation)

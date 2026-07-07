@@ -34,10 +34,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 auto make_parquet_test_path(const std::string& tag) -> std::filesystem::path
@@ -255,5 +254,3 @@ TEST_CASE(
 // the only supported format.  Call ``save_cuts_parquet`` /
 // ``load_cuts_parquet`` directly; the round-trip coverage above
 // already exercises that path.
-
-// NOLINTEND(misc-const-correctness)

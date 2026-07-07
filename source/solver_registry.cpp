@@ -35,7 +35,6 @@ std::filesystem::path exe_directory()
   if (len <= 0) {
     return {};
   }
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
   buf[static_cast<size_t>(len)] = '\0';
   return std::filesystem::path(buf.data()).parent_path();
 }
@@ -293,7 +292,7 @@ void SolverRegistry::reset_default_logger_after_fork() noexcept
         std::make_shared<spdlog::logger>("gtopt_child_validator", sink);
     child_logger->set_level(spdlog::level::warn);
     spdlog::set_default_logger(std::move(child_logger));
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
     // Best effort — if the logger swap fails, validation continues without
     // logging.  We must NOT propagate exceptions across the fork barrier.
   }
@@ -344,11 +343,11 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
     // → spurious crash output that confuses doctest's test-rerun loop.
     // SIG_DFL expands to a C-style cast and the ::signal result is
     // deliberately discarded (best-effort child-side reset).
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
     ::signal(SIGABRT, SIG_DFL);
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
     ::signal(SIGSEGV, SIG_DFL);
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast, cert-err33-c)
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast,cert-err33-c)
     ::signal(SIGFPE, SIG_DFL);
 
     try {

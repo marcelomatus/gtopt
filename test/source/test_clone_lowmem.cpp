@@ -32,8 +32,8 @@
 #include <gtopt/sparse_col.hpp>
 #include <gtopt/sparse_row.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(misc-const-correctness, modernize-use-designated-initializers)
+using namespace gtopt;
+// NOLINTBEGIN(modernize-use-designated-initializers)
 
 namespace
 {
@@ -377,4 +377,4 @@ TEST_CASE(
   CHECK(src.get_obj_constant_raw() == doctest::Approx(42.0));
 }
 
-// NOLINTEND(misc-const-correctness, modernize-use-designated-initializers)
+// NOLINTEND(modernize-use-designated-initializers)

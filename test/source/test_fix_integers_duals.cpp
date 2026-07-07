@@ -34,11 +34,11 @@
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 // NOLINTBEGIN(bugprone-throwing-static-initialization,
-// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)
+// bugprone-unchecked-optional-access,cert-err58-cpp)
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// First loaded solver that supports MIP, or empty when none.
@@ -392,4 +392,4 @@ TEST_CASE(  // NOLINT
 }
 
 // NOLINTEND(bugprone-throwing-static-initialization,
-// bugprone-unchecked-optional-access, cert-err58-cpp, misc-const-correctness)
+// bugprone-unchecked-optional-access,cert-err58-cpp)

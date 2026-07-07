@@ -360,7 +360,7 @@ void switch_to_sync_default_logger()
   // of the async_logger handle.
   try {
     current->flush();
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
   }
   const auto previous_level = current->level();
   std::vector<spdlog::sink_ptr> sinks;
@@ -380,7 +380,7 @@ void flush_default_logger_best_effort() noexcept
     if (auto logger = spdlog::default_logger()) {
       logger->flush();
     }
-  } catch (...) {  // NOLINT(bugprone-empty-catch)
+  } catch (...) {
   }
 }
 
@@ -445,7 +445,7 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
     if (current) {
       try {
         current->flush();
-      } catch (...) {  // NOLINT(bugprone-empty-catch)
+      } catch (...) {
       }
     }
 

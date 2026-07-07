@@ -43,8 +43,7 @@
 
 #include "fixture_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-build-using-namespace)
-// NOLINTBEGIN(google-global-names-in-headers)
+using namespace gtopt;
 using gtopt::test_fixtures::make_single_stage_phases;
 using gtopt::test_fixtures::make_uniform_blocks;
 using gtopt::test_fixtures::make_uniform_stages;
@@ -318,5 +317,3 @@ TEST_CASE(  // NOLINT
     CHECK(sys.elements<ReservoirLP>().size() == rsv_count);
   }
 }
-
-// NOLINTEND(google-global-names-in-headers)

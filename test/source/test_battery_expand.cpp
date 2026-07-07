@@ -11,11 +11,11 @@
 #include <gtopt/system.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Battery new fields default to nullopt")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const Battery battery;
 
@@ -30,7 +30,7 @@ TEST_CASE("Battery new fields default to nullopt")  // NOLINT
 
 TEST_CASE("Battery unified field assignment")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   Battery battery;
 
@@ -56,7 +56,7 @@ TEST_CASE("Battery unified field assignment")  // NOLINT
 
 TEST_CASE("System::expand_batteries with unified definition")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "ExpandTest";
@@ -151,7 +151,7 @@ TEST_CASE("expand_batteries pins synthetic charge demand fcost=0")  // NOLINT
   // positive global default (e.g. 1000 $/MWh) would penalize the LP for not
   // charging the battery and force charging at pmax — silently distorting
   // dispatch in any case where the global is raised.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "BatteryFcostPinTest";
@@ -185,7 +185,7 @@ TEST_CASE("expand_batteries pins fcost=0 even with source_generator")  // NOLINT
 {
   // Same invariant as above, but for the generation-coupled mode where the
   // charge demand lands on the auto-created internal bus.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "CoupledBatteryFcostPinTest";
@@ -225,7 +225,7 @@ TEST_CASE("expand_batteries pins fcost=0 even with source_generator")  // NOLINT
 
 TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "SkipTest";
@@ -255,7 +255,7 @@ TEST_CASE("expand_batteries skips batteries without bus")  // NOLINT
 
 TEST_CASE("expand_batteries is idempotent")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "IdempotentTest";
@@ -287,7 +287,7 @@ TEST_CASE("expand_batteries is idempotent")  // NOLINT
 
 TEST_CASE("expand_batteries multiple batteries")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "MultiBatteryTest";
@@ -352,7 +352,7 @@ TEST_CASE("expand_batteries multiple batteries")  // NOLINT
 TEST_CASE(
     "expand_batteries with source_generator creates internal bus")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "CoupledBatteryTest";
@@ -428,7 +428,7 @@ TEST_CASE(
 TEST_CASE(
     "expand_batteries source_generator with existing bus is overridden")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "OverrideBusTest";
@@ -487,7 +487,7 @@ TEST_CASE(
 
 TEST_CASE("expand_batteries source_generator not found logs warning")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   System system;
   system.name = "MissingSourceGenTest";
@@ -521,7 +521,7 @@ TEST_CASE("expand_batteries source_generator not found logs warning")  // NOLINT
 TEST_CASE(
     "BatteryLP — capainst primal col_sol binds at capmin lower bound")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access)
 
   // Deterministic LP where the battery's own installed-capacity column

@@ -30,8 +30,8 @@
 #include <doctest/doctest.h>
 #include <gtopt/line_losses.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-using namespace gtopt::line_losses;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
+using namespace gtopt::line_losses;
 
 namespace
 {
@@ -171,9 +171,9 @@ TEST_CASE("line-loss PWL: uniform and tangent converge as O(1/K^2)")  // NOLINT
 // ``test_line_losses_decoupled_envelope.cpp`` validates that the
 // LP-realised error sits BELOW this analytic bound on the same mix.
 
-namespace line_losses_system_convergence_ns  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace line_losses_system_convergence_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 struct LineFix
@@ -220,7 +220,7 @@ constexpr std::array<LineFix, 4> kSystemLines = {{
 }  // namespace
 }  // namespace line_losses_system_convergence_ns
 
-using namespace line_losses_system_convergence_ns;  // NOLINT(google-global-names-in-headers)
+using namespace line_losses_system_convergence_ns;
 
 TEST_CASE(
     "line-loss PWL: adaptive rule drives system error O(1/K²) as err_pct "

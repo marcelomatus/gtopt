@@ -26,7 +26,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/linear_problem.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {
@@ -266,10 +266,8 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "CostHelper — T-context cost convention is prob-free")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
-  // NOLINTBEGIN(bugprone-argument-comment,
-  // cppcoreguidelines-pro-bounds-constant-array-index,
-  // readability-trailing-comma)
+  using namespace gtopt;
+  // NOLINTBEGIN(bugprone-argument-comment,readability-trailing-comma)
 
   // The scalar overload of cost_factor with default `duration = 1.0`
   // returns probability × discount × 1.0.  For prob=1.0 (the
@@ -321,6 +319,4 @@ TEST_CASE(  // NOLINT
   CHECK(mismatched_output == doctest::Approx(kCost / kProb));  // off by 1/prob
 }
 
-// NOLINTEND(bugprone-argument-comment,
-// cppcoreguidelines-pro-bounds-constant-array-index,
-// readability-trailing-comma)
+// NOLINTEND(bugprone-argument-comment,readability-trailing-comma)

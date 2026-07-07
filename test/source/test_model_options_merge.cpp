@@ -9,7 +9,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/model_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(
     "ModelOptions::merge — naming_dialect propagates from other")  // NOLINT

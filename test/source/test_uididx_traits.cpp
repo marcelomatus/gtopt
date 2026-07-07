@@ -7,7 +7,7 @@
 #include <gtopt/stage.hpp>
 #include <gtopt/uididx_traits.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("Basic functionality 1")
 {

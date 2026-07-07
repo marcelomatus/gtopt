@@ -450,7 +450,6 @@ void ScipSolverBackend::load_problem(int ncols,
   const auto nc = static_cast<std::size_t>(ncols);
   const auto nr = static_cast<std::size_t>(nrows);
 
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_model_.col_lb.assign(collb, collb + nc);
   m_model_.col_ub.assign(colub, colub + nc);
   m_model_.col_obj.assign(obj, obj + nc);
@@ -466,7 +465,6 @@ void ScipSolverBackend::load_problem(int ncols,
       m_model_.row_entries[static_cast<std::size_t>(row)][j] = matval[k];
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 int ScipSolverBackend::get_num_cols() const
@@ -500,7 +498,6 @@ void ScipSolverBackend::add_cols(int num_cols,
     return;
   }
   const int base = m_model_.num_cols;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int c = 0; c < num_cols; ++c) {
     const int gcol = base + c;
     m_model_.col_lb.push_back(collb[c]);
@@ -512,7 +509,6 @@ void ScipSolverBackend::add_cols(int num_cols,
       m_model_.row_entries[static_cast<std::size_t>(row)][gcol] = colval[k];
     }
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_model_.num_cols += num_cols;
 }
 
@@ -548,11 +544,9 @@ void ScipSolverBackend::add_row(int num_elements,
                                 double rowub)
 {
   std::map<int, double> entries;
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int k = 0; k < num_elements; ++k) {
     entries[columns[k]] = elements[k];
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_model_.row_lb.push_back(rowlb);
   m_model_.row_ub.push_back(rowub);
   m_model_.row_entries.push_back(std::move(entries));
@@ -569,7 +563,6 @@ void ScipSolverBackend::add_rows(int num_rows,
   if (num_rows == 0) {
     return;
   }
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   for (int r = 0; r < num_rows; ++r) {
     std::map<int, double> entries;
     for (int k = rowbeg[r]; k < rowbeg[r + 1]; ++k) {
@@ -579,7 +572,6 @@ void ScipSolverBackend::add_rows(int num_rows,
     m_model_.row_ub.push_back(rowub[r]);
     m_model_.row_entries.push_back(std::move(entries));
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   m_model_.num_rows += num_rows;
 }
 
@@ -605,9 +597,7 @@ void ScipSolverBackend::delete_rows(int num, const int* indices)
   if (num <= 0) {
     return;
   }
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   std::vector<int> drop(indices, indices + num);
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   std::ranges::sort(drop, std::greater<>());
   drop.erase(std::ranges::unique(drop).begin(), drop.end());
   for (const int idx : drop) {

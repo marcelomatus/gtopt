@@ -25,7 +25,7 @@
 
 #include "log_capture.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // clang-format off
 

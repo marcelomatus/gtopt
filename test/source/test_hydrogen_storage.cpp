@@ -8,7 +8,7 @@
 #include <gtopt/hydrogen_node.hpp>
 #include <gtopt/hydrogen_storage.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("HydrogenNode default values + carrier tag")  // NOLINT
 {

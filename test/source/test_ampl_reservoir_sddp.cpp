@@ -52,12 +52,12 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-named outer namespace avoids unity-build helper-name collisions.
-namespace ampl_reservoir_sddp_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace ampl_reservoir_sddp_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Solve `planning` with SDDP (cut_sharing=none — the only valid mode for
@@ -107,7 +107,7 @@ TEST_CASE(
     "AMPL reservoir SDDP — native 2-reservoir 10-phase fixture converges "
     "(oracle)")
 {
-  using namespace ampl_reservoir_sddp_test;  // NOLINT(google-build-using-namespace)
+  using namespace ampl_reservoir_sddp_test;
 
   const auto [lb, ub] =
       solve_sddp_bounds(make_2scene_10phase_two_reservoir_planning());
@@ -121,7 +121,7 @@ TEST_CASE(
     "AMPL reservoir SDDP — non-binding user constraints resolve per-phase and "
     "preserve the native bounds")
 {
-  using namespace ampl_reservoir_sddp_test;  // NOLINT(google-build-using-namespace)
+  using namespace ampl_reservoir_sddp_test;
 
   const auto [lb0, ub0] =
       solve_sddp_bounds(make_2scene_10phase_two_reservoir_planning());
@@ -165,7 +165,7 @@ TEST_CASE(
     "AMPL reservoir SDDP — binding user constraint changes the bound across "
     "phases")
 {
-  using namespace ampl_reservoir_sddp_test;  // NOLINT(google-build-using-namespace)
+  using namespace ampl_reservoir_sddp_test;
 
   const auto [lb0, ub0] =
       solve_sddp_bounds(make_2scene_10phase_two_reservoir_planning());
@@ -184,7 +184,7 @@ TEST_CASE(
     "AMPL reservoir SDDP — multi-phase state variable links across 10 phases "
     "and SDDP converges")
 {
-  using namespace ampl_reservoir_sddp_test;  // NOLINT(google-build-using-namespace)
+  using namespace ampl_reservoir_sddp_test;
 
   // A global `state` DecisionVariable (state + link) is the multi-stage /
   // phase variable: it registers one column per phase and chains forward

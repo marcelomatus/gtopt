@@ -47,7 +47,7 @@
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {
@@ -524,7 +524,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
 TEST_CASE("make_planning_method SDDP single-phase falls back to monolithic")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions popts;
   popts.method = MethodType::sddp;

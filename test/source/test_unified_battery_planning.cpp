@@ -24,7 +24,7 @@
 #include <gtopt/gtopt_json_io.hpp>
 #include <gtopt/planning_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // clang-format off
 static constexpr std::string_view unified_battery_json = R"(

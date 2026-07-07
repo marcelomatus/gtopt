@@ -13,13 +13,12 @@
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness,
-// readability-trailing-comma)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access,readability-trailing-comma)
 
 namespace test_line_losses_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ─── LineLossesMode enum ────────────────────────────────────────────
@@ -2239,5 +2238,4 @@ TEST_CASE("IEEE 9-bus losses modes - lines have resistance defined")
 }  // namespace
 }  // namespace test_line_losses_ns
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness,
-// readability-trailing-comma)
+// NOLINTEND(bugprone-unchecked-optional-access,readability-trailing-comma)

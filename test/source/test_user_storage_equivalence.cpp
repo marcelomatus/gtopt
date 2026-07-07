@@ -44,11 +44,11 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace user_storage_equiv_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace user_storage_equiv_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 [[nodiscard]] auto solve_sddp_bounds(Planning planning)
@@ -140,7 +140,7 @@ TEST_CASE(
     "AMPL-text reservoir reproduces the native reservoir SDDP bounds "
     "(2-reservoir 10-phase, one reservoir replaced)")
 {
-  using namespace user_storage_equiv_test;  // NOLINT(google-build-using-namespace)
+  using namespace user_storage_equiv_test;
 
   const auto [lb_native, ub_native] =
       solve_sddp_bounds(make_2scene_10phase_two_reservoir_planning());
@@ -160,7 +160,7 @@ TEST_CASE(
 
 TEST_CASE("AMPL-text reservoir registers a per-phase cross-phase state")
 {
-  using namespace user_storage_equiv_test;  // NOLINT(google-build-using-namespace)
+  using namespace user_storage_equiv_test;
 
   // Structural: the block_state DecisionVariable must register a
   // StateVariable in every phase under the dedicated BlockStateClassName,
@@ -192,9 +192,9 @@ TEST_CASE("AMPL-text reservoir registers a per-phase cross-phase state")
 
 // ── Guards: block_state misuse is a hard error ─────────────────────────────
 
-namespace user_storage_equiv_test  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace user_storage_equiv_test
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 [[nodiscard]] auto with_dv(DecisionVariable dv) -> Planning
 {
@@ -208,7 +208,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 TEST_CASE(
     "block_state guards: link required, block scope, exclusive with state")
 {
-  using namespace user_storage_equiv_test;  // NOLINT(google-build-using-namespace)
+  using namespace user_storage_equiv_test;
 
   SUBCASE("block_state without link is a hard error")
   {

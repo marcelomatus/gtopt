@@ -52,8 +52,8 @@
 #include "log_capture.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
-// NOLINTBEGIN(bugprone-unchecked-optional-access, misc-const-correctness)
+using namespace gtopt;
+// NOLINTBEGIN(bugprone-unchecked-optional-access)
 
 // ───────────────────────────────────────────────────────────────────────────
 // Layer 1 — JSON parsing of inherit_optimality_cuts
@@ -1509,4 +1509,4 @@ TEST_CASE(  // NOLINT
   CHECK(s1.lower_bound >= s0.lower_bound * 0.999 - 1e-3);
 }
 
-// NOLINTEND(bugprone-unchecked-optional-access, misc-const-correctness)
+// NOLINTEND(bugprone-unchecked-optional-access)

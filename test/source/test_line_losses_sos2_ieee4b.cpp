@@ -34,7 +34,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Wrap the entire file body in a uniquely-named outer namespace so the
 // Unity-build cannot collide with same-named helpers in sibling test
@@ -42,7 +42,7 @@ using namespace gtopt;  // NOLINT(google-global-names-in-headers)
 namespace test_line_losses_sos2_ieee4b_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── Canonical IEEE 4-bus base + L-secant SOS2 overlay ───────────────

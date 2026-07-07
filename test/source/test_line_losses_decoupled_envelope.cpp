@@ -44,9 +44,9 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/system_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // Fixture-wide constants.  Picked so analytic R/V²·f² lands in the
@@ -325,9 +325,9 @@ TEST_CASE(
 // the LP runs at that K, and the error stays within the rule's budget
 // on a SYSTEM of lines.
 
-namespace adaptive_integration_test_ns  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace adaptive_integration_test_ns
 {
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 /// Generalised single-line solve: same shape as ``solve()`` above, but
@@ -483,7 +483,7 @@ constexpr double kIntegrationV = 100.0;  // kV → V² = 10,000
 }  // namespace
 }  // namespace adaptive_integration_test_ns
 
-using namespace adaptive_integration_test_ns;  // NOLINT(google-global-names-in-headers)
+using namespace adaptive_integration_test_ns;
 
 TEST_CASE(
     "line_losses adaptive rule - per-line LP error ≤ predicted budget on "

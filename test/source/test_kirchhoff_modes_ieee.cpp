@@ -31,7 +31,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ── IEEE fixtures (mirrors of the test_ieee*_ori_planning.cpp blobs) ──
 

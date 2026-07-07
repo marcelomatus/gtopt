@@ -18,7 +18,7 @@
 #include <gtopt/linear_problem.hpp>
 #include <gtopt/solver_options.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique outer namespace (not anonymous) so the file-local helper survives
 // the unity build without colliding with other test files.

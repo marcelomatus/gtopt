@@ -22,7 +22,7 @@
 #include <gtopt/json/json_user_constraint.hpp>
 #include <gtopt/user_constraint.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_constraint_directive
 {

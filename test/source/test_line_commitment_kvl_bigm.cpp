@@ -35,12 +35,12 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace test_line_commitment_kvl_bigm_ns
 {
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ── 2-bus Kirchhoff fixture (line w/ reactance) ─────────────────────

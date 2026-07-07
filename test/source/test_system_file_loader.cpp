@@ -23,7 +23,7 @@
 #include <gtopt/system_file_loader.hpp>
 #include <unistd.h>  // getpid
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // Unique-prefixed names so the anonymous-namespace helpers don't collide
 // with other test files when CMake unity-batches them.
@@ -33,8 +33,7 @@ namespace
 /// the std temp dir only when TMPDIR is unset.
 [[nodiscard]] std::filesystem::path sfl_tmp_base()
 {
-  const char* const td =
-      std::getenv("TMPDIR");  // NOLINT(concurrency-mt-unsafe)
+  const char* const td = std::getenv("TMPDIR");
   return (td != nullptr && *td != '\0')
       ? std::filesystem::path(td)
       : std::filesystem::temp_directory_path();

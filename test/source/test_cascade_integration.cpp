@@ -20,9 +20,9 @@
 #include "cascade_helpers.hpp"
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ─── Single-level cascade = equivalent to direct SDDP ─────────────────────
@@ -36,7 +36,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 TEST_CASE("Cascade skips level with active=false")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -94,7 +94,7 @@ TEST_CASE("Cascade skips level with active=false")  // NOLINT
 TEST_CASE("Cascade preserves caller cells when remaining levels are inactive")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -148,7 +148,7 @@ TEST_CASE("Cascade preserves caller cells when remaining levels are inactive")
 TEST_CASE("Single-level cascade produces same result as direct SDDP")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Run SDDP directly
   auto planning1 = make_3phase_hydro_planning();
@@ -208,7 +208,7 @@ TEST_CASE("Single-level cascade produces same result as direct SDDP")
 TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_2bus_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -304,7 +304,7 @@ TEST_CASE("Cascade 2-level with multi-bus network and cut inheritance")
 
 TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Baseline: plain SDDP solver on the same 6-phase hydro system,
   // for comparison with cascade cut inheritance tests.
@@ -355,7 +355,7 @@ TEST_CASE("SDDP baseline (6-phase, no cascade)")  // NOLINT
 TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // 6 phases ⇒ more state links ⇒ Benders needs more iterations to converge,
   // making the effect of inherited cuts clearly visible.
@@ -472,7 +472,7 @@ TEST_CASE("Cascade 2-level with cut inheritance only (6-phase)")
 TEST_CASE("Cascade 3-level with network refinement then cuts (6-phase)")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Level 0: fast uninodal Benders to get rough solution.
   // Level 1: full network refinement.
@@ -598,7 +598,7 @@ TEST_CASE("Cascade 3-level with network refinement then cuts (6-phase)")
 TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Level 1 inherits optimality cuts, uses them for 3 iterations, then
   // forgets them and continues with only self-generated cuts.
@@ -682,7 +682,7 @@ TEST_CASE("Cascade 2-level inherit_optimality_cuts=3 (forget after 3 iters)")
 TEST_CASE(  // NOLINT
     "Cascade 2-level inherit_optimality_cuts keeps cuts (3-phase)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -738,7 +738,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 2-level forget inherited cuts after N iterations (3-phase)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -790,7 +790,7 @@ TEST_CASE(  // NOLINT
   // Regression: the forget code path used to overwrite all SDDPOptions,
   // resetting auto-computed scale_alpha to 0.  Verify that both phases
   // (with and without inherited cuts) produce finite, non-NaN bounds.
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -840,7 +840,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 3-level progressive refinement (3-phase)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -903,7 +903,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade 2-level with inherited cuts converges fast (3-phase)")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -958,7 +958,7 @@ TEST_CASE(
     "Cascade reuses caller PlanningLP when level 0 has no model overrides")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1015,7 +1015,7 @@ TEST_CASE(
 TEST_CASE(
     "PlanningLP::release_cells drops systems and allows rebuild")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1033,7 +1033,7 @@ TEST_CASE(
 TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -1087,7 +1087,7 @@ TEST_CASE("Cascade rebuilds level 0 PlanningLP when model overrides are set")
 
 TEST_CASE("Cascade level system_file: loader hits the swap path")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Serialise a Planning to a temp JSON file we'll point the level at.
   auto planning_for_disk = make_3phase_2bus_hydro_planning();
@@ -1167,7 +1167,7 @@ TEST_CASE("Cascade level system_file: loader hits the swap path")  // NOLINT
 TEST_CASE(  // NOLINT
     "Cascade level system_file: missing path surfaces a clear error")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_2bus_hydro_planning();
   PlanningLP planning_lp(std::move(planning));

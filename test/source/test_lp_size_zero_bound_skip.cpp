@@ -32,7 +32,7 @@
 #include <gtopt/turbine_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
 {

@@ -13,9 +13,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
-namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
+namespace
 {
 
 // ─── Data structure tests ───────────────────────────────────────────────────
@@ -28,7 +28,7 @@ namespace  // NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-
 
 TEST_CASE("MethodType::cascade enum")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("cascade value is 2")
   {
@@ -46,7 +46,7 @@ TEST_CASE("MethodType::cascade enum")  // NOLINT
 
 TEST_CASE("PlanningOptionsLP cascade_levels empty by default")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const PlanningOptionsLP options_lp;
   CHECK(!options_lp.has_cascade_levels());
@@ -57,7 +57,7 @@ TEST_CASE("PlanningOptionsLP cascade_levels empty by default")  // NOLINT
 
 TEST_CASE("JSON parsing of cascade method")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr std::string_view json_str = R"json(
   {
@@ -74,7 +74,7 @@ TEST_CASE("JSON parsing of cascade method")  // NOLINT
 
 TEST_CASE("JSON parsing of cascade levels")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr std::string_view json_str = R"json(
   {
@@ -155,7 +155,7 @@ TEST_CASE("JSON parsing of cascade levels")  // NOLINT
 
 TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Exercises the CascadeLevel `active` OptBool wired through
   // json_cascade_options.hpp and consumed by cascade_method.cpp:
@@ -213,7 +213,7 @@ TEST_CASE("JSON parsing of cascade level active field")  // NOLINT
 
 TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   constexpr std::string_view json_str = R"json(
   {
@@ -232,7 +232,7 @@ TEST_CASE("JSON cascade options with empty levels uses defaults")  // NOLINT
 
 TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions opts;
   opts.method = MethodType::cascade;
@@ -246,7 +246,7 @@ TEST_CASE("make_planning_method factory - cascade")  // NOLINT
 TEST_CASE("make_planning_method factory - cascade single phase falls back")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   PlanningOptions opts;
   opts.method = MethodType::cascade;
@@ -260,7 +260,7 @@ TEST_CASE("make_planning_method factory - cascade single phase falls back")
 
 TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_3phase_hydro_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -347,7 +347,7 @@ TEST_CASE("CascadePlanningMethod basic 3-phase hydro")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Empty CascadeOptions should be equivalent to one level with
   // the base SDDP solver and default model options.
@@ -384,7 +384,7 @@ TEST_CASE("CascadePlanningMethod with empty options = single level")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto planning = make_5phase_reservoir_planning();
   PlanningLP planning_lp(std::move(planning));
@@ -451,7 +451,7 @@ TEST_CASE("CascadePlanningMethod 5-phase reservoir")  // NOLINT
 
 TEST_CASE("CascadePlanningMethod SDDP option priority chain")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // This test verifies the 3-layer priority:
   // base SDDPOptions → cascade global → per-level CascadeLevelMethod.
@@ -560,7 +560,7 @@ TEST_CASE("CascadePlanningMethod SDDP option priority chain")  // NOLINT
 TEST_CASE("CascadePlanningMethod empty CascadeOptions = single level")
 // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // NOLINTBEGIN(bugprone-unchecked-optional-access,
   // modernize-use-designated-initializers)
 

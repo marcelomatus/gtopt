@@ -59,10 +59,9 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 namespace
-// NOLINT(cert-dcl59-cpp,fuchsia-header-anon-namespaces,google-build-namespaces,misc-anonymous-namespace-in-header)
 {
 // Tight convergence tolerance to catch the plateau: if compress freezes at
 // 54% gap, `converged` will stay false and the gap CHECK will fail.

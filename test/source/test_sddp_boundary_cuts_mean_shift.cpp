@@ -27,7 +27,7 @@
 
 #include "sddp_helpers.hpp"
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE(  // NOLINT
     "SDDPOptions::boundary_cuts_mean_shift — LB matches unshifted formulation")

@@ -5,7 +5,7 @@
 #include <doctest/doctest.h>
 #include <gtopt/memory_monitor.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 TEST_CASE("MemoryMonitor default construction")  // NOLINT
 {
