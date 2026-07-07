@@ -410,10 +410,6 @@ public:
       };
     }
   }
-
-  // Example usage and testing
-  static void printResult(const ParseResult& result);
-  [[nodiscard]] static int do_main();
 };
 
 }  // namespace gtopt
