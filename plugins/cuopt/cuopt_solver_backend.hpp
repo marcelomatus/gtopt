@@ -6,7 +6,7 @@
  * @copyright BSD-3-Clause
  *
  * cuOpt exposes a **build-once / solve-once / destroy** C API
- * (``cuopt/linear_programming/cuopt_c.h``): you assemble an immutable
+ * (``cuopt/mathematical_optimization/cuopt_c.h``): you assemble an immutable
  * ``cuOptOptimizationProblem`` from a CSR matrix + bounds + var types,
  * call ``cuOptSolve``, read the primal / dual / reduced-cost vectors, and
  * destroy it.  There is **no** live-mutation entry point (no equivalent of

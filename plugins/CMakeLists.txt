@@ -78,15 +78,25 @@ endif()
 # Gated like the other optional solvers.  FindCuOpt auto-detects the pip
 # `libcuopt-cu12` wheel via `python -c "import libcuopt"`, or honours
 # CUOPT_HOME / CUOPT_ROOT_DIR.  Disable with -DGTOPT_DISABLE_CUOPT=ON.
+#
+# Minimum 26.8: MIP starts coexist with presolve from 26.08 (older
+# releases hard-reject cuOptAddMIPStart under presolve), and the 26.08
+# C API is the one the backend is validated against.  Until 26.08 goes
+# stable, install the nightly:
+#   pip install --user --pre --upgrade \
+#     --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple \
+#     "libcuopt-cu12>=26.8.0a0"
 
-find_package(CuOpt QUIET)
+find_package(CuOpt 26.8 QUIET)
 if(CUOPT_FOUND)
   if(CUOPT_VERSION)
-    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_VERSION} at ${CUOPT_INCLUDE_DIR})")
+    message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_VERSION_FULL} at ${CUOPT_INCLUDE_DIR})")
   else()
     message(STATUS "Solver plugin: cuOpt enabled (${CUOPT_INCLUDE_DIR})")
   endif()
   add_subdirectory(cuopt)
+elseif(CUOPT_VERSION)
+  message(STATUS "Solver plugin: cuOpt skipped (found ${CUOPT_VERSION_FULL}, but >= 26.8 is required; upgrade libcuopt-cu12)")
 else()
   message(STATUS "Solver plugin: cuOpt skipped (cuOpt not found; pip install libcuopt-cu12 or set CUOPT_HOME)")
 endif()

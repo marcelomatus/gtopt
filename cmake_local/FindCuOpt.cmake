@@ -6,7 +6,7 @@ Find the NVIDIA cuOpt GPU optimization solver (``libcuopt``).
 
 cuOpt ships its native C++/C library inside the pip ``libcuopt-cu12``
 wheel.  Unlike the other solvers, gtopt's plugin uses **only the stable
-C API** declared in ``cuopt/linear_programming/cuopt_c.h`` — no CUDA
+C API** declared in ``cuopt/mathematical_optimization/cuopt_c.h`` — no CUDA
 toolkit headers, no RAFT/RMM C++ templates — so a plain ``g++`` plugin
 links against ``libcuopt.so`` directly (verified: the C API symbols
 ``cuOptCreateRangedProblem`` / ``cuOptSolve`` / ``cuOptGetDualSolution``
@@ -25,7 +25,13 @@ Result variables::
   ``CUOPT_FOUND``        — TRUE if cuOpt was found
   ``CUOPT_INCLUDE_DIRS`` — Header include directory (contains cuopt/)
   ``CUOPT_LIBRARIES``    — Libraries to link against (libcuopt.so)
-  ``CUOPT_VERSION``      — Version string when discoverable (VERSION file)
+  ``CUOPT_VERSION``      — Numeric X.Y.Z version when discoverable
+  ``CUOPT_VERSION_FULL`` — Raw VERSION file string (keeps nightly suffixes)
+
+``find_package(CuOpt <min>)`` version requirements are honoured: the wheel's
+VERSION file is the source (nightly wheels carry an alpha suffix such as
+``26.08.00a98`` that CMake's comparator cannot parse, so the numeric prefix
+feeds the version check and the raw string is kept for display).
 
 Disable explicitly with ``-DGTOPT_DISABLE_CUOPT=ON``.
 
@@ -68,7 +74,7 @@ endif()
 list(APPEND _CUOPT_SEARCH_PATHS "/opt/cuopt" "/usr/local")
 
 find_path(CUOPT_INCLUDE_DIR
-  NAMES cuopt/linear_programming/cuopt_c.h
+  NAMES cuopt/mathematical_optimization/cuopt_c.h
   HINTS ${_CUOPT_SEARCH_PATHS}
   PATH_SUFFIXES include
 )
@@ -79,11 +85,17 @@ find_library(CUOPT_LIBRARY
   PATH_SUFFIXES lib64 lib
 )
 
-# Best-effort version string from the wheel's VERSION file.
+# Best-effort version string from the wheel's VERSION file.  Nightly wheels
+# read e.g. "26.08.00a98" — CMake version comparison needs the numeric
+# X.Y.Z prefix, so strip the pre-release suffix for CUOPT_VERSION and keep
+# the raw string in CUOPT_VERSION_FULL for display.
 set(CUOPT_VERSION "")
+set(CUOPT_VERSION_FULL "")
 if(_CUOPT_WHEEL_DIR AND EXISTS "${_CUOPT_WHEEL_DIR}/VERSION")
-  file(READ "${_CUOPT_WHEEL_DIR}/VERSION" CUOPT_VERSION)
-  string(STRIP "${CUOPT_VERSION}" CUOPT_VERSION)
+  file(READ "${_CUOPT_WHEEL_DIR}/VERSION" CUOPT_VERSION_FULL)
+  string(STRIP "${CUOPT_VERSION_FULL}" CUOPT_VERSION_FULL)
+  string(REGEX MATCH "^[0-9]+\\.[0-9]+(\\.[0-9]+)?" CUOPT_VERSION
+         "${CUOPT_VERSION_FULL}")
 endif()
 
 include(FindPackageHandleStandardArgs)

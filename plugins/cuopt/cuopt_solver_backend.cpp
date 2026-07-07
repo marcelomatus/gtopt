@@ -439,10 +439,12 @@ bool CuOptSolverBackend::set_mip_start(const std::span<const double> col_values,
   // cuOpt has no persistent settings object (it is created fresh inside
   // solve_()), so buffer the dense start + effort here and replay them via
   // cuOptAddMIPStart on the new settings.  NOTE: cuOptAddMIPStart is
-  // "unsupported with presolve on", so solve_() forces presolve OFF whenever
-  // a start is buffered.  cuOpt's repair analog (effort=repair) is its
-  // hyper-heuristic feasibility-jump: under repair we ask cuOpt to drive to a
-  // first primal-feasible point, mending an infeasible injected start.
+  // "unsupported with presolve on" (still true in 26.06), so solve_() forces
+  // presolve OFF whenever a start is buffered.  `effort` is accepted but not
+  // forwarded: cuOpt repairs every injected start natively — its
+  // add_user_given_solutions() fixes the start's integer values and
+  // LP-solves the continuous part to first-feasible before seeding the
+  // heuristic population — so repair/solve_fixed semantics are built in.
   if (col_values.size() != static_cast<std::size_t>(m_model_.num_cols)) {
     m_mip_start_.clear();
     return false;
@@ -555,7 +557,14 @@ void CuOptSolverBackend::solve_()
       cuopt_method = CUOPT_METHOD_DUAL_SIMPLEX;
       break;
     case LPAlgo::barrier:
-      cuopt_method = CUOPT_METHOD_BARRIER;
+      // "barrier" also maps to CONCURRENT, NOT lone BARRIER: cuOpt 26.08's
+      // cuDSS-based barrier wedges in cuStreamSynchronize inside the sparse
+      // Cholesky solve on WSL2 (observed on the algorithm-fallback tests;
+      // core backtrace: barrier_solver_t::gpu_compute_search_direction ->
+      // sparse_cholesky_cudss_t::solve -> cuStreamSynchronize, unrecoverable).
+      // CONCURRENT keeps a simplex leg that terminates.  Force true lone
+      // barrier via GTOPT_CUOPT_METHOD=barrier below.
+      cuopt_method = CUOPT_METHOD_CONCURRENT;
       break;
     case LPAlgo::default_algo:
     case LPAlgo::last_algo:
@@ -625,14 +634,15 @@ void CuOptSolverBackend::solve_()
                            m_mip_start_.data(),
                            static_cast<cuopt_int_t>(m_mip_start_.size())),
           "cuOptAddMIPStart");
-    spdlog::debug("cuOpt: applied MIP start ({} vars)", m_mip_start_.size());
-    // repair analog: ask cuOpt's hyper-heuristic feasibility-jump to drive to a
-    // first primal-feasible point so an INFEASIBLE injected start is mended
-    // rather than used verbatim (cuOpt has no CPLEX-style MIP-start REPAIR).
-    if (m_mip_start_effort_ == MipStartEffort::repair) {
-      cuOptSetIntegerParameter(settings, CUOPT_FIRST_PRIMAL_FEASIBLE, 1);
-      spdlog::debug("cuOpt: MIP-start effort=repair → first_primal_feasible=1");
-    }
+    spdlog::debug("cuOpt: applied MIP start ({} vars, effort={})",
+                  m_mip_start_.size(),
+                  static_cast<int>(m_mip_start_effort_));
+    // No per-effort parameter: CUOPT_FIRST_PRIMAL_FEASIBLE binds ONLY to
+    // pdlp_settings (an LP stop-early knob; the MIP path ignores it), and
+    // setting it here would truncate every MIP solve at the first incumbent
+    // if a future cuOpt ever honours it MIP-wide.  cuOpt already repairs
+    // injected starts natively (see set_mip_start), which covers
+    // effort=repair — gtopt's default.
   }
   cuOptSetIntegerParameter(
       settings, CUOPT_LOG_TO_CONSOLE, m_options_.log_level > 0 ? 1 : 0);

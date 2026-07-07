@@ -3,7 +3,7 @@ gtopt_solver_cuopt
 ------------------
 
 MODULE library implementing the SolverBackend interface via the NVIDIA
-cuOpt GPU solver's stable C API (``cuopt/linear_programming/cuopt_c.h``,
+cuOpt GPU solver's stable C API (``cuopt/mathematical_optimization/cuopt_c.h``,
 ``libcuopt.so``).  Uses ONLY the C API — no CUDA toolkit headers, no
 RAFT/RMM C++ templates — so it builds with the project's normal compiler.
 
