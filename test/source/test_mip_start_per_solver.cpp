@@ -36,7 +36,9 @@
 #include <gtopt/solver_enums.hpp>
 #include <gtopt/solver_registry.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+#include "solver_test_helpers.hpp"
+
+using namespace gtopt;
 
 TEST_CASE(
     "set_mip_start - accepted + re-solves to optimum per MIP plugin")  // NOLINT
@@ -45,10 +47,9 @@ TEST_CASE(
   reg.load_all_plugins();
 
   bool tested_any = false;
-  for (const auto& name : reg.available_solvers()) {
-    if (!reg.supports_mip(name)) {
-      continue;  // LP-only backend (e.g. clp) — covered by the decline test
-    }
+  // exact_mip_solvers() drops LP-only backends (e.g. clp — covered by the
+  // decline test) and cuOpt (thread-unsafe B&B logger; see helper doc).
+  for (const auto& name : gtopt::solver_test::exact_mip_solvers()) {
     tested_any = true;
     CAPTURE(name);  // logs the failing plugin name under ctest
 

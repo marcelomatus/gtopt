@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -18,7 +19,9 @@
 #include <gtopt/solver_registry.hpp>
 #include <spdlog/spdlog.h>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+#include "solver_test_helpers.hpp"
+
+using namespace gtopt;
 
 // ─── post-fork logger contract (regression guard) ───────────────────────────
 //
@@ -34,7 +37,7 @@ TEST_CASE(
     "SolverRegistry::reset_default_logger_after_fork keeps a valid "
     "default logger")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto saved = spdlog::default_logger();  // restore afterwards for other tests
 
@@ -60,7 +63,7 @@ TEST_CASE(
 
 TEST_CASE("SolverRegistry instance returns same object")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg1 = SolverRegistry::instance();
   auto& reg2 = SolverRegistry::instance();
@@ -69,7 +72,7 @@ TEST_CASE("SolverRegistry instance returns same object")  // NOLINT
 
 TEST_CASE("SolverRegistry has at least one solver")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -79,7 +82,7 @@ TEST_CASE("SolverRegistry has at least one solver")  // NOLINT
 
 TEST_CASE("SolverRegistry has_solver for known solvers")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -91,7 +94,7 @@ TEST_CASE("SolverRegistry has_solver for known solvers")  // NOLINT
 
 TEST_CASE("SolverRegistry has_solver returns false for unknown")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   CHECK_FALSE(reg.has_solver("nonexistent_solver_xyz"));
@@ -99,7 +102,7 @@ TEST_CASE("SolverRegistry has_solver returns false for unknown")  // NOLINT
 
 TEST_CASE("SolverRegistry default_solver returns a valid name")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto name = reg.default_solver();
@@ -109,7 +112,7 @@ TEST_CASE("SolverRegistry default_solver returns a valid name")  // NOLINT
 
 TEST_CASE("SolverRegistry create produces a backend")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto name = reg.default_solver();
@@ -119,7 +122,7 @@ TEST_CASE("SolverRegistry create produces a backend")  // NOLINT
 
 TEST_CASE("SolverRegistry create throws for unknown solver")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   CHECK_THROWS_AS((void)reg.create("nonexistent_solver_xyz"),
@@ -128,7 +131,7 @@ TEST_CASE("SolverRegistry create throws for unknown solver")  // NOLINT
 
 TEST_CASE("SolverRegistry searched_directories is not empty")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   CHECK_FALSE(reg.searched_directories().empty());
@@ -136,7 +139,7 @@ TEST_CASE("SolverRegistry searched_directories is not empty")  // NOLINT
 
 TEST_CASE("SolverRegistry load_errors returns a vector")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   // May or may not have errors — just verify it's callable
@@ -146,7 +149,7 @@ TEST_CASE("SolverRegistry load_errors returns a vector")  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry discover_plugins with nonexistent dir is safe")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto dirs_before = reg.searched_directories().size();
@@ -157,7 +160,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry load_plugin with nonexistent file returns false")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   CHECK_FALSE(reg.load_plugin("/tmp/nonexistent_plugin.so"));
@@ -166,7 +169,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SolverRegistry supports_mip per backend")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -185,7 +188,17 @@ TEST_CASE("SolverRegistry supports_mip per backend")  // NOLINT
     CHECK(reg.supports_mip("highs"));
   }
   if (reg.has_solver("mindopt")) {
-    CHECK(reg.supports_mip("mindopt"));
+    // supports_mip() maps a license-failed create() to `false`, which is
+    // indistinguishable from "LP-only".  Probe creation separately so a
+    // transient MindOpt license failure skips instead of failing (see
+    // solver_test_helpers.hpp).
+    const bool created = solver_test::run_or_skip_license(
+        [&] { std::ignore = reg.create("mindopt"); });
+    if (created) {
+      CHECK(reg.supports_mip("mindopt"));
+    } else {
+      MESSAGE("mindopt license unavailable — skipping supports_mip probe");
+    }
   }
 
   CHECK_FALSE(reg.supports_mip("nonexistent_solver_xyz"));
@@ -193,7 +206,7 @@ TEST_CASE("SolverRegistry supports_mip per backend")  // NOLINT
 
 TEST_CASE("SolverRegistry has_mip_solver returns true when MIP available")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
@@ -207,24 +220,32 @@ TEST_CASE("SolverRegistry has_mip_solver returns true when MIP available")
 TEST_CASE(  // NOLINT
     "SolverRegistry create all available solvers")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
   const auto solvers = reg.available_solvers();
   for (const auto& name : solvers) {
-    auto backend = reg.create(name);
-    REQUIRE(backend != nullptr);
-    // Exercise basic backend accessors
-    CHECK_FALSE(backend->solver_name().empty());
-    CHECK(backend->infinity() >= 1e20);
+    CAPTURE(name);
+    const bool ran = solver_test::run_or_skip_license(
+        [&]
+        {
+          auto backend = reg.create(name);
+          REQUIRE(backend != nullptr);
+          // Exercise basic backend accessors
+          CHECK_FALSE(backend->solver_name().empty());
+          CHECK(backend->infinity() >= 1e20);
+        });
+    if (!ran) {
+      MESSAGE("solver '" << name << "' license unavailable — skipping");
+    }
   }
 }
 
 TEST_CASE(  // NOLINT
     "SolverRegistry load_plugin with non-so file returns false")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   // Create a temporary text file (not a shared library)
@@ -243,7 +264,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry discover_plugins with empty dir adds to searched")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto tmp_dir =
@@ -258,7 +279,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry create throws with descriptive message")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   bool caught = false;
@@ -278,7 +299,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry default_solver is in available_solvers list")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto def = std::string(reg.default_solver());
@@ -290,7 +311,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SolverRegistry available_solvers returns consistent results")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   const auto solvers1 = reg.available_solvers();
@@ -302,7 +323,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("classify_error_exit_code input errors return 2")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(classify_error_exit_code("File not found") == 2);
   CHECK(classify_error_exit_code("does not exist") == 2);
@@ -314,7 +335,7 @@ TEST_CASE("classify_error_exit_code input errors return 2")  // NOLINT
 
 TEST_CASE("classify_error_exit_code internal errors return 3")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CHECK(classify_error_exit_code("Solver crashed") == 3);
   CHECK(classify_error_exit_code("Segmentation fault") == 3);
@@ -338,7 +359,7 @@ TEST_CASE("classify_error_exit_code internal errors return 3")  // NOLINT
 TEST_CASE(
     "SolverRegistry::create is thread-safe under parallel load")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   auto& reg = SolverRegistry::instance();
   reg.load_all_plugins();
