@@ -5729,11 +5729,15 @@ TEST_CASE("SDDPMethod update_max_kappa(double) accumulator")  // NOLINT
   sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {0}, 3.0);
   CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {0}) >= 12.5);
 
-  // A different cell is independent.
+  // A different cell is independent: pushing into (0, 1) must leave
+  // (0, 0) untouched.  (No cross-cell ordering is implied — the solve()
+  // above seeds each cell with solver-dependent kappas, e.g. HiGHS
+  // yields a larger phase-1 kappa than phase-0 on this fixture.)
+  const auto cell0_before = sddp.max_kappa(SceneIndex {0}, PhaseIndex {0});
   sddp.update_max_kappa(SceneIndex {0}, PhaseIndex {1}, 7.0);
   CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {1}) >= 7.0);
   CHECK(sddp.max_kappa(SceneIndex {0}, PhaseIndex {0})
-        >= sddp.max_kappa(SceneIndex {0}, PhaseIndex {1}));
+        == doctest::Approx(cell0_before));
 }
 
 TEST_CASE(

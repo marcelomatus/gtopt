@@ -256,7 +256,11 @@ TEST_CASE(  // NOLINT
   const double solver_inf = li.infinity();
   const double std_inf = std::numeric_limits<double>::infinity();
   REQUIRE(solver_inf > 0.0);
-  REQUIRE(std_inf > solver_inf);
+  // Finite-sentinel backends (COIN DBL_MAX-style) have std_inf strictly
+  // above solver_inf; true-IEEE-infinity backends (HiGHS) have them equal
+  // — the flavors below then collapse, which is fine: the passthrough
+  // contract is checked via is_pos_inf / is_neg_inf either way.
+  REQUIRE(std_inf >= solver_inf);
 
   // Mix every infinity flavor across columns with different scales.
   // c0 (scale 1.0)   : lower = -DblMax,      upper = +DblMax

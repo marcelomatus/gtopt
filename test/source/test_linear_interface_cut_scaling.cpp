@@ -855,11 +855,18 @@ TEST_CASE(
         const auto rs = idx_s[k];
         const auto rb = RowIndex {static_cast<Index>(first_idx) + k};
 
-        // Raw stored bounds must match (~1 ulp tolerance).
-        CHECK(li_singular.get_row_low_raw()[rs]
-              == doctest::Approx(li_bulk.get_row_low_raw()[rb]));
-        CHECK(li_singular.get_row_upp_raw()[rs]
-              == doctest::Approx(li_bulk.get_row_upp_raw()[rb]));
+        // Raw stored bounds must match (~1 ulp tolerance).  Exact-equality
+        // escape hatch first: one-sided cut rows carry an infinite bound,
+        // and `inf == Approx(inf)` is false on true-IEEE-infinity backends
+        // (HiGHS: inf - inf = NaN); COIN's finite sentinels don't care.
+        CHECK(
+            (li_singular.get_row_low_raw()[rs] == li_bulk.get_row_low_raw()[rb]
+             || li_singular.get_row_low_raw()[rs]
+                 == doctest::Approx(li_bulk.get_row_low_raw()[rb])));
+        CHECK(
+            (li_singular.get_row_upp_raw()[rs] == li_bulk.get_row_upp_raw()[rb]
+             || li_singular.get_row_upp_raw()[rs]
+                 == doctest::Approx(li_bulk.get_row_upp_raw()[rb])));
 
         // Composite row_scale must match — that's how
         // `get_row_low()` / `get_row_dual()` recover physical units.

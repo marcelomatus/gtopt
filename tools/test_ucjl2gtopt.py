@@ -413,7 +413,11 @@ def _solve(
         capture_output=True,
         text=True,
         check=False,
-        timeout=180,
+        # Generous: the RTS-GMLC MIP solves in seconds unloaded but has
+        # been observed past 180 s when the full ctest suite saturates
+        # every core around this entry (`ctest -j` runs
+        # scripts-ucjl2gtopt-integration alongside the C++ tests).
+        timeout=600,
     )
     return proc.returncode, proc.stdout + proc.stderr
 

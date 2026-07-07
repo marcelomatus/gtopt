@@ -33,6 +33,23 @@
 namespace gtopt
 {
 
+namespace
+{
+
+/// Validation gate for "huge bound" notes: values at or beyond the
+/// no-bound sentinels must not be flagged.  Cap the solver's infinity at
+/// `LinearProblem::DblMax` before applying the 0.999 slack: on
+/// finite-sentinel backends (COIN ~1.798e308) the cap is a no-op, while
+/// true-IEEE-infinity backends (HiGHS) would otherwise compute
+/// `inf * 0.999 = inf` and let the finite DblMax sentinel through as a
+/// spurious huge-bound warning on every free column.
+[[nodiscard]] constexpr double bound_note_guard(double solver_infinity)
+{
+  return std::min(solver_infinity, LinearProblem::DblMax) * 0.999;
+}
+
+}  // namespace
+
 // ── Constructors ──
 
 LinearInterface::LinearInterface(std::unique_ptr<SolverBackend> backend,
@@ -1335,7 +1352,7 @@ ColIndex LinearInterface::add_col(const std::string& name,
   // allocation entirely on the hot path: every well-conditioned bound
   // returns at the threshold check before touching `col`.
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     if (std::abs(collb) < infy_guard) {
       m_validation_stats_.note_bound(collb, col, m_validation_options_);
     }
@@ -1384,7 +1401,7 @@ ColIndex LinearInterface::emit_col_to_backend(const SparseCol& col)
   // Pass the strong column index directly — note_* overloads format
   // it lazily (only on the cold "huge" / "tiny" branch).
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     const auto cidx = ColIndex {index};
     if (std::abs(col.lowb) < infy_guard) {
       m_validation_stats_.note_bound(col.lowb, cidx, m_validation_options_);
@@ -1728,7 +1745,7 @@ ColIndex LinearInterface::emit_cols_to_backend(std::span<const SparseCol> cols,
   const auto inv_so = 1.0 / m_scale_objective_;
   const bool validate = m_validation_options_.effective_enable();
   const double infy = m_backend_->infinity();
-  const double infy_guard = infy * 0.999;
+  const double infy_guard = bound_note_guard(infy);
   auto col_idx = first_col_index;
   for (size_t c = 0; c < cols.size(); ++c, ++col_idx) {
     const auto& col = cols[c];
@@ -1898,7 +1915,7 @@ RowIndex LinearInterface::add_row(const SparseRow& row, const double eps)
   // compose_physical branch and the add_row_raw fallback see the same
   // accounting.  Costs one extra cmap pass per row when enabled.
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     const auto ridx = RowIndex {get_numrows()};
     for (const auto& [col, val] : row.cmap) {
       if (eps > 0.0 && std::abs(val) > 0.0 && std::abs(val) < eps
@@ -2333,7 +2350,7 @@ void LinearInterface::add_rows_raw(const std::span<const SparseRow> rows,
   rowval.reserve(total_nnz);
 
   const auto infy = m_backend_->infinity();
-  const double infy_guard = infy * 0.999;
+  const double infy_guard = bound_note_guard(infy);
   // Skip per-element validation hooks during a cut-replay reconstruct.
   // The cuts in `m_active_cuts_` were already validated when first
   // inserted, and replay re-injects the SAME values back into the
@@ -2843,7 +2860,7 @@ void LinearInterface::set_col_bounds_raw(
 
   const auto ncols = m_backend_->get_num_cols();
   const double inf = m_backend_->infinity();
-  const double infy_guard = inf * 0.999;
+  const double infy_guard = bound_note_guard(inf);
   const bool validate = m_validation_options_.effective_enable();
   const bool record_replay = !m_replay_.replaying() && !m_is_throwaway_clone_;
 
@@ -2964,7 +2981,7 @@ void LinearInterface::set_row_low_raw(const RowIndex index, const double value)
   ensure_backend();
   assert(m_backend_ != nullptr);
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     if (std::abs(value) < infy_guard) {
       m_validation_stats_.note_rhs(value, index, m_validation_options_);
     }
@@ -2978,7 +2995,7 @@ void LinearInterface::set_row_upp_raw(const RowIndex index, const double value)
   ensure_backend();
   assert(m_backend_ != nullptr);
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     if (std::abs(value) < infy_guard) {
       m_validation_stats_.note_rhs(value, index, m_validation_options_);
     }
@@ -2997,7 +3014,7 @@ void LinearInterface::set_row_bounds_raw(const RowIndex row,
   // ``m_backend_`` (flagged by clang-analyzer-core.CallAndMessage).
   ensure_backend();
   if (m_validation_options_.effective_enable()) {
-    const double infy_guard = m_backend_->infinity() * 0.999;
+    const double infy_guard = bound_note_guard(m_backend_->infinity());
     if (std::abs(lowb) < infy_guard) {
       m_validation_stats_.note_rhs(lowb, row, m_validation_options_);
     }
