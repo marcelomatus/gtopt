@@ -7,13 +7,13 @@
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/work_pool.hpp>
 
-using namespace gtopt;  // NOLINT(google-global-names-in-headers)
+using namespace gtopt;
 
 // ─── BasicTaskRequirements template tests ───────────────────────────────────
 
 TEST_CASE("BasicTaskRequirements template key")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("default key type is int64_t")
   {
@@ -47,7 +47,7 @@ TEST_CASE("BasicTaskRequirements template key")  // NOLINT
 TEST_CASE(
     "Task ordering: std::less semantics (smaller key = higher priority)")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   SUBCASE("smaller int64_t key → higher priority in max-heap")
   {
@@ -136,7 +136,7 @@ TEST_CASE(
 
 TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -201,7 +201,7 @@ TEST_CASE("BasicWorkPool with int64_t key")  // NOLINT
 
 TEST_CASE("WorkPool basic functionality")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -363,7 +363,7 @@ TEST_CASE("WorkPool basic functionality")
 
 TEST_CASE("WorkPool stress testing")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   using namespace std::chrono_literals;
 
@@ -408,9 +408,11 @@ TEST_CASE("WorkPool stress testing")
       auto result = pool.submit(
           [&]
           {
-            static std::random_device rd;
-            static std::mt19937 gen(rd());
-            static std::uniform_int_distribution<> dist(0, 10);
+            // thread_local (NOT static): the lambda runs concurrently on
+            // many workers, and a shared mt19937 mutated via dist(gen)
+            // from all of them is a data race (caught by TSan).
+            thread_local std::mt19937 gen(std::random_device {}());
+            thread_local std::uniform_int_distribution<> dist(0, 10);
             std::this_thread::sleep_for(std::chrono::milliseconds(dist(gen)));
             return counter++;
           },
@@ -485,7 +487,7 @@ TEST_CASE("WorkPool stress testing")
 
 TEST_CASE("CPUMonitor basic functionality")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
 
@@ -514,7 +516,7 @@ TEST_CASE("CPUMonitor basic functionality")
 
 TEST_CASE("CPUMonitor edge cases")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
 
@@ -538,7 +540,7 @@ TEST_CASE("CPUMonitor edge cases")
 
 TEST_CASE("Mock CPU monitoring")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   class MockCPUMonitor : public CPUMonitor
   {
@@ -568,7 +570,7 @@ TEST_CASE("Mock CPU monitoring")
 
 TEST_CASE("CPUMonitor default interval")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const CPUMonitor monitor;
 
@@ -578,7 +580,7 @@ TEST_CASE("CPUMonitor default interval")
 
 TEST_CASE("CPUMonitor set_interval round-trips multiple values")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
 
@@ -591,7 +593,7 @@ TEST_CASE("CPUMonitor set_interval round-trips multiple values")
 
 TEST_CASE("CPUMonitor get_system_cpu_usage with fallback")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   const double usage = CPUMonitor::get_system_cpu_usage(42.0);
 
@@ -601,7 +603,7 @@ TEST_CASE("CPUMonitor get_system_cpu_usage with fallback")
 
 TEST_CASE("CPUMonitor start and sample load")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {50});
@@ -616,7 +618,7 @@ TEST_CASE("CPUMonitor start and sample load")
 
 TEST_CASE("CPUMonitor repeated get_system_cpu_usage calls")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // First call initializes the static last_idle/last_total atomics.
   // Second call exercises the delta calculation path (total_delta != 0).
@@ -640,7 +642,7 @@ TEST_CASE("CPUMonitor repeated get_system_cpu_usage calls")
 
 TEST_CASE("CPUMonitor RAII destructor stops thread")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   // Verify that the destructor stops the monitoring thread cleanly
   // (exercises the stop() call inside ~CPUMonitor)
@@ -656,7 +658,7 @@ TEST_CASE("CPUMonitor RAII destructor stops thread")
 
 TEST_CASE("CPUMonitor thread updates current_load_ over time")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {20});
@@ -680,7 +682,7 @@ TEST_CASE("CPUMonitor thread updates current_load_ over time")
 
 TEST_CASE("CPUMonitor start-stop-start cycle")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {30});
@@ -705,7 +707,7 @@ TEST_CASE("CPUMonitor start-stop-start cycle")
 
 TEST_CASE("CPUMonitor double stop is safe")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
 
   CPUMonitor monitor;
   monitor.set_interval(std::chrono::milliseconds {30});
@@ -1029,7 +1031,7 @@ TEST_CASE(  // NOLINT
 
 TEST_CASE("SlotReleaseGuard outside worker is a safe no-op")  // NOLINT
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   WorkPoolConfig cfg;
   cfg.max_threads = 2;
   BasicWorkPool<> pool {cfg};
@@ -1048,7 +1050,7 @@ TEST_CASE("SlotReleaseGuard outside worker is a safe no-op")  // NOLINT
 TEST_CASE(  // NOLINT
     "SlotReleaseGuard from inside a task drops then restores the count")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   WorkPoolConfig cfg;
   cfg.max_threads = 4;
   BasicWorkPool<> pool {cfg};
@@ -1122,7 +1124,7 @@ TEST_CASE(  // NOLINT
 TEST_CASE(  // NOLINT
     "SlotReleaseGuard notifies waiting workers on release")
 {
-  using namespace gtopt;  // NOLINT(google-build-using-namespace)
+  using namespace gtopt;
   // Verify the release path notifies cv_, so any worker parked in the
   // memory-gate sleep wakes up to re-evaluate.  We can't easily simulate
   // the memory gate from a unit test, but the contract is: after

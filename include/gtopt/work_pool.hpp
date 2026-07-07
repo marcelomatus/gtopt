@@ -41,6 +41,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -159,6 +160,47 @@ struct MemoryClamp
   }
   return {ceiling, ceiling};
 }
+
+/// Join every future in @p futures: `.get()` each one, capturing the FIRST
+/// exception and rethrowing it only after ALL futures have completed.
+/// Invalid (default-constructed / moved-from) entries are skipped.
+///
+/// This is the mandatory barrier idiom for pool fan-outs whose tasks
+/// reference stack locals: a bare `for (auto& f : futures) f.get();`
+/// rethrows mid-loop, and the unwinding then destroys locals (build
+/// buffers, mutexes, option structs) that still-running sibling tasks
+/// are reading — a use-after-free, because the pool's destructor only
+/// joins its workers AFTER later-declared locals are gone.  Draining
+/// every future first guarantees no task from this fan-out is in
+/// flight when the exception propagates.
+inline void get_all_futures(std::span<std::future<void>> futures)
+{
+  std::exception_ptr first_error;
+  for (auto& fut : futures) {
+    if (!fut.valid()) {
+      continue;
+    }
+    try {
+      fut.get();
+    } catch (...) {
+      if (first_error == nullptr) {
+        first_error = std::current_exception();
+      }
+    }
+  }
+  if (first_error != nullptr) {
+    std::rethrow_exception(first_error);
+  }
+}
+
+/// Identity of the pool (if any) whose `worker_loop` owns the current
+/// thread.  Set once at worker start; never reset (the thread dies with
+/// its pool).  Lets `release_slot_for_blocking_` distinguish "called
+/// from one of MY workers" (release is correct) from "called from a
+/// coordinator / foreign-pool thread" (release would decrement some
+/// OTHER task's slot and over-admit) — a `tasks_active_ > 0` check
+/// alone cannot tell those apart.
+inline thread_local const void* this_thread_worker_pool = nullptr;
 
 enum class TaskStatus : uint8_t
 {
@@ -612,6 +654,20 @@ public:
       memory_monitor_.request_stop();
     }
     cv_.notify_all();
+    // `running_` / the stats stop_token were flipped WITHOUT holding
+    // `stats_mutex_` (they are guarded by `queue_mutex_`), so the stats
+    // thread can be between its predicate check (which read the old
+    // values) and its blocking wait — a bare notify in that window is
+    // LOST and the thread oversleeps its full 30 s `wait_for` timeout,
+    // stalling shutdown by up to that long.  Acquiring `stats_mutex_`
+    // here cannot complete until that thread has actually blocked (it
+    // holds the mutex through the predicate-to-wait window), so the
+    // notify that follows is guaranteed to reach it.  The worker `cv_`
+    // above does NOT need this: its predicate state is written under
+    // the same `queue_mutex_` its waiters hold.
+    {
+      const std::scoped_lock<std::mutex> slock(stats_mutex_);
+    }
     stats_cv_.notify_all();
     cpu_monitor_.notify_stop();
     memory_monitor_.notify_stop();
@@ -874,9 +930,12 @@ public:
   //       fut.get();   // pool sees one fewer active slot during this wait
   //     }   // slot reacquired here, work continues
   //
-  // No-op if called outside a pool worker (the count never goes
-  // below zero — the guard checks `tasks_active_ > 0` before
-  // decrementing).
+  // No-op if called outside one of THIS pool's workers: the guard
+  // checks the thread-local worker tag (`this_thread_worker_pool`),
+  // so a coordinator thread or a foreign pool's worker can never
+  // release a slot that belongs to another running task (which would
+  // over-admit by one per guard).  It additionally checks
+  // `tasks_active_ > 0` so the count never goes below zero.
   class SlotReleaseGuard
   {
   public:
@@ -1066,12 +1125,19 @@ private:
   // task is about to run again, and over-saturation by 1 per guard is
   // bounded by the worker count.
   /// Returns true iff the slot was actually released (caller is inside
-  /// a worker), so the matching reacquire on guard destruction knows
-  /// whether to increment back.  False when called outside a worker
-  /// context (active count was 0); the matching reacquire is then a
-  /// no-op.
+  /// one of THIS pool's workers), so the matching reacquire on guard
+  /// destruction knows whether to increment back.  False when called
+  /// from any other thread — a coordinator driver, a foreign pool's
+  /// worker, or a plain caller.  The thread-local check is what makes
+  /// this exact: the previous `tasks_active_ > 0` heuristic released a
+  /// slot belonging to some OTHER running task whenever a non-worker
+  /// called it while work was in flight, over-admitting by one per
+  /// guard.
   bool release_slot_for_blocking_() noexcept
   {
+    if (this_thread_worker_pool != this) {
+      return false;  // not one of this pool's workers — nothing to release
+    }
     bool released = false;
     {
       const std::scoped_lock<std::mutex> qlock(queue_mutex_);
@@ -1249,6 +1315,10 @@ private:
   /// a chance to drain.
   void worker_loop(const std::stop_token& stoken)
   {
+    // Tag this thread as a worker of THIS pool for the lifetime of the
+    // thread (workers never outlive their pool).  Consumed by
+    // `release_slot_for_blocking_` to make SlotReleaseGuard exact.
+    this_thread_worker_pool = this;
     while (!stoken.stop_requested()) {
       // Defense-in-depth: a top-level catch around each loop iteration
       // so that an exception thrown OUTSIDE the inner `task.execute()`

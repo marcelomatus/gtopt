@@ -20,6 +20,7 @@
 #include <limits>
 #include <mutex>
 #include <ranges>
+#include <stdexcept>
 #include <thread>
 #include <unordered_set>
 
@@ -47,9 +48,10 @@ namespace gtopt
 {
 
 // `--memory-limit` is enforced entirely inside the pool factories
-// (`make_solver_work_pool` / `make_sddp_work_pool`): with a limit the pool
-// starts at one thread and grows toward the CPU ceiling under the live
-// measured-memory controller in `BasicWorkPool` (idle-floor + measured
+// (`make_solver_work_pool` / `make_sddp_work_pool`): worker threads always
+// run at the full CPU ceiling (decoupled from memory throttling for
+// deadlock-freedom), and the limit is enforced by the live measured-memory
+// DISPATCH gate in `BasicWorkPool::can_dispatch_task` (idle-floor + measured
 // marginal per-task cost + rate-limited admission).  There are NO a-priori
 // per-task size estimates anywhere — this replaced the hardcoded
 // kBaselineReservedMB / kLpBuildPerTaskMB / kWriteOutPerTaskMB constants
@@ -1566,15 +1568,25 @@ auto PlanningLP::create_systems(System& system,
         // `build_buf` is guaranteed populated by the build pool before
         // we reach this merge step — every slot must hold a value.  A
         // missing slot indicates a silent pool-task failure and is a
-        // crash-worthy programmer bug, so let `.value()`'s exception
-        // propagate.
-        // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-        phase_systems.emplace_back(std::move(slot).value());
+        // crash-worthy programmer bug.
+        if (!slot.has_value()) {
+          throw std::logic_error(
+              "PlanningLP build pool left an empty phase slot");
+        }
+        phase_systems.emplace_back(std::move(*slot));
       }
       tighten_scene_phase_links(phase_systems, simulation);
       all_systems[scene_index] = std::move(phase_systems);
     }
   } else {
+    // Shared build buffer for the full-parallel mode.  Declared BEFORE the
+    // pool on purpose: if an exception unwinds this scope while build tasks
+    // are still running, the pool's destructor must join its workers BEFORE
+    // the buffer those tasks write into is destroyed (reverse declaration
+    // order).  Empty (and unused) in scene-parallel mode.
+    using build_row_t = StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
+    StrongIndexVector<SceneIndex, build_row_t> build_buf;
+
     // Both WorkPool modes share the pool allocation.  The factory applies
     // the measured-baseline memory clamp + growth ceiling internally.
     auto pool = make_solver_work_pool(
@@ -1624,18 +1636,17 @@ auto PlanningLP::create_systems(System& system,
       SPDLOG_INFO(
           "  Submitted {} scene tasks to work pool, waiting for workers...",
           futures.size());
-      for (auto& fut : futures) {
-        fut.get();
-      }
+      // Join ALL scene tasks before letting the first failure propagate:
+      // a mid-loop rethrow would unwind while sibling tasks still run.
+      get_all_futures(futures);
     } else {
       // ── Full-parallel path (post-00c605d7, opt-in) ────────────────
       // One pool task per (scene, phase) cell.  Each task builds into a
-      // pre-allocated slot in `build_buf`; a sequential merge pass then
-      // moves cells into their final `phase_systems_t` and runs
-      // `tighten_scene_phase_links` per scene.
-      using build_row_t =
-          StrongIndexVector<PhaseIndex, std::optional<SystemLP>>;
-      StrongIndexVector<SceneIndex, build_row_t> build_buf(scenes.size());
+      // pre-allocated slot in `build_buf` (declared above, before the
+      // pool, for exception-path lifetime safety); a sequential merge
+      // pass then moves cells into their final `phase_systems_t` and
+      // runs `tighten_scene_phase_links` per scene.
+      build_buf.resize(scenes.size());
       for (auto& row : build_buf) {
         row.resize(phases.size());
       }
@@ -1673,9 +1684,10 @@ auto PlanningLP::create_systems(System& system,
       SPDLOG_INFO(
           "  Submitted {} LP cells to work pool, waiting for workers...",
           futures.size());
-      for (auto& fut : futures) {
-        fut.get();
-      }
+      // Join ALL cell tasks before letting the first failure propagate —
+      // an early rethrow would destroy `build_buf` (and the merge
+      // invariants) while sibling tasks are still writing into it.
+      get_all_futures(futures);
 
       // Sequentially merge cells into per-scene phase_systems_t and
       // resolve deferred cross-phase state-variable links.
@@ -1683,10 +1695,12 @@ auto PlanningLP::create_systems(System& system,
         PlanningLP::phase_systems_t phase_systems;
         phase_systems.reserve(phases.size());
         for (auto& slot : build_buf[scene_index]) {
-          // See full-parallel merge above — same invariant, same reason
-          // for accepting `.value()` to throw on a pool-task bug.
-          // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
-          phase_systems.emplace_back(std::move(slot).value());
+          // See full-parallel merge above — same invariant.
+          if (!slot.has_value()) {
+            throw std::logic_error(
+                "PlanningLP build pool left an empty phase slot");
+          }
+          phase_systems.emplace_back(std::move(*slot));
         }
         tighten_scene_phase_links(phase_systems, simulation);
         all_systems[scene_index] = std::move(phase_systems);
@@ -1822,9 +1836,9 @@ void PlanningLP::release_cells()
         ps_ptr->shrink_to_fit();
       }
     }
-    for (auto& fut : futures) {
-      fut.get();
-    }
+    // Join ALL release tasks before any failure propagates (tasks point
+    // into member state, but the drain keeps error timing deterministic).
+    get_all_futures(futures);
   } else {
     for (auto& phase_systems : m_systems_) {
       phase_systems.clear();
@@ -1887,12 +1901,15 @@ void PlanningLP::build_all_lps_eagerly()
       auto result = pool->submit([sys_ptr] { sys_ptr->ensure_lp_built(); });
       if (result.has_value()) {
         futures.push_back(std::move(*result));
+      } else {
+        // Pool refused (enqueue failure) — build inline so no cell is
+        // silently left unbuilt.
+        sys_ptr->ensure_lp_built();
       }
     }
   }
-  for (auto& fut : futures) {
-    fut.get();
-  }
+  // Join ALL eager-build tasks before the first failure propagates.
+  get_all_futures(futures);
   const double elapsed = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - build_start)
                              .count();
@@ -2102,17 +2119,6 @@ void PlanningLP::write_out()
   //     path: the per-task CPU "headroom" at 1.0 is I/O wait that
   //     the parquet encoder uses internally — adding more pool
   //     threads on top just queues them on Arrow's locks.
-  auto pool = make_solver_work_pool(
-      /*cpu_factor=*/1.0,
-      /*cpu_threshold_override=*/0.0,
-      /*scheduler_interval=*/std::chrono::milliseconds(50),
-      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb(),
-      /*pool_label=*/"PlanningLP write_out pool");
-
-  std::vector<std::future<void>> futures;
-  futures.reserve(static_cast<std::size_t>(num_scenes)
-                  * static_cast<std::size_t>(num_phases));
-
   // Hybrid chunked cell-parallel write (mirrors `aperture_chunk_size`).
   //
   // One task per CELL would spread `num_cells` write_outs across the pool
@@ -2149,6 +2155,20 @@ void PlanningLP::write_out()
               (total_cells + write_chunk - 1) / write_chunk,
               cores);
 
+  // The pool is created AFTER `cells` on purpose: chunk tasks capture
+  // `&cells`, and on an exception path the pool destructor must join
+  // its workers BEFORE the vector they index into is destroyed
+  // (reverse declaration order).
+  auto pool = make_solver_work_pool(
+      /*cpu_factor=*/1.0,
+      /*cpu_threshold_override=*/0.0,
+      /*scheduler_interval=*/std::chrono::milliseconds(50),
+      /*memory_limit_mb=*/m_options_.sddp_pool_memory_limit_mb(),
+      /*pool_label=*/"PlanningLP write_out pool");
+
+  std::vector<std::future<void>> futures;
+  futures.reserve((total_cells + write_chunk - 1) / write_chunk);
+
   for (std::size_t start = 0; start < total_cells; start += write_chunk) {
     const auto end = std::min(total_cells, start + write_chunk);
     auto result = pool->submit(
@@ -2177,9 +2197,9 @@ void PlanningLP::write_out()
     }
   }
 
-  for (auto& fut : futures) {
-    fut.get();
-  }
+  // Join ALL chunk tasks before the first failure propagates — an early
+  // rethrow would unwind while sibling chunks still read `cells`.
+  get_all_futures(futures);
 
   // ── Write consolidated solution.csv ─────────────────────────────────────
   // All parallel write tasks have completed; now collect solution values

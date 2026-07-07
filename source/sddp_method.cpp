@@ -685,39 +685,40 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         /*pool_label=*/"SDDP alpha-setup pool");
     std::vector<std::future<void>> futures;
     futures.reserve(num_scenes);
+    const auto setup_scene = [this, num_phases](SceneIndex scene_index)
+    {
+      initialize_alpha_variables(scene_index);
+      collect_state_variable_links(scene_index);
+      // Save per-(scene, phase) base row counts in the same
+      // scope so we amortize the ensure_backend rebuilds across
+      // all per-cell setup work.
+      for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {
+        auto& li =
+            planning_lp().system(scene_index, phase_index).linear_interface();
+        li.save_base_numrows();
+        m_scene_phase_states_[scene_index][phase_index].base_nrows =
+            li.base_numrows();
+      }
+      SPDLOG_DEBUG("SDDP: scene {} initialized ({} state links)",
+                   uid_of(scene_index),
+                   m_scene_phase_states_[scene_index].empty()
+                       ? 0
+                       : m_scene_phase_states_[scene_index][first_phase_index()]
+                             .outgoing_links.size());
+    };
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
-      auto result = pool->submit(
-          [this, scene_index, num_phases]
-          {
-            initialize_alpha_variables(scene_index);
-            collect_state_variable_links(scene_index);
-            // Save per-(scene, phase) base row counts in the same
-            // scope so we amortize the ensure_backend rebuilds across
-            // all per-cell setup work.
-            for (const auto phase_index :
-                 iota_range<PhaseIndex>(0, num_phases)) {
-              auto& li = planning_lp()
-                             .system(scene_index, phase_index)
-                             .linear_interface();
-              li.save_base_numrows();
-              m_scene_phase_states_[scene_index][phase_index].base_nrows =
-                  li.base_numrows();
-            }
-            SPDLOG_DEBUG(
-                "SDDP: scene {} initialized ({} state links)",
-                uid_of(scene_index),
-                m_scene_phase_states_[scene_index].empty()
-                    ? 0
-                    : m_scene_phase_states_[scene_index][first_phase_index()]
-                          .outgoing_links.size());
-          });
+      auto result = pool->submit([setup_scene, scene_index]
+                                 { setup_scene(scene_index); });
       if (result.has_value()) {
         futures.push_back(std::move(*result));
+      } else {
+        // Pool refused (enqueue failure) — run inline: silently skipping
+        // a scene's α/state-link setup would corrupt the whole solve.
+        setup_scene(scene_index);
       }
     }
-    for (auto& fut : futures) {
-      fut.get();
-    }
+    // Join ALL setup tasks before the first failure propagates.
+    get_all_futures(futures);
   }
 
   // ── Load hot-start cuts and track max iteration for offset ────────────────
@@ -1012,12 +1013,15 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
             });
         if (result.has_value()) {
           futures.push_back(std::move(*result));
+        } else {
+          // Pool refused (enqueue failure) — release inline so the cell
+          // is not silently left resident.
+          planning_lp().system(scene_index, phase_index).release_backend();
         }
       }
     }
-    for (auto& fut : futures) {
-      fut.get();
-    }
+    // Join ALL release tasks before the first failure propagates.
+    get_all_futures(futures);
   } else {
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       for (const auto phase_index : iota_range<PhaseIndex>(0, num_phases)) {

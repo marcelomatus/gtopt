@@ -140,7 +140,13 @@ void CPUMonitor::stop() noexcept
   running_.store(false, std::memory_order_relaxed);
   if (monitor_thread_.joinable()) {
     monitor_thread_.request_stop();
-    stop_cv_.notify_all();  // Wake the monitor thread immediately
+    // notify_stop() acquires stop_mutex_ before notifying.  A bare
+    // notify_all() here could fire in the window between the monitor
+    // thread's predicate check (which read the pre-stop token state)
+    // and its blocking wait — a lost wakeup that delays join() by up
+    // to monitor_interval_.  Taking the mutex first orders the notify
+    // after the thread has actually blocked.
+    notify_stop();
     monitor_thread_.join();
   }
 }

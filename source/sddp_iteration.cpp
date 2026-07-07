@@ -1448,6 +1448,32 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
         && fut.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
   };
 
+  // Submit `fn` to the pool, falling back to INLINE execution when the
+  // pool refuses the task (enqueue failure).  The previous unchecked
+  // `pool.submit(...).value()` threw `bad_expected_access` on refusal
+  // and unwound the whole orchestration loop while sibling scene tasks
+  // still referenced this frame's locals (fwd_opts / bwd_opts /
+  // run_scene_simulation) — those are destroyed before the pool joins
+  // its workers.  Inline execution keeps the per-scene state machine
+  // holding a valid future in every case.
+  const auto submit_or_inline =
+      [&pool](const auto& fn, const BasicTaskRequirements<SDDPTaskKey>& req)
+  {
+    using result_t = std::invoke_result_t<std::decay_t<decltype(fn)>>;
+    auto fut = pool.submit(fn, req);
+    if (fut.has_value()) {
+      return std::move(*fut);
+    }
+    SPDLOG_WARN("SDDP async: pool refused a task — running it inline");
+    std::promise<result_t> inline_p;
+    try {
+      inline_p.set_value(fn());
+    } catch (...) {
+      inline_p.set_exception(std::current_exception());
+    }
+    return inline_p.get_future();
+  };
+
   bool all_done = false;
   // Per-scene cut-count snapshot so sim-pass-added feasibility cuts can
   // be rewound below without affecting training cuts.  Sized lazily —
@@ -1582,11 +1608,10 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                 .gate_bypass = true,
                 .name = {},
             };
-            auto fut = pool.submit(
+            sp.fwd_future = submit_or_inline(
                 [&run_scene_simulation, scene, sim_iteration_index]
                 { return run_scene_simulation(scene, sim_iteration_index); },
                 sim_req);
-            sp.fwd_future = std::move(fut.value());
             sp.state = SceneState::simulation_running;
             break;
           }
@@ -1656,14 +1681,13 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                                                  SDDPTaskKind::lp),
               .name = {},
           };
-          auto fut = pool.submit(
+          sp.fwd_future = submit_or_inline(
               [this,
                scene,
                iteration_index = sp.current_iteration_index,
                &fwd_opts]
               { return forward_pass(scene, fwd_opts, iteration_index); },
               fwd_req);
-          sp.fwd_future = std::move(fut.value());
           sp.state = SceneState::forward_running;
           break;
         }
@@ -1699,30 +1723,22 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
                                                    SDDPTaskKind::lp),
                 .name = {},
             };
-            auto fut = use_apertures
-                ? pool.submit(
-                      [this,
-                       scene,
-                       &bwd_opts,
-                       iteration_index = sp.current_iteration_index]
-                      {
-                        // Async/cascade path runs the scene driver ON a pool
-                        // worker, so keep aperture chunks + slot-release on
-                        // the pool (exec_pool = m_pool_).
-                        return backward_pass_with_apertures(
-                            scene, bwd_opts, iteration_index, m_pool_);
-                      },
-                      bwd_req)
-                : pool.submit(
-                      [this,
-                       scene,
-                       &bwd_opts,
-                       iteration_index = sp.current_iteration_index]
-                      {
-                        return backward_pass(scene, bwd_opts, iteration_index);
-                      },
-                      bwd_req);
-            sp.bwd_future = std::move(fut.value());
+            sp.bwd_future = submit_or_inline(
+                [this,
+                 scene,
+                 &bwd_opts,
+                 use_apertures,
+                 iteration_index = sp.current_iteration_index]
+                {
+                  // Async/cascade path runs the scene driver ON a pool
+                  // worker, so keep aperture chunks + slot-release on
+                  // the pool (exec_pool = m_pool_).
+                  return use_apertures
+                      ? backward_pass_with_apertures(
+                            scene, bwd_opts, iteration_index, m_pool_)
+                      : backward_pass(scene, bwd_opts, iteration_index);
+                },
+                bwd_req);
             sp.state = SceneState::backward_running;
           } else {
             // Infeasible: skip backward, record bounds, advance

@@ -63,6 +63,14 @@ public:
     auto fut =
         m_pool_->submit([&li, &opts] { return li.resolve(opts); }, task_req);
     if (fut.has_value()) {
+      // Release this task's worker slot (exact no-op when the caller is
+      // not one of the pool's workers, e.g. a coordinator driver) while
+      // blocking on the inner solve.  Without it, an async-path scene
+      // driver parked here still counts as "active"; when every worker
+      // is such a parked driver and a resource gate (RSS/CPU) is closed,
+      // the pool wedges — the universal progress guarantee only fires at
+      // `active == 0`.
+      auto slot_guard = m_pool_->release_slot_while_blocking();
       return fut->get();
     }
     SPDLOG_WARN("resolve_via_pool: pool submit failed, falling back to direct");
@@ -84,6 +92,8 @@ public:
     auto fut = m_pool_->submit([&clone, &opts] { return clone.resolve(opts); },
                                task_req);
     if (fut.has_value()) {
+      // See resolve_via_pool: yield the caller's slot during the wait.
+      auto slot_guard = m_pool_->release_slot_while_blocking();
       return fut->get();
     }
     SPDLOG_WARN(
