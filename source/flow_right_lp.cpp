@@ -102,7 +102,13 @@ struct ResolvedBounds
 ///     DblMax` to skip the cap.
 ///
 /// Also applies the back-compat reset: a literal `target == 0` with no
-/// fcost is reinterpreted as "no soft requirement".
+/// slack cost on either side (neither fcost nor uvalue) is
+/// reinterpreted as "no soft requirement".  A zero target with an
+/// active `uvalue` is kept: `target = 0` + negative `uvalue` is the
+/// canonical encoding of a plain per-unit usage cost on the whole
+/// flow (PLP's CQVar coefficients on the Laja/Maule rights flows),
+/// and `target = 0` + positive `uvalue` a per-unit reward (PLP's
+/// ValorRiego on delivered irrigation).
 ResolvedBounds resolve_bounds(std::optional<Real> raw_fmin,
                               std::optional<Real> raw_target,
                               std::optional<Real> raw_fmax,
@@ -111,7 +117,7 @@ ResolvedBounds resolve_bounds(std::optional<Real> raw_fmin,
                               bool uvalue_active)
 {
   std::optional<Real> target = raw_target;
-  if (target.has_value() && *target == 0.0 && !fcost_active) {
+  if (target.has_value() && *target == 0.0 && !fcost_active && !uvalue_active) {
     target.reset();
   }
   const bool any_slack_cost = fcost_active || uvalue_active;

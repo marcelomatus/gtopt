@@ -135,13 +135,20 @@ class LajaParser(BaseParser):
         self._config["qmax_anticipated"] = float(parts[3])
         idx = self._next_idx(idx, lines)
 
-        # Costs: CRiegoNS, CUsoRiego, CElectNS, CUsoElect, CMixto
+        # Costs line (leelajam.f:202-207 / CEN informe annex 13.2):
+        #   CRiegoNS, CQVar(IQDR), CQVar(IQDE), CQVar(IQDM), CQVar(IQGA)
+        # i.e. the retiro non-served penalty base followed by POSITIVE
+        # usage costs on the four rights flows (riego, electrico, mixto,
+        # anticipado).  There is NO electric non-served cost in PLP —
+        # the historical `cost_elec_ns` key was a column-shift misread
+        # that turned the electric usage cost (1150) into a fail cost
+        # and dropped the anticipado usage cost entirely.
         parts = lines[idx].split()
         self._config["cost_irr_ns"] = float(parts[0])
         self._config["cost_irr_uso"] = float(parts[1])
-        self._config["cost_elec_ns"] = float(parts[2])
-        self._config["cost_elec_uso"] = float(parts[3])
-        self._config["cost_mixed"] = float(parts[4])
+        self._config["cost_elec_uso"] = float(parts[2])
+        self._config["cost_mixed_uso"] = float(parts[3])
+        self._config["cost_antic_uso"] = float(parts[4])
         idx = self._next_idx(idx, lines)
 
         # --- Monthly factor arrays (12 values, hydro year Apr-Mar) ---

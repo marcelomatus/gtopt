@@ -75,10 +75,12 @@ function of reservoir volume:
 Rights(V) = Base + Σᵢ [ Factorᵢ × min(Vᵢ, Widthᵢ) ]
 ```
 
-At the start of each hydrological year (April), volume rights are
+At the start of each irrigation season (December 1, per Article 1 of
+the 2017 Acuerdo; PLP `INICIOTEMP`), volume rights are
 **re-provisioned** based on current reservoir volume.  A fourth category,
 **Gasto Anticipado** (anticipated discharge), allows early extraction of
-future irrigation rights under certain conditions.
+future irrigation rights during September–November; its counter resets
+at the start of that window (PLP `INICIOANTIC`, September).
 
 Three **economy accumulators** (ENDESA, Reserve, Alto Polcura) track
 unused rights that carry forward across years.
@@ -391,20 +393,26 @@ complete constraint expression syntax.
 | Name | Purpose | Direction | Use Average | Costs |
 |------|---------|-----------|-------------|-------|
 | `laja_q_turbinado` | Total turbine flow | +1 (supply) | Yes | — |
-| `laja_der_riego` | Irrigation rights | -1 (demand) | Yes | fail: `cost_irr_ns`, value: `cost_irr_uso` |
-| `laja_der_electrico` | Electrical rights | -1 (demand) | Yes | fail: `cost_elec_ns`, value: `cost_elec_uso` |
-| `laja_der_mixto` | Mixed rights | -1 (demand) | Yes | value: `cost_mixed` |
-| `laja_gasto_anticipado` | Anticipated discharge | -1 (demand) | Yes | fail: from `monthly_cost_anticipated` |
-| `{district}_{category}` | District withdrawal | -1 (demand) | No | fail: `cost_irr_ns × cost_factor` |
+| `laja_der_riego` | Irrigation rights | -1 (demand) | Yes | usage: `-cost_irr_uso` (uvalue) |
+| `laja_der_electrico` | Electrical rights | -1 (demand) | Yes | usage: `-cost_elec_uso` (uvalue; PLP CQVar(IQDE)) |
+| `laja_der_mixto` | Mixed rights | -1 (demand) | Yes | usage: `-cost_mixed_uso` (uvalue) |
+| `laja_gasto_anticipado` | Anticipated discharge | -1 (demand) | Yes | usage: `-cost_antic_uso` (uvalue) |
+| `{district}_{category}` | District withdrawal | -1 (demand) | No | fail: `cost_irr_ns × cost_factor × monthly` |
+
+> PLP has **no** non-served costs on the main rights flows — its only
+> deficit penalties are the per-retiro slacks (`CRiegoNSEta ×
+> FRiegoCost`).  The rights flows instead carry positive *usage* costs
+> (`CQVar(IQDR..IQGA)`, `genpdlajam.f:163-165`), which gtopt expresses
+> as negative `uvalue` on a target-0 kink.
 
 ### 6.3 VolumeRight Entities
 
 | Name | Purpose | Reset | Bound Rule | Economy |
 |------|---------|-------|------------|---------|
-| `laja_vol_der_riego` | Irrigation volume | April | 4-zone piecewise | No |
-| `laja_vol_der_electrico` | Electrical volume | April | 4-zone piecewise | No |
-| `laja_vol_der_mixto` | Mixed volume | April | 4-zone piecewise | No |
-| `laja_vol_gasto_anticipado` | Anticipated volume | April | Same as irrigation | No |
+| `laja_vol_der_riego` | Irrigation volume | December | 4-zone piecewise | No |
+| `laja_vol_der_electrico` | Electrical volume | December | 4-zone piecewise | No |
+| `laja_vol_der_mixto` | Mixed volume | December | 4-zone piecewise | No |
+| `laja_vol_gasto_anticipado` | Anticipated volume | September | Same as irrigation | No |
 | `laja_vol_econ_endesa` | ENDESA economy | None | None | Yes (saving) |
 | `laja_vol_econ_reserva` | Reserve economy | None | None | Yes (saving) |
 | `laja_vol_econ_polcura` | Alto Polcura economy | None | None | Yes (saving) |
@@ -883,12 +891,21 @@ rsv_volumen_28: +2.52e-05 rsv_extraction_28 + 2.52e-05 rsv_drain_28
 
 ### 9.8 Objective Coefficient Comparison (Laja, March)
 
-| Variable | gtopt coeff | × scale_obj (1e7) | PAMPL param | Match |
-|---|---|---|---|---|
-| `frt_fail` irr rights | 0.00011 | 1100 | `cost_irr_ns=1100` | ✓ |
-| `frt_fail` elec rights | 0.0001265 | 1265 | `cost_elec_ns=1150 × month[12]=1.1` | ✓ |
-| `frt_flow` elec (usage) | -1.1e-08 | -0.11 | `cost_elec_uso=0.1 × month[12]=1.1` | ✓ |
-| `frt_flow` mixed (usage) | -1e-07 | -1.0 | `cost_mixed=1.0` | ✓ |
+> **Revised 2026-07**: the original table here validated a parser
+> column-shift (an invented `cost_elec_ns` fail cost and mis-assigned
+> usage values).  The corrected mapping, per `leelajam.f:202-207` and
+> annex 13.2 of the CEN informe, is:
+
+| PLP coefficient | PLP variable | gtopt encoding |
+|---|---|---|
+| `+CRiegoNS × FactMen × FRiegoCost_k` | retiro deficit `l_qrhrK` | district `fcost` schedule |
+| `+CQVar(IQDR) × FactMen` (0.0) | `l_qdr` flow | `uvalue = -cost_irr_uso × monthly` |
+| `+CQVar(IQDE) × FactMen` (1150) | `l_qde` flow | `uvalue = -cost_elec_uso × monthly` |
+| `+CQVar(IQDM) × FactMen` (0.1) | `l_qdm` flow | `uvalue = -cost_mixed_uso × monthly` |
+| `+CQVar(IQGA) × FactMen` (1.0) | `l_qga` flow | `uvalue = -cost_antic_uso × monthly` |
+
+There are no `frt_fail` columns on the main rights flows; deficits are
+penalized only at the district withdrawals.
 
 ### 9.9 Volume Right Bounds Comparison (March)
 

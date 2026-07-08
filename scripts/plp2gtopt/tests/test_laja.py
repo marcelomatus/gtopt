@@ -225,7 +225,10 @@ class TestLajaParser:
 
     def test_costs(self, laja_config):
         assert laja_config["cost_irr_ns"] == pytest.approx(1100)
-        assert laja_config["cost_elec_ns"] == pytest.approx(1150)
+        # 1150 is CQVar(IQDE) — the electric USAGE cost
+        # (leelajam.f:202-207); PLP has no electric non-served cost.
+        assert "cost_elec_ns" not in laja_config
+        assert laja_config["cost_elec_uso"] == pytest.approx(1150)
 
     def test_monthly_usage_irr(self, laja_config):
         usage = laja_config["monthly_usage_irr"]
@@ -288,9 +291,12 @@ class TestLajaParser:
         assert laja_config["mes_inicio_anticipos"] == 6
 
     def test_cost_uso_fields(self, laja_config):
+        # Read order per leelajam.f:202-207 / CEN informe annex 13.2:
+        # CRiegoNS, uso riego, uso electrico, uso mixto, uso anticipado.
         assert laja_config["cost_irr_uso"] == pytest.approx(0.0)
-        assert laja_config["cost_elec_uso"] == pytest.approx(0.1)
-        assert laja_config["cost_mixed"] == pytest.approx(1.0)
+        assert laja_config["cost_elec_uso"] == pytest.approx(1150)
+        assert laja_config["cost_mixed_uso"] == pytest.approx(0.1)
+        assert laja_config["cost_antic_uso"] == pytest.approx(1.0)
 
     def test_monthly_cost_arrays_length(self, laja_config):
         for key in [
@@ -395,9 +401,9 @@ class TestLajaParser:
             "qmax_anticipated",
             "cost_irr_ns",
             "cost_irr_uso",
-            "cost_elec_ns",
             "cost_elec_uso",
-            "cost_mixed",
+            "cost_mixed_uso",
+            "cost_antic_uso",
             "monthly_cost_irr_ns",
             "monthly_cost_irr",
             "monthly_cost_elec",
@@ -492,12 +498,21 @@ class TestLajaWriter:
         assert rule["cap"] == pytest.approx(1200)
         assert len(rule["segments"]) == 4
 
-    def test_volume_rights_reset_april(self, laja_config):
+    def test_volume_rights_reset_months(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        rights_vrs = [vr for vr in writer.volume_rights if vr["purpose"] != "economy"]
-        for vr in rights_vrs:
-            assert vr["reset_month"] == "april"
+        # Rights buckets re-provision at the irrigation-season start
+        # (INICIOTEMP, hydro month 9 = december); the anticipado counter
+        # resets at the anticipos window start (INICIOANTIC, hydro
+        # month 6 = september).  genpdlajam.f:624-661 / 2017 Acuerdo.
+        vr_by_name = {vr["name"]: vr for vr in writer.volume_rights}
+        for name in (
+            "laja_vol_der_riego",
+            "laja_vol_der_electrico",
+            "laja_vol_der_mixto",
+        ):
+            assert vr_by_name[name]["reset_month"] == "december"
+        assert vr_by_name["laja_vol_gasto_anticipado"]["reset_month"] == "september"
 
     def test_volume_rights_initial(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -524,8 +539,12 @@ class TestLajaWriter:
             None,
         )
         assert zaco_1o is not None
-        # fail_cost = cost_irr_ns * cost_factor = 1100 * 1.5 = 1650
-        assert zaco_1o["fcost"] == pytest.approx(1650)
+        # fail_cost = cost_irr_ns × cost_factor × FactMenCRiegoNS(mes)
+        # = 1100 × 1.5 × [1.0 (Apr) .. 1.5 (Dec)] — a hydro-year
+        # schedule, mirroring PLP CRiegoNSEta (leelajam.f:221-229).
+        fcost = zaco_1o["fcost"]
+        assert fcost[0][0] == pytest.approx(1650.0)  # April, factor 1.0
+        assert fcost[8][0] == pytest.approx(2475.0)  # December, factor 1.5
 
     def test_to_json_dict_keys(self, laja_config):
         writer = LajaWriter(laja_config)
@@ -589,12 +608,15 @@ class TestLajaWriter:
     def test_district_fail_cost_computation(self, laja_config):
         writer = LajaWriter(laja_config)
 
-        # RieSaltos cost_factor=0.2, cost_irr_ns=1100 → fail_cost=220
+        # RieSaltos cost_factor=0.2, cost_irr_ns=1100 → base 220,
+        # modulated by the monthly FactMenCRiegoNS schedule.
         saltos_frs = [
             fr for fr in writer.flow_rights if fr["name"].startswith("RieSaltos_")
         ]
         for fr in saltos_frs:
-            assert fr["fcost"] == pytest.approx(220)
+            fcost = fr["fcost"]
+            assert fcost[0][0] == pytest.approx(220.0)  # April, factor 1.0
+            assert fcost[8][0] == pytest.approx(330.0)  # December, factor 1.5
 
     def test_district_zero_pct_zero_demand_skipped(self):
         """Categories with pct<=0 AND demand<=0 should not generate FlowRights."""
@@ -683,26 +705,48 @@ class TestLajaWriter:
             assert "reset_month" not in vr  # economies carry forward
 
     def test_usage_cost_elec(self, laja_config):
-        """Electrical rights have use_value modulated by monthly_cost_elec."""
+        """Electric usage cost is a NEGATIVE uvalue (PLP charges qde flow)."""
         writer = LajaWriter(laja_config)
         elec = next(
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
         )
-        # use_value is now cost_elec_uso × monthly_cost_elec (per-stage schedule)
+        # uvalue = -cost_elec_uso × monthly_cost_elec; the 2-year
+        # fixture has cost_elec_uso=1150, FactMen(Apr)=1.1 → -1265.
         assert "uvalue" in elec
+        assert elec["uvalue"][0][0] == pytest.approx(-1265.0)
+        # No fail cost on the rights flows — PLP's NS penalties live on
+        # the retiro deficits only.
+        assert "fcost" not in elec
 
     def test_usage_cost_mixed(self, laja_config):
-        """Mixed rights have use_value modulated by monthly_cost_mixed."""
+        """Mixed usage cost is a NEGATIVE uvalue (PLP charges qdm flow)."""
         writer = LajaWriter(laja_config)
         mixed = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_mixto")
-        # use_value is now cost_mixed × monthly_cost_mixed (per-stage schedule)
-        assert "uvalue" in mixed
+        # uvalue = -cost_mixed_uso × monthly_cost_mixed = -0.1 (flat).
+        assert mixed["uvalue"] == pytest.approx(-0.1)
+
+    def test_usage_cost_anticipated(self, laja_config):
+        """Anticipado usage cost is a NEGATIVE uvalue (PLP charges qga)."""
+        writer = LajaWriter(laja_config)
+        antic = next(
+            fr for fr in writer.flow_rights if fr["name"] == "laja_gasto_anticipado"
+        )
+        # uvalue = -cost_antic_uso × monthly_cost_anticipated = -1.0 (flat)
+        assert antic["uvalue"] == pytest.approx(-1.0)
+        assert "fcost" not in antic
+
+    def test_riego_has_no_fail_cost(self, laja_config):
+        """laja_der_riego carries no NS cost (CQVar(IQDR)=0 in fixture)."""
+        writer = LajaWriter(laja_config)
+        riego = next(fr for fr in writer.flow_rights if fr["name"] == "laja_der_riego")
+        assert "fcost" not in riego
+        assert "uvalue" not in riego  # cost_irr_uso = 0.0
 
     def test_usage_cost_zero_omitted(self):
         """When usage cost is 0, use_value should not be emitted."""
         cfg = _minimal_laja_config()
         cfg["cost_elec_uso"] = 0.0
-        cfg["cost_mixed"] = 0.0
+        cfg["cost_mixed_uso"] = 0.0
         writer = LajaWriter(cfg)
         elec = next(
             fr for fr in writer.flow_rights if fr["name"] == "laja_der_electrico"
@@ -802,9 +846,9 @@ def _minimal_laja_config():
         "qmax_anticipated": 0,
         "cost_irr_ns": 1000,
         "cost_irr_uso": 0.0,
-        "cost_elec_ns": 1100,
         "cost_elec_uso": 0.1,
-        "cost_mixed": 1.0,
+        "cost_mixed_uso": 1.0,
+        "cost_antic_uso": 0.0,
         "monthly_usage_irr": [1] * 12,
         "monthly_usage_elec": [1] * 12,
         "monthly_usage_mixed": [1] * 12,

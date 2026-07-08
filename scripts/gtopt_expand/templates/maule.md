@@ -474,7 +474,6 @@ cannot deliver the full electric entitlement.
   "target": 0,
   "fmax": {{ elec_day_max }},
   "use_average": true,
-  "fcost": {{ penalizador_1 }},
   "bound_rule": {
     "reservoir": {{ res_colbun }},
     "segments": [

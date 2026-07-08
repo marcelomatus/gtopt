@@ -28,8 +28,11 @@ A flat dict mirroring the field set produced by ``LajaParser`` (see
   ``*_factors`` (list[float]) — one factor per zone.
 * ``max_irr`` / ``max_elec`` / ``max_mixed`` / ``max_anticipated`` (float).
 * ``qmax_*`` flow caps (m³/s) for each rights category.
-* ``cost_irr_ns`` / ``cost_irr_uso`` / ``cost_elec_ns`` /
-  ``cost_elec_uso`` / ``cost_mixed`` (float).
+* ``cost_irr_ns`` (retiro deficit penalty base) plus the four usage
+  costs ``cost_irr_uso`` / ``cost_elec_uso`` / ``cost_mixed_uso`` /
+  ``cost_antic_uso`` (float, positive PLP objective coefficients on
+  the rights flows; ``cost_mixed`` is accepted as a legacy alias for
+  ``cost_mixed_uso``).
 * ``monthly_cost_*`` and ``monthly_usage_*`` arrays (12 floats, hydro
   year Apr-Mar) for each category.
 * ``ini_*`` initial bucket levels for each category and economy tracker.
@@ -56,6 +59,36 @@ _logger = logging.getLogger(__name__)
 # gtopt uses calendar months: january=1..december=12
 # So PLP hydro month H maps to calendar month (H + 3) % 12, with 0 → 12
 _HYDRO_TO_CALENDAR = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]
+
+# Calendar month number (1..12) → gtopt MonthType JSON spelling.
+_MONTH_NAMES = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
+
+
+def _hydro_month_name(hydro_month: int) -> str:
+    """Map a PLP hydrological month (1=Apr..12=Mar) to a calendar name.
+
+    Used for the VolumeRight ``reset_month`` fields: PLP re-provisions
+    the rights buckets at ``MesIniTempRiego`` (hydro month 9 =
+    **december**, the start of the Dec-1..Apr-30 irrigation season per
+    the 2017 Acuerdo, `genpdlajam.f` INICIOTEMP) and resets the
+    anticipado counter at ``MesIniTempAntic`` (hydro month 6 =
+    **september**, INICIOANTIC).
+    """
+    calendar = _HYDRO_TO_CALENDAR[(int(hydro_month) - 1) % 12]
+    return _MONTH_NAMES[calendar - 1]
 
 
 def _zones_to_bound_rule_segments(
@@ -180,20 +213,24 @@ class LajaAgreement(_RightsAgreementBase):
         self,
         cfg: dict[str, Any],
         legacy_irr_ns: float,
-        legacy_elec_ns: float,
-    ) -> tuple[float, float]:
-        """Return (cost_irr_ns, cost_elec_ns) after resolver substitution.
+    ) -> float:
+        """Return ``cost_irr_ns`` after resolver substitution.
 
         When the resolver is active and the Laja main central is known,
-        both fields are replaced by ``resolver.fail_cost(cascade_pf)``
-        (units: ``$/(m³/s·h)``).  Logs the substitution at INFO so the
-        change is auditable in juan/IPLP-style end-to-end runs.
+        the retiro non-served base is replaced by
+        ``resolver.fail_cost(cascade_pf)`` (units: ``$/(m³/s·h)``).
+        Logs the substitution at INFO so the change is auditable in
+        juan/IPLP-style end-to-end runs.
 
-        Falls through to the legacy PLP values otherwise.
+        Falls through to the legacy PLP value otherwise.  (The former
+        ``cost_elec_ns`` override is gone: PLP has no electric
+        non-served cost — that key was a parser column-shift misread;
+        the electric field is a positive *usage* cost handled via
+        ``use_value_elec``.)
         """
         resolver = self._water_value_resolver
         if resolver is None or not resolver.is_active:
-            return legacy_irr_ns, legacy_elec_ns
+            return legacy_irr_ns
         central_name = cfg["central_laja"]
         number = self._resolved_central_number(central_name)
         if number is None:
@@ -202,7 +239,7 @@ class LajaAgreement(_RightsAgreementBase):
                 " WaterValueResolver index; keeping legacy costs.",
                 central_name,
             )
-            return legacy_irr_ns, legacy_elec_ns
+            return legacy_irr_ns
         cascade_pf = resolver.cascade_lost_pf(number)
         new_value = resolver.fail_cost(cascade_pf)
         _logger.info(
@@ -213,15 +250,7 @@ class LajaAgreement(_RightsAgreementBase):
             cascade_pf,
             central_name,
         )
-        _logger.info(
-            "auto-water-fail-cost: laja %s = %g (was %g, cascade_pf=%g at %s)",
-            "cost_elec_ns",
-            new_value,
-            legacy_elec_ns,
-            cascade_pf,
-            central_name,
-        )
-        return new_value, new_value
+        return new_value
 
     def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
         """Convert 12-element hydrological-year array to per-stage schedule.
@@ -287,17 +316,24 @@ class LajaAgreement(_RightsAgreementBase):
 
         # ── Auto water-fail-cost overrides ─────────────────────────────
         # When a WaterValueResolver is wired and active, replace the
-        # legacy PLP penalty fields with energy-equivalent prices derived
-        # from max(falla.gcost) × cascade_lost_pf at the Laja main central.
-        # ``cost_irr_uso`` / ``cost_elec_uso`` / ``cost_mixed`` are NOT
-        # touched here — those are *use_value* benefits, not penalty
-        # costs, and their semantics are not compatible with the
-        # energy-equivalent auto-derive.
-        cost_irr_ns, cost_elec_ns = self._override_main_costs(
+        # legacy PLP retiro penalty base with an energy-equivalent price
+        # derived from max(falla.gcost) × cascade_lost_pf at the Laja
+        # main central.  The usage costs (``cost_*_uso``) are NOT
+        # touched — those are operation-ordering costs on the rights
+        # flows, not shortage penalties.
+        cost_irr_ns = self._override_main_costs(
             cfg,
             legacy_irr_ns=float(cfg["cost_irr_ns"]),
-            legacy_elec_ns=float(cfg["cost_elec_ns"]),
         )
+
+        # Usage costs on the four rights flows (PLP: CQVar(IQDR..IQGA),
+        # applied as POSITIVE objective coefficients on qdr/qde/qdm/qga
+        # in genpdlajam.f:163-165).  Accept the legacy hand-authored
+        # keys (`cost_mixed`) as fallback for old canonical JSONs.
+        cost_irr_uso = float(cfg.get("cost_irr_uso", 0.0))
+        cost_elec_uso = float(cfg.get("cost_elec_uso", 0.0))
+        cost_mixed_uso = float(cfg.get("cost_mixed_uso", cfg.get("cost_mixed", 0.0)))
+        cost_antic_uso = float(cfg.get("cost_antic_uso", 0.0))
 
         # --- Bound_rule segments for each rights category ---
         irr_segments = _zones_to_bound_rule_segments(
@@ -323,37 +359,47 @@ class LajaAgreement(_RightsAgreementBase):
         fmax_antic = self._fmax_schedule(cfg["qmax_anticipated"], usage_antic)
 
         # --- Monthly cost modulation ---
-        # Irrigation costs (cost_irr_ns may be auto-derived; see above)
-        fail_cost_irr = self._monthly_cost_schedule(
-            cost_irr_ns, cfg["monthly_cost_irr_ns"]
-        )
+        # PLP applies its usage costs as POSITIVE objective coefficients
+        # on the rights flows.  gtopt's FlowRight expresses a per-unit
+        # flow cost as a NEGATIVE ``uvalue`` on a target-0 kink (uvalue
+        # rewards flow above target; a negative value therefore charges
+        # for it — see flow_right_lp.cpp `attach_flow`).  Hence every
+        # `cost_*_uso` is negated on emission.
+        #
+        # There are NO fail costs on the main rights flows: PLP's only
+        # non-served penalties live on the per-retiro (district) deficit
+        # variables — `CRiegoNSEta × FRiegoCost` (genpdlajam.f:355-358).
         use_value_irr = (
-            self._monthly_cost_schedule(cfg["cost_irr_uso"], cfg["monthly_cost_irr"])
-            if cfg.get("cost_irr_uso", 0) > 0
+            self._monthly_cost_schedule(-cost_irr_uso, cfg["monthly_cost_irr"])
+            if cost_irr_uso != 0
             else None
-        )
-
-        # Electric costs (cost_elec_ns may be auto-derived; see above)
-        fail_cost_elec = self._monthly_cost_schedule(
-            cost_elec_ns, cfg["monthly_cost_elec"]
         )
         use_value_elec = (
-            self._monthly_cost_schedule(cfg["cost_elec_uso"], cfg["monthly_cost_elec"])
-            if cfg["cost_elec_uso"] > 0
+            self._monthly_cost_schedule(-cost_elec_uso, cfg["monthly_cost_elec"])
+            if cost_elec_uso != 0
             else None
         )
-
-        # Mixed costs
         use_value_mixed = (
-            self._monthly_cost_schedule(cfg["cost_mixed"], cfg["monthly_cost_mixed"])
-            if cfg["cost_mixed"] > 0
+            self._monthly_cost_schedule(-cost_mixed_uso, cfg["monthly_cost_mixed"])
+            if cost_mixed_uso != 0
+            else None
+        )
+        use_value_antic = (
+            self._monthly_cost_schedule(
+                -cost_antic_uso, cfg["monthly_cost_anticipated"]
+            )
+            if cost_antic_uso != 0
             else None
         )
 
-        # Anticipated costs (anchored to the same auto-derived irr_ns)
-        fail_cost_antic = self._monthly_cost_schedule(
-            cost_irr_ns, cfg["monthly_cost_anticipated"]
-        )
+        # --- Reset months (PLP: TipoEtaGM, genpdlajam.f:624-661) ---
+        # Rights buckets are re-provisioned at the start of the
+        # irrigation season (MesIniTempRiego, hydro month 9 = december
+        # per the 2017 Acuerdo Art. 1); the anticipado counter resets at
+        # the start of the anticipos window (MesIniTempAntic, hydro
+        # month 6 = september).
+        reset_month_rights = _hydro_month_name(cfg.get("mes_inicio_riego", 9))
+        reset_month_antic = _hydro_month_name(cfg.get("mes_inicio_anticipos", 6))
 
         # --- District flow rights (pre-computed) ---
         district_flow_rights = self._compute_district_flow_rights(cost_irr_ns)
@@ -375,18 +421,19 @@ class LajaAgreement(_RightsAgreementBase):
             "vol_max": cfg["vol_max"],
             # FlowRight: laja_der_riego
             "fmax_irr": fmax_irr,
-            "fail_cost_irr": fail_cost_irr,
             "use_value_irr": use_value_irr,
             # FlowRight: laja_der_electrico
             "fmax_elec": fmax_elec,
-            "fail_cost_elec": fail_cost_elec,
             "use_value_elec": use_value_elec,
             # FlowRight: laja_der_mixto
             "fmax_mixed": fmax_mixed,
             "use_value_mixed": use_value_mixed,
             # FlowRight: laja_gasto_anticipado
             "fmax_antic": fmax_antic,
-            "fail_cost_antic": fail_cost_antic,
+            "use_value_antic": use_value_antic,
+            # VolumeRight reset months (hydro → calendar)
+            "reset_month_rights": reset_month_rights,
+            "reset_month_antic": reset_month_antic,
             # FlowRight: districts
             "district_flow_rights": district_flow_rights,
             # VolumeRight common
@@ -475,12 +522,20 @@ class LajaAgreement(_RightsAgreementBase):
 
                 fr_name = f"{district['name']}_{category}"
                 injection = district.get("injection")
-                fail_cost = self._district_fail_cost(
+                fail_cost_base = self._district_fail_cost(
                     cost_irr_ns=cost_irr_ns,
                     cost_factor=district["cost_factor"],
                     injection=injection,
                     resolver_active=resolver_active,
                     fr_name=fr_name,
+                )
+                # PLP modulates the retiro deficit penalty by month:
+                # CRiegoNSEta = CRiegoNS × FactMenCRiegoNS(mes)
+                # (leelajam.f:221-229) before the per-retiro FRiegoCost
+                # factor is applied — so the emitted fcost is a stage
+                # schedule, not a flat scalar.
+                fail_cost = self._monthly_cost_schedule(
+                    fail_cost_base, cfg["monthly_cost_irr_ns"]
                 )
                 # Emit the canonical `target` / `fcost` keys (the gtopt
                 # FlowRight binding still accepts the legacy `discharge` /

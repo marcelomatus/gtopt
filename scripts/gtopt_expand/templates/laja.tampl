@@ -30,14 +30,15 @@
 #   IQDE            Derecho Electrico     laja_der_electrico       laja_vol_der_electrico
 #   IQDM            Derecho Mixto         laja_der_mixto           laja_vol_der_mixto
 #   IQGA            Gasto Anticipado      laja_gasto_anticipado    laja_vol_gasto_anticipado
-#   IVESF           Economia ENDESA       --                       laja_vol_econ_reserva
 #   --              Particion Derechos    --                       -- (constraint: laja_particion_derechos)
 #
 #   IVDRF           Vol. Der. Riego       --                       laja_vol_der_riego
 #   IVDEF           Vol. Der. Electrico   --                       laja_vol_der_electrico
 #   IVDMF           Vol. Der. Mixto       --                       laja_vol_der_mixto
-#   IVAPF           Vol. Gasto Antic.     --                       laja_vol_gasto_anticipado
-#   IVESF           Vol. Econ. Reserva    --                       laja_vol_econ_reserva
+#   IVGAF           Vol. Gasto Antic.     --                       laja_vol_gasto_anticipado
+#   IVESF           Vol. Econ. ENDESA     --                       laja_vol_econ_endesa
+#   IVERF           Vol. Econ. Reserva    --                       laja_vol_econ_reserva
+#   IVAPF           Vol. Econ. Polcura    --                       laja_vol_econ_polcura
 #
 # Water System Topology:
 #
@@ -120,11 +121,11 @@ param max_irr = {{ max_irr }};
 # Maximum instantaneous irrigation flow [m3/s]
 param qmax_irr = {{ qmax_irr }};
 
-# Irrigation non-served cost [$/hm3]
+# Irrigation non-served cost, applied to retiro deficits (PLP: CRiegoNS)
 param cost_irr_ns = {{ cost_irr_ns }};
 
-# Irrigation usage cost [$/hm3]
-param cost_irr_uso = {{ cost_irr_uso }};
+# Irrigation-rights usage cost (PLP: CQVar(IQDR), positive flow cost)
+param cost_irr_uso = {{ cost_irr_uso | default(0.0) }};
 
 # Monthly irrigation usage activation [p.u.] (hydrological year: Apr=1..Mar=12)
 # 1.0 = active, 0.0 = inactive
@@ -150,11 +151,9 @@ param max_elec = {{ max_elec }};
 # Maximum instantaneous electrical flow [m3/s]
 param qmax_elec = {{ qmax_elec }};
 
-# Electrical non-served cost [$/hm3]
-param cost_elec_ns = {{ cost_elec_ns }};
-
-# Electrical usage cost [$/hm3]
-param cost_elec_uso = {{ cost_elec_uso }};
+# Electrical-rights usage cost (PLP: CQVar(IQDE), positive flow cost —
+# there is NO electric non-served cost in PLP)
+param cost_elec_uso = {{ cost_elec_uso | default(0.0) }};
 
 # Monthly electrical usage activation [p.u.]
 param elec_usage[month] = [{{ monthly_usage_elec | join(', ') }}];
@@ -177,8 +176,8 @@ param max_mixed = {{ max_mixed }};
 # Maximum instantaneous mixed flow [m3/s]
 param qmax_mixed = {{ qmax_mixed }};
 
-# Mixed rights cost [$/hm3]
-param cost_mixed = {{ cost_mixed }};
+# Mixed-rights usage cost (PLP: CQVar(IQDM), positive flow cost)
+param cost_mixed_uso = {{ cost_mixed_uso | default(cost_mixed | default(0.0)) }};
 
 # Monthly mixed usage activation [p.u.]
 param mixed_usage[month] = [{{ monthly_usage_mixed | join(', ') }}];
@@ -192,6 +191,9 @@ param max_anticipated = {{ max_anticipated }};
 
 # Maximum instantaneous anticipated flow [m3/s]
 param qmax_anticipated = {{ qmax_anticipated }};
+
+# Anticipated-rights usage cost (PLP: CQVar(IQGA), positive flow cost)
+param cost_antic_uso = {{ cost_antic_uso | default(0.0) }};
 
 # Monthly anticipated usage activation [p.u.]
 # Typically active Sep-Nov (hydrological months 6-8)

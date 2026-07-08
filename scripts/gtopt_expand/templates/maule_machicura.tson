@@ -259,8 +259,10 @@
     {#   seg[0]: V>=0,   const=0   (OFF below normal zone)          #}
     {#   seg[1]: V>=581, const=30  (ON in normal zone)              #}
     {#                                                               #}
-    {# fail_cost: PLP Penalizador_1 (1500 $/m3/s).  Applied when    #}
-    {# the optimizer cannot deliver the full electric entitlement.   #}
+    {# No fail cost: PLP has no non-served penalty on IQMNE — the    #}
+    {# flow is bounded by FijaMaule zone logic (the bound_rule here). #}
+    {# A target-0 fcost-only kink would pin the flow column to zero   #}
+    {# (uppb = min(fmax, target) after substitution).                 #}
     {# ============================================================= #}
     {
       "name": "maule_gasto_normal_elec",
@@ -269,7 +271,6 @@
       "target": 0,
       "fmax": {{ elec_day_max }},
       "use_average": true,
-      "fcost": {{ penalizador_1 }},
       "bound_rule": {
         "reservoir": {{ res_colbun }},
         "segments": [
@@ -512,7 +513,7 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
-      ,"uvalue": {{ costo_embalsar }}
+      ,"uvalue": {{ -costo_embalsar }}
       {% endif %}
     },
 
@@ -526,7 +527,7 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
-      ,"uvalue": {{ costo_no_embalsar }}
+      ,"uvalue": {{ -costo_no_embalsar }}
       {% endif %}
     }
 
@@ -545,7 +546,7 @@
       "purpose": "irrigation",
       "direction": -1,
       "target": 0,
-      "uvalue": {{ costo_canelon }}
+      "uvalue": {{ -costo_canelon }}
     }
     {% endif %}
 

@@ -39,9 +39,12 @@
 {#                                                                   #}
 {#   Rights(V) = Base + Sum_i [ Factor_i * min(Vi, Width_i) ]       #}
 {#                                                                   #}
-{# The hydrological year runs April-March.  At April 1, volume       #}
-{# rights (IVDRF, IVDEF, IVDMF, IVGAF) are re-provisioned based on  #}
-{# current reservoir volume via the bound_rule.                      #}
+{# The irrigation season runs Dec 1 - Apr 30 (2017 Acuerdo Art. 1). #}
+{# At the season start (INICIOTEMP, hydro month 9 = december) the    #}
+{# volume rights (IVDRF, IVDEF, IVDMF) are re-provisioned from the   #}
+{# current reservoir volume via the bound_rule; the anticipado       #}
+{# counter (IVGAF) resets at the anticipos window start              #}
+{# (INICIOANTIC, hydro month 6 = september).                         #}
 {# ================================================================= #}
 
 {# ================================================================= #}
@@ -143,11 +146,14 @@
 {#   FijaLajaMBloA but driven by declarative data rather than        #}
 {#   procedural Fortran code.                                        #}
 {#                                                                   #}
-{# Reset behavior (reset_month=april):                               #}
-{#   When the stage month matches "april", the VolumeRight is        #}
-{#   re-provisioned: eini is recomputed from the bound_rule          #}
+{# Reset behavior (reset_month = december / september):              #}
+{#   When the stage month matches the reset month, the VolumeRight   #}
+{#   is re-provisioned: eini is recomputed from the bound_rule       #}
 {#   evaluated at current reservoir volume.  This mirrors PLP's      #}
-{#   April 1st re-initialization of IVDRF/IVDEF/IVDMF/IVGAF.        #}
+{#   INICIOTEMP (december) provisioning of IVDRF/IVDEF/IVDMF and     #}
+{#   INICIOANTIC (september) reset of IVGAF (genpdlajam.f:624-661).  #}
+{#   KNOWN GAP: PLP also debits the anticipado counter from the      #}
+{#   december riego provision (genpdlajam.f:234-239) — not modeled.  #}
 {# ================================================================= #}
 
 {
@@ -190,10 +196,12 @@
     {# volume-dependent annual rights quota is on the VolumeRight    #}
     {# (laja_vol_der_riego) via bound_rule, not on the FlowRight.   #}
     {#                                                               #}
-    {# fail_cost: penalty for unserved irrigation demand.            #}
-    {# PLP: CRiegoNS (1100 $/m3/s) modulated by FactMenCQVar.       #}
-    {# use_value: benefit of irrigation usage (cost_irr_uso).        #}
-    {# Conditional — only emitted when cost_irr_uso > 0.            #}
+    {# No fail cost: PLP's non-served penalties live on the retiro    #}
+    {# (district) deficit variables, not on the rights flows.         #}
+    {# uvalue: PLP usage cost CQVar(IQDR) emitted NEGATED (a negative #}
+    {# uvalue charges for flow above the target-0 kink, matching      #}
+    {# PLP's positive objective coefficient on qdr).  Only emitted    #}
+    {# when cost_irr_uso is non-zero (0.0 in current CEN data).       #}
     {# ============================================================= #}
     {
       "name": "laja_der_riego",
@@ -201,8 +209,7 @@
       "direction": -1,
       "target": 0,
       "fmax": {{ fmax_irr }},
-      "use_average": true,
-      "fcost": {{ fail_cost_irr }}
+      "use_average": true
       {% if use_value_irr is not none %}
       ,"uvalue": {{ use_value_irr }}
       {% endif %}
@@ -214,11 +221,12 @@
     {# Electrical rights flow.  Active year-round (monthly_usage=1). #}
     {# PLP: IQDEH hourly aggregate, volume tracked by IVDEF.         #}
     {#                                                               #}
-    {# fail_cost: PLP CElectNS (1150 $/m3/s) * monthly modulation.  #}
-    {# use_value: benefit of electrical usage (cost_elec_uso=0.1).   #}
-    {# The small positive use_value acts as a tie-breaker in the     #}
-    {# optimizer, encouraging electrical extraction when other costs  #}
-    {# are equal (PLP: CUsoElect steering cost).                     #}
+    {# No fail cost: PLP has no electric non-served penalty — the    #}
+    {# 1150 in plplajam.dat is CQVar(IQDE), a POSITIVE usage cost on  #}
+    {# the electric-rights flow (steering cost that discourages       #}
+    {# burning electric rights during the irrigation season,          #}
+    {# genpdlajam.f:163-165).  Emitted here as a NEGATIVE uvalue on   #}
+    {# the target-0 kink, which charges the same per-unit cost.       #}
     {# ============================================================= #}
     {
       "name": "laja_der_electrico",
@@ -226,8 +234,7 @@
       "direction": -1,
       "target": 0,
       "fmax": {{ fmax_elec }},
-      "use_average": true,
-      "fcost": {{ fail_cost_elec }}
+      "use_average": true
       {% if use_value_elec is not none %}
       ,"uvalue": {{ use_value_elec }}
       {% endif %}
@@ -241,8 +248,8 @@
     {# PLP: IQDMH hourly aggregate, volume tracked by IVDMF.         #}
     {#                                                               #}
     {# No fail_cost (mixed rights are not penalized for non-use).    #}
-    {# use_value: mixed usage cost (cost_mixed=1.0).                 #}
-    {# PLP: CMixto steering cost in objective function.              #}
+    {# uvalue: PLP usage cost CQVar(IQDM) (0.1 in current CEN data)  #}
+    {# emitted NEGATED — a per-unit charge on mixed-rights flow.     #}
     {# ============================================================= #}
     {
       "name": "laja_der_mixto",
@@ -264,8 +271,10 @@
     {# Sep-Nov (hydrological months 6-8).                            #}
     {# PLP: IQGAH hourly aggregate, volume tracked by IVGAF.         #}
     {#                                                               #}
-    {# fail_cost: uses the irrigation non-served cost base           #}
-    {# (cost_irr_ns) modulated by monthly_cost_anticipated factors.  #}
+    {# No fail cost: PLP has no anticipado non-served penalty.       #}
+    {# uvalue: PLP usage cost CQVar(IQGA) emitted NEGATED — a        #}
+    {# per-unit charge that makes anticipated extraction a last       #}
+    {# resort relative to in-season rights.                          #}
     {# ============================================================= #}
     {
       "name": "laja_gasto_anticipado",
@@ -273,8 +282,10 @@
       "direction": -1,
       "target": 0,
       "fmax": {{ fmax_antic }},
-      "use_average": true,
-      "fcost": {{ fail_cost_antic }}
+      "use_average": true
+      {% if use_value_antic is not none %}
+      ,"uvalue": {{ use_value_antic }}
+      {% endif %}
     }
 
     {# ============================================================= #}
@@ -317,7 +328,7 @@
     {# VolumeRight: laja_vol_der_riego (PLP: IVDRF)                  #}
     {#                                                               #}
     {# Irrigation volume accumulator.  Tracks cumulative irrigation  #}
-    {# extraction since April 1st (hydrological year start).         #}
+    {# extraction since the season start (december 1st).             #}
     {#                                                               #}
     {# PLP balance equation (genpdlajam.f R9):                       #}
     {#   IVDRF = Prev_IVDRF - (etadur/ScaleVol) * IQDRH             #}
@@ -327,9 +338,9 @@
     {#                                                               #}
     {# bound_rule: piecewise-linear function mapping reservoir       #}
     {# volume to maximum annual irrigation rights (emax).            #}
-    {# Evaluated during update_lp() each stage; at reset_month=april #}
-    {# the volume is re-provisioned from the bound_rule evaluated at #}
-    {# the current physical reservoir volume.                        #}
+    {# Evaluated during update_lp() each stage; at the december      #}
+    {# reset the volume is re-provisioned from the bound_rule        #}
+    {# evaluated at the current physical reservoir volume.           #}
     {#                                                               #}
     {# PLP equivalent: FijaLajaMBloA computes DerRiego(V) using      #}
     {#   Base=570 + Sum_i(FacDerR(i) * min(Vi, AnchCol(i)))          #}
@@ -349,7 +360,7 @@
       "eini": {{ ini_irr }},
       "emax": {{ max_irr }},
       "use_state_variable": true,
-      "reset_month": "april",
+      "reset_month": {{ reset_month_rights }},
       "bound_rule": {
         "reservoir": {{ central }},
         "segments": {{ irr_segments }},
@@ -377,7 +388,7 @@
       "eini": {{ ini_elec }},
       "emax": {{ max_elec }},
       "use_state_variable": true,
-      "reset_month": "april",
+      "reset_month": {{ reset_month_rights }},
       "bound_rule": {
         "reservoir": {{ central }},
         "segments": {{ elec_segments }},
@@ -404,7 +415,7 @@
       "eini": {{ ini_mixed }},
       "emax": {{ max_mixed }},
       "use_state_variable": true,
-      "reset_month": "april",
+      "reset_month": {{ reset_month_rights }},
       "bound_rule": {
         "reservoir": {{ central }},
         "segments": {{ mixed_segments }},
@@ -434,7 +445,7 @@
       "eini": {{ ini_anticipated }},
       "emax": {{ max_anticipated }},
       "use_state_variable": true,
-      "reset_month": "april",
+      "reset_month": {{ reset_month_antic }},
       "bound_rule": {
         "reservoir": {{ central }},
         "segments": {{ irr_segments }},
@@ -459,7 +470,7 @@
     {#   extraction variable: outflow (spending of saved water)      #}
     {#   Balance: economy_vol = prev + saving - extraction           #}
     {#                                                               #}
-    {# No reset_month: economy carries across April boundary.        #}
+    {# No reset_month: economy carries across season boundaries.     #}
     {# No bound_rule: economy is not volume-dependent.               #}
     {# saving_rate: maximum saving deposit rate (qmax_elec).         #}
     {#                                                               #}

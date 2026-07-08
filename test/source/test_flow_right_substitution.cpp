@@ -440,3 +440,143 @@ TEST_CASE("FlowRight stage_average fcost-only — qeh col absorbs the kink")
   // obj_constant = +fcost · target = 2000.
   CHECK(lp.get_obj_constant() == doctest::Approx(2000.0));
 }
+
+// ── Invariant 6 — target-0 usage-cost / reward encodings ─────────────
+//
+// PLP's Laja/Maule agreements price the rights FLOWS themselves:
+// positive usage costs (CQVar(IQDR..IQGA), Invernada penalizadores) and
+// rewards (ValorRiego).  gtopt encodes a per-unit flow price as a
+// `target = 0` kink with a `uvalue` of the opposite sign: the
+// uvalue-only substitution then folds the price into the flow column
+// over its whole `[0, fmax]` range.  `resolve_bounds` must therefore
+// KEEP a zero target when uvalue is active (it is only dropped when
+// both slack costs are absent — the plain back-compat band).
+
+TEST_CASE("FlowRight target-0 usage cost — negative uvalue prices the flow")
+{
+  // PLP: FO += 50 · qde (positive usage cost on the electric right).
+  // gtopt encoding: target = 0, uvalue = -50 ⇒ uvalue-only
+  // substitution with flow ∈ [0, fmax], cost = +50 · dur, no slacks,
+  // obj_constant = 0.
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_usage_cost",
+          .direction = -1,
+          .fmax = 100.0,
+          .target = 0.0,
+          .uvalue = -50.0,
+      },
+  };
+  const System system {
+      .name = "FlowRightUsageCostFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .flow_right_array = frs,
+  };
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& block = t.blocks().front();
+
+  // Substituted — no explicit slacks, no kink row.
+  CHECK_FALSE(fr_lp.fail_col_at(s, t, block).has_value());
+  CHECK_FALSE(fr_lp.excess_col_at(s, t, block).has_value());
+
+  const auto& lp = system_lp.linear_interface();
+  const auto& flow_cols = fr_lp.flow_cols_at(s, t);
+  REQUIRE(flow_cols.size() == 1);
+  const auto fcol = flow_cols.begin()->second;
+
+  // The full band is preserved (NOT pinned to the zero target) and
+  // the flow carries the positive per-unit price.
+  CHECK(lp.get_col_low()[fcol] == doctest::Approx(0.0));
+  CHECK(lp.get_col_upp()[fcol] == doctest::Approx(100.0));
+  CHECK(lp.get_obj_coeff()[fcol] == doctest::Approx(50.0));
+  CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
+}
+
+TEST_CASE("FlowRight target-0 reward — positive uvalue pays the flow")
+{
+  // PLP: FO -= 80 · qter (reward on delivered irrigation).  gtopt
+  // encoding: target = 0, uvalue = +80 ⇒ flow ∈ [0, fmax] with cost
+  // -80 · dur; the LP pushes the flow to fmax.
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_usage_reward",
+          .direction = -1,
+          .fmax = 10.0,
+          .target = 0.0,
+          .uvalue = 80.0,
+      },
+  };
+  const System system {
+      .name = "FlowRightUsageRewardFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .flow_right_array = frs,
+  };
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(lp.is_optimal());
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto col_sol = lp.get_col_sol();
+  const auto& flow_cols = fr_lp.flow_cols_at(s, t);
+  REQUIRE(flow_cols.size() == 1);
+  CHECK(col_sol[flow_cols.begin()->second] == doctest::Approx(10.0));
+}
+
+TEST_CASE("FlowRight target-0 with no costs — plain band back-compat")
+{
+  // The back-compat reset still applies when NEITHER fcost nor uvalue
+  // is active: `target = 0` alone means "no soft requirement" and the
+  // column is a plain hard band with no cost and no slacks.
+  const Array<FlowRight> frs = {
+      {
+          .uid = Uid {1},
+          .name = "fr_plain_band",
+          .direction = -1,
+          .fmax = 100.0,
+          .target = 0.0,
+      },
+  };
+  const System system {
+      .name = "FlowRightPlainBandFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .flow_right_array = frs,
+  };
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& fr_lp = system_lp.elements<FlowRightLP>().front();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& block = t.blocks().front();
+
+  CHECK_FALSE(fr_lp.fail_col_at(s, t, block).has_value());
+  CHECK_FALSE(fr_lp.excess_col_at(s, t, block).has_value());
+
+  const auto& lp = system_lp.linear_interface();
+  const auto& flow_cols = fr_lp.flow_cols_at(s, t);
+  REQUIRE(flow_cols.size() == 1);
+  const auto fcol = flow_cols.begin()->second;
+  CHECK(lp.get_col_low()[fcol] == doctest::Approx(0.0));
+  CHECK(lp.get_col_upp()[fcol] == doctest::Approx(100.0));
+  CHECK(lp.get_obj_coeff()[fcol] == doctest::Approx(0.0));
+  CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
+}

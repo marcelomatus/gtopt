@@ -279,7 +279,9 @@ During `SystemLP::update_lp()`, the `bound_rule` is re-evaluated using the
 current reservoir volume (`physical_eini` or `physical_efin`), and the
 VolumeRight's `emax` is updated via `set_col_upp`.
 
-**Reset behavior** (`reset_month=april`): When the stage month matches
+**Reset behavior** (`reset_month=december` for the rights buckets,
+`september` for the anticipado counter — PLP INICIOTEMP/INICIOANTIC,
+`genpdlajam.f:624-661`): When the stage month matches
 "april", the VolumeRight is re-provisioned — `eini` is recomputed from the
 `bound_rule` evaluated at current reservoir volume.  This mirrors PLP's
 April 1st re-initialization of `IVDRF`/`IVDEF`/`IVDMF`/`IVGAF`.
@@ -499,7 +501,7 @@ param max_elec = {{ max_elec }};
 param qmax_elec = {{ qmax_elec }};
 
 # Electrical non-served cost [$/hm3]
-param cost_elec_ns = {{ cost_elec_ns }};
+param cost_elec_uso = {{ cost_elec_uso }};
 
 # Electrical usage cost [$/hm3]
 param cost_elec_uso = {{ cost_elec_uso }};
@@ -516,7 +518,7 @@ param elec_usage[month] = [{{ monthly_usage_elec | join(', ') }}];
   "target": 0,
   "fmax": {{ fmax_elec }},
   "use_average": true,
-  "fcost": {{ fail_cost_elec }}
+  "uvalue": {{ use_value_elec }}
   {% if use_value_elec is not none %}
   ,"uvalue": {{ use_value_elec }}
   {% endif %}
@@ -551,7 +553,7 @@ param max_mixed = {{ max_mixed }};
 param qmax_mixed = {{ qmax_mixed }};
 
 # Mixed rights cost [$/hm3]
-param cost_mixed = {{ cost_mixed }};
+param cost_mixed_uso = {{ cost_mixed_uso }};
 
 # Monthly mixed usage activation [p.u.]
 param mixed_usage[month] = [{{ monthly_usage_mixed | join(', ') }}];
@@ -690,7 +692,7 @@ $$E_{\text{fin}} = E_{\text{ini}} - f_{\text{cr}} \cdot \frac{\sum_{b} \text{dur
 where $f_{\text{cr}} = 0.0036\;\text{hm}^3/(\text{m}^3/\text{s} \cdot \text{h})$
 is the flow-to-volume conversion rate.
 
-At `reset_month=april`, the VolumeRight is re-provisioned from the
+At `reset_month=december` (season start), the VolumeRight is re-provisioned from the
 `bound_rule`:
 
 $$E_{\text{ini}}^{\text{new}} = R(V_{\text{reservoir}})$$
@@ -708,7 +710,7 @@ PLP balance equation (`genpdlajam.f` R9):
 
 The `bound_rule` maps reservoir volume to maximum annual irrigation rights
 (`emax`) via the piecewise-linear zone formula.  Evaluated during
-`update_lp()` each stage; at `reset_month=april` the volume is
+`update_lp()` each stage; at `reset_month=december` the volume is
 re-provisioned from the `bound_rule` evaluated at the current physical
 reservoir volume.
 
@@ -727,7 +729,7 @@ PLP equivalent: `FijaLajaMBloA` computes `DerRiego(V)` using
   "eini": {{ ini_irr }},
   "emax": {{ max_irr }},
   "use_state_variable": true,
-  "reset_month": "april",
+  "reset_month": "december",
   "bound_rule": {
     "reservoir": {{ central }},
     "segments": {{ irr_segments }},
@@ -756,7 +758,7 @@ capped at 1200 hm3/year.
   "eini": {{ ini_elec }},
   "emax": {{ max_elec }},
   "use_state_variable": true,
-  "reset_month": "april",
+  "reset_month": "december",
   "bound_rule": {
     "reservoir": {{ central }},
     "segments": {{ elec_segments }},
@@ -783,7 +785,7 @@ PLP balance (R11):
   "eini": {{ ini_mixed }},
   "emax": {{ max_mixed }},
   "use_state_variable": true,
-  "reset_month": "april",
+  "reset_month": "december",
   "bound_rule": {
     "reservoir": {{ central }},
     "segments": {{ mixed_segments }},
@@ -813,7 +815,7 @@ internally by StorageLP.
   "eini": {{ ini_anticipated }},
   "emax": {{ max_anticipated }},
   "use_state_variable": true,
-  "reset_month": "april",
+  "reset_month": "september",
   "bound_rule": {
     "reservoir": {{ central }},
     "segments": {{ irr_segments }},
@@ -867,7 +869,7 @@ PLP (`genpdlajam.f` / `plp-laja2.f`):
 Unused annual rights become savings; extraction spends them.
 Zero savings in lower cushion zone.
 
-No `reset_month`: economy carries across April boundary.
+No `reset_month`: economy carries across season boundaries.
 No `bound_rule`: economy is not volume-dependent.
 `saving_rate`: maximum saving deposit rate (`qmax_elec`).
 

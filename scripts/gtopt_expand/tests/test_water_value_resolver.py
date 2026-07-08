@@ -8,17 +8,19 @@ These tests pin the auto water-fail-cost wiring contract:
   to :class:`gtopt_expand.laja_agreement.LajaAgreement` /
   :class:`gtopt_expand.maule_agreement.MauleAgreement` *and*
   ``resolver.is_active`` is ``True``, the rendered template context's
-  ``cost_irr_ns`` / ``cost_elec_ns`` (Laja) and ``penalty_invernada``
+  ``cost_irr_ns`` (Laja retiro deficit base) and ``penalty_invernada``
   (Maule) are replaced by energy-equivalent values derived from
   :meth:`WaterValueResolver.fail_cost` / :meth:`efin_cost` at the
-  relevant cascade lost-pf.
+  relevant cascade lost-pf.  (``cost_elec_ns`` no longer exists — PLP
+  has no electric non-served cost; the 1150 datum is a usage cost.)
 * When the resolver is ``None`` or ``is_active`` is ``False`` the
   legacy PLP cost fields are preserved verbatim — this is the
   back-compat path used by every existing call site that hasn't
   opted in to the new pipeline.
-* ``cost_irr_uso`` / ``cost_elec_uso`` / ``cost_mixed`` are *use_value*
-  benefits (LP gains by using the water for these purposes), not
-  penalty costs, so they are NOT touched regardless of resolver state.
+* ``cost_irr_uso`` / ``cost_elec_uso`` / ``cost_mixed_uso`` /
+  ``cost_antic_uso`` are usage costs on the rights flows (emitted as
+  negative ``uvalue``), so they are NOT touched regardless of
+  resolver state.
 * Per-district FlowRights with an explicit ``injection`` central use
   ``cascade_lost_pf(injection)`` rather than the Laja-main cascade.
 """
@@ -145,9 +147,9 @@ def _minimal_laja_config() -> dict[str, Any]:
         "qmax_anticipated": 0,
         "cost_irr_ns": 1000,
         "cost_irr_uso": 0.25,
-        "cost_elec_ns": 1100,
         "cost_elec_uso": 0.1,
-        "cost_mixed": 1.0,
+        "cost_mixed_uso": 1.0,
+        "cost_antic_uso": 0.0,
         "monthly_usage_irr": [1] * 12,
         "monthly_usage_elec": [1] * 12,
         "monthly_usage_mixed": [1] * 12,
@@ -264,7 +266,12 @@ def _flow_right(agreement: Any, name: str) -> dict[str, Any]:
 # Laja tests
 # ---------------------------------------------------------------------------
 def test_laja_with_resolver_active_overrides_costs():
-    """Active resolver → cost_irr_ns / cost_elec_ns reflect the cascade."""
+    """Active resolver → the district deficit base reflects the cascade.
+
+    The main rights flows carry NO fail cost (PLP's non-served
+    penalties live on the retiro deficits only), so the override is
+    observable on the district FlowRights.
+    """
     cfg = _minimal_laja_config()
     resolver = _MockWaterValueResolver(
         is_active=True,
@@ -274,24 +281,22 @@ def test_laja_with_resolver_active_overrides_costs():
     agreement = LajaAgreement(cfg, water_value_resolver=resolver)
 
     expected = resolver.fail_cost(resolver.cascade_lost_pf(10))  # 1100 * 0.7
-    fr_riego = _flow_right(agreement, "laja_der_riego")
-    fr_electrico = _flow_right(agreement, "laja_der_electrico")
-    assert _scalar_from_sched(fr_riego["fcost"]) == expected
-    assert _scalar_from_sched(fr_electrico["fcost"]) == expected
-    # Anticipated FlowRight is also anchored to cost_irr_ns
-    fr_antic = _flow_right(agreement, "laja_gasto_anticipado")
-    assert _scalar_from_sched(fr_antic["fcost"]) == 0.0  # monthly factor 0
+    fr_d1 = _flow_right(agreement, "D1_1o_reg")
+    assert _scalar_from_sched(fr_d1["fcost"]) == expected  # cost_factor=1
+    # The rights flows themselves never carry an NS cost.
+    for name in ("laja_der_riego", "laja_der_electrico", "laja_gasto_anticipado"):
+        assert "fcost" not in _flow_right(agreement, name)
 
 
 def test_laja_without_resolver_preserves_legacy_costs():
-    """No resolver → cfg values flow into the FlowRights unchanged."""
+    """No resolver → cfg values flow into the entities unchanged."""
     cfg = _minimal_laja_config()
     agreement = LajaAgreement(cfg)  # water_value_resolver=None by default
 
-    fr_riego = _flow_right(agreement, "laja_der_riego")
+    fr_d1 = _flow_right(agreement, "D1_1o_reg")
+    assert _scalar_from_sched(fr_d1["fcost"]) == cfg["cost_irr_ns"]
     fr_electrico = _flow_right(agreement, "laja_der_electrico")
-    assert _scalar_from_sched(fr_riego["fcost"]) == cfg["cost_irr_ns"]
-    assert _scalar_from_sched(fr_electrico["fcost"]) == cfg["cost_elec_ns"]
+    assert _scalar_from_sched(fr_electrico["uvalue"]) == -cfg["cost_elec_uso"]
 
 
 def test_laja_resolver_inactive_preserves_legacy_costs():
@@ -303,8 +308,8 @@ def test_laja_resolver_inactive_preserves_legacy_costs():
         centrals={"TEST_CENTRAL": (10, 0.7)},
     )
     agreement = LajaAgreement(cfg, water_value_resolver=resolver)
-    fr_riego = _flow_right(agreement, "laja_der_riego")
-    assert _scalar_from_sched(fr_riego["fcost"]) == cfg["cost_irr_ns"]
+    fr_d1 = _flow_right(agreement, "D1_1o_reg")
+    assert _scalar_from_sched(fr_d1["fcost"]) == cfg["cost_irr_ns"]
 
 
 def test_laja_district_per_central_cascade():
@@ -369,24 +374,23 @@ def test_laja_use_values_unchanged():
     a_off = LajaAgreement(cfg, water_value_resolver=resolver_off)
     a_on = LajaAgreement(cfg, water_value_resolver=resolver_on)
 
-    # The legacy use-value paths emit FlowRights with a ``use_value``
-    # field equal to ``cost_*_uso × monthly_factor`` (here all 1.0), so
-    # the rendered scalar must equal cfg["cost_*_uso"] / cfg["cost_mixed"]
-    # in both modes.
+    # Usage costs are emitted as NEGATIVE uvalue (PLP charges the
+    # rights flows) — `-cost_*_uso × monthly_factor` (here all 1.0) —
+    # and must be identical whether the resolver is on or off.
     fr_riego_off = _flow_right(a_off, "laja_der_riego")
     fr_riego_on = _flow_right(a_on, "laja_der_riego")
-    assert _scalar_from_sched(fr_riego_off["uvalue"]) == cfg["cost_irr_uso"]
-    assert _scalar_from_sched(fr_riego_on["uvalue"]) == cfg["cost_irr_uso"]
+    assert _scalar_from_sched(fr_riego_off["uvalue"]) == -cfg["cost_irr_uso"]
+    assert _scalar_from_sched(fr_riego_on["uvalue"]) == -cfg["cost_irr_uso"]
 
     fr_elec_off = _flow_right(a_off, "laja_der_electrico")
     fr_elec_on = _flow_right(a_on, "laja_der_electrico")
-    assert _scalar_from_sched(fr_elec_off["uvalue"]) == cfg["cost_elec_uso"]
-    assert _scalar_from_sched(fr_elec_on["uvalue"]) == cfg["cost_elec_uso"]
+    assert _scalar_from_sched(fr_elec_off["uvalue"]) == -cfg["cost_elec_uso"]
+    assert _scalar_from_sched(fr_elec_on["uvalue"]) == -cfg["cost_elec_uso"]
 
     fr_mixed_off = _flow_right(a_off, "laja_der_mixto")
     fr_mixed_on = _flow_right(a_on, "laja_der_mixto")
-    assert _scalar_from_sched(fr_mixed_off["uvalue"]) == cfg["cost_mixed"]
-    assert _scalar_from_sched(fr_mixed_on["uvalue"]) == cfg["cost_mixed"]
+    assert _scalar_from_sched(fr_mixed_off["uvalue"]) == -cfg["cost_mixed_uso"]
+    assert _scalar_from_sched(fr_mixed_on["uvalue"]) == -cfg["cost_mixed_uso"]
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +486,6 @@ def test_from_json_threads_resolver(tmp_path):
     )
     agreement = LajaAgreement.from_json(json_path, water_value_resolver=resolver)
 
-    fr_riego = _flow_right(agreement, "laja_der_riego")
+    fr_d1 = _flow_right(agreement, "D1_1o_reg")
     expected = resolver.fail_cost(resolver.cascade_lost_pf(10))
-    assert _scalar_from_sched(fr_riego["fcost"]) == expected
+    assert _scalar_from_sched(fr_d1["fcost"]) == expected

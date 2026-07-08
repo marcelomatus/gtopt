@@ -616,22 +616,24 @@ class TestMauleInvernadaBalance:
         assert not missing, f"Missing Invernada FlowRights: {missing}"
 
     def test_invernada_storage_use_value(self):
-        """Storage FlowRight should have use_value from costo_embalsar."""
+        """Storage uvalue is NEGATIVE: PLP FO(IQHINV) = +CostoEmbalsar
+        is a penalty, and a negative uvalue charges the flow."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         storage = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_embalsar"
         )
-        assert storage["uvalue"] == pytest.approx(1500.0)
+        assert storage["uvalue"] == pytest.approx(-1500.0)
 
     def test_invernada_bypass_use_value(self):
-        """Bypass FlowRight should have use_value from costo_no_embalsar."""
+        """Bypass uvalue is NEGATIVE: PLP FO(IQHNEIN) = +CostoNoEmbalsar
+        is a penalty, and a negative uvalue charges the flow."""
         cfg = _minimal_maule_config()
         writer = MauleWriter(cfg)
         bypass = next(
             fr for fr in writer.flow_rights if fr["name"] == "invernada_no_embalsar"
         )
-        assert bypass["uvalue"] == pytest.approx(1000.0)
+        assert bypass["uvalue"] == pytest.approx(-1000.0)
 
     def test_invernada_storage_zero_cost_omitted(self):
         """When costo_embalsar is 0, use_value should not be emitted."""
@@ -655,7 +657,8 @@ class TestMauleBocatomaCanelon:
             None,
         )
         assert canelon is not None
-        assert canelon["uvalue"] == pytest.approx(10.0)
+        # PLP: FO += CostoCanelon (penalty) → negative uvalue.
+        assert canelon["uvalue"] == pytest.approx(-10.0)
         assert canelon["purpose"] == "irrigation"
 
     def test_bocatoma_zero_cost_omitted(self):

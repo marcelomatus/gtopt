@@ -206,8 +206,13 @@
     {#   seg[0]: V>=0,   const=0   (OFF below normal zone)          #}
     {#   seg[1]: V>=581, const=30  (ON in normal zone)              #}
     {#                                                               #}
-    {# fail_cost: PLP Penalizador_1 (1500 $/m3/s).  Applied when    #}
-    {# the optimizer cannot deliver the full electric entitlement.   #}
+    {# No fail cost: PLP has no non-served penalty on IQMNE — the    #}
+    {# flow is bounded by FijaMaule zone logic (the bound_rule here). #}
+    {# The former `fcost: penalizador_1` was a misread of the         #}
+    {# Invernada CostoEmbalsar penalizador AND, worse, a target-0     #}
+    {# fcost-only kink pins the flow column to zero (uppb =           #}
+    {# min(fmax, target) after substitution), disabling the normal    #}
+    {# electric right entirely.                                       #}
     {# ============================================================= #}
     {
       "name": "maule_gasto_normal_elec",
@@ -216,7 +221,6 @@
       "target": 0,
       "fmax": {{ elec_day_max }},
       "use_average": true,
-      "fcost": {{ penalizador_1 }},
       "bound_rule": {
         "reservoir": {{ res_colbun }},
         "segments": [
@@ -446,8 +450,10 @@
       "use_average": true
     },
 
-    {# Storage FlowRight: use_value = CostoEmbalsar (PLP: 1500 $/m3)#}
-    {# Only emitted when costo_embalsar > 0.                        #}
+    {# Storage FlowRight.  PLP: FO(IQHINV) = +CostoEmbalsar (1500), #}
+    {# a positive PENALTY (genpdmaule.f GenPDMauleEtaFO).  Emitted   #}
+    {# as a NEGATIVE uvalue so the target-0 kink charges (not        #}
+    {# rewards) each unit of stored flow.                            #}
     {
       "name": "invernada_embalsar",
       "purpose": "economy",
@@ -456,12 +462,12 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_embalsar > 0 %}
-      ,"uvalue": {{ costo_embalsar }}
+      ,"uvalue": {{ -costo_embalsar }}
       {% endif %}
     },
 
-    {# Bypass FlowRight: use_value = CostoNoEmbalsar (PLP: 1000 $/m3)#}
-    {# Only emitted when costo_no_embalsar > 0.                     #}
+    {# Bypass FlowRight.  PLP: FO(IQHNEIN) = +CostoNoEmbalsar        #}
+    {# (1000), a positive PENALTY — emitted as NEGATIVE uvalue.      #}
     {
       "name": "invernada_no_embalsar",
       "purpose": "economy",
@@ -470,7 +476,7 @@
       "fmax": {{ qmax_invernada }},
       "use_average": true
       {% if costo_no_embalsar > 0 %}
-      ,"uvalue": {{ costo_no_embalsar }}
+      ,"uvalue": {{ -costo_no_embalsar }}
       {% endif %}
     }
 
@@ -479,7 +485,8 @@
     {#                                                               #}
     {# Canal intake infrastructure cost.  Penalizes use of the       #}
     {# Canelon irrigation intake when water is diverted through it.  #}
-    {# PLP: CostoCanelon * BloDur/FPhi in objective function.        #}
+    {# PLP: FO += CostoCanelon * BloDur/FPhi — a positive PENALTY,   #}
+    {# emitted as NEGATIVE uvalue on the target-0 kink.              #}
     {#                                                               #}
     {# Conditional — only emitted when costo_canelon > 0.            #}
     {# ============================================================= #}
@@ -489,7 +496,7 @@
       "purpose": "irrigation",
       "direction": -1,
       "target": 0,
-      "uvalue": {{ costo_canelon }}
+      "uvalue": {{ -costo_canelon }}
     }
     {% endif %}
 
