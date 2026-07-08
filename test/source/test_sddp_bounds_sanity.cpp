@@ -180,6 +180,32 @@ TEST_CASE("SDDP bounds sanity — cut_sharing=none is strictly correct")
     REQUIRE(results.has_value());
     check_iteration_invariants_strict(*results, "2s10p none");
   }
+
+  // T8 (coverage-audit G10): resampled forward sampling composed with
+  // the unconditionally-valid `none` LB.  Identical scene data (the
+  // fixture differs only in probabilities, and 0.5/0.5 makes even the
+  // measure identical), so resampled ≡ persistent process-wise and the
+  // strict LB <= UB invariant must hold end-to-end through the re-draw
+  // + `apply_sampled_realization` machinery.  Cheap defense-in-depth
+  // next to the oracle's resampled cases.
+  SUBCASE("2s3p cut_sharing=none forward_sampling=resampled")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 8;
+    opts.convergence_tol = 1.0e-4;
+    opts.cut_sharing = CutSharingMode::none;
+    opts.forward_sampling = ForwardSamplingMode::resampled;
+    opts.apertures = std::vector<Uid> {};  // pure Benders backward pass
+    opts.enable_api = false;
+
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    check_iteration_invariants_strict(*results, "2s3p none+resampled");
+  }
 }
 
 // ─── cut_sharing=multicut: PLP-faithful mechanism (WARN on heterogeneous) ──
@@ -303,6 +329,120 @@ TEST_CASE("SDDP bounds sanity — identical scenes, markov preserves LB <= UB")
   auto results = sddp.solve();
   REQUIRE(results.has_value());
   check_iteration_invariants_strict(*results, "2s10p markov");
+}
+
+// T1 (coverage-audit G1): markov × dual_shared cross-feature.  The
+// dual-shared synthesis copies the representative's cut ROW (same α
+// coefficient/column) and only corrects the intercept, so under markov
+// the synthesized/ecut rows must land on the Markov-STATE column
+// `varphi_{m(S)}` resolved by `find_source_alpha_state_var` — exactly
+// like the exact-aperture path (soundness review §2).  The state map is
+// deliberately NON-identity ({1, 0}), so a routing bug that falls back
+// to `varphi_S` (the multicut column) or `varphi_0` (single-α) flips
+// the assertion.  Identical scene data (0.5/0.5) keeps the strict
+// LB <= UB gate applicable.
+TEST_CASE(
+    "SDDP bounds sanity — markov × dual_shared routes cuts onto "
+    "varphi_m(S) and preserves LB <= UB")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 6;
+  opts.convergence_tol = 1.0e-4;
+  opts.cut_sharing = CutSharingMode::markov;
+  // Singleton states with a SWAPPED scene→state map: scene 0 → state 1,
+  // scene 1 → state 0.
+  opts.markov = make_markov_config(
+      {
+          1,
+          0,
+      },
+      {
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+      });
+  // Cross-scenario synthetic apertures (non-empty UID request with no
+  // aperture_array — see resolve_effective_apertures) + dual-shared
+  // synthesis.
+  opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
+  opts.aperture_solve_mode = ApertureSolveMode::dual_shared;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  check_iteration_invariants_strict(*results, "2s3p markov×dual_shared");
+
+  const auto& sim = plp.simulation();
+  const auto scene_pos_of = [&](SceneUid uid) -> std::optional<SceneIndex>
+  {
+    for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+      if (sim.uid_of(si) == uid) {
+        return si;
+      }
+    }
+    return std::nullopt;
+  };
+  const auto phase_pos_of = [&](PhaseUid uid) -> std::optional<PhaseIndex>
+  {
+    for (const auto pi : iota_range<PhaseIndex>(0, sim.phase_count())) {
+      if (sim.uid_of(pi) == uid) {
+        return pi;
+      }
+    }
+    return std::nullopt;
+  };
+
+  int checked = 0;
+  for (const auto& sc : sddp.stored_cuts()) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto scene = scene_pos_of(sc.scene_uid);
+    const auto phase = phase_pos_of(sc.phase_uid);
+    REQUIRE(scene.has_value());
+    REQUIRE(phase.has_value());
+
+    const auto mstate = opts.markov.state_of(*scene);
+    const auto other_state = 1 - mstate;
+    const auto* expected_svar = find_alpha_state_var(
+        sim,
+        *scene,
+        *phase,
+        /*source_scene=*/SceneIndex {static_cast<Index>(mstate)});
+    const auto* other_svar = find_alpha_state_var(
+        sim,
+        *scene,
+        *phase,
+        /*source_scene=*/SceneIndex {static_cast<Index>(other_state)});
+    REQUIRE(expected_svar != nullptr);
+    REQUIRE(other_svar != nullptr);
+
+    const auto coeff_on = [&](ColIndex col) -> double
+    {
+      for (const auto& [c, v] : sc.coefficients) {
+        if (c == col) {
+          return v;
+        }
+      }
+      return 0.0;
+    };
+    INFO("cut scene_uid=",
+         static_cast<int>(sc.scene_uid),
+         " phase_uid=",
+         static_cast<int>(sc.phase_uid),
+         " m(S)=",
+         mstate);
+    CHECK(coeff_on(expected_svar->col()) != 0.0);
+    CHECK(coeff_on(other_svar->col()) == 0.0);
+    ++checked;
+  }
+  // The run must actually have produced optimality cuts to certify.
+  CHECK(checked > 0);
 }
 
 // ─── cut_sharing ∈ {none, multicut} with IDENTICAL scenes: no overshoot ──

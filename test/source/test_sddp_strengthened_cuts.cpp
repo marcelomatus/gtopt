@@ -36,13 +36,17 @@
  * `run_or_skip_license` per the unit-commitment test conventions.
  */
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -51,6 +55,7 @@
 #include <gtopt/json/json_sddp_options.hpp>
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
@@ -962,5 +967,127 @@ TEST_CASE("IntegerCutsMode option plumbing")  // NOLINT
   {
     const SDDPOptions opts {};
     CHECK(opts.integer_cuts == IntegerCutsMode::none);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// T5 (coverage-audit G5): strengthened cuts through the Parquet codec.
+// The strengthened intercept `max(b_LP, m*)` is the whole point of the
+// mode — any precision loss in the cut file silently degrades a
+// hot-start back toward the LP-relaxation intercept.  Save a trained
+// strengthened cut set, reload into a fresh identical planning via the
+// canonical hot-start path (`SDDPMethod::load_cuts`), and assert every
+// cut's rhs and coefficient multiset survive bit-tight (Parquet stores
+// raw float64 — exact by construction; this guards the writer/loader
+// against a narrowing cast).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP strengthened cuts — Parquet round-trip preserves the tightened "
+    "intercept")
+{
+  const auto mip_solver = solver_test::first_mip_solver();
+  if (mip_solver.empty()) {
+    MESSAGE("no exact MIP solver loaded — skipping strengthened round-trip");
+    return;
+  }
+
+  const bool ran = solver_test::run_or_skip_license(
+      [&]
+      {
+        const auto cuts_file =
+            (std::filesystem::temp_directory_path()
+             / "gtopt_test_strengthened_cut_roundtrip.parquet")
+                .string();
+
+        auto planning =
+            make_commitment_planning(0.6, 0.4, mip_solver, kWitnessDemand);
+        set_scenario_inflows(planning, kWitnessWetInflow, kWitnessDryInflow);
+        PlanningLP plp(std::move(planning));
+        SDDPMethod sddp(
+            plp, sddp_opts(IntegerCutsMode::strengthened, /*max_iter=*/3));
+        auto results = sddp.solve();
+        REQUIRE(results.has_value());
+        const auto orig = sddp.stored_cuts();
+        REQUIRE_FALSE(orig.empty());
+        REQUIRE(save_cuts_parquet(orig, plp, cuts_file).has_value());
+
+        // Match on the (type, scene, phase, iteration) 4-tuple — NOT
+        // the full `CutKey`: the loader deliberately re-encodes the
+        // `extra` discriminator as the origin-encoded broadcast
+        // context (`ctx_extra = extra·N + origin`,
+        // `sddp_cut_parquet.cpp`).  Unique per cut on this fixture.
+        using RoundTripKey = std::tuple<CutType, SceneUid, PhaseUid, Uid>;
+        const auto rt_key = [](const StoredCut& sc) -> RoundTripKey
+        {
+          return {sc.type,
+                  sc.scene_uid,
+                  sc.phase_uid,
+                  static_cast<Uid>(gtopt::uid_of(sc.iteration_index))};
+        };
+        std::map<RoundTripKey, const StoredCut*> orig_by_key;
+        for (const auto& sc : orig) {
+          const auto [it_ins, inserted] = orig_by_key.emplace(rt_key(sc), &sc);
+          REQUIRE_MESSAGE(inserted, "4-tuple key not unique in saved set");
+        }
+
+        auto planning2 =
+            make_commitment_planning(0.6, 0.4, mip_solver, kWitnessDemand);
+        set_scenario_inflows(planning2, kWitnessWetInflow, kWitnessDryInflow);
+        PlanningLP plp2(std::move(planning2));
+        SDDPMethod sddp2(
+            plp2, sddp_opts(IntegerCutsMode::strengthened, /*max_iter=*/1));
+        REQUIRE(sddp2.ensure_initialized().has_value());
+        const auto loaded = sddp2.load_cuts(cuts_file);
+        REQUIRE(loaded.has_value());
+
+        const auto rt = sddp2.stored_cuts();
+        REQUIRE(rt.size() == orig.size());
+        std::size_t matched = 0;
+        for (const auto& sc : rt) {
+          const auto it = orig_by_key.find(rt_key(sc));
+          REQUIRE_MESSAGE(it != orig_by_key.end(),
+                          "reloaded cut key not present in the saved set");
+          const auto& ov = *it->second;
+          // The strengthened intercept must survive bit-tight — this is
+          // exactly the value `max(b_LP, m*)` tightened.  Coefficients
+          // are compared as SPARSE maps (absent ⇒ 0.0): the loader's
+          // noise filter legitimately drops exactly-zero coefficients
+          // (e.g. a 0 state slope on a flat fixture), which is
+          // value-identical, not precision loss.  Identical planning
+          // construction → identical column order, so ColIndex keys
+          // are comparable across the two runs.
+          CHECK(sc.rhs == doctest::Approx(ov.rhs).epsilon(1.0e-15));
+          const auto coeff_of = [](const StoredCut& cut, ColIndex col) -> double
+          {
+            for (const auto& [c, v] : cut.coefficients) {
+              if (c == col) {
+                return v;
+              }
+            }
+            return 0.0;
+          };
+          std::set<ColIndex> cols;
+          for (const auto& [c, v] : sc.coefficients) {
+            cols.insert(c);
+          }
+          for (const auto& [c, v] : ov.coefficients) {
+            cols.insert(c);
+          }
+          for (const auto col : cols) {
+            INFO("col ", static_cast<int>(col));
+            CHECK(coeff_of(sc, col)
+                  == doctest::Approx(coeff_of(ov, col)).epsilon(1.0e-15));
+          }
+          ++matched;
+        }
+        CHECK(matched == orig.size());
+
+        std::filesystem::remove(cuts_file);
+      });
+  if (!ran) {
+    MESSAGE(
+        "MIP solver license unavailable — strengthened round-trip "
+        "skipped");
   }
 }
