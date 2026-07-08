@@ -223,6 +223,23 @@ struct VolumeRight
   /// `volume_right_array` (same constraint as `right_reservoir`).
   OptSingleId reset_debit_right {};
 
+  /// Credit reference for the reset provisioning (PLP compensation
+  /// recompute at INICIOANO, genpdmaule.f:942-957):
+  ///
+  ///     provision = min(emax, own_incoming + credit_incoming)
+  ///
+  /// where `own_incoming` is this bucket's carried state and
+  /// `credit_incoming` the referenced bucket's remaining volume (e.g.
+  /// the annual electric bucket: unused annual rights convert into
+  /// compensation, capped at emax = VCompElecMax).  Evaluated
+  /// NUMERICALLY per stage in `update_lp` (mirroring PLP's FijaMaule,
+  /// which fixes IVMDCEN from VarMaulePrev each stage/sim); the
+  /// horizon's first stage keeps its config `eini`.
+  ///
+  /// ORDERING: the referenced VolumeRight must appear EARLIER in
+  /// `volume_right_array`.
+  OptSingleId reset_credit_right {};
+
   /// Volume-dependent bound rule for dynamic extraction adjustment.
   /// Serves two purposes:
   /// 1. Per-block: caps extraction rate to min(fmax, rule_value)

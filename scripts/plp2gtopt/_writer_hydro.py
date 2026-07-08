@@ -732,6 +732,52 @@ class HydroMixin:
                     key,
                 )
 
+    def _hoya_inter_stage_means(self, names: list) -> list | None:
+        """Duration-weighted stage means of the hoya-intermedia inflows.
+
+        Mirrors PLP's ``QAfluEtaM``/``GetQsLajaM`` (genpdlajam.f:370-446):
+        for each stage, the block-duration-weighted mean of the summed
+        natural inflows of the intermediate-basin centrals (ABANICO,
+        ANTUCO, CANECOL, TUCAPEL).  Uses the FIRST hydrology column —
+        consistent with ``--first-scenario`` conversions; multi-scenario
+        netting would need scenario-dimensioned schedules (documented
+        as a refinement in the test plan).
+
+        Returns a per-stage list (stage 1 first), or ``None`` when the
+        aflce/block data is unavailable (the agreement then falls back
+        to the gross district cap).
+        """
+        aflce = self.parser.parsed_data.get("aflce_parser")
+        blocks = self.parser.parsed_data.get("block_parser")
+        if aflce is None or blocks is None or not names:
+            return None
+        per_stage: Dict[int, list] = {}
+        for blk in blocks.blocks:
+            per_stage.setdefault(int(blk["stage"]), []).append(
+                (int(blk["number"]), float(blk["duration"]))
+            )
+        if not per_stage:
+            return None
+        flows_by_name = {}
+        for name in names:
+            entry = aflce.get_flow_by_name(str(name))
+            if entry is not None:
+                flows_by_name[str(name)] = {
+                    int(b): float(f[0]) for b, f in zip(entry["block"], entry["flow"])
+                }
+        if not flows_by_name:
+            return None
+        means: list = []
+        for stage_num in sorted(per_stage):
+            total_dur = 0.0
+            acc = 0.0
+            for blk_num, dur in per_stage[stage_num]:
+                q = sum(fb.get(blk_num, 0.0) for fb in flows_by_name.values())
+                acc += dur * q
+                total_dur += dur
+            means.append(acc / total_dur if total_dur > 0 else 0.0)
+        return means
+
     def _expand_laja(
         self,
         cfg: Mapping[str, Any],
@@ -747,6 +793,12 @@ class HydroMixin:
         self._inject_anchor_refs(
             cfg, {"anchor_turbinado_ref": str(cfg.get("central_laja", ""))}
         )
+        # Hoya-intermedia inflow means for the qdefm netting
+        # (GetQsLajaM): lets the attribution cap subtract what the
+        # tributaries already deliver.
+        q_hoya = self._hoya_inter_stage_means(list(cfg.get("intermediate_basins", [])))
+        if q_hoya is not None:
+            cfg["q_hoya_inter"] = q_hoya
         agreement = LajaAgreement(
             dict(cfg),
             stage_parser=stage_parser,

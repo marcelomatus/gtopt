@@ -43,6 +43,59 @@
 namespace gtopt
 {
 
+namespace
+{
+
+/// Read a VolumeRight's INCOMING volume at `stage` — the state its
+/// balance would start from before any reset provisioning:
+///
+///   * in-phase predecessor (shared LP): the previous stage's efin
+///     column solution (post-solve; config `eini` before the first
+///     solve),
+///   * cross-phase boundary: the predecessor phase's `efin`
+///     StateVariable (`col_sol_physical()`, updated after every
+///     forward solve — the same channel `physical_eini_from_cache`
+///     uses for reservoirs),
+///   * horizon start / no information: the config `eini`.
+///
+/// Numeric (not an LP expression) — mirrors PLP's FijaMaule, which
+/// evaluates the compensation recompute from `VarMaulePrev` each
+/// stage/sim (genpdmaule.f:942-957).
+template<typename SystemLPT>
+[[nodiscard]] Real volume_right_incoming_state(SystemLPT& sys,
+                                               const ScenarioLP& scenario,
+                                               const StageLP& stage,
+                                               const VolumeRightLP& vr)
+{
+  const Real def = vr.volume_right().eini.value_or(0.0);
+  if (stage.index() > 0) {
+    const auto& stages = sys.phase().stages();
+    const auto& li = sys.linear_interface();
+    if (li.is_optimal()) {
+      return li
+          .get_col_sol()[vr.efin_col_at(scenario, stages[stage.index() - 1])];
+    }
+    return def;
+  }
+  if (const auto* prev_sys = sys.prev_phase_sys()) {
+    const auto& prev_stages = prev_sys->phase().stages();
+    if (!prev_stages.empty()) {
+      auto svar_opt = sys.system_context().simulation().state_variable(
+          StateVariable::key(scenario,
+                             prev_stages.back(),
+                             VolumeRightLP::Element::class_name,
+                             vr.uid(),
+                             "efin"));
+      if (svar_opt.has_value()) {
+        return svar_opt->get().col_sol_physical();
+      }
+    }
+  }
+  return def;
+}
+
+}  // namespace
+
 VolumeRightLP::VolumeRightLP(const VolumeRight& pvol, const InputContext& ic)
     : StorageBase(pvol, ic, Element::class_name)
     , demand(ic, Element::class_name, id(), std::move(volume_right().demand))
@@ -202,6 +255,11 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
       .use_state_variable = volume_right().use_state_variable.value_or(true),
       .daily_cycle = false,
       .skip_state_link = is_reset_stage && is_cross_phase,
+      // In-phase reset: decouple this stage's initial state from the
+      // previous stage's efin column so the provisioning pin / debit
+      // row cannot corrupt the prior balance (storage_lp.hpp shares
+      // the column in the same-phase layout).
+      .break_stage_chain = is_reset_stage && !is_cross_phase,
       .class_name = Element::class_name.full_name(),
       .variable_uid = uid(),
       .energy_scale = energy_scale,
@@ -251,12 +309,27 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
     // bound_rule evaluation, then the first block's ``emax`` (the
     // reset is a per-stage event; block 0 holds the stage's nominal
     // cap).
-    const auto provision = volume_right().reset_value.has_value()
-        ? *volume_right().reset_value
-        : (opt_rule.has_value()
-               ? initial_rule_bound
-               : param_emax(stage.uid(), stage.blocks().front().uid())
-                     .value_or(0.0));
+    const auto stage_cap =
+        param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
+    // Provision resolution: reset_value > credit recompute > bound_rule
+    // > emax.  The credit path (PLP compensation at INICIOANO) uses
+    // build-time config states here; update_lp refreshes it each
+    // iteration from the solved/propagated states.
+    Real provision = 0.0;
+    if (volume_right().reset_value.has_value()) {
+      provision = *volume_right().reset_value;
+    } else if (const auto& credit_ref = volume_right().reset_credit_right;
+               credit_ref.has_value())
+    {
+      const auto& credit_lp = sc.element(VolumeRightLPSId(*credit_ref));
+      provision = std::min(stage_cap,
+                           volume_right().eini.value_or(0.0)
+                               + credit_lp.volume_right().eini.value_or(0.0));
+    } else if (opt_rule.has_value()) {
+      provision = initial_rule_bound;
+    } else {
+      provision = stage_cap;
+    }
     if (const auto& debit_ref = volume_right().reset_debit_right;
         debit_ref.has_value())
     {
@@ -419,11 +492,49 @@ int VolumeRightLP::update_lp(SystemLP& sys,
                              const StageLP& stage)
 {
   const auto& opt_rule = volume_right().bound_rule;
-  if (!opt_rule.has_value()) {
+  const auto& credit_ref = volume_right().reset_credit_right;
+  if (!opt_rule.has_value() && !credit_ref.has_value()) {
     return 0;
   }
 
   auto& li = sys.linear_interface();
+
+  // ── Credit recompute (PLP FijaMaule INICIOANO, genpdmaule.f:942-957):
+  //    provision = min(emax, own_incoming + credit_incoming), read
+  //    numerically from the solved/propagated states each iteration.
+  //    Independent of the bound_rule machinery below.
+  if (credit_ref.has_value()) {
+    const auto& rm_credit = volume_right().reset_month;
+    const bool is_credit_reset = rm_credit.has_value()
+        && require_stage_month(stage,
+                               Element::class_name.full_name(),
+                               std::format("uid={}", uid()),
+                               "reset_month (credit update)")
+            == *rm_credit;
+    if (is_credit_reset
+        && (stage.index() > 0 || sys.prev_phase_sys() != nullptr))
+    {
+      const auto& credit_lp =
+          sys.system_context().template element<VolumeRightLP>(
+              VolumeRightLPSId(*credit_ref));
+      const Real own_in =
+          volume_right_incoming_state(sys, scenario, stage, *this);
+      const Real credit_in =
+          volume_right_incoming_state(sys, scenario, stage, credit_lp);
+      const auto cap =
+          param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
+      const Real provision = std::min(cap, own_in + credit_in);
+      const auto eini_col = eini_col_at(scenario, stage);
+      li.set_col_low(eini_col, provision);
+      li.set_col_upp(eini_col, provision);
+      if (!opt_rule.has_value()) {
+        return 1;
+      }
+    }
+    if (!opt_rule.has_value()) {
+      return 0;
+    }
+  }
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};
   auto& state = m_bound_states_.at(st_key);

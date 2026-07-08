@@ -152,12 +152,16 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    riego segments carry the `DerMixtoBase×(1−FMixto)` transfer; the
    B1 golden test (`test_zone_formula_matches_cen_tabla1`) pins the
    emitted rights to the 2017 Acuerdo's Tabla 1.
-4. `qdrh + qdmh + qgah ≤ qdefm` attribution cap — first pass done
-   2026-07: `laja_retiro_maximo` caps riego-side charging at the GROSS
-   modeled district deliveries.  Remaining: PLP's qdefm additionally
-   nets out hoya-intermedia tributary inflows and filtration
-   (GetQsLajaM, scenario- and volume-dependent) — the gross cap is
-   looser by that netting.
+4. ~~`qdrh + qdmh + qgah ≤ qdefm` attribution cap~~ — done 2026-07:
+   the cap now uses the NETTED per-stage requirement (GetQsLajaM):
+   plp2gtopt computes the duration-weighted hoya-intermedia inflow
+   means from the aflce data and the agreement emits the `laja_qdefm`
+   carrier FlowRight (fixed column) that the cap references; gross
+   district deliveries remain the fallback for configs without
+   inflow data.  STATIC-FILTRATION approximation (QFiltLaja =
+   QFiltHist, so QDefAbanico = 0) and FIRST-hydrology inflows —
+   volume-dependent filtration and scenario-dimensioned schedules are
+   the remaining refinements.
 5. ~~Maule monthly electric-counter reset~~ — done 2026-07: new
    `VolumeRight.reset_monthly` re-provisions at every month start
    (PLP TipoEtaDE != INTRAETA); the annual bucket resets in january
@@ -168,6 +172,15 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    ledgers accumulate normal+ordinario flows, plpeta stage months are
    HYDRO-indexed and now convert to calendar in stage_parser (the
    February=672h discriminator), and the Maule monthly arrays index
-   by hydro month.  Compensation recompute at year start (VCompElecN
-   credit) remains open.
+   by hydro month.  The compensation recompute at year start is done
+   too: new `VolumeRight.reset_credit_right` — at the january reset
+   the provision is `min(emax, own_incoming + credit_incoming)`,
+   evaluated numerically per stage in `update_lp` exactly like PLP's
+   FijaMaule (Tier 9.7 pins 40 -> 30 across a solve+update; the e2e
+   solve shows the january conversion live: annual 250 -> 112.4
+   remaining becomes the compensation provision).  The same batch
+   fixed the in-phase reset chain (`StorageOptions.break_stage_chain`:
+   a reset stage now gets a FRESH eini column instead of pinning the
+   previous stage's shared efin — Tier 9.6 now solves and proves the
+   prior balance stays intact).
 6. ~~`update_lp` re-clamp vs substitution~~ — fixed 2026-07 (A1).

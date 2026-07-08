@@ -253,6 +253,9 @@ class TestWaterRightsIntegration:
         ):
             assert f"constraint {name}" in laja
         assert "constraint laja_retiro_maximo" in laja
+        # The full conversion has aflce data, so the cap is the NETTED
+        # qdefm carrier (GetQsLajaM), not the gross district fallback.
+        assert "<= flow_right('laja_qdefm').flow;" in laja
 
         maule = (out / "maule.pampl").read_text(encoding="utf-8")
         assert "constraint maule_anclaje_particion" in maule
@@ -348,7 +351,7 @@ class TestWaterRightsIntegration:
             assert uc_files or uc_file, "No user_constraint_array or file(s)"
 
     def test_total_flow_rights(self, converted_case):
-        """Total flow rights = 35 water-rights + 3 irrigation diversions.
+        """Total = 35 water-rights + 3 diversions + 1 qdefm carrier.
 
         Layout:
         * 35 from the Laja + Maule water-rights agreements.  Hydro
@@ -387,7 +390,9 @@ class TestWaterRightsIntegration:
         for fr in diversions:
             assert fr.get("consumptive") is True
             assert fr.get("direction") == -1
-        assert len(frs) == 38, f"Expected 38 total flow rights, got {len(frs)}"
+        # +1: the `laja_qdefm` netting carrier (fixed column holding the
+        # per-stage net irrigation requirement for the attribution cap).
+        assert len(frs) == 39, f"Expected 39 total flow rights, got {len(frs)}"
 
     def test_total_volume_rights(self, converted_case):
         """Total volume rights = Laja (7) + Maule (7)."""

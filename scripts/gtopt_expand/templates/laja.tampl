@@ -149,10 +149,18 @@ constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
 # charging to actual irrigation demand.  Spills never enter this
 # accounting (the flows below are turbined-water partitions).
 # ---------------------------------------------------------------------------
+{% if use_qdefm_carrier | default(false) %}
+{# NETTED cap: the laja_qdefm carrier holds PLP's per-stage net
+   requirement (GetQsLajaM) — primary demand minus hoya-intermedia
+   inflows and filtration, plus the secondary categories. #}
+constraint laja_retiro_maximo "Attribution cap: riego-side charging <= net requirement (qdefm)":
+  flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow <= flow_right('laja_qdefm').flow;
+{% else %}
 {% set _district_names = district_fr_names | default([]) %}
 {% if _district_names %}
 constraint laja_retiro_maximo "Attribution cap: riego-side charging <= delivered irrigation":
   flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow <= {% for n in _district_names %}flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %};
+{% endif %}
 {% endif %}
 
 # ---------------------------------------------------------------------------

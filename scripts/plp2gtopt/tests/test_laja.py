@@ -729,6 +729,44 @@ class TestLajaWriter:
             if "bound_rule" in vr:
                 assert vr["bound_rule"]["reservoir"] == "ELTORO"
 
+    def test_qdefm_netted_cap(self, laja_config, tmp_path):
+        """With hoya-intermedia inflow means and materialized stages,
+        the attribution cap switches to the netted qdefm carrier
+        (PLP GetQsLajaM, static-filtration approximation):
+
+          qdefm = max(min(QP - QHoya - QFilt, 0) + QN + QS + QE, 0)
+        """
+
+        class _Stages:
+            def get_all(self):
+                # december (in-season) and june (off-season)
+                return [
+                    {"number": 1, "month": 12},
+                    {"number": 2, "month": 6},
+                ]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [60.0, 80.0]
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+
+        carrier = next(
+            (fr for fr in writer.flow_rights if fr["name"] == "laja_qdefm"),
+            None,
+        )
+        assert carrier is not None
+        # December (hydro idx 8): QP=90*1.0, QN=53*1.0, QE=0, QS=7*0.5,
+        # QFilt=47, QHoya=60 -> min(90-60-47, 0) = -17; qdefm =
+        # max(-17 + 53 + 3.5 + 0, 0) = 39.5.
+        # June (hydro idx 2): all seasonals 0 -> qdefm = 0.
+        fmax = carrier["fmax"]
+        assert fmax[0][0] == pytest.approx(39.5)
+        assert fmax[1][0] == pytest.approx(0.0)
+        assert carrier["fmin"] == fmax  # forced column
+
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        assert "<= flow_right('laja_qdefm').flow;" in text
+
     def test_pampl_ledger_and_anchor_constraints(self, laja_config, tmp_path):
         """laja.pampl carries the ledger linkages; the anchor constraint
         is emitted only when plp2gtopt resolved the gen waterway."""

@@ -388,14 +388,23 @@ class TestMauleWriter:
                 # Exact equality: expression should contain "= " but not "<="
                 assert "<=" not in uc["expression"], f"{district_name} should use ="
 
-    def test_volume_rights_compensation_no_reset(self, maule_config):
+    def test_volume_rights_compensation_credit(self, maule_config):
+        """PLP recomputes the compensation at INICIOANO (january):
+        unused annual electric rights convert into compensation,
+        capped at emax (genpdmaule.f:942-957)."""
         writer = MauleWriter(maule_config)
+        names = [vr["name"] for vr in writer.volume_rights]
         vol_comp = next(
             vr
             for vr in writer.volume_rights
             if vr["name"] == "maule_vol_compensacion_elec"
         )
-        assert "reset_month" not in vol_comp
+        assert vol_comp["reset_month"] == "january"
+        assert vol_comp["reset_credit_right"] == "maule_vol_gasto_elec_anual"
+        # The credited bucket must precede the crediting one.
+        assert names.index("maule_vol_gasto_elec_anual") < names.index(
+            "maule_vol_compensacion_elec"
+        )
 
     def test_volume_rights_econ_invernada(self, maule_config):
         writer = MauleWriter(maule_config)

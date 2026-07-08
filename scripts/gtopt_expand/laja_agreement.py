@@ -464,6 +464,40 @@ class LajaAgreement(_RightsAgreementBase):
         # --- District flow rights (pre-computed) ---
         district_flow_rights = self._compute_district_flow_rights(cost_irr_ns)
 
+        # --- qdefm netting (PLP GetQsLajaM, genpdlajam.f:403-473) ---
+        # Net irrigation requirement from the Lago: the attribution cap
+        # subtracts the hoya-intermedia inflows and filtration from the
+        # primary demand.  STATIC-FILTRATION approximation: PLP's
+        # QFiltLaja is a per-stage volume-dependent estimate; here
+        # QFiltLaja = QFiltHist, so QDefAbanico = 0 and the min() rule
+        # reduces to min(QDefTucapel, 0).  Available only when
+        # plp2gtopt injected `q_hoya_inter` (aflce data) and stages are
+        # materialized; otherwise the cap falls back to the gross
+        # district deliveries.
+        qdefm_sched = None
+        q_hoya = cfg.get("q_hoya_inter")
+        if q_hoya and self._stage_parser is not None:
+            seas_p = self._hydro_to_stage_schedule(cfg["seasonal_1o_reg"])
+            seas_n = self._hydro_to_stage_schedule(cfg["seasonal_2o_reg"])
+            seas_e = self._hydro_to_stage_schedule(cfg["seasonal_emergencia"])
+            seas_s = self._hydro_to_stage_schedule(cfg["seasonal_saltos"])
+            qfilt = float(cfg.get("filtracion_laja", 0.0))
+            vals: list[float] = []
+            for i, stg in enumerate(self._get_stages()):
+                idx = int(stg.get("number", i + 1)) - 1
+                qp = cfg["demand_1o_reg"] * seas_p[i]
+                qn = cfg["demand_2o_reg"] * seas_n[i]
+                qe = cfg["demand_emergencia"] * seas_e[i]
+                qs = cfg["demand_saltos"] * seas_s[i]
+                qh = float(q_hoya[idx]) if idx < len(q_hoya) else 0.0
+                qdef_tucapel = qp - qh - qfilt
+                qtlaja = min(qdef_tucapel, 0.0) + qn + qs + qe
+                vals.append(max(qtlaja, 0.0))
+            qdefm_sched = self._to_tb_sched(vals)
+            # Expose to the .tampl renderer (it renders from the raw
+            # config) so the cap switches to the netted carrier.
+            self._cfg["use_qdefm_carrier"] = True
+
         # --- User constraint expressions ---
         expression_partition = (
             "flow_right('laja_q_turbinado').flow = "
@@ -520,6 +554,8 @@ class LajaAgreement(_RightsAgreementBase):
             "ini_econ_reserve": cfg.get("ini_econ_reserve", 0),
             "ini_econ_polcura": cfg.get("ini_econ_polcura", 0),
             "saving_rate_econ": cfg.get("qmax_elec", 200),
+            # qdefm netting carrier (None -> omitted; gross cap fallback)
+            "qdefm_sched": qdefm_sched,
             # UserConstraint: partition balance
             "expression_partition": expression_partition,
             "description_partition": description_partition,

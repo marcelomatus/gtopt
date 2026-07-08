@@ -59,7 +59,21 @@ struct StorageOptions
   ///
   /// Should only be set when the stage is a phase boundary AND the storage
   /// element's initial state is independently determined (reset/reprovision).
+  ///
+  /// For SAME-PHASE reset stages use `break_stage_chain` instead —
+  /// skip_state_link only affects the cross-phase sini creation.
   bool skip_state_link {false};
+
+  /// Break the same-phase stage chain at this (reset) stage: instead of
+  /// reusing the previous stage's efin column as this stage's initial
+  /// energy, create a FRESH `eini` column that the caller provisions
+  /// (bounds pin or a debit/credit row).  Without this, an in-phase
+  /// reset would pin the PREVIOUS stage's ending volume — corrupting
+  /// the prior balance (the previous efin column and this stage's
+  /// initial state are the same LP column in the shared-LP layout).
+  /// No effect on the first stage of a phase (cross-phase boundaries
+  /// already allocate a fresh sini column).
+  bool break_stage_chain {false};
 
   /// Full class name for VariableScaleMap metadata (e.g. "Reservoir",
   /// "Battery").  When non-empty, StorageBase sets class_name/variable_name
@@ -542,9 +556,27 @@ public:
           .context = stg_ctx,
       });
     } else if (prev_phase == nullptr) {
-      // Same phase – the previous stage's efin column serves as eini here
-      // (both stages live in the same LP, so the column is shared).
-      eicol = efin_col_at(scenario, *prev_stage);
+      if (opts.break_stage_chain) {
+        // Reset stage inside a shared LP: decouple from the previous
+        // stage's efin — a fresh eini column becomes the chain start
+        // and the caller provisions it (bounds pin / debit row).  The
+        // previous stage's balance stays untouched.
+        eicol = lp.add_col({
+            .lowb = 0.0,
+            .uppb = stage_emax,
+            .cost_scale_type = ConstraintScaleType::Energy,
+            .scale = energy_scale,
+            .class_name = opts.class_name,
+            .variable_name = EiniName,
+            .variable_uid = opts.variable_uid,
+            .context = stg_ctx,
+        });
+      } else {
+        // Same phase – the previous stage's efin column serves as eini
+        // here (both stages live in the same LP, so the column is
+        // shared).
+        eicol = efin_col_at(scenario, *prev_stage);
+      }
     } else {
       // Cross-phase boundary (gtopt-phase = PLP-stage for SDDP).
       // Create a new "sini" (state-initial) column for this phase's LP.

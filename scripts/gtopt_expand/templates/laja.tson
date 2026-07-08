@@ -321,6 +321,27 @@
     {% for fr in district_flow_rights %}
     ,{{ fr }}
     {% endfor %}
+
+    {# ============================================================= #}
+    {# FlowRight: laja_qdefm — qdefm netting carrier (PLP IQDEFM)   #}
+    {#                                                               #}
+    {# Fixed column carrying the per-stage NET irrigation            #}
+    {# requirement from the Lago (GetQsLajaM: primary demand minus   #}
+    {# hoya-intermedia inflows and filtration, plus the secondary    #}
+    {# categories; static-filtration approximation).  The attribution#}
+    {# cap in laja.tampl bounds the riego-side charging by this      #}
+    {# carrier — mirroring PLP's `qdrh + qdmh + qgah <= qdefm` row   #}
+    {# (genpdlajam.f:290-296).  Emitted only when plp2gtopt supplied #}
+    {# the hoya-intermedia inflow means.                             #}
+    {# ============================================================= #}
+    {% if qdefm_sched is not none %}
+    ,{
+      "name": "laja_qdefm",
+      "purpose": "carrier",
+      "fmin": {{ qdefm_sched }},
+      "fmax": {{ qdefm_sched }}
+    }
+    {% endif %}
   ],
 
   "volume_right_array": [

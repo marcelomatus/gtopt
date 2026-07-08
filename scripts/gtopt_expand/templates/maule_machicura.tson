@@ -664,6 +664,13 @@
     {# ============================================================= #}
     {
       "name": "maule_vol_compensacion_elec",
+      {# PLP INICIOANO recompute (genpdmaule.f:942-957): unused annual
+         electric rights convert into compensation each january,
+         capped at emax = VCompElecMax:
+           provision = min(emax, own_incoming + annual_remaining)
+         The annual bucket must precede this one in the array. #}
+      "reset_month": "january",
+      "reset_credit_right": "maule_vol_gasto_elec_anual",
       "purpose": "generation",
       "eini": {{ v_comp_elec_ini }},
       "emax": {{ v_comp_elec_max }},

@@ -400,7 +400,7 @@ TEST_CASE("Tier 9.6 - reset_monthly re-provisions at each month start")
 
   const auto& s = system_lp.scene().scenarios()[0];
   const auto& stages = system_lp.phase().stages();
-  const auto& li = system_lp.linear_interface();
+  auto& li = system_lp.linear_interface();
   const auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
 
   // Stage 1: config eini pinned (no reset at the horizon start).
@@ -408,10 +408,117 @@ TEST_CASE("Tier 9.6 - reset_monthly re-provisions at each month start")
   CHECK(li.get_col_low()[e1] == doctest::Approx(5.0));
   CHECK(li.get_col_upp()[e1] == doctest::Approx(5.0));
 
-  // Stage 2 starts february: monthly reset pins eini to emax = 25.
+  // Stage 2 starts february: the monthly reset pins a FRESH eini
+  // column to emax = 25 — decoupled from stage 1's efin (the shared
+  // same-phase column layout would otherwise force stage 1 to END at
+  // 25, corrupting its balance: eini 5 with extraction >= 0 cannot
+  // reach 25).
   const auto e2 = vr_lp.eini_col_at(s, stages[1]);
   CHECK(li.get_col_low()[e2] == doctest::Approx(25.0));
   CHECK(li.get_col_upp()[e2] == doctest::Approx(25.0));
+  CHECK(e2 != vr_lp.efin_col_at(s, stages[0]));
+
+  // The LP must SOLVE (the pre-fix single-column layout forced
+  // stage 1's efin to 25, which is infeasible from eini 5 with
+  // extraction >= 0) and stage 1's ending volume must stay within its
+  // own balance: efin(1) <= eini(1) = 5.  (Any value in [0, 5] is
+  // optimal — extraction is free — so only the upper bound is
+  // meaningful.)
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+  const auto col_sol = li.get_col_sol();
+  CHECK(col_sol[vr_lp.efin_col_at(s, stages[0])] <= 5.0 + 1e-6);
+}
+
+TEST_CASE("Tier 9.7 - reset_credit_right: unused annual rights become credit")
+{
+  // PLP compensation recompute at INICIOANO (genpdmaule.f:942-957):
+  //   provision = min(VCompElecMax, comp_prev + max(AnuMax - spent, 0))
+  // gtopt: the annual bucket's remaining volume IS the max(...) term
+  // (depletion semantics with emin >= 0), so the credit provision is
+  //   min(emax_comp, own_incoming + annual_incoming).
+  //
+  // Two in-phase stages (december -> january).  The annual bucket
+  // carries 30 hm3 but a 10 hm3 stage-1 demand (fail-costed) forces
+  // extraction, leaving 20 hm3 incoming at january.  The comp bucket
+  // carries 10 hm3 and is capped at 50.
+  //
+  //   build-time pin  : min(50, 10 + 30) = 40 (config defaults)
+  //   after solve + update_lp: min(50, 10 + 20) = 30
+  // Extraction rates are capped so the buckets can't drain
+  // degenerately (extraction is cost-free in this fixture; in the
+  // real templates it is ledger-linked to the rights flows): the
+  // annual bucket can extract exactly its 10 hm3 demand over the
+  // 24 h stage, the comp bucket not at all.
+  const Array<VolumeRight> vrs = {
+      {.uid = Uid {11},
+       .name = "anual",
+       .emax = 100.0,
+       .eini = 30.0,
+       .demand = 10.0,
+       .fmax = 10.0 / (0.0036 * 24.0),
+       .fail_cost = 1000.0,
+       .use_state_variable = true},
+      {.uid = Uid {12},
+       .name = "comp",
+       .emax = 50.0,
+       .eini = 10.0,
+       .fmax = 0.0,
+       .use_state_variable = true,
+       .reset_month = MonthType::january,
+       .reset_credit_right = Uid {11}},
+  };
+  const auto system = make_anchored_system(vrs, {}, {}, "Tier9_7_credit");
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  const Simulation sim = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 24},
+              {.uid = Uid {2}, .duration = 24},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1},
+               .first_block = 0,
+               .count_block = 1,
+               .month = MonthType::december},
+              {.uid = Uid {2},
+               .first_block = 1,
+               .count_block = 1,
+               .month = MonthType::january},
+          },
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& stages = system_lp.phase().stages();
+  auto& li = system_lp.linear_interface();
+  const auto& vrs_lp = system_lp.elements<VolumeRightLP>();
+  const auto comp_eini = vrs_lp[1].eini_col_at(s, stages[1]);
+
+  // Build-time provisioning from config defaults.
+  CHECK(li.get_col_low()[comp_eini] == doctest::Approx(40.0));
+  CHECK(li.get_col_upp()[comp_eini] == doctest::Approx(40.0));
+
+  // Solve, then refresh: the annual bucket drained 10 hm3 in
+  // december, so the january credit re-pins to min(50, 10+20) = 30.
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(system_lp.update_lp() > 0);
+  CHECK(li.get_col_low()[comp_eini] == doctest::Approx(30.0));
+  CHECK(li.get_col_upp()[comp_eini] == doctest::Approx(30.0));
+
+  // Still solvable after the refresh.
+  const auto result2 = li.resolve();
+  REQUIRE(result2.has_value());
+  CHECK(li.is_optimal());
 }
 
 TEST_CASE("Tier 9.3 - depleted ledger caps its category")

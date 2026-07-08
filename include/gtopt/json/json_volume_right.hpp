@@ -51,6 +51,7 @@ struct VolumeRightConstructor
       OptBool reset_monthly,
       OptReal reset_value,
       OptSingleId reset_debit_right,
+      OptSingleId reset_credit_right,
       std::optional<gtopt::RightBoundRule> bound_rule) const
   {
     VolumeRight vr;
@@ -84,6 +85,7 @@ struct VolumeRightConstructor
     vr.reset_monthly = reset_monthly;
     vr.reset_value = reset_value;
     vr.reset_debit_right = std::move(reset_debit_right);
+    vr.reset_credit_right = std::move(reset_credit_right);
     vr.bound_rule = std::move(bound_rule);
     return vr;
   }
@@ -130,6 +132,7 @@ struct json_data_contract<VolumeRight>
       json_bool_null<"reset_monthly", OptBool>,
       json_number_null<"reset_value", OptReal>,
       json_variant_null<"reset_debit_right", OptSingleId, jvtl_SingleId>,
+      json_variant_null<"reset_credit_right", OptSingleId, jvtl_SingleId>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
 
   constexpr static auto to_json_data(VolumeRight const& vr)
@@ -161,6 +164,7 @@ struct json_data_contract<VolumeRight>
                            vr.reset_monthly,
                            vr.reset_value,
                            vr.reset_debit_right,
+                           vr.reset_credit_right,
                            vr.bound_rule);
   }
 };
