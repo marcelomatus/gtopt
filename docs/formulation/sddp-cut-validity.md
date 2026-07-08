@@ -415,10 +415,24 @@ at most the primal–dual gap.  One more ε-term, same family.
 
 - **Row-touching updates**: profile elements (`ProfileObjectLP`
   subclasses) rewrite row RHS or matrix coefficients in
-  `update_aperture`, violating the identical-$(A, b, c)$ premise.  A
-  detection wrap disables synthesis for the remainder of the chunk the
-  moment any such element receives an aperture value; those apertures
-  fall back to exact (warm) solves.
+  `update_aperture`, violating the identical-$(A, b, c)$ premise.  The
+  same applies to an **AR-mode `FlowLP`** (`Flow.inflow_model`, ledger
+  F12): its aperture hydrology enters through the AR equality-row RHS
+  (`flow_lp.cpp`), so the column-bound correction above would silently
+  drop the $y^\top \Delta b$ row term — a state-independent intercept
+  error of arbitrary sign.  A detection wrap (`FlowLP::has_ar_rows`
+  selects the AR case) disables synthesis for the remainder of the
+  chunk the moment any such element receives an aperture value; those
+  apertures fall back to exact (warm) solves.
+- **Setup guard (AR × dual-shared)**: `SDDPMethod::initialize_solver`
+  additionally WARNs and downgrades `aperture_solve_mode ∈
+  {dual_shared, screened}` to `warm` whenever any `Flow.inflow_model`
+  is present in the planning, so the exact-solve cost is paid
+  deliberately from iteration 1 instead of via per-chunk gate trips.
+  Snapshotting the representative's row duals $y$ and adding the
+  $y^\top \Delta b$ term for RHS-only deltas would make dual-shared
+  *correct* (and fast) under AR — sanctioned future work, not
+  implemented.
 - **Sentinel/non-finite deltas**: a bound that becomes (un)bounded
   between the representative and an aperture has no finite delta;
   `dual_shared_bound_correction` returns `nullopt` and the aperture
@@ -575,8 +589,9 @@ deliverable 2).*
 > simulate the resampled process itself: at every phase boundary the
 > scene-driver re-draws a realization with probability $p_r$
 > (deterministic in (iteration, scene, phase)) and pins the drawn
-> scene's stochastic bounds onto the phase LP via the bound-only
-> `update_aperture` machinery.  The forward UB then estimates the SAME
+> scene's stochastic bounds onto the phase LP via the per-element
+> `update_aperture` machinery (column-bound pins; the AR equality-row
+> RHS under `Flow.inflow_model`, replay-covered via `pending_rhs`).  The forward UB then estimates the SAME
 > $q_r = p_r$ process the multicut LB certifies, dissolving the
 > Corollary-M2 mismatch by construction.  v1 caveat: the pure-Benders
 > backward pass builds scenario-$s$'s cut from scene-$s$'s LP carrying
