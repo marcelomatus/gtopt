@@ -480,6 +480,11 @@ def build_options(args: argparse.Namespace) -> dict:
         "stages_phase": args.stages_phase,
         "num_apertures": args.num_apertures,
         "aperture_directory": args.aperture_directory,
+        # ``--inflow-model ar1`` (default None = off): estimate a
+        # per-central AR(1) inflow model from the plpaflce hydrology
+        # ensemble and attach it to each generated Flow element.  See
+        # inflow_model.py and docs/formulation/sddp-ar-inflows.md.
+        "inflow_model": getattr(args, "inflow_model", None),
         # PLP-faithful soft volume bounds: routes per-reservoir efin
         # through the C++ ``Reservoir.efin_cost`` slack and per-stage
         # maintenance emin through the soft_emin / soft_emin_cost slack
