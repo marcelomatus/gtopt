@@ -330,7 +330,7 @@ agreement.
 ### 7.2. Convenio ENDESA-Riego Maule (1947)
 
 - **URL**: <http://www.canalmaule.cl/wp-content/uploads/2016/02/convenio_endesa_riego.pdf>
-- **Downloaded**: Yes (Convenio_Endesa_Riego_Maule.pdf, 75 KB)
+- **Downloaded**: Yes (Convenio_Endesa_Riego_Maule.html, 75 KB)
 - Signed between: Director of Irrigation Department and General Manager of
   ENDESA
 - Key provisions:
@@ -451,7 +451,7 @@ All files stored in:
 | `Actualizacion_Convenio_Laja_PLP.pdf` | 4.5 MB | coordinador.cl | Implementation of updated Laja agreement in PLP model |
 | `Acuerdo_Lago_Laja_2017.pdf` | 12.6 MB | coordinador.cl | Complete 2017 Lago Laja operation agreement |
 | `CNR_Centrales_Hidroelectricas_Obras_Riego.pdf` | 7.6 MB | cnr.gob.cl | Hydroelectric plants associated with irrigation works |
-| `Convenio_Endesa_Riego_Maule.pdf` | 75 KB | canalmaule.cl | Original Endesa-Irrigation agreement for Maule |
+| `Convenio_Endesa_Riego_Maule.html` | 75 KB | canalmaule.cl | Original Endesa-Irrigation agreement for Maule |
 | `Informe_Comision_Investigadora_Maule.pdf` | 259 KB | camara.cl | Congressional investigative commission final report |
 | `Modelo_PLP_Coordinacion_Hidrotermica.pdf` | 4.6 MB | ufro.cl | PLP hydrothermal coordination model documentation |
 | `Tesis_Tradeoffs_Hidroelectricidad_Riego.pdf` | 1.9 MB | uchile.cl | Multi-basin hydroelectricity-irrigation tradeoffs thesis |

@@ -563,7 +563,7 @@ The following documents are available in this directory:
 - `Acuerdo_Lago_Laja_2017.pdf` -- 2017 Lago Laja accord
 - `CNR_Centrales_Hidroelectricas_Obras_Riego.pdf` -- CNR report on hydro
   plants associated with irrigation works
-- `Convenio_Endesa_Riego_Maule.pdf` -- ENDESA-Maule irrigation agreement
+- `Convenio_Endesa_Riego_Maule.html` -- ENDESA-Maule irrigation agreement
 - `Convenio_Regulacion_Rio_Maule_1947.pdf` -- Original 1947 regulation
 - `Informe_Comision_Investigadora_Maule.pdf` -- Investigation commission
   report on Maule
