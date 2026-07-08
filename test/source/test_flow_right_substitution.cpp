@@ -580,3 +580,188 @@ TEST_CASE("FlowRight target-0 with no costs — plain band back-compat")
   CHECK(lp.get_obj_coeff()[fcol] == doctest::Approx(0.0));
   CHECK(lp.get_obj_constant() == doctest::Approx(0.0));
 }
+
+// ── Invariant 7 — bound-rule re-clamp preserves the substitution ─────
+//
+// A bound-rule tick re-clamps the flow bounds in `update_lp`.  The
+// one-sided substitution folded a slack cost into the flow column
+// whose algebra is only valid on the kink side of the CACHED target:
+// under fcost-only the column carries cost `-sn` (every unit up to
+// the target earns back the pre-paid `sn x target` obj constant), so
+// re-opening `uppb` beyond the target would PAY the LP for phantom
+// flow; the uvalue-only mirror would charge below the target.  The
+// re-clamp must keep `uppb = min(fmax, target)` under fcost-only and
+// `lowb = max(fmin, target)` under uvalue-only.
+//
+// One FlowRight per sub-case: editing LP bounds invalidates the
+// solved state, so only the first element updated after a solve sees
+// the moved average-volume axis — a shared fixture would leave the
+// later elements untested.
+
+namespace
+{
+
+// Backbone with a deterministic 25 m3/s hydro draw (50 MW demand,
+// pf 2.0, free hydro vs 100 $/MWh thermal): after one solve the
+// reservoir efin is 100 - 25*fcr*1h and the average volume moves off
+// the build-time 100 hm3, so the 0.3 x V rule re-evaluates from 30
+// to 0.3 x (100 + efin) / 2 and the re-clamp fires.
+[[nodiscard]] System make_reclamp_system(const FlowRight& fr)
+{
+  return {
+      .name = "FlowRightReclampFixture",
+      .bus_array = {{.uid = Uid {1}, .name = "b1"}},
+      .demand_array =
+          {{.uid = Uid {1}, .name = "d1", .bus = Uid {1}, .lmax = 50.0}},
+      .generator_array =
+          {
+              {.uid = Uid {1},
+               .name = "hydro",
+               .bus = Uid {1},
+               .gcost = 0.0,
+               .capacity = 200.0},
+              {.uid = Uid {2},
+               .name = "thermal",
+               .bus = Uid {1},
+               .gcost = 100.0,
+               .capacity = 200.0},
+          },
+      .junction_array =
+          {
+              {.uid = Uid {1}, .name = "j_up"},
+              {.uid = Uid {2}, .name = "j_down", .drain = true},
+          },
+      .waterway_array = {{.uid = Uid {1},
+                          .name = "ww",
+                          .junction_a = Uid {1},
+                          .junction_b = Uid {2},
+                          .fmin = 0.0,
+                          .fmax = 1000.0}},
+      .reservoir_array = {{.uid = Uid {1},
+                           .name = "rsv",
+                           .junction = Uid {1},
+                           .capacity = 200.0,
+                           .emin = 0.0,
+                           .emax = 200.0,
+                           .eini = 100.0}},
+      .turbine_array = {{.uid = Uid {1},
+                         .name = "tur",
+                         .waterway = Uid {1},
+                         .generator = Uid {1},
+                         .production_factor = 2.0}},
+      .flow_right_array = {fr},
+  };
+}
+
+[[nodiscard]] RightBoundRule make_reclamp_rule()
+{
+  return {
+      .reservoir = Uid {1},
+      .segments = {{.volume = 0.0, .slope = 0.3, .constant = 0.0}},
+  };
+}
+
+constexpr double kReclampNewFmax =
+    0.3 * ((100.0 + (100.0 - 25.0 * 0.0036)) / 2.0);
+
+}  // namespace
+
+TEST_CASE("FlowRight re-clamp keeps fcost-only uppb at the cached target")
+{
+  const FlowRight fr {.uid = Uid {1},
+                      .name = "fr_fc",
+                      .fmax = 50.0,
+                      .target = 10.0,
+                      .fcost = 100.0,
+                      .bound_rule = make_reclamp_rule()};
+  const auto system = make_reclamp_system(fr);
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto buid = t.blocks().front().uid();
+  auto& li = system_lp.linear_interface();
+  const auto fcol =
+      system_lp.elements<FlowRightLP>().front().flow_cols_at(s, t).at(buid);
+
+  // Build-time substitution clamp: uppb = min(min(50, 30), 10) = 10.
+  CHECK(li.get_col_upp()[fcol] == doctest::Approx(10.0));
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(system_lp.update_lp() > 0);
+
+  // Rule moved 30 -> ~29.99 but the target clamp must survive.
+  CHECK(li.get_col_upp()[fcol] == doctest::Approx(10.0));
+  CHECK(li.get_col_low()[fcol] == doctest::Approx(0.0));
+}
+
+TEST_CASE("FlowRight re-clamp keeps uvalue-only lowb at the cached target")
+{
+  const FlowRight fr {.uid = Uid {1},
+                      .name = "fr_uv",
+                      .fmax = 50.0,
+                      .target = 10.0,
+                      .uvalue = 80.0,
+                      .bound_rule = make_reclamp_rule()};
+  const auto system = make_reclamp_system(fr);
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto buid = t.blocks().front().uid();
+  auto& li = system_lp.linear_interface();
+  const auto fcol =
+      system_lp.elements<FlowRightLP>().front().flow_cols_at(s, t).at(buid);
+
+  // Build: lowb = max(0, 10) = 10; uppb = min(50, rule 30) = 30.
+  CHECK(li.get_col_low()[fcol] == doctest::Approx(10.0));
+  CHECK(li.get_col_upp()[fcol] == doctest::Approx(30.0));
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(system_lp.update_lp() > 0);
+
+  // uppb follows the rule; lowb keeps the substitution clamp.
+  CHECK(li.get_col_low()[fcol] == doctest::Approx(10.0));
+  CHECK(li.get_col_upp()[fcol] == doctest::Approx(kReclampNewFmax));
+}
+
+TEST_CASE("FlowRight re-clamp keeps the qeh substitution clamp")
+{
+  const FlowRight fr {.uid = Uid {1},
+                      .name = "fr_qeh",
+                      .fmax = 50.0,
+                      .target = 10.0,
+                      .flow_mode = "stage_average",
+                      .fcost = 100.0,
+                      .bound_rule = make_reclamp_rule()};
+  const auto system = make_reclamp_system(fr);
+  const auto simulation = make_single_block_simulation();
+  const PlanningOptionsLP options(make_unscaled_options());
+  SimulationLP simulation_lp(simulation, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  auto& li = system_lp.linear_interface();
+  const auto qeh_col =
+      system_lp.elements<FlowRightLP>().front().qeh_col_at(s, t);
+
+  CHECK(li.get_col_upp()[qeh_col] == doctest::Approx(10.0));
+
+  const auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(li.is_optimal());
+  CHECK(system_lp.update_lp() > 0);
+
+  CHECK(li.get_col_upp()[qeh_col] == doctest::Approx(10.0));
+}

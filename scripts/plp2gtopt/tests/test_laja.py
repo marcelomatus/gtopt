@@ -743,6 +743,11 @@ class TestLajaWriter:
         ):
             assert f"constraint {name}" in text
         assert "laja_anclaje_turbinado" not in text  # no anchor key set
+        # Attribution cap sums exactly the emitted district FlowRights.
+        assert "constraint laja_retiro_maximo" in text
+        for fr in writer.flow_rights:
+            if fr["name"].startswith(("RIEGZACO_", "RieTucapel_", "RieSaltos_")):
+                assert f"flow_right('{fr['name']}').flow" in text
 
         cfg = dict(laja_config)
         cfg["anchor_turbinado_ref"] = "turbine('ELTORO').flow"

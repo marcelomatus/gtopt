@@ -614,6 +614,11 @@ class LajaAgreement(_RightsAgreementBase):
                     fr_district["junction_a"] = injection
                 result.append(fr_district)
 
+        # Expose the emitted names to the .tampl renderer (it renders
+        # from the raw config): the attribution cap sums exactly the
+        # district FlowRights that were actually created.
+        self._cfg["district_fr_names"] = [fr["name"] for fr in result]
+
         return result
 
     def _district_fail_cost(

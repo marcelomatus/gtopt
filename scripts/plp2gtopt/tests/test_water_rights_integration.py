@@ -252,6 +252,7 @@ class TestWaterRightsIntegration:
             "laja_ledger_anticipado",
         ):
             assert f"constraint {name}" in laja
+        assert "constraint laja_retiro_maximo" in laja
 
         maule = (out / "maule.pampl").read_text(encoding="utf-8")
         assert "constraint maule_anclaje_particion" in maule

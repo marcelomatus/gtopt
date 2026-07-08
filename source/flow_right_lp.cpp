@@ -620,11 +620,14 @@ bool FlowRightLP::add_to_lp(const SystemContext& sc,
     if (fa.kink_row) {
       qkink_rows[st_key] = *fa.kink_row;
     }
-    // (qeh-scope substitution: no cache stored — there is no
-    // stage-scope output reconstruction path, and no internal
-    // consumer reads `fail_sol`/`excess_sol` at stage scope.  The
-    // LP-side substitution itself is complete via the elided slack
-    // + row inside `attach_flow`.)
+    // qeh-scope substitution cache: consumed by `update_lp` to keep
+    // the target-side clamp on a bound-rule re-clamp (there is still
+    // no stage-scope output reconstruction path).
+    if (fa.substituted_target.has_value()) {
+      qeh_target_values_[st_key] = *fa.substituted_target;
+      qeh_fcost_only_[st_key] =
+          fa.substituted_fcost_only ? std::uint8_t {1} : std::uint8_t {0};
+    }
 
     // `stage_average` mode: install the qavg row that links qeh to the
     // per-block flow columns.  `stage_uniform` skips this — there are
@@ -1088,8 +1091,32 @@ int FlowRightLP::update_lp(SystemLP& sys,
       const auto& my_fcols = flow_cols.at(st_key);
       const auto fcol_it = my_fcols.find(buid);
       if (fcol_it != my_fcols.end()) {
-        li.set_col_low(fcol_it->second, rb.fmin);
-        li.set_col_upp(fcol_it->second, rb.fmax);
+        // Preserve the one-sided kink substitution: the folded slack
+        // cost on the flow column is only valid on the kink side of
+        // the CACHED target (the algebra was fixed at build time), so
+        // the re-clamp must keep uppb = min(fmax, target) under
+        // fcost-only and lowb = max(fmin, target) under uvalue-only.
+        // Without this the re-clamp re-opens the far side of the kink
+        // and the folded cost pays/charges beyond the target.
+        Real low = rb.fmin;
+        Real upp = rb.fmax;
+        if (const auto tgt_it = block_target_values_.find(st_key);
+            tgt_it != block_target_values_.end())
+        {
+          if (const auto t_b = tgt_it->second.find(buid);
+              t_b != tgt_it->second.end())
+          {
+            const bool is_fcost_only =
+                block_fcost_only_.at(st_key).at(buid) != 0;
+            if (is_fcost_only) {
+              upp = std::min(upp, t_b->second);
+            } else {
+              low = std::max(low, t_b->second);
+            }
+          }
+        }
+        li.set_col_low(fcol_it->second, low);
+        li.set_col_upp(fcol_it->second, upp);
         ++total;
       }
     }
@@ -1097,6 +1124,17 @@ int FlowRightLP::update_lp(SystemLP& sys,
   if (re_clamp_qeh) {
     const auto qeh_it = qeh_cols.find(st_key);
     if (qeh_it != qeh_cols.end()) {
+      // Same substitution preservation as the per-block clamp above,
+      // at stage scope.
+      if (const auto tgt_it = qeh_target_values_.find(st_key);
+          tgt_it != qeh_target_values_.end())
+      {
+        if (qeh_fcost_only_.at(st_key) != 0) {
+          fmax_e = std::min(fmax_e, tgt_it->second);
+        } else {
+          fmin_e = std::max(fmin_e, tgt_it->second);
+        }
+      }
       li.set_col_low(qeh_it->second, fmin_e);
       li.set_col_upp(qeh_it->second, fmax_e);
       ++total;

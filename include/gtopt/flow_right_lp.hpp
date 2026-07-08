@@ -311,6 +311,16 @@ private:
   /// reference proxy chokes on `bool`-valued maps.
   STBIndexHolder<std::uint8_t> block_fcost_only_;
 
+  /// Stage-scope (qeh) one-sided-substitution cache — mirrors the
+  /// per-block pair above.  Needed by ``update_lp``: a bound-rule
+  /// re-clamp must preserve the substitution's target-side clamp on
+  /// the qeh column (uppb = min(fmax_e, target) under fcost-only /
+  /// lowb = max(fmin_e, target) under uvalue-only), otherwise the
+  /// folded slack cost applies beyond the kink and corrupts the
+  /// objective.
+  STIndexHolder<double> qeh_target_values_;
+  STIndexHolder<std::uint8_t> qeh_fcost_only_;
+
   /// Cached bound rule evaluation per (scenario, stage).
   /// Only populated when flow_right().bound_rule is set.
   using BoundState = RuleBoundState;

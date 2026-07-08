@@ -27,12 +27,15 @@ Covered by `test_flow_right*.cpp`, `test_right_bound_rule.cpp`,
 
 Gaps to add at this tier:
 
-* **A1** `update_lp` re-clamp vs one-sided substitution: a FlowRight
-  with `bound_rule` + fcost-only + explicit `fmax > target` must keep
-  `uppb = min(fmax, target)` after a bound-rule tick (today it relaxes
-  to `rb.fmax`, silently un-doing the substitution and corrupting the
-  objective).  Write the test first — it documents the known P1 bug in
-  `flow_right_lp.cpp:1081-1097`.
+* **A1** `update_lp` re-clamp vs one-sided substitution — FIXED
+  2026-07: the re-clamp now preserves the cached-target clamps
+  (`uppb = min(fmax, target)` under fcost-only, `lowb = max(fmin,
+  target)` under uvalue-only) at both block and qeh scope (a new
+  stage-scope substitution cache was added for the latter).  Three
+  regression tests in `test_flow_right_substitution.cpp` (Invariant
+  7) — note each needs its own fixture: bound edits invalidate the
+  solved state, so only the first element updated after a solve sees
+  the moved volume axis.
 * **A2** VolumeRight `bound_rule` dimensional guard: the rule value is
   an hm³ provision but is also applied as an m³/s per-block extraction
   cap (`volume_right_lp.cpp:124-126`).  Pin current behaviour, then
@@ -149,7 +152,12 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    riego segments carry the `DerMixtoBase×(1−FMixto)` transfer; the
    B1 golden test (`test_zone_formula_matches_cen_tabla1`) pins the
    emitted rights to the 2017 Acuerdo's Tabla 1.
-4. `qdrh + qdmh + qgah ≤ qdefm` attribution cap (`genpdlajam.f:290-296`).
+4. `qdrh + qdmh + qgah ≤ qdefm` attribution cap — first pass done
+   2026-07: `laja_retiro_maximo` caps riego-side charging at the GROSS
+   modeled district deliveries.  Remaining: PLP's qdefm additionally
+   nets out hoya-intermedia tributary inflows and filtration
+   (GetQsLajaM, scenario- and volume-dependent) — the gross cap is
+   looser by that netting.
 5. Maule monthly electric-counter reset (PLP resets EVERY month, not
    january) and compensation recompute at year start.
-6. `update_lp` re-clamp vs substitution — A1.
+6. ~~`update_lp` re-clamp vs substitution~~ — fixed 2026-07 (A1).
