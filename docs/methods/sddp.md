@@ -221,10 +221,11 @@ by the `cut_sharing_mode` option:
 
 | Mode | Behaviour |
 |------|----------|
-| `none` (default, **only mathematically valid mode for production runs**) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization |
-| `expected` | Probability-weighted average cut across all scenes is shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+| `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization.  **Unconditionally valid** — each scene's α bounds its own persistent-path cost-to-go |
+| `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced 1/N; scene S's cuts land on `varphi_S` in every LP.  **Conditionally valid**: a true lower bound for the *stagewise-resampled* process under **uniform scene probabilities**; unsound for non-uniform probabilities.  See `docs/formulation/sddp-cut-validity.md` §8 |
+| `broadcast_mean` (formerly `expected`) | Per-scene average cuts summed across scenes and broadcast onto every scene's single α (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
 | `accumulate` | Sum of all scene cuts shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
-| `max` | All cuts from all scenes are shared to all scenes (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+| `max` | All cuts from all scenes are shared to all scenes' single α (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
 
 > **⚠️ Cut-sharing validity warning** (audit 2026-04-30)
 >
@@ -251,6 +252,18 @@ by the `cut_sharing_mode` option:
 > for production multi-scenario runs.  See
 > `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
 > regression test `test/source/test_sddp_bounds_sanity.cpp`.
+>
+> **`multicut` is different** (2026-07 certification): scene S's cuts
+> bound a *dedicated* column `varphi_S` in every LP, so no cut ever
+> over-tightens another scene's own bound.  Under **uniform** scene
+> probabilities the resulting LB is provably the lower bound of the
+> *stagewise-resampled* process (scene data redrawn at each phase
+> boundary) — a different process from the persistent-path forward
+> simulation, so a transient `LB > UB` against the sampled UB is a
+> process mismatch, **not** a cut bug.  Under **non-uniform**
+> probabilities the 1/N pricing inflates the future term by
+> `1/(N·p_s)` and the LB is not valid.  Full statements and proofs:
+> `docs/formulation/sddp-cut-validity.md` §7–§8.
 
 **Feasibility cuts** are never shared between scenes regardless of the cut
 sharing mode — they remain local to the originating scene.
@@ -409,11 +422,22 @@ training iterations run, so `converged` is always `false`.
 #### Primary criterion
 
 ```
-LB = average of phase-0 objectives across scenes
-UB = average of total forward-pass costs across scenes
+LB = sum of phase-0 objectives across feasible scenes
+UB = sum of total forward-pass costs across feasible scenes
 gap = (UB - LB) / max(1, |UB|)
 converged = (gap < convergence_tol) AND (iter >= min_iterations)
 ```
+
+Both bounds are plain **sums**, not averages: every LP cost
+coefficient already carries its scenario's probability via
+`cost_factor = probability × discount × duration`
+(`CostHelper::block_ecost`), so each per-scene value is
+`≈ p_s × physical_cost(s)` and the sum is the expectation.
+Multiplying by per-scene weights again would double-count
+probability (pre-2026-05-02 bug; see
+`SDDPMethod::compute_iteration_bounds`).  Infeasible scenes
+contribute 0 to both bounds; the missing probability mass is
+reported separately as `scene_probability_lost`.
 
 #### Secondary criterion — stationary gap
 
@@ -469,9 +493,29 @@ This is useful for policy evaluation without modifying any cut state.
 
 ### 4.6 Cut Sharing (Optional)
 
-After the backward pass, cuts from all scenes are optionally shared.  In
-`expected` mode, an average cut is computed and added to all scenes.  In
-`max` mode, every cut from every scene is added to all other scenes.
+After each backward phase step, cuts from all scenes are optionally
+redistributed by `share_cuts_for_phase`
+(`source/sddp_cut_sharing.cpp`), per the `cut_sharing_mode` table in
+§3.3:
+
+- `none` — no redistribution; each scene's cuts stay on its own α.
+- `broadcast_mean` (formerly `expected`) — per-scene cuts are
+  averaged, the averages are **summed** across scenes, and the result
+  is broadcast onto every scene's single α.
+- `accumulate` — all cuts are summed (no normalization) and broadcast.
+- `max` — every cut from every scene is added verbatim to every
+  scene's single α.
+- `multicut` — every cut from scene S is added to the dedicated
+  column `varphi_S` in every scene-LP (the mechanical broadcast is the
+  same as `max`; only the α-column routing differs).  Broadcast copies
+  are never persisted — on cut-file reload the broadcast is
+  reconstructed from the origin-only file
+  (`sddp_cut_parquet.cpp`, `multicut_broadcast`).
+
+Validity of each mode is analyzed in
+`docs/formulation/sddp-cut-validity.md` §7 (mode-by-mode verdicts) and
+§8 (the multicut theorem).  Feasibility cuts are never shared — they
+are scene-local statements.
 
 ### 4.7 LP Coefficient Updates
 
