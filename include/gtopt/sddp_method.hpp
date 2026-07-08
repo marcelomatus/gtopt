@@ -813,8 +813,9 @@ private:
   /// Overwrite `(scene_index, phase_index)`'s forward-LP stochastic
   /// bounds with scene @p realization's scenario data
   /// (`ForwardSamplingMode::resampled`).  Routes through the same
-  /// per-element `update_aperture` bound-only machinery the aperture
-  /// backward pass uses (flow discharges + demand/generator/capacity
+  /// per-element `update_aperture` machinery the aperture backward
+  /// pass uses (flow discharge column bounds — or the AR equality-row
+  /// RHS under `Flow.inflow_model` — plus demand/generator/capacity
   /// profile bounds; dense overwrite, replay-recorded so a low-memory
   /// release/reload preserves it).  v1: the applied realization is the
   /// drawn scene's FIRST scenario (the same `scenarios().front()` base
@@ -1204,6 +1205,11 @@ private:
   /// Atomic: the orchestrator toggles it (solve_async) while forward-pass
   /// worker threads read it (sddp_forward_pass.cpp) — TSan-confirmed race.
   std::atomic<bool> m_in_simulation_ {false};
+  /// One-shot latch for the `integer_cuts=none` × integer-bearing-cell
+  /// WARN (uncertified flat MIP cut — sddip doc §1).  Atomic: the
+  /// backward pass runs one task per scene (`backward_pass_single_phase`
+  /// on pool threads).
+  std::atomic<bool> m_mip_flat_cut_warned_ {false};
   /// Two-phase simulation flag: false during Pass 1 (fcut collection, no
   /// crossover, no write_out), true during Pass 2 (crossover on, inline
   /// write_out fused into each cell's solve task).  Always false outside

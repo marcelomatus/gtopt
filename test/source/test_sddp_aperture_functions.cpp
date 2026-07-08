@@ -1414,3 +1414,68 @@ TEST_CASE(  // NOLINT
   // 2.0×1.5 + (−3.0)×(−1.0) + 0 + 0 = 3.0 + 3.0 = 6.0.
   CHECK(*corr == doctest::Approx(6.0));
 }
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — equality-row RHS deltas are invisible "
+    "(F12 pre-gate delta witness)")
+{
+  // AR hydrology enters the LP through the AR equality-row RHS
+  // (`FlowLP::update_aperture`), NOT through column bounds, and the AR
+  // flow columns are free — this is the arithmetic hole ledger F12
+  // closes.  The shared-intercept correction prices column-bound deltas
+  // only, so an RHS-only "aperture" yields corr = 0 while the exact
+  // optimum moves by yᵀΔb.  For a drier aperture (Δb < 0 at positive
+  // water value) the synthesized intercept z_rep + corr EXCEEDS the
+  // exact optimum — an invalid, over-tight cut.  This is the pre-gate
+  // delta the F12 row-touch gate + setup downgrade eliminate; the
+  // end-to-end parity lives in test_sddp_ar_inflow.cpp ("F12 guard
+  // parity").
+  //
+  //   min 2x   s.t.  x = b (equality; the AR-row shape),  0 ≤ x ≤ 10
+  //
+  // Representative b = 3 → z_rep = 6 with x strictly interior (rc = 0);
+  // dry aperture b = 1 → z_dry = 2.  Row dual y = 2, Δb = −2,
+  // yᵀΔb = −4.
+  LinearInterface iface;
+  const auto x = iface.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 10.0,
+      .cost = 2.0,
+  });
+  SparseRow row;
+  row[x] = 1.0;
+  row.lowb = 3.0;
+  row.uppb = 3.0;
+  const auto r = iface.add_row(row);  // NOLINT
+
+  REQUIRE(iface.initial_solve(SolverOptions {}).has_value());
+  REQUIRE(iface.is_optimal());
+  const double z_rep = iface.get_obj_value();
+  CHECK(z_rep == doctest::Approx(6.0));
+
+  // Snapshot rc / bounds exactly the way the synthesis site does.
+  const auto rc_view = iface.get_col_cost();
+  const auto low_view = iface.get_col_low();
+  const auto upp_view = iface.get_col_upp();
+  const std::vector<double> rc {rc_view[x]};
+  const std::vector<double> low {low_view[x]};
+  const std::vector<double> upp {upp_view[x]};
+
+  // Column bounds are IDENTICAL across the two "apertures" — the
+  // correction sees no delta at all.
+  const auto corr = dual_shared_bound_correction(rc, low, upp, low, upp);
+  REQUIRE(corr.has_value());
+  CHECK(*corr == doctest::Approx(0.0));
+
+  // Exact dry-aperture solve: the objective moves by yᵀΔb = −4 …
+  iface.set_row_bounds(r, 1.0, 1.0);
+  REQUIRE(iface.resolve(SolverOptions {}).has_value());
+  REQUIRE(iface.is_optimal());
+  const double z_dry = iface.get_obj_value();
+  CHECK(z_dry == doctest::Approx(2.0));
+
+  // … so the synthesized intercept (z_rep + corr = 6) would sit STRICTLY
+  // ABOVE the exact dry optimum (2): an invalid cut had the gate not
+  // forced exact solves.
+  CHECK(z_rep + *corr > z_dry + 1.0);
+}

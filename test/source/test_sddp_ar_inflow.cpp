@@ -28,9 +28,11 @@
  *     both formulations converge to the same objective.
  */
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
 #include <limits>
 #include <map>
 #include <optional>
@@ -42,12 +44,14 @@
 #include <doctest/doctest.h>
 #include <gtopt/json/json_flow.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_cut_io.hpp>
 #include <gtopt/sddp_cut_store.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/sddp_types.hpp>
 #include <gtopt/utils.hpp>
 
+#include "log_capture.hpp"
 #include "sddp_helpers.hpp"
 
 using namespace gtopt;
@@ -283,7 +287,12 @@ void ar_attach_inflow_model(Planning& planning, double phi)
   opts.stationary_tol = 0.0;
   opts.cut_sharing = CutSharingMode::none;
   if (synthetic_apertures) {
-    opts.apertures = std::nullopt;  // cross-scenario synthetic apertures
+    // Cross-scenario synthetic apertures: a NON-EMPTY UID request with
+    // no `simulation.aperture_array` makes `resolve_effective_apertures`
+    // build synthetic apertures from the first N scenarios.  (A
+    // `std::nullopt` request with empty defs silently FALLS BACK to the
+    // pure-Benders backward pass — no apertures at all.)
+    opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
   } else {
     opts.apertures = std::vector<Uid> {};  // pure Benders backward pass
   }
@@ -620,6 +629,137 @@ TEST_CASE(  // NOLINT
 }
 
 // ═════════════════════════════════════════════════════════════════════════
+// T2 (coverage-audit G2): AR × forward_sampling=resampled.  The
+// resampled forward pass re-draws a realization at every phase boundary
+// and applies it through the SAME `update_aperture` entry point the
+// aperture pass uses — under `Flow.inflow_model` that write is the AR
+// equality-row RHS, not a column-bound pin.  At phi = 0 the AR
+// machinery must replicate the schedule exactly, so an AR+resampled run
+// must converge to the SAME bounds as a model-free+resampled run over
+// the identical heterogeneous wet/dry data.  A missed or mis-ordered
+// AR-RHS rewrite (e.g. the lag pin read before
+// `apply_sampled_realization`) biases the forward UB and breaks this
+// parity.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "AR inflow — phi=0 + resampled forward sampling matches the "
+    "model-free resampled run")
+{
+  const auto run = [](bool with_model)
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    ar_set_scenario_inflows(planning, kArWetInflow, kArDryInflow);
+    if (with_model) {
+      ar_attach_inflow_model(planning, 0.0);
+    }
+    PlanningLP plp(std::move(planning));
+    auto opts = ar_sddp_opts(15, 1.0e-8);
+    opts.cut_sharing = CutSharingMode::multicut;
+    opts.forward_sampling = ForwardSamplingMode::resampled;
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return std::pair {results->back().lower_bound, results->back().upper_bound};
+  };
+
+  const auto [lb_off, ub_off] = run(false);
+  const auto [lb_on, ub_on] = run(true);
+
+  CHECK(lb_on == doctest::Approx(lb_off).epsilon(1.0e-7));
+  CHECK(ub_on == doctest::Approx(ub_off).epsilon(1.0e-7));
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// AR × dual_shared guard (ledger F12): the dual-shared synthesis prices
+// column-bound deltas only, but AR hydrology enters through the AR-row
+// RHS — an unguarded synthesized intercept would drop the yᵀΔb term.
+// `initialize_solver` must WARN + downgrade dual_shared/screened to
+// warm; the run must then match the warm run cut-for-cut (per-aperture
+// exact solves).  phi = 0.6 with heterogeneous wet/dry inflows makes
+// the AR RHS delta across apertures non-zero, so pre-guard the
+// dual-shared cut RHS sequence genuinely diverges from warm.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "AR inflow — dual_shared/screened downgrade to warm (F12 guard parity)")
+{
+  const auto run = [](ApertureSolveMode mode)
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    ar_set_scenario_inflows(planning, kArWetInflow, kArDryInflow);
+    ar_attach_inflow_model(planning, kArPhi);
+    PlanningLP plp(std::move(planning));
+    auto opts = ar_sddp_opts(8, 1.0e-8, /*synthetic_apertures=*/true);
+    opts.aperture_solve_mode = mode;
+    SDDPMethod sddp(plp, opts);
+    // Capture the setup WARN around initialization only — the solve's
+    // trace/info traffic would evict it from the ring buffer.
+    bool warned = false;
+    {
+      gtopt::test::LogCapture logs;
+      REQUIRE(sddp.ensure_initialized().has_value());
+      warned = logs.contains("downgrading to aperture_solve_mode=warm");
+    }
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return std::tuple {warned,
+                       results->back().lower_bound,
+                       results->back().upper_bound,
+                       sddp.stored_cuts()};
+  };
+
+  const auto [warned_ds, lb_ds, ub_ds, cuts_ds] =
+      run(ApertureSolveMode::dual_shared);
+  CHECK(warned_ds);
+
+  const auto [warned_sc, lb_sc, ub_sc, cuts_sc] =
+      run(ApertureSolveMode::screened);
+  CHECK(warned_sc);
+
+  const auto [warned_warm, lb_warm, ub_warm, cuts_warm] =
+      run(ApertureSolveMode::warm);
+  CHECK_FALSE(warned_warm);
+  // Non-vacuity: the parity below must compare actual cuts (the
+  // RHS-blindness of the synthesis formula itself is pinned at the
+  // unit level — "F12 pre-gate delta witness" in
+  // test_sddp_aperture_functions.cpp).
+  CHECK_FALSE(cuts_warm.empty());
+
+  // Post-downgrade both runs execute the warm path — bounds and the
+  // full stored-cut sequence (rhs + every coefficient) must match.
+  CHECK(lb_ds == doctest::Approx(lb_warm).epsilon(1.0e-12));
+  CHECK(ub_ds == doctest::Approx(ub_warm).epsilon(1.0e-12));
+  CHECK(lb_sc == doctest::Approx(lb_warm).epsilon(1.0e-12));
+  CHECK(ub_sc == doctest::Approx(ub_warm).epsilon(1.0e-12));
+
+  const auto check_cut_parity =
+      [](const auto& lhs, const auto& rhs, std::string_view tag)
+  {
+    INFO("cut-parity ", tag);
+    REQUIRE(lhs.size() == rhs.size());
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+      const auto& a = lhs[i];
+      const auto& b = rhs[i];
+      CHECK(a.type == b.type);
+      CHECK(a.scene_uid == b.scene_uid);
+      CHECK(a.phase_uid == b.phase_uid);
+      CHECK(a.rhs == doctest::Approx(b.rhs).epsilon(1.0e-12));
+      REQUIRE(a.coefficients.size() == b.coefficients.size());
+      for (std::size_t j = 0; j < a.coefficients.size(); ++j) {
+        CHECK(a.coefficients[j].first == b.coefficients[j].first);
+        CHECK(a.coefficients[j].second
+              == doctest::Approx(b.coefficients[j].second).epsilon(1.0e-12));
+      }
+    }
+  };
+  check_cut_parity(cuts_ds, cuts_warm, "dual_shared vs warm");
+  check_cut_parity(cuts_sc, cuts_warm, "screened vs warm");
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // JSON: inflow_model round-trips and defaults.
 // ═════════════════════════════════════════════════════════════════════════
 
@@ -653,4 +793,110 @@ TEST_CASE("AR inflow — inflow_model JSON round-trip")  // NOLINT
   const auto round = daw::json::from_json<Flow>(daw::json::to_json(flow));
   REQUIRE(round.inflow_model.has_value());
   CHECK(round.inflow_model->phi.value_or(-1.0) == doctest::Approx(0.62));
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// T4 (coverage-audit G4): AR cuts through the Parquet codec.  An AR run
+// stores cuts whose coefficients include the Flow-class lagged-inflow
+// coordinate; a narrowing, off-by-one, or dropped column in the
+// serialization would silently lose the inflow gradient.  Save the
+// trained cut set, reload it into a FRESH identical planning via the
+// canonical hot-start path (`SDDPMethod::load_cuts`), and assert every
+// cut classifies identically — rhs, energy coefficient, and the inflow
+// coefficient — through each run's own state-variable registry.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "AR inflow — cut Parquet round-trip preserves the inflow coefficient")
+{
+  const auto cuts_file = (std::filesystem::temp_directory_path()
+                          / "gtopt_test_ar_cut_roundtrip.parquet")
+                             .string();
+
+  // Train and save.
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  ar_set_scenario_inflows(planning, kArWetInflow, kArDryInflow);
+  ar_attach_inflow_model(planning, kArPhi);
+  PlanningLP plp(std::move(planning));
+  SDDPMethod sddp(plp, ar_sddp_opts(3, 1.0e-9));
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  const auto orig = sddp.stored_cuts();
+  REQUIRE_FALSE(orig.empty());
+  REQUIRE(save_cuts_parquet(orig, plp, cuts_file).has_value());
+
+  // Classify the originals; at least one optimality cut must carry the
+  // inflow (Flow-class) coefficient, or the round-trip check is vacuous.
+  //
+  // Cuts are matched on the (type, scene, phase, iteration) 4-tuple —
+  // NOT the full `CutKey` — because the loader deliberately re-encodes
+  // the `extra` discriminator as the origin-encoded broadcast context
+  // (`ctx_extra = extra·N + origin`, `sddp_cut_parquet.cpp`); the
+  // 4-tuple is unique per optimality cut on this fixture.
+  using RoundTripKey = std::tuple<CutType, SceneUid, PhaseUid, Uid>;
+  const auto rt_key = [](const StoredCut& sc) -> RoundTripKey
+  {
+    return {sc.type,
+            sc.scene_uid,
+            sc.phase_uid,
+            static_cast<Uid>(gtopt::uid_of(sc.iteration_index))};
+  };
+  std::map<RoundTripKey, ArCutView> orig_views;
+  for (const auto& sc : orig) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto [it_ins, inserted] =
+        orig_views.emplace(rt_key(sc), ar_classify_cut(plp.simulation(), sc));
+    REQUIRE_MESSAGE(inserted, "4-tuple key not unique in the saved set");
+  }
+  const bool any_inflow = std::ranges::any_of(
+      orig_views, [](const auto& kv) { return kv.second.has_inflow_coeff; });
+  REQUIRE(any_inflow);
+
+  // Reload into a fresh identical planning (canonical hot-start path —
+  // `load_cuts` resolves the structured coefficient keys against the
+  // NEW run's state-variable registry and stores the loaded cuts).
+  auto planning2 = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  ar_set_scenario_inflows(planning2, kArWetInflow, kArDryInflow);
+  ar_attach_inflow_model(planning2, kArPhi);
+  PlanningLP plp2(std::move(planning2));
+  SDDPMethod sddp2(plp2, ar_sddp_opts(1, 1.0e-9));
+  REQUIRE(sddp2.ensure_initialized().has_value());
+  const auto loaded = sddp2.load_cuts(cuts_file);
+  REQUIRE(loaded.has_value());
+
+  const auto rt = sddp2.stored_cuts();
+  std::size_t matched = 0;
+  for (const auto& sc : rt) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto it = orig_views.find(rt_key(sc));
+    REQUIRE_MESSAGE(it != orig_views.end(),
+                    "reloaded cut key not in save: type=",
+                    static_cast<int>(sc.type),
+                    " scene=",
+                    static_cast<int>(sc.scene_uid),
+                    " phase=",
+                    static_cast<int>(sc.phase_uid),
+                    " iter=",
+                    static_cast<int>(gtopt::uid_of(sc.iteration_index)));
+    const auto view = ar_classify_cut(plp2.simulation(), sc);
+    const auto& ov = it->second;
+    INFO("cut scene=", ov.scene_pos, " phase=", ov.phase_pos);
+    // Parquet stores raw float64 — the round-trip must be bit-tight.
+    CHECK(view.rhs == doctest::Approx(ov.rhs).epsilon(1.0e-15));
+    CHECK(view.energy_coeff
+          == doctest::Approx(ov.energy_coeff).epsilon(1.0e-15));
+    CHECK(view.has_inflow_coeff == ov.has_inflow_coeff);
+    if (ov.has_inflow_coeff) {
+      CHECK(view.inflow_coeff
+            == doctest::Approx(ov.inflow_coeff).epsilon(1.0e-15));
+    }
+    ++matched;
+  }
+  CHECK(matched == orig_views.size());
+
+  std::filesystem::remove(cuts_file);
 }

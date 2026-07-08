@@ -527,6 +527,10 @@ class TestCascadeOptionKeys:
             # this expected set was stale and never updated for them).
             "aperture_chunk_size",
             "aperture_solve_mode",
+            # Screened dual-shared re-solve budget (2026-07 stochastic
+            # wave; per-level override of
+            # SddpOptions::aperture_screen_count).
+            "aperture_screen_count",
             # Cross-iteration first-aperture basis seed (orthogonal opt-in).
             "aperture_seed_basis",
         }

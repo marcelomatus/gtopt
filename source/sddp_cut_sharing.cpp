@@ -101,7 +101,9 @@ void share_cuts_for_phase(
   // **`multicut` broadcast** (PLP-faithful) — scene S's backward cut
   // references S's OWN dedicated column `varphi_S` (set up by the
   // backward-pass retarget in `sddp_method_iteration.cpp`), and EVERY
-  // scene-LP carries the full set `varphi_0..N-1` priced 1/N.
+  // scene-LP carries the full set `varphi_0..N-1` priced at the M4
+  // weight `w_r = p_s` (`alpha_col_weights`; = 1/N under uniform
+  // probabilities).
   // Broadcasting scene S's cut onto scene D's LP therefore forces
   //   varphi_S_D ≥ Q_S*(x_S_trial)
   // i.e. `varphi_S` in EVERY LP is bounded ONLY by scenario-S's cuts —

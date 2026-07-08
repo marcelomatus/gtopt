@@ -174,6 +174,14 @@ the degenerate cases above).  For identical scenes every process
 coincides and the strict `LB ≤ UB` invariant applies at every
 iteration.
 
+*Note (`forward_sampling = resampled`).*  Resampling does **not**
+dissolve this mismatch under markov: `sample_forward_realization`
+draws i.i.d. with `q_r = p_r` at every phase boundary, not a
+Markov-transition draw conditioned on the previous phase's state — so
+the resampled UB estimates the stagewise-independent process while the
+markov LB certifies the Markov-modulated one (a WARN fires at SDDP
+setup).  A Markov-aware conditional draw is future work (§7).
+
 ## 6. Mechanics shared with multicut
 
 - **Cut landing**: `sddp_method_iteration.cpp` targets

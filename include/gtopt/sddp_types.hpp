@@ -29,6 +29,7 @@
 
 #pragma once
 
+#include <cassert>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -406,14 +407,37 @@ struct MarkovChainConfig
     return num_states == 0;
   }
 
-  /// Transition probability `P[from][to]` (no bounds check — callers
-  /// go through `validate_markov_config` first).
+  /// Transition probability `P[from][to]` (callers go through
+  /// `validate_markov_config` first; the assert catches the one that
+  /// forgets).
   [[nodiscard]] double probability(std::size_t from,
                                    std::size_t to) const noexcept
   {
+    assert(from < num_states && to < num_states);
     return transition[(from * num_states) + to];
   }
+
+  /// Markov state `m(s)` of the given scene (callers go through
+  /// `validate_markov_config` first).  Absorbs the double-cast chain
+  /// at the α-routing call sites.
+  [[nodiscard]] std::size_t state_of(SceneIndex scene_index) const noexcept
+  {
+    assert(static_cast<std::size_t>(scene_index) < state_of_scene.size());
+    return static_cast<std::size_t>(
+        state_of_scene[static_cast<std::size_t>(scene_index)]);
+  }
 };
+
+/// True when Markov-chain SDDP pricing/routing is in effect: the mode
+/// is `markov` AND a non-empty chain configuration is present.  THE
+/// single predicate shared by `alpha_col_weights` (pricing) and
+/// `register_alpha_variables` (column layout) so the two cannot drift.
+[[nodiscard]] constexpr bool markov_active(
+    CutSharingMode cut_sharing, const MarkovChainConfig* markov) noexcept
+{
+  return cut_sharing == CutSharingMode::markov && markov != nullptr
+      && !markov->empty();
+}
 
 /// Build a `MarkovChainConfig` from the JSON-facing arrays
 /// (`SddpOptions::markov_states` / `markov_transition`).  `num_states`
@@ -432,13 +456,30 @@ struct MarkovChainConfig
 [[nodiscard]] std::optional<std::string> validate_markov_config(
     const MarkovChainConfig& markov, std::size_t num_scenes);
 
+/// Per-scene probability mass `p_s` — THE single derivation shared by
+/// the M4/MK1 pricing (`alpha_col_weights` → `alpha_unit_cost` /
+/// `markov_alpha_weights`) and the resampled forward draw
+/// (`sample_forward_realization`).
+///
+/// Rule: `mass_s = max(SceneLP::probability_factor(), 0)` — negative
+/// data is clamped to 0 — and when EVERY scene is degenerate
+/// (total ≤ 0) the whole vector falls back to all-ones (uniform).  A
+/// single zero-mass scene among positive ones stays 0: it must never
+/// be sampled and its folded objective contributes 0.
+/// (`compute_scene_weights` keeps its own per-scene feasibility layer
+/// on top of raw probabilities — that path masks infeasible scenes,
+/// which this pure mass derivation has no business knowing about.)
+[[nodiscard]] std::vector<double> scene_probability_masses(
+    const SimulationLP& sim);
+
 /// Per-column pricing weights of scene-@p scene_index's LP under
 /// `CutSharingMode::markov`: `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}`
 /// for `m' = 0..M-1` (theorem MK1 in `docs/formulation/sddp-markov.md`
-/// §2).  Scene probabilities are the per-scene sums of scenario
-/// `probability_factor`s (with the same `≤ 0 → 1.0` fallback as
-/// `compute_scene_weights`); the weights are scale-invariant in the
-/// total mass, so no normalization is applied.  Consumed via the
+/// §2).  Scene probabilities come from `scene_probability_masses`
+/// (single shared derivation); the weights are scale-invariant in the
+/// total mass, so no normalization is applied.  A zero-mass state
+/// (every assigned scene degenerate) prices its column 0 — the state
+/// is unreachable under the folded measure.  Consumed via the
 /// mode-aware `alpha_col_weights` accessor, which
 /// `register_alpha_variables` (objective pricing) and the forward-pass
 /// UB strip both call so the two always agree.
@@ -484,7 +525,7 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///    own cuts — the per-scene persistent-path (wait-and-see) lower
   ///    bound, **unconditionally valid** (theorem N1).
   ///  * `multicut`: PLP-faithful per-scenario varphi columns priced at
-  ///    the M4 weight `w_r = p_s` (`alpha_unit_cost`; = 1/N under
+  ///    the M4 weight `w_r = p_s` (`alpha_col_weights`; = 1/N under
   ///    uniform probabilities); the LB is the lower bound of the
   ///    stagewise-RESAMPLED process with measure `q_r = p_r`, valid for
   ///    any probability vector (theorems M1/M4 — an INFO notes the
@@ -905,14 +946,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 
   /// Number of dual-shared aperture cuts re-solved exactly under
   /// `aperture_solve_mode = screened` (picked by largest |intercept
-  /// correction|).  Ignored by every other mode.  Default 2.  See
-  /// `sddp_options.hpp::aperture_screen_count`.
-  int aperture_screen_count {2};
+  /// correction|).  Ignored by every other mode.  Default: the shared
+  /// `default_sddp_aperture_screen_count` constant (sddp_enums.hpp).
+  /// See `sddp_options.hpp::aperture_screen_count`.
+  int aperture_screen_count {default_sddp_aperture_screen_count};
 
   /// Seed each iteration's first backward aperture from the previous
   /// iteration's first-aperture basis (dual warm start).  Orthogonal to
-  /// `aperture_solve_mode`; only acts when the mode is `cold`/`warm`.
-  /// Default false.  See `sddp_options.hpp::aperture_seed_basis`.
+  /// `aperture_solve_mode`; acts for every basis-capable (vertex) mode
+  /// — i.e. all modes except `reduced_cost`, which has no basis to
+  /// capture.  Default false.  See
+  /// `sddp_options.hpp::aperture_seed_basis`.
   bool aperture_seed_basis {false};
 
   /// Cross-pass simplex-basis warm-start reuse between the forward and
@@ -1282,6 +1326,31 @@ struct SDDPIterationResult
     SceneIndex source_scene,
     SystemKind kind = SystemKind::forward) noexcept;
 
+/// Resolve THE α column a scene-S backward/aperture cut must target on
+/// `(scene_index, src_phase_index)` under the configured cut-sharing
+/// mode — the single mode-dispatch shared by the pure-Benders backward
+/// pass and both aperture backward variants (a fourth cut-sharing mode
+/// extends the routing here, in exactly one place):
+///
+///  * `markov`: the Markov-STATE column `varphi_{m(S)}`
+///    (uid = `sddp_alpha_uid + m(S)` — the state index rides the
+///    multicut overload's uid-offset scheme;
+///    `docs/formulation/sddp-markov.md` §2/§6).
+///  * `multicut`: scene S's OWN column `varphi_S`
+///    (uid = `sddp_alpha_uid + S`; PLP `plp-agrespd.f:94` parity).
+///  * single-α modes: the legacy offset-0 lookup.
+///
+/// Does NOT handle the user-overridable FCF (`use_user_alpha`) — the
+/// one call site that supports it (`backward_pass_single_phase`)
+/// dispatches to `find_user_alpha_state_var` BEFORE falling back to
+/// this resolution.  Returns `nullptr` when the cell has no registered
+/// α (mirrors `find_alpha_state_var`).
+[[nodiscard]] const StateVariable* find_source_alpha_state_var(
+    const SimulationLP& sim,
+    const SDDPOptions& options,
+    SceneIndex scene_index,
+    PhaseIndex src_phase_index) noexcept;
+
 /// Look up the USER-authored α (future-cost) state variable for the dynamic
 /// `AmplFutureCost` recourse (piece 5 step 2c).  Unlike `find_alpha_state_var`
 /// (which is keyed on the built-in `sddp_alpha_lp_class`), this resolves the
@@ -1314,18 +1383,24 @@ struct SDDPIterationResult
     PhaseIndex phase_index,
     SystemKind kind = SystemKind::forward);
 
-/// THE single source of truth for the objective weight applied to every
-/// α (future-cost) column on a scene-LP — shared by
-/// `register_alpha_variables` (column pricing) and the forward-pass UB
-/// strip so the two can never diverge.
+/// THE single mode-aware accessor for the per-column objective weights
+/// of the `n_alpha` α (future-cost) columns on a scene-LP cell —
+/// shared by `register_alpha_variables` (column pricing) and the
+/// forward-pass UB strip so the priced future term and the stripped
+/// future term are structurally unable to diverge.  This is the ONLY
+/// public pricing accessor; the uniform M4 weight it replicates for
+/// non-Markov layouts (`alpha_unit_cost`) is an implementation detail
+/// internal to `sddp_method_alpha.cpp`.
 ///
-/// Pricing rule (Prop. M4, `docs/formulation/sddp-cut-validity.md` §8;
-/// ledger §1.2):
-///
-///  * single-α layouts (`n_alpha <= 1`): weight `1.0` — α carries the
-///    full cost-to-go (legacy behaviour, byte-identical).
-///  * multicut layouts (`n_alpha == N > 1`): EVERY `varphi_r`
-///    (r = 0..N-1) in scene-s's LP is priced at `w_r = p_s` — the
+///  * `markov_active(cut_sharing, markov)` on a NON-terminal phase
+///    with `markov->num_states == n_alpha`: the MK1 per-state weights
+///    `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}`
+///    (`markov_alpha_weights`; `docs/formulation/sddp-markov.md` §2).
+///  * every other layout — `none` (n_alpha = 1 → weight 1.0),
+///    `multicut`, and ANY terminal phase (which follows
+///    `boundary_cut_sharing`, never markov): the uniform M4 weight
+///    `w_r = p_s` replicated `n_alpha` times (Prop. M4,
+///    `docs/formulation/sddp-cut-validity.md` §8; ledger §1.2) — the
 ///    normalized probability of the scene that OWNS the LP, uniform
 ///    across the N columns (NOT `p_r` per column).  With
 ///    `varphi_r ≈ V_r = p_r·Ṽ_r`, the scene-LP future term becomes
@@ -1333,36 +1408,9 @@ struct SDDPIterationResult
 ///    recursion of the process resampled with measure `q_r = p_r` — a
 ///    certified lower bound for that process for ANY probability
 ///    vector.  Under uniform probabilities `p_s = 1/N` this reproduces
-///    the historical `1/N` pricing exactly.
-///
-/// Probabilities are normalized over all scenes (`p_s =
-/// scene_prob(s) / Σ_r scene_prob(r)`).  Guard: when `Σ_r prob <= 0`,
-/// or the owning scene's probability is non-positive (a degenerate
-/// zero-probability scene whose folded objective is 0 anyway), fall
-/// back to the uniform `1/n_alpha` weight.
-///
-/// Per-column measures (Markov): `alpha_col_weights` below is the
-/// mode-aware wrapper — consumers (column registration, UB strip)
-/// call IT, and it delegates here for every non-Markov layout.
-[[nodiscard]] double alpha_unit_cost(const SimulationLP& sim,
-                                     SceneIndex scene_index,
-                                     std::size_t n_alpha) noexcept;
-
-/// THE single mode-aware accessor for the per-column objective weights
-/// of the `n_alpha` α (future-cost) columns on a scene-LP cell —
-/// shared by `register_alpha_variables` (column pricing) and the
-/// forward-pass UB strip so the priced future term and the stripped
-/// future term are structurally unable to diverge.
-///
-///  * `cut_sharing = markov` (non-empty @p markov config, NON-terminal
-///    phase, `markov->num_states == n_alpha`): the MK1 per-state
-///    weights `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}`
-///    (`markov_alpha_weights`; `docs/formulation/sddp-markov.md` §2).
-///  * every other layout — `none` (n_alpha = 1 → weight 1.0),
-///    `multicut` (w_r = p_s), and ANY terminal phase (which follows
-///    `boundary_cut_sharing`, never markov): the uniform M4 weight
-///    `alpha_unit_cost(sim, scene_index, n_alpha)` replicated
-///    `n_alpha` times.
+///    the historical `1/N` pricing exactly.  Masses come from
+///    `scene_probability_masses`; a zero-mass OWNING scene (folded
+///    objective 0 anyway) falls back to the uniform `1/n_alpha`.
 ///
 /// Always returns exactly `n_alpha` entries.  @p markov may be null
 /// (treated as empty — non-markov pricing).
@@ -1390,9 +1438,9 @@ struct SDDPIterationResult
 /// weight falls back to a uniform draw over `weights.size()`.
 /// Negative entries are clamped to 0.
 [[nodiscard]] std::size_t sample_weighted_index(std::span<const double> weights,
-                                                uint64_t iteration,
-                                                uint64_t scene,
-                                                uint64_t phase) noexcept;
+                                                std::uint64_t iteration,
+                                                std::uint64_t scene,
+                                                std::uint64_t phase) noexcept;
 
 /// SimulationLP-facing wrapper over `sample_weighted_index`: draws a
 /// SCENE index with probability proportional to each scene's

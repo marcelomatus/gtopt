@@ -549,9 +549,10 @@ inline constexpr auto aperture_selection_mode_entries =
  * @brief How each backward-pass aperture subproblem is solved and how its
  *        optimality cut's coefficients are recovered.
  *
- * Apertures differ only in column (flow) bounds, so the three modes trade
- * off per-solve cost against the quality / determinism of the reduced costs
- * that become the cut coefficients:
+ * Apertures differ only in column (flow) bounds — or, under
+ * `Flow.inflow_model` / profile elements, in equality-row RHS — so the
+ * modes trade off per-solve cost against the quality / determinism of
+ * the reduced costs that become the cut coefficients:
  *
  * - `cold`: each aperture is an independent **cold barrier solve with
  *   crossover**.  Crossover lands a vertex basis, so the reduced costs
@@ -637,6 +638,15 @@ inline constexpr auto aperture_solve_mode_entries =
 {
   return std::span {aperture_solve_mode_entries};
 }
+
+/// THE single default for the number of dual-shared aperture cuts
+/// re-solved exactly under `aperture_solve_mode = screened` (largest
+/// |intercept correction| first).  Referenced by the
+/// `PlanningOptionsLP::sddp_aperture_screen_count()` accessor, the
+/// runtime `SDDPOptions::aperture_screen_count` field default, and the
+/// `solve_apertures_for_phase` parameter default — one constant, three
+/// consumers.
+inline constexpr int default_sddp_aperture_screen_count = 2;
 
 // ─── BasisCrossMode ────────────────────────────────────────────────────────
 

@@ -63,15 +63,18 @@ void SDDPMethod::apply_sampled_realization(SceneIndex scene_index,
   // Same per-element visitor shape as the aperture backward pass
   // (`solve_apertures_for_phase`): every HasUpdateAperture element
   // (FlowLP + the profile elements) overwrites its (scenario, stage,
-  // block) bounds with the realization's values; `nullopt` lookups
-  // keep the current bound.  Writes are DENSE per registered column,
-  // so successive draws fully overwrite each other — no
-  // snapshot/restore needed — and each write is replay-recorded
-  // (`set_col_bounds_raw`), so a `LowMemoryMode::compress`
-  // release/reload cycle preserves the sampled bounds for the backward
-  // pass.  Bound-only deltas also keep any resident simplex basis
-  // dual-repairable, so the forward warm-start chain
-  // (`basis_cross_mode`) stays effective under resampling.
+  // block) entries with the realization's values — column-bound pins
+  // for plain flows/profiles, the AR equality-row RHS for an AR-mode
+  // FlowLP (`Flow.inflow_model`); `nullopt` lookups keep the current
+  // value.  Writes are DENSE per registered column/row, so successive
+  // draws fully overwrite each other — no snapshot/restore needed —
+  // and each write is replay-recorded (`set_col_bounds_raw`; equality
+  // RHS via the `pending_rhs` channel of `set_row_bounds_raw`), so a
+  // `LowMemoryMode::compress` release/reload cycle preserves the
+  // sampled data for the backward pass.  Both delta kinds (bounds and
+  // equality-row RHS) keep any resident simplex basis dual-repairable,
+  // so the forward warm-start chain (`basis_cross_mode`) stays
+  // effective under resampling.
   auto visitor = [&](auto& e) -> bool
   {
     using E = std::remove_cvref_t<decltype(e)>;
@@ -252,7 +255,10 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                        phase_index);
         apply_sampled_realization(scene_index, phase_index, realization);
         state.sampled_scene = realization;
-        SPDLOG_TRACE(
+        // Function-form spdlog: the SPDLOG_TRACE macro is compiled
+        // out under the INFO-baked PCH; the sampled path must stay
+        // observable at --log-level=trace.
+        spdlog::trace(
             "SDDP Forward [i{} s{} p{}]: resampled realization -> scene {}",
             gtopt::uid_of(iteration_index),
             uid_of(scene_index),

@@ -126,6 +126,8 @@ harness (deliverable 2) must assert with tolerances derived from these.
 | E5 | Per-link feasibility-cut outward perturbation (`benders_cut.cpp:1225`: `kFactEps = 0.01·cut_coeff_eps·niter`) | RHS pushed OUTWARD, escalating with repeat emissions, to escape cycling | deliberate over-tightening by `kFactEps·abs(pi)`-order; grows without bound with `niter` — theorem must state per-link cuts are heuristic separators, not exact |
 | E6 | Boundary-cut CSV install filter (`sddp_boundary_cuts.cpp:652-657`, audit P2-1) | same `cut_coeff_eps` absolute filter as E2 at install | as E2 |
 | E7 | Aperture per-aperture cuts (E1 applied per aperture BEFORE weighted averaging, `sddp_aperture.cpp:789-793`) | averaging inherits the per-cut error | ≤ `max_a` (E1 bound), weights convex |
+| E8 | Dual-shared synthesized intercept (`dual_shared_bound_correction` + synthesis site, `sddp_aperture.cpp`; Lemma AP2) | intercept = `z*_rep + Σ d⁺·Δl + Σ d⁻·Δu` at the representative's shared dual point | 0 on exact vertex duals (weak duality is exact there); on ε-optimal interior duals (PDLP/cuOpt, F10) using the primal `z*` over-states by ≤ the primal–dual gap; inherits E1 on `z*`, `d`.  Precondition: column-bound deltas only — row-RHS deltas are gated out (F12) |
+| E9 | Strengthened-cut intercept (`build_strengthened_benders_cut`, `benders_cut.cpp`; caller pins `mip_gap = 1e-9`, `mip_gap_abs = 1e-6`, `sddp_method_iteration.cpp`) | intercept = `max(b_LP, m*)` with `m*` the MIP **incumbent** Lagrangian value (not the best bound) | over-tightens by ≤ `max(mip_gap·|m*|, mip_gap_abs)`; MIP failure/timeout falls back to the SB1-valid LP-relaxation cut (0 extra ε) |
 
 Interaction note: E1 (emit) and E3 (reload) COMPOUND across a cascade
 level transition — a coefficient surviving E1 can be dropped by E3
@@ -231,7 +233,9 @@ relative to the row max; the tolerances add.
   every phase boundary (deterministic splitmix64 draw keyed on
   (iteration, scene, phase) — stable across forward-pass backtracking
   and thread scheduling) and applies it to the forward LP through the
-  bound-only `update_aperture` machinery.  The UB then estimates the
+  `update_aperture` machinery (column-bound pins; the AR equality-row
+  RHS under `Flow.inflow_model`, replay-covered via the `pending_rhs`
+  channel).  The UB then estimates the
   same `q_r = p_r` resampled process the M4 multicut LB certifies
   (Corollary-M2 mismatch dissolved by construction).  The drawn id is
   cached on `PhaseStateInfo::sampled_scene`; the backward target
@@ -241,6 +245,55 @@ relative to the row max; the tolerances add.
   backward under heterogeneous dynamics stays WARN-tier (theorem doc
   §8 remark) — the certified heterogeneous route is the aperture
   backward pass.
+
+- **F12 — AR(1) × dual_shared/screened apertures dropped the `yᵀΔb`
+  row term (found by cross-feature soundness review 2026-07-08, fixed
+  same day)**: `dual_shared_bound_correction` prices column-bound
+  deltas only, but an AR-mode `FlowLP::update_aperture` rewrites the
+  AR equality-row RHS (`rhs = a_b − φ·lag_ref`) and the AR flow
+  columns are FREE — the synthesized intercept silently omitted
+  `yᵀΔb` over the AR-row RHS deltas, a state-independent constant of
+  arbitrary sign (the aperture inflow delta and the lag-reference
+  delta pull in opposite directions), so the synthesized cut could
+  over-tighten and inflate the LB.  The row-touch gate exempted FlowLP
+  wholesale on the stale "bounds exclusively" assumption
+  (pre-fix `sddp_aperture.cpp` `apply_aperture_update`).  Fixed by
+  (a) extending the gate: `FlowLP::has_ar_rows(scenario, stage)` marks
+  AR-mode flows row-touching, so any delivered aperture value trips
+  `non_bound_write` → sticky exact-solve fallback; and (b) a setup
+  guard in `SDDPMethod::initialize_solver` that WARNs and downgrades
+  `dual_shared`/`screened` to `warm` whenever any `Flow.inflow_model`
+  is present.  Regression gate: warm-vs-dual_shared/screened
+  stored-cut parity under AR (`test_sddp_ar_inflow.cpp`, F12 guard
+  parity test).  The row-dual upgrade — snapshotting `y` + row RHS in
+  `DsRepresentative` and adding `yᵀΔb` for RHS-only deltas, making
+  dual-shared *correct* (and fast) under AR — is sanctioned future
+  work, not implemented.
+
+- **F13 — `sddp_hydro_3phase` e2e goldens vs primal degeneracy
+  (2026-07-08, robustness policy)**: the integration fixture
+  (`cases/sddp_hydro_3phase`) has a PRIMAL-DEGENERATE optimum — hydro
+  (gcost 5) substitutes thermal (gcost 50) at a constant 45/MWh saving
+  in every phase, so the marginal water value is flat and any
+  allocation of the reservoir budget across phases/blocks is an
+  alternate optimum with the same total 323 100.  The trained-run
+  base goldens (`golden_iter3/iter50/iter50_hotstart.json`) pinned the
+  per-phase obj_value tails (212 325 / 103 125), the intermediate
+  `efin` (135), and per-block dispatch — all on the flat face; solver
+  pivot-order drift (observed: 217 725 / 107 850, and 214 350 /
+  105 150 with clp at 104185c1, total unchanged) failed the 5 trained
+  `e2e_sddp_hydro_3phase_*_validate` cases whenever `GTOPT_SOLVER`
+  named no per-solver variant.  Policy (matches the per-solver
+  variants, which adopted it first — see
+  `golden_iter50_hotstart_clp.json` for the original diagnosis): pin
+  only solver-invariant quantities — total objective, LB/UB/gap,
+  per-phase statuses, drained horizon `efin = 0` (leftover water
+  always has positive substitution value), and the phase-1 balance
+  dual (= thermal gcost, strictly interior) — and DROP the per-phase
+  split / intermediate-efin / dispatch pins.  The alternative (an
+  `efin_cost` tie-breaker in the fixture + full golden regeneration)
+  was rejected: it perturbs the objective every golden pins and hides,
+  rather than documents, the degeneracy.
 
 ## 6. Not available / deferred
 

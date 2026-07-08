@@ -998,7 +998,8 @@ public:
 
   /// Whether to seed each iteration's first backward aperture from the
   /// previous iteration's first-aperture basis (dual warm start).  Default
-  /// false — only meaningful with `aperture_solve_mode` cold/warm.
+  /// false — meaningful for every basis-capable (vertex) mode, i.e. all
+  /// `aperture_solve_mode`s except `reduced_cost`.
   [[nodiscard]] constexpr auto sddp_aperture_seed_basis() const
   {
     return m_options_.sddp_options.aperture_seed_basis.value_or(false);
@@ -1031,11 +1032,13 @@ public:
 
   /// Number of dual-shared aperture cuts re-solved exactly under
   /// `aperture_solve_mode = screened` (picked by largest |intercept
-  /// correction|).  Ignored by every other mode.  Default 2.  See
-  /// `SddpOptions::aperture_screen_count`.
+  /// correction|).  Ignored by every other mode.  Default
+  /// `default_sddp_aperture_screen_count` (2, `sddp_enums.hpp` — the
+  /// single source).  See `SddpOptions::aperture_screen_count`.
   [[nodiscard]] constexpr auto sddp_aperture_screen_count() const noexcept
   {
-    return m_options_.sddp_options.aperture_screen_count.value_or(2);
+    return m_options_.sddp_options.aperture_screen_count.value_or(
+        default_sddp_aperture_screen_count);
   }
 
   /// Cross-pass simplex-basis warm-start reuse mode.  Default `full_cross`
@@ -1341,14 +1344,9 @@ public:
         default_sddp_integer_cuts_mode);
   }
 
-  /**
-   * @brief Gets the SDDP forward sampling mode as a string name
-   * @return The forward sampling mode name
-   */
-  [[nodiscard]] auto sddp_forward_sampling_mode() const -> std::string_view
-  {
-    return enum_name(sddp_forward_sampling_mode_enum());
-  }
+  // (The string-form `sddp_forward_sampling_mode()` accessor was
+  // removed 2026-07-08 — it had zero callers; use
+  // `enum_name(sddp_forward_sampling_mode_enum())` at a use site.)
 
   /**
    * @brief Gets the SDDP forward sampling mode as a typed enum

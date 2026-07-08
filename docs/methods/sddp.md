@@ -435,6 +435,15 @@ few pivots, so expect little wall-clock win there.
 `aperture_screen_count` (default 2) sets the screened re-solve budget;
 per-cascade-level overrides are available via
 `cascade_options.level_array.N.sddp_options.aperture_screen_count`.
+There is deliberately no dedicated `plp2gtopt` CLI flag for it — set it
+via the JSON field or `--set sddp_options.aperture_screen_count=N`.
+
+**AR(1) inflow models** (`Flow.inflow_model`) are incompatible with the
+dual-shared synthesis: the aperture hydrology enters through the AR
+equality-row RHS, which the column-bound intercept correction cannot
+price (Lemma AP2's `yᵀΔb` term — ledger F12).  SDDP setup WARNs and
+downgrades `dual_shared`/`screened` to `warm` (exact per-aperture
+solves) whenever any `Flow.inflow_model` is present.
 
 **PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over

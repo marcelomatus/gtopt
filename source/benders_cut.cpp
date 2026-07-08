@@ -14,6 +14,13 @@
 // includes <spdlog/spdlog.h> — otherwise the SPDLOG_TRACE macro is
 // baked to `(void)0` for this whole translation unit and runtime
 // `set_level(trace)` cannot recover the compiled-out calls.
+//
+// CAVEAT (PCH builds): `cmake_local/PrecompiledHeaders.cmake` includes
+// <spdlog/spdlog.h> in the PCH, so this #define is INERT there and the
+// SPDLOG_TRACE / SPDLOG_DEBUG macros stay compiled out at INFO.  Any
+// diagnostic that must be recoverable at runtime has to use the
+// function form (`spdlog::debug(...)` / `spdlog::trace(...)`), which
+// checks the runtime level instead.
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
 #endif
@@ -501,6 +508,13 @@ auto build_strengthened_benders_cut(ColIndex alpha_col,
   // interaction with resident solve state differs per plugin) — the
   // fresh clone starts the Lagrangian MIP from clean solver state at
   // the cost of one extra clone, negligible next to the MIP solve.
+  if (!target_li.has_integer_cols()) {
+    // Callers gate on `has_integer_cols()`; defensive no-op (checked
+    // BEFORE any clone is built) so a pure-LP cell silently falls back
+    // to the legacy cut path without paying a clone.
+    return std::nullopt;
+  }
+
   const bool can_use_manual = target_li.has_decompressed_snapshot()
       && target_li.low_memory_mode() != LowMemoryMode::off;
   const auto make_clone = [&]() -> LinearInterface
@@ -511,11 +525,6 @@ auto build_strengthened_benders_cut(ColIndex alpha_col,
   };
 
   auto lp_clone = make_clone();
-  if (!lp_clone.has_integer_cols()) {
-    // Callers gate on `has_integer_cols()`; defensive no-op so a
-    // pure-LP cell silently falls back to the legacy cut path.
-    return std::nullopt;
-  }
 
   // ── Step 1: LP relaxation at the pinned trial state v̂ ────────────
   //
@@ -595,7 +604,7 @@ auto build_strengthened_benders_cut(ColIndex alpha_col,
     const auto dep = link.dependent_col;
     const auto lo = mip_clone.get_col_low_raw()[dep];
     const auto hi = mip_clone.get_col_upp_raw()[dep];
-    if (std::abs(lo - hi) >= 1e-10) {
+    if (std::abs(lo - hi) >= kStatePinDetectEps) {
       continue;  // not pinned (mirror relax_fixed_state_variable)
     }
     // Physical setters descale by the dep column's own col_scale, so
@@ -630,14 +639,16 @@ auto build_strengthened_benders_cut(ColIndex alpha_col,
   } else {
     // Aperture-timeout-style silent fallback: the LP-relaxation cut
     // (already in `result.row`) is valid on its own; the MIP was only
-    // ever a tightening.
-    SPDLOG_DEBUG(
+    // ever a tightening.  Function-form spdlog: the SPDLOG_DEBUG macro
+    // is compiled out under the INFO-baked PCH, and this fallback must
+    // stay observable at --log-level=debug.
+    spdlog::debug(
         "build_strengthened_benders_cut: Lagrangian MIP solve failed / "
         "timed out (status {}) — emitting the LP-relaxation cut",
         mip_clone.get_status());
   }
 
-  SPDLOG_DEBUG(
+  spdlog::debug(
       "build_strengthened_benders_cut: b_LP={:.6e} m*={:.6e} "
       "tightened={} ({} charged link(s))",
       result.lp_rhs,
@@ -660,7 +671,7 @@ RelaxedVarInfo relax_fixed_state_variable(
   const auto lo = li.get_col_low_raw()[dep];
   const auto hi = li.get_col_upp_raw()[dep];
 
-  if (std::abs(lo - hi) >= 1e-10) {
+  if (std::abs(lo - hi) >= kStatePinDetectEps) {
     return {};
   }
 
@@ -940,11 +951,11 @@ struct RelaxationSpec
 };
 
 // Pre-pass: walk every link, run the singular relaxability check
-// (`abs(lo - hi) >= 1e-10`) plus the bound-pinning + slack-bound math
-// from `relax_fixed_state_variable`, and accumulate relaxation specs
-// for the relaxable subset.  No col / row mutations happen here —
-// only `set_col_low` / `set_col_upp` on the dependent column, which
-// is a backend bound write that doesn't touch shared metadata.
+// (`abs(lo - hi) >= kStatePinDetectEps`) plus the bound-pinning + slack-bound
+// math from `relax_fixed_state_variable`, and accumulate relaxation specs for
+// the relaxable subset.  No col / row mutations happen here — only
+// `set_col_low` / `set_col_upp` on the dependent column, which is a backend
+// bound write that doesn't touch shared metadata.
 //
 // Returns the per-link specs in iteration order; non-relaxable links
 // are silently skipped (the caller knows their link_idx because the
@@ -959,7 +970,7 @@ struct RelaxationSpec
     const auto dep = link.dependent_col;
     const auto lo = li.get_col_low_raw()[dep];
     const auto hi = li.get_col_upp_raw()[dep];
-    if (std::abs(lo - hi) >= 1e-10) {
+    if (std::abs(lo - hi) >= kStatePinDetectEps) {
       continue;
     }
 
