@@ -8,6 +8,9 @@
 
 #pragma once
 
+#include <tuple>
+#include <utility>
+
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_enum_option.hpp>
@@ -385,5 +388,21 @@ struct json_data_contract<SddpOptions>
         opt.markov_transition);
   }
 };
+
+// Plumbing guard (B1): the three lists above (constructor parameters,
+// `json_member_list`, `to_json_data` tuple) are POSITION-synced — daw
+// maps them by position, so a missing entry compiles clean and silently
+// shifts every later field.  Adding a `SddpOptions` field without
+// touching all three (and bumping `SddpOptions::json_field_count`) now
+// fails here instead.  Positional TRANSPOSITION of two same-typed
+// fields still compiles — the full-population round-trip doctest in
+// `test/source/test_sddp_options.cpp` catches that class.
+static_assert(
+    std::tuple_size_v<decltype(json_data_contract<SddpOptions>::to_json_data(
+            std::declval<const SddpOptions&>()))>
+        == SddpOptions::json_field_count,
+    "json_sddp_options.hpp: to_json_data tuple size differs from "
+    "SddpOptions::json_field_count — update the constructor parameter "
+    "list, json_member_list, to_json_data, AND the count together");
 
 }  // namespace daw::json

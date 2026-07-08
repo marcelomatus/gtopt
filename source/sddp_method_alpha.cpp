@@ -126,40 +126,40 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
   }
 }
 
-// Free-function implementation declared in <gtopt/sddp_types.hpp>.
-// See the header doc for the full M4 statement.  Kept as ONE small free
-// function so the column pricing (`register_alpha_variables`) and the
-// forward-pass UB strip read the identical weight — and so future
-// cut-sharing modes (e.g. Markov measures) extend the rule in exactly
-// one place.
-double alpha_unit_cost(const SimulationLP& sim,
-                       SceneIndex scene_index,
-                       std::size_t n_alpha) noexcept
+namespace
+{
+// Uniform M4 weight for every α column on a non-Markov layout —
+// implementation detail of `alpha_col_weights` (THE public accessor);
+// internal linkage keeps it that way.  Kept as ONE small function so
+// the column pricing (`register_alpha_variables`) and the forward-pass
+// UB strip read the identical weight.
+//
+// Pricing rule (Prop. M4, docs/formulation/sddp-cut-validity.md §8;
+// ledger §1.2): w_r = p_s for every varphi_r — the normalized
+// probability of the scene OWNING the LP, uniform across the N
+// columns.  Collapses to 1/N under uniform probabilities.  Masses
+// come from `scene_probability_masses` (single shared derivation); a
+// zero-mass OWNING scene (folded objective 0 anyway) falls back to
+// the uniform 1/n_alpha weight.
+[[nodiscard]] double alpha_unit_cost(const SimulationLP& sim,
+                                     SceneIndex scene_index,
+                                     std::size_t n_alpha)
 {
   if (n_alpha <= 1) {
     return 1.0;  // single-α layout: α carries the full cost-to-go.
   }
-  // M4 (docs/formulation/sddp-cut-validity.md §8): w_r = p_s for every
-  // varphi_r — the normalized probability of the scene OWNING the LP,
-  // uniform across the N columns.  Collapses to 1/N under uniform
-  // probabilities.
+  const auto masses = scene_probability_masses(sim);
   double total = 0.0;
-  double own = 0.0;
-  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
-    const double p = std::max(sim.scenes()[si].probability_factor(), 0.0);
+  for (const double p : masses) {
     total += p;
-    if (si == scene_index) {
-      own = p;
-    }
   }
+  const double own = masses[static_cast<std::size_t>(scene_index)];
   if (!(total > 0.0) || !(own > 0.0)) {
-    // Degenerate probability data (all-zero, or a zero-probability
-    // owning scene whose folded objective is 0 anyway): fall back to
-    // the uniform weight.
     return 1.0 / static_cast<double>(n_alpha);
   }
   return own / total;
 }
+}  // namespace
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
 // THE single mode-aware accessor for the per-column α pricing vector —
@@ -180,8 +180,8 @@ std::vector<double> alpha_col_weights(const SimulationLP& sim,
   // doubles as a layout-consistency check: a column layout that does
   // not match the Markov configuration falls back to the same uniform
   // M4 rule the pricing would have used for that layout.
-  if (!terminal_phase && cut_sharing == CutSharingMode::markov
-      && markov != nullptr && !markov->empty() && markov->num_states == n_alpha)
+  if (!terminal_phase && markov_active(cut_sharing, markov)
+      && markov->num_states == n_alpha)
   {
     return markov_alpha_weights(sim, *markov, scene_index);
   }
@@ -236,8 +236,7 @@ void register_alpha_variables(PlanningLP& planning_lp,
   // priced `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}` (theorem MK1) instead of
   // the uniform 1/n_alpha.  The terminal phase is untouched (it follows
   // `boundary_cut_sharing`, exactly as under multicut).
-  const bool intermediate_markov = (cut_sharing == CutSharingMode::markov)
-      && markov != nullptr && !markov->empty();
+  const bool intermediate_markov = markov_active(cut_sharing, markov);
 
   // Add `n_alpha` α columns to `li` and register each as a state variable in
   // the registry selected by `kind`.  Shared by the forward system and (when

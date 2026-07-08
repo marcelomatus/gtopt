@@ -119,11 +119,13 @@ auto extract_capacity_cuts(const SimulationLP& sim,
     out.push_back(std::move(cut));
   }
 
-  SPDLOG_DEBUG(
+  // Function-form spdlog: the SPDLOG_DEBUG macro is compiled out under
+  // the INFO-baked PCH; this summary must stay runtime-recoverable.
+  spdlog::debug(
       "extract_capacity_cuts: {} capacity-space cut(s) extracted for "
-      "phase {} from {} stored cut(s)",
+      "phase index {} from {} stored cut(s)",
       out.size(),
-      gtopt::uid_of(phase_index),
+      static_cast<int>(phase_index),
       cuts.size());
   return out;
 }

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
@@ -41,8 +43,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * (historical, byte-identical).  `resampled` re-draws a
    * probability-weighted scene realization at every phase boundary
    * (deterministic in (iteration, scene, phase)) and applies it via
-   * the bound-only `update_aperture` machinery, so the forward UB
-   * estimates the same stagewise-resampled process the
+   * the per-element `update_aperture` machinery (column-bound pins;
+   * the AR equality-row RHS under `Flow.inflow_model`), so the
+   * forward UB estimates the same stagewise-resampled process the
    * `cut_sharing_mode = multicut` LB certifies.  See
    * `ForwardSamplingMode` in `sddp_enums.hpp`. */
   std::optional<ForwardSamplingMode> forward_sampling_mode {};
@@ -369,8 +372,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   the first aperture in a chunk seeds a basis (barrier + crossover)
    *   and every subsequent aperture re-optimizes it with a warm simplex
    *   solve (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`)
-   *   instead of a fresh cold barrier.  Aperture deltas are bound-only so
-   *   the basis stays valid across apertures.
+   *   instead of a fresh cold barrier.  Aperture deltas (column bounds;
+   *   equality-row RHS under AR inflows / profile elements) preserve
+   *   dual feasibility, so the basis stays valid across apertures.
    * - `reduced_cost`: cold barrier WITHOUT crossover per aperture; the
    *   cut coefficients come straight from the interior-point reduced
    *   costs, filtered by `cut_coeff_eps`.  Skips crossover on big LPs
@@ -400,19 +404,22 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * exactly (warm dual simplex on the resident basis), replacing their
    * synthesized cuts with exact ones.  Ignored by every other mode.
    *
-   * Default: `nullopt` → 2.
+   * Default: `nullopt` → `default_sddp_aperture_screen_count`
+   * (2, `sddp_enums.hpp`).
    */
   OptInt aperture_screen_count {};
 
   /** @brief Seed each iteration's first backward aperture from the previous
    *         iteration's first-aperture simplex basis (dual warm start).
    *
-   * Orthogonal to `aperture_solve_mode`; only acts when the mode is `cold`
-   * or `warm` (vertex cuts).  One basis per `(scene, phase)` cell is kept
+   * Orthogonal to `aperture_solve_mode`; acts for every basis-capable
+   * (vertex) mode — all modes except `reduced_cost`, which has no basis
+   * to capture.  One basis per `(scene, phase)` cell is kept
    * across iterations (PhaseStateInfo) — `O(cells)` memory, not
    * `O(cells × apertures)`.  Same realization each iteration (the first
-   * aperture), so the only delta is the incoming state (bound-only) plus
-   * appended cut rows; the captured basis is an exact dual-simplex seed and
+   * aperture), so the only delta is the incoming state (a bound pin)
+   * plus appended cut rows; the captured basis is an exact dual-simplex
+   * seed and
    * the gap shrinks as the policy converges.  The within-chunk resident
    * basis carries the remaining apertures (`aperture_chunk_size > 1`).
    *
@@ -820,6 +827,16 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * Typical use: use dual simplex for the backward pass.
    */
   std::optional<SolverOptions> backward_solver_options {};
+
+  /// Number of JSON-facing fields in this struct.  MUST be bumped when
+  /// a field is added, together with the THREE position-synced lists in
+  /// `json_sddp_options.hpp` (constructor parameters, `json_member_list`,
+  /// `to_json_data` tuple), the `merge()` below, the
+  /// `PlanningOptionsLP` accessor, the `planning_method.cpp` copy line,
+  /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
+  /// (a schema-parity pytest enforces the Python side; a `static_assert`
+  /// in `json_sddp_options.hpp` enforces the tuple against this count).
+  static constexpr std::size_t json_field_count = 66;
 
   void merge(SddpOptions&& opts)
   {

@@ -76,7 +76,9 @@ struct CascadeLevelMethod
   OptInt aperture_screen_count {};
   /// Seed each iteration's first aperture from the previous iteration's
   /// first-aperture basis for this level (nullopt = inherit base
-  /// ``SDDPOptions::aperture_seed_basis``).  Only acts with cold/warm modes.
+  /// ``SDDPOptions::aperture_seed_basis``).  Acts for every
+  /// basis-capable (vertex) mode, i.e. all modes except
+  /// ``reduced_cost``.
   OptBool aperture_seed_basis {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};

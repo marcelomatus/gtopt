@@ -62,6 +62,16 @@ namespace gtopt
 
 // ─── State variable linkage ─────────────────────────────────────────────────
 
+/// Raw-bound gap below which a dependent state column counts as PINNED
+/// (`lowb ≈ uppb`, i.e. fixed to a forward trial value).  THE single
+/// pin-detection epsilon shared by `relax_fixed_state_variable`, the
+/// elastic-filter pre-pass (`compute_relaxation_specs`), and the
+/// strengthened-cut box relaxation (`build_strengthened_benders_cut`)
+/// — the strengthened-cut validity argument (theorem SB1's box domain)
+/// requires all three sites to agree on what "pinned" means, so keep
+/// them on this one constant.
+inline constexpr double kStatePinDetectEps = 1e-10;
+
 /**
  * @brief Describes one state-variable linkage between consecutive phases
  *

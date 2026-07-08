@@ -124,7 +124,11 @@ bool FlowLP::add_to_lp(SystemContext& sc,
           stage.uid());
     } else {
       ar_state_source = true;
-      ar_phi = flow().inflow_model.value_or(InflowModel {}).phi.value_or(0.0);
+      // `has_inflow_model` gates this branch, so the optional is
+      // engaged; bind it once instead of materialising a throwaway
+      // `InflowModel` via value_or.
+      const auto& im = flow().inflow_model;
+      ar_phi = im ? im->phi.value_or(0.0) : 0.0;
       const auto [prev_stage, prev_phase] = sc.prev_stage(stage);
       if (prev_stage != nullptr && is_active(*prev_stage)
           && !stage_has_fcost(*prev_stage))
@@ -360,6 +364,13 @@ bool FlowLP::update_aperture(
   const auto ar_it = ar_info.find(st_key);
   const ArStageInfo* ai = ar_it != ar_info.end() ? &ar_it->second : nullptr;
   if (ai != nullptr) {
+    // The lag reference is loop-invariant; memoise it lazily so it is
+    // resolved at most once per stage — but ONLY on the first block
+    // that actually receives a value, preserving the dual-shared
+    // row-touch gate's "a value_fn call happens iff a write happens"
+    // accounting (the same-phase branch queries value_fn for the
+    // previous stage).
+    std::optional<double> lag_ref_memo;
     for (const auto& [block_uid, row] : ai->rows) {
       const auto new_val = value_fn(stage.uid(), block_uid);
       if (!new_val.has_value()) {
@@ -368,11 +379,13 @@ bool FlowLP::update_aperture(
       // Cross-phase lag: the clone carries the forward pass's trial pin
       // (lo == up).  Same-phase lag: the aperture's own previous-stage
       // value, falling back to the schedule reference.
-      const double lag_ref = ai->cross_phase
-          ? li.get_col_low()[ai->lag_col]
-          : value_fn(ai->prev_stage_uid, ai->prev_ref_block_uid)
-                .value_or(ai->mu_prev_ref);
-      const double rhs = *new_val - (ai->phi * lag_ref);
+      if (!lag_ref_memo.has_value()) {
+        lag_ref_memo = ai->cross_phase
+            ? li.get_col_low()[ai->lag_col]
+            : value_fn(ai->prev_stage_uid, ai->prev_ref_block_uid)
+                  .value_or(ai->mu_prev_ref);
+      }
+      const double rhs = *new_val - (ai->phi * *lag_ref_memo);
       li.set_row_bounds(row, rhs, rhs);
     }
   }

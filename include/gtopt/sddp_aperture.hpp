@@ -203,10 +203,11 @@ struct ApertureEntry
 ///   * If `N_scenes × A` ≫ `parallel_factor × N_cores`, the pool is
 ///     oversubscribed at K=1.  Chunking K>1 reduces the queue depth
 ///     (one task per chunk instead of one per aperture) and gives each
-///     chunk warm-start reuse on its inner solves — the bound-only
-///     deltas between successive apertures keep the dual basis valid,
-///     so the second-and-later resolves typically converge in a
-///     fraction of a cold barrier.
+///     chunk warm-start reuse on its inner solves — the
+///     `update_aperture` deltas between successive apertures (column
+///     bounds; equality-row RHS under AR inflows / profile elements)
+///     keep the dual basis valid, so the second-and-later resolves
+///     typically converge in a fraction of a cold barrier.
 ///
 /// Closed form:
 ///
@@ -550,13 +551,17 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     ///   - `captured_basis_out` (out): when non-null, the basis of THIS
     ///     iteration's first aperture (first chunk) is written here after the
     ///     chunk futures join, for the caller to persist into the cell slot.
-    /// Only honoured for `cold`/`warm` modes (vertex cuts); `reduced_cost`
-    /// has no basis to capture.  Both default off (legacy cold first solve).
+    /// Honoured for every basis-capable (vertex) mode — all modes except
+    /// `reduced_cost`, which has no basis to capture.  Both default off
+    /// (legacy cold first solve).
     const Basis* seed_basis = nullptr,
     Basis* captured_basis_out = nullptr,
     /// Number of dual-shared cuts re-solved exactly under
     /// `aperture_solve_mode = screened` (largest |intercept correction|
-    /// first).  Ignored by every other mode.
-    int aperture_screen_count = 2) -> std::optional<SparseRow>;
+    /// first).  Ignored by every other mode.  Both production call
+    /// sites pass the resolved option; the default is the shared
+    /// `default_sddp_aperture_screen_count` constant (sddp_enums.hpp).
+    int aperture_screen_count = default_sddp_aperture_screen_count)
+    -> std::optional<SparseRow>;
 
 }  // namespace gtopt
