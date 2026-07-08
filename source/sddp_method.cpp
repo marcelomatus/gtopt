@@ -404,16 +404,17 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
-  // Loud warning for the theorem-M3 unsound configuration: `multicut`
-  // prices every `varphi_r` at 1/N, which is the Bellman recursion of
-  // the stagewise-resampled process ONLY under uniform scene
-  // probabilities.  With non-uniform p_s the future term is inflated
-  // by 1/(N·p_s) for scenes with p_s < 1/N and the LB is not a valid
-  // lower bound for any process.  See
-  // `docs/formulation/sddp-cut-validity.md` §8 (theorems M1/M3) and
-  // the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
-  // (The invalid broadcast modes accumulate/broadcast_mean/max — the
-  // subject of the previous warning here — were REMOVED 2026-07-08.)
+  // Informational note for multicut with non-uniform scene probabilities:
+  // since the M4 pricing fix (2026-07-08, Prop. M4 in
+  // `docs/formulation/sddp-cut-validity.md` §8) every `varphi_r` in
+  // scene-s's LP is priced at `w_r = p_s` (`alpha_unit_cost`), which makes
+  // the recursion the Bellman recursion of the process resampled with
+  // measure q_r = p_r — a certified LB for that process for ANY
+  // probability vector, so the former theorem-M3 WARN is obsolete.  The
+  // INFO reminds operators that the forward UB still simulates PERSISTENT
+  // per-scene paths, so LB and UB refer to different processes on
+  // heterogeneous scenes (Corollary M2 — a transient LB > UB there is a
+  // process mismatch, not a cut bug).
   if (m_options_.cut_sharing == CutSharingMode::multicut && num_scenes > 1) {
     double min_prob = std::numeric_limits<double>::infinity();
     double max_prob = 0.0;
@@ -427,14 +428,15 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
     constexpr double kUniformRelTol = 1.0e-9;
     if (max_prob - min_prob > kUniformRelTol * std::max(1.0, max_prob)) {
-      SPDLOG_WARN(
+      SPDLOG_INFO(
           "SDDP: cut_sharing=multicut with non-uniform scene probabilities "
-          "(min={}, max={} over {} scenes) — the uniform 1/N pricing of the "
-          "varphi columns is the resampled-process Bellman recursion only "
-          "for uniform probabilities; with non-uniform p_s the future term "
-          "is inflated by 1/(N*p_s) and the lower bound is NOT certified "
-          "(theorem M3, docs/formulation/sddp-cut-validity.md §8).  Use "
-          "uniform scene probabilities or cut_sharing=none.",
+          "(min={}, max={} over {} scenes) — varphi columns are priced per "
+          "Prop. M4 (w_r = p_s, the owning scene's normalized probability), "
+          "so the LB is certified for the process resampled with measure "
+          "q_r = p_r (docs/formulation/sddp-cut-validity.md §8).  The "
+          "forward UB still simulates persistent per-scene paths; on "
+          "heterogeneous scenes LB and UB refer to different processes "
+          "(Corollary M2).",
           min_prob,
           max_prob,
           num_scenes);

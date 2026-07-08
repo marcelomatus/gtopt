@@ -70,7 +70,8 @@ inline constexpr auto boundary_cuts_mode_entries =
  *   otherwise over-tightens the terminal α (same LB > UB failure mode as the
  *   intermediate broadcast modes).
  * - `multicut`: N terminal α columns (one per source scene), scenario-s cut →
- *   terminal `varphi_s`, averaged 1/N.  Full PLP fidelity; pairs with
+ *   terminal `varphi_s`, priced at the M4 weight w_r = p_s (= 1/N under
+ *   uniform probabilities).  Full PLP fidelity; pairs with
  *   `cut_sharing_mode = multicut`.
  *
  * Back-compat: the legacy `boundary_cuts_mode` scope values map here —
@@ -80,7 +81,8 @@ enum class BoundaryCutSharingMode : uint8_t
 {
   per_scene = 0,  ///< Each scene's terminal α bounded only by its own cuts
   shared = 1,  ///< Broadcast each boundary cut onto every scene's terminal α
-  multicut = 2,  ///< N terminal α columns, cut s → varphi_s, averaged 1/N
+  multicut = 2,  ///< N terminal α columns, cut s → varphi_s, priced at the
+                 ///< M4 weight w_r = p_s (= 1/N under uniform probabilities)
 };
 
 inline constexpr auto boundary_cut_sharing_mode_entries =
@@ -155,18 +157,19 @@ inline constexpr auto boundary_cut_soft_cost_entries =
  *
  * - `multicut` (PLP-faithful): each scene-LP carries N α columns
  *   (`varphi_0..N-1`, one per source scene), each bounded ONLY by its
- *   own scenario's cuts and priced uniformly 1/N in the objective; a
+ *   own scenario's cuts and priced at the M4 weight `w_r = p_s` (the
+ *   owning scene's normalized probability, uniform across the N
+ *   columns — `alpha_unit_cost`; = 1/N under uniform probabilities); a
  *   scene-S cut targets `varphi_S` in every destination LP.  The
  *   resulting recursion is the Bellman recursion of the
- *   **stagewise-resampled process** (scene data redrawn at every phase
- *   boundary), so the LB is a valid lower bound *for that process*
- *   under **uniform scene probabilities** (theorem M1); under
- *   non-uniform probabilities the 1/N pricing inflates the future term
- *   by `1/(N·p_s)` and the LB is not certified (theorem M3) — a
- *   runtime WARN fires at SDDP setup in that configuration.  Note the
- *   objective's `Σ_s (1/N)·varphi_s` is the expected cost-to-go only
- *   for the resampled process under uniform probabilities — NOT a
- *   general `E[Q]` identity.  Mirrors PLP `plp-agrespd.f::AgrResPD`
+ *   **stagewise-resampled process** with measure `q_r = p_r` (scene
+ *   data redrawn at every phase boundary), so the LB is a valid lower
+ *   bound *for that process* for any probability vector (theorems
+ *   M1/M4; the pre-M4 uniform 1/N pricing was unsound for non-uniform
+ *   probabilities — theorem M3, fixed 2026-07-08).  Note the
+ *   objective's future term is the expected cost-to-go of the
+ *   resampled process — NOT a general `E[Q]` identity for the
+ *   persistent process.  Mirrors PLP `plp-agrespd.f::AgrResPD`
  *   (`IColx = NCol-NSimul+ISimul`).  Full statements and proofs:
  *   `docs/formulation/sddp-cut-validity.md` §8.
  *
@@ -186,9 +189,10 @@ enum class CutSharingMode : uint8_t
              ///< valid LB — theorem N1)
   multicut = 1,  ///< PLP-faithful: N α columns per scene-LP (one per source
                  ///< scene), each bounded ONLY by its own scenario's cuts,
-                 ///< priced 1/N → valid LB for the stagewise-RESAMPLED
-                 ///< process under uniform scene probabilities (theorem M1;
-                 ///< uncertified for non-uniform probabilities, theorem M3)
+                 ///< priced w_r = p_s (M4; = 1/N under uniform
+                 ///< probabilities) → valid LB for the stagewise-RESAMPLED
+                 ///< process with measure q_r = p_r for any probability
+                 ///< vector (theorems M1/M4)
 };
 
 inline constexpr auto cut_sharing_mode_entries =
@@ -234,7 +238,7 @@ inline constexpr auto cut_sharing_mode_entries =
       "invalid for distinct sample paths (see "
       "docs/formulation/sddp-cut-validity.md §7).  Use 'none' "
       "(per-scene, always valid) or 'multicut' (resampled-process LB, "
-      "uniform probabilities).",
+      "M4 pricing).",
       name);
 }
 

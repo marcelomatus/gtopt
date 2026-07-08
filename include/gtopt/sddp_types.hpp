@@ -409,11 +409,13 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///  * `none` (default): each scene's single α is bounded only by its
   ///    own cuts — the per-scene persistent-path (wait-and-see) lower
   ///    bound, **unconditionally valid** (theorem N1).
-  ///  * `multicut`: PLP-faithful per-scenario varphi columns priced
-  ///    1/N; the LB is the lower bound of the stagewise-RESAMPLED
-  ///    process, valid under **uniform scene probabilities** (theorem
-  ///    M1); uncertified for non-uniform probabilities (theorem M3 —
-  ///    a runtime WARN fires at SDDP setup in that configuration).
+  ///  * `multicut`: PLP-faithful per-scenario varphi columns priced at
+  ///    the M4 weight `w_r = p_s` (`alpha_unit_cost`; = 1/N under
+  ///    uniform probabilities); the LB is the lower bound of the
+  ///    stagewise-RESAMPLED process with measure `q_r = p_r`, valid for
+  ///    any probability vector (theorems M1/M4 — an INFO notes the
+  ///    persistent-UB vs resampled-LB process mismatch at SDDP setup
+  ///    when probabilities are non-uniform).
   ///
   /// REMOVED 2026-07-08: `accumulate`, `broadcast_mean` (alias
   /// `expected`), and `max` — KNOWN INVALID broadcasts onto the
@@ -1194,6 +1196,40 @@ struct SDDPIterationResult
     SceneIndex scene_index,
     PhaseIndex phase_index,
     SystemKind kind = SystemKind::forward);
+
+/// THE single source of truth for the objective weight applied to every
+/// α (future-cost) column on a scene-LP — shared by
+/// `register_alpha_variables` (column pricing) and the forward-pass UB
+/// strip so the two can never diverge.
+///
+/// Pricing rule (Prop. M4, `docs/formulation/sddp-cut-validity.md` §8;
+/// ledger §1.2):
+///
+///  * single-α layouts (`n_alpha <= 1`): weight `1.0` — α carries the
+///    full cost-to-go (legacy behaviour, byte-identical).
+///  * multicut layouts (`n_alpha == N > 1`): EVERY `varphi_r`
+///    (r = 0..N-1) in scene-s's LP is priced at `w_r = p_s` — the
+///    normalized probability of the scene that OWNS the LP, uniform
+///    across the N columns (NOT `p_r` per column).  With
+///    `varphi_r ≈ V_r = p_r·Ṽ_r`, the scene-LP future term becomes
+///    `Σ_r p_s·p_r·Ṽ_r`, i.e. after dividing by `p_s` the Bellman
+///    recursion of the process resampled with measure `q_r = p_r` — a
+///    certified lower bound for that process for ANY probability
+///    vector.  Under uniform probabilities `p_s = 1/N` this reproduces
+///    the historical `1/N` pricing exactly.
+///
+/// Probabilities are normalized over all scenes (`p_s =
+/// scene_prob(s) / Σ_r scene_prob(r)`).  Guard: when `Σ_r prob <= 0`,
+/// or the owning scene's probability is non-positive (a degenerate
+/// zero-probability scene whose folded objective is 0 anyway), fall
+/// back to the uniform `1/n_alpha` weight.
+///
+/// Extension point (Markov / per-column measures): keep any
+/// generalized pricing INSIDE this function so every consumer (column
+/// registration, UB strip, future cut-sharing modes) stays consistent.
+[[nodiscard]] double alpha_unit_cost(const SimulationLP& sim,
+                                     SceneIndex scene_index,
+                                     std::size_t n_alpha) noexcept;
 
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`

@@ -65,11 +65,22 @@ For this to be the Bellman recursion of the stagewise-independent
 process resampled with measure `q_r = p_r` we need `w_r·p_r/p_s = p_r`,
 i.e. **`w_r = p_s` for every r — the probability of the scene that OWNS
 the LP, uniform across the N varphi columns** (not `p_r` per column).
-Under uniform probabilities `p_s = 1/N` this collapses to the current
+Under uniform probabilities `p_s = 1/N` this collapses to the legacy
 1/N pricing.  The LB `Σ_s V_s(0) = Σ_s p_s·Ṽ_s(0)` is then the
 resampled-process expected value under a uniform initial-scene draw —
-a valid LB **for that process**.  Still do-not-implement until the
-theorem document and an oracle test exist.
+a valid LB **for that process**.
+
+Status: **IMPLEMENTED 2026-07-08** — the pricing rule lives in the
+shared free function `alpha_unit_cost` (`sddp_types.hpp` /
+`source/sddp_method_alpha.cpp`), consumed by
+`register_alpha_variables` for both the intermediate
+(`CutSharingMode::multicut`) and terminal
+(`BoundaryCutSharingMode::multicut`) α columns; probabilities are
+normalized over scenes with a `Σp > 0` guard (fallback 1/N).  Gated by
+the failing-then-passing identical-dynamics 0.6/0.4 oracle case in
+`test_sddp_cut_oracle.cpp` (fails under 1/N pricing, strict-passes
+under M4).  The former `initialize_solver` non-uniform WARN became an
+INFO (theorem doc §8, Prop. M4).
 
 Consequences confirmed:
 
@@ -182,7 +193,8 @@ relative to the row max; the tolerances add.
   shapes, identical scenes × all 5 modes, scale_alpha probes 1/10/100
   (plain + apertures + variable_scales), WARN-emission tests.  After the
   theorem: legacy-mode WARNs stay (invalid, settled), multicut
-  heterogeneous WARN stays (process mismatch + non-uniform unsound);
+  heterogeneous WARN stays (process mismatch; the non-uniform
+  unsoundness was fixed by M4 on 2026-07-08 — see §1.2);
   upgrade path is oracle-based extensive-form comparisons, not
   UB-comparisons.
 - **F10 — cuOpt duals are ε-optimal; no warm start (2026-07-08

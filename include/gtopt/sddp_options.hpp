@@ -419,8 +419,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   scenario's boundary cuts (valid; pairs with cut_sharing none/multicut).
    * - shared: broadcast each boundary cut onto every scene's single terminal α
    *   (valid only when the post-horizon value is scenario-identical).
-   * - multicut: N terminal α columns, cut s → varphi_s, averaged 1/N (pairs
-   *   with cut_sharing_mode=multicut).
+   * - multicut: N terminal α columns, cut s → varphi_s, priced at the M4
+   *   weight w_r = p_s (= 1/N under uniform probabilities; pairs with
+   *   cut_sharing_mode=multicut).
    * When unset, derived from the legacy `boundary_cuts_mode` scope:
    * separated→per_scene, combined→shared; else per_scene.
    */
