@@ -25,7 +25,10 @@ _VALID_OUTPUT_FORMATS = {"parquet", "csv"}
 _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
 _VALID_CUT_RECOVERY_MODES = {"none", "keep", "append", "replace"}
 _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
-_VALID_CUT_SHARING_MODES = {"none", "expected", "accumulate", "max"}
+# "expected"/"broadcast_mean", "accumulate", and "max" were REMOVED from
+# gtopt on 2026-07-08 (invalid cut broadcasts; see
+# docs/formulation/sddp-cut-validity.md section 7) -- gtopt now hard-errors.
+_VALID_CUT_SHARING_MODES = {"none", "multicut"}
 _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 

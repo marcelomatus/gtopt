@@ -475,10 +475,6 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         choices=[
             "none",
             "multicut",
-            "broadcast_mean",
-            "expected",
-            "accumulate",
-            "max",
         ],
         help=(
             "SDDP cut sharing mode (default for sddp/cascade: 'multicut'; "
@@ -488,15 +484,10 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "scenario-s's backward cut is broadcast onto varphi_s in every "
             "scene-LP, priced 1/N (matches `plp-agrespd.f:94` source "
             "indexing + `defprbpd.f:810` 1/N averaging); "
-            "'none' keeps cuts in their originating scene (no sharing); "
-            "'broadcast_mean' (alias 'expected') computes a "
-            "probability-weighted average cut; "
-            "'accumulate' sums all cuts directly; "
-            "'max' shares all cuts from all scenes to all scenes. "
-            "broadcast_mean/accumulate/max broadcast onto the destination's "
-            "OWN shared alpha and are valid only when scenes share IDENTICAL "
-            "sample-path realisations; see "
-            "docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md. "
+            "'none' keeps cuts in their originating scene (no sharing). "
+            "The legacy broadcast_mean/expected/accumulate/max modes were "
+            "REMOVED from gtopt on 2026-07-08 (invalid broadcasts; see "
+            "docs/formulation/sddp-cut-validity.md section 7). "
             "(default: multicut for sddp/cascade)"
         ),
     )

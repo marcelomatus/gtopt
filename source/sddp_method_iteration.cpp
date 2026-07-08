@@ -148,9 +148,9 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
   }
 
   // Also check other scenes' cuts for the same (phase) — under
-  // CutSharingMode::max / expected / accumulate, cuts from other
-  // scenes are also present on this scene's LP row span.  Walk every
-  // scene's vector, dedup by row index.
+  // CutSharingMode::multicut, cuts from other scenes are also present
+  // on this scene's LP row span (broadcast onto their own varphi_s).
+  // Walk every scene's vector, dedup by row index.
   for (auto&& [other_si, other_cuts] :
        enumerate<SceneIndex>(m_cut_store_.scene_cuts()))
   {
@@ -1477,8 +1477,8 @@ auto SDDPMethod::run_backward_pass_synchronized(
     const char* env = std::getenv("GTOPT_PARALLEL_APERTURE_BACKWARD");
     return env != nullptr && env[0] != '\0' && env[0] != '0';
   }();
-  const bool aperture_tier2 = tier2_opt_in && use_apertures
-      && static_cast<unsigned>(num_scenes) < hw_cores;
+  const bool aperture_tier2 =
+      tier2_opt_in && use_apertures && std::cmp_less(num_scenes, hw_cores);
   std::optional<CoordinatorPool> aperture_coord;
   if (aperture_tier2) {
     aperture_coord.emplace(static_cast<std::size_t>(num_scenes));

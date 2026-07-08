@@ -14,7 +14,10 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include <gtopt/enum_option.hpp>
 
@@ -140,67 +143,99 @@ inline constexpr auto boundary_cut_soft_cost_entries =
 /**
  * @brief SDDP cut sharing mode across scenes in the backward pass.
  *
- * When a sharing mode other than `none` is selected, the backward pass is
- * synchronized per-phase: all scenes complete a phase before cuts are shared
- * and the next phase is processed.
+ * When `multicut` is selected, the backward pass is synchronized
+ * per-phase: all scenes complete a phase before cuts are broadcast and
+ * the next phase is processed.
  *
- * @warning `none` and `multicut` are mathematically valid; `broadcast_mean`
- * (formerly `expected`), `accumulate`, and `max` are NOT for distinct sample
- * paths.  gtopt's per-scene LP holds, by default, ONE α^k_d column bounded by
- * scene d's own cuts (`none`).  The `broadcast_mean` / `accumulate` / `max`
- * modes broadcast a cut from scene S onto **scene D's own α** — valid only
- * when scenes share the IDENTICAL sample-path realization; distinct-sample-path
- * runs (Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 hydrology samples)
- * violate that and produce LB > UB that compounds across iterations.
+ * - `none` (default): each scene's single α is bounded only by that
+ *   scene's own cuts.  Every scene optimises against its OWN
+ *   persistent-sample-path cost-to-go, so the LB is the wait-and-see
+ *   bound `Σ_s p_s·C_s^opt` — **unconditionally valid** (theorem N1 in
+ *   `docs/formulation/sddp-cut-validity.md` §7).
  *
- * `multicut` is the PLP-faithful fix: each scene-LP carries N α columns
- * (`varphi_0..N-1`, one per source scene), each bounded ONLY by its own
- * scenario's cuts, priced uniformly 1/N in the objective.  A broadcast cut
- * from scene S targets `varphi_S` in every destination LP — never `varphi_D` —
- * so `Σ_s (1/N)·varphi_s ≥ (1/N)·Σ_s Q_s = E[Q]` stays a valid lower bound.
- * Mirrors PLP `plp-agrespd.f::AgrResPD` (`IColx = NCol-NSimul+ISimul`).
+ * - `multicut` (PLP-faithful): each scene-LP carries N α columns
+ *   (`varphi_0..N-1`, one per source scene), each bounded ONLY by its
+ *   own scenario's cuts and priced uniformly 1/N in the objective; a
+ *   scene-S cut targets `varphi_S` in every destination LP.  The
+ *   resulting recursion is the Bellman recursion of the
+ *   **stagewise-resampled process** (scene data redrawn at every phase
+ *   boundary), so the LB is a valid lower bound *for that process*
+ *   under **uniform scene probabilities** (theorem M1); under
+ *   non-uniform probabilities the 1/N pricing inflates the future term
+ *   by `1/(N·p_s)` and the LB is not certified (theorem M3) — a
+ *   runtime WARN fires at SDDP setup in that configuration.  Note the
+ *   objective's `Σ_s (1/N)·varphi_s` is the expected cost-to-go only
+ *   for the resampled process under uniform probabilities — NOT a
+ *   general `E[Q]` identity.  Mirrors PLP `plp-agrespd.f::AgrResPD`
+ *   (`IColx = NCol-NSimul+ISimul`).  Full statements and proofs:
+ *   `docs/formulation/sddp-cut-validity.md` §8.
  *
- * A runtime WARN is emitted at SDDP setup for the INVALID modes only:
- * `cut_sharing ∉ {none, multicut} && num_scenes > 1`.  See
+ * @note REMOVED 2026-07-08: the legacy `accumulate`, `broadcast_mean`
+ * (alias `expected`), and `max` modes were deleted — all three
+ * broadcast onto the destination scene's own α and are KNOWN INVALID
+ * for distinct sample paths (LB > UB compounding across iterations;
+ * verdicts in `docs/formulation/sddp-cut-validity.md` §7, history in
  * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
- * and the regression test `test/source/test_sddp_bounds_sanity.cpp`.
+ * and git).  Their names now fail parsing with a hard error pointing
+ * at `none` / `multicut`.
  */
 enum class CutSharingMode : uint8_t
 {
   none = 0,  ///< No sharing; each scene's single α is bounded only by its own
-             ///< cuts (per-scene anticipative — each scene optimises against
-             ///< its OWN future cost Q_d, not the expectation; valid LB)
-  broadcast_mean = 1,  ///< Average per-scene cuts into one mean cut, broadcast
-                       ///< onto every scene's single α (KNOWN INVALID for
-                       ///< distinct sample paths — see warning; was "expected")
-  accumulate = 2,  ///< Sum all cuts directly (KNOWN INVALID for distinct
-                   ///< sample paths — see warning)
-  max = 3,  ///< All cuts from all scenes added to all scenes (KNOWN INVALID
-            ///< for distinct sample paths — see warning)
-  multicut =
-      4,  ///< PLP-faithful: N α columns per scene-LP (one per source
-          ///< scene), each bounded ONLY by its own scenario's cuts,
-          ///< averaged 1/N in the objective → every scene's LP sees the
-          ///< true expected cost-to-go Σ_s (1/N)·Q_s.  VALID lower bound.
+             ///< cuts (per-scene persistent-path bound; unconditionally
+             ///< valid LB — theorem N1)
+  multicut = 1,  ///< PLP-faithful: N α columns per scene-LP (one per source
+                 ///< scene), each bounded ONLY by its own scenario's cuts,
+                 ///< priced 1/N → valid LB for the stagewise-RESAMPLED
+                 ///< process under uniform scene probabilities (theorem M1;
+                 ///< uncertified for non-uniform probabilities, theorem M3)
 };
 
 inline constexpr auto cut_sharing_mode_entries =
     std::to_array<EnumEntry<CutSharingMode>>({
         {.name = "none", .value = CutSharingMode::none},
-        {.name = "broadcast_mean", .value = CutSharingMode::broadcast_mean},
-        // Back-compat: the mode formerly named "expected" is the same
-        // (invalid) mean-broadcast; keep parsing old configs/CLI strings.
-        {.name = "expected",
-         .value = CutSharingMode::broadcast_mean,
-         .is_alias = true},
-        {.name = "accumulate", .value = CutSharingMode::accumulate},
-        {.name = "max", .value = CutSharingMode::max},
         {.name = "multicut", .value = CutSharingMode::multicut},
     });
 
 [[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
 {
   return std::span {cut_sharing_mode_entries};
+}
+
+/// True when @p name spells one of the cut-sharing modes REMOVED on
+/// 2026-07-08 (`accumulate`, `broadcast_mean` / `expected`, `max`) —
+/// KNOWN INVALID cross-scene broadcasts; see
+/// `docs/formulation/sddp-cut-validity.md` §7.  Ingestion paths use
+/// this to fail loudly with a removal message instead of the generic
+/// unknown-name error (and instead of silently degrading to a default).
+[[nodiscard]] constexpr auto is_removed_cut_sharing_mode_name(
+    std::string_view name) noexcept -> bool
+{
+  for (const auto* removed :
+       {"accumulate", "broadcast_mean", "expected", "max"})
+  {
+    if (detail::ascii_iequals(name, removed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Error text for a removed cut-sharing mode name — shared by the JSON
+/// ingestion path (`json_sddp_options.hpp`) and
+/// `parse_cut_sharing_mode` so every entry point reports the same
+/// diagnosis.
+[[nodiscard]] inline auto removed_cut_sharing_mode_message(
+    std::string_view name) -> std::string
+{
+  return std::format(
+      "cut_sharing_mode '{}' was REMOVED 2026-07-08: the accumulate / "
+      "broadcast_mean (expected) / max broadcasts are mathematically "
+      "invalid for distinct sample paths (see "
+      "docs/formulation/sddp-cut-validity.md §7).  Use 'none' "
+      "(per-scene, always valid) or 'multicut' (resampled-process LB, "
+      "uniform probabilities).",
+      name);
 }
 
 // ─── CutDrainMode ──────────────────────────────────────────────────────────

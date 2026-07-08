@@ -146,14 +146,18 @@ void register_alpha_variables(PlanningLP& planning_lp,
   const auto n_phases = phases.size();
 
   // Under `multicut`, each scene-LP carries N future-cost columns
-  // (`varphi_0..N-1`, one per SOURCE scene), each priced uniformly 1/N so the
-  // objective's Σ_s (1/N)·varphi_s reconstructs the expected cost-to-go (PLP
+  // (`varphi_0..N-1`, one per SOURCE scene), each priced uniformly 1/N (PLP
   // `defprbpd.f:810`).  A scenario-s backward cut is later routed onto
   // `varphi_s` (uid = sddp_alpha_uid + s) in EVERY destination scene-LP, never
-  // the destination's own α — that routing is what keeps the bound valid.
-  // The intermediate phases follow `cut_sharing`; the terminal phase follows
-  // `boundary_cut_sharing` (its boundary cuts land on the terminal α(s)).  For
-  // every non-multicut mode n_alpha == 1 → the legacy single-α layout (uid 0).
+  // the destination's own α.  Validity caveat (theorem M1/M3 in
+  // `docs/formulation/sddp-cut-validity.md` §8): the per-scenario routing
+  // plus the 1/N pricing make the recursion the Bellman recursion of the
+  // stagewise-RESAMPLED process, whose LB is valid ONLY under uniform scene
+  // probabilities — Σ_s (1/N)·varphi_s is NOT a general expected
+  // cost-to-go.  The intermediate phases follow `cut_sharing`; the terminal
+  // phase follows `boundary_cut_sharing` (its boundary cuts land on the
+  // terminal α(s)).  Under `cut_sharing = none`, n_alpha == 1 → the legacy
+  // single-α layout (uid 0).
   const bool intermediate_multi = (cut_sharing == CutSharingMode::multicut);
   const bool terminal_multi =
       (boundary_cut_sharing == BoundaryCutSharingMode::multicut);

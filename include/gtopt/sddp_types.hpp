@@ -60,8 +60,11 @@ class PlanningLP;
 // The generic enum_from_name<CutSharingMode>() replaces the old
 // parse_cut_sharing_mode() free function.
 
-/// Parse a cut-sharing mode from a string (backward-compatible wrapper).
-/// ("none", "expected", "accumulate", "max")
+/// Parse a cut-sharing mode from a string ("none", "multicut").
+/// Throws `std::invalid_argument` on any other spelling — including
+/// the modes REMOVED 2026-07-08 ("accumulate", "broadcast_mean" /
+/// "expected", "max"), which get a dedicated removal message plus an
+/// ERROR-level log (see `is_removed_cut_sharing_mode_name`).
 [[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -400,20 +403,26 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// legitimately go negative (net-revenue phases, mid-convergence
   /// cuts that haven't yet tightened LB above zero).
   double scale_alpha {0};
-  /// Cut sharing mode across scenes.  WARNING: only `none` is
-  /// mathematically valid for HETEROGENEOUS scenes (scenes with
-  /// different probabilities or different dynamics).  Modes
-  /// `accumulate`, `expected`, and `max` broadcast a cut from scene S
-  /// to every other scene's α LP, which is only valid when all scenes
-  /// are mathematically identical (cuts from any scene coincide).
-  /// Otherwise the broadcast cut over-tightens α at scenes whose
-  /// actual future cost is below the broadcast bound, producing
-  /// LB > UB ("LB overshoot") that compounds across iterations and
-  /// can grow by orders of magnitude (juan/gtopt_iplp regressed at
-  /// 7225× before this was diagnosed).  See
-  /// `test/source/test_sddp_bounds_sanity.cpp` for the regression
-  /// guard.  Default `none` is the only safe choice for production
-  /// runs with non-uniform hydrology / probability scenarios.
+  /// Cut sharing mode across scenes.  Two modes remain
+  /// (`docs/formulation/sddp-cut-validity.md` §7–§8):
+  ///
+  ///  * `none` (default): each scene's single α is bounded only by its
+  ///    own cuts — the per-scene persistent-path (wait-and-see) lower
+  ///    bound, **unconditionally valid** (theorem N1).
+  ///  * `multicut`: PLP-faithful per-scenario varphi columns priced
+  ///    1/N; the LB is the lower bound of the stagewise-RESAMPLED
+  ///    process, valid under **uniform scene probabilities** (theorem
+  ///    M1); uncertified for non-uniform probabilities (theorem M3 —
+  ///    a runtime WARN fires at SDDP setup in that configuration).
+  ///
+  /// REMOVED 2026-07-08: `accumulate`, `broadcast_mean` (alias
+  /// `expected`), and `max` — KNOWN INVALID broadcasts onto the
+  /// destination scene's own α that produced compounding LB > UB on
+  /// distinct sample paths (juan/gtopt_iplp regressed at 7225× before
+  /// this was diagnosed).  Their names now hard-error at ingestion.
+  /// See `test/source/test_sddp_bounds_sanity.cpp` for the regression
+  /// guards and `test/source/test_sddp_cut_oracle.cpp` for the
+  /// extensive-form certification harness.
   CutSharingMode cut_sharing {CutSharingMode::none};
 
   /// How terminal/boundary cuts are shared across scenes on the terminal α —

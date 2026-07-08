@@ -101,6 +101,14 @@ struct SddpOptionsConstructor
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
+      // Loud failure for the modes REMOVED 2026-07-08 (accumulate /
+      // broadcast_mean / expected / max) — the dedicated message names
+      // the removal and points at none/multicut instead of the generic
+      // unknown-value error from `require_enum`.
+      if (gtopt::is_removed_cut_sharing_mode_name(*cut_sharing_mode_str)) {
+        throw std::invalid_argument(
+            gtopt::removed_cut_sharing_mode_message(*cut_sharing_mode_str));
+      }
       opts.cut_sharing_mode = gtopt::require_enum<CutSharingMode>(
           "cut_sharing_mode", *cut_sharing_mode_str);
     }

@@ -17,10 +17,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <map>
 #include <ranges>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -153,7 +155,17 @@ std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
-  return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);
+  // Loud failure on the modes REMOVED 2026-07-08 (accumulate /
+  // broadcast_mean / expected / max): a silent `value_or(none)` would
+  // let a config that previously selected a KNOWN-INVALID broadcast
+  // degrade without any signal.  Unknown names are hard errors too
+  // (`require_enum` lists the valid spellings).
+  if (is_removed_cut_sharing_mode_name(name)) {
+    const auto msg = removed_cut_sharing_mode_message(name);
+    SPDLOG_ERROR("{}", msg);
+    throw std::invalid_argument(msg);
+  }
+  return require_enum<CutSharingMode>("cut_sharing_mode", name);
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
@@ -392,32 +404,41 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
-  // Loud warning when cross-scene cut sharing is requested on a
-  // multi-scene run.  gtopt implements multi-cut SDDP (one α per
-  // scene), so cuts from scene S only validly bound α^k_S; the
-  // `accumulate`/`expected`/`max` modes broadcast S's cut onto every
-  // other scene's α, which is mathematically valid only when the
-  // scenes literally share the same sample-path realization (same
-  // inflows, demands, etc. at every (phase, block)).  Production
-  // runs (e.g. juan/gtopt_iplp with 16 distinct hydrology samples)
-  // do not satisfy that condition; the broadcast cuts produce
-  // LB > UB that compounds across iterations.  See
-  // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
-  // and the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
-  if (m_options_.cut_sharing != CutSharingMode::none
-      && m_options_.cut_sharing != CutSharingMode::multicut && num_scenes > 1)
-  {
-    SPDLOG_WARN(
-        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting onto "
-        "the destination scene's own α is mathematically valid only when "
-        "scenes share IDENTICAL sample-path realizations (same inflows / "
-        "demands / capacities at every phase and block).  Heterogeneous-"
-        "realization runs may produce LB > UB.  Use cut_sharing=none (or the "
-        "PLP-faithful multicut) for production multi-scenario runs.  See "
-        "docs/analysis/investigations/sddp/"
-        "sddp_cut_sharing_fix_plan_2026-04-30.md.",
-        enum_name(m_options_.cut_sharing),
-        num_scenes);
+  // Loud warning for the theorem-M3 unsound configuration: `multicut`
+  // prices every `varphi_r` at 1/N, which is the Bellman recursion of
+  // the stagewise-resampled process ONLY under uniform scene
+  // probabilities.  With non-uniform p_s the future term is inflated
+  // by 1/(N·p_s) for scenes with p_s < 1/N and the LB is not a valid
+  // lower bound for any process.  See
+  // `docs/formulation/sddp-cut-validity.md` §8 (theorems M1/M3) and
+  // the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
+  // (The invalid broadcast modes accumulate/broadcast_mean/max — the
+  // subject of the previous warning here — were REMOVED 2026-07-08.)
+  if (m_options_.cut_sharing == CutSharingMode::multicut && num_scenes > 1) {
+    double min_prob = std::numeric_limits<double>::infinity();
+    double max_prob = 0.0;
+    for (const auto& scene : sim.scenes()) {
+      double prob = 0.0;
+      for (const auto& sc : scene.scenarios()) {
+        prob += sc.probability_factor();
+      }
+      min_prob = std::min(min_prob, prob);
+      max_prob = std::max(max_prob, prob);
+    }
+    constexpr double kUniformRelTol = 1.0e-9;
+    if (max_prob - min_prob > kUniformRelTol * std::max(1.0, max_prob)) {
+      SPDLOG_WARN(
+          "SDDP: cut_sharing=multicut with non-uniform scene probabilities "
+          "(min={}, max={} over {} scenes) — the uniform 1/N pricing of the "
+          "varphi columns is the resampled-process Bellman recursion only "
+          "for uniform probabilities; with non-uniform p_s the future term "
+          "is inflated by 1/(N*p_s) and the lower bound is NOT certified "
+          "(theorem M3, docs/formulation/sddp-cut-validity.md §8).  Use "
+          "uniform scene probabilities or cut_sharing=none.",
+          min_prob,
+          max_prob,
+          num_scenes);
+    }
   }
 
   m_scene_phase_states_.resize(num_scenes);

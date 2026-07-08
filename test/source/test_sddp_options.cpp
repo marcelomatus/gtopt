@@ -67,7 +67,7 @@ TEST_CASE("SddpOptions - Construction with iteration control fields")
 TEST_CASE("SddpOptions - Construction with cut management fields")
 {
   const SddpOptions opts {
-      .cut_sharing_mode = CutSharingMode::broadcast_mean,
+      .cut_sharing_mode = CutSharingMode::multicut,
       .cut_directory = "my_cuts",
       .cut_recovery_mode = HotStartMode::append,
       .recovery_mode = RecoveryMode::cuts,
@@ -83,7 +83,7 @@ TEST_CASE("SddpOptions - Construction with cut management fields")
   };
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == CutSharingMode::broadcast_mean);
+  CHECK(*opts.cut_sharing_mode == CutSharingMode::multicut);
   REQUIRE(opts.cut_directory.has_value());
   CHECK(*opts.cut_directory == "my_cuts");
   REQUIRE(opts.cut_recovery_mode.has_value());
@@ -194,7 +194,7 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
   };
 
   SddpOptions overlay {
-      .cut_sharing_mode = CutSharingMode::broadcast_mean,
+      .cut_sharing_mode = CutSharingMode::multicut,
       .min_iterations = 5,
       .elastic_penalty = 1e6,
   };
@@ -211,7 +211,7 @@ TEST_CASE("SddpOptions - Merge fills missing fields")
 
   // New from overlay
   REQUIRE(base.cut_sharing_mode.has_value());
-  CHECK(*base.cut_sharing_mode == CutSharingMode::broadcast_mean);
+  CHECK(*base.cut_sharing_mode == CutSharingMode::multicut);
   REQUIRE(base.min_iterations.has_value());
   CHECK(*base.min_iterations == 5);
   REQUIRE(base.elastic_penalty.has_value());

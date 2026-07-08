@@ -21,7 +21,7 @@
  *     "output_format": "parquet",
  *     "input_directory": "input",
  *     "sddp_options": {
- *       "cut_sharing_mode": "expected",
+ *       "cut_sharing_mode": "multicut",
  *       "cut_directory": "cuts",
  *       "api_enabled": true,
  *       "update_lp_skip": 0,

@@ -264,8 +264,11 @@ across save/load), not as a tolerance.
 
 ## 5. Cut Combinators
 
-`benders_cut.cpp:1582-1708` provides three combinators used by the
-sharing and aperture paths.
+`benders_cut.cpp` provides the cut combinators used by the sharing and
+aperture paths.  (Since 2026-07-08 only `weighted_average_benders_cut`
+remains in the code — `average_benders_cut` and
+`accumulate_benders_cuts` were deleted with the invalid sharing modes;
+the analysis below is kept as the record of why.)
 
 **Lemma A1 (convex combinations).**  *If cuts
 $\alpha \ge b_k + \langle g_k, x\rangle$, $k = 1..K$, are each valid
@@ -347,9 +350,9 @@ shared-per-LP α column ($\varphi_0$):
 | Mode | Mechanism | Verdict |
 |------|-----------|---------|
 | `none` | scene-$s$ cuts stay on scene-$s$'s own α | **VALID** unconditionally (Theorem O2 per scene; Theorem N1 below) |
-| `accumulate` | sum of all scenes' cuts broadcast to every α | **INVALID** for $K>1$ cuts (Lemma A1 remark: sums over-count) — even for identical scenes the RHS sums; only degenerate single-cut iterations escape |
-| `broadcast_mean` | per-scene average, then **sum** across scenes, broadcast | **INVALID** for heterogeneous scenes; the cross-scene *sum* of per-scene averages is again an over-count unless the per-scene averages coincide and... see remark below |
-| `max` | every cut broadcast onto every LP's shared α | **INVALID** for heterogeneous scenes: forces $\varphi_0^D \ge p_S Q_S^\*(\cdot)$ for all $S$, i.e. the max of unrelated bounds; valid only for literally identical sample paths (identical-Q) |
+| `accumulate` | sum of all scenes' cuts broadcast to every α | **INVALID** — **REMOVED 2026-07-08** — for $K>1$ cuts (Lemma A1 remark: sums over-count) — even for identical scenes the RHS sums; only degenerate single-cut iterations escape |
+| `broadcast_mean` | per-scene average, then **sum** across scenes, broadcast | **INVALID** — **REMOVED 2026-07-08** — for heterogeneous scenes; the cross-scene *sum* of per-scene averages is again an over-count unless the per-scene averages coincide and... see remark below |
+| `max` | every cut broadcast onto every LP's shared α | **INVALID** — **REMOVED 2026-07-08** — for heterogeneous scenes: forces $\varphi_0^D \ge p_S Q_S^\*(\cdot)$ for all $S$, i.e. the max of unrelated bounds; valid only for literally identical sample paths (identical-Q) |
 | `multicut` | scene-$S$ cuts land on dedicated $\varphi_S$ in every LP | **CONDITIONALLY VALID** — see Theorem M1/M3 (§8): valid LB for the *resampled* process under uniform probabilities; **unsound** under non-uniform probabilities |
 
 **Theorem N1 (`none` is valid).**  *Under `cut_sharing = none`, at
@@ -380,10 +383,16 @@ cut's α-coefficient also sums (K·α ≥ K·rhs reduces to the average
 when all cuts coincide — the coefficient sum rescales the row).  Do
 not read that as validity for non-coinciding cuts.
 
-The legacy `accumulate` / `broadcast_mean` / `max` verdicts were
-settled in the 2026-04-30 audit
-(`sddp_cut_sharing_fix_plan_2026-04-30.md`); they stay WARN-only
-regression pins and production runs use `none` or `multicut`.
+**Removal (2026-07-08).**  The `accumulate` / `broadcast_mean` (alias
+`expected`) / `max` modes — whose verdicts were settled in the
+2026-04-30 audit (`sddp_cut_sharing_fix_plan_2026-04-30.md`) — were
+deleted from `CutSharingMode`, together with the
+`accumulate_benders_cuts` / `average_benders_cut` combinators whose
+only production callers they were.  Their names now hard-error at
+every ingestion path (JSON `cut_sharing_mode`, `parse_cut_sharing_mode`)
+with a message pointing at `none` / `multicut`.  The rows above are
+retained as the historical record; the implementation survives only in
+git history.  Production runs use `none` or `multicut`.
 
 ---
 

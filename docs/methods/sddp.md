@@ -223,47 +223,33 @@ by the `cut_sharing_mode` option:
 |------|----------|
 | `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization.  **Unconditionally valid** — each scene's α bounds its own persistent-path cost-to-go |
 | `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced 1/N; scene S's cuts land on `varphi_S` in every LP.  **Conditionally valid**: a true lower bound for the *stagewise-resampled* process under **uniform scene probabilities**; unsound for non-uniform probabilities.  See `docs/formulation/sddp-cut-validity.md` §8 |
-| `broadcast_mean` (formerly `expected`) | Per-scene average cuts summed across scenes and broadcast onto every scene's single α (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
-| `accumulate` | Sum of all scene cuts shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
-| `max` | All cuts from all scenes are shared to all scenes' single α (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
 
-> **⚠️ Cut-sharing validity warning** (audit 2026-04-30)
+> **Removed modes** (2026-07-08): `broadcast_mean` (formerly
+> `expected`), `accumulate`, and `max` were deleted.  All three
+> broadcast a cut from scene S onto every other scene's OWN α, which
+> over-tightens whenever `Q_S ≠ Q_d` and produced `LB > UB` compounding
+> across iterations on distinct-sample-path runs (settled by the
+> 2026-04-30 audit,
+> `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`;
+> verdicts in `docs/formulation/sddp-cut-validity.md` §7).  Their names
+> now hard-error at JSON/CLI ingestion; the implementation survives
+> only in git history.
 >
-> gtopt implements **multi-cut SDDP**: each scene s has its own
-> `α^k_s` column at every phase k, bounding scene s's value
-> function `Q_s(x)` *along scene s's specific sample path*.  The
-> `expected` / `accumulate` / `max` modes broadcast a cut from
-> scene S to every other scene's α LP, which is mathematically
-> valid only when the broadcast cut bounds D's `Q_d` — i.e., when
-> S and D realized the IDENTICAL sample path (same inflows,
-> demands, capacities at every (phase, block)).  This is
-> typically only true for synthetic test fixtures.
->
-> Distinct-sample-path runs (the standard Monte Carlo SDDP setup,
-> e.g. multi-hydrology workflows) violate the precondition.  The
-> broadcast cuts force `α^k_d ≥ prob_S · Q_S*(x_S)`, which over-
-> tightens whenever `Q_S ≠ Q_d`.  The result is `LB > UB`
-> ("negative gap") that compounds across iterations and can
-> grow by orders of magnitude.
->
-> A runtime `WARN` is emitted at SDDP setup
-> (`source/sddp_method.cpp::initialize_solver`) when
-> `cut_sharing != none && num_scenes > 1`.  Use `cut_sharing=none`
-> for production multi-scenario runs.  See
-> `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
-> regression test `test/source/test_sddp_bounds_sanity.cpp`.
->
-> **`multicut` is different** (2026-07 certification): scene S's cuts
-> bound a *dedicated* column `varphi_S` in every LP, so no cut ever
-> over-tightens another scene's own bound.  Under **uniform** scene
-> probabilities the resulting LB is provably the lower bound of the
-> *stagewise-resampled* process (scene data redrawn at each phase
+> **⚠️ `multicut` validity caveat** (2026-07 certification): scene S's
+> cuts bound a *dedicated* column `varphi_S` in every LP, so no cut
+> ever over-tightens another scene's own bound.  Under **uniform**
+> scene probabilities the resulting LB is provably the lower bound of
+> the *stagewise-resampled* process (scene data redrawn at each phase
 > boundary) — a different process from the persistent-path forward
 > simulation, so a transient `LB > UB` against the sampled UB is a
 > process mismatch, **not** a cut bug.  Under **non-uniform**
 > probabilities the 1/N pricing inflates the future term by
-> `1/(N·p_s)` and the LB is not valid.  Full statements and proofs:
-> `docs/formulation/sddp-cut-validity.md` §7–§8.
+> `1/(N·p_s)` and the LB is not valid — a runtime `WARN` is emitted at
+> SDDP setup (`source/sddp_method.cpp::initialize_solver`) for
+> `cut_sharing=multicut` with non-uniform scene probabilities.  Full
+> statements and proofs: `docs/formulation/sddp-cut-validity.md`
+> §7–§8; extensive-form certification harness:
+> `test/source/test_sddp_cut_oracle.cpp`.
 
 **Feasibility cuts** are never shared between scenes regardless of the cut
 sharing mode — they remain local to the originating scene.
@@ -272,9 +258,9 @@ When cut sharing is **disabled** (`none`), each scene's backward pass runs
 its full phase sweep independently in parallel, with no waiting or coupling
 between scenes.
 
-When cut sharing is **enabled** (any mode other than `none`), the backward
-pass is **synchronized per-phase**: all scenes complete the backward step
-for a given phase, then optimality cuts are shared across scenes for that
+When cut sharing is **enabled** (`multicut`), the backward pass is
+**synchronized per-phase**: all scenes complete the backward step for a
+given phase, then optimality cuts are broadcast across scenes for that
 phase before proceeding to the previous phase.  This allows shared cuts to
 inform earlier phases within the same iteration.
 
@@ -499,18 +485,15 @@ redistributed by `share_cuts_for_phase`
 §3.3:
 
 - `none` — no redistribution; each scene's cuts stay on its own α.
-- `broadcast_mean` (formerly `expected`) — per-scene cuts are
-  averaged, the averages are **summed** across scenes, and the result
-  is broadcast onto every scene's single α.
-- `accumulate` — all cuts are summed (no normalization) and broadcast.
-- `max` — every cut from every scene is added verbatim to every
-  scene's single α.
 - `multicut` — every cut from scene S is added to the dedicated
-  column `varphi_S` in every scene-LP (the mechanical broadcast is the
-  same as `max`; only the α-column routing differs).  Broadcast copies
-  are never persisted — on cut-file reload the broadcast is
-  reconstructed from the origin-only file
-  (`sddp_cut_parquet.cpp`, `multicut_broadcast`).
+  column `varphi_S` in every scene-LP.  Broadcast copies are never
+  persisted — on cut-file reload the broadcast is reconstructed from
+  the origin-only file (`sddp_cut_parquet.cpp`, `multicut_broadcast`).
+
+The legacy `broadcast_mean`/`expected`, `accumulate`, and `max`
+redistribution branches were **REMOVED 2026-07-08** (invalid — see
+§3.3; history in git and the 2026-04-30 plan
+`docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`).
 
 Validity of each mode is analyzed in
 `docs/formulation/sddp-cut-validity.md` §7 (mode-by-mode verdicts) and
@@ -857,7 +840,7 @@ the JSON planning file.
     "method": "sddp",
     "log_directory": "logs",
     "sddp_options": {
-      "cut_sharing_mode": "expected",
+      "cut_sharing_mode": "multicut",
       "cut_directory": "cuts",
       "max_iterations": 200,
       "convergence_tol": 1e-5,
@@ -888,7 +871,7 @@ prefix, since the section name already provides the namespace).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"` or `"multicut"` (the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
@@ -1301,10 +1284,8 @@ allow external tools to read it without seeing a partial write.
 | `propagate_trial_values()` | Fix dependent columns to source values |
 | `build_benders_cut()` | Construct optimality cut from reduced costs |
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
-| `average_benders_cut()` | Average multiple cuts (for `expected` sharing) |
-| `accumulate_benders_cuts()` | Sum multiple cuts (for `accumulate` sharing) |
-| `share_cuts_for_phase()` | Share cuts across scenes for a phase (`sddp_cut_sharing.hpp`) |
-| `cut_sharing_mode_from_name()` | Parse string to `CutSharingMode` enum |
+| `share_cuts_for_phase()` | Broadcast multicut rows across scenes for a phase (`sddp_cut_sharing.hpp`) |
+| `parse_cut_sharing_mode()` | Parse `"none"` / `"multicut"` to `CutSharingMode` (removed/unknown names throw) |
 | `parse_elastic_filter_mode()` | Parse `"single_cut"` / `"multi_cut"` / `"chinneck"` (and aliases) to `ElasticFilterMode` |
 | `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
 

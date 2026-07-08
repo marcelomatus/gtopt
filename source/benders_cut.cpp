@@ -1578,44 +1578,11 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
 }
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
-
-auto average_benders_cut(const std::vector<SparseRow>& cuts) -> SparseRow
-{
-  if (cuts.empty()) {
-    return {};
-  }
-  if (cuts.size() == 1) {
-    return cuts.front();
-  }
-
-  const auto n = static_cast<double>(cuts.size());
-
-  // Collect all column indices that appear in any cut.
-  // Use the first cut's column count as a lower-bound size hint —
-  // all cuts typically share most columns.
-  flat_map<ColIndex, double> avg_coeffs;
-  map_reserve(avg_coeffs, cuts.front().cmap.size());
-  double avg_rhs = 0.0;
-
-  for (const auto& cut : cuts) {
-    avg_rhs += cut.lowb;
-    for (const auto& [col, coeff] : cut.cmap) {
-      avg_coeffs[col] += coeff;
-    }
-  }
-
-  auto result = SparseRow {
-      .lowb = avg_rhs / n,
-      .uppb = LinearProblem::DblMax,
-      .scale = cuts.front().scale,
-  };
-
-  for (const auto& [col, total_coeff] : avg_coeffs) {
-    result[col] = total_coeff / n;
-  }
-
-  return result;
-}
+//
+// `average_benders_cut` and `accumulate_benders_cuts` were removed
+// 2026-07-08 together with the invalid `broadcast_mean` / `accumulate`
+// cut-sharing modes (their only production callers).  The aperture
+// expected-cut path keeps `weighted_average_benders_cut` below.
 
 auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
                                   const std::vector<double>& weights)
@@ -1667,40 +1634,6 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
   };
 
   for (const auto& [col, coeff] : avg_coeffs) {
-    result[col] = coeff;
-  }
-
-  return result;
-}
-
-auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts) -> SparseRow
-{
-  if (cuts.empty()) {
-    return {};
-  }
-  if (cuts.size() == 1) {
-    return cuts.front();
-  }
-
-  // Accumulate (sum) all cuts: no division by count or weight normalisation
-  flat_map<ColIndex, double> sum_coeffs;
-  map_reserve(sum_coeffs, cuts.front().cmap.size());
-  double sum_rhs = 0.0;
-
-  for (const auto& cut : cuts) {
-    sum_rhs += cut.lowb;
-    for (const auto& [col, coeff] : cut.cmap) {
-      sum_coeffs[col] += coeff;
-    }
-  }
-
-  auto result = SparseRow {
-      .lowb = sum_rhs,
-      .uppb = LinearProblem::DblMax,
-      .scale = cuts.front().scale,
-  };
-
-  for (const auto& [col, coeff] : sum_coeffs) {
     result[col] = coeff;
   }
 

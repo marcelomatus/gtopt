@@ -27,7 +27,10 @@ namespace gtopt
  */
 struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
-  /** @brief Cut sharing mode: none (default), expected, accumulate, or max */
+  /** @brief Cut sharing mode: none (default) or multicut.  The legacy
+   * expected/broadcast_mean, accumulate, and max modes were REMOVED
+   * 2026-07-08 (invalid — `docs/formulation/sddp-cut-validity.md` §7);
+   * their names now hard-error at JSON parse time. */
   std::optional<CutSharingMode> cut_sharing_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName cut_directory {};

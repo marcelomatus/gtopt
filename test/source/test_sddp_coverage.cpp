@@ -535,7 +535,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — cut sharing expected mode with single scene")
+    "SDDPMethod — cut sharing multicut mode with single scene")
 {
   using namespace gtopt;
 
@@ -545,7 +545,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 10;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();
@@ -608,7 +608,7 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — 2-scene problem with cut sharing accumulate")
+    "SDDPMethod — 2-scene problem with cut sharing multicut")
 {
   using namespace gtopt;
 
@@ -618,27 +618,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 30;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::accumulate;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  CHECK_FALSE(results->empty());
-  CHECK(results->back().converged);
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod — 2-scene problem with cut sharing max")
-{
-  using namespace gtopt;
-
-  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
-  PlanningLP planning_lp(std::move(planning));
-
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 30;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::max;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
   auto results = sddp.solve();

@@ -335,7 +335,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.sddp_options.scale_alpha = 1234.0;
 
     // Cut sharing and files
-    popts.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
+    popts.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
     popts.sddp_options.cut_directory = std::string("snapshot_cuts");
     popts.sddp_options.cut_recovery_mode = HotStartMode::append;
     popts.sddp_options.recovery_mode = RecoveryMode::cuts;
@@ -398,7 +398,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     CHECK(so.scale_alpha == doctest::Approx(1234.0));
 
     // ── Cut sharing and files ──
-    CHECK(so.cut_sharing == CutSharingMode::broadcast_mean);
+    CHECK(so.cut_sharing == CutSharingMode::multicut);
     const auto expected_cuts_out =
         (std::filesystem::path("snapshot_out") / "snapshot_cuts"
          / sddp_file::combined_cuts)
@@ -459,7 +459,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     popts.output_directory = std::string("cascade_out");
     popts.sddp_options.max_iterations = 55;
     popts.sddp_options.elastic_penalty = 9.81e2;
-    popts.sddp_options.cut_sharing_mode = CutSharingMode::max;
+    popts.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
     popts.sddp_options.cut_directory = std::string("cascade_cuts");
     popts.sddp_options.boundary_cuts_mode = BoundaryCutsMode::noload;
     popts.sddp_options.api_enabled = true;
@@ -490,7 +490,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     const auto so = build_expected_sddp_opts(options_lp);
     CHECK(so.max_iterations == 55);
     CHECK(so.elastic_penalty == doctest::Approx(9.81e2));
-    CHECK(so.cut_sharing == CutSharingMode::max);
+    CHECK(so.cut_sharing == CutSharingMode::multicut);
     const auto expected_cuts_out = (std::filesystem::path("cascade_out")
                                     / "cascade_cuts" / sddp_file::combined_cuts)
                                        .string();

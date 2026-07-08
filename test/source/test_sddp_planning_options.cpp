@@ -9,6 +9,8 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
+#include <tuple>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -29,11 +31,17 @@ using namespace gtopt;
 TEST_CASE("parse_cut_sharing_mode")  // NOLINT
 {
   CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
-  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::broadcast_mean);
-  CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
-  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
-  // Unknown defaults to none (matching SDDPOptions default)
-  CHECK(parse_cut_sharing_mode("unknown") == CutSharingMode::none);
+  CHECK(parse_cut_sharing_mode("multicut") == CutSharingMode::multicut);
+  // Removed modes (2026-07-08) and unknown names hard-error — no
+  // silent degrade to `none`.
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("expected"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("accumulate"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("max"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("unknown"),
+                  std::invalid_argument);
 }
 
 TEST_CASE("parse_elastic_filter_mode")  // NOLINT
@@ -115,11 +123,11 @@ TEST_CASE("PlanningOptions method and sddp_cut_sharing_mode")  // NOLINT
 {
   PlanningOptions opts;
   opts.method = MethodType::sddp;
-  opts.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
+  opts.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
 
   const PlanningOptionsLP options_lp(std::move(opts));
   CHECK(options_lp.method_type_enum() == MethodType::sddp);
-  CHECK(options_lp.sddp_cut_sharing_mode() == "broadcast_mean");
+  CHECK(options_lp.sddp_cut_sharing_mode() == "multicut");
 }
 
 TEST_CASE("PlanningOptions method defaults")  // NOLINT
