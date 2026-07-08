@@ -361,3 +361,53 @@ writes eta states as volume-per-stage x VolScale, genpdlajam.f:986):
 PLP quirks recorded: F9.3 overflow prints `*********` for vdef >= 1e6
 (coerced to NaN); `userstop` file with `P` stops the policy loop and
 jumps to simulation (plp-pdconvrg.f:51).
+
+
+## Terminal-volume policy: soft-slack vs hard/cuts (2026-07-09, user-driven)
+
+Reviewed the two mechanisms that price a reservoir's end-of-horizon
+volume, prompted by the ELTORO ~5× water-value residual.
+
+**PLP (volfinem.f)**: the terminal volume is a HARD lower bound —
+`EmbVMin(NEtapa) = EmbVFin`, i.e. `vol_end >= EmbVFin` — gated by
+`FVolFinEmb .OR. .NOT. EmbCFUE`.  CFUE reservoirs (those carrying a
+future-cost function = boundary cuts; ELTORO is `EmbCFUE=T`) are
+governed by the FCF cuts and do NOT get the hard bound unless the
+global `FVolFinEmb` forces it.  So PLP prices ELTORO's terminal
+value with the cuts alone; its simulated end floats to 982 hm³ (well
+below the configured `EmbVFin`=3777).
+
+**gtopt (before)**: `combined` boundary-cut mode loads the cut
+hyperplanes AND additionally imposes a SOFT `vol_end + slack >= efin`
+row priced at `efin_cost`, with `efin = EmbVFin = 3777`.  For a CFUE
+reservoir whose target is unreachable this double-counts the terminal
+value and injects a one-sided penalty.  Measured on the 2-year case
+(1y horizon, first hydrology):
+
+| variant | ELTORO end | water_value | note |
+|---|---|---|---|
+| soft (before) | 1255 | 383,226 | over-hoards; slack penalty ≈ 9.4e8 $ ≈ PLP's whole objective |
+| **cuts-govern** | **1039** | 17,890 | cuts sole terminal mechanism |
+| PLP (simulated) | 982 | 74,000 | CFUE → cuts only |
+
+**Fix**: new `--cuts-govern-terminal` converter flag (default OFF —
+shifts results for every cut-priced reservoir, so opt-in per case).
+When set with `boundary_cuts_mode=combined`, it drops `efin`/
+`efin_cost` from every cut-covered reservoir so the loaded cuts are
+the sole terminal-value mechanism — PLP's CFUE behaviour.  Non-cut
+reservoirs keep their hard `efin` bound (gtopt already uses hard
+`>=` when `efin_cost` is unset — PLP's non-CFUE branch).  End-to-end
+through the real converter: ELTORO 1039 (matches the hand-edit),
+removing both the hoarding and the objective pollution.
+
+**Discount division (checked)**: the writer divides the cut water
+value by the last stage's discount factor, and gtopt's LP RE-applies
+that discount via `scenario_stage_ecost` (`cost_helper.hpp:139`,
+`cost × cost_factor` where cost_factor carries the discount).  The
+two exactly cancel — the LP objective coefficient equals the raw
+discounted cut gradient `GradX` either way.  The division is not a
+correctness lever; it only keeps the JSON `efin_cost` value in the
+same undiscounted "face-value" frame as auto-estimated reservoirs
+(which the LP then discounts identically).  It does NOT drive the
+ELTORO residual (374k vs 411k is a 10% cosmetic shift; the residual
+is the soft-slack, now addressed by --cuts-govern-terminal).

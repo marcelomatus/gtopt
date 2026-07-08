@@ -530,6 +530,23 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ),
     )
     parser.add_argument(
+        "--cuts-govern-terminal",
+        dest="cuts_govern_terminal",
+        action="store_true",
+        default=False,
+        help=(
+            "When boundary cuts are loaded in 'combined' mode, drop the "
+            "soft efin/efin_cost terminal-volume slack from every "
+            "cut-covered reservoir so the loaded FCF cuts are the sole "
+            "terminal-value mechanism (PLP EmbCFUE behaviour; "
+            "volfinem.f gates its hard vol_end>=EmbVFin bound to "
+            "non-CFUE reservoirs).  Removes the double-counted terminal "
+            "penalty that over-hoards reservoirs with unreachable "
+            "EmbVFin targets.  Off by default (shifts results for every "
+            "cut-priced reservoir)."
+        ),
+    )
+    parser.add_argument(
         "--no-boundary-cuts",
         dest="no_boundary_cuts",
         action="store_true",

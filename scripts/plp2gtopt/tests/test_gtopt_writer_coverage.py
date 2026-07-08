@@ -427,6 +427,60 @@ class TestProcessBoundaryCuts:
         sddp = writer.planning["options"].get("sddp_options", {})
         assert "boundary_cuts_file" not in sddp
 
+    def test_cuts_govern_terminal_strips_efin(self, tmp_path):
+        """--cuts-govern-terminal drops efin/efin_cost from cut-covered
+        reservoirs (combined mode) so the loaded cuts govern the
+        terminal value (PLP CFUE behaviour), leaving non-cut
+        reservoirs untouched."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
+        parser = MagicMock()
+        parser.parsed_data = {"planos_parser": mock_planos}
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {
+                "reservoir_array": [
+                    {"name": "ELTORO", "efin": 3777.0, "efin_cost": 411400.0},
+                    {"name": "NOCUT", "efin": 50.0, "efin_cost": 100.0},
+                ]
+            },
+            "simulation": {"scenario_array": [{"uid": 1}]},
+        }
+        # Cut-covered set = ELTORO only.
+        writer._build_cut_water_values = lambda: {"ELTORO": 374000.0}
+        opts = _make_opts(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        opts["cuts_govern_terminal"] = True
+        writer.process_boundary_cuts(opts)
+        res = {r["name"]: r for r in writer.planning["system"]["reservoir_array"]}
+        assert "efin" not in res["ELTORO"] and "efin_cost" not in res["ELTORO"]
+        # Non-cut reservoir keeps its hard efin bound.
+        assert res["NOCUT"]["efin"] == 50.0
+
+    def test_cuts_govern_terminal_off_by_default(self, tmp_path):
+        """Without the flag, cut-covered reservoirs keep efin/efin_cost."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
+        parser = MagicMock()
+        parser.parsed_data = {"planos_parser": mock_planos}
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {
+                "reservoir_array": [
+                    {"name": "ELTORO", "efin": 3777.0, "efin_cost": 411400.0},
+                ]
+            },
+            "simulation": {"scenario_array": [{"uid": 1}]},
+        }
+        writer._build_cut_water_values = lambda: {"ELTORO": 374000.0}
+        opts = _make_opts(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        writer.process_boundary_cuts(opts)
+        res = writer.planning["system"]["reservoir_array"][0]
+        assert res["efin"] == 3777.0 and res["efin_cost"] == 411400.0
+
 
 # ---------------------------------------------------------------------------
 # write() — full write path

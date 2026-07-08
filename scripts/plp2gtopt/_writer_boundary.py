@@ -26,6 +26,10 @@ class BoundaryMixin:
     parser: Any
     planning: dict[str, dict[str, Any]]
 
+    # Provided by the sibling ``HydroMixin`` (both mixed into
+    # ``GTOptWriter``): per-reservoir cut lower-bound water values.
+    _build_cut_water_values: Any
+
     @staticmethod
     def _load_alias_file(alias_file: Path | str | None) -> dict[str, str] | None:
         """Load a flat ``{old_name: new_name}`` alias map from JSON.
@@ -177,12 +181,61 @@ class BoundaryMixin:
         if bc_max_iter is not None:
             sddp_opts["boundary_max_iterations"] = bc_max_iter
 
+        # CFUE terminal policy: when the boundary cuts are loaded
+        # (combined mode) they ALREADY price the end-of-horizon volume
+        # of every cut-covered reservoir — PLP's ``EmbCFUE`` (Costo
+        # Futuro Uso Embalse) reservoirs are governed by the FCF cuts,
+        # and ``VolFinEmb`` applies its hard ``vol_end >= EmbVFin``
+        # bound ONLY to the non-CFUE ones (volfinem.f:23).  gtopt
+        # instead leaves a SECOND terminal-value mechanism active on
+        # the same reservoirs: the soft ``efin`` slack priced at
+        # ``efin_cost``.  For a CFUE reservoir whose ``efin`` target
+        # (PLP ``EmbVFin``) is unreachable within the horizon that soft
+        # slack injects a large one-sided penalty that (a) double-counts
+        # the terminal value the cuts already carry, (b) over-hoards the
+        # reservoir toward the target, and (c) pollutes the objective by
+        # ~efin_cost × (target − reachable).  ``--cuts-govern-terminal``
+        # drops ``efin``/``efin_cost`` from every cut-covered reservoir
+        # so the loaded cuts are the sole terminal-value mechanism —
+        # matching PLP's CFUE handling.  Off by default (changes results
+        # for every cut-priced reservoir); opt-in per case.
+        if options.get("cuts_govern_terminal") and bc_mode == "combined":
+            self._apply_cuts_govern_terminal()
+
         # ── Hot-start cuts retired (2026-05) ───────────────────────────────
         # The "hot-start planos" CSV writer was removed; those cuts are
         # gtopt's own internal cut format and travel via the typed
         # Parquet path (driven by the gtopt-side ``cuts_input_file`` /
         # ``cuts_output_file`` options).  Only the PLP-compatible
         # boundary cuts (last-phase α floor) are still exported above.
+
+    def _apply_cuts_govern_terminal(self) -> None:
+        """Strip ``efin``/``efin_cost`` from cut-covered reservoirs.
+
+        The loaded boundary cuts (combined mode) already price the
+        terminal volume of every reservoir that appears in the planos
+        (PLP ``EmbCFUE`` reservoirs).  Removing the soft-``efin`` slack
+        for those reservoirs leaves the cuts as the sole terminal-value
+        mechanism — PLP's CFUE behaviour (volfinem.f gates its hard
+        ``vol_end >= EmbVFin`` bound to the NON-CFUE reservoirs).
+        Reservoirs absent from the cuts keep their ``efin`` bound.
+        """
+        cut_names = set(self._build_cut_water_values())
+        if not cut_names:
+            return
+        stripped = 0
+        for r in self.planning["system"].get("reservoir_array", []):
+            if str(r.get("name", "")) in cut_names:
+                had = r.pop("efin_cost", None) is not None
+                r.pop("efin", None)
+                stripped += int(had)
+        if stripped:
+            _logger.info(
+                "cuts_govern_terminal: dropped efin soft-slack from %d "
+                "cut-covered reservoir(s); the loaded boundary cuts now "
+                "govern their terminal value (PLP CFUE behaviour).",
+                stripped,
+            )
 
     @staticmethod
     def _warn_if_unequal_probabilities(scenario_array: list) -> None:
