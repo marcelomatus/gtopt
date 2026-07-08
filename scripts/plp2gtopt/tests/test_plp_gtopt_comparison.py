@@ -542,7 +542,11 @@ class TestIrrigationSimilar:
             gt = pd.concat(frames)
             n_blocks = int(gt["block"].max())
             gt_mean = gt.groupby("uid")["value"].mean().rename(index=buses)
-            plp_mean = bar[bar["Bloque"] <= n_blocks].groupby("BarNom")["CMgBar"].mean()
+            plp_mean = (
+                plp_bar[plp_bar["Bloque"] <= n_blocks]
+                .groupby("BarNom")["CMgBar"]
+                .mean()
+            )
             both = pd.concat([plp_mean, gt_mean], axis=1, join="inner")
             both.columns = ["plp", "gtopt"]
             both = both.dropna()
