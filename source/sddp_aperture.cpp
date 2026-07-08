@@ -649,25 +649,27 @@ auto solve_apertures_for_phase(
               lp_debug_writer->write(clone, dbg_stem);
             }
 
-            // Solve.  NOTE: there is currently **no warm-start** between
-            // apertures.  The aperture pass solves with barrier +
-            // crossover (SolverOptions::crossover defaults to true and is
-            // kept on for the backward/aperture pass), so each solve DOES
-            // leave an optimal simplex basis on the shared clone — but the
-            // next aperture's resolve() re-runs a full cold barrier
-            // (LPMethod stays barrier) and discards it.  CPLEX barrier (an
-            // interior-point method) does not warm-start off a basis;
-            // only the simplex methods do.  So the per-chunk clone saves
-            // only the LP *reconstruction* cost, not the solve.
+            // Solve.  Warm-starting IS wired — opt-in via
+            // `aperture_solve_mode = warm` (see the warm-start block
+            // above: dual simplex + advanced_basis + presolve OFF, which
+            // re-optimizes the resident basis in a few pivots because the
+            // `update_aperture` deltas are bound-only and preserve dual
+            // feasibility).  The DEFAULT remains cold: each aperture
+            // re-runs barrier + crossover from scratch, paying K full
+            // solves per (scene, phase) chunk.
             //
-            // The `update_aperture` deltas are bound-only, so the basis
-            // left by the previous aperture stays dual-feasible (changing
-            // column bounds does NOT destroy a basis).  Warm-starting is
-            // therefore available essentially for free: set
-            // CPX_PARAM_ADVIND=1 and switch the in-chunk re-solves to dual
-            // simplex (LPMethod = dual) to re-optimize off the retained
-            // basis in a handful of pivots instead of a fresh barrier.
-            // Not wired today.
+            // Backend caveat (cuOpt ≥ 26.08, commit 52d3e0e9): the cuOpt
+            // plugin has NO warm-start path at all — set_basis /
+            // solution hints are documented no-ops and every resolve()
+            // rebuilds cold — so `warm` mode silently degrades to cold
+            // there.  Additionally `LPAlgo::barrier` maps to
+            // CUOPT_METHOD_CONCURRENT (cuDSS barrier wedge on WSL2), so
+            // the winning method may be PDLP, whose duals are ε-optimal
+            // rather than vertex duals (crossover guarantees do not
+            // apply; see the cut-validity ledger).  On such backends the
+            // per-chunk clone saves only LP reconstruction, and skipping
+            // re-solves entirely (Infanger–Morton dual cut sharing over
+            // the bound deltas) is the remaining lever.
             //
             // Relax every integer column on the clone to continuous
             // before solving.  Benders / SDDP subproblem clones must

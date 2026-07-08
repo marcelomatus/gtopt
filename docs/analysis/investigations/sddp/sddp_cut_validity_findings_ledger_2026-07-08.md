@@ -185,6 +185,19 @@ relative to the row max; the tolerances add.
   heterogeneous WARN stays (process mismatch + non-uniform unsound);
   upgrade path is oracle-based extensive-form comparisons, not
   UB-comparisons.
+- **F10 — cuOpt duals are ε-optimal; no warm start (2026-07-08
+  addendum)**: since `52d3e0e9` the cuOpt plugin maps `LPAlgo::barrier`
+  → `CUOPT_METHOD_CONCURRENT`; the winning method may be PDLP, whose
+  duals satisfy optimality only to the PDLP tolerance and are NOT
+  vertex duals (no crossover).  Cuts built from cuOpt solves therefore
+  carry a solver-dependent ε-validity term on top of §2 (weak duality
+  holds for the dual-feasible part; PDLP's approximate feasibility adds
+  a residual bounded by the solver tolerance).  The plugin also has NO
+  warm-start path (`set_basis`/hints are documented no-ops; every
+  resolve rebuilds cold), so `aperture_solve_mode = warm` silently
+  degrades to cold under cuOpt — the K-aperture backward bill is K full
+  cold solves there, the motivating case for dual-shared aperture cuts
+  (Infanger–Morton evaluation over the bound deltas).
 
 ## 6. Not available / deferred
 
