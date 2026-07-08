@@ -71,6 +71,8 @@
 
 namespace dual_shared_lit
 {
+namespace
+{
 
 /// Parameters of the reconstructed Infanger–Morton style hydro-thermal
 /// instance.  One bus, one reservoir (the recourse-function dimension),
@@ -101,7 +103,7 @@ constexpr double kThermalCost = 50.0;  // $/MWh
 /// which can have nonzero shared μ's have natural finite upper
 /// bounds"), so the dual-shared correction never hits the sentinel
 /// fallback.
-[[nodiscard]] inline auto make_planning(const FixtureSpec& spec) -> Planning
+[[nodiscard]] auto make_planning(const FixtureSpec& spec) -> Planning
 {
   REQUIRE(spec.aperture_inflows.size() == spec.aperture_probs.size());
   const auto n_phases = static_cast<std::size_t>(spec.num_phases);
@@ -166,16 +168,22 @@ constexpr double kThermalCost = 50.0;  // $/MWh
 
   System system = {
       .name = "im_dual_shared_lit",
-      .bus_array = {{
-          .uid = Uid {1},
-          .name = "b1",
-      }},
-      .demand_array = {{
-          .uid = Uid {1},
-          .name = "d1",
-          .bus = Uid {1},
-          .capacity = spec.demand_mw,
-      }},
+      .bus_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "b1",
+              },
+          },
+      .demand_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "d1",
+                  .bus = Uid {1},
+                  .capacity = spec.demand_mw,
+              },
+          },
       .generator_array =
           {
               {
@@ -205,40 +213,52 @@ constexpr double kThermalCost = 50.0;  // $/MWh
                   .drain = true,
               },
           },
-      .waterway_array = {{
-          .uid = Uid {1},
-          .name = "ww1",
-          .junction_a = Uid {1},
-          .junction_b = Uid {2},
-          .fmin = 0.0,
-          .fmax = 50.0,
-      }},
-      .flow_array = {{
-          .uid = Uid {1},
-          .name = "inflow",
-          .direction = 1,
-          .junction = Uid {1},
-          .discharge = STBRealFieldSched {discharge},
-      }},
-      .reservoir_array = {{
-          .uid = Uid {1},
-          .name = "rsv1",
-          .junction = Uid {1},
-          .capacity = 200.0,
-          .emin = 0.0,
-          .emax = 200.0,
-          .eini = spec.eini,
-          .fmin = -1000.0,
-          .fmax = +1000.0,
-          .flow_conversion_rate = 1.0,
-      }},
-      .turbine_array = {{
-          .uid = Uid {1},
-          .name = "tur1",
-          .waterway = Uid {1},
-          .generator = Uid {1},
-          .production_factor = 1.0,
-      }},
+      .waterway_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "ww1",
+                  .junction_a = Uid {1},
+                  .junction_b = Uid {2},
+                  .fmin = 0.0,
+                  .fmax = 50.0,
+              },
+          },
+      .flow_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "inflow",
+                  .direction = 1,
+                  .junction = Uid {1},
+                  .discharge = STBRealFieldSched {discharge},
+              },
+          },
+      .reservoir_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "rsv1",
+                  .junction = Uid {1},
+                  .capacity = 200.0,
+                  .emin = 0.0,
+                  .emax = 200.0,
+                  .eini = spec.eini,
+                  .fmin = -1000.0,
+                  .fmax = +1000.0,
+                  .flow_conversion_rate = 1.0,
+              },
+          },
+      .turbine_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "tur1",
+                  .waterway = Uid {1},
+                  .generator = Uid {1},
+                  .production_factor = 1.0,
+              },
+          },
   };
 
   PlanningOptions options;
@@ -274,7 +294,7 @@ struct RunOutcome
 /// by UB *stationarity* (`stationary_tol`), not the signed gap (see
 /// sddp_method_iteration.cpp "Convergence semantics"), and these runs
 /// disable the stationary check for determinism.
-[[nodiscard]] inline auto iterations_to_gap(
+[[nodiscard]] auto iterations_to_gap(
     const std::vector<std::pair<double, double>>& bounds, double tol) -> int
 {
   for (const auto i : std::views::iota(std::size_t {0}, bounds.size())) {
@@ -290,10 +310,10 @@ struct RunOutcome
 /// (min == max, tolerances zeroed, no early exit) so per-mode outcomes
 /// are compared at the SAME iteration count.  Convergence itself is
 /// asserted from the returned bound trajectory via `iterations_to_gap`.
-[[nodiscard]] inline auto run_sddp(const FixtureSpec& spec,
-                                   ApertureSolveMode mode,
-                                   int iterations,
-                                   const std::string& solver) -> RunOutcome
+[[nodiscard]] auto run_sddp(const FixtureSpec& spec,
+                            ApertureSolveMode mode,
+                            int iterations,
+                            const std::string& solver) -> RunOutcome
 {
   auto planning = make_planning(spec);
   if (!solver.empty()) {
@@ -331,15 +351,18 @@ struct RunOutcome
 }
 
 /// The three solve modes under comparison, with labels for SUBCASEs.
-[[nodiscard]] inline auto modes_under_test()
+[[nodiscard]] auto modes_under_test()
 {
-  return std::array<std::pair<ApertureSolveMode, const char*>, 3> {{
-      {ApertureSolveMode::cold, "cold"},
-      {ApertureSolveMode::dual_shared, "dual_shared"},
-      {ApertureSolveMode::screened, "screened"},
-  }};
+  return std::array<std::pair<ApertureSolveMode, const char*>, 3> {
+      {
+          {ApertureSolveMode::cold, "cold"},
+          {ApertureSolveMode::dual_shared, "dual_shared"},
+          {ApertureSolveMode::screened, "screened"},
+      },
+  };
 }
 
+}  // namespace
 }  // namespace dual_shared_lit
 
 // ═════════════════════════════════════════════════════════════════════════
