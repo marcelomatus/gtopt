@@ -409,10 +409,17 @@ complete constraint expression syntax.
 
 | Name | Purpose | Reset | Bound Rule | Economy |
 |------|---------|-------|------------|---------|
-| `laja_vol_der_riego` | Irrigation volume | December | 4-zone piecewise | No |
+| `laja_vol_der_riego` | Irrigation volume | December (debits anticipado) | 4-zone piecewise + mixed transfer | No |
 | `laja_vol_der_electrico` | Electrical volume | December | 4-zone piecewise | No |
-| `laja_vol_der_mixto` | Mixed volume | December | 4-zone piecewise | No |
-| `laja_vol_gasto_anticipado` | Anticipated volume | September | Same as irrigation | No |
+| `laja_vol_der_mixto` | Mixed volume | December | Per-zone step (30 → 0) | No |
+| `laja_vol_gasto_anticipado` | Anticipated up-counter | September (to 0) | None (fills via saving = qga) | No |
+
+> **December debit** (PLP `genpdlajam.f:234-239`): the riego december
+> provision row is `eini + vgaf = Rights(V)` — anticipated Sep–Nov
+> spending reduces the season's provision.  **Mixed transfer**
+> (`genpdlajam.f:647-649`): above the lower cushion the 30 hm³ mixed
+> base moves to irrigation (`DerRiego += 30×(1−FMixto)`), making the
+> emitted rights match the 2017 Acuerdo's Tabla 1 exactly.
 | `laja_vol_econ_endesa` | ENDESA economy | None | None | Yes (saving) |
 | `laja_vol_econ_reserva` | Reserve economy | None | None | Yes (saving) |
 | `laja_vol_econ_polcura` | Alto Polcura economy | None | None | Yes (saving) |

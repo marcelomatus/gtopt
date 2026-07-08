@@ -96,6 +96,8 @@ def _zones_to_bound_rule_segments(
     factors: list[float],
     widths: list[float],
     vol_muerto: float = 0.0,
+    transfer_base: float = 0.0,
+    transfer_factors: list[float] | None = None,
 ) -> list[dict[str, float]]:
     """Convert PLP volume zone factors to bound_rule segments.
 
@@ -112,11 +114,25 @@ def _zones_to_bound_rule_segments(
     Each bound_rule segment stores {volume, slope, constant} where
     rights(V) = constant + slope * V for V >= volume.
 
+    Mixed-rights transfer (irrigation only): PLP adds the UNUSED
+    share of the mixed base to the irrigation provision in each zone
+    -- ``DerRiego += DerMixtoBase * (1 - FactDerMixtoColchon(zone))``
+    (genpdlajam.f:647-649).  Passing ``transfer_base`` /
+    ``transfer_factors`` applies that per-zone constant, which makes
+    the emitted rights match the 2017 Acuerdo's Tabla 1 exactly
+    (e.g. V=1500 -> 668 + 0.40*(V-1370) = 720, not 690).  The
+    transfer makes the function DISCONTINUOUS at the zone breakpoints
+    -- a real feature of the agreement (570 -> 600 at 1200 hm3).
+
     Args:
         base: Base rights level (rights at vol_muerto)
         factors: Incremental factor per volume zone
         widths: Width of each volume zone [hm3]
         vol_muerto: Dead volume below which no extraction
+        transfer_base: Mixed-rights base transferred per zone [hm3]
+        transfer_factors: Mixed retention factor per zone (the zone
+            keeps ``transfer_base * factor`` as mixed rights and
+            transfers the complement to irrigation)
 
     Returns:
         List of bound_rule segments sorted by volume breakpoint
@@ -125,12 +141,14 @@ def _zones_to_bound_rule_segments(
     cumulative_vol = vol_muerto
     cumulative_rights = base
 
-    for factor, width in zip(factors, widths):
+    for i, (factor, width) in enumerate(zip(factors, widths)):
         # At volume = cumulative_vol, rights = cumulative_rights
         # and slope = factor
         # So: rights(V) = cumulative_rights + factor * (V - cumulative_vol)
         #                = (cumulative_rights - factor * cumulative_vol) + factor * V
         constant = cumulative_rights - factor * cumulative_vol
+        if transfer_factors is not None:
+            constant += transfer_base * (1.0 - transfer_factors[i])
         segments.append(
             {
                 "volume": cumulative_vol,
@@ -146,6 +164,40 @@ def _zones_to_bound_rule_segments(
     if not segments:
         segments.append({"volume": vol_muerto, "slope": 0, "constant": base})
 
+    return segments
+
+
+def _zones_to_step_segments(
+    base: float,
+    factors: list[float],
+    widths: list[float],
+    vol_muerto: float = 0.0,
+) -> list[dict[str, float]]:
+    """Convert PLP per-zone SELECTOR factors to step-function segments.
+
+    PLP treats the mixed-rights factors as a selector, not cumulative
+    slopes: ``DerMixto = DerMixtoBase * FactDerMixtoColchon(active
+    zone)`` (genpdlajam.f:647-648).  With the CEN data ``[1, 0, 0, 0]``
+    the mixed right is 30 hm3 in the lower cushion and 0 above it (the
+    base transfers to irrigation — see
+    ``_zones_to_bound_rule_segments``).
+
+    Returns one zero-slope segment per zone with
+    ``constant = base * factor``.
+    """
+    segments: list[dict[str, float]] = []
+    cumulative_vol = vol_muerto
+    for factor, width in zip(factors, widths):
+        segments.append(
+            {
+                "volume": cumulative_vol,
+                "slope": 0.0,
+                "constant": base * factor,
+            }
+        )
+        cumulative_vol += width
+    if not segments:
+        segments.append({"volume": vol_muerto, "slope": 0.0, "constant": base})
     return segments
 
 
@@ -336,13 +388,21 @@ class LajaAgreement(_RightsAgreementBase):
         cost_antic_uso = float(cfg.get("cost_antic_uso", 0.0))
 
         # --- Bound_rule segments for each rights category ---
+        # Irrigation receives the unused mixed share per zone
+        # (DerRiego += DerMixtoBase*(1-FMixto), genpdlajam.f:647-649);
+        # mixed itself is a per-zone step (base*factor selector).
         irr_segments = _zones_to_bound_rule_segments(
-            cfg["irr_base"], cfg["irr_factors"], cfg["zone_widths"], vol_muerto
+            cfg["irr_base"],
+            cfg["irr_factors"],
+            cfg["zone_widths"],
+            vol_muerto,
+            transfer_base=cfg["mixed_base"],
+            transfer_factors=cfg["mixed_factors"],
         )
         elec_segments = _zones_to_bound_rule_segments(
             cfg["elec_base"], cfg["elec_factors"], cfg["zone_widths"], vol_muerto
         )
-        mixed_segments = _zones_to_bound_rule_segments(
+        mixed_segments = _zones_to_step_segments(
             cfg["mixed_base"], cfg["mixed_factors"], cfg["zone_widths"], vol_muerto
         )
 
@@ -450,9 +510,11 @@ class LajaAgreement(_RightsAgreementBase):
             "ini_mixed": cfg["ini_mixed"],
             "max_mixed": cfg["max_mixed"],
             "mixed_segments": mixed_segments,
-            # VolumeRight: anticipated
+            # VolumeRight: anticipated (up-counter; saving inflow
+            # capped at the anticipado flow limit)
             "ini_anticipated": cfg["ini_anticipated"],
             "max_anticipated": cfg["max_anticipated"],
+            "qmax_anticipated": cfg.get("qmax_anticipated", 0.0),
             # VolumeRight: economy
             "ini_econ_endesa": cfg.get("ini_econ_endesa", 0),
             "ini_econ_reserve": cfg.get("ini_econ_reserve", 0),

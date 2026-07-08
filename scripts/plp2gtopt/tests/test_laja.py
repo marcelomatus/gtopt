@@ -555,6 +555,10 @@ class TestLajaWriter:
         assert "volume_right_array" in result
 
     def test_mixed_vol_bound_rule(self, laja_config):
+        """Mixed rights are a per-zone STEP (PLP selector semantics):
+        DerMixto = DerMixtoBase × FactDerMixtoColchon(active zone)
+        (genpdlajam.f:647-648) — 30 hm³ in the lower cushion, 0 above
+        (the base transfers to irrigation)."""
         writer = LajaWriter(laja_config)
 
         vol_mixed = next(
@@ -564,11 +568,17 @@ class TestLajaWriter:
         assert rule["reservoir"] == "ELTORO"
         assert rule["cap"] == pytest.approx(30)
         assert len(rule["segments"]) == 4
-        # First segment: base=30, slope=1.0
+        for seg in rule["segments"]:
+            assert seg["slope"] == pytest.approx(0.0)
         assert rule["segments"][0]["constant"] == pytest.approx(30)
-        assert rule["segments"][0]["slope"] == pytest.approx(1.0)
+        assert rule["segments"][1]["constant"] == pytest.approx(0.0)
+        assert rule["segments"][2]["constant"] == pytest.approx(0.0)
+        assert rule["segments"][3]["constant"] == pytest.approx(0.0)
 
-    def test_anticipated_vol_uses_irr_segments(self, laja_config):
+    def test_anticipated_is_up_counter(self, laja_config):
+        """The anticipado bucket mirrors PLP's IVGAF: an up-counter
+        that resets to zero each september and fills via the saving
+        inflow (linked to qga in laja.pampl); no bound_rule."""
         writer = LajaWriter(laja_config)
 
         vol_antic = next(
@@ -576,12 +586,72 @@ class TestLajaWriter:
             for vr in writer.volume_rights
             if vr["name"] == "laja_vol_gasto_anticipado"
         )
+        assert "bound_rule" not in vol_antic
+        assert vol_antic["reset_value"] == 0
+        assert vol_antic["reset_month"] == "september"
+        assert "saving_rate" in vol_antic
+
+    def test_riego_reset_debit(self, laja_config):
+        """The december riego provision debits the anticipado counter
+        (PLP: IVGAF enters the IVDRF row, genpdlajam.f:234-239) — and
+        the counter must precede the riego bucket in the array."""
+        writer = LajaWriter(laja_config)
+        names = [vr["name"] for vr in writer.volume_rights]
         vol_irr = next(
             vr for vr in writer.volume_rights if vr["name"] == "laja_vol_der_riego"
         )
-        # Anticipated uses same segments as irrigation
-        assert vol_antic["bound_rule"]["segments"] == vol_irr["bound_rule"]["segments"]
-        assert vol_antic["bound_rule"]["cap"] == pytest.approx(5000)
+        assert vol_irr["reset_debit_right"] == "laja_vol_gasto_anticipado"
+        assert names.index("laja_vol_gasto_anticipado") < names.index(
+            "laja_vol_der_riego"
+        )
+
+    def test_zone_formula_matches_cen_tabla1(self, laja_config):
+        """Riego + mixed rights reproduce the 2017 Acuerdo's Tabla 1.
+
+        CEN informe (Actualizacion Convenio Laja, Dec-2018), Tabla 1
+        "Volumen disponible para riego" — which covers riego AND mixed
+        combined (inferior: 570 exclusivos + 30 mixto = 600):
+
+            inferior   (V<1200):    600
+            transicion (1200-1370): 600 + 0.40 (V-1200)
+            intermedio (1370-1900): 668 + 0.40 (V-1370)
+            superior   (V>1900):    880 + 0.25 (V-1900)
+
+        The +30 mixed transfer above the lower cushion
+        (genpdlajam.f:647-649) is what makes these match; without it
+        the totals were 30 hm³ short in every upper zone.
+        """
+        writer = LajaWriter(laja_config)
+        vr = {v["name"]: v for v in writer.volume_rights}
+
+        def evaluate(rule, volume):
+            active = rule["segments"][0]
+            for seg in rule["segments"]:
+                if seg["volume"] <= volume:
+                    active = seg
+            value = active["constant"] + active["slope"] * volume
+            return min(value, rule["cap"])
+
+        irr = vr["laja_vol_der_riego"]["bound_rule"]
+        mixed = vr["laja_vol_der_mixto"]["bound_rule"]
+        elec = vr["laja_vol_der_electrico"]["bound_rule"]
+
+        tabla1_riego = {
+            600: 600.0,
+            1200: 600.0,
+            1500: 720.0,
+            1900: 880.0,
+            2000: 905.0,
+            3000: 1155.0,
+        }
+        for volume, expected in tabla1_riego.items():
+            total = evaluate(irr, volume) + evaluate(mixed, volume)
+            assert total == pytest.approx(expected), f"V={volume}"
+
+        # Generation column of Tabla 1 (no mixed complement in PLP).
+        tabla1_gen = {600: 30.0, 1500: 120.5, 2000: 345.5}
+        for volume, expected in tabla1_gen.items():
+            assert evaluate(elec, volume) == pytest.approx(expected), f"V={volume}"
 
     def test_flow_rights_directions(self, laja_config):
         writer = LajaWriter(laja_config)

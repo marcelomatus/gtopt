@@ -183,13 +183,34 @@ struct VolumeRight
 
   /// Calendar month at which rights are re-provisioned.
   /// When the stage's month matches reset_month, eini is set to:
+  ///   - reset_value if set (explicit provision, e.g. 0 for the PLP
+  ///     IVGAF anticipado up-counter reset at INICIOANTIC)
   ///   - evaluate_bound_rule(reservoir_volume) if bound_rule is set
   ///     (dynamic provisioning based on current reservoir level,
   ///     PLP: DerRiego = Base + Σ(Factor_i × Zone_Volume_i))
   ///   - emax if no bound_rule (simple full reprovision)
-  /// This implements seasonal/annual rights accounting (e.g., Laja
-  /// irrigation rights re-provisioned each April for the hydro year).
+  /// This implements seasonal accounting (e.g., Laja irrigation
+  /// rights re-provisioned each December for the Dec-Apr season).
   std::optional<MonthType> reset_month {};
+
+  /// Explicit provision value at reset_month [hm³].  Overrides both
+  /// the bound_rule provisioning and the emax fallback.  Use 0 for
+  /// PLP-style up-counters that restart each season (IVGAF resets to
+  /// zero at INICIOANTIC, genpdlajam.f:656-660).
+  OptReal reset_value {};
+
+  /// Debit reference for the reset provisioning.  When set, the reset
+  /// does NOT pin `eini` to the provision; instead it emits the PLP
+  /// row  `eini + debit.vol_in = provision`  (genpdlajam.f:234-239):
+  /// the referenced VolumeRight's incoming volume (an up-counter of
+  /// early spending, e.g. the anticipado counter IVGAF) is subtracted
+  /// from this bucket's seasonal provision.  With `eini ≥ 0`, spending
+  /// more in advance than the provision covers is infeasible — the
+  /// same guard PLP gets from `IVDRF ≥ 0`.
+  ///
+  /// ORDERING: the referenced VolumeRight must appear EARLIER in
+  /// `volume_right_array` (same constraint as `right_reservoir`).
+  OptSingleId reset_debit_right {};
 
   /// Volume-dependent bound rule for dynamic extraction adjustment.
   /// Serves two purposes:

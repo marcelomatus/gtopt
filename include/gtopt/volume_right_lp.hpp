@@ -52,6 +52,7 @@ public:
   // waterway/flow_right so constraint expressions can spell it either way.
   static constexpr std::string_view FlowName {"flow"};
   static constexpr std::string_view DemandName {"demand"};
+  static constexpr std::string_view ResetDebitName {"reset_debit"};
 
   using StorageBase = StorageLP<ObjectLP<VolumeRight>>;
 
@@ -128,6 +129,12 @@ private:
   /// consumes reservoir state (`axis_uses_reservoir(rule.axis)`).
   using BoundState = RuleBoundState;
   IndexHolder2<ScenarioUid, StageUid, BoundState> m_bound_states_;
+
+  /// Reset-debit rows (``eini + debit_eini = provision``) per
+  /// (scenario, stage) — present only when ``reset_debit_right`` is
+  /// set and the stage is a reset stage.  ``update_lp`` refreshes the
+  /// row RHS when the bound_rule re-evaluates the provision.
+  IndexHolder2<ScenarioUid, StageUid, RowIndex> reset_debit_rows_;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

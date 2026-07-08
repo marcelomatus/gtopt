@@ -48,6 +48,8 @@ struct VolumeRightConstructor
       OptBool use_state_variable,
       OptTRealFieldSched annual_loss,
       OptName reset_month_str,
+      OptReal reset_value,
+      OptSingleId reset_debit_right,
       std::optional<gtopt::RightBoundRule> bound_rule) const
   {
     VolumeRight vr;
@@ -78,6 +80,8 @@ struct VolumeRightConstructor
       vr.reset_month =
           gtopt::require_enum<MonthType>("reset_month", *reset_month_str);
     }
+    vr.reset_value = reset_value;
+    vr.reset_debit_right = std::move(reset_debit_right);
     vr.bound_rule = std::move(bound_rule);
     return vr;
   }
@@ -121,6 +125,8 @@ struct json_data_contract<VolumeRight>
                         OptTRealFieldSched,
                         jvtl_TRealFieldSched>,
       json_string_null<"reset_month", OptName>,
+      json_number_null<"reset_value", OptReal>,
+      json_variant_null<"reset_debit_right", OptSingleId, jvtl_SingleId>,
       json_class_null<"bound_rule", std::optional<RightBoundRule>>>;
 
   constexpr static auto to_json_data(VolumeRight const& vr)
@@ -149,6 +155,8 @@ struct json_data_contract<VolumeRight>
                            vr.use_state_variable,
                            vr.annual_loss,
                            detail::enum_to_opt_name(vr.reset_month),
+                           vr.reset_value,
+                           vr.reset_debit_right,
                            vr.bound_rule);
   }
 };

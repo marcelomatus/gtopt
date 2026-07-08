@@ -29,6 +29,7 @@
 #include <gtopt/linear_interface.hpp>
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/volume_right_lp.hpp>
 #include <gtopt/waterway_lp.hpp>
 
 using namespace gtopt;
@@ -250,6 +251,108 @@ TEST_CASE("Tier 9.2 - usage cost steers the flow to the free category")
   const auto sol = solve_anchored(system_lp);
   CHECK(sol.qdr == doctest::Approx(25.0).epsilon(1e-6));
   CHECK(sol.qde == doctest::Approx(0.0).epsilon(1e-6));
+}
+
+TEST_CASE("Tier 9.4 - december debit: anticipado counter reduces provision")
+{
+  // PLP INICIOTEMP debit (genpdlajam.f:234-239): the december riego
+  // provision is `rule(V) - IVGAF`.  Fixture: a december stage where
+  //   * `vga` is the anticipado UP-counter carrying 5 hm3 of early
+  //     spending (its eini; reset_month=september does NOT fire here),
+  //   * `vdr` re-provisions via a flat bound_rule worth 100 hm3 and
+  //     debits `vga` through `reset_debit_right`.
+  // Expected: vdr's eini settles at 100 - 5 = 95 via the debit row
+  //   `eini + vga_eini = 100`.
+  const Array<VolumeRight> vrs = {
+      {.uid = Uid {11},
+       .name = "vga",
+       .emax = 100.0,
+       .eini = 5.0,
+       .use_state_variable = true,
+       .reset_month = MonthType::september,
+       .reset_value = 0.0},
+      {.uid = Uid {12},
+       .name = "vdr",
+       .emax = 200.0,
+       .eini = 50.0,
+       .use_state_variable = true,
+       .reset_month = MonthType::december,
+       .reset_debit_right = Uid {11},
+       .bound_rule =
+           RightBoundRule {
+               .reservoir = Uid {1},
+               .segments = {{.volume = 0.0, .slope = 0.0, .constant = 100.0}},
+           }},
+  };
+  const auto system = make_anchored_system(vrs, {}, {}, "Tier9_4_debit");
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  const Simulation sim = {
+      .block_array = {{.uid = Uid {1}, .duration = 24}},
+      .stage_array = {{.uid = Uid {1},
+                       .first_block = 0,
+                       .count_block = 1,
+                       .month = MonthType::december}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(lp.is_optimal());
+  const auto col_sol = lp.get_col_sol();
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& vrs_lp = system_lp.elements<VolumeRightLP>();
+  const auto vga_eini = col_sol[vrs_lp[0].eini_col_at(s, t)];
+  const auto vdr_eini = col_sol[vrs_lp[1].eini_col_at(s, t)];
+  CHECK(vga_eini == doctest::Approx(5.0).epsilon(1e-9));
+  CHECK(vdr_eini == doctest::Approx(95.0).epsilon(1e-9));
+}
+
+TEST_CASE("Tier 9.5 - reset_value pins the up-counter to zero at reset")
+{
+  // The anticipado counter restarts each september (PLP INICIOANTIC,
+  // genpdlajam.f:656-660): reset_value=0 overrides the config eini.
+  const Array<VolumeRight> vrs = {
+      {.uid = Uid {11},
+       .name = "vga",
+       .emax = 100.0,
+       .eini = 5.0,
+       .use_state_variable = true,
+       .reset_month = MonthType::september,
+       .reset_value = 0.0},
+  };
+  const auto system = make_anchored_system(vrs, {}, {}, "Tier9_5_reset_value");
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  const Simulation sim = {
+      .block_array = {{.uid = Uid {1}, .duration = 24}},
+      .stage_array = {{.uid = Uid {1},
+                       .first_block = 0,
+                       .count_block = 1,
+                       .month = MonthType::september}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto& lp = system_lp.linear_interface();
+  const auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(lp.is_optimal());
+  const auto col_sol = lp.get_col_sol();
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& t = system_lp.phase().stages()[0];
+  const auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+  CHECK(col_sol[vr_lp.eini_col_at(s, t)] == doctest::Approx(0.0));
 }
 
 TEST_CASE("Tier 9.3 - depleted ledger caps its category")

@@ -325,6 +325,32 @@
 
   "volume_right_array": [
     {# ============================================================= #}
+    {# VolumeRight: laja_vol_gasto_anticipado (PLP: IVGAF)           #}
+    {#                                                               #}
+    {# Anticipated-spending UP-COUNTER, exactly like PLP's IVGAF:    #}
+    {#   IVGAF = Prev_IVGAF + (etadur/ScaleVol) * IQGAH  (R12)      #}
+    {# It resets to ZERO at the anticipos window start (september,   #}
+    {# INICIOANTIC — reset_value: 0, genpdlajam.f:656-660) and       #}
+    {# FILLS via the saving inflow, linked to the qga flow in        #}
+    {# laja.tampl (`saving = flow_right(qga).flow`).  Its value at   #}
+    {# the december reset is the amount debited from the riego       #}
+    {# provision (see laja_vol_der_riego.reset_debit_right).         #}
+    {#                                                               #}
+    {# MUST appear BEFORE laja_vol_der_riego in this array — the     #}
+    {# debit row references this bucket's eini column.               #}
+    {# ============================================================= #}
+    {
+      "name": "laja_vol_gasto_anticipado",
+      "purpose": "anticipated",
+      "eini": {{ ini_anticipated }},
+      "emax": {{ max_anticipated }},
+      "use_state_variable": true,
+      "reset_month": {{ reset_month_antic }},
+      "reset_value": 0,
+      "saving_rate": {{ qmax_anticipated }}
+    },
+
+    {# ============================================================= #}
     {# VolumeRight: laja_vol_der_riego (PLP: IVDRF)                  #}
     {#                                                               #}
     {# Irrigation volume accumulator.  Tracks cumulative irrigation  #}
@@ -366,6 +392,7 @@
       "emax": {{ max_irr }},
       "use_state_variable": true,
       "reset_month": {{ reset_month_rights }},
+      "reset_debit_right": "laja_vol_gasto_anticipado",
       "bound_rule": {
         "reservoir": {{ central }},
         "segments": {{ irr_segments }},
@@ -423,35 +450,6 @@
         "reservoir": {{ central }},
         "segments": {{ mixed_segments }},
         "cap": {{ max_mixed }}
-      }
-    },
-
-    {# ============================================================= #}
-    {# VolumeRight: laja_vol_gasto_anticipado (PLP: IVGAF)           #}
-    {#                                                               #}
-    {# Anticipated discharge accumulator.  Tracks early extraction   #}
-    {# of future irrigation rights (Sep-Nov only).                   #}
-    {# Uses the SAME bound_rule segments as irrigation rights        #}
-    {# (irr_segments) because anticipated rights draw from the same  #}
-    {# volume zone formula as irrigation.                            #}
-    {#                                                               #}
-    {# PLP balance (R12):                                            #}
-    {#   IVGAF = Prev_IVGAF + (etadur/ScaleVol) * IQGAH             #}
-    {# Note: PLP accumulates POSITIVELY (adds extraction), while     #}
-    {# gtopt VolumeRight tracks remaining rights (subtracts).        #}
-    {# The sign convention is handled internally by StorageLP.       #}
-    {# ============================================================= #}
-    {
-      "name": "laja_vol_gasto_anticipado",
-      "purpose": "anticipated",
-      "eini": {{ ini_anticipated }},
-      "emax": {{ max_anticipated }},
-      "use_state_variable": true,
-      "reset_month": {{ reset_month_antic }},
-      "bound_rule": {
-        "reservoir": {{ central }},
-        "segments": {{ irr_segments }},
-        "cap": {{ max_anticipated }}
       }
     },
 

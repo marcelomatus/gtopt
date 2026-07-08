@@ -59,12 +59,10 @@ Covered by `plp2gtopt/tests/test_laja.py`, `test_maule.py`,
 
 Gaps to add at this tier:
 
-* **B1** Zone-formula golden test: for a grid of volumes
-  (0, 600, 1200, 1370, 1500, 1900, 2000, 5582), assert
-  `evaluate_bound_rule(irr_segments, V) + evaluate_bound_rule(mixed_segments, V)`
-  equals the CEN Tabla 1 riego column (this is what exposes the missing
-  mixed→riego +30 hm³ transfer above colchón 1 — write it xfail until
-  the transfer is implemented).
+* **B1** Zone-formula golden test — IMPLEMENTED 2026-07:
+  `test_zone_formula_matches_cen_tabla1` asserts
+  `irr(V) + mixed(V)` equals the CEN Tabla 1 riego column and
+  `elec(V)` the generation column, across all four colchones.
 * **B2** tampl render smoke test: `generate_pampl` on the real 2-year
   config renders without `StrictUndefined` errors and contains the
   corrected `cost_*_uso` params.
@@ -140,8 +138,17 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
 1. ~~Physical anchoring of rights flows (Laja & Maule)~~ — done
    2026-07 (gen-arc-only; see D5).  Districts remain junction-anchored
    only where PLP defines an injection central.
-2. IVGAF debit of the december provision (`genpdlajam.f:234-239`).
-3. Mixed→riego +30 hm³ transfer above colchón 1 — B1.
+2. ~~IVGAF debit of the december provision~~ — done 2026-07: the
+   anticipado bucket is a PLP-style up-counter (`reset_value: 0` at
+   september, fills via `saving = qga`) and the riego december reset
+   emits the PLP row `eini + vgaf = provision` via the new
+   `reset_debit_right` field (Tier 9.4/9.5 in
+   `test_irrigation_anchoring.cpp`).
+3. ~~Mixed→riego +30 hm³ transfer above colchón 1~~ — done 2026-07:
+   mixed segments are per-zone steps (PLP selector semantics) and the
+   riego segments carry the `DerMixtoBase×(1−FMixto)` transfer; the
+   B1 golden test (`test_zone_formula_matches_cen_tabla1`) pins the
+   emitted rights to the 2017 Acuerdo's Tabla 1.
 4. `qdrh + qdmh + qgah ≤ qdefm` attribution cap (`genpdlajam.f:290-296`).
 5. Maule monthly electric-counter reset (PLP resets EVERY month, not
    january) and compensation recompute at year start.

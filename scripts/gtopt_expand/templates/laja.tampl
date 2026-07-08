@@ -125,8 +125,12 @@ constraint laja_ledger_electrico "Ledger: electric bucket depletes with qde":
 constraint laja_ledger_mixto "Ledger: mixed bucket depletes with qdm":
   volume_right('laja_vol_der_mixto').extraction = flow_right('laja_der_mixto').flow;
 
-constraint laja_ledger_anticipado "Ledger: anticipado bucket depletes with qga":
-  volume_right('laja_vol_gasto_anticipado').extraction = flow_right('laja_gasto_anticipado').flow;
+# The anticipado bucket is a PLP-style UP-counter (IVGAF): it FILLS
+# with qga through its saving inflow and resets to zero each
+# september; its december value is debited from the riego provision
+# (reset_debit_right, genpdlajam.f:234-239).
+constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
+  volume_right('laja_vol_gasto_anticipado').saving = flow_right('laja_gasto_anticipado').flow;
 
 # ---------------------------------------------------------------------------
 # Volume zone parameters

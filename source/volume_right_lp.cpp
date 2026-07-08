@@ -230,17 +230,52 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // with the previous phase's efin, and backward duals are not
   // propagated through the reset.
   if (is_reset_stage) {
-    // Read the first block's ``emax`` for the reset provisioning: the
-    // reset is a per-stage event, and ``emax`` is now ``OptTBRealSched``
-    // (per-(stage, block)).  Block 0 holds the stage's nominal cap; any
-    // per-block tightening within the stage doesn't apply to the initial
-    // provision.
-    const auto provision = opt_rule.has_value()
-        ? initial_rule_bound
-        : param_emax(stage.uid(), stage.blocks().front().uid()).value_or(0.0);
-    auto& eini_col = lp.col_at(eini_col_at(scenario, stage));
-    eini_col.lowb = provision;
-    eini_col.uppb = provision;
+    // Provision resolution order: explicit ``reset_value`` (PLP
+    // up-counter reset, e.g. IVGAF -> 0 at INICIOANTIC), then the
+    // bound_rule evaluation, then the first block's ``emax`` (the
+    // reset is a per-stage event; block 0 holds the stage's nominal
+    // cap).
+    const auto provision = volume_right().reset_value.has_value()
+        ? *volume_right().reset_value
+        : (opt_rule.has_value()
+               ? initial_rule_bound
+               : param_emax(stage.uid(), stage.blocks().front().uid())
+                     .value_or(0.0));
+    if (const auto& debit_ref = volume_right().reset_debit_right;
+        debit_ref.has_value())
+    {
+      // PLP INICIOTEMP debit (genpdlajam.f:234-239): the December
+      // riego provision is reduced by the anticipado spending counter
+      // — as a ROW, not a numeric subtraction, so the linkage stays
+      // exact within the LP and across SDDP phases (the debit's
+      // incoming volume is its state-linked ``eini`` column):
+      //
+      //     eini + debit_eini = provision,   eini >= 0
+      //
+      // The referenced VolumeRight must have been added to the LP
+      // already (earlier in volume_right_array — same ordering
+      // contract as ``right_reservoir``).
+      const auto& debit_lp = sc.element(VolumeRightLPSId(*debit_ref));
+      const auto debit_eini = debit_lp.eini_col_at(scenario, stage);
+      const auto eini_idx = eini_col_at(scenario, stage);
+      auto& eini_col = lp.col_at(eini_idx);
+      eini_col.lowb = 0.0;
+      eini_col.uppb = LinearProblem::DblMax;
+      auto drow = SparseRow {
+          .class_name = Element::class_name.full_name(),
+          .constraint_name = ResetDebitName,
+          .variable_uid = uid(),
+          .context = make_stage_context(scenario.uid(), stage.uid()),
+      };
+      drow[eini_idx] = 1.0;
+      drow[debit_eini] = 1.0;
+      reset_debit_rows_[{scenario.uid(), stage.uid()}] =
+          lp.add_row(std::move(drow.equal(provision)));
+    } else {
+      auto& eini_col = lp.col_at(eini_col_at(scenario, stage));
+      eini_col.lowb = provision;
+      eini_col.uppb = provision;
+    }
   }
 
   // Store columns for external coupling access
@@ -414,10 +449,21 @@ int VolumeRightLP::update_lp(SystemLP& sys,
                              "reset_month (update_lp)")
           == *rm;
   if (is_reset_stage_update) {
-    const auto eini_col = eini_col_at(scenario, stage);
-    li.set_col_low(eini_col, new_bound);
-    li.set_col_upp(eini_col, new_bound);
-    ++total;
+    // ``reset_value`` provisions are static — nothing to refresh.
+    if (!volume_right().reset_value.has_value()) {
+      if (const auto it = reset_debit_rows_.find({scenario.uid(), stage.uid()});
+          it != reset_debit_rows_.end())
+      {
+        // Debit-row provisioning: refresh the row RHS
+        // (eini + debit_eini = provision).
+        li.set_row_equal_to(it->second, new_bound);
+      } else {
+        const auto eini_col = eini_col_at(scenario, stage);
+        li.set_col_low(eini_col, new_bound);
+        li.set_col_upp(eini_col, new_bound);
+      }
+      ++total;
+    }
   }
 
   SPDLOG_TRACE(
