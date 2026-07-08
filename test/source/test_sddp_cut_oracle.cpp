@@ -1,0 +1,792 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/**
+ * @file      test_sddp_cut_oracle.cpp
+ * @brief     Extensive-form oracle property harness for SDDP cut validity
+ *            (deliverable 2 of the cut-validity certification campaign).
+ * @date      2026-07-08
+ *
+ * Asserts that every optimality cut emitted by the SDDP backward pass
+ * UNDERESTIMATES the true recourse function, using gtopt itself as the
+ * extensive-form solver:
+ *
+ *   * **Tail-LP oracle** — for a cut generated for (scene s, target
+ *     phase t+1) and installed on phase t's α, the persistent-scene
+ *     truth is `V_s^tail(x)` = optimal value of the SAME planning
+ *     restricted to phases t+1..T for scene s, with the reservoir
+ *     initial energy set to x, solved monolithically as ONE LP (a
+ *     single phase carrying all remaining stages).  The tail keeps the
+ *     scenario's `probability_factor`, so the oracle value carries the
+ *     same `cost_factor = p_s × discount × duration` folding the SDDP
+ *     scene-LP objective does (`docs/formulation/sddp-cut-validity.md`
+ *     §1) — verified by the unit-consistency self-check below.
+ *
+ *   * **Cut evaluation** — a `StoredCut` holds the PHYSICAL row
+ *     `α + Σ_j coeff_j·x_j ≥ rhs` (α coefficient 1.0), so the cut's
+ *     bound at state x is `rhs − Σ_{j≠α} coeff_j·x_j`.  α columns are
+ *     identified through the state-variable registry (class "Sddp",
+ *     covering every `varphi_s` under multicut); the remaining
+ *     coefficient must be the reservoir's outgoing-state column.
+ *
+ * Mode coverage (verdicts per `docs/formulation/sddp-cut-validity.md`):
+ *   * `none`      — strict at every transition (Theorems O1/O2/N1).
+ *   * `multicut`, identical scenes — resampled ≡ persistent process,
+ *     strict at every transition (Theorem M1 degenerate case).
+ *   * `multicut`, heterogeneous scenes, uniform probabilities — strict
+ *     at the FINAL transition only (the last phase has no future term,
+ *     so its cut is a per-scene-exact support regardless of sharing).
+ *     Earlier transitions bound the RESAMPLED-tree value (Theorem M1),
+ *     which is not the persistent tail; certifying them would require
+ *     backward support reconstruction of the mean-future PWL function,
+ *     which is deliberately NOT shipped here (too intrusive to wire
+ *     into a Planning without a flaky approximation).  The strict
+ *     earlier-phase coverage lives in the identical-scene case.
+ *   * `multicut`, non-uniform probabilities — Theorem M3: the 1/N
+ *     pricing makes the recursion the Bellman operator of no proper
+ *     stochastic process; WARN-only demonstration, nothing strict.
+ *
+ * The aperture backward pass is disabled throughout (`apertures = {}`)
+ * so the audited cuts are pure Benders cuts — the aperture path's
+ * measure-change caveats (§6) are out of scope for this harness.
+ */
+
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <format>
+#include <limits>
+#include <map>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include <doctest/doctest.h>
+#include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_cut_store.hpp>
+#include <gtopt/sddp_enums.hpp>
+#include <gtopt/sddp_method.hpp>
+#include <gtopt/sddp_types.hpp>
+#include <gtopt/utils.hpp>
+
+#include "sddp_helpers.hpp"
+
+using namespace gtopt;
+
+namespace
+{
+
+// ─── Geometry of the audited fixture ────────────────────────────────────────
+//
+// All cases below run on `make_2scene_3phase_hydro_planning` (see
+// sddp_helpers.hpp): 3 phases × 1 stage × 4 blocks of 1 h, one bus,
+// hydro 50 MW @ $5, thermal 200 MW @ $50, demand 80 MW, one reservoir
+// with box [0, 200] dam³, eini = 100, inflow 8 dam³/h (overridable per
+// scenario below).  `scale_objective = 1` so `get_obj_value()` is the
+// physical objective directly.
+constexpr int kOracleNumPhases = 3;
+constexpr int kOracleBlocksPerStage = 4;
+constexpr double kOracleEmax = 200.0;  // reservoir state box is [0, emax]
+constexpr double kOracleEini = 100.0;
+constexpr double kOracleBaseInflow = 8.0;
+constexpr double kOracleWetInflow = 11.0;
+constexpr double kOracleDryInflow = 5.0;
+
+// ─── ε-validity tolerance (theorem doc §4) ──────────────────────────────────
+//
+// Per `docs/formulation/sddp-cut-validity.md` §4, an emitted cut is only
+// ε-valid: the build-time filter (Theorem O3) may over-tighten by up to
+// `cut_coeff_eps × Σ_dropped diam(box_i)`, and the LP solves feeding
+// both the cut (z*, reduced costs) and the oracle value carry solver
+// feasibility noise proportional to the objective magnitude.  The
+// harness runs with `cut_coeff_eps = 0` (the SDDPOptions default), so
+// the first term is a conservative allowance and the solver term
+// dominates:  tol = 1e-8 × box_diam + 1e-6 × max(1, |V|).
+constexpr double kOracleCutCoeffEps = 1.0e-8;
+constexpr double kOracleSolverFeasTol = 1.0e-6;
+
+[[nodiscard]] double oracle_tol(double box_diam, double v_abs)
+{
+  return kOracleCutCoeffEps * box_diam
+      + kOracleSolverFeasTol * std::max(1.0, v_abs);
+}
+
+// ─── State grid ─────────────────────────────────────────────────────────────
+
+constexpr std::size_t kOracleGridN = 9;  // 0, 25, …, 200
+
+[[nodiscard]] std::array<double, kOracleGridN> oracle_state_grid()
+{
+  std::array<double, kOracleGridN> grid {};
+  for (std::size_t i = 0; i < kOracleGridN; ++i) {
+    grid[i] = kOracleEmax * static_cast<double>(i)
+        / static_cast<double>(kOracleGridN - 1);
+  }
+  return grid;
+}
+
+// ─── Fixture plumbing ───────────────────────────────────────────────────────
+
+/// Per-scene oracle data: the scenario's probability factor (cost
+/// folding) and its inflow (persistent sample path).
+struct OracleSceneData
+{
+  double prob {};
+  double inflow {};
+};
+
+/// Give each scenario of the 2-scene fixture its own constant inflow
+/// (scenario × stage × block schedule), making the scenes genuinely
+/// heterogeneous sample paths.
+void oracle_set_scenario_inflows(Planning& planning, double q0, double q1)
+{
+  std::vector<std::vector<std::vector<double>>> sched;
+  sched.reserve(2);
+  for (const double q : {q0, q1}) {
+    std::vector<std::vector<double>> per_stage;
+    per_stage.reserve(static_cast<std::size_t>(kOracleNumPhases));
+    for (int st = 0; st < kOracleNumPhases; ++st) {
+      per_stage.push_back(std::vector<double>(
+          static_cast<std::size_t>(kOracleBlocksPerStage), q));
+    }
+    sched.push_back(std::move(per_stage));
+  }
+  planning.system.flow_array[0].discharge = STBRealFieldSched {sched};
+}
+
+/// Single-scenario tail Planning: the last @p num_stages stages of the
+/// fixture horizon merged into ONE phase (so the monolithic solve is a
+/// single LP over the whole tail — the extensive form), with reservoir
+/// `eini` = the probed state x.  The tail is built UNFOLDED: a lone
+/// scenario's `probability_factor` is normalized away at LP build time
+/// (probabilities are rescaled to sum to 1 over the planning's own
+/// scenarios), so the p_s cost folding of the SDDP scene-LP objective
+/// is applied EXTERNALLY in `oracle_tail_value` — a convention pinned
+/// by the unit-consistency self-check below.
+[[nodiscard]] Planning oracle_make_tail_planning(int num_stages,
+                                                 double inflow,
+                                                 double eini)
+{
+  auto block_array = make_uniform_blocks(
+      static_cast<std::size_t>(num_stages * kOracleBlocksPerStage), 1.0);
+  auto stage_array =
+      make_uniform_stages(static_cast<std::size_t>(num_stages),
+                          static_cast<std::size_t>(kOracleBlocksPerStage));
+
+  Array<Phase> phase_array = {
+      Phase {
+          .uid = Uid {1},
+          .first_stage = 0,
+          .count_stage = static_cast<Size>(num_stages),
+      },
+  };
+
+  Simulation simulation = {
+      .block_array = std::move(block_array),
+      .stage_array = std::move(stage_array),
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .probability_factor = 1.0,
+              },
+          },
+      .phase_array = std::move(phase_array),
+  };
+
+  // System mirrors make_2scene_3phase_hydro_planning exactly, except
+  // for the parameterised eini / inflow.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+  };
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "hydro_gen",
+          .bus = Uid {1},
+          .gcost = 5.0,
+          .capacity = 50.0,
+      },
+      {
+          .uid = Uid {2},
+          .name = "thermal_gen",
+          .bus = Uid {1},
+          .gcost = 50.0,
+          .capacity = 200.0,
+      },
+  };
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {1},
+          .capacity = 80.0,
+      },
+  };
+  const Array<Junction> junction_array = {
+      {
+          .uid = Uid {1},
+          .name = "j_up",
+      },
+      {
+          .uid = Uid {2},
+          .name = "j_down",
+          .drain = true,
+      },
+  };
+  const Array<Waterway> waterway_array = {
+      {
+          .uid = Uid {1},
+          .name = "ww1",
+          .junction_a = Uid {1},
+          .junction_b = Uid {2},
+          .fmin = 0.0,
+          .fmax = 100.0,
+      },
+  };
+  const Array<Reservoir> reservoir_array = {
+      {
+          .uid = Uid {1},
+          .name = "rsv1",
+          .junction = Uid {1},
+          .capacity = kOracleEmax,
+          .emin = 0.0,
+          .emax = kOracleEmax,
+          .eini = eini,
+          .fmin = -1000.0,
+          .fmax = 1000.0,
+          .flow_conversion_rate = 1.0,
+      },
+  };
+  const Array<Flow> flow_array = {
+      {
+          .uid = Uid {1},
+          .name = "inflow",
+          .direction = 1,
+          .junction = Uid {1},
+          .discharge = inflow,
+      },
+  };
+  const Array<Turbine> turbine_array = {
+      {
+          .uid = Uid {1},
+          .name = "tur1",
+          .waterway = Uid {1},
+          .generator = Uid {1},
+          .production_factor = 1.0,
+      },
+  };
+
+  PlanningOptions options;
+  options.model_options.demand_fail_cost = 1000.0;
+  options.model_options.use_single_bus = OptBool {true};
+  options.model_options.scale_objective = OptReal {1.0};
+  options.output_format = DataFormat::csv;
+  options.output_compression = CompressionCodec::uncompressed;
+
+  return Planning {
+      .options = std::move(options),
+      .simulation = std::move(simulation),
+      .system =
+          {
+              .name = "sddp_cut_oracle_tail",
+              .bus_array = bus_array,
+              .demand_array = demand_array,
+              .generator_array = generator_array,
+              .junction_array = junction_array,
+              .waterway_array = waterway_array,
+              .flow_array = flow_array,
+              .reservoir_array = reservoir_array,
+              .turbine_array = turbine_array,
+          },
+  };
+}
+
+/// Solve the tail extensive form and return its physical objective,
+/// folded by @p prob EXTERNALLY (see `oracle_make_tail_planning` for
+/// why the tail LP itself is unfolded).  This reproduces the SDDP
+/// scene-LP folding `cost_factor = p_s × discount × duration` — the
+/// SDDP fixture's scenario probabilities already sum to 1, so no
+/// build-time rescaling applies there and p_s survives verbatim.
+[[nodiscard]] double oracle_tail_value(int num_stages,
+                                       double prob,
+                                       double inflow,
+                                       double eini)
+{
+  auto planning = oracle_make_tail_planning(num_stages, inflow, eini);
+  PlanningLP plp(std::move(planning));
+  auto status = plp.resolve();
+  REQUIRE(status.has_value());
+  REQUIRE(*status == 1);  // optimal
+  return prob
+      * plp.system(first_scene_index(), PhaseIndex {0})
+            .linear_interface()
+            .get_obj_value();
+}
+
+/// Extensive optimum of the PERSISTENT-scene process: Σ_s (p_s-folded
+/// full-horizon tail value at the fixture's original eini).
+[[nodiscard]] double oracle_persistent_extensive_optimum(
+    const std::array<OracleSceneData, 2>& scenes)
+{
+  double total = 0.0;
+  for (const auto& sd : scenes) {
+    total +=
+        oracle_tail_value(kOracleNumPhases, sd.prob, sd.inflow, kOracleEini);
+  }
+  return total;
+}
+
+// ─── SDDP driver ────────────────────────────────────────────────────────────
+
+[[nodiscard]] SDDPOptions oracle_sddp_opts(CutSharingMode mode,
+                                           int max_iterations,
+                                           double convergence_tol = 1.0e-9)
+{
+  SDDPOptions opts;
+  opts.max_iterations = max_iterations;
+  opts.convergence_tol = convergence_tol;
+  opts.stationary_tol = 0.0;  // no early stationary exit — audit more cuts
+  opts.cut_sharing = mode;
+  opts.apertures = std::vector<Uid> {};  // pure Benders backward pass
+  opts.enable_api = false;
+  return opts;
+}
+
+// ─── Cut classification ─────────────────────────────────────────────────────
+
+/// A stored optimality cut reduced to oracle coordinates: which scene
+/// generated it, which phase's α it bounds (0-based position of the
+/// phase it is INSTALLED on), and the physical row `α + coeff·x ≥ rhs`.
+struct OracleCutView
+{
+  std::size_t scene_pos {};
+  int phase_pos {};
+  double rhs {};
+  double state_coeff {};
+};
+
+[[nodiscard]] OracleCutView oracle_classify_cut(const SimulationLP& sim,
+                                                const StoredCut& sc)
+{
+  std::optional<SceneIndex> scene;
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    if (sim.uid_of(si) == sc.scene_uid) {
+      scene = si;
+      break;
+    }
+  }
+  REQUIRE_MESSAGE(scene.has_value(), "cut scene_uid not found in simulation");
+
+  std::optional<PhaseIndex> phase;
+  for (const auto pi : iota_range<PhaseIndex>(0, sim.phase_count())) {
+    if (sim.uid_of(pi) == sc.phase_uid) {
+      phase = pi;
+      break;
+    }
+  }
+  REQUIRE_MESSAGE(phase.has_value(), "cut phase_uid not found in simulation");
+
+  // Resolve every coefficient column against the (scene, phase)
+  // state-variable registry: α columns carry class "Sddp" (this covers
+  // every varphi_s under multicut); the fixture's only physical state
+  // is the reservoir energy.
+  OracleCutView view {
+      .scene_pos = static_cast<std::size_t>(*scene),
+      .phase_pos = static_cast<int>(static_cast<std::size_t>(*phase)),
+  };
+  view.rhs = sc.rhs;
+
+  const auto& svars = sim.state_variables(*scene, *phase);
+  bool alpha_seen = false;
+  std::size_t n_state_coeffs = 0;
+  for (const auto& [col, coeff] : sc.coefficients) {
+    bool matched = false;
+    for (const auto& [key, svar] : svars) {
+      if (svar.col() != col) {
+        continue;
+      }
+      matched = true;
+      if (key.class_name == "Sddp") {
+        // Cut row convention (§1): the α coefficient is exactly 1.
+        CHECK(coeff == doctest::Approx(1.0));
+        alpha_seen = true;
+      } else {
+        view.state_coeff = coeff;
+        ++n_state_coeffs;
+      }
+      break;
+    }
+    REQUIRE_MESSAGE(matched,
+                    "cut coefficient column not present in the "
+                    "state-variable registry");
+  }
+  REQUIRE_MESSAGE(alpha_seen, "optimality cut does not reference α");
+  REQUIRE_MESSAGE(n_state_coeffs == 1,
+                  "expected exactly one reservoir state coefficient");
+  return view;
+}
+
+/// Cut bound at state x:  α ≥ rhs − coeff·x  (row is α + coeff·x ≥ rhs).
+[[nodiscard]] double oracle_cut_value_at(const OracleCutView& view, double x)
+{
+  return view.rhs - view.state_coeff * x;
+}
+
+// ─── The oracle audit ───────────────────────────────────────────────────────
+
+/// Sweep every stored optimality cut across the reservoir state box and
+/// compare against the persistent-scene tail oracle.
+///
+/// @param only_tail_stages  0 = audit every transition; k > 0 = audit
+///        only cuts whose target tail is exactly k stages long (k = 1
+///        selects the FINAL transition — cuts bounding the last phase).
+/// @param strict  CHECK when the theory certifies the configuration,
+///        WARN for the known-unsound demonstrations.
+/// @returns Number of cuts audited.
+int oracle_audit_cuts(const SimulationLP& sim,
+                      const std::vector<StoredCut>& cuts,
+                      const std::array<OracleSceneData, 2>& scenes,
+                      bool strict,
+                      int only_tail_stages = 0)
+{
+  const auto grid = oracle_state_grid();
+
+  // Tail values cached per (tail length, scene): the oracle re-solves
+  // the same extensive form for every cut on the same transition.
+  std::map<std::pair<int, std::size_t>, std::array<double, kOracleGridN>>
+      tail_cache;
+
+  int n_checked = 0;
+  for (const auto& sc : cuts) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto view = oracle_classify_cut(sim, sc);
+
+    // A cut installed on phase t bounds the tail over phases t+1..T;
+    // each fixture phase carries one stage.
+    const int tail_stages = kOracleNumPhases - 1 - view.phase_pos;
+    REQUIRE(tail_stages >= 1);
+    if (only_tail_stages != 0 && tail_stages != only_tail_stages) {
+      continue;
+    }
+
+    const auto cache_key = std::pair {tail_stages, view.scene_pos};
+    auto it = tail_cache.find(cache_key);
+    if (it == tail_cache.end()) {
+      std::array<double, kOracleGridN> vals {};
+      for (std::size_t i = 0; i < kOracleGridN; ++i) {
+        vals[i] = oracle_tail_value(tail_stages,
+                                    scenes[view.scene_pos].prob,
+                                    scenes[view.scene_pos].inflow,
+                                    grid[i]);
+      }
+      it = tail_cache.emplace(cache_key, vals).first;
+    }
+
+    double worst_overshoot = -std::numeric_limits<double>::infinity();
+    double worst_x = grid[0];
+    for (std::size_t i = 0; i < kOracleGridN; ++i) {
+      const double v_tail = it->second[i];
+      const double cut_val = oracle_cut_value_at(view, grid[i]);
+      const double tol = oracle_tol(kOracleEmax, std::abs(v_tail));
+      if (strict) {
+        INFO("scene=",
+             view.scene_pos,
+             " phase=",
+             view.phase_pos,
+             " iter=",
+             static_cast<int>(sc.iteration_index),
+             " x=",
+             grid[i],
+             " cut=",
+             cut_val,
+             " V_tail=",
+             v_tail);
+        CHECK(cut_val <= v_tail + tol);
+      } else if (cut_val - (v_tail + tol) > worst_overshoot) {
+        worst_overshoot = cut_val - (v_tail + tol);
+        worst_x = grid[i];
+      }
+    }
+    if (!strict) {
+      // One WARN per cut at its worst grid point — keeps the
+      // demonstrative M3 output compact.
+      INFO("scene=",
+           view.scene_pos,
+           " phase=",
+           view.phase_pos,
+           " iter=",
+           static_cast<int>(sc.iteration_index),
+           " worst_x=",
+           worst_x,
+           " overshoot=",
+           worst_overshoot);
+      WARN(worst_overshoot <= 0.0);
+    }
+    ++n_checked;
+  }
+  return n_checked;
+}
+
+/// LB property: the SDDP master lower bound never exceeds the
+/// extensive-form optimum of the process the cuts certify.
+void oracle_audit_lower_bounds(const std::vector<SDDPIterationResult>& results,
+                               double extensive_opt,
+                               bool strict)
+{
+  // Two per-scene master solves feed the LB sum → double the solver
+  // allowance.
+  const double tol = 2.0 * oracle_tol(kOracleEmax, std::abs(extensive_opt));
+  for (const auto& ir : results) {
+    INFO("iter=",
+         static_cast<int>(ir.iteration_index),
+         " LB=",
+         ir.lower_bound,
+         " extensive_opt=",
+         extensive_opt);
+    if (strict) {
+      CHECK(ir.lower_bound <= extensive_opt + tol);
+    } else {
+      WARN(ir.lower_bound <= extensive_opt + tol);
+    }
+  }
+}
+
+}  // namespace
+
+// ═════════════════════════════════════════════════════════════════════════
+// Unit-consistency self-check: the tail oracle's folding conventions
+// match the SDDP master objective.  On the identical-scene fixture at
+// convergence, LB = UB = Σ_s V_s(0) = the full-horizon extensive
+// optimum, and each per-scene master objective is the p_s-folded tail.
+// This validates the oracle's folding convention (unfolded tail LP ×
+// external p_s — see `oracle_tail_value`) against the SDDP scene-LP
+// `cost_factor` folding before any cut is audited.  Historical note:
+// the first version of this check exposed that a lone scenario's
+// `probability_factor` is rescaled away at LP build time, which is why
+// the folding is external.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — self-check: full-horizon tail matches the SDDP "
+    "master objective at convergence")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::none,
+                               /*max_iterations=*/25,
+                               /*convergence_tol=*/1.0e-7);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+  const auto& last = results->back();
+  REQUIRE(last.gap <= 1.0e-6);
+
+  // Full-horizon extensive optimum, unfolded (prob = 1):  both scenes
+  // are identical with p = 0.5 each, so Σ_s V_s = V_full.
+  const double v_full =
+      oracle_tail_value(kOracleNumPhases, 1.0, kOracleBaseInflow, kOracleEini);
+  REQUIRE(v_full > 0.0);
+
+  CHECK(last.lower_bound == doctest::Approx(v_full).epsilon(1.0e-4));
+  CHECK(last.upper_bound == doctest::Approx(v_full).epsilon(1.0e-4));
+
+  // Per-scene folding: each scene's master objective is the 0.5-folded
+  // full-horizon tail — the direct pin of the SDDP `cost_factor`
+  // folding against the oracle's external p_s multiplication.
+  if (!last.scene_lower_bounds.empty()) {
+    REQUIRE(last.scene_lower_bounds.size() == 2);
+    CHECK(last.scene_lower_bounds[0]
+          == doctest::Approx(0.5 * v_full).epsilon(1.0e-4));
+    CHECK(last.scene_lower_bounds[1]
+          == doctest::Approx(0.5 * v_full).epsilon(1.0e-4));
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `none`: unconditionally valid (Theorems O1/O2/N1).  Every stored
+// optimality cut must underestimate its own scene's persistent tail at
+// every state in the box, and the LB must never exceed the persistent
+// extensive optimum.  Heterogeneous inflows AND probabilities.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — cut_sharing=none: every optimality cut "
+    "underestimates the persistent per-scene tail")
+{
+  const std::array<std::pair<double, double>, 2> prob_splits = {{
+      {0.6, 0.4},
+      {0.3, 0.7},
+  }};
+
+  for (const auto& [p0, p1] : prob_splits) {
+    const auto label = std::format("none {}/{}", p0, p1);
+    SUBCASE(label.c_str())
+    {
+      auto planning = make_2scene_3phase_hydro_planning(p0, p1);
+      oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+      PlanningLP plp(std::move(planning));
+
+      auto opts = oracle_sddp_opts(CutSharingMode::none,
+                                   /*max_iterations=*/6);
+      SDDPMethod sddp(plp, opts);
+      auto results = sddp.solve();
+      REQUIRE(results.has_value());
+      REQUIRE_FALSE(results->empty());
+
+      const std::array<OracleSceneData, 2> scenes = {{
+          {.prob = p0, .inflow = kOracleWetInflow},
+          {.prob = p1, .inflow = kOracleDryInflow},
+      }};
+
+      const auto cuts = sddp.stored_cuts();
+      const int n_checked =
+          oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+      CAPTURE(n_checked);
+      REQUIRE(n_checked >= 2);
+
+      // LB ≤ persistent extensive optimum at EVERY iteration
+      // (Theorem N1).
+      oracle_audit_lower_bounds(*results,
+                                oracle_persistent_extensive_optimum(scenes),
+                                /*strict=*/true);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `multicut`, identical scenes: the resampled process coincides
+// with the persistent one (every scene realizes the same path), so the
+// persistent tail oracle applies at EVERY phase — strict (Theorem M1,
+// degenerate case).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — multicut on identical scenes: cuts underestimate "
+    "the common tail at every transition")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.5, .inflow = kOracleBaseInflow},
+      {.prob = 0.5, .inflow = kOracleBaseInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  // Identical scenes: resampled optimum == persistent optimum, so the
+  // LB property is strict here too.
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/true);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `multicut`, heterogeneous scenes, UNIFORM probabilities: cuts at
+// the FINAL transition bound the last phase, which has no future term —
+// they are per-scene-exact supports of the single-phase tail regardless
+// of the sharing mode, so the persistent oracle applies strictly there.
+//
+// Earlier transitions bound the RESAMPLED-tree value (Theorem M1),
+// which is a different function from the persistent tail; certifying
+// them exactly would require backward support reconstruction of the
+// mean-future PWL function wired into a Planning.  That is deliberately
+// NOT shipped (see the file header) — the strict earlier-phase coverage
+// for multicut lives in the identical-scene case above, and the
+// heterogeneous case is certified at the terminal transition only.
+// No LB assertion either: the resampled-process optimum and the
+// persistent extensive optimum are not ordered (Corollary M2).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — multicut heterogeneous uniform (0.5/0.5): "
+    "final-transition cuts are per-scene exact underestimators")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.5, .inflow = kOracleWetInflow},
+      {.prob = 0.5, .inflow = kOracleDryInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked = oracle_audit_cuts(plp.simulation(),
+                                          cuts,
+                                          scenes,
+                                          /*strict=*/true,
+                                          /*only_tail_stages=*/1);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `multicut`, NON-uniform probabilities (0.6/0.4): Theorem M3
+// (`docs/formulation/sddp-cut-validity.md` §8) — the uniform 1/N pricing
+// of the varphi columns makes the scene-LP recursion the Bellman
+// operator of NO proper stochastic process (the future term carries
+// weight 1/(N·p_s) ≠ 1), so neither the earlier-phase cuts nor the LB
+// are certified against any oracle.  WARN-only demonstration: nothing
+// strict is asserted here, and these WARNs are NOT defects to fix in
+// the harness — they document the unsound configuration until the M4
+// pricing correction ships (gated behind review of this harness).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — multicut non-uniform probabilities (0.6/0.4) is "
+    "uncertified (theorem M3, WARN-only)")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleWetInflow},
+      {.prob = 0.4, .inflow = kOracleDryInflow},
+  }};
+
+  // WARN-only sweep against the persistent per-scene tails — M3 says
+  // the recursion prices no proper process, so violations here are
+  // expected and demonstrative, not regressions.
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/false);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/false);
+}
