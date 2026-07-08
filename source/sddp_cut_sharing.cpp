@@ -12,6 +12,13 @@
  * `docs/formulation/sddp-cut-validity.md` §7; history in
  * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
  * and git).
+ *
+ * `markov` (2026-07-08, opt-in) reuses the same broadcast mechanics
+ * unchanged: the destination column is baked into the cut row (scene
+ * S's cut references `varphi_{m(S)}` — the Markov-state column — set up
+ * by the backward-pass retarget), so the per-destination install below
+ * needs no mode-specific routing.  See
+ * `docs/formulation/sddp-markov.md` §6.
  */
 
 #include <utility>

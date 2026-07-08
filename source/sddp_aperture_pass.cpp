@@ -555,16 +555,28 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
   // aperture cut building and reused below for any fallback.  Under
   // `multicut`, scene S's aperture cut references S's dedicated column
   // `varphi_S` (uid = sddp_alpha_uid + S); `share_cuts_for_phase` then
-  // broadcasts it onto `varphi_S` in every destination scene-LP.  For
+  // broadcasts it onto `varphi_S` in every destination scene-LP.  Under
+  // `markov`, the cut references the Markov-STATE column
+  // `varphi_{m(S)}` (docs/formulation/sddp-markov.md §2/§6).  For
   // the single-α modes `source_scene = scene_index` is uid offset 0.
-  const auto* src_alpha_svar =
-      (m_options_.cut_sharing == CutSharingMode::multicut)
-      ? find_alpha_state_var(planning_lp().simulation(),
-                             scene_index,
-                             src_phase_index,
-                             /*source_scene=*/scene_index)
-      : find_alpha_state_var(
-            planning_lp().simulation(), scene_index, src_phase_index);
+  const StateVariable* src_alpha_svar = nullptr;
+  if (m_options_.cut_sharing == CutSharingMode::markov) {
+    const auto mstate = static_cast<std::size_t>(
+        m_options_.markov
+            .state_of_scene[static_cast<std::size_t>(scene_index)]);
+    src_alpha_svar = find_alpha_state_var(planning_lp().simulation(),
+                                          scene_index,
+                                          src_phase_index,
+                                          /*source_scene=*/SceneIndex {mstate});
+  } else {
+    src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
+        ? find_alpha_state_var(planning_lp().simulation(),
+                               scene_index,
+                               src_phase_index,
+                               /*source_scene=*/scene_index)
+        : find_alpha_state_var(
+              planning_lp().simulation(), scene_index, src_phase_index);
+  }
   const auto src_alpha_col = (src_alpha_svar != nullptr)
       ? src_alpha_svar->col()
       : ColIndex {unknown_index};
@@ -866,16 +878,28 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
     const DecompressionGuard dcomp_guard(clone_sys.linear_interface());
 
     // Resolve α column for the source phase once per iteration.  Under
-    // `multicut`, scene S's aperture cut references S's own `varphi_S`
-    // (see the loop-variant above for the full rationale).
-    const auto* src_alpha_svar =
-        (m_options_.cut_sharing == CutSharingMode::multicut)
-        ? find_alpha_state_var(planning_lp().simulation(),
+    // `multicut`, scene S's aperture cut references S's own `varphi_S`;
+    // under `markov`, the state column `varphi_{m(S)}` (see the
+    // loop-variant above for the full rationale).
+    const StateVariable* src_alpha_svar = nullptr;
+    if (m_options_.cut_sharing == CutSharingMode::markov) {
+      const auto mstate = static_cast<std::size_t>(
+          m_options_.markov
+              .state_of_scene[static_cast<std::size_t>(scene_index)]);
+      src_alpha_svar =
+          find_alpha_state_var(planning_lp().simulation(),
                                scene_index,
                                src_phase_index,
-                               /*source_scene=*/scene_index)
-        : find_alpha_state_var(
-              planning_lp().simulation(), scene_index, src_phase_index);
+                               /*source_scene=*/SceneIndex {mstate});
+    } else {
+      src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
+          ? find_alpha_state_var(planning_lp().simulation(),
+                                 scene_index,
+                                 src_phase_index,
+                                 /*source_scene=*/scene_index)
+          : find_alpha_state_var(
+                planning_lp().simulation(), scene_index, src_phase_index);
+    }
     const auto src_alpha_col = (src_alpha_svar != nullptr)
         ? src_alpha_svar->col()
         : ColIndex {unknown_index};

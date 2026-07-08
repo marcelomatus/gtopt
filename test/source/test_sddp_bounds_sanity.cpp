@@ -223,6 +223,88 @@ TEST_CASE(
   }
 }
 
+// ─── cut_sharing=markov: Markov-chain SDDP (WARN on heterogeneous) ──
+//
+// `markov` (opt-in, experimental) prices one varphi column per Markov
+// state at `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}` (theorem MK1 in
+// `docs/formulation/sddp-markov.md`).  Like multicut, the LB bounds a
+// RESAMPLED process — here the Markov-modulated one — while the forward
+// UB simulates PERSISTENT per-scene sample paths; the two optima are
+// not ordered for heterogeneous scenes (Corollary MK2, the mirror of
+// Corollary M2 in `docs/formulation/sddp-cut-validity.md` §8), so this
+// pin stays WARN-only permanently.  The strict comparisons live in the
+// extensive-form oracle harness (`test_sddp_cut_oracle.cpp`).
+TEST_CASE(
+    "SDDP bounds sanity — heterogeneous scenes, markov (process "
+    "mismatch, WARN-only)")
+{
+  SUBCASE("2s3p cut_sharing=markov (0.6/0.4, singleton states)")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 8;
+    opts.convergence_tol = 1.0e-4;
+    opts.cut_sharing = CutSharingMode::markov;
+    opts.enable_api = false;
+    // Singleton states with transition rows = the scene probabilities:
+    // the M4-degenerate configuration (w = p_s), i.e. the process
+    // resampled with measure p at every phase boundary.
+    opts.markov = make_markov_config(
+        {
+            0,
+            1,
+        },
+        {
+            0.6,
+            0.4,
+            0.6,
+            0.4,
+        });
+
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    check_iteration_invariants_soft(*results, "2s3p markov");
+  }
+}
+
+// Identical scenes: every process (persistent, resampled, Markov-
+// modulated with any row-stochastic P) coincides, so the strict
+// LB <= UB invariant applies at every iteration (theorem MK1
+// degenerate case — `docs/formulation/sddp-markov.md` §5).
+TEST_CASE("SDDP bounds sanity — identical scenes, markov preserves LB <= UB")
+{
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 6;
+  opts.convergence_tol = 1.0e-4;
+  opts.cut_sharing = CutSharingMode::markov;
+  opts.enable_api = false;
+  // Non-uniform transition rows: with identical dynamics the value
+  // functions are P-invariant, so the strict invariants must hold for
+  // any row-stochastic matrix.
+  opts.markov = make_markov_config(
+      {
+          0,
+          1,
+      },
+      {
+          0.7,
+          0.3,
+          0.2,
+          0.8,
+      });
+
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  check_iteration_invariants_strict(*results, "2s10p markov");
+}
+
 // ─── cut_sharing ∈ {none, multicut} with IDENTICAL scenes: no overshoot ──
 //
 // When all scenes have equal probability AND identical dynamics, every

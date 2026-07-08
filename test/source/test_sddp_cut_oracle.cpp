@@ -64,6 +64,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -774,6 +775,265 @@ TEST_CASE(  // NOLINT
 // the commit message).  With M4 pricing the same sweep passes
 // strictly.
 // ═════════════════════════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `markov` (opt-in, experimental — docs/formulation/sddp-markov.md).
+//
+// (a) M = N degenerate ≡ multicut: singleton states with transition
+//     rows equal to the (normalized) scene probabilities give
+//     w_{s,m'} = p_s (§4.1 of sddp-markov.md) — under UNIFORM
+//     probabilities this equals the multicut 1/N pricing at this
+//     commit (and the post-M4 `w_r = p_s` pricing thereafter), and the
+//     cut routing (`varphi_{m(S)} = varphi_S`) is identical.  The two
+//     modes must therefore produce the same LB trajectory and the same
+//     cuts on the same fixture.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — markov M=N degenerate reproduces multicut "
+    "(identical LB trajectory and cuts)")
+{
+  // Cuts must be classified INSIDE each run, against the run's own
+  // live simulation: `oracle_classify_cut` resolves coefficient
+  // columns through the state-variable registry, and the α (`varphi`)
+  // columns exist only in the PlanningLP whose SDDPMethod registered
+  // them — a fresh fixture rebuild has no α registration, so the α
+  // coefficient column would match nothing.  The classified
+  // `OracleCutView` is column-agnostic (physical rhs + reservoir
+  // coefficient), so the cross-mode comparison below is unaffected.
+  using CutId = std::tuple<SceneUid, PhaseUid, int>;
+
+  struct ModeRun
+  {
+    std::vector<SDDPIterationResult> results;
+    std::map<CutId, OracleCutView> cut_views;
+    std::size_t optimality_cuts {};
+  };
+
+  auto run_mode = [](CutSharingMode mode,
+                     const MarkovChainConfig* markov) -> ModeRun
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+    PlanningLP plp(std::move(planning));
+
+    auto opts = oracle_sddp_opts(mode, /*max_iterations=*/6);
+    if (markov != nullptr) {
+      opts.markov = *markov;
+    }
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+
+    ModeRun run;
+    run.results = *results;
+    for (const auto& sc : sddp.stored_cuts()) {
+      if (sc.type != CutType::Optimality) {
+        continue;
+      }
+      ++run.optimality_cuts;
+      const auto id = CutId {
+          sc.scene_uid,
+          sc.phase_uid,
+          static_cast<int>(sc.iteration_index),
+      };
+      const auto view = oracle_classify_cut(plp.simulation(), sc);
+      REQUIRE_MESSAGE(run.cut_views.emplace(id, view).second,
+                      "duplicate optimality cut id in one run");
+    }
+    return run;
+  };
+
+  // Singleton states, transition rows = the (uniform) scene
+  // probabilities — the degenerate configuration of §4.1.
+  const auto markov_config = make_markov_config(
+      {
+          0,
+          1,
+      },
+      {
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+      });
+
+  const auto multicut = run_mode(CutSharingMode::multicut, nullptr);
+  const auto markov = run_mode(CutSharingMode::markov, &markov_config);
+
+  // Identical LB trajectory, iteration by iteration.
+  REQUIRE(markov.results.size() == multicut.results.size());
+  for (std::size_t i = 0; i < multicut.results.size(); ++i) {
+    INFO("iter=", i);
+    CHECK(markov.results[i].lower_bound
+          == doctest::Approx(multicut.results[i].lower_bound).epsilon(1.0e-7));
+  }
+
+  // Identical cuts: match on (scene_uid, phase_uid, iteration) and
+  // compare the physical row (rhs + reservoir coefficient) plus the
+  // cut value across the state grid.
+  REQUIRE(markov.optimality_cuts == multicut.optimality_cuts);
+  REQUIRE(markov.cut_views.size() == multicut.cut_views.size());
+  REQUIRE(markov.cut_views.size() >= 2);
+
+  const auto grid = oracle_state_grid();
+
+  for (const auto& [id, mc_view] : multicut.cut_views) {
+    const auto it = markov.cut_views.find(id);
+    REQUIRE_MESSAGE(it != markov.cut_views.end(),
+                    "multicut cut id missing from the markov run");
+    const auto& mk_view = it->second;
+
+    CHECK(mk_view.rhs == doctest::Approx(mc_view.rhs).epsilon(1.0e-7));
+    CHECK(mk_view.state_coeff
+          == doctest::Approx(mc_view.state_coeff).epsilon(1.0e-7));
+    for (const double x : grid) {
+      CHECK(
+          oracle_cut_value_at(mk_view, x)
+          == doctest::Approx(oracle_cut_value_at(mc_view, x)).epsilon(1.0e-7));
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// (b) M = 1 — the future term collapses to a single column priced p_s
+//     (§4.2 of sddp-markov.md).  Every scene's cut lands on the shared
+//     varphi_0, whose theorem-MK1 target is the probability-weighted
+//     mean tail Φ_0(x) = Σ_s p_s·Ṽ_s(x): under A2 each per-scene folded
+//     tail is dominated by the sum (the Lemma-A1-style within-state
+//     domination step), so every FINAL-transition cut must
+//     underestimate Φ_0.  Earlier transitions bound the
+//     Markov-modulated (resampled) value — not the persistent tail —
+//     so, exactly like the heterogeneous multicut case, they are not
+//     audited against this oracle.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — markov M=1: final-transition cuts underestimate "
+    "the probability-weighted mean tail")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::markov,
+                               /*max_iterations=*/6);
+  opts.markov = make_markov_config(
+      {
+          0,
+          0,
+      },
+      {
+          1.0,
+      });
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.5, .inflow = kOracleWetInflow},
+      {.prob = 0.5, .inflow = kOracleDryInflow},
+  }};
+
+  const auto grid = oracle_state_grid();
+
+  // Φ_0(x) = Σ_s (p_s-folded 1-stage tail) at each grid point.
+  std::array<double, kOracleGridN> phi {};
+  for (std::size_t i = 0; i < kOracleGridN; ++i) {
+    for (const auto& sd : scenes) {
+      phi[i] += oracle_tail_value(1, sd.prob, sd.inflow, grid[i]);
+    }
+  }
+
+  int n_checked = 0;
+  for (const auto& sc : sddp.stored_cuts()) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto view = oracle_classify_cut(plp.simulation(), sc);
+    const int tail_stages = kOracleNumPhases - 1 - view.phase_pos;
+    if (tail_stages != 1) {
+      continue;  // final transition only (see the header note)
+    }
+    for (std::size_t i = 0; i < kOracleGridN; ++i) {
+      const double cut_val = oracle_cut_value_at(view, grid[i]);
+      const double tol = oracle_tol(kOracleEmax, std::abs(phi[i]));
+      INFO("scene=",
+           view.scene_pos,
+           " iter=",
+           static_cast<int>(sc.iteration_index),
+           " x=",
+           grid[i],
+           " cut=",
+           cut_val,
+           " phi=",
+           phi[i]);
+      CHECK(cut_val <= phi[i] + tol);
+    }
+    ++n_checked;
+  }
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// (c) Identical scenes, 2 states, non-trivial transition matrix: with
+//     identical dynamics every state's post-draw value coincides with
+//     the persistent tail (U_r ≡ Ṽ^pers for any row-stochastic P), so
+//     the persistent per-scene tail oracle is EXACT at every
+//     transition — strict per-cut checks everywhere, plus the strict
+//     LB property against the persistent extensive optimum (theorem
+//     MK1; docs/formulation/sddp-markov.md §5).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — markov on identical scenes (2 states, "
+    "non-uniform transition): cuts underestimate the common tail at "
+    "every transition")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::markov,
+                               /*max_iterations=*/6);
+  // Singleton states; deliberately non-uniform rows so the
+  // transition-dependent pricing w_{s,m'} = p_s·P[m(s)][m']/pi_{m'} is
+  // genuinely exercised (identical dynamics make the value functions
+  // P-invariant, so the oracle stays exact).
+  opts.markov = make_markov_config(
+      {
+          0,
+          1,
+      },
+      {
+          0.7,
+          0.3,
+          0.2,
+          0.8,
+      });
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.5, .inflow = kOracleBaseInflow},
+      {.prob = 0.5, .inflow = kOracleBaseInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  // Identical scenes: the Markov-modulated optimum equals the
+  // persistent one for any P, so the LB property is strict.
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/true);
+}
 
 TEST_CASE(  // NOLINT
     "SDDP cut oracle — multicut identical dynamics with non-uniform "

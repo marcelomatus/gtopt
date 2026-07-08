@@ -475,6 +475,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         choices=[
             "none",
             "multicut",
+            "markov",
         ],
         help=(
             "SDDP cut sharing mode (default for sddp/cascade: 'multicut'; "
@@ -486,7 +487,13 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "scene's normalized probability; = 1/N under uniform "
             "probabilities, matching `plp-agrespd.f:94` source indexing + "
             "`defprbpd.f:810` 1/N averaging); "
-            "'none' keeps cuts in their originating scene (no sharing). "
+            "'none' keeps cuts in their originating scene (no sharing); "
+            "'markov' (opt-in, EXPERIMENTAL) is Markov-chain SDDP — one "
+            "varphi column per Markov state; it additionally requires "
+            "'markov_states' (scene-to-state array) and "
+            "'markov_transition' (row-stochastic MxM matrix) in the "
+            "planning JSON's sddp_options, which this tool does not "
+            "emit (see docs/formulation/sddp-markov.md). "
             "The legacy broadcast_mean/expected/accumulate/max modes were "
             "REMOVED from gtopt on 2026-07-08 (invalid broadcasts; see "
             "docs/formulation/sddp-cut-validity.md section 7). "

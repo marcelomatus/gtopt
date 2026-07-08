@@ -970,8 +970,9 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
 
       // Strip the future-cost α from the realised opex so the UB sums only
       // stage costs.  Default path: the objective's future term is
-      // `w · Σ_r varphi_r_phys` with the SAME shared M4 weight
-      // `w = alpha_unit_cost(...)` used to price the columns at
+      // `Σ_r w_r · varphi_r_phys` with the SAME per-column weights
+      // (`alpha_col_weights` — M4 `w_r = p_s` under multicut, MK1
+      // `w_{s,m'}` under markov) used to price the columns at
       // registration (`register_alpha_variables`) — walk the cell's α
       // registry (contiguous uids from `sddp_alpha_uid`, the
       // `alpha_cols_on_cell` convention) and remove exactly that.
@@ -996,18 +997,31 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       } else {
         const auto sa = m_options_.scale_alpha;
         const auto& sim = planning_lp().simulation();
-        double alpha_phys_sum = 0.0;
-        std::size_t n_alpha = 0;
+        // Registry walk: collect each varphi's raw LP value in uid
+        // order; the layout length then selects the pricing rule via
+        // the shared accessor (uniform M4 for none/multicut and for
+        // the terminal phase, MK1 per-state weights for non-terminal
+        // markov phases) — the strip and the registration pricing read
+        // the identical weights by construction.
+        std::vector<double> alpha_sols;
         for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
           const auto* alpha_svar =
               find_alpha_state_var(sim, scene_index, phase_index, src);
           if (alpha_svar == nullptr) {
             break;  // α uids are contiguous — first gap ends the layout
           }
-          alpha_phys_sum += alpha_svar->col_sol() * sa;
-          ++n_alpha;
+          alpha_sols.push_back(alpha_svar->col_sol());
         }
-        alpha_val = alpha_phys_sum * alpha_unit_cost(sim, scene_index, n_alpha);
+        const auto weights =
+            alpha_col_weights(sim,
+                              m_options_.cut_sharing,
+                              &m_options_.markov,
+                              scene_index,
+                              alpha_sols.size(),
+                              phase_index == sim.last_phase_index());
+        for (const auto& [r, w] : enumerate(weights)) {
+          alpha_val += w * alpha_sols[r] * sa;
+        }
       }
       state.forward_objective = obj_physical - alpha_val;
 
