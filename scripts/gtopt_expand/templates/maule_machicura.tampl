@@ -430,6 +430,11 @@ constraint maule_pct_ordinario_riego "Irrigation capped at {{ pct_riego_reserva 
 # {{ fr_name }}: {{ district.percentage }}% of total irrigation
 constraint dist_{{ fr_name }} "{{ fr_name }}: {{ district.percentage }}% of total irrigation":
   flow_right('{{ fr_name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
+{% if district.anchor_flow_right is defined %}
+# Physical offtake anchor (PLP +l_qriK node term, genpdmaule.f).
+constraint dist_anclaje_{{ fr_name }} "{{ fr_name }}: physical offtake = delivered flow":
+  flow_right('{{ district.anchor_flow_right }}').flow = flow_right('{{ fr_name }}').flow;
+{% endif %}
 {% endfor %}
 
 # ---------------------------------------------------------------------------

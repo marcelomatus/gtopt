@@ -732,7 +732,7 @@ class HydroMixin:
                     key,
                 )
 
-    def _hoya_inter_stage_means(self, names: list) -> list | None:
+    def _hoya_inter_stage_means(self, names: list) -> list | dict | None:
         """Duration-weighted stage means of the hoya-intermedia inflows.
 
         Mirrors PLP's ``QAfluEtaM``/``GetQsLajaM`` (genpdlajam.f:370-446):
@@ -758,25 +758,91 @@ class HydroMixin:
             )
         if not per_stage:
             return None
-        flows_by_name = {}
+        # Per-central per-block flows for EVERY hydrology column —
+        # scenario-dimensioned qdefm uses one series per forward
+        # scenario (each references a PLP hydrology).
+        flows_by_name: Dict[str, Dict[int, list]] = {}
+        num_h = 1
         for name in names:
             entry = aflce.get_flow_by_name(str(name))
             if entry is not None:
+                num_h = max(num_h, int(entry.get("num_hydrologies", 1)))
                 flows_by_name[str(name)] = {
-                    int(b): float(f[0]) for b, f in zip(entry["block"], entry["flow"])
+                    int(b): [float(x) for x in f]
+                    for b, f in zip(entry["block"], entry["flow"])
                 }
         if not flows_by_name:
             return None
-        means: list = []
-        for stage_num in sorted(per_stage):
-            total_dur = 0.0
-            acc = 0.0
-            for blk_num, dur in per_stage[stage_num]:
-                q = sum(fb.get(blk_num, 0.0) for fb in flows_by_name.values())
-                acc += dur * q
-                total_dur += dur
-            means.append(acc / total_dur if total_dur > 0 else 0.0)
-        return means
+
+        def stage_means(h_idx: int) -> list:
+            means: list = []
+            for stage_num in sorted(per_stage):
+                total_dur = 0.0
+                acc = 0.0
+                for blk_num, dur in per_stage[stage_num]:
+                    q = 0.0
+                    for fb in flows_by_name.values():
+                        row = fb.get(blk_num)
+                        if row is not None:
+                            q += row[min(h_idx, len(row) - 1)]
+                    acc += dur * q
+                    total_dur += dur
+                means.append(acc / total_dur if total_dur > 0 else 0.0)
+            return means
+
+        # Map the emitted forward scenarios to hydrology columns (the
+        # scenario entries carry the 1-based PLP hydrology index).
+        scenarios = [
+            sc
+            for sc in self.planning.get("simulation", {}).get("scenario_array", [])
+            if "input_directory" not in sc
+        ]
+        by_scenario: list = []
+        for sc in scenarios:
+            h = sc.get("hydrology")
+            h_idx = (int(h) - 1) if isinstance(h, (int, float)) and int(h) >= 1 else 0
+            by_scenario.append(stage_means(min(h_idx, num_h - 1)))
+        if not by_scenario:
+            by_scenario = [stage_means(0)]
+        if len(by_scenario) > 1:
+            return {"first": by_scenario[0], "by_scenario": by_scenario}
+        return by_scenario[0]
+
+    def _inject_district_anchors(self, cfg: Dict[str, Any]) -> None:
+        """Anchor agreement districts to their physical diversion offtakes.
+
+        JunctionWriter synthesizes a consumptive
+        ``{central}_irrigation_right`` FlowRight at each irrigation
+        diversion central (serie transit, ``ser_ver > 0``) — the gtopt
+        image of PLP's per-retiro node term ``+l_qriK``
+        (genpdlajam.f:101-115, CEN informe p.24).  For each agreement
+        district whose diversion exists:
+
+        * ``anchor_flow_right`` is stamped on the district dict — the
+          agreement then emits ``dist_anclaje_*`` constraints equating
+          the physical offtake to the sum of the district's category
+          FlowRights (and drops the categories' own junction refs);
+        * when the district has an ``injection`` central (PLP
+          ``ICenInyRiego``, ``-1`` in its node balance), the diversion
+          is switched to CARRY mode (``junction_b`` + ``consumptive:
+          false``): the withdrawal returns to the river at the
+          injection node (RieSaltos -> LAJA_I) instead of vanishing.
+        """
+        frs = {
+            str(fr.get("name", "")): fr
+            for fr in self.planning["system"].get("flow_right_array", [])
+        }
+        cfg["districts"] = [dict(d) for d in cfg.get("districts", [])]
+        for district in cfg["districts"]:
+            anchor = f"{district.get('name', '')}_irrigation_right"
+            entity = frs.get(anchor)
+            if entity is None:
+                continue
+            district["anchor_flow_right"] = anchor
+            injection = district.get("injection")
+            if injection:
+                entity["junction_b"] = injection
+                entity["consumptive"] = False
 
     def _expand_laja(
         self,
@@ -797,8 +863,12 @@ class HydroMixin:
         # (GetQsLajaM): lets the attribution cap subtract what the
         # tributaries already deliver.
         q_hoya = self._hoya_inter_stage_means(list(cfg.get("intermediate_basins", [])))
-        if q_hoya is not None:
+        if isinstance(q_hoya, dict):
+            cfg["q_hoya_inter"] = q_hoya["first"]
+            cfg["q_hoya_inter_by_scenario"] = q_hoya["by_scenario"]
+        elif q_hoya is not None:
             cfg["q_hoya_inter"] = q_hoya
+        self._inject_district_anchors(cfg)
         agreement = LajaAgreement(
             dict(cfg),
             stage_parser=stage_parser,
@@ -838,6 +908,7 @@ class HydroMixin:
                 "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
             },
         )
+        self._inject_district_anchors(cfg)
         agreement = MauleAgreement(
             dict(cfg),
             stage_parser=stage_parser,

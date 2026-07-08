@@ -164,6 +164,27 @@ constraint laja_retiro_maximo "Attribution cap: riego-side charging <= delivered
 {% endif %}
 
 # ---------------------------------------------------------------------------
+# District anchoring: physical diversion offtake = sum of categories
+#
+# PLP puts the per-retiro flow `l_qriK` directly into the retiro
+# central's node balance (+1) and, when an injection central exists,
+# returns it there (-1) — genpdlajam.f:101-115 / CEN informe p.24.
+# gtopt's physical offtake is the JunctionWriter-synthesized
+# `{central}_irrigation_right` FlowRight; each anchored district
+# equates it to the sum of its demand-category FlowRights, so the
+# categories' targets/fail costs price real (junction-balanced)
+# deliveries.  Districts without a matching diversion in the topology
+# stay unanchored (soft sinks).
+# ---------------------------------------------------------------------------
+{% set _district_categories = district_categories | default({}) %}
+{% for district in districts %}
+{% if district.anchor_flow_right is defined and _district_categories.get(district.name) %}
+constraint dist_anclaje_{{ district.name }} "{{ district.name }}: physical offtake = sum of categories":
+  flow_right('{{ district.anchor_flow_right }}').flow = {% for n in _district_categories[district.name] %}flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %};
+{% endif %}
+{% endfor %}
+
+# ---------------------------------------------------------------------------
 # Volume zone parameters
 # ---------------------------------------------------------------------------
 

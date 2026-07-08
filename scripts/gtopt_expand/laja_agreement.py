@@ -474,7 +474,7 @@ class LajaAgreement(_RightsAgreementBase):
         # plp2gtopt injected `q_hoya_inter` (aflce data) and stages are
         # materialized; otherwise the cap falls back to the gross
         # district deliveries.
-        qdefm_sched = None
+        qdefm_sched: Any = None
         q_hoya = cfg.get("q_hoya_inter")
         if q_hoya and self._stage_parser is not None:
             seas_p = self._hydro_to_stage_schedule(cfg["seasonal_1o_reg"])
@@ -482,18 +482,32 @@ class LajaAgreement(_RightsAgreementBase):
             seas_e = self._hydro_to_stage_schedule(cfg["seasonal_emergencia"])
             seas_s = self._hydro_to_stage_schedule(cfg["seasonal_saltos"])
             qfilt = float(cfg.get("filtracion_laja", 0.0))
-            vals: list[float] = []
-            for i, stg in enumerate(self._get_stages()):
-                idx = int(stg.get("number", i + 1)) - 1
-                qp = cfg["demand_1o_reg"] * seas_p[i]
-                qn = cfg["demand_2o_reg"] * seas_n[i]
-                qe = cfg["demand_emergencia"] * seas_e[i]
-                qs = cfg["demand_saltos"] * seas_s[i]
-                qh = float(q_hoya[idx]) if idx < len(q_hoya) else 0.0
-                qdef_tucapel = qp - qh - qfilt
-                qtlaja = min(qdef_tucapel, 0.0) + qn + qs + qe
-                vals.append(max(qtlaja, 0.0))
-            qdefm_sched = self._to_tb_sched(vals)
+
+            def qdefm_series(hoya_series: list[float]) -> list[float]:
+                vals: list[float] = []
+                for i, stg in enumerate(self._get_stages()):
+                    idx = int(stg.get("number", i + 1)) - 1
+                    qp = cfg["demand_1o_reg"] * seas_p[i]
+                    qn = cfg["demand_2o_reg"] * seas_n[i]
+                    qe = cfg["demand_emergencia"] * seas_e[i]
+                    qs = cfg["demand_saltos"] * seas_s[i]
+                    qh = float(hoya_series[idx]) if idx < len(hoya_series) else 0.0
+                    qdef_tucapel = qp - qh - qfilt
+                    qtlaja = min(qdef_tucapel, 0.0) + qn + qs + qe
+                    vals.append(max(qtlaja, 0.0))
+                return vals
+
+            by_scenario = cfg.get("q_hoya_inter_by_scenario")
+            if by_scenario and len(by_scenario) > 1:
+                # Scenario-dimensioned carrier: one qdefm series per
+                # forward scenario (each maps to a PLP hydrology).
+                counts = self._stage_block_counts(len(self._get_stages()))
+                qdefm_sched = [
+                    [[v] * nb for v, nb in zip(qdefm_series(series), counts)]
+                    for series in by_scenario
+                ]
+            else:
+                qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
             # Expose to the .tampl renderer (it renders from the raw
             # config) so the cap switches to the netted carrier.
             self._cfg["use_qdefm_carrier"] = True
@@ -605,7 +619,19 @@ class LajaAgreement(_RightsAgreementBase):
             "saltos": "pct_saltos",
         }
 
+        # Netted primary demand (PLP GetQsLajaM re-sets QPRiego):
+        # with the static-filtration approximation (QDefAbanico = 0)
+        # the primary delivery collapses to
+        # min(gross primary, hoya-intermedia + filtration) — Lago
+        # releases only cover the tributary/filtration deficit.
+        # Applied to the 1o_reg category only (PLP nets QPRiego;
+        # QN/QE/QS stay gross), and only when plp2gtopt supplied the
+        # inflow means.
+        q_hoya = cfg.get("q_hoya_inter")
+        qfilt = float(cfg.get("filtracion_laja", 0.0))
+
         result: list[dict[str, Any]] = []
+        categories_by_district: dict[str, list[str]] = {}
         for district in cfg["districts"]:
             for category, demand_base in demands.items():
                 pct = district[pct_keys[category]]
@@ -614,6 +640,13 @@ class LajaAgreement(_RightsAgreementBase):
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
                 target_values = [demand_base * pct * s for s in seasonal]
+                if category == "1o_reg" and q_hoya and self._stage_parser is not None:
+                    stages = self._get_stages()
+                    for i, stg in enumerate(stages[: len(target_values)]):
+                        idx = int(stg.get("number", i + 1)) - 1
+                        qh = float(q_hoya[idx]) if idx < len(q_hoya) else 0.0
+                        gross = demand_base * seasonal[i]
+                        target_values[i] = pct * min(gross, qh + qfilt)
                 # `target` is the soft kink of the FlowRight; emit scalar
                 # or 2D (matches the C++ jvtl_TBRealFieldSched variant).
                 target_sched = self._to_tb_sched(target_values)
@@ -646,14 +679,20 @@ class LajaAgreement(_RightsAgreementBase):
                     "target": target_sched,
                     "fcost": fail_cost,
                 }
-                if injection:
+                if injection and "anchor_flow_right" not in district:
+                    # Legacy junction coupling — superseded by the
+                    # dist_anclaje_* physical-offtake anchor when the
+                    # converter found the district's diversion.
                     fr_district["junction_a"] = injection
                 result.append(fr_district)
+                categories_by_district.setdefault(district["name"], []).append(fr_name)
 
         # Expose the emitted names to the .tampl renderer (it renders
         # from the raw config): the attribution cap sums exactly the
-        # district FlowRights that were actually created.
+        # district FlowRights that were actually created, and the
+        # dist_anclaje_* constraints need the per-district breakdown.
         self._cfg["district_fr_names"] = [fr["name"] for fr in result]
+        self._cfg["district_categories"] = categories_by_district
 
         return result
 

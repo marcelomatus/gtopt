@@ -448,6 +448,25 @@ class TestMauleWriter:
         assert "constraint invernada_anclaje" in text2
         assert "= turbine('CIPRESES').flow;" in text2
 
+    def test_district_anchoring(self, maule_config, tmp_path):
+        """Anchored Maule districts get a dist_anclaje constraint tying
+        the physical diversion offtake to the retiro flow."""
+        cfg = dict(maule_config)
+        cfg["districts"] = [dict(d) for d in cfg["districts"]]
+        cfg["districts"][0]["anchor_flow_right"] = (
+            cfg["districts"][0]["name"] + "_irrigation_right"
+        )
+        writer = MauleWriter(cfg)
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "maule.pampl").read_text(encoding="utf-8")
+        name = cfg["districts"][0]["name"]
+        fr_name = "retiro_" + name[3:] if name.startswith("Rie") else name
+        assert f"constraint dist_anclaje_{fr_name}" in text
+        assert (
+            f"flow_right('{name}_irrigation_right').flow ="
+            f" flow_right('{fr_name}').flow;" in text
+        )
+
     def test_volume_rights_monthly_reset(self, maule_config):
         writer = MauleWriter(maule_config)
         vol_monthly = next(

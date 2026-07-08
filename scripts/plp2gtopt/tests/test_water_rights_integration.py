@@ -253,6 +253,10 @@ class TestWaterRightsIntegration:
         ):
             assert f"constraint {name}" in laja
         assert "constraint laja_retiro_maximo" in laja
+        # District anchoring: the districts whose physical diversion
+        # exists in the topology are tied to it (PLP +l_qriK).
+        assert "constraint dist_anclaje_RIEGZACO" in laja
+        assert "constraint dist_anclaje_RieSaltos" in laja
         # The full conversion has aflce data, so the cap is the NETTED
         # qdefm carrier (GetQsLajaM), not the gross district fallback.
         assert "<= flow_right('laja_qdefm').flow;" in laja
@@ -275,6 +279,22 @@ class TestWaterRightsIntegration:
             "maule_ledger_compensacion",
         ):
             assert f"constraint {name}" in maule
+        assert "constraint dist_anclaje_retiro_Sur123SCDZ" in maule
+
+    def test_saltos_diversion_carry_mode(self, converted_case):
+        """The RieSaltos diversion returns its withdrawal at LAJA_I
+        (PLP ICenInyRiego -1 node term): carry mode, not consumptive."""
+        frs = converted_case["system"].get("flow_right_array", [])
+        saltos = next(fr for fr in frs if fr["name"] == "RieSaltos_irrigation_right")
+        assert saltos.get("consumptive") is False
+        assert saltos.get("junction_b") == "LAJA_I"
+        # The agreement categories dropped their direct junction refs.
+        for fr in frs:
+            if (
+                fr["name"].startswith("RieSaltos_")
+                and fr["name"] != "RieSaltos_irrigation_right"
+            ):
+                assert "junction_a" not in fr, fr["name"]
 
     def test_no_economic_value_on_spills(self, converted_case):
         """Spilled water must never acquire economic value — directly or
@@ -386,10 +406,15 @@ class TestWaterRightsIntegration:
             "RieSaltos_irrigation_right",
             "RieSur123SCDZ_irrigation_right",
         ], f"Unexpected irrigation diversions: {[fr['name'] for fr in diversions]}"
-        # Each irrigation diversion is a signed consumptive right.
+        # Each irrigation diversion is a signed right; RieSaltos is
+        # CARRY mode (its withdrawal returns at LAJA_I — PLP
+        # ICenInyRiego), the others consumptive.
         for fr in diversions:
-            assert fr.get("consumptive") is True
             assert fr.get("direction") == -1
+            if fr["name"] == "RieSaltos_irrigation_right":
+                assert fr.get("consumptive") is False
+            else:
+                assert fr.get("consumptive") is True
         # +1: the `laja_qdefm` netting carrier (fixed column holding the
         # per-stage net irrigation requirement for the attribution cap).
         assert len(frs) == 39, f"Expected 39 total flow rights, got {len(frs)}"

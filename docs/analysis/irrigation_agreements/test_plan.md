@@ -139,8 +139,19 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
 ## Known-gap ledger (tests intentionally xfail/absent until fixed)
 
 1. ~~Physical anchoring of rights flows (Laja & Maule)~~ — done
-   2026-07 (gen-arc-only; see D5).  Districts remain junction-anchored
-   only where PLP defines an injection central.
+   2026-07 (gen-arc-only; see D5).  ~~District anchoring~~ — done
+   2026-07: districts whose physical diversion exists in the topology
+   (the JunctionWriter `{central}_irrigation_right` offtakes — PLP's
+   per-retiro `+l_qriK` node term) get `dist_anclaje_*` constraints
+   equating the offtake to the sum of their category FlowRights; the
+   categories drop their direct junction refs; RieSaltos' diversion is
+   switched to CARRY mode returning at LAJA_I (PLP `ICenInyRiego`).
+   Districts without a diversion in the topology (RieTucapel — see the
+   leelajam.f:292 question for the CEN) stay soft sinks.  The netted
+   primary targets are in too: 1o_reg targets = pct × min(gross,
+   hoya + filtration) per GetQsLajaM's QPRiego re-set, and the qdefm
+   carrier is scenario-dimensioned when the conversion emits multiple
+   forward scenarios (one series per hydrology).
 2. ~~IVGAF debit of the december provision~~ — done 2026-07: the
    anticipado bucket is a PLP-style up-counter (`reset_value: 0` at
    september, fills via `saving = qga`) and the riego december reset
@@ -158,10 +169,37 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    means from the aflce data and the agreement emits the `laja_qdefm`
    carrier FlowRight (fixed column) that the cap references; gross
    district deliveries remain the fallback for configs without
-   inflow data.  STATIC-FILTRATION approximation (QFiltLaja =
-   QFiltHist, so QDefAbanico = 0) and FIRST-hydrology inflows —
-   volume-dependent filtration and scenario-dimensioned schedules are
-   the remaining refinements.
+   inflow data.  Scenario-dimensioned schedules are in (2026-07: one
+   qdefm series per forward-scenario hydrology, mapped through the
+   scenarios' `hydrology` field; dry hydrologies correctly get a
+   HIGHER cap).  STATIC-FILTRATION approximation remains (QFiltLaja =
+   QFiltHist, so QDefAbanico = 0 — the same role QFiltHist plays in
+   PLP vs its dynamic FiltVals estimate).
+
+   Volume-dependent filtration — DESIGN CONSTRAINTS (2026-07, per
+   user guidance): the filtration is modeled by SEPARATE first-class
+   gtopt elements — one ReservoirSeepage per relevant reservoir
+   (e.g. `ELTORO_seepage_2` driving the `filt_ELTORO_37_38` arc into
+   ABANICO, from plpfilemb.dat).  These are PHYSICAL elements of the
+   base hydro topology that exist with or without the irrigation
+   agreements; the agreements must never create, modify, or assume
+   them — only READ them, referenced directly as gtopt elements and
+   resolved defensively (emit the refinement only when the element
+   exists, like the anchor refs).  The delivery side already needs
+   nothing: districts receive the real volume-dependent seepage water
+   through the junction network.  For the operational-rule constants:
+
+   * the seepage element is PAMPL-visible as `seepage('<name>').flow`
+     (reservoir_seepage_lp.cpp registers the canonical `flow` attr),
+     so the cap's two linear pieces can be expressed IN-LP:
+     `rights <= (QP - hoya) - seepage(X).flow + QN + QS + QE` and
+     `rights <= QFiltHist - seepage(X).flow + QN + QS + QE`;
+   * the outer `max(., 0)` is the remaining wrinkle (a negative RHS
+     with rights >= 0 is infeasible, not a relaxed cap) — handle via
+     a numeric update_lp path that evaluates the SEEPAGE ELEMENT's
+     own piecewise at the current lake volume (never a duplicate
+     curve), or prove the RHS stays non-negative in-season under the
+     fmax gating before going in-LP.
 5. ~~Maule monthly electric-counter reset~~ — done 2026-07: new
    `VolumeRight.reset_monthly` re-provisions at every month start
    (PLP TipoEtaDE != INTRAETA); the annual bucket resets in january

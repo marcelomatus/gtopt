@@ -767,6 +767,81 @@ class TestLajaWriter:
         text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
         assert "<= flow_right('laja_qdefm').flow;" in text
 
+    def test_qdefm_scenario_dimensioned(self, laja_config):
+        """With per-scenario hoya inflows the carrier is a 3D
+        [scenario][stage][block] schedule — one qdefm series per
+        forward scenario (hydrology)."""
+
+        class _Stages:
+            def get_all(self):
+                return [{"number": 1, "month": 12}]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [60.0]
+        cfg["q_hoya_inter_by_scenario"] = [[60.0], [10.0]]
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+        carrier = next(fr for fr in writer.flow_rights if fr["name"] == "laja_qdefm")
+        fmax = carrier["fmax"]
+        # scenario 0 (wet, hoya 60): min(90-60-47,0)+53+3.5 = 39.5
+        # scenario 1 (dry, hoya 10): min(90-10-47,0)+53+3.5 = 56.5
+        assert fmax[0][0][0] == pytest.approx(39.5)
+        assert fmax[1][0][0] == pytest.approx(56.5)
+
+    def test_district_anchoring(self, laja_config, tmp_path):
+        """A district stamped with `anchor_flow_right` (by plp2gtopt when
+        its physical diversion exists) gets a dist_anclaje constraint
+        equating the offtake to the sum of its categories, and its
+        categories drop the direct junction coupling."""
+        cfg = dict(laja_config)
+        cfg["districts"] = [dict(d) for d in cfg["districts"]]
+        saltos = next(d for d in cfg["districts"] if d["name"] == "RieSaltos")
+        saltos["anchor_flow_right"] = "RieSaltos_irrigation_right"
+        writer = LajaWriter(cfg)
+
+        saltos_frs = [
+            fr
+            for fr in writer.flow_rights
+            if fr["name"].startswith("RieSaltos_")
+            and not fr["name"].endswith("_irrigation_right")
+        ]
+        assert saltos_frs
+        for fr in saltos_frs:
+            assert "junction_a" not in fr  # anchor supersedes the legacy ref
+
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        assert "constraint dist_anclaje_RieSaltos" in text
+        assert "flow_right('RieSaltos_irrigation_right').flow = " in text
+        for fr in saltos_frs:
+            assert f"flow_right('{fr['name']}').flow" in text
+        # Un-anchored districts don't get the constraint.
+        assert "dist_anclaje_RIEGZACO" not in text
+
+    def test_netted_primary_targets(self, laja_config):
+        """With hoya-intermedia inflows, the 1o_reg targets are netted:
+        pct x min(gross primary, hoya + filtration) — PLP GetQsLajaM's
+        QPRiego re-set under the static-filtration approximation."""
+
+        class _Stages:
+            def get_all(self):
+                return [
+                    {"number": 1, "month": 12},  # december, in-season
+                    {"number": 2, "month": 6},  # june, off-season
+                ]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [20.0, 80.0]
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+        zaco_1o = next(
+            fr for fr in writer.flow_rights if fr["name"] == "RIEGZACO_1o_reg"
+        )
+        # December: gross = 90*1.0; qh+qfilt = 20+47 = 67 < 90 ->
+        # netted primary = 67; target = 0.372 * 67 = 24.924.
+        t = zaco_1o["target"]
+        assert t[0][0] == pytest.approx(0.372 * 67.0)
+        # June: seasonal 0 -> min(0, ...) = 0.
+        assert t[1][0] == pytest.approx(0.0)
+
     def test_pampl_ledger_and_anchor_constraints(self, laja_config, tmp_path):
         """laja.pampl carries the ledger linkages; the anchor constraint
         is emitted only when plp2gtopt resolved the gen waterway."""
