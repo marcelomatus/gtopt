@@ -670,7 +670,9 @@ struct CellCuts
     //
     // Under ``cut_sharing_mode=multicut`` each scene-LP carries the full
     // set of future-cost columns ``varphi_0..N-1`` (uid =
-    // ``sddp_alpha_uid + source_scene``), priced 1/N.  Within a level the
+    // ``sddp_alpha_uid + source_scene``), priced at the M4 weight
+    // ``w_r = p_s`` (``alpha_col_weights``; = 1/N under uniform
+    // probabilities).  Within a level the
     // backward pass builds one cut on its own ``varphi_S`` and
     // ``share_cuts_for_phase`` BROADCASTS it onto ``varphi_S`` in EVERY
     // scene-LP — but that share is never persisted (only origin cuts go
@@ -834,14 +836,22 @@ struct CellCuts
           // Read scene_uid (sentinel 0 if column absent → legacy file).
           const auto row_scene_uid =
               scene_arr ? make_uid<Scene>(scene_arr->Value(i)) : SceneUid {};
-          // Read iteration_index directly from the ``iteration`` column
-          // (schema v3+).  Legacy parquet files that pre-date the
-          // schema update don't have this column and report iter 0 —
-          // the caller's ``max_iteration`` tracker would then under-
-          // count for hot-start offset, but the routing + dedup still
-          // works correctly.
+          // Read the iteration from the ``iteration`` column (schema
+          // v3+).  The WRITER stores the 1-based ``IterationUid``
+          // (``uid_of(cut.iteration_index)`` above), so convert back to
+          // the 0-based ``IterationIndex`` via ``index_of`` — reading
+          // the uid AS an index (pre-2026-07-08 behaviour) shifted
+          // every loaded cut's iteration by +1 per save/load cycle
+          // (caught by the AR Parquet round-trip test).  ``max(…, 1)``
+          // guards a hypothetical 0 value in a hand-written file.
+          // Legacy parquet files that pre-date the schema update don't
+          // have this column and report iter 0 — the caller's
+          // ``max_iteration`` tracker would then under-count for
+          // hot-start offset, but the routing + dedup still works
+          // correctly.
           const auto cut_iter_idx = iter_arr
-              ? IterationIndex {iter_arr->Value(i)}
+              ? index_of(make_uid<Iteration>(
+                    std::max(iter_arr->Value(i), int32_t {1})))
               : IterationIndex {};
           // ``extra`` defaults to 0 for legacy files (schema v3+
           // emits this column; older files don't).  Zero is a safe
