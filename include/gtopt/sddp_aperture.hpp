@@ -283,6 +283,52 @@ struct ApertureEntry
   return std::min(std::max(k, 1), max_apertures_per_phase);
 }
 
+// ─── Dual-shared aperture cut correction (Infanger–Morton) ─────────────────
+
+/// Per-aperture intercept correction for the dual-shared cut synthesis
+/// (Lemma AP2, `docs/formulation/sddp-cut-validity.md` §6).
+///
+/// Aperture LPs of one (scene, phase) share (A, b, c) and differ only in
+/// column bounds, so they share one dual feasible set
+/// `{y, λ ≥ 0, μ ≥ 0 : Aᵀy + λ − μ = c}` — bound-independent.  Splitting
+/// the representative's vertex reduced costs `d = λ − μ` (`λ = d⁺`,
+/// `μ = d⁻` by complementarity), weak duality on aperture `a`'s LP gives
+///
+///   Q_a(x) ≥ z* + corr_a + Σ_i rc_i (x_i − v̂_i),
+///   corr_a = Σ_j max(d_j, 0)·(l_j^a − l_j^rep)
+///          + Σ_j min(d_j, 0)·(u_j^a − u_j^rep)
+///
+/// over the changed columns — the representative cut's slope is shared
+/// verbatim and only the intercept moves by `corr_a`.
+///
+/// Units: `d_j` from the representative clone's `get_col_cost()[j]`
+/// (physical view, `rc_LP × scale_objective / col_scale`) and bound
+/// deltas from `get_col_low()` / `get_col_upp()` (physical,
+/// `raw × col_scale`) — the `col_scale` cancels in the product and the
+/// `scale_objective` folding matches `z* = get_obj_value()`.
+///
+/// @param rep_reduced_costs Representative's physical reduced costs
+///        (materialized `get_col_cost()` view, post-solve).
+/// @param rep_low / rep_upp Representative's physical column bounds at
+///        its solve (materialized `get_col_low()` / `get_col_upp()`).
+/// @param ap_low / ap_upp   Aperture `a`'s physical column bounds (same
+///        views read after `update_aperture` rewrote the clone).
+/// @return The correction `corr_a`, or `std::nullopt` when it cannot be
+///         computed soundly:
+///           * span sizes disagree,
+///           * a non-zero reduced cost meets a non-finite or
+///             ±sentinel-magnitude (≥ 1e29) bound delta — a bound became
+///             (un)bounded between the representative and the aperture.
+///         Equal bounds contribute nothing (skipped before any
+///         subtraction, so equal infinities are safe); zero reduced
+///         costs annihilate their column regardless of the delta.
+[[nodiscard]] auto dual_shared_bound_correction(
+    std::span<const double> rep_reduced_costs,
+    std::span<const double> rep_low,
+    std::span<const double> rep_upp,
+    std::span<const double> ap_low,
+    std::span<const double> ap_upp) noexcept -> std::optional<double>;
+
 // ─── Effective aperture resolution (filter / synthetic / fallback) ──────────
 
 /// Resolve the effective aperture definitions for a single backward-pass
@@ -488,7 +534,13 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     /// basis and subsequent apertures warm-start off it with a simplex
     /// re-solve (`SolverOptions::advanced_basis`; chunk_size > 1 only).
     /// `reduced_cost`: cold barrier without crossover, cut from
-    /// interior-point reduced costs.  See `ApertureSolveMode`.
+    /// interior-point reduced costs.  `dual_shared`: solve the
+    /// highest-weight representative aperture only and synthesize every
+    /// other aperture's cut from its vertex duals (bound-delta intercept
+    /// correction, `dual_shared_bound_correction`); forces a single chunk.
+    /// `screened`: `dual_shared` + exact re-solve of the top
+    /// `aperture_screen_count` synthesized cuts by |correction|.
+    /// See `ApertureSolveMode`.
     ApertureSolveMode aperture_solve_mode = ApertureSolveMode::reduced_cost,
     /// Cross-iteration first-aperture warm-start seed (optional).
     ///   - `seed_basis` (in): the previous iteration's first-aperture basis
@@ -501,6 +553,10 @@ using ApertureChunkSubmitFunc = std::function<std::future<ApertureChunkResult>(
     /// Only honoured for `cold`/`warm` modes (vertex cuts); `reduced_cost`
     /// has no basis to capture.  Both default off (legacy cold first solve).
     const Basis* seed_basis = nullptr,
-    Basis* captured_basis_out = nullptr) -> std::optional<SparseRow>;
+    Basis* captured_basis_out = nullptr,
+    /// Number of dual-shared cuts re-solved exactly under
+    /// `aperture_solve_mode = screened` (largest |intercept correction|
+    /// first).  Ignored by every other mode.
+    int aperture_screen_count = 2) -> std::optional<SparseRow>;
 
 }  // namespace gtopt

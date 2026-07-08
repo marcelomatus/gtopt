@@ -52,18 +52,25 @@
  *     WARN-only (process mismatch, Corollary M2 — same status as the
  *     uniform heterogeneous case).
  *
- * The aperture backward pass is disabled throughout (`apertures = {}`)
- * so the audited cuts are pure Benders cuts — the aperture path's
- * measure-change caveats (§6) are out of scope for this harness.
+ * The pure-Benders sections disable the aperture backward pass
+ * (`apertures = {}`) so the audited cuts are plain Benders cuts.  The
+ * APERTURE sections at the bottom re-enable it with synthetic
+ * apertures (one per scenario, q_a = 1/N) and audit the expected
+ * aperture cuts against the q-mixture tail oracle (Theorem AP1 /
+ * Lemma AP2, §6) across the aperture solve modes — including the
+ * dual-shared (Infanger–Morton) synthesis and its screened variant.
  */
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <ctime>
 #include <format>
 #include <limits>
 #include <map>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -562,6 +569,104 @@ void oracle_audit_lower_bounds(const std::vector<SDDPIterationResult>& results,
       WARN(ir.lower_bound <= extensive_opt + tol);
     }
   }
+}
+
+// ─── Aperture (mixture) oracle ──────────────────────────────────────────────
+
+/// SDDP options with the SYNTHETIC aperture backward pass enabled: one
+/// aperture per requested scenario UID, each with probability 1/N (see
+/// `build_synthetic_apertures`), so the expected aperture cut prices the
+/// uniform q-mixture of the aperture inflows.
+[[nodiscard]] SDDPOptions oracle_aperture_sddp_opts(
+    ApertureSolveMode solve_mode,
+    std::vector<Uid> aperture_uids,
+    int max_iterations,
+    int screen_count = 2)
+{
+  auto opts = oracle_sddp_opts(CutSharingMode::none, max_iterations);
+  opts.apertures = std::move(aperture_uids);
+  opts.aperture_solve_mode = solve_mode;
+  opts.aperture_screen_count = screen_count;
+  return opts;
+}
+
+/// Audit aperture expected cuts against the q-mixture tail oracle
+/// (Theorem AP1): with synthetic apertures (q_a = 1/N over the two
+/// scenarios) the ecut for (scene s, tail k) must underestimate
+///
+///   V_mix(s, k, x) = p_s × (1/2) Σ_a tail(k, inflow_a, x)
+///
+/// — the scene-LP objective keeps the scene's own p_s folding while
+/// the aperture bound rewrite mixes the inflows under q.  Certifiable
+/// at the FINAL transition unconditionally (no future term); at every
+/// transition when the mixture degenerates (identical inflows).
+int oracle_audit_aperture_cuts(const SimulationLP& sim,
+                               const std::vector<StoredCut>& cuts,
+                               const std::array<double, 2>& scene_probs,
+                               const std::array<double, 2>& aperture_inflows,
+                               bool strict,
+                               int only_tail_stages = 0)
+{
+  const auto grid = oracle_state_grid();
+
+  // (tail length, aperture) → UNFOLDED tail values on the state grid.
+  std::map<std::pair<int, std::size_t>, std::array<double, kOracleGridN>>
+      tail_cache;
+  const auto tail_vals =
+      [&](int k, std::size_t a) -> const std::array<double, kOracleGridN>&
+  {
+    const auto key = std::pair {k, a};
+    auto it = tail_cache.find(key);
+    if (it == tail_cache.end()) {
+      std::array<double, kOracleGridN> vals {};
+      for (std::size_t i = 0; i < kOracleGridN; ++i) {
+        vals[i] = oracle_tail_value(k, 1.0, aperture_inflows[a], grid[i]);
+      }
+      it = tail_cache.emplace(key, vals).first;
+    }
+    return it->second;
+  };
+
+  int n_checked = 0;
+  for (const auto& sc : cuts) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto view = oracle_classify_cut(sim, sc);
+    const int tail_stages = kOracleNumPhases - 1 - view.phase_pos;
+    REQUIRE(tail_stages >= 1);
+    if (only_tail_stages != 0 && tail_stages != only_tail_stages) {
+      continue;
+    }
+
+    const auto& v0 = tail_vals(tail_stages, 0);
+    const auto& v1 = tail_vals(tail_stages, 1);
+    const double p_s = scene_probs[view.scene_pos];
+    for (std::size_t i = 0; i < kOracleGridN; ++i) {
+      const double v_mix = p_s * 0.5 * (v0[i] + v1[i]);
+      const double cut_val = oracle_cut_value_at(view, grid[i]);
+      const double tol = oracle_tol(kOracleEmax, std::abs(v_mix));
+      INFO("scene=",
+           view.scene_pos,
+           " phase=",
+           view.phase_pos,
+           " iter=",
+           static_cast<int>(sc.iteration_index),
+           " x=",
+           grid[i],
+           " cut=",
+           cut_val,
+           " V_mix=",
+           v_mix);
+      if (strict) {
+        CHECK(cut_val <= v_mix + tol);
+      } else {
+        WARN(cut_val <= v_mix + tol);
+      }
+    }
+    ++n_checked;
+  }
+  return n_checked;
 }
 
 }  // namespace
@@ -1198,4 +1303,261 @@ TEST_CASE(  // NOLINT
   oracle_audit_lower_bounds(*results,
                             oracle_persistent_extensive_optimum(scenes),
                             /*strict=*/false);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// APERTURE ECUTS — synthetic apertures (q = 1/N), final transition.
+// The last phase has no future term, so each per-aperture cut is an
+// exact support of the single-stage tail under that aperture's inflow
+// (Theorem O1 on the clone), and the expected cut underestimates the
+// q-mixture V_mix = p_s × ½ (tail_wet + tail_dry) (Theorem AP1).  This
+// holds for EVERY solve mode: `cold` (exact per-aperture solves),
+// `dual_shared` (representative solve + Lemma AP2 synthesis) and
+// `screened` (synthesis + top-|corr| exact re-solves).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — aperture ecuts (synthetic q=1/N): final-transition "
+    "mixture audit across cold/dual_shared/screened")
+{
+  const std::array<std::pair<ApertureSolveMode, const char*>, 3> modes = {{
+      {ApertureSolveMode::cold, "cold"},
+      {ApertureSolveMode::dual_shared, "dual_shared"},
+      {ApertureSolveMode::screened, "screened"},
+  }};
+
+  for (const auto& [mode, label] : modes) {
+    SUBCASE(label)
+    {
+      auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+      oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+      PlanningLP plp(std::move(planning));
+
+      auto opts = oracle_aperture_sddp_opts(mode,
+                                            {Uid {1}, Uid {2}},
+                                            /*max_iterations=*/6,
+                                            /*screen_count=*/1);
+      SDDPMethod sddp(plp, opts);
+      auto results = sddp.solve();
+      REQUIRE(results.has_value());
+      REQUIRE_FALSE(results->empty());
+
+      const auto cuts = sddp.stored_cuts();
+      const int n_checked =
+          oracle_audit_aperture_cuts(plp.simulation(),
+                                     cuts,
+                                     /*scene_probs=*/ {0.6, 0.4},
+                                     {kOracleWetInflow, kOracleDryInflow},
+                                     /*strict=*/true,
+                                     /*only_tail_stages=*/1);
+      CAPTURE(n_checked);
+      REQUIRE(n_checked >= 2);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// APERTURE ECUTS — identical scenes AND identical aperture inflows: the
+// aperture-modified process coincides with the persistent one, so the
+// persistent tail oracle applies at EVERY transition and the LB is
+// bounded by the persistent extensive optimum — strict for the
+// dual-shared modes (their synthesized intercepts must not overshoot
+// anywhere in the recursion, not just at the terminal transition).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — dual_shared/screened on identical scenes: strict "
+    "at every transition, LB ≤ extensive optimum")
+{
+  const std::array<std::pair<ApertureSolveMode, const char*>, 2> modes = {{
+      {ApertureSolveMode::dual_shared, "dual_shared"},
+      {ApertureSolveMode::screened, "screened"},
+  }};
+
+  for (const auto& [mode, label] : modes) {
+    SUBCASE(label)
+    {
+      auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+      PlanningLP plp(std::move(planning));
+
+      auto opts = oracle_aperture_sddp_opts(mode,
+                                            {Uid {1}, Uid {2}},
+                                            /*max_iterations=*/6,
+                                            /*screen_count=*/1);
+      SDDPMethod sddp(plp, opts);
+      auto results = sddp.solve();
+      REQUIRE(results.has_value());
+      REQUIRE_FALSE(results->empty());
+
+      const std::array<OracleSceneData, 2> scenes = {{
+          {.prob = 0.5, .inflow = kOracleBaseInflow},
+          {.prob = 0.5, .inflow = kOracleBaseInflow},
+      }};
+
+      // Identical inflows: mixture == persistent tail — the plain
+      // per-scene oracle audits every transition.
+      const auto cuts = sddp.stored_cuts();
+      const int n_checked =
+          oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+      CAPTURE(n_checked);
+      REQUIRE(n_checked >= 2);
+
+      oracle_audit_lower_bounds(*results,
+                                oracle_persistent_extensive_optimum(scenes),
+                                /*strict=*/true);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// APERTURE ECUTS — K = 1 aperture: dual_shared ≡ cold exactly.  With a
+// single aperture there is nothing to synthesize — the representative
+// solve IS the whole chunk, so the two modes execute identical solves
+// and must store identical cuts (rhs and coefficients).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — single aperture: dual_shared and cold store "
+    "identical cuts")
+{
+  const auto run_mode = [](ApertureSolveMode mode)
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+    PlanningLP plp(std::move(planning));
+
+    auto opts = oracle_aperture_sddp_opts(mode,
+                                          {Uid {1}},
+                                          /*max_iterations=*/4);
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    return sddp.stored_cuts();
+  };
+
+  const auto cold_cuts = run_mode(ApertureSolveMode::cold);
+  const auto ds_cuts = run_mode(ApertureSolveMode::dual_shared);
+
+  REQUIRE_FALSE(cold_cuts.empty());
+  REQUIRE(cold_cuts.size() == ds_cuts.size());
+  for (std::size_t i = 0; i < cold_cuts.size(); ++i) {
+    const auto& a = cold_cuts[i];
+    const auto& b = ds_cuts[i];
+    INFO("cut #", i);
+    CHECK(a.type == b.type);
+    CHECK(a.scene_uid == b.scene_uid);
+    CHECK(a.phase_uid == b.phase_uid);
+    CHECK(a.rhs == doctest::Approx(b.rhs).epsilon(1.0e-9));
+    REQUIRE(a.coefficients.size() == b.coefficients.size());
+    for (std::size_t j = 0; j < a.coefficients.size(); ++j) {
+      CHECK(a.coefficients[j].first == b.coefficients[j].first);
+      CHECK(a.coefficients[j].second
+            == doctest::Approx(b.coefficients[j].second).epsilon(1.0e-9));
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// BENCHMARK (report only, no hard asserts): aperture solve modes on the
+// 2-scene × 10-phase × 2-reservoir fixture.  `warm` is the production
+// baseline and needs `aperture_chunk_size = -1` (fully serial per scene)
+// for its within-chunk basis chain to engage; `cold` is the legacy
+// per-aperture barrier; `dual_shared` / `screened` skip re-solves via
+// Lemma AP2 synthesis.  Expectation on a CPU simplex/barrier backend
+// (CLP/HiGHS/CPLEX): little to no wall-clock win — the per-aperture
+// solves here are sub-millisecond and warm re-solves are already a few
+// pivots.  The target backend is cuOpt/PDLP (no warm-start path at all;
+// cut-validity ledger F10), where every skipped re-solve is a full cold
+// PDLP run — that measurement needs a GPU box and is deferred.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — aperture solve-mode benchmark (report only)")
+{
+  struct BenchRow
+  {
+    std::string label;
+    std::size_t iterations {};
+    double gap {};
+    double lb {};
+    double wall_s {};
+    double cpu_s {};
+  };
+  std::vector<BenchRow> rows;
+
+  const auto run_bench = [&rows](const std::string& label,
+                                 ApertureSolveMode mode,
+                                 int chunk_size,
+                                 int screen_count)
+  {
+    auto planning = make_2scene_10phase_two_reservoir_planning();
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 30;
+    opts.convergence_tol = 1.0e-4;
+    opts.stationary_tol = 0.0;  // no early stationary exit — compare iters
+    opts.cut_sharing = CutSharingMode::none;
+    opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
+    opts.aperture_solve_mode = mode;
+    opts.aperture_chunk_size = chunk_size;
+    opts.aperture_screen_count = screen_count;
+    opts.enable_api = false;
+
+    SDDPMethod sddp(plp, opts);
+    const auto wall_t0 = std::chrono::steady_clock::now();
+    const auto cpu_t0 = std::clock();
+    auto results = sddp.solve();
+    const double cpu_s = static_cast<double>(std::clock() - cpu_t0)
+        / static_cast<double>(CLOCKS_PER_SEC);
+    const double wall_s = std::chrono::duration<double>(
+                              std::chrono::steady_clock::now() - wall_t0)
+                              .count();
+    REQUIRE(results.has_value());
+    REQUIRE_FALSE(results->empty());
+    const auto& last = results->back();
+    rows.push_back(BenchRow {
+        .label = label,
+        .iterations = results->size(),
+        .gap = last.gap,
+        .lb = last.lower_bound,
+        .wall_s = wall_s,
+        .cpu_s = cpu_s,
+    });
+  };
+
+  run_bench("warm (chunk=-1, baseline)", ApertureSolveMode::warm, -1, 2);
+  run_bench("cold", ApertureSolveMode::cold, 0, 2);
+  run_bench("dual_shared", ApertureSolveMode::dual_shared, 0, 2);
+  run_bench("screened (N=1)", ApertureSolveMode::screened, 0, 1);
+
+  std::string report =
+      "\nAperture solve-mode benchmark "
+      "(2scene×10phase×2reservoir, tol=1e-4):\n";
+  report += std::format("{:<28} {:>5} {:>12} {:>14} {:>9} {:>9}\n",
+                        "mode",
+                        "iters",
+                        "gap",
+                        "LB",
+                        "wall[s]",
+                        "cpu[s]");
+  for (const auto& r : rows) {
+    report +=
+        std::format("{:<28} {:>5} {:>12.3e} {:>14.4f} {:>9.3f} {:>9.3f}\n",
+                    r.label,
+                    r.iterations,
+                    r.gap,
+                    r.lb,
+                    r.wall_s,
+                    r.cpu_s);
+  }
+  MESSAGE(report);
+
+  // Soft sanity only (no perf asserts): every mode must produce a
+  // finite, positive LB on this fixture.
+  for (const auto& r : rows) {
+    CHECK(std::isfinite(r.lb));
+    CHECK(r.lb > 0.0);
+  }
 }

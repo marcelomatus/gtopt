@@ -530,6 +530,27 @@ inline constexpr auto aperture_selection_mode_entries =
  *   the crossover, at the price of approximate (to barrier tolerance)
  *   duals — see the cut-validity caveat in
  *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`.
+ *
+ * - `dual_shared` (opt-in, Infanger–Morton dual sharing): only the
+ *   phase's highest-weight ("representative") aperture is solved; every
+ *   other aperture's cut is *synthesized* from the representative's
+ *   vertex duals.  Apertures differ only in flow column bounds, so all
+ *   aperture LPs share one dual feasible set; weak duality gives the
+ *   valid per-aperture bound
+ *   `Q_a(x) ≥ L_a + Σ_i rc_i (x_i − v̂_i)` with
+ *   `L_a = z* + Σ_j max(d_j,0)·Δl_j + Σ_j min(d_j,0)·Δu_j` over the
+ *   changed flow columns — shared slope, per-aperture intercept
+ *   correction (Lemma AP2, `docs/formulation/sddp-cut-validity.md` §6).
+ *   Falls back to an exact solve on non-finite / sentinel bound deltas,
+ *   on row-touching aperture updates (profile elements), and until a
+ *   first feasible representative exists.  Target backend: re-solve-free
+ *   duals for PDLP/cuOpt-style backends with no warm-start path
+ *   (cut-validity ledger F10).
+ *
+ * - `screened` (opt-in): `dual_shared` plus an exactness screen — the
+ *   `aperture_screen_count` synthesized cuts with the largest
+ *   |intercept correction| are re-solved exactly on the resident basis
+ *   (their corrections flag where the shared support is loosest).
  */
 enum class ApertureSolveMode : uint8_t
 {
@@ -539,6 +560,11 @@ enum class ApertureSolveMode : uint8_t
              ///< `warm`; see PlanningOptionsLP::sddp_aperture_solve_mode).
   reduced_cost = 2,  ///< Cold barrier, NO crossover; cut from interior-point
                      ///< reduced costs (filtered by cut_coeff_eps).
+  dual_shared = 3,  ///< Solve the representative aperture only; synthesize
+                    ///< the rest via Infanger–Morton dual sharing (valid
+                    ///< per-aperture intercept correction, Lemma AP2).
+  screened = 4,  ///< dual_shared + exact re-solve of the top
+                 ///< `aperture_screen_count` cuts by |correction|.
 };
 
 /// Includes "warm_start" / "barrier" as back-compatible aliases.
@@ -557,6 +583,8 @@ inline constexpr auto aperture_solve_mode_entries =
             .value = ApertureSolveMode::reduced_cost,
             .is_alias = true,
         },
+        {.name = "dual_shared", .value = ApertureSolveMode::dual_shared},
+        {.name = "screened", .value = ApertureSolveMode::screened},
     });
 
 [[nodiscard]] constexpr auto enum_entries(ApertureSolveMode /*tag*/) noexcept

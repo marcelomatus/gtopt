@@ -340,6 +340,108 @@ modified measure $q$, *not* automatically to the full aperture list:
 4. **Non-positive `probability_factor` fallback to 1.0** (`:550-561`):
    changes $q$; WARN-logged.
 
+### Dual-shared aperture cuts (Infanger–Morton)
+
+The opt-in `aperture_solve_mode = dual_shared` replaces every
+non-representative aperture solve with a *synthesized* cut derived from
+one exact solve — implemented in `solve_apertures_for_phase`
+(`sddp_aperture.cpp`) with the intercept correction isolated in
+`dual_shared_bound_correction`.
+
+**Lemma AP2 (dual-shared intercept correction).**  *Fix one
+(scene, phase) cell.  All aperture LPs of the cell are min-LPs with
+identical constraint matrix $A$, right-hand side $b$ and cost $c$,
+differing only in column bounds $(l^a, u^a)$ (the `update_aperture`
+flow-column rewrites).  Their dual feasible set*
+
+$$
+D = \{\, (y, \lambda, \mu) : A^\top y + \lambda - \mu = c,\;
+\lambda \ge 0,\; \mu \ge 0 \,\}
+$$
+
+*is bound-independent, so any dual point of the representative
+aperture's LP is dual-feasible for every aperture.  Let the
+representative solve to a vertex optimum with objective $z^\*$ and
+reduced costs $d$, and split $\lambda = d^+ = \max(d, 0)$,
+$\mu = d^- = -\min(d, 0)$ (complementarity: at a vertex each column's
+$\lambda_j$, $\mu_j$ cannot both be active).  Then for every aperture
+$a$ and* **any** *state pin $\hat v$ shared by the cell:*
+
+$$
+Q_a(x) \;\ge\; L_a + \sum_i rc_i\,(x_i - \hat v_i), \qquad
+L_a = z^\* + \sum_j \max(d_j, 0)\,\Delta l_j
+          + \sum_j \min(d_j, 0)\,\Delta u_j,
+$$
+
+*where $\Delta l_j = l_j^a - l_j^{rep}$, $\Delta u_j = u_j^a -
+u_j^{rep}$ range over the changed (flow) columns and $rc_i$ are the
+representative's state-column reduced costs — i.e. the representative's
+cut with its slope unchanged and its intercept moved by the
+bound-delta correction.*
+
+*Proof.*  The dual objective of aperture $a$'s LP at the shared dual
+point is $y^\top b + \lambda^\top l^a - \mu^\top u^a
+= (y^\top b + \lambda^\top l^{rep} - \mu^\top u^{rep})
++ \lambda^\top \Delta l - \mu^\top \Delta u = z^\* + \text{corr}_a$
+(strong duality on the representative, then the delta terms).  Weak
+duality bounds $Q_a(\hat v) \ge z^\* + \text{corr}_a = L_a$.  The
+state-column slope argument of Theorem O1 applies verbatim — the state
+columns are pinned identically ($lo = hi = \hat v$) in every aperture
+LP, so re-pinning to $x$ perturbs the shared dual point's objective by
+$\sum_i rc_i (x_i - \hat v_i)$ on every aperture alike.
+$\qquad\blacksquare$
+
+**Units (gtopt readback).**  $d_j$ is read from the representative
+clone's `get_col_cost()[j]` (physical view,
+$rc_{LP} \cdot \sigma / \text{col\_scale}_j$) and the bound deltas
+from `get_col_low()` / `get_col_upp()` (physical,
+$\text{raw} \times \text{col\_scale}_j$): the `col_scale` cancels in
+the product and the $\sigma$/`cost_factor` folding matches
+$z^\* = $ `get_obj_value()` (§2 readback invariants) — the correction
+lands in the same folded physical space as the cut RHS.
+
+**ε-terms.**  The synthesized cut inherits E1 (solver optimality
+tolerance on $z^\*$ and $d$) and E7 (`cut_coeff_eps` slope filtering —
+note the *filtered* slope is what the synthesized cut copies, while
+`corr` uses the unfiltered $d$; both directions are covered by the §4
+budget).  On backends whose duals are ε-optimal interior points rather
+than vertex duals (PDLP/cuOpt; ledger F10), $\lambda$/$\mu$ from the
+$d$-split violate complementarity by the PDLP residual: the shared
+point is still dual-feasible, so the bound holds with $z^\*$ replaced
+by the dual objective — using the primal $z^\*$ over-states $L_a$ by
+at most the primal–dual gap.  One more ε-term, same family.
+
+**Implementation guards** (`solve_apertures_for_phase`):
+
+- **Row-touching updates**: profile elements (`ProfileObjectLP`
+  subclasses) rewrite row RHS or matrix coefficients in
+  `update_aperture`, violating the identical-$(A, b, c)$ premise.  A
+  detection wrap disables synthesis for the remainder of the chunk the
+  moment any such element receives an aperture value; those apertures
+  fall back to exact (warm) solves.
+- **Sentinel/non-finite deltas**: a bound that becomes (un)bounded
+  between the representative and an aperture has no finite delta;
+  `dual_shared_bound_correction` returns `nullopt` and the aperture
+  exact-solves.
+- **Infeasible representative**: apertures exact-solve until a first
+  feasible representative exists (an infeasible LP has no optimal dual
+  point to share).
+- **`screened` mode**: after synthesis, the `aperture_screen_count`
+  cuts with the largest $|\text{corr}_a|$ — where the shared support is
+  loosest — are re-solved exactly on the resident basis and replaced by
+  Theorem-O1 cuts.  Replacing a valid cut by another valid (tighter)
+  cut preserves every statement above; in-chunk duplicates that copied
+  a synthesized cut before the screen keep the looser valid version.
+
+*Remark (representative anchor).*  The representative is the
+highest-weight aperture (rotated to the front), which minimizes the
+weighted mass of corrected intercepts but not necessarily the mixture
+gap.  A probability-weighted **mean-realization anchor** — solving one
+synthetic aperture at the $q$-mean inflow and correcting every real
+aperture from it — would center the corrections and is a sanctioned
+follow-up; it requires synthesizing a mean `ApertureValueFn`, not new
+theory (Lemma AP2 applies to any representative).
+
 ---
 
 ## 7. Cut Sharing: Mode-by-Mode Validity

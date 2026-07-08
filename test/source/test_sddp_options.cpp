@@ -418,6 +418,10 @@ TEST_CASE("ApertureSolveMode - enum name parsing and aliases")
           == ApertureSolveMode::warm);
     CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "reduced_cost")
           == ApertureSolveMode::reduced_cost);
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "dual_shared")
+          == ApertureSolveMode::dual_shared);
+    CHECK(require_enum<ApertureSolveMode>("aperture_solve_mode", "screened")
+          == ApertureSolveMode::screened);
   }
 
   SUBCASE("back-compat aliases")
@@ -434,6 +438,34 @@ TEST_CASE("ApertureSolveMode - enum name parsing and aliases")
     CHECK_THROWS_AS(
         (void)require_enum<ApertureSolveMode>("aperture_solve_mode", "nope"),
         std::invalid_argument);
+  }
+}
+
+TEST_CASE("SddpOptions - aperture_screen_count default and merge")
+{
+  SUBCASE("default is unset (resolves to 2 at the accessor)")
+  {
+    const SddpOptions opts {};
+    CHECK_FALSE(opts.aperture_screen_count.has_value());
+    CHECK(opts.aperture_screen_count.value_or(2) == 2);
+  }
+
+  SUBCASE("overlay wins when set")
+  {
+    SddpOptions base {.aperture_screen_count = 1};
+    SddpOptions overlay {.aperture_screen_count = 4};
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_screen_count.has_value());
+    CHECK(*base.aperture_screen_count == 4);
+  }
+
+  SUBCASE("base kept when overlay absent")
+  {
+    SddpOptions base {.aperture_screen_count = 3};
+    SddpOptions overlay {};
+    base.merge(std::move(overlay));
+    REQUIRE(base.aperture_screen_count.has_value());
+    CHECK(*base.aperture_screen_count == 3);
   }
 }
 

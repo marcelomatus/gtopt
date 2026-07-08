@@ -414,6 +414,28 @@ with each parquet file containing `stage`, `block`, and `uid:N` columns
 - `num_apertures = -1` — use all available scenarios as apertures
 - `num_apertures = N > 0` — use the first N scenarios (capped at total)
 
+**Aperture solve modes** (`aperture_solve_mode`): how each aperture
+subproblem is solved and how its cut's coefficients are recovered.
+Apertures of one (scene, phase) share the LP matrix and differ only in
+flow column bounds, which is what the warm and dual-shared modes
+exploit.
+
+| Mode | Per-aperture work | Cut source | Notes |
+|------|-------------------|------------|-------|
+| `cold` | cold barrier + crossover solve | vertex reduced costs | legacy byte-for-byte behaviour |
+| `warm` | warm dual simplex off the resident chunk basis | vertex reduced costs | **effective default** (unset resolves to `warm`); needs `aperture_chunk_size > 1` (or `-1`) for the within-chunk chain to engage |
+| `reduced_cost` | cold barrier, no crossover | interior-point reduced costs | ~35% faster on big LPs; ε-optimal duals filtered by `cut_coeff_eps` |
+| `dual_shared` | **no solve** (representative only) | representative's vertex duals + bound-delta intercept correction | opt-in Infanger–Morton sharing (Lemma AP2, [cut-validity §6](../formulation/sddp-cut-validity.md)); forces a single chunk; falls back to exact solves on row-touching profile updates, sentinel deltas, or an infeasible representative |
+| `screened` | `dual_shared` + `aperture_screen_count` exact re-solves | mixed | the synthesized cuts with the largest \|correction\| are re-solved exactly on the resident basis |
+
+The dual-shared modes target backends with **no warm-start path**
+(cuOpt/PDLP: `set_basis` is a no-op and every resolve is a cold run) —
+on CPU simplex backends the warm re-solves they skip are already only a
+few pivots, so expect little wall-clock win there.
+`aperture_screen_count` (default 2) sets the screened re-solve budget;
+per-cascade-level overrides are available via
+`cascade_options.level_array.N.sddp_options.aperture_screen_count`.
+
 **PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
 all hydrological realizations for each stage, solves each one, and computes
@@ -915,7 +937,8 @@ prefix, since the section name already provides the namespace).
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
 | `aperture_chunk_size` | int | unset (auto = 1) | Apertures solved serially per pool task on a shared LP clone: `0`/unset = auto, `1` = one task per aperture (legacy), `K > 1` = K per task, `-1` = fully serial per scene (licence/memory-tight runs). CLI: `--aperture-chunk-size` |
-| `aperture_solve_mode` | string | `"reduced_cost"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs) |
+| `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1` or `-1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
+| `aperture_screen_count` | int | 2 | Synthesized cuts re-solved exactly under `aperture_solve_mode = "screened"` (picked by largest \|intercept correction\|); ignored by every other mode |
 | `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
 | `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |

@@ -6,6 +6,9 @@
  * @date      2026-03-22
  */
 
+#include <limits>
+#include <vector>
+
 #include <doctest/doctest.h>
 #include <gtopt/aperture.hpp>
 #include <gtopt/scenario_lp.hpp>
@@ -1209,3 +1212,205 @@ TEST_CASE(
 }
 
 // NOLINTEND(bugprone-argument-comment,bugprone-unchecked-optional-access)
+
+// ─── dual_shared_bound_correction (Lemma AP2) ───────────────────────────────
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — identical bounds give zero correction")
+{
+  const std::vector<double> rc {2.5, -1.0, 0.0};
+  const std::vector<double> low {0.0, 1.0, -5.0};
+  const std::vector<double> upp {10.0, 4.0, 5.0};
+
+  const auto corr = dual_shared_bound_correction(rc, low, upp, low, upp);
+  REQUIRE(corr.has_value());
+  CHECK(*corr == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — positive rc prices the lower bound")
+{
+  // d = 2.0 > 0 → λ = 2.0 on x ≥ l.  Raising l by Δl = 3.0 raises the
+  // dual objective (and hence the intercept) by 2.0 × 3.0 = 6.0.
+  const std::vector<double> rc {2.0};
+  const std::vector<double> rep_low {1.0};
+  const std::vector<double> rep_upp {9.0};
+  const std::vector<double> ap_low {4.0};
+  const std::vector<double> ap_upp {9.0};
+
+  const auto corr =
+      dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+  REQUIRE(corr.has_value());
+  CHECK(*corr == doctest::Approx(6.0));
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — negative rc prices the upper bound")
+{
+  // d = −1.5 < 0 → μ = 1.5 on x ≤ u.  Lowering u by 2.0 (Δu = −2.0)
+  // raises the dual objective by (−1.5) × (−2.0) = +3.0; raising u by
+  // 2.0 lowers it by 3.0.
+  const std::vector<double> rc {-1.5};
+  const std::vector<double> rep_low {0.0};
+  const std::vector<double> rep_upp {8.0};
+
+  SUBCASE("tightened upper bound raises the intercept")
+  {
+    const std::vector<double> ap_low {0.0};
+    const std::vector<double> ap_upp {6.0};
+    const auto corr =
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+    REQUIRE(corr.has_value());
+    CHECK(*corr == doctest::Approx(3.0));
+  }
+
+  SUBCASE("relaxed upper bound lowers the intercept")
+  {
+    const std::vector<double> ap_low {0.0};
+    const std::vector<double> ap_upp {10.0};
+    const auto corr =
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+    REQUIRE(corr.has_value());
+    CHECK(*corr == doctest::Approx(-3.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — pinned column (lo == hi) moves both "
+    "bounds, only the rc-signed side prices")
+{
+  // Flow columns are pinned lo == hi == inflow by `update_aperture`.
+  // With d > 0 only the Δl term contributes; with d < 0 only Δu.  Both
+  // give d × Δ (the equality-constraint sensitivity).
+  const std::vector<double> rep_low {5.0, 5.0};
+  const std::vector<double> rep_upp {5.0, 5.0};
+  const std::vector<double> ap_low {7.0, 7.0};
+  const std::vector<double> ap_upp {7.0, 7.0};
+  const std::vector<double> rc {3.0, -2.0};
+
+  const auto corr =
+      dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+  REQUIRE(corr.has_value());
+  // 3.0 × (7−5) + (−2.0) × (7−5) = 6 − 4 = 2.
+  CHECK(*corr == doctest::Approx(2.0));
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — zero rc annihilates any delta, even "
+    "sentinel/infinite ones")
+{
+  constexpr double huge = 1.0e30;
+  const std::vector<double> rc {0.0};
+  const std::vector<double> rep_low {-huge};
+  const std::vector<double> rep_upp {huge};
+  const std::vector<double> ap_low {0.0};
+  const std::vector<double> ap_upp {5.0};
+
+  const auto corr =
+      dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+  REQUIRE(corr.has_value());
+  CHECK(*corr == doctest::Approx(0.0));
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — priced sentinel delta returns nullopt")
+{
+  constexpr double huge = 1.0e30;
+
+  SUBCASE("lower bound became bounded under positive rc")
+  {
+    const std::vector<double> rc {1.0};
+    const std::vector<double> rep_low {-huge};
+    const std::vector<double> rep_upp {huge};
+    const std::vector<double> ap_low {0.0};
+    const std::vector<double> ap_upp {huge};
+    CHECK_FALSE(
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp)
+            .has_value());
+  }
+
+  SUBCASE("upper bound became unbounded under negative rc")
+  {
+    const std::vector<double> rc {-1.0};
+    const std::vector<double> rep_low {0.0};
+    const std::vector<double> rep_upp {5.0};
+    const std::vector<double> ap_low {0.0};
+    const std::vector<double> ap_upp {huge};
+    CHECK_FALSE(
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp)
+            .has_value());
+  }
+
+  SUBCASE("equal sentinel bounds are skipped before any subtraction")
+  {
+    const std::vector<double> rc {1.0, -1.0};
+    const std::vector<double> rep_low {-huge, 0.0};
+    const std::vector<double> rep_upp {huge, 4.0};
+    const std::vector<double> ap_low {-huge, 1.0};
+    const std::vector<double> ap_upp {huge, 4.0};
+    const auto corr =
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+    REQUIRE(corr.has_value());
+    CHECK(*corr == doctest::Approx(0.0));
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — non-finite inputs return nullopt")
+{
+  constexpr double inf = std::numeric_limits<double>::infinity();
+  constexpr double nan = std::numeric_limits<double>::quiet_NaN();
+
+  SUBCASE("NaN reduced cost")
+  {
+    const std::vector<double> rc {nan};
+    const std::vector<double> b {1.0};
+    CHECK_FALSE(dual_shared_bound_correction(rc, b, b, b, b).has_value());
+  }
+
+  SUBCASE("infinite priced bound delta")
+  {
+    const std::vector<double> rc {2.0};
+    const std::vector<double> rep_low {-inf};
+    const std::vector<double> rep_upp {inf};
+    const std::vector<double> ap_low {0.0};
+    const std::vector<double> ap_upp {inf};
+    CHECK_FALSE(
+        dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp)
+            .has_value());
+  }
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — span size mismatch returns nullopt")
+{
+  const std::vector<double> rc {1.0, 2.0};
+  const std::vector<double> two {0.0, 0.0};
+  const std::vector<double> three {0.0, 0.0, 0.0};
+
+  CHECK_FALSE(
+      dual_shared_bound_correction(rc, three, two, two, two).has_value());
+  CHECK_FALSE(
+      dual_shared_bound_correction(rc, two, three, two, two).has_value());
+  CHECK_FALSE(
+      dual_shared_bound_correction(rc, two, two, three, two).has_value());
+  CHECK_FALSE(
+      dual_shared_bound_correction(rc, two, two, two, three).has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "dual_shared_bound_correction — mixed multi-column composition")
+{
+  // Columns: (d>0, Δl), (d<0, Δu), (d>0, no change), (d=0, Δ both).
+  const std::vector<double> rc {2.0, -3.0, 4.0, 0.0};
+  const std::vector<double> rep_low {1.0, 0.0, 2.0, 0.0};
+  const std::vector<double> rep_upp {9.0, 6.0, 8.0, 1.0};
+  const std::vector<double> ap_low {2.5, 0.0, 2.0, 0.5};
+  const std::vector<double> ap_upp {9.0, 5.0, 8.0, 2.0};
+
+  const auto corr =
+      dual_shared_bound_correction(rc, rep_low, rep_upp, ap_low, ap_upp);
+  REQUIRE(corr.has_value());
+  // 2.0×1.5 + (−3.0)×(−1.0) + 0 + 0 = 3.0 + 3.0 = 6.0.
+  CHECK(*corr == doctest::Approx(6.0));
+}

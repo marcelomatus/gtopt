@@ -68,6 +68,7 @@ struct SddpOptionsConstructor
       OptBool aperture_drop_fcuts,
       OptInt aperture_chunk_size,
       OptName aperture_solve_mode_str,
+      OptInt aperture_screen_count,
       OptBool aperture_seed_basis,
       OptName basis_cross_mode_str,
       OptName boundary_cuts_file,
@@ -163,6 +164,7 @@ struct SddpOptionsConstructor
       opts.aperture_solve_mode = gtopt::require_enum<ApertureSolveMode>(
           "aperture_solve_mode", *aperture_solve_mode_str);
     }
+    opts.aperture_screen_count = aperture_screen_count;
     opts.aperture_seed_basis = aperture_seed_basis;
     if (basis_cross_mode_str) {
       opts.basis_cross_mode = gtopt::require_enum<BasisCrossMode>(
@@ -265,6 +267,7 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"aperture_drop_fcuts", OptBool>,
       json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"aperture_solve_mode", OptName>,
+      json_number_null<"aperture_screen_count", OptInt>,
       json_bool_null<"aperture_seed_basis", OptBool>,
       json_string_null<"basis_cross_mode", OptName>,
       json_string_null<"boundary_cuts_file", OptName>,
@@ -337,6 +340,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_drop_fcuts,
         opt.aperture_chunk_size,
         detail::enum_to_opt_name(opt.aperture_solve_mode),
+        opt.aperture_screen_count,
         opt.aperture_seed_basis,
         detail::enum_to_opt_name(opt.basis_cross_mode),
         opt.boundary_cuts_file,

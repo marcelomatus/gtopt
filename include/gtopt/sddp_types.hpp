@@ -880,11 +880,20 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int aperture_chunk_size {0};
 
   /// Aperture solve / cut-recovery mode: `cold` (barrier + crossover,
-  /// vertex reduced-cost cuts; default), `warm` (warm simplex off the
-  /// resident chunk basis), or `reduced_cost` (barrier without crossover,
-  /// interior-point reduced-cost cuts).  See
+  /// vertex reduced-cost cuts), `warm` (warm simplex off the resident
+  /// chunk basis; default), `reduced_cost` (barrier without crossover,
+  /// interior-point reduced-cost cuts), `dual_shared` (representative
+  /// solve + Infanger–Morton dual-shared synthesis), or `screened`
+  /// (`dual_shared` + exact re-solve of the top `aperture_screen_count`
+  /// cuts by |correction|).  See
   /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
   ApertureSolveMode aperture_solve_mode {ApertureSolveMode::warm};
+
+  /// Number of dual-shared aperture cuts re-solved exactly under
+  /// `aperture_solve_mode = screened` (picked by largest |intercept
+  /// correction|).  Ignored by every other mode.  Default 2.  See
+  /// `sddp_options.hpp::aperture_screen_count`.
+  int aperture_screen_count {2};
 
   /// Seed each iteration's first backward aperture from the previous
   /// iteration's first-aperture basis (dual warm start).  Orthogonal to

@@ -1029,6 +1029,15 @@ public:
         ApertureSolveMode::warm);
   }
 
+  /// Number of dual-shared aperture cuts re-solved exactly under
+  /// `aperture_solve_mode = screened` (picked by largest |intercept
+  /// correction|).  Ignored by every other mode.  Default 2.  See
+  /// `SddpOptions::aperture_screen_count`.
+  [[nodiscard]] constexpr auto sddp_aperture_screen_count() const noexcept
+  {
+    return m_options_.sddp_options.aperture_screen_count.value_or(2);
+  }
+
   /// Cross-pass simplex-basis warm-start reuse mode.  Default `full_cross`
   /// (forward→forward warm reuse + forward basis fed into the backward/tgt
   /// and aperture solves).  Combined with the seeded-solve auto-dual logic
