@@ -30,13 +30,25 @@
  * the pointer-getters return.
  *
  * Consequences (all acceptable for gtopt):
- *   - No warm start.  gtopt is documented cold-start (barrier) on every
- *     resolve, so nothing is lost (project memory: `no-warm-start`).
+ *   - Warm start IS wired — vector-based, not basis-based.  cuOpt's C API
+ *     accepts an initial primal/dual pair (`cuOptSetInitialPrimalSolution`
+ *     / `cuOptSetInitialDualSolution`, a PDLP restart honoured by the PDLP
+ *     leg under CONCURRENT too).  `solve_()` auto-seeds each incremental
+ *     re-solve from the previous optimal solution snapshot (`m_sol_`),
+ *     padding the dual with zeros for rows appended since (the SDDP
+ *     cut-row case).  Measured on this repo's CEN LPs 2026-07-07:
+ *     5-7x at the unchanged optimum, ~1.7x after an aperture-like RHS
+ *     perturbation.  NOTE this is distinct from the *basis* warm start
+ *     that CPLEX/HiGHS use (`get_basis`/`set_basis`, which cuOpt lacks) —
+ *     the `no-warm-start` project memory refers to that basis path.
+ *     Presolve is forced OFF whenever a start is seeded (warm starts are
+ *     empirically wasted under any presolver).  Kill switch:
+ *     `GTOPT_CUOPT_WARMSTART=0`.
  *   - `supports_set_coeff()` returns TRUE (we buffer the override into the
  *     CSR), so SDDP's volume-dependent coefficient updates in
  *     `update_lp()` are NOT silently dropped.
- *   - `clone()` deep-copies `Model` (an independent host buffer) — exactly
- *     what the SDDP aperture/forward clone paths need.
+ *   - `clone()` deep-copies `Model` AND the solution snapshot — clones
+ *     (SDDP aperture/forward paths) inherit the parent's warm start.
  *
  * STATUS: SCAFFOLD.  The Model + mutator buffering + CSR lowering +
  * solve/getter wiring are implemented and compile-probed in isolation.
@@ -208,8 +220,12 @@ public:
   [[nodiscard]] const double* row_price() const override;
   [[nodiscard]] double obj_value() const override;
 
-  // ---- solution hints (warm start; no-op — cuOpt rebuilds cold) ----
+  // ---- solution hints (vector warm start; see header design notes) ----
+  /// Buffer an explicit primal hint (sized to the CURRENT num_cols); it
+  /// takes precedence over the automatic previous-solution seed on the
+  /// next solve.  Cleared by `load_problem`.
   void set_col_solution(const double* sol) override;
+  /// Buffer an explicit dual hint (sized to the CURRENT num_rows).
   void set_row_price(const double* price) override;
   /// MIP start: buffered here and replayed on the freshly-created
   /// `cuOptSolverSettings` inside `solve_()` (cuOpt has no persistent settings
@@ -267,6 +283,10 @@ private:
   CuOptSolutionCache m_sol_ {};
   SolveEffort m_last_effort_ {};  // GPU solve time (ticks=time) of last solve
   SolverOptions m_options_ {};
+  /// Explicit warm-start hints (set_col_solution / set_row_price).  Sized
+  /// against the model at buffering time; validated again at solve time.
+  std::vector<double> m_warm_primal_ {};
+  std::vector<double> m_warm_dual_ {};
   std::vector<double> m_mip_start_ {};  ///< buffered MIP start (set_mip_start)
   MipStartEffort m_mip_start_effort_ {
       MipStartEffort::check_feasibility};  ///< effort for the buffered start

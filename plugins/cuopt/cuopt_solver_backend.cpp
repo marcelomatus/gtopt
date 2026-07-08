@@ -1,6 +1,6 @@
 /**
  * @file      cuopt_solver_backend.cpp
- * @brief     NVIDIA cuOpt (GPU) solver backend implementation (SCAFFOLD)
+ * @brief     NVIDIA cuOpt (GPU) solver backend implementation
  * @date      Tue Jun 10 2026
  * @author    marcelo
  * @copyright BSD-3-Clause
@@ -100,6 +100,78 @@ void check(cuopt_int_t status, const char* what)
 /// GPU-aware work-pool work (see the resource-manager proposal, phase P1).
 std::mutex g_cuopt_global_mutex;
 
+/// Host-side CSR lowering of a `CuOptModel`, ready for
+/// `cuOptCreateRangedProblem`.  Pure host work — build it OUTSIDE
+/// `g_cuopt_global_mutex` so it can overlap another thread's GPU solve.
+struct LoweredModel
+{
+  std::vector<cuopt_int_t> row_offsets {};
+  std::vector<cuopt_int_t> col_indices {};
+  std::vector<cuopt_float_t> coeff_values {};
+  std::vector<cuopt_float_t> con_lb {};
+  std::vector<cuopt_float_t> con_ub {};
+  std::vector<cuopt_float_t> var_lb {};
+  std::vector<cuopt_float_t> var_ub {};
+};
+
+[[nodiscard]] LoweredModel lower_model(const CuOptModel& model)
+{
+  const int ncols = model.num_cols;
+  const int nrows = model.num_rows;
+
+  LoweredModel lm;
+  lm.row_offsets.reserve(static_cast<size_t>(nrows) + 1);
+  lm.row_offsets.push_back(0);
+  for (int r = 0; r < nrows; ++r) {
+    for (const auto& [col, val] : model.row_entries[static_cast<size_t>(r)]) {
+      lm.col_indices.push_back(col);
+      lm.coeff_values.push_back(val);
+    }
+    lm.row_offsets.push_back(static_cast<cuopt_int_t>(lm.col_indices.size()));
+  }
+
+  lm.con_lb.resize(static_cast<size_t>(nrows));
+  lm.con_ub.resize(static_cast<size_t>(nrows));
+  for (int r = 0; r < nrows; ++r) {
+    lm.con_lb[static_cast<size_t>(r)] = to_cuopt_bound(model.row_lb[r]);
+    lm.con_ub[static_cast<size_t>(r)] = to_cuopt_bound(model.row_ub[r]);
+  }
+
+  lm.var_lb.resize(static_cast<size_t>(ncols));
+  lm.var_ub.resize(static_cast<size_t>(ncols));
+  for (int j = 0; j < ncols; ++j) {
+    lm.var_lb[static_cast<size_t>(j)] = to_cuopt_bound(model.col_lb[j]);
+    lm.var_ub[static_cast<size_t>(j)] = to_cuopt_bound(model.col_ub[j]);
+  }
+  return lm;
+}
+
+/// Build the immutable cuOpt problem object from a lowered model.  Ranged
+/// form maps gtopt's (row_lb, row_ub) pair directly — no sense/RHS
+/// conversion.  Caller must hold `g_cuopt_global_mutex` and destroy the
+/// returned problem via `cuOptDestroyProblem`.
+[[nodiscard]] cuOptOptimizationProblem create_ranged_problem(
+    const CuOptModel& model, const LoweredModel& lm)
+{
+  cuOptOptimizationProblem problem = nullptr;
+  check(cuOptCreateRangedProblem(model.num_rows,
+                                 model.num_cols,
+                                 CUOPT_MINIMIZE,
+                                 model.obj_offset,
+                                 model.col_obj.data(),
+                                 lm.row_offsets.data(),
+                                 lm.col_indices.data(),
+                                 lm.coeff_values.data(),
+                                 lm.con_lb.data(),
+                                 lm.con_ub.data(),
+                                 lm.var_lb.data(),
+                                 lm.var_ub.data(),
+                                 model.col_type.data(),
+                                 &problem),
+        "cuOptCreateRangedProblem");
+  return problem;
+}
+
 }  // namespace
 
 CuOptSolverBackend::CuOptSolverBackend() = default;
@@ -188,6 +260,11 @@ void CuOptSolverBackend::load_problem(int ncols,
     }
   }
   m_sol_ = CuOptSolutionCache {};
+  // A fresh model invalidates every solution-derived hint: the previous
+  // snapshot (cleared above) and any explicit warm-start buffers, which
+  // were sized/indexed against the OLD column/row layout.
+  m_warm_primal_.clear();
+  m_warm_dual_.clear();
 }
 
 // ---- dimensions -----------------------------------------------------------
@@ -428,10 +505,32 @@ double CuOptSolverBackend::obj_value() const
   return m_sol_.obj;
 }
 
-// ---- solution hints (no-op: cuOpt rebuilds cold every solve) --------------
+// ---- solution hints (vector warm start) ------------------------------------
+//
+// cuOpt's C API accepts an initial primal/dual pair (PDLP restart) via
+// `cuOptSetInitialPrimalSolution` / `cuOptSetInitialDualSolution` on the
+// settings object.  These buffers hold EXPLICIT caller hints; when absent,
+// `solve_()` falls back to auto-seeding from the previous optimal snapshot.
+// The caller passes bare pointers (OSI convention), so the size is taken
+// from the CURRENT model dimensions at buffering time.
 
-void CuOptSolverBackend::set_col_solution(const double* /*sol*/) {}
-void CuOptSolverBackend::set_row_price(const double* /*price*/) {}
+void CuOptSolverBackend::set_col_solution(const double* sol)
+{
+  if (sol == nullptr || m_model_.num_cols <= 0) {
+    m_warm_primal_.clear();
+    return;
+  }
+  m_warm_primal_.assign(sol, sol + m_model_.num_cols);
+}
+
+void CuOptSolverBackend::set_row_price(const double* price)
+{
+  if (price == nullptr || m_model_.num_rows <= 0) {
+    m_warm_dual_.clear();
+    return;
+  }
+  m_warm_dual_.assign(price, price + m_model_.num_rows);
+}
 
 bool CuOptSolverBackend::set_mip_start(const std::span<const double> col_values,
                                        MipStartEffort effort)
@@ -477,33 +576,7 @@ void CuOptSolverBackend::solve_()
   const int nrows = m_model_.num_rows;
 
   // 1) Lower the row-major model into cuOpt's CSR ranged-problem arrays.
-  std::vector<cuopt_int_t> row_offsets;
-  std::vector<cuopt_int_t> col_indices;
-  std::vector<cuopt_float_t> coeff_values;
-  row_offsets.reserve(static_cast<size_t>(nrows) + 1);
-  row_offsets.push_back(0);
-  for (int r = 0; r < nrows; ++r) {
-    for (const auto& [col, val] : m_model_.row_entries[static_cast<size_t>(r)])
-    {
-      col_indices.push_back(col);
-      coeff_values.push_back(val);
-    }
-    row_offsets.push_back(static_cast<cuopt_int_t>(col_indices.size()));
-  }
-
-  std::vector<cuopt_float_t> con_lb(static_cast<size_t>(nrows));
-  std::vector<cuopt_float_t> con_ub(static_cast<size_t>(nrows));
-  for (int r = 0; r < nrows; ++r) {
-    con_lb[static_cast<size_t>(r)] = to_cuopt_bound(m_model_.row_lb[r]);
-    con_ub[static_cast<size_t>(r)] = to_cuopt_bound(m_model_.row_ub[r]);
-  }
-
-  std::vector<cuopt_float_t> var_lb(static_cast<size_t>(ncols));
-  std::vector<cuopt_float_t> var_ub(static_cast<size_t>(ncols));
-  for (int j = 0; j < ncols; ++j) {
-    var_lb[static_cast<size_t>(j)] = to_cuopt_bound(m_model_.col_lb[j]);
-    var_ub[static_cast<size_t>(j)] = to_cuopt_bound(m_model_.col_ub[j]);
-  }
+  const auto lowered = lower_model(m_model_);
 
   // Serialize every cuOpt C-API interaction below: the library's global
   // logger/cuBLAS state is not thread-safe and the SDDP work pool drives
@@ -512,24 +585,8 @@ void CuOptSolverBackend::solve_()
   // so it can overlap another thread's GPU solve.
   const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
 
-  // 2) Build the immutable problem object.  Ranged form maps gtopt's
-  //    (row_lb, row_ub) pair directly — no sense/RHS conversion needed.
-  cuOptOptimizationProblem problem = nullptr;
-  check(cuOptCreateRangedProblem(nrows,
-                                 ncols,
-                                 CUOPT_MINIMIZE,
-                                 m_model_.obj_offset,
-                                 m_model_.col_obj.data(),
-                                 row_offsets.data(),
-                                 col_indices.data(),
-                                 coeff_values.data(),
-                                 con_lb.data(),
-                                 con_ub.data(),
-                                 var_lb.data(),
-                                 var_ub.data(),
-                                 m_model_.col_type.data(),
-                                 &problem),
-        "cuOptCreateRangedProblem");
+  // 2) Build the immutable problem object.
+  cuOptOptimizationProblem problem = create_ranged_problem(m_model_, lowered);
 
   // 3) Solver settings from the current SolverOptions.
   cuOptSolverSettings settings = nullptr;
@@ -619,16 +676,117 @@ void CuOptSolverBackend::solve_()
         "cuOpt: forcing presolve OFF because a MIP start is set "
         "(cuOptAddMIPStart is unsupported with presolve on)");
   }
-  // Use PAPILO rather than cuOpt's PSLP presolver: PSLP (which CUOPT_PRESOLVE_
-  // DEFAULT resolves to) can declare an infeasible LP infeasible and then spin
-  // forever ("PSLP declares problem as infeasible" → hang), wedging any solve
-  // of an infeasible/degenerate model.  PAPILO is the mature open-source
-  // presolver and returns cleanly on infeasibility.
-  cuOptSetIntegerParameter(settings,
-                           CUOPT_PRESOLVE,
-                           (m_options_.presolve && !has_mip_start)
-                               ? CUOPT_PRESOLVE_PAPILO
-                               : CUOPT_PRESOLVE_OFF);
+
+  // ---- vector warm start (LP only) ----------------------------------------
+  //
+  // Seed the solve with an initial primal/dual pair — cuOpt's PDLP restart.
+  // Source priority: explicit hints buffered by `set_col_solution` /
+  // `set_row_price`, else the previous OPTIMAL solution snapshot from this
+  // instance (or from the clone parent — `clone()` copies `m_sol_`), which is
+  // exactly the SDDP incremental-re-solve shape: same LP plus a new cut row
+  // and/or moved bounds.  The dual is zero-padded for rows appended since the
+  // snapshot (a fresh cut row starts with dual 0); if rows were DELETED the
+  // old dual indexing is unrecoverable, so the dual hint is skipped (the
+  // primal hint alone is still valid and useful).
+  //
+  // MIP solves are excluded: initial primal/dual is a PDLP (LP) mechanism;
+  // the MIP path uses `cuOptAddMIPStart`.
+  //
+  // Presolve is forced OFF when a start is seeded: measured on this repo's
+  // LPs (2026-07-07, RTX 5060), a warm start under PAPILO or PSLP is wasted
+  // (≈cold time or slower), while with presolve off it is 5-7x at the
+  // unchanged optimum and ~1.7x after an SDDP-aperture-like perturbation.
+  // The 26.02 release notes made the same point ("to use PDLP warm start,
+  // presolve must now be explicitly disabled").
+  //
+  // Kill switch: GTOPT_CUOPT_WARMSTART=0 (triage lever, mirrors
+  // GTOPT_CUOPT_METHOD).
+  bool is_mip_model = false;
+  for (const char t : m_model_.col_type) {
+    if (t != CUOPT_CONTINUOUS) {
+      is_mip_model = true;
+      break;
+    }
+  }
+  bool warm_enabled = true;
+  if (const char* env = std::getenv("GTOPT_CUOPT_WARMSTART");
+      env != nullptr && env[0] == '0')
+  {
+    warm_enabled = false;
+  }
+  bool warm_seeded = false;
+  // Lifetime: the Set-initial-* docs only promise the pointers refer to
+  // host memory, not that the values are copied at Set time — so every
+  // seeded buffer must outlive `cuOptSolve` below.  The explicit hints are
+  // MOVED into these solve-scoped locals (making them one-shot: consumed
+  // here, later solves fall back to the auto snapshot); `m_sol_.*` is a
+  // member reset only after the solve; the zero-padded dual gets its own
+  // solve-scoped holder.
+  const std::vector<double> explicit_primal = std::move(m_warm_primal_);
+  const std::vector<double> explicit_dual = std::move(m_warm_dual_);
+  m_warm_primal_.clear();  // normalize moved-from state
+  m_warm_dual_.clear();
+  std::vector<double> padded_dual;
+  if (warm_enabled && !is_mip_model) {
+    const auto un = static_cast<size_t>(ncols);
+    const auto um = static_cast<size_t>(nrows);
+    // Primal hint: explicit buffer first, else previous optimal snapshot.
+    const std::vector<double>* primal_src = nullptr;
+    const std::vector<double>* dual_src = nullptr;
+    if (explicit_primal.size() == un) {
+      primal_src = &explicit_primal;
+      dual_src = explicit_dual.empty() ? nullptr : &explicit_dual;
+    } else if (m_sol_.solved
+               && m_sol_.termination == CUOPT_TERMINATION_STATUS_OPTIMAL
+               && m_sol_.primal.size() == un)
+    {
+      primal_src = &m_sol_.primal;
+      dual_src = m_sol_.dual.empty() ? nullptr : &m_sol_.dual;
+    }
+    if (primal_src != nullptr) {
+      if (cuOptSetInitialPrimalSolution(
+              settings, primal_src->data(), static_cast<cuopt_int_t>(un))
+          == CUOPT_SUCCESS)
+      {
+        warm_seeded = true;
+      }
+      if (warm_seeded && dual_src != nullptr && dual_src->size() <= um) {
+        if (dual_src->size() < um) {
+          // Rows appended since the snapshot: pad new rows' duals with 0.
+          padded_dual = *dual_src;
+          padded_dual.resize(um, 0.0);
+          dual_src = &padded_dual;
+        }
+        cuOptSetInitialDualSolution(
+            settings, dual_src->data(), static_cast<cuopt_int_t>(um));
+      }
+      if (warm_seeded) {
+        spdlog::debug(
+            "cuOpt: warm start seeded ({} cols, dual {}) — presolve OFF",
+            un,
+            (dual_src == nullptr)     ? "none"
+                : padded_dual.empty() ? "full"
+                                      : "padded");
+      }
+    }
+  }
+
+  // Presolver selection.  PSLP (cuOpt's own GPU-side presolver, what
+  // CUOPT_PRESOLVE_DEFAULT resolves to for LPs since 26.02) — measured on a
+  // real CEN full-network LP (62k cols / 25k rows, 2026-07-08): with
+  // crossover on, PSLP 3.3s vs PAPILO 4.0s vs off 6.2s; duals fully
+  // postsolved under both.  An earlier cuOpt release could hang after
+  // "PSLP declares problem as infeasible" — re-probed on 26.08 with both an
+  // infeasible and an unbounded model: PSLP returns the verdict cleanly in
+  // ~0.1s (faster than PAPILO or no presolve), so the old PAPILO-forcing
+  // workaround is retired.  Presolve is OFF whenever a MIP start or a warm
+  // start is active (both are unsupported/wasted under presolve — see above).
+  cuOptSetIntegerParameter(
+      settings,
+      CUOPT_PRESOLVE,
+      (m_options_.presolve && !has_mip_start && !warm_seeded)
+          ? CUOPT_PRESOLVE_PSLP
+          : CUOPT_PRESOLVE_OFF);
   if (has_mip_start) {
     check(cuOptAddMIPStart(settings,
                            m_mip_start_.data(),
@@ -922,13 +1080,36 @@ void CuOptSolverBackend::push_names(
 
 void CuOptSolverBackend::write_lp(const char* filename)
 {
-  // cuOpt only writes MPS (CUOPT_FILE_FORMAT_MPS).  Build a throwaway
-  // problem from the current model and dump it.
-  // TODO(cuopt): wire cuOptWriteProblem(problem, filename,
-  // CUOPT_FILE_FORMAT_MPS)
-  //              once a long-lived problem handle is retained; for now this
-  //              is a debug-only path and left as a no-op stub.
-  (void)filename;
+  // cuOpt only writes MPS (CUOPT_FILE_FORMAT_MPS): build a throwaway
+  // problem object from the current host model and dump it.  Debug-only
+  // path — a failure logs a warning instead of aborting the run.
+  if (filename == nullptr || m_model_.num_cols <= 0) {
+    return;
+  }
+  const auto lowered = lower_model(m_model_);
+  const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
+  cuOptOptimizationProblem problem = nullptr;
+  try {
+    problem = create_ranged_problem(m_model_, lowered);
+  } catch (const std::exception& e) {
+    spdlog::warn("cuOpt: write_lp('{}') failed to build problem: {}",
+                 filename,
+                 e.what());
+    return;
+  }
+  // gtopt callers pass an extensionless stem or a ".lp" path; cuOpt's
+  // writer emits MPS regardless, so normalise to a ".mps" suffix to keep
+  // the on-disk format honest.
+  std::filesystem::path out {filename};
+  if (out.extension() != ".mps") {
+    out.replace_extension(".mps");
+  }
+  if (cuOptWriteProblem(problem, out.string().c_str(), CUOPT_FILE_FORMAT_MPS)
+      != CUOPT_SUCCESS)
+  {
+    spdlog::warn("cuOpt: cuOptWriteProblem('{}') failed", out.string());
+  }
+  cuOptDestroyProblem(&problem);
 }
 
 // ---- clone ----------------------------------------------------------------
@@ -937,7 +1118,11 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 {
   auto copy = std::make_unique<CuOptSolverBackend>();
   copy->m_model_ = m_model_;  // deep copy of the mutable host model
+  // Copying the snapshot lets clones (SDDP aperture / forward paths)
+  // auto-warm-start their first solve from the parent's optimum.
   copy->m_sol_ = m_sol_;
+  copy->m_warm_primal_ = m_warm_primal_;
+  copy->m_warm_dual_ = m_warm_dual_;
   copy->m_options_ = m_options_;
   copy->m_prob_name_ = m_prob_name_;
   return copy;
@@ -946,9 +1131,12 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 }  // namespace gtopt
 
 // ===========================================================================
-// SCAFFOLD — remaining implementation / validation steps (none risk a
-// half-broken build; the plugin compiles + links, but is not yet validated
-// against the full gtopt LP pipeline or a live GPU solve):
+// Remaining hardening steps.  (Historical S-items already RESOLVED: S5
+// failed-solve → is_abandoned() mapping; S8 process-global mutex — see
+// g_cuopt_global_mutex.  Shipped 2026-07-08 after empirical GPU validation:
+// vector warm start incl. auto-seed + clone inheritance, presolve
+// PAPILO→PSLP retirement of the stale infeasibility-hang workaround, and
+// write_lp via cuOptWriteProblem.)
 //
 //  S1. Objective offset wiring.  gtopt feeds the FCF/scale offset through
 //      set_obj_coeff on a dedicated constant column today, not a problem
@@ -975,12 +1163,6 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 //      patch changed entries; track a dirty flag per mutator.  Functionally
 //      correct without this; needed for it to be FASTER than CPU CPLEX.
 //
-//  S5. GPU memory ceiling.  A 1.6M-var / multi-M-row LP at FP64 may exceed
-//      the RTX 5060's VRAM.  Add a try/catch around cuOptSolve mapping
-//      CUOPT_OUT_OF_MEMORY → is_abandoned() so gtopt's algorithm-fallback
-//      chain degrades gracefully (or fails over to a CPU solver) rather
-//      than aborting.
-//
 //  S6. delete_rows + cut indices.  gtopt's SDDP cut store calls delete_rows
 //      with absolute row indices; our compact-erase keeps row order, which
 //      matches OSI/HiGHS.  Add a doctest mirroring test_*delete_rows* to
@@ -990,9 +1172,10 @@ std::unique_ptr<SolverBackend> CuOptSolverBackend::clone() const
 //      inherit the base-class per-element fallbacks (correct).  Override
 //      with direct vector writes for speed once S4 caching lands.
 //
-//  S8. Concurrency.  cuOpt uses a single default GPU stream; gtopt's
-//      WorkPool runs many clones in parallel.  Confirm thread-safety of
-//      concurrent cuOptSolve calls (likely needs a per-thread settings obj
-//      and/or a GPU serialization mutex). Until verified, gate cuOpt to the
-//      coordinator/serial solve tiers.
+//  S9. Native-mode PDLP.  With warm start wired, evaluate re-enabling lone
+//      PDLP for SDDP re-solves via CUOPT_INFEASIBILITY_DETECTION /
+//      CUOPT_STRICT_INFEASIBILITY (added upstream; untested here) — the
+//      false-infeasible verdicts were half the reason `primal` maps to
+//      CONCURRENT.  The WSL2 convergence-poll wedge needs its own re-probe
+//      on current drivers before any default change.
 // ===========================================================================

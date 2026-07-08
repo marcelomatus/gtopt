@@ -292,4 +292,87 @@ TEST_CASE("cuOpt open_log / close_log adjust the reported log level")  // NOLINT
   CHECK(backend->get_log_level() == 0);
 }
 
+TEST_CASE("cuOpt warm re-solve stays correct across cuts and bounds")  // NOLINT
+{
+  // The SDDP incremental shape: solve, append a cut row, re-solve; then
+  // move a bound and re-solve again.  Every re-solve after the first is
+  // auto-seeded from the previous optimal snapshot (vector warm start,
+  // dual zero-padded for the appended row).  The pin is CORRECTNESS: a
+  // warm-started optimum must match the cold optimum, tighter or looser.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+
+  // Benders-style cut row: x + y >= 3 tightens the optimum to 3.
+  const std::array<int, 2> cut_cols {
+      0,
+      1,
+  };
+  const std::array<double, 2> cut_vals {
+      1.0,
+      1.0,
+  };
+  backend->add_row(
+      2, cut_cols.data(), cut_vals.data(), 3.0, backend->infinity());
+  backend->resolve();  // warm: primal + zero-padded dual from previous solve
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(3.0));
+
+  // Loosen back below the first cut (forward-pass trial-pin shape): the
+  // warm seed sits at the OLD optimum; the solver must still walk down.
+  backend->set_row_lower(1, 1.0);
+  backend->resolve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE(
+    "cuOpt explicit set_col_solution hint keeps re-solve exact")  // NOLINT
+{
+  // Explicit OSI-convention hints (set_col_solution / set_row_price) are
+  // buffered one-shot and must never bias the returned optimum — even a
+  // deliberately WRONG hint.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  const std::array<double, 2> bad_hint {
+      9.0,
+      9.0,
+  };
+  backend->set_col_solution(bad_hint.data());
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE("cuOpt write_lp dumps a readable MPS file")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto stem = cuopt_scratch_log_base("write_lp");
+  const auto file = fs::path {stem.string() + ".mps"};
+  fs::remove(file);
+
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  // gtopt callers pass an extensionless stem; the backend normalises to
+  // ".mps" (cuOpt's writer emits MPS regardless of the requested name).
+  backend->write_lp(stem.string().c_str());
+  REQUIRE(fs::exists(file));
+  CHECK(fs::file_size(file) > 0);
+  fs::remove(file);
+}
+
 }  // namespace
