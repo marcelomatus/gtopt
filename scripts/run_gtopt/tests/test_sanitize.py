@@ -216,6 +216,26 @@ def test_warn_invalid_solver_type(tmp_path: Path):
     assert result == p
 
 
+def test_warn_invalid_forward_sampling_mode(tmp_path: Path):
+    """Unknown sddp forward_sampling_mode warns but applies no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"forward_sampling_mode": "bogus"}},
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_valid_forward_sampling_modes_pass(tmp_path: Path):
+    """Both valid forward_sampling_mode spellings pass untouched."""
+    for mode in ("persistent", "resampled"):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"forward_sampling_mode": mode}},
+        )
+        assert sanitize_json(p) == p
+
+
 def test_fix_lp_names_invalid(tmp_path: Path):
     """Invalid use_lp_names is fixed to 1."""
     p = _write_plan(tmp_path / "plan.json", {"use_lp_names": 5})

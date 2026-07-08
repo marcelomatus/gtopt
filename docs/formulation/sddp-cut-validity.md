@@ -74,8 +74,10 @@ $\varphi$ registered by `register_alpha_variables`
 
 - single-α modes: one column, priced $1.0$;
 - `multicut`: $N$ columns $\varphi_0, \dots, \varphi_{N-1}$ (uid
-  $= \texttt{sddp\_alpha\_uid} + s$), each priced $1/N$
-  (`sddp_method_alpha.cpp:174-175`), in **every** scene-LP.
+  $= \texttt{sddp\_alpha\_uid} + s$), each priced $w_r = p_s$ — the
+  normalized probability of the scene owning the LP, uniform across
+  the $N$ columns (`alpha_unit_cost`, Prop. M4 §8; $= 1/N$ under
+  uniform probabilities) — in **every** scene-LP.
 
 All $\varphi$ columns are bootstrap-pinned $[0, 0]$ until the first cut
 referencing them arrives (`bound_alpha_for_cut`, §10).
@@ -353,7 +355,7 @@ shared-per-LP α column ($\varphi_0$):
 | `accumulate` | sum of all scenes' cuts broadcast to every α | **INVALID** — **REMOVED 2026-07-08** — for $K>1$ cuts (Lemma A1 remark: sums over-count) — even for identical scenes the RHS sums; only degenerate single-cut iterations escape |
 | `broadcast_mean` | per-scene average, then **sum** across scenes, broadcast | **INVALID** — **REMOVED 2026-07-08** — for heterogeneous scenes; the cross-scene *sum* of per-scene averages is again an over-count unless the per-scene averages coincide and... see remark below |
 | `max` | every cut broadcast onto every LP's shared α | **INVALID** — **REMOVED 2026-07-08** — for heterogeneous scenes: forces $\varphi_0^D \ge p_S Q_S^\*(\cdot)$ for all $S$, i.e. the max of unrelated bounds; valid only for literally identical sample paths (identical-Q) |
-| `multicut` | scene-$S$ cuts land on dedicated $\varphi_S$ in every LP | **CONDITIONALLY VALID** — see Theorem M1/M3 (§8): valid LB for the *resampled* process under uniform probabilities; **unsound** under non-uniform probabilities |
+| `multicut` | scene-$S$ cuts land on dedicated $\varphi_S$ in every LP | **VALID for the resampled process** — see Theorems M1/M4 (§8): with the M4 pricing $w_r = p_s$ (implemented 2026-07-08) the LB bounds the process resampled with measure $q_r = p_r$ for **any** probability vector.  (The pre-M4 uniform $1/N$ pricing was unsound for non-uniform probabilities — Theorem M3, historical.) |
 
 **Theorem N1 (`none` is valid).**  *Under `cut_sharing = none`, at
 every iteration $LB = \sum_s V_s^{(0)}(\text{initial state})$ computed
@@ -404,23 +406,31 @@ Architecture (verified against
 `sddp_cut_sharing.cpp:235-342`):
 
 - every scene-LP at phase $t$ carries $\varphi_0..\varphi_{N-1}$, each
-  priced $1/N$;
+  priced $w_r = p_s$ — the normalized probability of the scene owning
+  the LP, uniform across the $N$ columns (`alpha_unit_cost`,
+  Prop. M4 below; $= 1/N$ under uniform probabilities, which was the
+  only pricing before 2026-07-08);
 - scene-$S$'s backward cut (Theorem O1, built from scene-$S$'s
   phase-$(t{+}1)$ LP with $z^\*$ = **full** objective including its
-  own $(1/N)\sum_r \varphi_r$ term) lands on $\varphi_S$ at phase $t$
+  own $p_S \sum_r \varphi_r$ term) lands on $\varphi_S$ at phase $t$
   and is broadcast to $\varphi_S$ in *every* scene-LP;
 - PLP parity: `plp-agrespd.f:94` source indexing, `defprbpd.f:812-818`
-  pricing `(ScalePhi/ScaleObj)/NVarPhi`.  (PLP leaves $\varphi$ free,
-  $\pm\infty$; gtopt adds the §10 floors.)
+  pricing `(ScalePhi/ScaleObj)/NVarPhi` — identical to gtopt under
+  uniform probabilities.  (PLP leaves $\varphi$ free, $\pm\infty$;
+  gtopt adds the §10 floors.)
 
 The scene-LP recursion is therefore, with cuts converging to their
 envelopes,
 
 $$
 V_s^{(t)}(x) \;=\; \min_u\Big[\, p_s\, c_s(u)
-  \;+\; \tfrac1N \textstyle\sum_r \varphi_r \,\Big],
+  \;+\; p_s \textstyle\sum_r \varphi_r \,\Big],
 \qquad \varphi_r \approx V_r^{(t+1)}(x') .
 $$
+
+Theorems M1 and M3 below analyse the **historical** uniform $1/N$
+pricing (they motivated the M4 fix and remain the record of why);
+Prop. M4 states the pricing now implemented.
 
 **Theorem M1 (uniform probabilities).**  *Let $p_s = 1/N$ for all
 $s$.  Substitute $\tilde V_s := V_s / p_s = N V_s$.  Then*
@@ -450,15 +460,35 @@ $\qquad\blacksquare$
 simulates **persistent** per-scene paths (no resampling).  The
 resampled-process optimum and the persistent-process optimum are not
 ordered in general for heterogeneous scenes.  Hence LB > UB under
-multicut on heterogeneous scenes with uniform probabilities does not
-indicate cut invalidity — the two bounds refer to different stochastic
-processes.  The WARN-only pin on the heterogeneous multicut test is
+multicut on heterogeneous scenes does not indicate cut invalidity —
+the two bounds refer to different stochastic processes.  (Under the M4
+pricing this holds for any probability vector, with the resampling
+measure $q_r = p_r$.)  The WARN-only pin on the heterogeneous multicut test is
 therefore permanent; the correct strict test compares the multicut LB
 against the extensive form of the resampled process (oracle harness,
 deliverable 2).*
 
-**Theorem M3 (non-uniform probabilities — unsound).**  *For general
-$p_s$, the substitution gives*
+> **Remark (forward resampling, 2026-07-08).**  The
+> `forward_sampling_mode = resampled` option makes the forward pass
+> simulate the resampled process itself: at every phase boundary the
+> scene-driver re-draws a realization with probability $p_r$
+> (deterministic in (iteration, scene, phase)) and pins the drawn
+> scene's stochastic bounds onto the phase LP via the bound-only
+> `update_aperture` machinery.  The forward UB then estimates the SAME
+> $q_r = p_r$ process the multicut LB certifies, dissolving the
+> Corollary-M2 mismatch by construction.  v1 caveat: the pure-Benders
+> backward pass builds scenario-$s$'s cut from scene-$s$'s LP carrying
+> the *sampled* realization's bounds (the same realization the forward
+> pass solved — cached on the phase state), which is exact on identical
+> dynamics (strict oracle case) but only demonstrative on
+> heterogeneous dynamics (WARN-tier); the certified heterogeneous
+> route remains the aperture backward pass, which re-solves every
+> realization explicitly.  Default `persistent` is byte-identical to
+> the historical forward pass.
+
+**Theorem M3 (non-uniform probabilities under the historical $1/N$
+pricing — unsound; superseded by M4).**  *For general $p_s$, with every
+$\varphi_r$ priced $1/N$, the substitution gives*
 
 $$
 \tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u)
@@ -472,13 +502,17 @@ the Bellman operator of no proper stochastic process (transition
 weights fail to sum to 1), and the fixed point can exceed every
 process value; the resulting LB can overshoot the true optimum of both
 the persistent and any resampled process.  Multicut with non-uniform
-scene probabilities is therefore **not certified** — the 0.6/0.4
-heterogeneous WARN case in `test_sddp_bounds_sanity.cpp` exercises
-exactly this configuration.*
+scene probabilities was therefore **not certified** under the $1/N$
+pricing.  This configuration was demonstrated by the identical-dynamics
+0.6/0.4 oracle case in `test_sddp_cut_oracle.cpp` (pre-fix, the
+low-probability scene's non-terminal cuts overshot their
+$p_s$-folded persistent tail — resampled ≡ persistent there, so the
+tail oracle is exact) and is fixed by the M4 pricing below.*
 
-**Proposition M4 (corrected pricing — not yet implemented).**  *Price
-every $\varphi_r$ in scene-$s$'s LP at $w_r = p_s$ (the probability of
-the scene owning the LP, uniform across the $N$ columns).  Then*
+**Proposition M4 (corrected pricing — IMPLEMENTED 2026-07-08).**
+*Price every $\varphi_r$ in scene-$s$'s LP at $w_r = p_s$ (the
+normalized probability of the scene owning the LP, uniform across the
+$N$ columns).  Then*
 
 $$
 \tilde V_s^{(t)}(x) = \min_u\Big[\, c_s(u)
@@ -497,22 +531,53 @@ $\sum_r w_r p_r \tilde V_r^{(t+1)}$; dividing the LP by $p_s$ requires
 $w_r p_r / p_s = q_r$.  Choosing $q_r = p_r$ forces $w_r = p_s$.
 $\qquad\blacksquare$
 
-> **Do not implement** M4 until this document is reviewed and the
-> oracle harness (deliverable 2) has a failing-then-passing test for
-> it.  The change itself is one line in `register_alpha_variables`
-> (`unit_cost`), plus the terminal-α analogue.
+> **Implementation status (2026-07-08)**: M4 shipped in commit
+> `feat(sddp): M4 multicut pricing — price every varphi_r at w_r = p_s`
+> on `agent-a/sddp-stochastic`.  The pricing rule lives in ONE named
+> free function — `alpha_unit_cost` (`sddp_types.hpp` /
+> `sddp_method_alpha.cpp`) — consumed by `register_alpha_variables` for
+> both the intermediate-phase (`CutSharingMode::multicut`) and terminal
+> (`BoundaryCutSharingMode::multicut`) α columns; probabilities are
+> normalized over scenes with a $\Sigma p > 0$ guard (fallback: uniform
+> $1/N$).  The mandated failing-then-passing gate is the
+> identical-dynamics 0.6/0.4 oracle case in
+> `test_sddp_cut_oracle.cpp`, which fails under the $1/N$ pricing and
+> passes strictly under M4.  The `initialize_solver` runtime WARN for
+> non-uniform multicut was replaced by an INFO documenting the M4
+> measure and the Corollary-M2 process mismatch.
+>
+> **Mean-shift interaction (open, §13 item)**: Lemma B1's terminal-
+> multicut argument (§9) uses the fact that the future term
+> $\sum_r w \varphi_r$ drops by exactly $\bar c$ when every cut is
+> shifted by $\bar c$ — true when $w N = 1$, i.e. under uniform
+> probabilities.  Under M4 with non-uniform probabilities the drop is
+> $p_s N \bar c \ne \bar c$, so the `boundary_cuts_mean_shift` opt-in
+> combined with terminal multicut and non-uniform probabilities is not
+> exactly restituted.  Follow-up: scale the restitution by $p_s N$ (or
+> gate the combination).
 
-**Known defect (UB strip).**  `sddp_forward_pass.cpp:884-895` strips
-only $\varphi_0$ at full weight from the realised opex; under multicut
-the objective's future term is $(1/N)\sum_s \varphi_s$.  The two
-coincide only while all $\varphi_s$ are equal (iteration 0); afterwards
-`forward_objective`, the UB, and the reported gap are biased by
-$(\overline{\varphi} - \varphi_0)\cdot \text{scale\_alpha}$ per cell
+**UB strip (defect — FIXED 2026-07-08).**  The forward-pass opex strip
+in `sddp_forward_pass.cpp` used to remove only $\varphi_0$ at full
+weight from the realised opex, while under multicut the objective's
+future term is $w \sum_s \varphi_s$ with the M4 weight $w = p_s$
+(historically $1/N$).  The two coincide only while all $\varphi_s$
+carry equal value — true on iteration 0 (all bootstrap-pinned $[0,0]$)
+and, by symmetry, on identical scenes with uniform probabilities —
+but with non-uniform probabilities $\varphi_r \approx p_r \tilde V$
+differ per column even on identical dynamics, and the strip biased
+`forward_objective`, the UB, and the reported gap by
+$(w\sum_s \varphi_s - \varphi_0)\cdot \text{scale\_alpha}$ per cell
 (either sign).  Confirmed via the offset-0 semantics of
-`find_alpha_state_var` (`sddp_method.cpp:57-74`).  Fix (after the
-oracle exists): strip $\frac1N \sum_s \varphi_s\,
-\text{scale\_alpha}$ using `alpha_cols_on_cell`.  Single-α modes are
-unaffected.
+`find_alpha_state_var` (`sddp_method.cpp:57-74`).  The fix strips
+$w \sum_s \varphi_s\,\text{scale\_alpha}$ by enumerating the cell's α
+registry (same contiguous-uid walk as `alpha_cols_on_cell`) and reading
+the weight from the SAME shared `alpha_unit_cost` helper that priced
+the columns, so pricing and strip can never diverge again.  Single-α
+modes take the $w = 1$, one-column path — byte-identical to the legacy
+strip.  Regression gate: the identical-dynamics UB-parity test in
+`test_sddp_bounds_sanity.cpp` (multicut UB ≡ none UB per iteration
+from iteration 2 on; the 0.6/0.4 split fails under the varphi_0-only
+strip and passes under the weighted sum).
 
 ---
 
@@ -565,7 +630,12 @@ each of the $N$ $\varphi_s$ is priced $1/N$ and *every* cut on the LP
 is shifted by the same $\bar c$, so each $\varphi_s^{\min}$ drops by
 $\bar c$ and the future term $\frac1N\sum_s \varphi_s$ again drops by
 exactly $\bar c$ (this corrects the "cost = 1.0" argument in the code
-comment; the claim survives, the argument needs the sum).  Restoring
+comment; the claim survives, the argument needs the sum).
+**M4 caveat (2026-07-08)**: with the M4 pricing $w = p_s$ the future
+term drops by $p_s N \bar c$, which equals $\bar c$ only under uniform
+probabilities — see §13 item 5b for the open follow-up on the
+mean-shift restitution under terminal multicut with non-uniform
+probabilities.  Restoring
 $+\bar c$ via the native offset makes `get_obj_value()`
 algebraically identical.  `compute_iteration_bounds` reads the master
 objective directly and adds nothing (
@@ -780,7 +850,7 @@ statements):
 |---|------------|----------------|
 | A1 | LP subproblems solved to optimality; vertex duals (crossover) on elastic solves | O1, FC1 |
 | A2 | Stage costs non-negative | terminal α ≥ 0, §10 zero fallback, N1's infeasible-scene term |
-| A3 | Uniform scene probabilities | multicut LB (M1); non-uniform is unsound (M3) until M4 ships |
+| A3 | ~~Uniform scene probabilities~~ **RETIRED 2026-07-08** — the M4 pricing (`alpha_unit_cost`, $w_r = p_s$) certifies the multicut LB for the $q_r = p_r$ resampled process for any probability vector | historical: multicut LB (M1) required uniformity under the pre-M4 $1/N$ pricing (M3) |
 | A4 | UB and LB compare like processes | Corollary M2 — persistent-path UB vs resampled-process LB are incomparable on heterogeneous scenes |
 | A5 | Boundary-cut CSV rows support a convex terminal FCF | §9 |
 | A6 | State-variable universe preserved across save/load boundaries | §12, E4 |
@@ -789,13 +859,25 @@ statements):
 
 Open defects / follow-ups (all documented, none fixed here by design):
 
-1. **UB strip under multicut** (§8) — confirmed; fix after oracle.
-2. **Multicut non-uniform pricing** (M3/M4) — one-line fix specified;
-   after oracle.
+1. ~~**UB strip under multicut** (§8)~~ — **FIXED 2026-07-08**: the
+   strip now removes $w\sum_s \varphi_s\,\text{scale\_alpha}$ using the
+   shared `alpha_unit_cost` weight (see the §8 UB-strip note); gated by
+   the identical-dynamics UB-parity test in
+   `test_sddp_bounds_sanity.cpp`.
+2. ~~**Multicut non-uniform pricing** (M3/M4)~~ — **FIXED 2026-07-08**:
+   M4 pricing implemented in `alpha_unit_cost` (see §8 implementation
+   note), gated by the failing-then-passing identical-dynamics 0.6/0.4
+   oracle case in `test_sddp_cut_oracle.cpp`.
 3. **Zero-fallback α floor** (§10) — over-tightens when A2 fails.
 4. **Aperture timeout-as-infeasible** (§6) — conditional-measure bias.
 5. **Per-link feasibility cuts** (§11.2) — heuristic; certified runs
    use the aggregated form.
+5b. **Mean-shift × terminal multicut × non-uniform probabilities**
+   (§8 implementation note, §9 Lemma B1) — under M4 pricing the
+   objective drop from a uniform per-LP cut shift $\bar c$ is
+   $p_s N \bar c$, not $\bar c$; the `add_obj_constant` restitution is
+   exact only under uniform probabilities.  Scale the restitution by
+   $p_s N$ or gate the combination.
 6. Comment corrections queued: `sddp_cut_sharing.cpp:258-260` (U2),
    `sddp_method_alpha.cpp:148-153` (C2), `state_variable.hpp:310-325`
    (C1), `sddp_boundary_cuts.cpp:831-836` (C8),

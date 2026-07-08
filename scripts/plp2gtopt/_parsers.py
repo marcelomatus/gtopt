@@ -482,13 +482,37 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "'multicut' is the PLP-faithful mechanism — each scene-LP "
             "carries N dedicated future-cost columns (varphi_0..N-1), and "
             "scenario-s's backward cut is broadcast onto varphi_s in every "
-            "scene-LP, priced 1/N (matches `plp-agrespd.f:94` source "
-            "indexing + `defprbpd.f:810` 1/N averaging); "
+            "scene-LP, priced at the M4 weight w_r = p_s (the owning "
+            "scene's normalized probability; = 1/N under uniform "
+            "probabilities, matching `plp-agrespd.f:94` source indexing + "
+            "`defprbpd.f:810` 1/N averaging); "
             "'none' keeps cuts in their originating scene (no sharing). "
             "The legacy broadcast_mean/expected/accumulate/max modes were "
             "REMOVED from gtopt on 2026-07-08 (invalid broadcasts; see "
             "docs/formulation/sddp-cut-validity.md section 7). "
             "(default: multicut for sddp/cascade)"
+        ),
+    )
+    parser.add_argument(
+        "--forward-sampling-mode",
+        dest="forward_sampling_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "persistent",
+            "resampled",
+        ],
+        help=(
+            "SDDP forward-pass sampling mode: "
+            "'persistent' keeps each scene-driver on its own scenario "
+            "path at every phase (the historical behaviour); "
+            "'resampled' re-draws a probability-weighted scene "
+            "realization at every phase boundary (deterministic seed "
+            "per iteration/scene/phase), so the forward UB estimates "
+            "the same stagewise-resampled process the "
+            "cut_sharing_mode=multicut lower bound certifies (see "
+            "docs/formulation/sddp-cut-validity.md section 8). "
+            "(default: not set; gtopt uses persistent)"
         ),
     )
     parser.add_argument(

@@ -1089,6 +1089,12 @@ public:
   /** @brief Default cut sharing mode for SDDP */
   static constexpr CutSharingMode default_sddp_cut_sharing_mode =
       CutSharingMode::none;
+  /** @brief Default forward-pass sampling mode (persistent per-scene
+   * paths — the historical behaviour; `resampled` opts into the
+   * per-phase-boundary probability-weighted re-draw that matches the
+   * multicut LB's stagewise-resampled process) */
+  static constexpr ForwardSamplingMode default_sddp_forward_sampling_mode =
+      ForwardSamplingMode::persistent;
   /** @brief Default async cut-drain mode (symmetric, deterministic) */
   static constexpr CutDrainMode default_sddp_cut_drain_mode =
       CutDrainMode::iteration;
@@ -1293,6 +1299,26 @@ public:
   {
     return m_options_.sddp_options.cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
+  }
+
+  /**
+   * @brief Gets the SDDP forward sampling mode as a string name
+   * @return The forward sampling mode name
+   */
+  [[nodiscard]] auto sddp_forward_sampling_mode() const -> std::string_view
+  {
+    return enum_name(sddp_forward_sampling_mode_enum());
+  }
+
+  /**
+   * @brief Gets the SDDP forward sampling mode as a typed enum
+   * @return The ForwardSamplingMode enum value
+   */
+  [[nodiscard]] constexpr auto sddp_forward_sampling_mode_enum() const
+      -> ForwardSamplingMode
+  {
+    return m_options_.sddp_options.forward_sampling_mode.value_or(
+        default_sddp_forward_sampling_mode);
   }
 
   /**

@@ -126,6 +126,41 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
 }
 
 // Free-function implementation declared in <gtopt/sddp_types.hpp>.
+// See the header doc for the full M4 statement.  Kept as ONE small free
+// function so the column pricing (`register_alpha_variables`) and the
+// forward-pass UB strip read the identical weight — and so future
+// cut-sharing modes (e.g. Markov measures) extend the rule in exactly
+// one place.
+double alpha_unit_cost(const SimulationLP& sim,
+                       SceneIndex scene_index,
+                       std::size_t n_alpha) noexcept
+{
+  if (n_alpha <= 1) {
+    return 1.0;  // single-α layout: α carries the full cost-to-go.
+  }
+  // M4 (docs/formulation/sddp-cut-validity.md §8): w_r = p_s for every
+  // varphi_r — the normalized probability of the scene OWNING the LP,
+  // uniform across the N columns.  Collapses to 1/N under uniform
+  // probabilities.
+  double total = 0.0;
+  double own = 0.0;
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    const double p = std::max(sim.scenes()[si].probability_factor(), 0.0);
+    total += p;
+    if (si == scene_index) {
+      own = p;
+    }
+  }
+  if (!(total > 0.0) || !(own > 0.0)) {
+    // Degenerate probability data (all-zero, or a zero-probability
+    // owning scene whose folded objective is 0 anyway): fall back to
+    // the uniform weight.
+    return 1.0 / static_cast<double>(n_alpha);
+  }
+  return own / total;
+}
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp>.
 // Adds α (future-cost) to every phase — including the last — with
 // bootstrap `lowb = uppb = 0`.  α is pinned at zero until a cut
 // arrives: backward-pass cuts free it on non-last phases and
@@ -146,18 +181,21 @@ void register_alpha_variables(PlanningLP& planning_lp,
   const auto n_phases = phases.size();
 
   // Under `multicut`, each scene-LP carries N future-cost columns
-  // (`varphi_0..N-1`, one per SOURCE scene), each priced uniformly 1/N (PLP
-  // `defprbpd.f:810`).  A scenario-s backward cut is later routed onto
-  // `varphi_s` (uid = sddp_alpha_uid + s) in EVERY destination scene-LP, never
-  // the destination's own α.  Validity caveat (theorem M1/M3 in
-  // `docs/formulation/sddp-cut-validity.md` §8): the per-scenario routing
-  // plus the 1/N pricing make the recursion the Bellman recursion of the
-  // stagewise-RESAMPLED process, whose LB is valid ONLY under uniform scene
-  // probabilities — Σ_s (1/N)·varphi_s is NOT a general expected
-  // cost-to-go.  The intermediate phases follow `cut_sharing`; the terminal
-  // phase follows `boundary_cut_sharing` (its boundary cuts land on the
-  // terminal α(s)).  Under `cut_sharing = none`, n_alpha == 1 → the legacy
-  // single-α layout (uid 0).
+  // (`varphi_0..N-1`, one per SOURCE scene), each priced at the M4 weight
+  // `w_r = p_s` — the normalized probability of the scene OWNING the LP,
+  // uniform across the N columns (`alpha_unit_cost`; Prop. M4 in
+  // `docs/formulation/sddp-cut-validity.md` §8).  Under uniform scene
+  // probabilities this reproduces PLP's 1/N pricing (`defprbpd.f:810`)
+  // exactly.  A scenario-s backward cut is later routed onto `varphi_s`
+  // (uid = sddp_alpha_uid + s) in EVERY destination scene-LP, never the
+  // destination's own α.  The per-scenario routing plus the M4 pricing make
+  // the recursion the Bellman recursion of the stagewise-RESAMPLED process
+  // with measure q_r = p_r — a certified LB for that process for any
+  // probability vector (theorems M1/M4; the pre-M4 1/N pricing was unsound
+  // for non-uniform probabilities, theorem M3).  The intermediate phases
+  // follow `cut_sharing`; the terminal phase follows `boundary_cut_sharing`
+  // (its boundary cuts land on the terminal α(s)).  Under
+  // `cut_sharing = none`, n_alpha == 1 → the legacy single-α layout (uid 0).
   const bool intermediate_multi = (cut_sharing == CutSharingMode::multicut);
   const bool terminal_multi =
       (boundary_cut_sharing == BoundaryCutSharingMode::multicut);
@@ -175,8 +213,11 @@ void register_alpha_variables(PlanningLP& planning_lp,
     // still added (so the LP column layout / aperture mirroring is unchanged)
     // but priced at 0 — it is inert (pinned `lowb = uppb = 0`, never priced,
     // never floored, never cut).  The user's α + cuts drive the FCF instead.
-    const double unit_cost =
-        register_as_state_variable ? 1.0 / static_cast<double>(n_alpha) : 0.0;
+    // Otherwise the weight is the shared M4 pricing rule (`alpha_unit_cost`):
+    // 1.0 for single-α, w_r = p_s for multicut — see the helper's doc.
+    const double unit_cost = register_as_state_variable
+        ? alpha_unit_cost(sim, scene_index, n_alpha)
+        : 0.0;
     for (std::size_t s = 0; s < n_alpha; ++s) {
       const auto alpha_uid =
           static_cast<Uid>(sddp_alpha_uid + static_cast<Uid>(s));
@@ -188,8 +229,9 @@ void register_alpha_variables(PlanningLP& planning_lp,
           .lowb = 0.0,
           .uppb = 0.0,
           .cost =
-              unit_cost,  // physical cost: α is in $ — 1/N average under
-                          // multicut; scaling handled by emit_col_to_backend
+              unit_cost,  // physical cost: α is in $ — M4 weight w_r = p_s
+                          // under multicut (= 1/N for uniform probabilities);
+                          // scaling handled by emit_col_to_backend
           .is_state = true,
           .pin_scale = true,  // exempt α from Ruiz equilibration so all
                               // scenes share the same scale — prevents

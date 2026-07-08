@@ -438,6 +438,18 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
+    // Forward-sampling consistency (`ForwardSamplingMode::resampled`):
+    // the cut for this cell must be built from the SAME realization the
+    // forward pass simulated.  The forward `update_aperture` bound
+    // writes are replay-recorded (a compress reconstruct replays them),
+    // but re-applying from the cached id costs one dense bound sweep
+    // and makes the invariant explicit — robust against any future
+    // update path that rewrites stochastic bounds between the passes.
+    // `nullopt` under `persistent` (never set) → byte-identical default.
+    if (const auto sampled = phase_states[phase_index].sampled_scene) {
+      apply_sampled_realization(scene_index, phase_index, *sampled);
+    }
+
     tgt_li.set_log_tag(sddp_log("Backward",
                                 gtopt::uid_of(iteration_index),
                                 uid_of(scene_index),

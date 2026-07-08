@@ -29,6 +29,7 @@ _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
 # gtopt on 2026-07-08 (invalid cut broadcasts; see
 # docs/formulation/sddp-cut-validity.md section 7) -- gtopt now hard-errors.
 _VALID_CUT_SHARING_MODES = {"none", "multicut"}
+_VALID_FORWARD_SAMPLING_MODES = {"persistent", "resampled"}
 _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
@@ -203,6 +204,7 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         ("cut_recovery_mode", _VALID_CUT_RECOVERY_MODES),
         ("recovery_mode", _VALID_RECOVERY_MODES),
         ("cut_sharing_mode", _VALID_CUT_SHARING_MODES),
+        ("forward_sampling_mode", _VALID_FORWARD_SAMPLING_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
         ("boundary_cuts_mode", _VALID_BOUNDARY_MODES),
     ]:

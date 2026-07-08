@@ -810,6 +810,22 @@ private:
   /// LP elements.
   int update_lp_for_phase(SceneIndex scene_index, PhaseIndex phase_index);
 
+  /// Overwrite `(scene_index, phase_index)`'s forward-LP stochastic
+  /// bounds with scene @p realization's scenario data
+  /// (`ForwardSamplingMode::resampled`).  Routes through the same
+  /// per-element `update_aperture` bound-only machinery the aperture
+  /// backward pass uses (flow discharges + demand/generator/capacity
+  /// profile bounds; dense overwrite, replay-recorded so a low-memory
+  /// release/reload preserves it).  v1: the applied realization is the
+  /// drawn scene's FIRST scenario (the same `scenarios().front()` base
+  /// convention as the aperture path).  No-op when either scene has no
+  /// scenarios.  Shared by the forward pass (apply the draw) and the
+  /// backward target re-solve (re-apply the cached draw, so the cut is
+  /// provably built from the SAME realization).
+  void apply_sampled_realization(SceneIndex scene_index,
+                                 PhaseIndex phase_index,
+                                 SceneIndex realization);
+
   /// Clone the LP, apply elastic filter on the clone, and solve it.
   /// Returns an ElasticResult (with solution data and per-link slack info)
   /// if feasible, nullopt otherwise.

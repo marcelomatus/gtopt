@@ -190,16 +190,17 @@ TEST_CASE("SDDP bounds sanity — cut_sharing=none is strictly correct")
 //
 // We assert with a SOFT (WARN) check here, NOT strict — and this is
 // PERMANENT per `docs/formulation/sddp-cut-validity.md` §8: the multicut
-// LB bounds the stagewise-RESAMPLED process (Theorem M1), while the
-// forward UB simulates PERSISTENT per-scene sample paths; the two
-// optima are not ordered for heterogeneous scenes (Corollary M2), so
-// LB > UB here is a process mismatch, not a cut bug.  On top of that,
-// this subcase uses NON-uniform probabilities (0.6/0.4) — exactly the
-// Theorem-M3 configuration where the 1/N pricing certifies no process
-// at all.  The correct strict comparison — cuts vs the extensive form —
-// lives in `test_sddp_cut_oracle.cpp`.  The strict LB <= UB property is
-// exercised on IDENTICAL scenes (next test), where resampled ≡
-// persistent and multicut converges to a zero gap.
+// LB bounds the stagewise-RESAMPLED process (Theorems M1/M4 — since the
+// M4 pricing fix the 0.6/0.4 probabilities are certified for the
+// process resampled with measure q_r = p_r), while the forward UB
+// simulates PERSISTENT per-scene sample paths; the two optima are not
+// ordered for heterogeneous scenes (Corollary M2), so LB > UB here is a
+// process mismatch, not a cut bug.  The correct strict comparison —
+// cuts vs the extensive form — lives in `test_sddp_cut_oracle.cpp`
+// (including the strict identical-dynamics 0.6/0.4 M4 case).  The
+// strict LB <= UB property is exercised on IDENTICAL scenes (next
+// test), where resampled ≡ persistent and multicut converges to a zero
+// gap.
 TEST_CASE(
     "SDDP bounds sanity — heterogeneous scenes, multicut (PLP-faithful, "
     "WARN-only)")
@@ -256,6 +257,78 @@ TEST_CASE(
       auto results = sddp.solve();
       REQUIRE(results.has_value());
       check_iteration_invariants_strict(*results, label);
+    }
+  }
+}
+
+// ─── UB-strip parity: multicut UB ≡ none UB on identical scenes ───────────
+//
+// On IDENTICAL dynamics both modes simulate the same persistent forward
+// paths, so once cuts start carrying weight (iteration 2 on) the
+// realised UB must coincide per iteration: the forward opex strip must
+// remove EXACTLY the objective's future term.  Under multicut that term
+// is `w·Σ_r varphi_r` with the shared M4 weight `w = alpha_unit_cost`
+// (`docs/formulation/sddp-cut-validity.md` §8 "UB strip", ledger §1.1 —
+// FIXED 2026-07-08); the pre-fix strip removed only `varphi_0` at full
+// weight.  The 0.5/0.5 split passes even pre-fix (symmetric cut sets
+// keep every varphi at the same floor and w·N = 1); the 0.6/0.4 split
+// is the failing-then-passing gate — with identical dynamics
+// `varphi_r ≈ p_r·Ṽ` differ per column, so the varphi_0-only strip
+// over-subtracts `(varphi_0 − w·Σ varphi_r)` on the low-probability
+// scene and the multicut UB detaches from the none UB.
+TEST_CASE(
+    "SDDP UB strip — multicut UB matches none UB on identical scenes "
+    "from iteration 2 on")
+{
+  const std::array<std::pair<double, double>, 2> prob_splits = {{
+      {0.5, 0.5},
+      {0.6, 0.4},
+  }};
+
+  for (const auto& [p0, p1] : prob_splits) {
+    const auto label = std::format("2s3p identical {}/{}", p0, p1);
+    SUBCASE(label.c_str())
+    {
+      const auto run = [&](CutSharingMode mode)
+      {
+        auto planning = make_2scene_3phase_hydro_planning(p0, p1);
+        PlanningLP plp(std::move(planning));
+
+        SDDPOptions opts;
+        opts.max_iterations = 6;
+        opts.convergence_tol = 1.0e-9;  // keep iterating — no early exit
+        opts.stationary_tol = 0.0;
+        opts.cut_sharing = mode;
+        opts.apertures = std::vector<Uid> {};  // pure Benders backward
+        opts.enable_api = false;
+
+        SDDPMethod sddp(plp, opts);
+        auto results = sddp.solve();
+        REQUIRE(results.has_value());
+        REQUIRE_FALSE(results->empty());
+        return *results;
+      };
+
+      const auto none_results = run(CutSharingMode::none);
+      const auto multi_results = run(CutSharingMode::multicut);
+
+      const auto n = std::min(none_results.size(), multi_results.size());
+      REQUIRE(n >= 2);
+      // Position 0 = iteration 1 (α pinned at 0 in both modes — trivially
+      // equal); the strip divergence can only show from position 1 =
+      // iteration 2 on, once cuts carry weight.  Compare both anyway.
+      for (std::size_t i = 0; i < n; ++i) {
+        INFO("[",
+             label,
+             "] pos=",
+             i,
+             " UB_none=",
+             none_results[i].upper_bound,
+             " UB_multicut=",
+             multi_results[i].upper_bound);
+        CHECK(multi_results[i].upper_bound
+              == doctest::Approx(none_results[i].upper_bound).epsilon(1.0e-6));
+      }
     }
   }
 }
@@ -400,19 +473,21 @@ TEST_CASE("SDDP scale_alpha probe — variable_scales force scale_alpha")
   }
 }
 
-// ─── Runtime WARN: multicut × non-uniform scene probabilities (M3) ──
+// ─── Runtime INFO: multicut × non-uniform scene probabilities (M4) ──
 //
-// `SDDPMethod::initialize_solver` emits a SPDLOG_WARN when
-// `cut_sharing == multicut`, `num_scenes > 1`, AND the per-scene
-// probabilities are non-uniform — the Theorem-M3 unsound configuration
-// (`docs/formulation/sddp-cut-validity.md` §8): the uniform 1/N pricing
-// of the varphi columns certifies the resampled-process LB only for
-// uniform probabilities.  These tests verify the warning fires in
-// exactly that configuration and nowhere else.
+// Since the M4 pricing fix (2026-07-08) every `varphi_r` in scene-s's
+// LP is priced at `w_r = p_s` (`alpha_unit_cost`), so multicut with
+// non-uniform probabilities is a CERTIFIED configuration (Prop. M4 in
+// `docs/formulation/sddp-cut-validity.md` §8) and the former
+// theorem-M3 WARN is obsolete.  `SDDPMethod::initialize_solver` now
+// emits an INFO (mentioning "Prop. M4") for `cut_sharing == multicut`
+// with `num_scenes > 1` and non-uniform probabilities — reminding
+// operators of the persistent-UB vs resampled-LB process mismatch
+// (Corollary M2) — and stays silent everywhere else.
 
 TEST_CASE(
-    "SDDP cut_sharing WARN — fires for multicut with non-uniform "
-    "scene probabilities")
+    "SDDP cut_sharing INFO — M4 pricing note for multicut with "
+    "non-uniform scene probabilities (no WARN)")
 {
   gtopt::test::LogCapture logs;
 
@@ -428,14 +503,18 @@ TEST_CASE(
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // The WARN log must mention "non-uniform scene probabilities" — the
-  // distinctive phrase from the warning text.
+  // The INFO log must mention the M4 pricing rule and the distinctive
+  // "non-uniform scene probabilities" phrase.
   CHECK(logs.contains("non-uniform scene probabilities"));
+  CHECK(logs.contains("Prop. M4"));
   CHECK(logs.contains("cut_sharing=multicut"));
+  // The pre-M4 "NOT certified" warning must be gone: non-uniform
+  // multicut is sound under M4 pricing.
+  CHECK_FALSE(logs.contains("NOT certified"));
 }
 
 TEST_CASE(
-    "SDDP cut_sharing WARN — silent for multicut with uniform "
+    "SDDP cut_sharing INFO — silent for multicut with uniform "
     "scene probabilities")
 {
   gtopt::test::LogCapture logs;
@@ -453,11 +532,11 @@ TEST_CASE(
   REQUIRE(results.has_value());
 
   // Uniform probabilities: theorem M1 certifies the resampled-process
-  // LB → no warning expected.
+  // LB → no probability note expected.
   CHECK_FALSE(logs.contains("non-uniform scene probabilities"));
 }
 
-TEST_CASE("SDDP cut_sharing WARN — silent for cut_sharing=none")
+TEST_CASE("SDDP cut_sharing INFO — silent for cut_sharing=none")
 {
   gtopt::test::LogCapture logs;
 
@@ -473,12 +552,12 @@ TEST_CASE("SDDP cut_sharing WARN — silent for cut_sharing=none")
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // none mode is unconditionally valid (theorem N1) → no warning even
-  // with non-uniform probabilities.
+  // none mode is unconditionally valid (theorem N1) → no probability
+  // note even with non-uniform probabilities.
   CHECK_FALSE(logs.contains("non-uniform scene probabilities"));
 }
 
-TEST_CASE("SDDP cut_sharing WARN — silent for single-scene runs")
+TEST_CASE("SDDP cut_sharing INFO — silent for single-scene runs")
 {
   gtopt::test::LogCapture logs;
 

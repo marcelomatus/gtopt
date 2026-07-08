@@ -991,6 +991,13 @@ class GTOptWriter(
         if cut_sharing_mode is not None:
             sddp_opts["cut_sharing_mode"] = cut_sharing_mode
 
+        # Forward-pass sampling mode ('persistent' | 'resampled') — see
+        # the --forward-sampling-mode CLI help in _parsers.py.  Unset =
+        # gtopt's default ('persistent'), so nothing is emitted.
+        forward_sampling_mode = options.get("forward_sampling_mode")
+        if forward_sampling_mode is not None:
+            sddp_opts["forward_sampling_mode"] = forward_sampling_mode
+
         # elastic_mode controls how the forward-pass elastic filter emits
         # feasibility cuts when a subproblem is infeasible:
         #   - "single_cut" (gtopt C++ default): one aggregated π-weighted

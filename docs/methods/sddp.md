@@ -222,7 +222,7 @@ by the `cut_sharing_mode` option:
 | Mode | Behaviour |
 |------|----------|
 | `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization.  **Unconditionally valid** — each scene's α bounds its own persistent-path cost-to-go |
-| `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced 1/N; scene S's cuts land on `varphi_S` in every LP.  **Conditionally valid**: a true lower bound for the *stagewise-resampled* process under **uniform scene probabilities**; unsound for non-uniform probabilities.  See `docs/formulation/sddp-cut-validity.md` §8 |
+| `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced at the M4 weight `w_r = p_s` (the owning scene's normalized probability; = 1/N under uniform probabilities); scene S's cuts land on `varphi_S` in every LP.  **Valid for the resampled process**: a true lower bound for the *stagewise-resampled* process with measure `q_r = p_r`, for any probability vector (M4 pricing fix, 2026-07-08).  See `docs/formulation/sddp-cut-validity.md` §8 |
 
 > **Removed modes** (2026-07-08): `broadcast_mean` (formerly
 > `expected`), `accumulate`, and `max` were deleted.  All three
@@ -235,17 +235,20 @@ by the `cut_sharing_mode` option:
 > now hard-error at JSON/CLI ingestion; the implementation survives
 > only in git history.
 >
-> **⚠️ `multicut` validity caveat** (2026-07 certification): scene S's
-> cuts bound a *dedicated* column `varphi_S` in every LP, so no cut
-> ever over-tightens another scene's own bound.  Under **uniform**
-> scene probabilities the resulting LB is provably the lower bound of
-> the *stagewise-resampled* process (scene data redrawn at each phase
-> boundary) — a different process from the persistent-path forward
-> simulation, so a transient `LB > UB` against the sampled UB is a
-> process mismatch, **not** a cut bug.  Under **non-uniform**
-> probabilities the 1/N pricing inflates the future term by
-> `1/(N·p_s)` and the LB is not valid — a runtime `WARN` is emitted at
-> SDDP setup (`source/sddp_method.cpp::initialize_solver`) for
+> **`multicut` semantics** (2026-07 certification + M4 pricing fix):
+> scene S's cuts bound a *dedicated* column `varphi_S` in every LP, so
+> no cut ever over-tightens another scene's own bound.  Since the M4
+> pricing fix (2026-07-08, `alpha_unit_cost`: every `varphi_r` in
+> scene-s's LP priced at `w_r = p_s`) the resulting LB is provably the
+> lower bound of the *stagewise-resampled* process with measure
+> `q_r = p_r` (scene data redrawn at each phase boundary) for **any**
+> probability vector — the former "unsound for non-uniform
+> probabilities" caveat (theorem M3, pre-M4 uniform 1/N pricing) is
+> retired.  The resampled process is still a different process from
+> the persistent-path forward simulation, so a transient `LB > UB`
+> against the sampled UB is a process mismatch, **not** a cut bug; an
+> `INFO` noting this is emitted at SDDP setup
+> (`source/sddp_method.cpp::initialize_solver`) for
 > `cut_sharing=multicut` with non-uniform scene probabilities.  Full
 > statements and proofs: `docs/formulation/sddp-cut-validity.md`
 > §7–§8; extensive-form certification harness:
@@ -304,6 +307,27 @@ for phase = 0 to T-1:
     
     opex += objective - α value
 ```
+
+**Forward sampling** (`forward_sampling_mode`, 2026-07-08): by default
+(`persistent`) each scene-driver simulates its OWN scenario data at
+every phase — the historical behaviour, byte-identical.  Under
+`resampled`, at every phase boundary (`phase > 0`) the driver re-draws
+a scene realization with probability `p_r` (deterministic in
+`(iteration, scene, phase)` — stable across backtracking re-entries and
+thread scheduling) and overwrites the phase LP's stochastic bounds with
+the drawn scene's data via the same bound-only `update_aperture`
+machinery the aperture backward pass uses (flow discharges + profile
+bounds; replay-recorded, so low-memory reconstructs preserve it).  The
+forward UB then estimates the **stagewise-resampled** process — the
+same measure `q_r = p_r` the `cut_sharing_mode = multicut` lower bound
+certifies (Theorems M1/M4, `docs/formulation/sddp-cut-validity.md` §8)
+— removing the Corollary-M2 UB/LB process mismatch.  v1 draws ONE
+sampled path per scene-driver per iteration; the drawn id is cached on
+the phase state so the backward pass re-solves the SAME realization,
+and the simulation pass restores each scene's own (persistent) data so
+final outputs keep per-scene semantics.  Warm-start seeding (forward
+basis chain, `basis_cross_mode`) is unaffected — realizations differ
+only in column bounds.
 
 ### 4.3 Backward Pass
 
@@ -872,6 +896,7 @@ prefix, since the section name already provides the namespace).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"` or `"multicut"` (the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
+| `forward_sampling_mode` | string | `"persistent"` | Forward-pass sampling: `"persistent"` (each scene-driver on its own path) or `"resampled"` (per-phase-boundary probability-weighted re-draw, deterministic seed; matches the multicut LB's resampled process — see §4.2) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |

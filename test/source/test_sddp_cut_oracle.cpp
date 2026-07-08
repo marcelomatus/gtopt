@@ -40,9 +40,17 @@
  *     which is deliberately NOT shipped here (too intrusive to wire
  *     into a Planning without a flaky approximation).  The strict
  *     earlier-phase coverage lives in the identical-scene case.
- *   * `multicut`, non-uniform probabilities — Theorem M3: the 1/N
- *     pricing makes the recursion the Bellman operator of no proper
- *     stochastic process; WARN-only demonstration, nothing strict.
+ *   * `multicut`, non-uniform probabilities — since the M4 pricing fix
+ *     (`alpha_unit_cost`: w_r = p_s, Prop. M4 in the theorem doc §8)
+ *     the recursion is the Bellman recursion of the process resampled
+ *     with measure q_r = p_r for ANY probability vector.  On IDENTICAL
+ *     dynamics resampled ≡ persistent, so the tail oracle is exact and
+ *     STRICT at every transition (the failing-then-passing gate for
+ *     M4: the pre-M4 1/N pricing inflated the low-probability scene's
+ *     future term by 1/(N·p_s) and its non-terminal cuts overshot).
+ *     On heterogeneous dynamics the persistent-tail comparison remains
+ *     WARN-only (process mismatch, Corollary M2 — same status as the
+ *     uniform heterogeneous case).
  *
  * The aperture backward pass is disabled throughout (`apertures = {}`)
  * so the audited cuts are pure Benders cuts — the aperture path's
@@ -746,20 +754,76 @@ TEST_CASE(  // NOLINT
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Mode `multicut`, NON-uniform probabilities (0.6/0.4): Theorem M3
-// (`docs/formulation/sddp-cut-validity.md` §8) — the uniform 1/N pricing
-// of the varphi columns makes the scene-LP recursion the Bellman
-// operator of NO proper stochastic process (the future term carries
-// weight 1/(N·p_s) ≠ 1), so neither the earlier-phase cuts nor the LB
-// are certified against any oracle.  WARN-only demonstration: nothing
-// strict is asserted here, and these WARNs are NOT defects to fix in
-// the harness — they document the unsound configuration until the M4
-// pricing correction ships (gated behind review of this harness).
+// Mode `multicut`, IDENTICAL dynamics, NON-uniform probabilities
+// (0.6/0.4): the M4 pricing (`alpha_unit_cost`: every varphi_r in
+// scene-s's LP priced at w_r = p_s, Prop. M4 in
+// `docs/formulation/sddp-cut-validity.md` §8) makes the scene-LP
+// recursion the Bellman recursion of the process resampled with
+// measure q_r = p_r.  With identical dynamics the resampled process
+// coincides with the persistent one, so the per-scene persistent tail
+// oracle is exact and STRICT at every transition — including the
+// non-terminal ones.
+//
+// This is the mandated failing-then-passing gate for the M4 fix: with
+// the pre-M4 uniform 1/N pricing (theorem M3), the low-probability
+// scene's phase-1 LP priced its future term at 1/2 instead of p_s =
+// 0.4, so its phase-0 cuts carried z* with an INFLATED future term and
+// overshot the 0.4-folded persistent tail at EVERY grid point (54/494
+// assertions failed; overshoot from ≈ $412 at x = 200, 5.1% of
+// V_tail = 8048, to ≈ $1312 at x = 0, 11.3% of V_tail = 11648 — see
+// the commit message).  With M4 pricing the same sweep passes
+// strictly.
 // ═════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
-    "SDDP cut oracle — multicut non-uniform probabilities (0.6/0.4) is "
-    "uncertified (theorem M3, WARN-only)")
+    "SDDP cut oracle — multicut identical dynamics with non-uniform "
+    "probabilities (0.6/0.4): M4 pricing keeps every cut a strict "
+    "underestimator")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleBaseInflow},
+      {.prob = 0.4, .inflow = kOracleBaseInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  // Identical dynamics: resampled ≡ persistent, so the LB property is
+  // strict against the persistent extensive optimum too (theorem M4
+  // degenerate case).
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/true);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Mode `multicut`, HETEROGENEOUS dynamics, NON-uniform probabilities
+// (0.6/0.4): under M4 pricing the cuts bound the q_r = p_r RESAMPLED
+// tree, which is a different function from the persistent per-scene
+// tails swept below — same process-mismatch status as the uniform
+// heterogeneous case (Corollary M2), so the persistent-tail sweep stays
+// WARN-only (demonstrative, not a regression signal).  Before the M4
+// fix this case was additionally unsound (theorem M3: the 1/N pricing
+// certified no process at all); M4 removed the unsoundness but not the
+// process mismatch.
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — multicut heterogeneous non-uniform (0.6/0.4): "
+    "persistent-tail comparison is process-mismatched (WARN-only)")
 {
   auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
@@ -777,9 +841,94 @@ TEST_CASE(  // NOLINT
       {.prob = 0.4, .inflow = kOracleDryInflow},
   }};
 
-  // WARN-only sweep against the persistent per-scene tails — M3 says
-  // the recursion prices no proper process, so violations here are
-  // expected and demonstrative, not regressions.
+  // WARN-only sweep against the persistent per-scene tails — under M4
+  // the cuts bound the resampled tree (a different function), so
+  // violations here are expected and demonstrative, not regressions.
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/false);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/false);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// `forward_sampling = resampled` (2026-07-08): the forward pass itself
+// simulates the stagewise-resampled process (per-phase-boundary
+// probability-weighted draw applied through the bound-only
+// `update_aperture` machinery; deterministic in (iteration, scene,
+// phase)).  On IDENTICAL dynamics every drawn realization pins the SAME
+// bound values, so resampled ≡ persistent and the full strict M4 sweep
+// must hold unchanged — cuts and LB against the persistent tail oracle.
+// On HETEROGENEOUS dynamics the pure-Benders backward builds
+// scenario-s's cut from scene-s's LP carrying the SAMPLED realization's
+// bounds (the same realization the forward pass solved — cached on the
+// phase state), which certifies nothing against the persistent tails —
+// WARN-only, same tier as the persistent-forward heterogeneous case
+// (theorem doc §8 remark; the certified heterogeneous route is the
+// aperture backward pass, out of scope for this harness).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — resampled forward sampling, identical dynamics "
+    "(0.6/0.4 multicut): strict M4 sweep unchanged")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  opts.forward_sampling = ForwardSamplingMode::resampled;
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleBaseInflow},
+      {.prob = 0.4, .inflow = kOracleBaseInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/true);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — resampled forward sampling, heterogeneous "
+    "dynamics (0.6/0.4 multicut): persistent-tail sweep WARN-only")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  opts.forward_sampling = ForwardSamplingMode::resampled;
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleWetInflow},
+      {.prob = 0.4, .inflow = kOracleDryInflow},
+  }};
+
+  // WARN-only: under resampled forward sampling the cut for varphi_s is
+  // built at whatever realization the forward pass drew for that cell,
+  // so the persistent-tail comparison is demonstrative (v1 caveat —
+  // theorem doc §8 remark), exactly like the persistent-forward
+  // heterogeneous case above.
   const auto cuts = sddp.stored_cuts();
   const int n_checked =
       oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/false);
