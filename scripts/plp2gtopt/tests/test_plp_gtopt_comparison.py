@@ -40,6 +40,7 @@ Run the opt-in tier single-worker (one conversion + one solve):
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -291,6 +292,7 @@ def _gtopt_solution_series(output_dir, planning, kind, name, field):
         "Turbine": "turbine_array",
         "Reservoir": "reservoir_array",
         "Waterway": "waterway_array",
+        "VolumeRight": "volume_right_array",
     }
     uid = next(
         (e["uid"] for e in planning["system"][arrays[kind]] if e["name"] == name),
@@ -638,53 +640,139 @@ class TestIrrigationSimilar:
     }
 
     def _plp_convenio_csv(self, filename):
+        """Load a PLP convenio CSV (plplajam.csv / plpmaule.csv).
+
+        Format quirks handled: fixed-width F9.3 fields overflow to
+        ``*********`` for values >= 1e6 (coerced to NaN); trailing
+        comma yields an unnamed empty column; names carry padding.
+        """
         for base in (os.environ.get("PLP_OUT_DIR"), str(_PLP_2Y)):
             if not base:
                 continue
-            path = Path(base) / filename
-            if path.exists():
-                df = pd.read_csv(path, skipinitialspace=True)
-                df.columns = [c.strip() for c in df.columns]
-                return df
+            for suffix in ("", ".xz"):
+                path = Path(base) / (filename + suffix)
+                if path.exists():
+                    df = pd.read_csv(path, skipinitialspace=True)
+                    df.columns = [c.strip() for c in df.columns]
+                    for col in df.columns[9:]:
+                        df[col] = pd.to_numeric(df[col], errors="coerce")
+                    return df
         return None
 
     def _compare_states(self, solved, plp_df, mapping, report_name):
+        """Unit-free convenio state comparison.
+
+        PLP writes the eta-level states as VOLUME PER STAGE
+        (state x etadur x VolScale — genpdlajam.f:986-999), so the
+        raw numbers oscillate with stage duration and their unit
+        bridge to hm3 is PLP-internal.  The comparison is therefore
+        SHAPE-based (the user's "similar, not number-by-number"):
+
+        * convert PLP to rates (divide by stage hours from HorasAcum),
+        * normalize both series by their own max,
+        * require the normalized trajectories to not anti-correlate
+          (inverted semantics detector) whenever both sides move;
+        * flat-vs-flat (wet-year unused buckets) counts as agreement.
+        """
         output_dir, planning = solved
-        hidro = [h for h in plp_df["Hidro"].unique() if str(h).strip() != "MEDIA"][0]
-        sim = plp_df[plp_df["Hidro"] == hidro].sort_values("Bloque")
+        hidro = [
+            h for h in plp_df["Hidro"].astype(str).str.strip().unique() if h != "MEDIA"
+        ][0]
+        sim = plp_df[plp_df["Hidro"].astype(str).str.strip() == hidro]
+        st = sim.sort_values(["Etapa", "Bloque"]).groupby("Etapa").first()
+        hours = st["HorasAcum"].diff().shift(-1)
+        hours = hours.fillna(hours.median()).clip(lower=1.0)
         vrs = {
             v["name"]: v["uid"]
             for v in planning["system"].get("volume_right_array", [])
         }
-        counts = _stage_block_counts(planning)
         rows = []
         for plp_col, gt_name in mapping.items():
-            if plp_col not in sim.columns or gt_name not in vrs:
+            if plp_col not in st.columns or gt_name not in vrs:
                 continue
             gt = _gtopt_solution_series(
                 output_dir, planning, "VolumeRight", gt_name, "efin_sol"
             )
-            pos, pm = 0, []
-            for nblk in counts[: len(gt)]:
-                pm.append(float(sim[plp_col].iloc[pos : pos + nblk].mean()))
-                pos += nblk
-            n = min(len(pm), len(gt))
+            plp_rate = (st[plp_col] / hours).reset_index(drop=True)
+            n = min(len(plp_rate), len(gt))
             if n < 6:
                 continue
-            s_p, s_g = pd.Series(pm[:n]), pd.Series(gt[:n])
-            corr = float(s_p.corr(s_g)) if s_p.std() > 1e-9 else float("nan")
-            ratio = float(s_g.mean() / max(s_p.mean(), 1e-9))
-            rows.append((plp_col, gt_name, round(ratio, 3), round(corr, 3)))
-            # The buckets share provisioning rules and zone formulas:
-            # levels must be the same order of magnitude and move
-            # together (not number-by-number: dispatch differs).
-            assert 0.2 <= ratio <= 5.0, (
-                f"{gt_name}: state-level ratio {ratio:.2f} vs PLP {plp_col}"
+            s_p = pd.Series(plp_rate[:n].to_numpy(), dtype=float).fillna(0.0)
+            s_g = pd.Series(gt[:n], dtype=float)
+            p_moves = s_p.std() > 1e-6 * max(abs(s_p.max()), 1.0)
+            g_moves = s_g.std() > 1e-6 * max(abs(s_g.max()), 1.0)
+            if p_moves and g_moves:
+                norm_p = s_p / max(abs(s_p.max()), 1e-9)
+                norm_g = s_g / max(abs(s_g.max()), 1e-9)
+                corr = float(norm_p.corr(norm_g))
+                verdict = "corr"
+            elif not p_moves and not g_moves:
+                corr = float("nan")
+                verdict = "both-flat"
+            else:
+                corr = float("nan")
+                verdict = "one-sided-movement"
+            rows.append(
+                (
+                    plp_col,
+                    gt_name,
+                    verdict,
+                    round(corr, 3) if not math.isnan(corr) else "",
+                    round(float(s_p.mean()), 3),
+                    round(float(s_g.mean()), 3),
+                )
             )
         assert rows, "no comparable convenio states found"
-        pd.DataFrame(
-            rows, columns=["plp_var", "gtopt_volume_right", "ratio", "corr"]
-        ).to_csv(output_dir / report_name, index=False)
+        report = pd.DataFrame(
+            rows,
+            columns=[
+                "plp_var",
+                "gtopt_volume_right",
+                "verdict",
+                "norm_corr",
+                "plp_mean_rate",
+                "gtopt_mean_hm3",
+            ],
+        )
+        report.to_csv(output_dir / report_name, index=False)
+        corrs = [float(c) for _, _, v, c, _, _ in rows if v == "corr" and c != ""]
+        for c in corrs:
+            assert c > -0.5, f"anti-correlated convenio state:\n{report}"
+
+    @staticmethod
+    def _plp_reset_stages(plp_df, marker):
+        """1-based Etapa numbers whose TipoEtaGM equals `marker`."""
+        st = plp_df.sort_values(["Etapa", "Bloque"]).groupby("Etapa").first()
+        return [int(i) for i in st.index[st["TipoEtaGM"] == marker]]
+
+    def test_laja_reset_timing_matches_plp(self, solved):
+        """PLP stamps INICIOTEMP (TipoEtaGM=3) / INICIOANTIC (=4) on
+        its stages; gtopt's reset months (december/september) must
+        select the same stages — unit-free semantic alignment."""
+        plp_df = self._plp_convenio_csv("plplajam.csv")
+        if plp_df is None or "TipoEtaGM" not in plp_df.columns:
+            pytest.skip("plplajam.csv not available")
+        _, planning = solved
+        months = _stage_months(planning)
+        n = len(months)
+        plp_temp = [e for e in self._plp_reset_stages(plp_df, 3) if e <= n]
+        plp_antic = [e for e in self._plp_reset_stages(plp_df, 4) if e <= n]
+        gt_temp = [
+            i + 1
+            for i in range(n)
+            if months[i] == "december" and (i == 0 or months[i - 1] != "december")
+        ]
+        gt_antic = [
+            i + 1
+            for i in range(n)
+            if months[i] == "september" and (i == 0 or months[i - 1] != "september")
+        ]
+        assert plp_temp == gt_temp, (
+            f"INICIOTEMP stages diverge: PLP {plp_temp} vs gtopt {gt_temp}"
+        )
+        assert plp_antic == gt_antic, (
+            f"INICIOANTIC stages diverge: PLP {plp_antic} vs gtopt {gt_antic}"
+        )
 
     def test_laja_state_variables_vs_plp(self, solved):
         """Direct convenio state comparison: PLP's vdrf/vdef/vdmf/vgaf

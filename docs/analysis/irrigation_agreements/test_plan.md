@@ -305,3 +305,34 @@ the water-values workstream, not the agreements.
 the segment envelope, not a curve lookup — during extreme refills it
 legitimately sits off the curve (CIPRESES).  Matches our
 ReservoirSeepage semantics; equality asserted in the binding regime.
+
+
+## Live PLP run — convenio state comparison (2026-07-08)
+
+PLP CEN65 (CPLEX 22.1.1) was run on the 2-year case with
+`PLP_CONVLAJA_MODE=2` / `PLP_CONVMAULE_MODE=2` (userstop after 15
+Benders iterations, gap 0.41 plateaued; 19 simulations, 59 min).  The
+convenio outputs are vendored: `support/plp/2_years/plplajam.csv.xz`
+/ `plpmaule.csv.xz`.  Comparison results (Sim 1, shape-based — PLP
+writes eta states as volume-per-stage x VolScale, genpdlajam.f:986):
+
+* **Reset timing EXACT**: PLP's TipoEtaGM=3 (INICIOTEMP) and =4
+  (INICIOANTIC) stamps select precisely gtopt's december/september
+  reset stages (`test_laja_reset_timing_matches_plp`).
+* **Balance semantics 1:1**: genpdlajam.f:227-257 rows are literally
+  our design — `vdrf_t = vdrf_(t-1) − qdrh·dt` (depleting bucket),
+  `+vgaf` debit folded into the December provision row, provision =
+  `min(DerRiego, DerRiegoMax)`, vgaf up-counter with `−qgah·dt`.
+* **Compensation machinery correlates** (vmdcef vs
+  maule_vol_compensacion_elec: norm-corr 0.68) — the january credit
+  moves the same way in both models.
+* Laja partition buckets correlate positively (vdrf 0.31, vdef 0.35).
+* The flat-vs-moving cases (vdmf/vgaf: PLP moves, gtopt flat at 0;
+  vmgeaf/vmgrtf: gtopt moves, PLP ~flat) are the KNOWN dispatch-policy
+  divergence (El Toro hoarding / LMAULE usage under the efin_cost
+  vector), not agreement-machinery differences — no state
+  anti-correlates below −0.5 (inverted-semantics gate).
+
+PLP quirks recorded: F9.3 overflow prints `*********` for vdef >= 1e6
+(coerced to NaN); `userstop` file with `P` stops the policy loop and
+jumps to simulation (plp-pdconvrg.f:51).
