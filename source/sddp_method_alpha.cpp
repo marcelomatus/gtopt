@@ -69,7 +69,8 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
                                   m_options_.scale_alpha,
                                   m_options_.cut_sharing,
                                   m_options_.boundary_cut_sharing,
-                                  /*register_as_state_variable=*/!suppress);
+                                  /*register_as_state_variable=*/!suppress,
+                                  &m_options_.markov);
 
   // Bootstrap pin for the USER α (dynamic AmplFutureCost, piece 5 step 2c).
   // The built-in α is pinned `lowb = uppb = 0` until a cut frees it (see
@@ -138,7 +139,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               double scale_alpha,
                               CutSharingMode cut_sharing,
                               BoundaryCutSharingMode boundary_cut_sharing,
-                              bool register_as_state_variable)
+                              bool register_as_state_variable,
+                              const MarkovChainConfig* markov)
 {
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
@@ -162,14 +164,29 @@ void register_alpha_variables(PlanningLP& planning_lp,
   const bool terminal_multi =
       (boundary_cut_sharing == BoundaryCutSharingMode::multicut);
 
+  // Markov-chain SDDP (additive branch — `docs/formulation/sddp-markov.md`):
+  // non-terminal phases carry M = num_states columns `varphi_0..M-1`
+  // (uid = sddp_alpha_uid + m, same uid-offset scheme as multicut), each
+  // priced `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}` (theorem MK1) instead of
+  // the uniform 1/n_alpha.  The terminal phase is untouched (it follows
+  // `boundary_cut_sharing`, exactly as under multicut).
+  const bool intermediate_markov = (cut_sharing == CutSharingMode::markov)
+      && markov != nullptr && !markov->empty();
+  const std::vector<double> markov_costs = intermediate_markov
+      ? markov_alpha_weights(sim, *markov, scene_index)
+      : std::vector<double> {};
+
   // Add `n_alpha` α columns to `li` and register each as a state variable in
   // the registry selected by `kind`.  Shared by the forward system and (when
   // present) the parallel aperture system so both LPs carry α + its cuts.
+  // `per_col_costs` (markov only) overrides the uniform pricing with one
+  // objective weight per column; empty keeps the legacy uniform pricing.
   const auto register_alpha_on = [&](LinearInterface& li,
                                      PhaseIndex pi,
                                      PhaseUid phase_uid,
                                      SystemKind kind,
-                                     std::size_t n_alpha)
+                                     std::size_t n_alpha,
+                                     std::span<const double> per_col_costs = {})
   {
     // When the built-in α is suppressed (user-overridable FCF), the column is
     // still added (so the LP column layout / aperture mirroring is unchanged)
@@ -178,6 +195,10 @@ void register_alpha_variables(PlanningLP& planning_lp,
     const double unit_cost =
         register_as_state_variable ? 1.0 / static_cast<double>(n_alpha) : 0.0;
     for (std::size_t s = 0; s < n_alpha; ++s) {
+      const double col_cost =
+          (register_as_state_variable && s < per_col_costs.size())
+          ? per_col_costs[s]
+          : unit_cost;
       const auto alpha_uid =
           static_cast<Uid>(sddp_alpha_uid + static_cast<Uid>(s));
       // α bootstrap: bidirectional pin `lowb = uppb = 0` keeps α at 0 until an
@@ -187,9 +208,9 @@ void register_alpha_variables(PlanningLP& planning_lp,
       const auto alpha_sparse = SparseCol {
           .lowb = 0.0,
           .uppb = 0.0,
-          .cost =
-              unit_cost,  // physical cost: α is in $ — 1/N average under
-                          // multicut; scaling handled by emit_col_to_backend
+          .cost = col_cost,  // physical cost: α is in $ — 1/N average under
+                             // multicut, w_{s,m'} under markov; scaling
+                             // handled by emit_col_to_backend
           .is_state = true,
           .pin_scale = true,  // exempt α from Ruiz equilibration so all
                               // scenes share the same scale — prevents
@@ -231,8 +252,14 @@ void register_alpha_variables(PlanningLP& planning_lp,
   for (auto&& [pi, phase] : enumerate<PhaseIndex>(phases)) {
     const bool is_last = (static_cast<std::size_t>(pi) + 1 == n_phases);
     const bool multi = is_last ? terminal_multi : intermediate_multi;
-    const std::size_t n_alpha =
-        multi ? std::max<std::size_t>(num_scenes, 1) : 1;
+    std::size_t n_alpha = multi ? std::max<std::size_t>(num_scenes, 1) : 1;
+    // Markov: non-terminal phases carry M state columns priced by the
+    // precomputed `markov_costs` weights; terminal stays mode-independent.
+    std::span<const double> per_col_costs {};
+    if (!is_last && intermediate_markov) {
+      n_alpha = markov->num_states;
+      per_col_costs = markov_costs;
+    }
 
     // Mirror α onto the aperture system (if any) so the backward-pass
     // aperture clones carry α and the cuts installed on it.  Independent
@@ -246,7 +273,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                         pi,
                         phase.uid(),
                         SystemKind::aperture,
-                        n_alpha);
+                        n_alpha,
+                        per_col_costs);
     }
 
     if (find_alpha_state_var(sim, scene_index, pi) != nullptr) {
@@ -264,7 +292,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                       pi,
                       phase.uid(),
                       SystemKind::forward,
-                      n_alpha);
+                      n_alpha,
+                      per_col_costs);
   }
 }
 

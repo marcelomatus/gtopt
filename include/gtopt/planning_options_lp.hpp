@@ -1295,6 +1295,21 @@ public:
         default_sddp_cut_sharing_mode);
   }
 
+  /// Scene → Markov-state assignment for `cut_sharing_mode = markov`
+  /// (`SddpOptions::markov_states`).  Empty when unset.
+  [[nodiscard]] auto sddp_markov_states() const -> std::vector<int>
+  {
+    return m_options_.sddp_options.markov_states.value_or(Array<int> {});
+  }
+
+  /// Row-major M×M Markov transition matrix for
+  /// `cut_sharing_mode = markov` (`SddpOptions::markov_transition`).
+  /// Empty when unset.
+  [[nodiscard]] auto sddp_markov_transition() const -> std::vector<double>
+  {
+    return m_options_.sddp_options.markov_transition.value_or(Array<double> {});
+  }
+
   /**
    * @brief Get the resolved cut-drain mode for the async SDDP path.
    *

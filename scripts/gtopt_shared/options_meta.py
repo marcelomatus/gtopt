@@ -28,6 +28,8 @@ from typing import Any
 SDDP_OPTION_KEYS: frozenset[str] = frozenset(
     {
         "cut_sharing_mode",
+        "markov_states",
+        "markov_transition",
         "cut_directory",
         "api_enabled",
         "production_factor_update_skip",

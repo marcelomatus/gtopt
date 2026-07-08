@@ -27,11 +27,25 @@ namespace gtopt
  */
 struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
-  /** @brief Cut sharing mode: none (default) or multicut.  The legacy
-   * expected/broadcast_mean, accumulate, and max modes were REMOVED
-   * 2026-07-08 (invalid — `docs/formulation/sddp-cut-validity.md` §7);
-   * their names now hard-error at JSON parse time. */
+  /** @brief Cut sharing mode: none (default), multicut, or markov
+   * (opt-in, experimental — requires `markov_states` +
+   * `markov_transition`).  The legacy expected/broadcast_mean,
+   * accumulate, and max modes were REMOVED 2026-07-08 (invalid —
+   * `docs/formulation/sddp-cut-validity.md` §7); their names now
+   * hard-error at JSON parse time. */
   std::optional<CutSharingMode> cut_sharing_mode {};
+  /** @brief Scene → Markov-state assignment for
+   * `cut_sharing_mode = markov`: one integer per scene (in scene
+   * order), each in `[0, M)` where `M` is the transition matrix
+   * dimension.  Static per scene (v1).  Validated at SDDP setup; see
+   * `docs/formulation/sddp-markov.md` §1. */
+  std::optional<Array<int>> markov_states {};
+  /** @brief Row-major M×M row-stochastic Markov transition matrix for
+   * `cut_sharing_mode = markov` (`M` inferred from the array length,
+   * which must be a perfect square).  Rows must sum to ≈ 1
+   * (tolerance 1e-6) with non-negative entries.  See
+   * `docs/formulation/sddp-markov.md` §1. */
+  std::optional<Array<double>> markov_transition {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName cut_directory {};
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
@@ -762,6 +776,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
+    merge_opt(markov_states, std::move(opts.markov_states));
+    merge_opt(markov_transition, std::move(opts.markov_transition));
     merge_opt(cut_drain_mode, opts.cut_drain_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);

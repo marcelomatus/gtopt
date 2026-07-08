@@ -886,6 +886,26 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         const auto* ua_svar = find_user_alpha_state_var(
             planning_lp().simulation(), scene_index, phase_index, *ua_uid);
         alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
+      } else if (m_options_.cut_sharing == CutSharingMode::markov
+                 && !m_options_.markov.empty())
+      {
+        // Markov-chain SDDP: the objective's future term is
+        // Σ_m w_{s,m}·varphi_m (physical), so strip exactly that —
+        // Σ_m w_{s,m}·col_sol(varphi_m)·scale_alpha, with the SAME
+        // `markov_alpha_weights` used to price the columns at
+        // registration (theorem MK1, docs/formulation/sddp-markov.md
+        // §6).  Mirrors the multicut Σ_r w_r·varphi_r strip form.
+        const auto sa = m_options_.scale_alpha;
+        const auto& sim = planning_lp().simulation();
+        const auto weights =
+            markov_alpha_weights(sim, m_options_.markov, scene_index);
+        for (const auto& [m, w] : enumerate(weights)) {
+          const auto* svar = find_alpha_state_var(
+              sim, scene_index, phase_index, SceneIndex {m});
+          if (svar != nullptr) {
+            alpha_val += w * svar->col_sol() * sa;
+          }
+        }
       } else {
         const auto sa = m_options_.scale_alpha;
         const auto* alpha_svar = find_alpha_state_var(

@@ -223,6 +223,7 @@ by the `cut_sharing_mode` option:
 |------|----------|
 | `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization.  **Unconditionally valid** — each scene's α bounds its own persistent-path cost-to-go |
 | `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced 1/N; scene S's cuts land on `varphi_S` in every LP.  **Conditionally valid**: a true lower bound for the *stagewise-resampled* process under **uniform scene probabilities**; unsound for non-uniform probabilities.  See `docs/formulation/sddp-cut-validity.md` §8 |
+| `markov` (opt-in, **experimental**) | Markov-chain SDDP: every scene-LP carries M future-cost columns (one per Markov state), priced `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}`; scene S's cuts land on `varphi_{m(S)}` in every LP.  Requires `markov_states` + `markov_transition` in `sddp_options`.  **Conditionally valid** for the *Markov-modulated resampled* process (theorem MK1): singleton states are exact; multi-scene states are valid-but-loose under non-negative stage costs.  Generalizes `multicut` (M = N singleton states, transition rows = normalized scene probabilities).  See `docs/formulation/sddp-markov.md` |
 
 > **Removed modes** (2026-07-08): `broadcast_mean` (formerly
 > `expected`), `accumulate`, and `max` were deleted.  All three
@@ -871,7 +872,9 @@ prefix, since the section name already provides the namespace).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"` or `"multicut"` (the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
+| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"multicut"`, or `"markov"` (experimental; the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
+| `markov_states` | array of int | unset | `markov` only: scene → Markov-state assignment, one entry per scene, each in `[0, M)` (`docs/formulation/sddp-markov.md`) |
+| `markov_transition` | array of double | unset | `markov` only: row-major M×M row-stochastic transition matrix (rows sum to 1) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
@@ -1285,7 +1288,7 @@ allow external tools to read it without seeing a partial write.
 | `build_benders_cut()` | Construct optimality cut from reduced costs |
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
 | `share_cuts_for_phase()` | Broadcast multicut rows across scenes for a phase (`sddp_cut_sharing.hpp`) |
-| `parse_cut_sharing_mode()` | Parse `"none"` / `"multicut"` to `CutSharingMode` (removed/unknown names throw) |
+| `parse_cut_sharing_mode()` | Parse `"none"` / `"multicut"` / `"markov"` to `CutSharingMode` (removed/unknown names throw) |
 | `parse_elastic_filter_mode()` | Parse `"single_cut"` / `"multi_cut"` / `"chinneck"` (and aliases) to `ElasticFilterMode` |
 | `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
 

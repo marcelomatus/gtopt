@@ -170,6 +170,18 @@ inline constexpr auto boundary_cut_soft_cost_entries =
  *   (`IColx = NCol-NSimul+ISimul`).  Full statements and proofs:
  *   `docs/formulation/sddp-cut-validity.md` §8.
  *
+ * - `markov` (opt-in, experimental): Markov-chain SDDP — each scene-LP
+ *   carries M future-cost columns `varphi_0..M-1` (one per Markov
+ *   state), scene-S's backward cut lands on `varphi_{m(S)}` in every
+ *   scene-LP, and `varphi_{m'}` is priced
+ *   `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}` (theorem MK1).  Requires
+ *   `markov_states` (scene→state assignment) and `markov_transition`
+ *   (row-stochastic M×M matrix) in `sddp_options`.  Generalizes
+ *   `multicut`: M = N singleton states with transition rows equal to
+ *   the normalized scene probabilities reproduce the multicut layout.
+ *   Full derivation and validity conditions:
+ *   `docs/formulation/sddp-markov.md`.
+ *
  * @note REMOVED 2026-07-08: the legacy `accumulate`, `broadcast_mean`
  * (alias `expected`), and `max` modes were deleted — all three
  * broadcast onto the destination scene's own α and are KNOWN INVALID
@@ -189,12 +201,19 @@ enum class CutSharingMode : uint8_t
                  ///< priced 1/N → valid LB for the stagewise-RESAMPLED
                  ///< process under uniform scene probabilities (theorem M1;
                  ///< uncertified for non-uniform probabilities, theorem M3)
+  markov = 2,  ///< Markov-chain SDDP (opt-in, experimental): M α columns per
+               ///< scene-LP (one per Markov state), cut s → varphi_{m(s)},
+               ///< priced p_s·P[m(s)][m']/pi_{m'} → valid LB for the
+               ///< Markov-modulated resampled process (theorem MK1 in
+               ///< docs/formulation/sddp-markov.md; singleton states exact,
+               ///< multi-scene states valid-but-loose under A2)
 };
 
 inline constexpr auto cut_sharing_mode_entries =
     std::to_array<EnumEntry<CutSharingMode>>({
         {.name = "none", .value = CutSharingMode::none},
         {.name = "multicut", .value = CutSharingMode::multicut},
+        {.name = "markov", .value = CutSharingMode::markov},
     });
 
 [[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept

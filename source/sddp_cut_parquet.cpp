@@ -683,9 +683,17 @@ struct CellCuts
     // here: install each inherited optimality cut on its ``varphi_S`` in
     // ALL scene-LPs, but ``store_cut`` only the origin copy so the next
     // level's save stays origin-only (no N×-per-transition blow-up).
+    //
+    // ``markov`` shares the mechanics exactly: the broadcast must also be
+    // reconstructed, and the cut's scene→state routing is resolved at
+    // load time through the α coefficient's typed identity
+    // (``Sddp:alpha:`` uid = ``sddp_alpha_uid + m(S)``), so no extra
+    // routing logic is needed here (docs/formulation/sddp-markov.md §6).
+    const auto load_sharing_mode =
+        planning_lp.options().sddp_cut_sharing_mode_enum();
     const bool multicut_broadcast =
-        planning_lp.options().sddp_cut_sharing_mode_enum()
-        == CutSharingMode::multicut;
+        load_sharing_mode == CutSharingMode::multicut
+        || load_sharing_mode == CutSharingMode::markov;
     // Broadcast copies (install into the LP + replay buffer only — never
     // stored), keyed by DESTINATION (scene, phase) cell.
     flat_map<CellKey, CellCuts> accum_bcast;

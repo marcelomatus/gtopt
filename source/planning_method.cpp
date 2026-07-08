@@ -88,6 +88,10 @@ namespace
   // Cut sharing and files.  Place the cuts directory inside the output
   // directory so all solver output is self-contained.
   sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
+  // Markov-chain configuration (consulted only under
+  // cut_sharing = markov; validated by SDDPMethod::initialize_solver).
+  sddp_opts.markov = make_markov_config(options.sddp_markov_states(),
+                                        options.sddp_markov_transition());
   sddp_opts.cut_drain_mode = options.sddp_cut_drain_mode();
   const auto output_dir_sv = options.output_directory();
   const auto cut_dir =

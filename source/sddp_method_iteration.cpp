@@ -609,6 +609,18 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
     src_alpha_svar = find_user_alpha_state_var(
         planning_lp().simulation(), scene_index, prev_phase_index, *ua_uid);
+  } else if (m_options_.cut_sharing == CutSharingMode::markov) {
+    // Markov-chain SDDP: scene S's cut targets the Markov-STATE column
+    // `varphi_{m(S)}` (uid = sddp_alpha_uid + m(S)) — the state index
+    // rides the multicut overload's uid-offset scheme.  See
+    // `docs/formulation/sddp-markov.md` §2/§6.
+    const auto mstate = static_cast<std::size_t>(
+        m_options_.markov
+            .state_of_scene[static_cast<std::size_t>(scene_index)]);
+    src_alpha_svar = find_alpha_state_var(planning_lp().simulation(),
+                                          scene_index,
+                                          prev_phase_index,
+                                          /*source_scene=*/SceneIndex {mstate});
   } else {
     src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
         ? find_alpha_state_var(planning_lp().simulation(),

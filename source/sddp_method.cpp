@@ -235,6 +235,146 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
   return (upper_bound - lower_bound) / denom;
 }
 
+// ─── Markov-chain SDDP configuration (cut_sharing = markov) ─────────────────
+
+namespace
+{
+
+/// Per-scene probability mass: sum of the scene's scenario
+/// `probability_factor`s, with the same `≤ 0 → 1.0` fallback as
+/// `compute_scene_weights`.  Raw (unnormalized) masses are fine — the
+/// `w = p_s·P/pi` pricing is scale-invariant in the total mass.
+[[nodiscard]] std::vector<double> scene_probability_masses(
+    const SimulationLP& sim)
+{
+  const auto scenes = sim.scenes();
+  std::vector<double> masses(scenes.size(), 0.0);
+  for (const auto& [si, scene] : enumerate(scenes)) {
+    for (const auto& sc : scene.scenarios()) {
+      masses[si] += sc.probability_factor();
+    }
+    if (masses[si] <= 0.0) {
+      masses[si] = 1.0;  // fallback equal mass (compute_scene_weights rule)
+    }
+  }
+  return masses;
+}
+
+}  // namespace
+
+MarkovChainConfig make_markov_config(std::vector<int> state_of_scene,
+                                     std::vector<double> transition)
+{
+  MarkovChainConfig config {
+      .state_of_scene = std::move(state_of_scene),
+      .transition = std::move(transition),
+  };
+  // M is the integer square root of the transition length; a non-square
+  // length leaves `num_states² != transition.size()`, which
+  // `validate_markov_config` reports.
+  const auto len = config.transition.size();
+  config.num_states = static_cast<std::size_t>(
+      std::llround(std::sqrt(static_cast<double>(len))));
+  return config;
+}
+
+std::optional<std::string> validate_markov_config(
+    const MarkovChainConfig& markov, std::size_t num_scenes)
+{
+  const auto m = markov.num_states;
+  if (m < 1) {
+    return "markov: num_states must be >= 1 (markov_transition is "
+           "missing or empty)";
+  }
+  if (markov.transition.size() != m * m) {
+    return std::format(
+        "markov: markov_transition length {} is not a perfect square "
+        "(expected M*M for M={})",
+        markov.transition.size(),
+        m);
+  }
+  if (markov.state_of_scene.size() != num_scenes) {
+    return std::format(
+        "markov: markov_states has {} entries but the simulation has "
+        "{} scene(s)",
+        markov.state_of_scene.size(),
+        num_scenes);
+  }
+  std::vector<std::size_t> scenes_per_state(m, 0);
+  for (const auto& [si, state] : enumerate(markov.state_of_scene)) {
+    if (state < 0 || static_cast<std::size_t>(state) >= m) {
+      return std::format(
+          "markov: markov_states[{}] = {} is out of range [0, {})",
+          si,
+          state,
+          m);
+    }
+    ++scenes_per_state[static_cast<std::size_t>(state)];
+  }
+  for (std::size_t state = 0; state < m; ++state) {
+    if (scenes_per_state[state] == 0) {
+      return std::format(
+          "markov: state {} has no assigned scene — its mass pi is 0 "
+          "and the w = p_s*P/pi pricing divides by it (every state in "
+          "[0, M) must appear in markov_states)",
+          state);
+    }
+  }
+  constexpr double kRowSumTol = 1.0e-6;
+  for (std::size_t row = 0; row < m; ++row) {
+    double row_sum = 0.0;
+    for (std::size_t col = 0; col < m; ++col) {
+      const double v = markov.probability(row, col);
+      if (!std::isfinite(v) || v < 0.0) {
+        return std::format(
+            "markov: markov_transition[{}][{}] = {} must be finite and "
+            ">= 0",
+            row,
+            col,
+            v);
+      }
+      row_sum += v;
+    }
+    if (std::abs(row_sum - 1.0) > kRowSumTol) {
+      return std::format(
+          "markov: markov_transition row {} sums to {} (must be 1 "
+          "within {})",
+          row,
+          row_sum,
+          kRowSumTol);
+    }
+  }
+  return std::nullopt;
+}
+
+std::vector<double> markov_alpha_weights(const SimulationLP& sim,
+                                         const MarkovChainConfig& markov,
+                                         SceneIndex scene_index)
+{
+  // w_{s,m'} = p_s · P[m(s)][m'] / pi_{m'}  (theorem MK1,
+  // docs/formulation/sddp-markov.md §2).  pi_{m'} is the state's total
+  // scene mass; validate_markov_config guarantees pi > 0.
+  const auto masses = scene_probability_masses(sim);
+  const auto m = markov.num_states;
+
+  std::vector<double> state_mass(m, 0.0);
+  for (const auto& [si, state] : enumerate(markov.state_of_scene)) {
+    if (si < masses.size()) {
+      state_mass[static_cast<std::size_t>(state)] += masses[si];
+    }
+  }
+
+  const auto s = static_cast<std::size_t>(scene_index);
+  const auto from = static_cast<std::size_t>(markov.state_of_scene[s]);
+  const double p_s = masses[s];
+
+  std::vector<double> weights(m, 0.0);
+  for (std::size_t to = 0; to < m; ++to) {
+    weights[to] = p_s * markov.probability(from, to) / state_mass[to];
+  }
+  return weights;
+}
+
 // ─── Kappa threshold checking ───────────────────────────────────────────────
 
 namespace
@@ -438,6 +578,44 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
           min_prob,
           max_prob,
           num_scenes);
+    }
+  }
+
+  // Markov-chain SDDP (cut_sharing = markov): hard-validate the
+  // configuration, then WARN on multi-scene states — theorem MK1
+  // (`docs/formulation/sddp-markov.md` §3) certifies those as
+  // valid-but-loose ONLY under A2 (non-negative stage costs): all
+  // within-state cuts land on the shared `varphi_{m'}`, whose family
+  // converges to the max of the per-scene folded tails, strictly below
+  // the state sum the pricing targets.  Singleton states are the exact
+  // certified configuration.
+  if (m_options_.cut_sharing == CutSharingMode::markov) {
+    if (auto err = validate_markov_config(m_options_.markov,
+                                          static_cast<std::size_t>(num_scenes)))
+    {
+      SPDLOG_ERROR("SDDP: {}", *err);
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::move(*err),
+      });
+    }
+    std::vector<std::size_t> scenes_per_state(m_options_.markov.num_states, 0);
+    for (const auto state : m_options_.markov.state_of_scene) {
+      ++scenes_per_state[static_cast<std::size_t>(state)];
+    }
+    for (const auto& [state, count] : enumerate(scenes_per_state)) {
+      if (count > 1) {
+        SPDLOG_WARN(
+            "SDDP: cut_sharing=markov state {} has {} scenes sharing "
+            "one varphi column — the cut family converges to the MAX "
+            "of the within-state folded tails, not the within-state "
+            "expectation, so the LB is valid-but-loose and only under "
+            "non-negative stage costs (theorem MK1 §3, "
+            "docs/formulation/sddp-markov.md).  Use one scene per "
+            "state for the exact certified configuration.",
+            state,
+            count);
+      }
     }
   }
 
@@ -887,15 +1065,22 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     //     user-α backward dispatch puts every scene's cut on the same single
     //     user-α column, so multicut routing has no `varphi_s` to target.
     //     Multicut support over a user α is DEFERRED (increment D).
-    if (m_options_.cut_sharing == CutSharingMode::multicut) {
+    //     `markov` has the same single-vs-many-column incompatibility (its
+    //     M state columns `varphi_m` carry the theorem-MK1 pricing) and is
+    //     rejected for the same reason.
+    if (m_options_.cut_sharing == CutSharingMode::multicut
+        || m_options_.cut_sharing == CutSharingMode::markov)
+    {
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message = std::format(
               "FutureCost '{}': use_user_alpha is incompatible with "
-              "cut_sharing=multicut — the user α is a single column, not N "
-              "per-scene varphi_s columns.  Use cut_sharing=none (multicut "
-              "support over a user α is deferred)",
-              fc->name),
+              "cut_sharing={} — the user α is a single column, not the "
+              "mode's per-scene/per-state varphi columns.  Use "
+              "cut_sharing=none (multicut/markov support over a user α is "
+              "deferred)",
+              fc->name,
+              enum_name(m_options_.cut_sharing)),
       });
     }
 
