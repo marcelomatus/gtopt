@@ -235,6 +235,43 @@ class TestWaterRightsIntegration:
         assert "constraint" in content, "PAMPL file has no constraints"
         assert "param" in content, "PAMPL file has no params"
 
+    def test_anchor_constraints_emitted(self, converted_case):
+        """The full conversion anchors both agreements to their physical
+        generation waterways (gen arc only — spills are deliberately
+        excluded from the rights accounting)."""
+        out = converted_case["output_dir"]
+        laja = (out / "laja.pampl").read_text(encoding="utf-8")
+        assert "constraint laja_anclaje_turbinado" in laja
+        # El Toro is a flow-mode turbine in the converted topology.
+        assert "= turbine('ELTORO').flow;" in laja
+        assert "_ver_" not in laja  # spills never enter the partition
+        for name in (
+            "laja_ledger_riego",
+            "laja_ledger_electrico",
+            "laja_ledger_mixto",
+            "laja_ledger_anticipado",
+        ):
+            assert f"constraint {name}" in laja
+
+        maule = (out / "maule.pampl").read_text(encoding="utf-8")
+        assert "constraint maule_anclaje_particion" in maule
+        # LMAULE's generation is a waterway; CIPRESES (La Invernada's
+        # central) is a flow-mode turbine.
+        assert "= waterway('LMAULE_gen_" in maule
+        assert "= turbine('CIPRESES').flow;" in maule
+        # No spill arc may appear as an anchor term (charging spilled
+        # water to a rights bucket would monetise spills).
+        assert "_ver_" not in maule
+        for name in (
+            "maule_ledger_elec_mensual",
+            "maule_ledger_elec_anual",
+            "maule_ledger_riego_temp",
+            "maule_ledger_reserva_elec",
+            "maule_ledger_reserva_riego",
+            "maule_ledger_compensacion",
+        ):
+            assert f"constraint {name}" in maule
+
     def test_user_constraint_file_set(self, converted_case):
         """user_constraint_files (plural) is set in the system JSON."""
         uc_files = converted_case["system"].get("user_constraint_files", [])

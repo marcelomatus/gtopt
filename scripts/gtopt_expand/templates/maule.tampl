@@ -264,6 +264,65 @@ constraint invernada_balance "La Invernada: inflows = outflows":
   flow_right('invernada_deficit').flow + flow_right('invernada_sin_deficit').flow + flow_right('invernada_caudal_natural').flow = flow_right('invernada_embalsar').flow + flow_right('invernada_no_embalsar').flow;
 
 # ---------------------------------------------------------------------------
+# Physical anchoring: rights partition = Laguna del Maule TURBINED flow
+#
+# PLP anchors the partition to generation + vertimiento
+# (`qg + qv = IQMNE + IQMNR + IQMOE + IQMOR + IQMCE + IQMEI`,
+# genpdmaule.f:75-91).  gtopt DELIBERATELY anchors to the generation
+# arc only: charging spilled water to a rights category would let the
+# LP monetise spills through the rights costs/rewards (unphysical
+# spills / free ledger depletion), which contradicts the agreements'
+# intent — spilled water serves nobody's entitlement.  The `_ver`
+# arcs already carry their own rebalse penalties (plpvrebemb).
+# (PLP's IQMEI extraordinary-economy term is not modeled; see the
+# known-gap ledger in docs/analysis/irrigation_agreements/.)
+#
+# Emitted only when plp2gtopt resolved the generation flow of the
+# Maule central (`anchor_gen_ref_maule`, a `turbine('X').flow` /
+# `waterway('X').flow` fragment).
+# ---------------------------------------------------------------------------
+{% if anchor_gen_ref_maule is defined %}
+constraint maule_anclaje_particion "Anchor: rights partition = physical Maule turbined flow":
+  flow_right('maule_gasto_normal_elec').flow + flow_right('maule_gasto_normal_riego').flow + flow_right('maule_gasto_ordinario_elec').flow + flow_right('maule_gasto_ordinario_riego').flow + flow_right('maule_compensacion_elec').flow = {{ anchor_gen_ref_maule }};
+{% endif %}
+
+# La Invernada: deficit/no-deficit release accounting = physical
+# turbined flow at the Invernada central (gen only — spills excluded
+# for the same reason as above; PLP: genpdmaule.f:94-103).
+{% if anchor_gen_ref_invernada is defined %}
+constraint invernada_anclaje "Anchor: Invernada releases = physical turbined flow":
+  flow_right('invernada_deficit').flow + flow_right('invernada_sin_deficit').flow = {{ anchor_gen_ref_invernada }};
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# Ledger linkage: rights usage depletes the volume buckets
+#
+# PLP's volume rows accumulate the stage-average rights flows
+# (IVMGEMF/IVMGEAF/IVMGRTF/IVMDOEF/IVMDORF/IVMDCEF).  gtopt equates
+# each VolumeRight's per-block `extraction` to the matching rights
+# flow, so the buckets deplete with actual (turbined, never spilled)
+# usage.  The VolumeRights carry no `reservoir` coupling — physical
+# water leaves through the anchored turbine arc only.
+# ---------------------------------------------------------------------------
+constraint maule_ledger_elec_mensual "Ledger: monthly electric bucket depletes with qmne":
+  volume_right('maule_vol_gasto_elec_mensual').extraction = flow_right('maule_gasto_normal_elec').flow;
+
+constraint maule_ledger_elec_anual "Ledger: annual electric bucket depletes with qmne":
+  volume_right('maule_vol_gasto_elec_anual').extraction = flow_right('maule_gasto_normal_elec').flow;
+
+constraint maule_ledger_riego_temp "Ledger: seasonal irrigation bucket depletes with qmnr":
+  volume_right('maule_vol_gasto_riego_temp').extraction = flow_right('maule_gasto_normal_riego').flow;
+
+constraint maule_ledger_reserva_elec "Ledger: ordinary-reserve electric bucket depletes with qmoe":
+  volume_right('maule_vol_reserva_ord_elec').extraction = flow_right('maule_gasto_ordinario_elec').flow;
+
+constraint maule_ledger_reserva_riego "Ledger: ordinary-reserve irrigation bucket depletes with qmor":
+  volume_right('maule_vol_reserva_ord_riego').extraction = flow_right('maule_gasto_ordinario_riego').flow;
+
+constraint maule_ledger_compensacion "Ledger: compensation bucket depletes with qmce":
+  volume_right('maule_vol_compensacion_elec').extraction = flow_right('maule_compensacion_elec').flow;
+
+# ---------------------------------------------------------------------------
 # Ordinary reserve percentage allocation constraints
 #
 # In the ordinary reserve zone (volume between v_reserva_extraord and

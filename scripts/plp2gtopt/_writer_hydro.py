@@ -677,6 +677,61 @@ class HydroMixin:
             fh.write("\n")
         return target
 
+    def _anchor_flow_ref(self, central: str) -> str | None:
+        """Resolve the PAMPL reference for *central*'s turbined flow.
+
+        PLP anchors the rights partitions to the central's physical
+        generation column (``-qg37 + l_qdr + l_qde + l_qdm + l_qga = 0``,
+        genpdlajam.f:70-76; genpdmaule.f:75-103).  The converted gtopt
+        topology represents that flow either as
+
+        * a **flow-mode turbine** named after the central (ELTORO,
+          CIPRESES: ``junction_a``/``junction_b`` set, no ``waterway``),
+          referenced as ``turbine('<central>').flow``, or
+        * a **generation waterway** ``{central}_gen_{src}_{dst}``
+          (LMAULE), referenced as ``waterway('<name>').flow``.
+
+        Spill (``_ver``) arcs are DELIBERATELY never resolved: charging
+        spilled water to a rights category would let the LP monetise
+        spills through the rights costs/rewards, contrary to the
+        agreements' intent.
+
+        Returns the reference fragment, or ``None`` when the central has
+        no recognizable generation flow in the merged system.
+        """
+        system = self.planning["system"]
+        for turbine in system.get("turbine_array", []):
+            if str(turbine.get("name", "")) == central and not turbine.get("waterway"):
+                return f"turbine('{central}').flow"
+        prefix = f"{central}_gen_"
+        for ww in system.get("waterway_array", []):
+            name = str(ww.get("name", ""))
+            if name.startswith(prefix):
+                return f"waterway('{name}').flow"
+        return None
+
+    def _inject_anchor_refs(self, cfg: Dict[str, Any], anchors: Dict[str, str]) -> None:
+        """Add resolved anchor flow references to the agreement config.
+
+        ``anchors`` maps config keys to central names; each resolved
+        PAMPL fragment is stored under its key so the ``.tampl``
+        templates emit the anchoring constraints only when the physical
+        flow exists (hand-authored standalone configs simply omit the
+        keys).
+        """
+        for key, central in anchors.items():
+            ref = self._anchor_flow_ref(central)
+            if ref is not None:
+                cfg[key] = ref
+            else:
+                _logger.info(
+                    "irrigation anchor: no generation flow found for"
+                    " central %r — the %s anchor constraint will not be"
+                    " emitted",
+                    central,
+                    key,
+                )
+
     def _expand_laja(
         self,
         cfg: Mapping[str, Any],
@@ -686,6 +741,12 @@ class HydroMixin:
         """Run the Stage-2 Laja transform, merge entities, return them."""
         from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
 
+        cfg = dict(cfg)
+        # PLP anchors the Laja partition to El Toro's generation flow
+        # only (no vertimiento term — genpdlajam.f:70-76).
+        self._inject_anchor_refs(
+            cfg, {"anchor_turbinado_ref": str(cfg.get("central_laja", ""))}
+        )
         agreement = LajaAgreement(
             dict(cfg),
             stage_parser=stage_parser,
@@ -712,6 +773,19 @@ class HydroMixin:
         """Run the Stage-2 Maule transform, merge entities, return them."""
         from gtopt_expand.maule_agreement import MauleAgreement  # noqa: PLC0415
 
+        cfg = dict(cfg)
+        # PLP anchors the Maule partition to Laguna del Maule's
+        # generation (+ vertimiento) flow and the Invernada pair to
+        # Laguna Invernada's (genpdmaule.f:75-103).  gtopt anchors to
+        # the GENERATION flow only — spills are never charged to the
+        # rights accounting (see _anchor_flow_ref).
+        self._inject_anchor_refs(
+            cfg,
+            {
+                "anchor_gen_ref_maule": str(cfg.get("central_maule", "")),
+                "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
+            },
+        )
         agreement = MauleAgreement(
             dict(cfg),
             stage_parser=stage_parser,

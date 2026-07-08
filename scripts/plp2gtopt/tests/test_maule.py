@@ -397,9 +397,40 @@ class TestMauleWriter:
             for vr in writer.volume_rights
             if vr["name"] == "maule_vol_econ_invernada"
         )
-        assert vol_econ["reservoir"] == maule_config["central_invernada"]
+        # Ledgers are pure accounting (PLP-faithful): no physical
+        # reservoir coupling — water leaves via the anchored turbine arc.
+        assert "reservoir" not in vol_econ
         assert vol_econ["purpose"] == "economy"
         assert "reset_month" not in vol_econ
+
+    def test_pampl_ledger_and_anchor_constraints(self, maule_config, tmp_path):
+        """maule.pampl carries the ledger linkages; anchor constraints are
+        emitted only when plp2gtopt resolved the physical waterways."""
+        writer = MauleWriter(maule_config)
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "maule.pampl").read_text(encoding="utf-8")
+        for name in (
+            "maule_ledger_elec_mensual",
+            "maule_ledger_elec_anual",
+            "maule_ledger_riego_temp",
+            "maule_ledger_reserva_elec",
+            "maule_ledger_reserva_riego",
+            "maule_ledger_compensacion",
+        ):
+            assert f"constraint {name}" in text
+        assert "maule_anclaje_particion" not in text  # no anchor keys set
+        assert "invernada_anclaje" not in text
+
+        cfg = dict(maule_config)
+        cfg["anchor_gen_ref_maule"] = "waterway('LMAULE_gen_1_2').flow"
+        cfg["anchor_gen_ref_invernada"] = "turbine('CIPRESES').flow"
+        writer2 = MauleWriter(cfg)
+        writer2.generate_pampl(tmp_path)
+        text2 = (tmp_path / "maule.pampl").read_text(encoding="utf-8")
+        assert "constraint maule_anclaje_particion" in text2
+        assert "= waterway('LMAULE_gen_1_2').flow;" in text2
+        assert "constraint invernada_anclaje" in text2
+        assert "= turbine('CIPRESES').flow;" in text2
 
     def test_volume_rights_monthly_reset(self, maule_config):
         writer = MauleWriter(maule_config)

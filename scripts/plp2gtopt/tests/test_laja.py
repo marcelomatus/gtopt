@@ -645,10 +645,42 @@ class TestLajaWriter:
                 all_uids.append(entity["uid"])
         assert len(all_uids) == len(set(all_uids)), "UIDs must be unique"
 
-    def test_volume_rights_reservoir(self, laja_config):
+    def test_volume_rights_no_reservoir_coupling(self, laja_config):
+        """Ledgers are pure accounting (PLP-faithful): no `reservoir` key.
+
+        Physical water leaves through the anchored turbine arc
+        (laja_anclaje_turbinado); the buckets deplete via the ledger
+        linkage constraints.  The bound_rule keeps its own reservoir
+        reference for zone provisioning.
+        """
         writer = LajaWriter(laja_config)
         for vr in writer.volume_rights:
-            assert vr["reservoir"] == "ELTORO"
+            assert "reservoir" not in vr, vr["name"]
+            if "bound_rule" in vr:
+                assert vr["bound_rule"]["reservoir"] == "ELTORO"
+
+    def test_pampl_ledger_and_anchor_constraints(self, laja_config, tmp_path):
+        """laja.pampl carries the ledger linkages; the anchor constraint
+        is emitted only when plp2gtopt resolved the gen waterway."""
+        writer = LajaWriter(laja_config)
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        for name in (
+            "laja_ledger_riego",
+            "laja_ledger_electrico",
+            "laja_ledger_mixto",
+            "laja_ledger_anticipado",
+        ):
+            assert f"constraint {name}" in text
+        assert "laja_anclaje_turbinado" not in text  # no anchor key set
+
+        cfg = dict(laja_config)
+        cfg["anchor_turbinado_ref"] = "turbine('ELTORO').flow"
+        writer2 = LajaWriter(cfg)
+        writer2.generate_pampl(tmp_path)
+        text2 = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        assert "constraint laja_anclaje_turbinado" in text2
+        assert "= turbine('ELTORO').flow;" in text2
 
     def test_volume_rights_purposes(self, laja_config):
         writer = LajaWriter(laja_config)

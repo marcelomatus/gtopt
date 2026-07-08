@@ -600,7 +600,6 @@
     {
       "name": "maule_vol_gasto_elec_mensual",
       "purpose": "generation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_gasto_elec_men_ini }},
       "emax": {{ gasto_elec_men_max }},
       "use_state_variable": true,
@@ -625,7 +624,6 @@
     {
       "name": "maule_vol_gasto_elec_anual",
       "purpose": "generation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_gasto_elec_anu_ini }},
       "emax": {{ v_der_elect_anu_max }},
       "use_state_variable": true,
@@ -648,7 +646,6 @@
     {
       "name": "maule_vol_gasto_riego_temp",
       "purpose": "irrigation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_gasto_riego_ini }},
       "emax": {{ v_der_riego_temp_max }},
       "use_state_variable": true,
@@ -668,7 +665,6 @@
     {
       "name": "maule_vol_compensacion_elec",
       "purpose": "generation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_comp_elec_ini }},
       "emax": {{ v_comp_elec_max }},
       "use_state_variable": true
@@ -694,7 +690,6 @@
     {
       "name": "maule_vol_reserva_ord_elec",
       "purpose": "generation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_gasto_rext_elec_ini }},
       "emax": {{ v_reserva_extraord }},
       "use_state_variable": true
@@ -710,7 +705,6 @@
     {
       "name": "maule_vol_reserva_ord_riego",
       "purpose": "irrigation",
-      "reservoir": {{ res_colbun }},
       "eini": {{ v_gasto_rext_riego_ini }},
       "emax": {{ v_reserva_extraord }},
       "use_state_variable": true
@@ -739,7 +733,6 @@
     {
       "name": "maule_vol_econ_invernada",
       "purpose": "economy",
-      "reservoir": {{ central_invernada }},
       "eini": {{ v_econ_inver_ini }},
       "saving_rate": {{ qmax_invernada }},
       "use_state_variable": true

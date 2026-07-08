@@ -126,16 +126,20 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
   `test_irrigation_reset_cross_phase.cpp`): december reset inside a
   phase vs at a phase boundary; backward duals must not propagate
   through the reset (mirrors `IsVarCorteLajaM`).
-* **D5 Anchoring acceptance (blocked on the anchoring fix)**: once the
-  partition is coupled to the physical El Toro flow, assert
-  `laja_q_turbinado == turbine flow` per block and that burning rights
-  actually drains the reservoir ledger-consistently.  Until then, D1
-  documents the absence (no row links `frt_*` to `rsv_*`/waterway
-  columns).
+* **D5 Anchoring acceptance (implemented 2026-07)**:
+  `test_irrigation_anchoring.cpp` (Tier 9.1-9.3) covers the full
+  chain — anchor binds (`qgt == waterway flow`), usage-cost steering,
+  and ledger caps forcing category switches.  Emission is pinned in
+  `test_water_rights_integration.py::test_anchor_constraints_emitted`
+  (gen arcs referenced, `_ver` arcs asserted ABSENT — spills must
+  never enter the rights accounting).  Remaining: assert dual
+  consistency of the anchor row against the reservoir water value.
 
 ## Known-gap ledger (tests intentionally xfail/absent until fixed)
 
-1. Physical anchoring of rights flows (Laja & Maule) — D5.
+1. ~~Physical anchoring of rights flows (Laja & Maule)~~ — done
+   2026-07 (gen-arc-only; see D5).  Districts remain junction-anchored
+   only where PLP defines an injection central.
 2. IVGAF debit of the december provision (`genpdlajam.f:234-239`).
 3. Mixed→riego +30 hm³ transfer above colchón 1 — B1.
 4. `qdrh + qdmh + qgah ≤ qdefm` attribution cap (`genpdlajam.f:290-296`).

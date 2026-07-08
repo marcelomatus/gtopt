@@ -87,6 +87,48 @@ constraint laja_particion_derechos "Flow partition: total generation = sum of ex
   flow_right('laja_q_turbinado').flow = flow_right('laja_der_riego').flow + flow_right('laja_der_electrico').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow;
 
 # ---------------------------------------------------------------------------
+# Physical anchoring: qgt = El Toro turbined flow
+#
+# PLP ties the partition row directly to the physical generation column
+# (`-qg37 + l_qdr + l_qde + l_qdm + l_qga = 0`, genpdlajam.f:70-76) so
+# every m3/s turbined at El Toro is charged to exactly one rights
+# category.  Without this anchor the rights domain floats free of the
+# hydro dispatch.  Emitted only when plp2gtopt resolved the generation
+# flow of the Laja central (`anchor_turbinado_ref`, a
+# `turbine('X').flow` / `waterway('X').flow` fragment); hand-authored
+# standalone configs without a physical topology omit the key.
+# Spill arcs are never referenced — spilled water is outside the
+# rights accounting by design.
+# ---------------------------------------------------------------------------
+{% if anchor_turbinado_ref is defined %}
+constraint laja_anclaje_turbinado "Anchor: partition total = physical El Toro flow":
+  flow_right('laja_q_turbinado').flow = {{ anchor_turbinado_ref }};
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# Ledger linkage: rights usage depletes the volume buckets
+#
+# PLP's volume rows accumulate the stage-average rights flows
+# (`IVDRF = prev - etadursc * IQDRH`, genpdlajam.f:229-257).  gtopt's
+# VolumeRight balance integrates its own per-block `extraction` column,
+# so equating extraction to the rights flow per block reproduces the
+# same depletion.  The VolumeRights carry no `reservoir` coupling — the
+# physical water already leaves through the anchored turbine arc, and
+# PLP's ledgers are pure accounting.
+# ---------------------------------------------------------------------------
+constraint laja_ledger_riego "Ledger: irrigation bucket depletes with qdr":
+  volume_right('laja_vol_der_riego').extraction = flow_right('laja_der_riego').flow;
+
+constraint laja_ledger_electrico "Ledger: electric bucket depletes with qde":
+  volume_right('laja_vol_der_electrico').extraction = flow_right('laja_der_electrico').flow;
+
+constraint laja_ledger_mixto "Ledger: mixed bucket depletes with qdm":
+  volume_right('laja_vol_der_mixto').extraction = flow_right('laja_der_mixto').flow;
+
+constraint laja_ledger_anticipado "Ledger: anticipado bucket depletes with qga":
+  volume_right('laja_vol_gasto_anticipado').extraction = flow_right('laja_gasto_anticipado').flow;
+
+# ---------------------------------------------------------------------------
 # Volume zone parameters
 # ---------------------------------------------------------------------------
 

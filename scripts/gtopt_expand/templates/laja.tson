@@ -352,11 +352,16 @@
     {# use_state_variable=true: SDDP state coupling.  The volume     #}
     {# is carried across phases via state variable linking, so        #}
     {# backward cuts capture the irrigation opportunity cost.         #}
+    {#                                                               #}
+    {# NO `reservoir` coupling: PLP's ledgers are pure accounting —  #}
+    {# the physical water leaves through the anchored turbine arc    #}
+    {# (laja_anclaje_turbinado) and the bucket depletes via the      #}
+    {# ledger-linkage constraints in laja.tampl.  The bound_rule     #}
+    {# keeps its own reservoir reference for zone provisioning.      #}
     {# ============================================================= #}
     {
       "name": "laja_vol_der_riego",
       "purpose": "irrigation",
-      "reservoir": {{ central }},
       "eini": {{ ini_irr }},
       "emax": {{ max_irr }},
       "use_state_variable": true,
@@ -384,7 +389,6 @@
     {
       "name": "laja_vol_der_electrico",
       "purpose": "generation",
-      "reservoir": {{ central }},
       "eini": {{ ini_elec }},
       "emax": {{ max_elec }},
       "use_state_variable": true,
@@ -411,7 +415,6 @@
     {
       "name": "laja_vol_der_mixto",
       "purpose": "mixed",
-      "reservoir": {{ central }},
       "eini": {{ ini_mixed }},
       "emax": {{ max_mixed }},
       "use_state_variable": true,
@@ -441,7 +444,6 @@
     {
       "name": "laja_vol_gasto_anticipado",
       "purpose": "anticipated",
-      "reservoir": {{ central }},
       "eini": {{ ini_anticipated }},
       "emax": {{ max_anticipated }},
       "use_state_variable": true,
@@ -481,7 +483,6 @@
     {
       "name": "laja_vol_econ_endesa",
       "purpose": "economy",
-      "reservoir": {{ central }},
       "eini": {{ ini_econ_endesa }},
       "saving_rate": {{ saving_rate_econ }},
       "use_state_variable": true
@@ -505,7 +506,6 @@
     {
       "name": "laja_vol_econ_reserva",
       "purpose": "economy",
-      "reservoir": {{ central }},
       "eini": {{ ini_econ_reserve }},
       "saving_rate": {{ saving_rate_econ }},
       "use_state_variable": true
@@ -524,7 +524,6 @@
     {
       "name": "laja_vol_econ_polcura",
       "purpose": "economy",
-      "reservoir": {{ central }},
       "eini": {{ ini_econ_polcura }},
       "saving_rate": {{ saving_rate_econ }},
       "use_state_variable": true

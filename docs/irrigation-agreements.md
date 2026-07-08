@@ -803,9 +803,23 @@ coefficients are algebraically equivalent.
 
 ### 9.6 Key Structural Differences
 
-1. **Per-central vs aggregated flow partition**: PLP partitions each
-   central's turbine flow into rights categories.  gtopt uses aggregated
-   FlowRights — the optimization allocates extraction across centrals.
+1. **Physical anchoring (2026-07)**: like PLP, the rights partition is
+   anchored to the physical generation arc — `laja_anclaje_turbinado`
+   ties `laja_q_turbinado` to the El Toro gen waterway, and
+   `maule_anclaje_particion` / `invernada_anclaje` tie the Maule and
+   Invernada partitions to their centrals' gen waterways
+   (constraints emitted by `gtopt_expand` when `plp2gtopt` resolves
+   the arc names; PLP: `genpdlajam.f:70-76`, `genpdmaule.f:75-103`).
+   **Deliberate deviation**: PLP includes the vertimiento column
+   (`qv`) in the Maule partition; gtopt anchors to the generation arc
+   ONLY, so spilled water can never be charged to — or rewarded
+   through — a rights category (charging spills would let the LP
+   monetise them, producing unphysical spills contrary to the
+   agreements' intent).  Ledger depletion is enforced by the
+   `*_ledger_*` linkage constraints
+   (`volume_right(X).extraction = flow_right(x).flow`), and the
+   ledger VolumeRights carry no `reservoir` coupling (pure
+   accounting; the physical water leaves through the anchored arc).
 
 2. **Irrigation supply decomposition (Laja)**: PLP has an explicit
    80%/20% split between primary and new irrigators.  gtopt districts
