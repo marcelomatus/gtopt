@@ -272,6 +272,60 @@ class TestWaterRightsIntegration:
         ):
             assert f"constraint {name}" in maule
 
+    def test_no_economic_value_on_spills(self, converted_case):
+        """Spilled water must never acquire economic value — directly or
+        downstream.
+
+        Guards three channels:
+
+        1. The anchors reference turbined flow only (asserted in
+           ``test_anchor_constraints_emitted``), so spill is never
+           charged to a rights bucket.
+        2. No FlowRight that touches a junction (where spilled water
+           can arrive downstream) may carry a positive ``uvalue`` —
+           otherwise the LP could collect a rights reward on spill.
+           Positive rewards (valor_riego) are allowed only on
+           junction-free partition variables bounded by the anchored
+           turbined flow.
+        3. Every ``_ver`` spill arc carries a non-negative cost
+           (rebalse penalty) — spilling is never directly profitable.
+
+        The residual channel — spill physically flowing downstream and
+        serving deliveries, thereby avoiding a fail cost — is physical
+        reality and matches PLP's own node balances (vertimiento terms
+        in the retiro balances, CEN informe p.24); an avoided penalty
+        is not an incentive to spill because turbining the same water
+        serves the delivery too.
+        """
+
+        def any_positive(v):
+            if isinstance(v, (int, float)):
+                return v > 0
+            if isinstance(v, list):
+                return any(any_positive(x) for x in v)
+            return False
+
+        system = converted_case["system"]
+        for fr in system.get("flow_right_array", []):
+            touches_junction = any(
+                fr.get(k) for k in ("junction_a", "junction_b", "junction")
+            )
+            if touches_junction:
+                assert not any_positive(fr.get("uvalue")), (
+                    f"FlowRight {fr.get('name')!r} touches a junction and"
+                    " carries a positive uvalue — spilled water arriving"
+                    " there would be rewarded"
+                )
+
+        for ww in system.get("waterway_array", []):
+            if "_ver_" in str(ww.get("name", "")):
+                fcost = ww.get("fcost", 0)
+                if isinstance(fcost, (int, float)):
+                    assert fcost >= 0, (
+                        f"spill arc {ww.get('name')!r} has negative cost"
+                        f" {fcost} — spilling would be profitable"
+                    )
+
     def test_user_constraint_file_set(self, converted_case):
         """user_constraint_files (plural) is set in the system JSON."""
         uc_files = converted_case["system"].get("user_constraint_files", [])
