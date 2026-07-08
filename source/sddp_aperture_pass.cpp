@@ -673,7 +673,8 @@ auto SDDPMethod::backward_pass_aperture_phase_impl(
       aperture_cut_links,
       m_options_.aperture_solve_mode,
       seed_ptr,
-      capture_ptr);
+      capture_ptr,
+      m_options_.aperture_screen_count);
 
   if (capture_ptr != nullptr && !captured_basis.empty()) {
     warm_basis_slot = std::move(captured_basis);
@@ -982,7 +983,8 @@ auto SDDPMethod::backward_pass_with_apertures(SceneIndex scene_index,
         aperture_cut_links,
         m_options_.aperture_solve_mode,
         seed_ptr,
-        capture_ptr);
+        capture_ptr,
+        m_options_.aperture_screen_count);
 
     if (capture_ptr != nullptr && !captured_basis.empty()) {
       warm_basis_slot = std::move(captured_basis);

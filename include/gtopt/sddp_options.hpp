@@ -347,27 +347,54 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptInt aperture_chunk_size {};
 
   /** @brief How each backward-pass aperture is solved and how its cut's
-   *         coefficients are recovered (`cold` / `warm` / `reduced_cost`).
+   *         coefficients are recovered (`cold` / `warm` / `reduced_cost` /
+   *         `dual_shared` / `screened`).
    *
    * See `ApertureSolveMode` for the full per-mode rationale.  Summary:
    *
    * - `cold`: independent cold barrier + crossover per aperture; cut
    *   coefficients are the exact vertex reduced costs.  Byte-for-byte the
    *   legacy behaviour.
-   * - `warm`: only meaningful with `aperture_chunk_size > 1`; the first
-   *   aperture in a chunk seeds a basis (barrier + crossover) and every
-   *   subsequent aperture re-optimizes it with a warm simplex solve (via
-   *   `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`) instead of a
-   *   fresh cold barrier.  Aperture deltas are bound-only so the basis
-   *   stays valid across apertures.  Net-positive only on small LPs.
-   * - `reduced_cost` (default): cold barrier WITHOUT crossover per
-   *   aperture; the cut coefficients come straight from the interior-point
-   *   reduced costs, filtered by `cut_coeff_eps`.  Skips crossover on big
-   *   LPs (~35% faster per aperture than `cold`).
+   * - `warm` (**effective default** — an unset option resolves to `warm`
+   *   in `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt
+   *   emits it explicitly): only meaningful with `aperture_chunk_size > 1`;
+   *   the first aperture in a chunk seeds a basis (barrier + crossover)
+   *   and every subsequent aperture re-optimizes it with a warm simplex
+   *   solve (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`)
+   *   instead of a fresh cold barrier.  Aperture deltas are bound-only so
+   *   the basis stays valid across apertures.
+   * - `reduced_cost`: cold barrier WITHOUT crossover per aperture; the
+   *   cut coefficients come straight from the interior-point reduced
+   *   costs, filtered by `cut_coeff_eps`.  Skips crossover on big LPs
+   *   (~35% faster per aperture than `cold`).
+   * - `dual_shared` (opt-in): solve only the highest-weight
+   *   representative aperture; synthesize every other aperture's cut from
+   *   the representative's vertex duals via the Infanger–Morton
+   *   bound-delta correction (Lemma AP2,
+   *   `docs/formulation/sddp-cut-validity.md` §6).  Skips all
+   *   non-representative re-solves — the remaining lever on backends
+   *   without any warm-start path (e.g. cuOpt/PDLP; ledger F10).
+   * - `screened` (opt-in): `dual_shared`, then the `aperture_screen_count`
+   *   synthesized cuts with the largest |intercept correction| are
+   *   re-solved exactly on the resident basis.
    *
-   * Absent / `nullopt` resolves to `reduced_cost`.
+   * Absent / `nullopt` resolves to `warm`.
    */
   std::optional<ApertureSolveMode> aperture_solve_mode {};
+
+  /** @brief Number of dual-shared aperture cuts re-solved exactly under
+   *         `aperture_solve_mode = screened`.
+   *
+   * After the representative solve and the dual-shared synthesis pass,
+   * the `screened` mode picks the N synthesized cuts with the largest
+   * absolute intercept correction |Σ max(d,0)Δl + Σ min(d,0)Δu| — the
+   * apertures whose shared support is loosest — and re-solves them
+   * exactly (warm dual simplex on the resident basis), replacing their
+   * synthesized cuts with exact ones.  Ignored by every other mode.
+   *
+   * Default: `nullopt` → 2.
+   */
+  OptInt aperture_screen_count {};
 
   /** @brief Seed each iteration's first backward aperture from the previous
    *         iteration's first-aperture simplex basis (dual warm start).
@@ -819,6 +846,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
+    merge_opt(aperture_screen_count, opts.aperture_screen_count);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
     merge_opt(basis_cross_mode, opts.basis_cross_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));
