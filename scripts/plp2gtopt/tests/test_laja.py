@@ -789,6 +789,31 @@ class TestLajaWriter:
         assert _netted_primary(90.0, 20.0, 47.0) == pytest.approx(67.0)
         assert _netted_primary(90.0, 80.0, 47.0) == pytest.approx(90.0)
 
+    def test_district_junction_withdrawal(self, laja_config):
+        """A district with `anchor_junction` (stamped by plp2gtopt when
+        no diversion central exists but the district's junction does —
+        pure irrigation withdrawal, e.g. RieTucapel) gets consumptive
+        junction refs on every category."""
+        cfg = dict(laja_config)
+        cfg["districts"] = [dict(d) for d in cfg["districts"]]
+        tucapel = next(d for d in cfg["districts"] if d["name"] == "RieTucapel")
+        tucapel["anchor_junction"] = "RieTucapel"
+        writer = LajaWriter(cfg)
+        cats = [
+            fr for fr in writer.flow_rights if fr["name"].startswith("RieTucapel_")
+        ]
+        assert cats
+        for fr in cats:
+            assert fr["junction_a"] == "RieTucapel"
+
+        # Disabled anchoring reverts to the legacy (junction-free) shape.
+        cfg2 = dict(cfg)
+        cfg2["enable_physical_anchoring"] = False
+        writer2 = LajaWriter(cfg2)
+        for fr in writer2.flow_rights:
+            if fr["name"].startswith("RieTucapel_"):
+                assert "junction_a" not in fr
+
     def test_seepage_aware_cap(self, laja_config, tmp_path):
         """With a ReservoirSeepage reference the cap becomes the exact
         linearization `rights + seepage.flow <= K(t)`: the carrier

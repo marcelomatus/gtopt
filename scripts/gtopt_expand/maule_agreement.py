@@ -480,18 +480,23 @@ class MauleAgreement(_RightsAgreementBase):
             else:
                 fr_name = raw_name
 
-            district_flow_rights.append(
-                {
-                    "name": fr_name,
-                    "purpose": "irrigation",
-                    "direction": -1,
-                    # `target` 0 with no fcost collapses to a plain
-                    # [0, fmax] hard band (canonical key; the binding
-                    # still accepts the legacy `discharge` alias).
-                    "target": 0,
-                    "fmax": irr_fmax_schedule,
-                }
-            )
+            fr_district: dict[str, Any] = {
+                "name": fr_name,
+                "purpose": "irrigation",
+                "direction": -1,
+                # `target` 0 with no fcost collapses to a plain
+                # [0, fmax] hard band (canonical key; the binding
+                # still accepts the legacy `discharge` alias).
+                "target": 0,
+                "fmax": irr_fmax_schedule,
+            }
+            anchor_junction = district.get("anchor_junction")
+            if anchor_junction and cfg.get("enable_physical_anchoring", True):
+                # Pure irrigation withdrawal — the retiro takes real
+                # water at the district's own junction (no diversion
+                # central; complements the dist_anclaje_* path).
+                fr_district["junction_a"] = anchor_junction
+            district_flow_rights.append(fr_district)
 
             district_constraints.append(
                 {

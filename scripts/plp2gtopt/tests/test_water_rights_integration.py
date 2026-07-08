@@ -299,6 +299,16 @@ class TestWaterRightsIntegration:
             ):
                 assert "junction_a" not in fr, fr["name"]
 
+    def test_tucapel_junction_withdrawal(self, converted_case):
+        """RieTucapel is a pure irrigation withdrawal — no central, no
+        diversion FlowRight; its categories withdraw consumptively at
+        the RieTucapel junction."""
+        frs = converted_case["system"].get("flow_right_array", [])
+        cats = [fr for fr in frs if fr["name"].startswith("RieTucapel_")]
+        assert cats, "no RieTucapel categories emitted"
+        for fr in cats:
+            assert fr.get("junction_a") == "RieTucapel", fr["name"]
+
     def test_no_economic_value_on_spills(self, converted_case):
         """Spilled water must never acquire economic value — directly or
         downstream.

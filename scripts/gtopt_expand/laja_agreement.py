@@ -716,7 +716,13 @@ class LajaAgreement(_RightsAgreementBase):
                     "target": target_sched,
                     "fcost": fail_cost,
                 }
-                if injection and "anchor_flow_right" not in district:
+                anchor_junction = district.get("anchor_junction")
+                if anchor_junction and cfg.get("enable_physical_anchoring", True):
+                    # Pure irrigation withdrawal (no diversion central,
+                    # e.g. RieTucapel): each category withdraws
+                    # consumptively at the district's own junction.
+                    fr_district["junction_a"] = anchor_junction
+                elif injection and "anchor_flow_right" not in district:
                     # Legacy junction coupling — superseded by the
                     # dist_anclaje_* physical-offtake anchor when the
                     # converter found the district's diversion.

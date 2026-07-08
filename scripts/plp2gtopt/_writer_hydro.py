@@ -908,21 +908,30 @@ class HydroMixin:
           false``): the withdrawal returns to the river at the
           injection node (RieSaltos -> LAJA_I) instead of vanishing.
         """
+        system = self.planning["system"]
         frs = {
             str(fr.get("name", "")): fr
-            for fr in self.planning["system"].get("flow_right_array", [])
+            for fr in system.get("flow_right_array", [])
+        }
+        junctions = {
+            str(j.get("name", "")) for j in system.get("junction_array", [])
         }
         cfg["districts"] = [dict(d) for d in cfg.get("districts", [])]
         for district in cfg["districts"]:
-            anchor = f"{district.get('name', '')}_irrigation_right"
+            name = str(district.get("name", ""))
+            anchor = f"{name}_irrigation_right"
             entity = frs.get(anchor)
-            if entity is None:
-                continue
-            district["anchor_flow_right"] = anchor
-            injection = district.get("injection")
-            if injection:
-                entity["junction_b"] = injection
-                entity["consumptive"] = False
+            if entity is not None:
+                district["anchor_flow_right"] = anchor
+                injection = district.get("injection")
+                if injection:
+                    entity["junction_b"] = injection
+                    entity["consumptive"] = False
+            elif name in junctions:
+                # Pure irrigation withdrawal — no central involved
+                # (e.g. RieTucapel): the district's category FlowRights
+                # withdraw consumptively at the district's own junction.
+                district["anchor_junction"] = name
 
     def _expand_laja(
         self,
