@@ -251,3 +251,24 @@ canonical laja/maule JSON: `enable_physical_anchoring`,
 `enable_ledger_linkage`, `enable_attribution_cap`,
 `enable_netted_targets` (all default true; toggle tests in
 test_laja.py / test_maule.py).
+
+
+## Fictitious irrigation generators — topology recovery audit (2026-07)
+
+PLP models the irrigation reaches with FICTITIOUS generators
+(``Barra 0, Rendi 1.0`` in plpcnfce.dat) whose "generation" is water,
+not electricity.  Their arc semantics and the gtopt image:
+
+| PLP pattern | Centrals | gtopt image |
+|---|---|---|
+| ``SerHid=0, SerVer>0`` — gen exits (the irrigation offtake, PotMax = canal capacity), spill continues the river | RIEGZACO (→43), RieSaltos (→LAJA_I), RieSur123SCDZ (→SAN_IGNACIO) | junction + ``{name}_irrigation_right`` FlowRight (fmax = PLP PotMax, e.g. 70 for Zañartu-Collao) + ``{name}_ver_*`` continuation arc; Saltos' offtake is CARRY mode returning at LAJA_I (the convenio's ±1 injection pair) |
+| ``SerHid=SerVer=0`` — both arcs exit free; the convenio's l_qri rides on top | RieTucapel + RieMelado / RieCMNA / RieCMNB / RieMauleSur / RieMaitenes / RieMolinosOtros | junction with ``drain: true`` (the free exits) + the agreement's retiro categories attached via ``anchor_junction`` (the accounted withdrawal) |
+
+Verified on the converted 2-year case: every node keeps its junction,
+its upstream feed arcs (C_Melado_gen, CANAL_LAJA_ver/El Diuto chain,
+ANTUCO/MACHICURA outflows), and its exit accounting; nothing is
+dropped as isolated and nothing double-counts (the diversions are
+free physical offtakes; only the agreement categories carry demands
+and fail costs).  Pinned by
+``test_fictitious_irrigation_topology_recovered`` so converter
+changes cannot silently erase the irrigation reaches again.

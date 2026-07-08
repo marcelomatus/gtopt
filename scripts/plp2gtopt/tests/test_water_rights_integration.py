@@ -299,6 +299,77 @@ class TestWaterRightsIntegration:
             ):
                 assert "junction_a" not in fr, fr["name"]
 
+    def test_fictitious_irrigation_topology_recovered(self, converted_case):
+        """PLP's fictitious irrigation generators (Barra=0, Rendi=1.0)
+        must survive conversion with their hydro roles intact:
+
+        * pass-through diversions (SerHid=0, SerVer>0): junction +
+          gen-exit as a `_irrigation_right` FlowRight (PLP PotMax as
+          fmax) + a `_ver_` continuation arc to the SerVer target;
+        * terminal sinks (SerHid=SerVer=0): junction with drain=true
+          (PLP's free qg/qv exits) + the agreement's retiro categories
+          attached (the accounted withdrawal riding on top, like l_qri).
+
+        A silent drop of any of these would erase the irrigation reach
+        of the hydro topology.
+        """
+        system = converted_case["system"]
+        junctions = {j["name"]: j for j in system.get("junction_array", [])}
+        frs = system.get("flow_right_array", [])
+        wws = system.get("waterway_array", [])
+
+        def inflows(node):
+            arcs = [w for w in wws if w.get("junction_b") == node]
+            arcs += [
+                t
+                for t in system.get("turbine_array", [])
+                if t.get("junction_b") == node
+            ]
+            return arcs
+
+        # Pass-through diversions (plpcnfce: SerVer > 0).
+        for node, ver_prefix in (
+            ("RIEGZACO", "RIEGZACO_ver_"),
+            ("RieSaltos", "RieSaltos_ver_"),
+            ("RieSur123SCDZ", "RieSur123SCDZ_ver_"),
+        ):
+            assert node in junctions, f"{node} junction dropped"
+            assert inflows(node), f"{node} lost its upstream feed"
+            assert any(
+                fr["name"] == f"{node}_irrigation_right" for fr in frs
+            ), f"{node} diversion offtake dropped"
+            assert any(
+                w["name"].startswith(ver_prefix) for w in wws
+            ), f"{node} spill continuation dropped"
+        # PLP PotMax 70 (the Zanartu-Collao canal capacity) survives.
+        zaco = next(fr for fr in frs if fr["name"] == "RIEGZACO_irrigation_right")
+        assert zaco.get("fmax") == pytest.approx(70.0)
+
+        # Terminal sinks (SerHid = SerVer = 0): free drain + accounted
+        # retiro categories.
+        terminal = {
+            "RieTucapel": "RieTucapel_",
+            "RieMelado": "retiro_Melado",
+            "RieCMNA": "retiro_CMNA",
+            "RieCMNB": "retiro_CMNB",
+            "RieMauleSur": "retiro_MauleSur",
+            "RieMaitenes": "retiro_Maitenes",
+            "RieMolinosOtros": "retiro_MolinosOtros",
+        }
+        for node, fr_prefix in terminal.items():
+            assert node in junctions, f"{node} junction dropped"
+            assert junctions[node].get("drain") is True, (
+                f"{node} must free-drain (PLP SerHid=SerVer=0 exits)"
+            )
+            assert inflows(node), f"{node} lost its upstream feed"
+            attached = [
+                fr
+                for fr in frs
+                if fr.get("junction_a") == node
+                and fr["name"].startswith(fr_prefix)
+            ]
+            assert attached, f"{node} has no accounted retiro categories"
+
     def test_tucapel_junction_withdrawal(self, converted_case):
         """RieTucapel is a pure irrigation withdrawal — no central, no
         diversion FlowRight; its categories withdraw consumptively at
