@@ -21,6 +21,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include <array>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -290,6 +291,162 @@ TEST_CASE("cuOpt open_log / close_log adjust the reported log level")  // NOLINT
   CHECK(backend->get_log_level() == 2);
   backend->close_log();
   CHECK(backend->get_log_level() == 0);
+}
+
+TEST_CASE("cuOpt warm re-solve stays correct across cuts and bounds")  // NOLINT
+{
+  // The SDDP incremental shape: solve, append a cut row, re-solve; then
+  // move a bound and re-solve again.  Every re-solve after the first is
+  // auto-seeded from the previous optimal snapshot (vector warm start,
+  // dual zero-padded for the appended row).  The pin is CORRECTNESS: a
+  // warm-started optimum must match the cold optimum, tighter or looser.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+
+  // Benders-style cut row: x + y >= 3 tightens the optimum to 3.
+  const std::array<int, 2> cut_cols {
+      0,
+      1,
+  };
+  const std::array<double, 2> cut_vals {
+      1.0,
+      1.0,
+  };
+  backend->add_row(
+      2, cut_cols.data(), cut_vals.data(), 3.0, backend->infinity());
+  backend->resolve();  // warm: primal + zero-padded dual from previous solve
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(3.0));
+
+  // Loosen back below the first cut (forward-pass trial-pin shape): the
+  // warm seed sits at the OLD optimum; the solver must still walk down.
+  backend->set_row_lower(1, 1.0);
+  backend->resolve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE(
+    "cuOpt explicit set_col_solution hint keeps re-solve exact")  // NOLINT
+{
+  // Explicit OSI-convention hints (set_col_solution / set_row_price) are
+  // buffered one-shot and must never bias the returned optimum — even a
+  // deliberately WRONG hint.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  const std::array<double, 2> bad_hint {
+      9.0,
+      9.0,
+  };
+  backend->set_col_solution(bad_hint.data());
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE("cuOpt tuning file: cfg named values and legacy prm")  // NOLINT
+{
+  // The `<solvers>/cuopt.cfg` sibling of gtopt's `param_file` (INI, named
+  // values — `presolve = pslp`) and the legacy `cuopt.prm` dialect both
+  // route through the shared solver_cfg loader, including the PLUGIN-LOCAL
+  // `warmstart` key (consumed, never forwarded).  Pin (a) named-value cfg
+  // presolve is accepted and the solve stays exact, and (b) a legacy prm
+  // `warmstart false` disables the auto seed without changing results.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto dir = fs::temp_directory_path() / "gtopt_cuopt_prm_test";
+  // Fresh per-subcase directory: doctest re-enters the case per SUBCASE and
+  // a leftover cuopt.cfg would shadow the prm-dialect subcase.
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+
+  SolverOptions opts {};
+  // param_file itself need not exist — only its DIRECTORY anchors the
+  // cuopt.cfg / cuopt.prm sibling lookup.
+  opts.param_file = (dir / "cplex.prm").string();
+
+  SUBCASE("cfg with named presolve + section is accepted; solve exact")
+  {
+    {
+      std::ofstream out {dir / "cuopt.cfg"};
+      out << "# cuopt.cfg test — named values\n";
+      out << "[cuopt]\n";
+      out << "presolve = pslp\n";
+      out << "crossover = on\n";
+    }
+    backend->apply_options(opts);
+    const CuoptTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->initial_solve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(2.0));
+  }
+
+  SUBCASE("legacy prm 'warmstart false' disables the auto seed; exact")
+  {
+    {
+      std::ofstream out {dir / "cuopt.prm"};
+      out << "warmstart false\n";
+    }
+    backend->apply_options(opts);
+    const CuoptTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->initial_solve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(2.0));
+    // Incremental re-solve (would auto-warm by default) must still be exact
+    // with the seed disabled by the file.
+    const std::array<int, 2> cut_cols {
+        0,
+        1,
+    };
+    const std::array<double, 2> cut_vals {
+        1.0,
+        1.0,
+    };
+    backend->add_row(
+        2, cut_cols.data(), cut_vals.data(), 3.0, backend->infinity());
+    backend->resolve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(3.0));
+  }
+
+  fs::remove_all(dir);
+}
+
+TEST_CASE("cuOpt write_lp dumps a readable MPS file")  // NOLINT
+{
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto stem = cuopt_scratch_log_base("write_lp");
+  const auto file = fs::path {stem.string() + ".mps"};
+  fs::remove(file);
+
+  const CuoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  // gtopt callers pass an extensionless stem; the backend normalises to
+  // ".mps" (cuOpt's writer emits MPS regardless of the requested name).
+  backend->write_lp(stem.string().c_str());
+  REQUIRE(fs::exists(file));
+  CHECK(fs::file_size(file) > 0);
+  fs::remove(file);
 }
 
 }  // namespace
