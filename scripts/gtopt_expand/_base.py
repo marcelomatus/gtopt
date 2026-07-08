@@ -39,6 +39,42 @@ from gtopt_expand._template_engine import (
 )
 
 
+# ── Hydrological-calendar utilities (shared by Laja and Maule) ──────
+#
+# PLP's irrigation data is keyed by HYDROLOGICAL months (1 = April ..
+# 12 = March; genpdmaule.f:1860, leelajam.f), while gtopt stage months
+# are calendar (1 = January .. 12 = December).
+
+#: Hydro month (index 0 = hydro 1 = April) → calendar month number.
+HYDRO_TO_CALENDAR = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]
+
+#: Calendar month number (1..12) → gtopt MonthType JSON spelling.
+MONTH_NAMES = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+]
+
+
+def hydro_month_name(hydro_month: int) -> str:
+    """Map a PLP hydrological month (1=Apr..12=Mar) to a calendar name.
+
+    Used for VolumeRight ``reset_month`` fields (e.g. PLP's
+    ``MesIniTempRiego`` = hydro 9 → ``"december"``).
+    """
+    calendar = HYDRO_TO_CALENDAR[(int(hydro_month) - 1) % 12]
+    return MONTH_NAMES[calendar - 1]
+
+
 class _RightsAgreementBase:
     """Common scaffolding for irrigation agreement → gtopt entity transforms."""
 
@@ -162,6 +198,25 @@ class _RightsAgreementBase:
             else:
                 counts.append(uniform)
         return counts
+
+    def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
+        """Map a 12-element HYDRO-YEAR array to a per-stage schedule.
+
+        Each stage's calendar month (from the stage parser) maps
+        through ``hydro_idx = (calendar - 4) % 12``.  Without a stage
+        parser the raw hydro-year array is returned (the caller must
+        ensure alignment).  Shared by the Laja schedules and the Maule
+        monthly arrays ("segun mes en plpeta.dat" — both hydro-keyed).
+        """
+        if self._stage_parser is None:
+            return hydro_monthly
+
+        schedule: list[float] = []
+        for stage in self._get_stages():
+            cal_month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
+            hydro_idx = (cal_month - 4) % 12
+            schedule.append(hydro_monthly[hydro_idx])
+        return schedule
 
     def _to_stb_sched(
         self,

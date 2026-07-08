@@ -767,6 +767,113 @@ class TestLajaWriter:
         text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
         assert "<= flow_right('laja_qdefm').flow;" in text
 
+    def test_pure_netting_functions(self):
+        """The GetQsLajaM arithmetic is exposed as pure functions."""
+        from gtopt_expand.laja_agreement import _netted_primary, _qdefm_value
+
+        # Tributary surplus: min() clamps at 0, secondary categories
+        # survive.
+        assert _qdefm_value(
+            qp=90.0, qn=53.0, qe=0.0, qs=3.5, q_hoya=60.0, qfilt=47.0
+        ) == pytest.approx(39.5)
+        # Positive tributary deficit: the static min(., 0) clamp
+        # (QDefAbanico = 0 under QFiltLaja = QFiltHist) zeroes it —
+        # only the secondary categories survive.
+        assert _qdefm_value(
+            qp=90.0, qn=0.0, qe=0.0, qs=0.0, q_hoya=10.0, qfilt=47.0
+        ) == pytest.approx(0.0)
+        # Fully negative interior: floor at 0.
+        assert _qdefm_value(
+            qp=0.0, qn=0.0, qe=0.0, qs=0.0, q_hoya=80.0, qfilt=47.0
+        ) == pytest.approx(0.0)
+        assert _netted_primary(90.0, 20.0, 47.0) == pytest.approx(67.0)
+        assert _netted_primary(90.0, 80.0, 47.0) == pytest.approx(90.0)
+
+    def test_seepage_aware_cap(self, laja_config, tmp_path):
+        """With a ReservoirSeepage reference the cap becomes the exact
+        linearization `rights + seepage.flow <= K(t)`: the carrier
+        holds K(t) = min(QP − QHoya, QFiltHist) + R floored at the
+        element's max flow, and the row references the seepage element
+        directly."""
+        from gtopt_expand.laja_agreement import _qdefm_k_value
+
+        # Pure arithmetic: December (QP=90, hoya=60, R=56.5):
+        # K = min(30, 47) + 56.5 = 86.5 (> qf_ub floor 50).
+        assert _qdefm_k_value(
+            qp=90.0,
+            qn=53.0,
+            qe=0.0,
+            qs=3.5,
+            q_hoya=60.0,
+            qfilt_hist=47.0,
+            qf_ub=50.0,
+        ) == pytest.approx(86.5)
+        # Off-season (QP=0, R=0): K negative -> floored at qf_ub so
+        # the row stays feasible (rights forced towards 0 once the
+        # seepage flow approaches its maximum).
+        assert _qdefm_k_value(
+            qp=0.0,
+            qn=0.0,
+            qe=0.0,
+            qs=0.0,
+            q_hoya=60.0,
+            qfilt_hist=47.0,
+            qf_ub=50.0,
+        ) == pytest.approx(50.0)
+
+        class _Stages:
+            def get_all(self):
+                return [{"number": 1, "month": 12}]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [60.0]
+        cfg["seepage_ref"] = "ELTORO_seepage_2"
+        cfg["seepage_flow_ub"] = 50.0
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+        carrier = next(fr for fr in writer.flow_rights if fr["name"] == "laja_qdefm")
+        fmax = carrier["fmax"]
+        first = fmax[0][0] if isinstance(fmax, list) else fmax
+        assert first == pytest.approx(86.5)
+
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        assert (
+            "+ seepage('ELTORO_seepage_2').flow"
+            " <= flow_right('laja_qdefm').flow;" in text
+        )
+
+    def test_feature_toggles_disable_couplings(self, laja_config, tmp_path):
+        """The enable_* keys revert each coupling to the legacy shape."""
+
+        class _Stages:
+            def get_all(self):
+                return [{"number": 1, "month": 12}]
+
+        cfg = dict(laja_config)
+        cfg["q_hoya_inter"] = [60.0]
+        cfg["anchor_turbinado_ref"] = "turbine('ELTORO').flow"
+        cfg["enable_physical_anchoring"] = False
+        cfg["enable_ledger_linkage"] = False
+        cfg["enable_attribution_cap"] = False
+        cfg["enable_netted_targets"] = False
+        writer = LajaWriter(cfg, stage_parser=_Stages())
+
+        # Attribution cap off: no qdefm carrier entity.
+        assert not any(fr["name"] == "laja_qdefm" for fr in writer.flow_rights)
+        # Netted targets off: gross December primary target.
+        zaco = next(fr for fr in writer.flow_rights if fr["name"] == "RIEGZACO_1o_reg")
+        target = zaco["target"]
+        first = target[0][0] if isinstance(target, list) else target
+        assert first == pytest.approx(0.372 * 90.0)
+
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "laja.pampl").read_text(encoding="utf-8")
+        assert "laja_anclaje_turbinado" not in text
+        assert "laja_ledger_riego" not in text
+        assert "laja_retiro_maximo" not in text
+        # The partition identity itself is always emitted.
+        assert "constraint laja_particion_derechos" in text
+
     def test_qdefm_scenario_dimensioned(self, laja_config):
         """With per-scenario hoya inflows the carrier is a 3D
         [scenario][stage][block] schedule — one qdefm series per

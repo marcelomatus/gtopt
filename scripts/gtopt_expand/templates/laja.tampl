@@ -100,7 +100,7 @@ constraint laja_particion_derechos "Flow partition: total generation = sum of ex
 # Spill arcs are never referenced — spilled water is outside the
 # rights accounting by design.
 # ---------------------------------------------------------------------------
-{% if anchor_turbinado_ref is defined %}
+{% if anchor_turbinado_ref is defined and enable_physical_anchoring | default(true) %}
 constraint laja_anclaje_turbinado "Anchor: partition total = physical El Toro flow":
   flow_right('laja_q_turbinado').flow = {{ anchor_turbinado_ref }};
 {% endif %}
@@ -116,6 +116,7 @@ constraint laja_anclaje_turbinado "Anchor: partition total = physical El Toro fl
 # physical water already leaves through the anchored turbine arc, and
 # PLP's ledgers are pure accounting.
 # ---------------------------------------------------------------------------
+{% if enable_ledger_linkage | default(true) %}
 constraint laja_ledger_riego "Ledger: irrigation bucket depletes with qdr":
   volume_right('laja_vol_der_riego').extraction = flow_right('laja_der_riego').flow;
 
@@ -131,6 +132,7 @@ constraint laja_ledger_mixto "Ledger: mixed bucket depletes with qdm":
 # (reset_debit_right, genpdlajam.f:234-239).
 constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
   volume_right('laja_vol_gasto_anticipado').saving = flow_right('laja_gasto_anticipado').flow;
+{% endif %}
 
 # ---------------------------------------------------------------------------
 # Attribution cap: riego-side charging <= delivered irrigation
@@ -149,10 +151,24 @@ constraint laja_ledger_anticipado "Ledger: anticipado counter fills with qga":
 # charging to actual irrigation demand.  Spills never enter this
 # accounting (the flows below are turbined-water partitions).
 # ---------------------------------------------------------------------------
-{% if use_qdefm_carrier | default(false) %}
-{# NETTED cap: the laja_qdefm carrier holds PLP's per-stage net
-   requirement (GetQsLajaM) — primary demand minus hoya-intermedia
-   inflows and filtration, plus the secondary categories. #}
+{% if not (enable_attribution_cap | default(true)) %}
+{# Attribution cap disabled (enable_attribution_cap: false). #}
+{% elif use_seepage_cap | default(false) %}
+{# VOLUME-DEPENDENT cap: PLP evaluates qdefm with the CURRENT
+   filtration estimate; since qf is common to both min() branches the
+   cap linearizes exactly as `rights + qf <= K(t)` with qf the
+   ReservoirSeepage element's own LP flow (a PHYSICAL element of the
+   base topology, referenced directly — never duplicated) and K(t)
+   the per-stage carrier value min(QP - QHoya, QFiltHist) + R,
+   floored at the element's maximum flow for out-of-season
+   feasibility (see _qdefm_k_value). #}
+constraint laja_retiro_maximo "Attribution cap: riego-side charging + seepage <= K(t)":
+  flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow + seepage('{{ seepage_ref }}').flow <= flow_right('laja_qdefm').flow;
+{% elif use_qdefm_carrier | default(false) %}
+{# NETTED cap (static filtration): the laja_qdefm carrier holds PLP's
+   per-stage net requirement (GetQsLajaM) — primary demand minus
+   hoya-intermedia inflows and QFiltHist, plus the secondary
+   categories. #}
 constraint laja_retiro_maximo "Attribution cap: riego-side charging <= net requirement (qdefm)":
   flow_right('laja_der_riego').flow + flow_right('laja_der_mixto').flow + flow_right('laja_gasto_anticipado').flow <= flow_right('laja_qdefm').flow;
 {% else %}
@@ -178,7 +194,7 @@ constraint laja_retiro_maximo "Attribution cap: riego-side charging <= delivered
 # ---------------------------------------------------------------------------
 {% set _district_categories = district_categories | default({}) %}
 {% for district in districts %}
-{% if district.anchor_flow_right is defined and _district_categories.get(district.name) %}
+{% if district.anchor_flow_right is defined and _district_categories.get(district.name) and enable_physical_anchoring | default(true) %}
 constraint dist_anclaje_{{ district.name }} "{{ district.name }}: physical offtake = sum of categories":
   flow_right('{{ district.anchor_flow_right }}').flow = {% for n in _district_categories[district.name] %}flow_right('{{ n }}').flow{{ " + " if not loop.last else "" }}{% endfor %};
 {% endif %}

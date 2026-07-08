@@ -50,45 +50,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from gtopt_expand._base import _RightsAgreementBase
+from gtopt_expand._base import (
+    HYDRO_TO_CALENDAR,
+    MONTH_NAMES,
+    _RightsAgreementBase,
+    hydro_month_name,
+)
 
 _logger = logging.getLogger(__name__)
 
 
-# Hydrological year mapping: PLP uses Apr=1..Mar=12
-# gtopt uses calendar months: january=1..december=12
-# So PLP hydro month H maps to calendar month (H + 3) % 12, with 0 → 12
-_HYDRO_TO_CALENDAR = [4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3]
-
-# Calendar month number (1..12) → gtopt MonthType JSON spelling.
-_MONTH_NAMES = [
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-]
-
-
-def _hydro_month_name(hydro_month: int) -> str:
-    """Map a PLP hydrological month (1=Apr..12=Mar) to a calendar name.
-
-    Used for the VolumeRight ``reset_month`` fields: PLP re-provisions
-    the rights buckets at ``MesIniTempRiego`` (hydro month 9 =
-    **december**, the start of the Dec-1..Apr-30 irrigation season per
-    the 2017 Acuerdo, `genpdlajam.f` INICIOTEMP) and resets the
-    anticipado counter at ``MesIniTempAntic`` (hydro month 6 =
-    **september**, INICIOANTIC).
-    """
-    calendar = _HYDRO_TO_CALENDAR[(int(hydro_month) - 1) % 12]
-    return _MONTH_NAMES[calendar - 1]
+# Back-compat aliases — the canonical definitions live in ``_base``
+# (shared with the Maule agreement).
+_HYDRO_TO_CALENDAR = HYDRO_TO_CALENDAR
+_MONTH_NAMES = MONTH_NAMES
+_hydro_month_name = hydro_month_name
 
 
 def _zones_to_bound_rule_segments(
@@ -165,6 +141,65 @@ def _zones_to_bound_rule_segments(
         segments.append({"volume": vol_muerto, "slope": 0, "constant": base})
 
     return segments
+
+
+def _qdefm_value(
+    qp: float,
+    qn: float,
+    qe: float,
+    qs: float,
+    q_hoya: float,
+    qfilt: float,
+) -> float:
+    """Net Lago requirement for one stage (PLP GetQsLajaM).
+
+    ``max(min(QP − QHoya − QFilt, 0) + QN + QS + QE, 0)`` under the
+    static-filtration approximation (QFiltLaja = QFiltHist, so
+    QDefAbanico = 0 and the min() reduces to min(QDefTucapel, 0)).
+    Pure — unit-testable without an agreement instance.
+    """
+    return max(min(qp - q_hoya - qfilt, 0.0) + qn + qs + qe, 0.0)
+
+
+def _qdefm_k_value(
+    qp: float,
+    qn: float,
+    qe: float,
+    qs: float,
+    q_hoya: float,
+    qfilt_hist: float,
+    qf_ub: float,
+) -> float:
+    """Seepage-aware cap constant K'(t) (volume-dependent filtration).
+
+    PLP's per-stage cap is ``qdefm = max(min(QDefTucapel, QDefAbanico)
+    + R, 0)`` with the CURRENT filtration ``qf`` in both branches —
+    and since ``qf`` is common, ``min(QP − QHoya − qf, QFiltHist − qf)
+    = min(QP − QHoya, QFiltHist) − qf``.  The cap therefore
+    linearizes EXACTLY as
+
+        rights + qf <= K(t),   K(t) = min(QP − QHoya, QFiltHist) + R
+
+    with ``qf`` the ReservoirSeepage element's own LP flow variable.
+    The outer ``max(., 0)`` is a disjunction an LP row cannot carry:
+    flooring K'(t) at the maximum possible seepage flow (``qf_ub``,
+    the element's piecewise at the reservoir's emax) keeps the row
+    feasible in the zero-cap stages at the cost of a small relaxation
+    there (bounded in practice by the winter fmax gating and the
+    30 hm3 mixed ledger).  Pure — unit-testable.
+    """
+    k = min(qp - q_hoya, qfilt_hist) + qn + qs + qe
+    return max(k, qf_ub)
+
+
+def _netted_primary(gross: float, q_hoya: float, qfilt: float) -> float:
+    """Netted primary delivery (PLP GetQsLajaM's QPRiego re-set).
+
+    ``min(gross, QHoya + QFilt)`` under the static-filtration
+    approximation: Lago releases only cover the tributary/filtration
+    deficit.  Pure — unit-testable.
+    """
+    return min(gross, q_hoya + qfilt)
 
 
 def _zones_to_step_segments(
@@ -303,24 +338,6 @@ class LajaAgreement(_RightsAgreementBase):
             central_name,
         )
         return new_value
-
-    def _hydro_to_stage_schedule(self, hydro_monthly: list[float]) -> list[float]:
-        """Convert 12-element hydrological-year array to per-stage schedule.
-
-        PLP Laja uses hydrological year (Apr=index 0 .. Mar=index 11).
-        Maps each stage's calendar month to the corresponding hydro index.
-        """
-        if self._stage_parser is None:
-            return hydro_monthly
-
-        stages = self._get_stages()
-        schedule: list[float] = []
-        for stage in stages:
-            cal_month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
-            # Calendar month → hydro index: Apr=0, May=1, ..., Mar=11
-            hydro_idx = (cal_month - 4) % 12
-            schedule.append(hydro_monthly[hydro_idx])
-        return schedule
 
     def _fmax_schedule(
         self,
@@ -476,12 +493,19 @@ class LajaAgreement(_RightsAgreementBase):
         # district deliveries.
         qdefm_sched: Any = None
         q_hoya = cfg.get("q_hoya_inter")
-        if q_hoya and self._stage_parser is not None:
+        if (
+            q_hoya
+            and self._stage_parser is not None
+            and cfg.get("enable_attribution_cap", True)
+        ):
             seas_p = self._hydro_to_stage_schedule(cfg["seasonal_1o_reg"])
             seas_n = self._hydro_to_stage_schedule(cfg["seasonal_2o_reg"])
             seas_e = self._hydro_to_stage_schedule(cfg["seasonal_emergencia"])
             seas_s = self._hydro_to_stage_schedule(cfg["seasonal_saltos"])
             qfilt = float(cfg.get("filtracion_laja", 0.0))
+
+            seepage_ref = cfg.get("seepage_ref")
+            qf_ub = float(cfg.get("seepage_flow_ub", 0.0))
 
             def qdefm_series(hoya_series: list[float]) -> list[float]:
                 vals: list[float] = []
@@ -492,9 +516,13 @@ class LajaAgreement(_RightsAgreementBase):
                     qe = cfg["demand_emergencia"] * seas_e[i]
                     qs = cfg["demand_saltos"] * seas_s[i]
                     qh = float(hoya_series[idx]) if idx < len(hoya_series) else 0.0
-                    qdef_tucapel = qp - qh - qfilt
-                    qtlaja = min(qdef_tucapel, 0.0) + qn + qs + qe
-                    vals.append(max(qtlaja, 0.0))
+                    if seepage_ref:
+                        # Volume-dependent filtration: the carrier holds
+                        # K'(t) and the cap row adds the seepage
+                        # element's flow variable (see _qdefm_k_value).
+                        vals.append(_qdefm_k_value(qp, qn, qe, qs, qh, qfilt, qf_ub))
+                    else:
+                        vals.append(_qdefm_value(qp, qn, qe, qs, qh, qfilt))
                 return vals
 
             by_scenario = cfg.get("q_hoya_inter_by_scenario")
@@ -509,8 +537,12 @@ class LajaAgreement(_RightsAgreementBase):
             else:
                 qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
             # Expose to the .tampl renderer (it renders from the raw
-            # config) so the cap switches to the netted carrier.
+            # config) so the cap switches to the netted carrier (and,
+            # when the seepage element exists, to the seepage-aware
+            # row form).
             self._cfg["use_qdefm_carrier"] = True
+            if seepage_ref:
+                self._cfg["use_seepage_cap"] = True
 
         # --- User constraint expressions ---
         expression_partition = (
@@ -640,13 +672,18 @@ class LajaAgreement(_RightsAgreementBase):
 
                 seasonal = self._hydro_to_stage_schedule(cfg[seasonal_keys[category]])
                 target_values = [demand_base * pct * s for s in seasonal]
-                if category == "1o_reg" and q_hoya and self._stage_parser is not None:
+                if (
+                    category == "1o_reg"
+                    and q_hoya
+                    and self._stage_parser is not None
+                    and cfg.get("enable_netted_targets", True)
+                ):
                     stages = self._get_stages()
                     for i, stg in enumerate(stages[: len(target_values)]):
                         idx = int(stg.get("number", i + 1)) - 1
                         qh = float(q_hoya[idx]) if idx < len(q_hoya) else 0.0
                         gross = demand_base * seasonal[i]
-                        target_values[i] = pct * min(gross, qh + qfilt)
+                        target_values[i] = pct * _netted_primary(gross, qh, qfilt)
                 # `target` is the soft kink of the FlowRight; emit scalar
                 # or 2D (matches the C++ jvtl_TBRealFieldSched variant).
                 target_sched = self._to_tb_sched(target_values)

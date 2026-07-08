@@ -90,7 +90,7 @@ import logging
 from typing import Any
 
 from gtopt_expand._base import _RightsAgreementBase
-from gtopt_expand.laja_agreement import _hydro_month_name
+from gtopt_expand._base import hydro_month_name as _hydro_month_name
 
 _logger = logging.getLogger(__name__)
 
@@ -271,29 +271,6 @@ class MauleAgreement(_RightsAgreementBase):
 
         return "MACHICURA"
 
-    def _monthly_schedule(self, monthly_values: list[float]) -> list[float]:
-        """Convert a 12-element HYDRO-YEAR array to per-stage values.
-
-        The plpmaulen.dat monthly arrays are indexed "segun mes en
-        plpeta.dat" — hydrological months (1 = April .. 12 = March),
-        exactly like the Laja arrays.  Stage months are calendar
-        (1 = Jan .. 12 = Dec), so each stage maps through
-        ``hydro_idx = (calendar - 4) % 12``.  If no stage_parser is
-        available, returns the raw hydro-year array (the user must
-        ensure stage-month alignment).
-        """
-        if self._stage_parser is None:
-            return monthly_values
-
-        stages = self._get_stages()
-        schedule: list[float] = []
-        for stage in stages:
-            month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
-            # Calendar month -> hydro index: Apr=0, May=1, ..., Mar=11
-            idx = (month - 4) % 12
-            schedule.append(monthly_values[idx])
-        return schedule
-
     def _monthly_fmax_schedule(
         self,
         monthly_pcts: list[float],
@@ -308,7 +285,7 @@ class MauleAgreement(_RightsAgreementBase):
         agent so per-stage-block parquet round-trips no longer warn).
         """
         monthly_flows = [pct / 100.0 * base_flow for pct in monthly_pcts]
-        schedule = self._monthly_schedule(monthly_flows)
+        schedule = self._hydro_to_stage_schedule(monthly_flows)
         return self._to_tb_sched(schedule)
 
     def _prepare_context(self) -> dict[str, Any]:
@@ -355,7 +332,7 @@ class MauleAgreement(_RightsAgreementBase):
         elec_ord_fmax = self._monthly_fmax_schedule(mod_elec, elec_day_max)
 
         caudal_res105 = cfg["caudal_res105"]
-        res105_values = self._monthly_schedule(caudal_res105)
+        res105_values = self._hydro_to_stage_schedule(caudal_res105)
         # `discharge` aliases `target` (OptTBRealFieldSched / 2D) —
         # emit scalar or 2D so the C++ JSON parser variant matches.
         res105_discharge = self._to_tb_sched(res105_values)

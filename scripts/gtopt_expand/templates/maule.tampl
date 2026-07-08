@@ -283,7 +283,7 @@ constraint invernada_balance "La Invernada: inflows = outflows":
 # Maule central (`anchor_gen_ref_maule`, a `turbine('X').flow` /
 # `waterway('X').flow` fragment).
 # ---------------------------------------------------------------------------
-{% if anchor_gen_ref_maule is defined %}
+{% if anchor_gen_ref_maule is defined and enable_physical_anchoring | default(true) %}
 constraint maule_anclaje_particion "Anchor: rights partition = physical Maule turbined flow":
   flow_right('maule_gasto_normal_elec').flow + flow_right('maule_gasto_normal_riego').flow + flow_right('maule_gasto_ordinario_elec').flow + flow_right('maule_gasto_ordinario_riego').flow + flow_right('maule_compensacion_elec').flow = {{ anchor_gen_ref_maule }};
 {% endif %}
@@ -291,7 +291,7 @@ constraint maule_anclaje_particion "Anchor: rights partition = physical Maule tu
 # La Invernada: deficit/no-deficit release accounting = physical
 # turbined flow at the Invernada central (gen only — spills excluded
 # for the same reason as above; PLP: genpdmaule.f:94-103).
-{% if anchor_gen_ref_invernada is defined %}
+{% if anchor_gen_ref_invernada is defined and enable_physical_anchoring | default(true) %}
 constraint invernada_anclaje "Anchor: Invernada releases = physical turbined flow":
   flow_right('invernada_deficit').flow + flow_right('invernada_sin_deficit').flow = {{ anchor_gen_ref_invernada }};
 {% endif %}
@@ -310,6 +310,7 @@ constraint invernada_anclaje "Anchor: Invernada releases = physical turbined flo
 # counters (IVMGEMF/IVMGEAF rows carry IQMNEH + IQMOEH) and in the
 # seasonal riego bucket (IVMGRTF carries IQMNRH + IQMORH) —
 # genpdmaule.f:268-290.
+{% if enable_ledger_linkage | default(true) %}
 constraint maule_ledger_elec_mensual "Ledger: monthly electric bucket depletes with qmne+qmoe":
   volume_right('maule_vol_gasto_elec_mensual').extraction = flow_right('maule_gasto_normal_elec').flow + flow_right('maule_gasto_ordinario_elec').flow;
 
@@ -327,6 +328,7 @@ constraint maule_ledger_reserva_riego "Ledger: ordinary-reserve irrigation bucke
 
 constraint maule_ledger_compensacion "Ledger: compensation bucket depletes with qmce":
   volume_right('maule_vol_compensacion_elec').extraction = flow_right('maule_compensacion_elec').flow;
+{% endif %}
 
 # ---------------------------------------------------------------------------
 # Ordinary reserve percentage allocation constraints
@@ -362,7 +364,7 @@ constraint maule_pct_ordinario_riego "Irrigation capped at {{ pct_riego_reserva 
 # {{ fr_name }}: {{ district.percentage }}% of total irrigation
 constraint dist_{{ fr_name }} "{{ fr_name }}: {{ district.percentage }}% of total irrigation":
   flow_right('{{ fr_name }}').flow {{ '<=' if district.has_slack else '=' }} {{ district.percentage / 100.0 }} * flow_right('maule_gasto_normal_riego').flow;
-{% if district.anchor_flow_right is defined %}
+{% if district.anchor_flow_right is defined and enable_physical_anchoring | default(true) %}
 # Physical offtake anchor (PLP +l_qriK node term, genpdmaule.f).
 constraint dist_anclaje_{{ fr_name }} "{{ fr_name }}: physical offtake = delivered flow":
   flow_right('{{ district.anchor_flow_right }}').flow = flow_right('{{ fr_name }}').flow;

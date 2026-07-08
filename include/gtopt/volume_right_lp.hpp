@@ -76,6 +76,13 @@ public:
 
   [[nodiscard]] bool add_to_output(OutputContext& out) const;
 
+  /// True when `stage`'s calendar month matches this bucket's
+  /// `reset_month` (fails loudly when the stage carries no month —
+  /// see `require_stage_month`).  Shared by the add_to_lp and
+  /// update_lp reset paths; `what` labels the caller in the error.
+  [[nodiscard]] bool matches_reset_month(const StageLP& stage,
+                                         std::string_view what) const;
+
   /// Update volume-dependent column bounds when bound_rule is set.
   /// @return Number of LP column bounds modified (0 if unchanged)
   [[nodiscard]] int update_lp(SystemLP& sys,

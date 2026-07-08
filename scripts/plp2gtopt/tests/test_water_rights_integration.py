@@ -257,9 +257,12 @@ class TestWaterRightsIntegration:
         # exists in the topology are tied to it (PLP +l_qriK).
         assert "constraint dist_anclaje_RIEGZACO" in laja
         assert "constraint dist_anclaje_RieSaltos" in laja
-        # The full conversion has aflce data, so the cap is the NETTED
-        # qdefm carrier (GetQsLajaM), not the gross district fallback.
+        # The full conversion has aflce data AND the ELTORO seepage
+        # element, so the cap is the seepage-aware exact linearization
+        # `rights + seepage.flow <= K(t)` (volume-dependent
+        # filtration), referencing the physical element directly.
         assert "<= flow_right('laja_qdefm').flow;" in laja
+        assert "+ seepage('ELTORO_seepage_2').flow" in laja
 
         maule = (out / "maule.pampl").read_text(encoding="utf-8")
         assert "constraint maule_anclaje_particion" in maule

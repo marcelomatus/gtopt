@@ -434,6 +434,9 @@ class HydroMixin:
         if output_dir is None:
             return
 
+        # Stash for the expansion helpers (feature switches).
+        self._water_rights_options = dict(options)
+
         stage_parser = self.parser.parsed_data.get("stage_parser")
 
         # When ``process_junctions`` was skipped (e.g. no hydro topology
@@ -677,6 +680,34 @@ class HydroMixin:
             fh.write("\n")
         return target
 
+    def _irrigation_couplings_enabled(self, cfg: Dict[str, Any]) -> bool:
+        """Master switch for the physical-coupling features.
+
+        ``--no-irrigation-couplings`` (or ``irrigation_couplings:
+        false`` in the options) reverts the agreements to the legacy
+        uncoupled shape: no partition/district anchors, no ledger
+        linkage, no attribution cap, no netted targets.  The granular
+        per-feature keys (``enable_physical_anchoring``,
+        ``enable_ledger_linkage``, ``enable_attribution_cap``,
+        ``enable_netted_targets``) can also be set individually in the
+        canonical laja/maule JSON.
+        """
+        enabled = bool(self._wr_options().get("irrigation_couplings", True))
+        if not enabled:
+            for key in (
+                "enable_physical_anchoring",
+                "enable_ledger_linkage",
+                "enable_attribution_cap",
+                "enable_netted_targets",
+            ):
+                cfg[key] = False
+        return enabled
+
+    def _wr_options(self) -> Dict[str, Any]:
+        """Options dict used by process_water_rights (may be absent in
+        unit-test paths)."""
+        return getattr(self, "_water_rights_options", {}) or {}
+
     def _anchor_flow_ref(self, central: str) -> str | None:
         """Resolve the PAMPL reference for *central*'s turbined flow.
 
@@ -808,6 +839,55 @@ class HydroMixin:
             return {"first": by_scenario[0], "by_scenario": by_scenario}
         return by_scenario[0]
 
+    def _inject_seepage_ref(self, cfg: Dict[str, Any], central: str) -> None:
+        """Reference the central's ReservoirSeepage element for the cap.
+
+        The seepage elements are PHYSICAL, agreement-independent parts
+        of the base topology (one per relevant reservoir, from
+        plpfilemb.dat); the agreements only READ them, referenced
+        directly as gtopt elements (`seepage('<name>').flow` in
+        PAMPL).  Injects:
+
+        * ``seepage_ref`` — the element name, and
+        * ``seepage_flow_ub`` — its piecewise evaluated at the
+          reservoir's ``emax`` (the maximum possible seepage flow,
+          used to keep the seepage-aware cap row feasible out of
+          season).
+
+        Skipped (static-filtration fallback) when the central has no
+        seepage element in the merged system.
+        """
+        system = self.planning["system"]
+        seepages = {
+            str(e.get("reservoir", "")): e
+            for e in system.get("reservoir_seepage_array", [])
+        }
+        entity = seepages.get(central)
+        if entity is None:
+            return
+        emax = 0.0
+        for rsv in system.get("reservoir_array", []):
+            if str(rsv.get("name", "")) == central:
+                raw = rsv.get("emax", 0.0)
+                emax = float(raw) if isinstance(raw, (int, float)) else 0.0
+                break
+        segments = entity.get("segments") or [
+            {
+                "volume": 0.0,
+                "slope": float(entity.get("slope", 0.0)),
+                "constant": float(entity.get("constant", 0.0)),
+            }
+        ]
+        active = segments[0]
+        for seg in segments:
+            if float(seg.get("volume", 0.0)) <= emax:
+                active = seg
+        qf_ub = (
+            float(active.get("constant", 0.0)) + float(active.get("slope", 0.0)) * emax
+        )
+        cfg["seepage_ref"] = str(entity.get("name", ""))
+        cfg["seepage_flow_ub"] = max(qf_ub, 0.0)
+
     def _inject_district_anchors(self, cfg: Dict[str, Any]) -> None:
         """Anchor agreement districts to their physical diversion offtakes.
 
@@ -854,21 +934,27 @@ class HydroMixin:
         from gtopt_expand.laja_agreement import LajaAgreement  # noqa: PLC0415
 
         cfg = dict(cfg)
+        couplings = self._irrigation_couplings_enabled(cfg)
         # PLP anchors the Laja partition to El Toro's generation flow
         # only (no vertimiento term — genpdlajam.f:70-76).
-        self._inject_anchor_refs(
-            cfg, {"anchor_turbinado_ref": str(cfg.get("central_laja", ""))}
-        )
+        if couplings:
+            self._inject_anchor_refs(
+                cfg, {"anchor_turbinado_ref": str(cfg.get("central_laja", ""))}
+            )
         # Hoya-intermedia inflow means for the qdefm netting
         # (GetQsLajaM): lets the attribution cap subtract what the
         # tributaries already deliver.
-        q_hoya = self._hoya_inter_stage_means(list(cfg.get("intermediate_basins", [])))
-        if isinstance(q_hoya, dict):
-            cfg["q_hoya_inter"] = q_hoya["first"]
-            cfg["q_hoya_inter_by_scenario"] = q_hoya["by_scenario"]
-        elif q_hoya is not None:
-            cfg["q_hoya_inter"] = q_hoya
-        self._inject_district_anchors(cfg)
+        if couplings:
+            q_hoya = self._hoya_inter_stage_means(
+                list(cfg.get("intermediate_basins", []))
+            )
+            if isinstance(q_hoya, dict):
+                cfg["q_hoya_inter"] = q_hoya["first"]
+                cfg["q_hoya_inter_by_scenario"] = q_hoya["by_scenario"]
+            elif q_hoya is not None:
+                cfg["q_hoya_inter"] = q_hoya
+            self._inject_district_anchors(cfg)
+            self._inject_seepage_ref(cfg, str(cfg.get("central_laja", "")))
         agreement = LajaAgreement(
             dict(cfg),
             stage_parser=stage_parser,
@@ -901,14 +987,15 @@ class HydroMixin:
         # Laguna Invernada's (genpdmaule.f:75-103).  gtopt anchors to
         # the GENERATION flow only — spills are never charged to the
         # rights accounting (see _anchor_flow_ref).
-        self._inject_anchor_refs(
-            cfg,
-            {
-                "anchor_gen_ref_maule": str(cfg.get("central_maule", "")),
-                "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
-            },
-        )
-        self._inject_district_anchors(cfg)
+        if self._irrigation_couplings_enabled(cfg):
+            self._inject_anchor_refs(
+                cfg,
+                {
+                    "anchor_gen_ref_maule": str(cfg.get("central_maule", "")),
+                    "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
+                },
+            )
+            self._inject_district_anchors(cfg)
         agreement = MauleAgreement(
             dict(cfg),
             stage_parser=stage_parser,

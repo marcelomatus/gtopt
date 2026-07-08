@@ -96,6 +96,18 @@ template<typename SystemLPT>
 
 }  // namespace
 
+bool VolumeRightLP::matches_reset_month(const StageLP& stage,
+                                        std::string_view what) const
+{
+  const auto& rm = volume_right().reset_month;
+  return rm.has_value()
+      && require_stage_month(stage,
+                             Element::class_name.full_name(),
+                             std::format("uid={}", uid()),
+                             what)
+      == *rm;
+}
+
 VolumeRightLP::VolumeRightLP(const VolumeRight& pvol, const InputContext& ic)
     : StorageBase(pvol, ic, Element::class_name)
     , demand(ic, Element::class_name, id(), std::move(volume_right().demand))
@@ -222,18 +234,12 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // When reset_month fires at a cross-phase boundary, skip state variable
   // linking: the sini value is independently provisioned, so backward
   // duals and forward trial values from the previous phase are meaningless.
-  const auto& rm = volume_right().reset_month;
   const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
   const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
   // A VR with reset_month requires the stage to carry a calendar month:
   // a silent `nullopt != rm` would skip the provisioning quietly and
   // produce a wrong but feasible LP.  Fail fast instead.
-  bool is_reset_stage = rm.has_value()
-      && require_stage_month(stage,
-                             Element::class_name.full_name(),
-                             std::format("uid={}", uid()),
-                             "reset_month")
-          == *rm;
+  bool is_reset_stage = matches_reset_month(stage, "reset_month");
   // Monthly reset (PLP TipoEtaDE != INTRAETA, genpdmaule.f:937):
   // re-provision at every stage that starts a new calendar month.
   // The horizon's first stage keeps its config eini (PLP resets only
@@ -504,13 +510,8 @@ int VolumeRightLP::update_lp(SystemLP& sys,
   //    numerically from the solved/propagated states each iteration.
   //    Independent of the bound_rule machinery below.
   if (credit_ref.has_value()) {
-    const auto& rm_credit = volume_right().reset_month;
-    const bool is_credit_reset = rm_credit.has_value()
-        && require_stage_month(stage,
-                               Element::class_name.full_name(),
-                               std::format("uid={}", uid()),
-                               "reset_month (credit update)")
-            == *rm_credit;
+    const bool is_credit_reset =
+        matches_reset_month(stage, "reset_month (credit update)");
     if (is_credit_reset
         && (stage.index() > 0 || sys.prev_phase_sys() != nullptr))
     {
@@ -568,13 +569,8 @@ int VolumeRightLP::update_lp(SystemLP& sys,
 
   // Dynamic provisioning: at reset_month, update eini to the new
   // bound_rule value (PLP: DerRiego recomputed from reservoir volume).
-  const auto& rm = volume_right().reset_month;
-  const bool is_reset_stage_update = rm.has_value()
-      && require_stage_month(stage,
-                             Element::class_name.full_name(),
-                             std::format("uid={}", uid()),
-                             "reset_month (update_lp)")
-          == *rm;
+  const bool is_reset_stage_update =
+      matches_reset_month(stage, "reset_month (update_lp)");
   if (is_reset_stage_update) {
     // ``reset_value`` provisions are static — nothing to refresh.
     if (!volume_right().reset_value.has_value()) {

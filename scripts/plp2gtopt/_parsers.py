@@ -1582,6 +1582,20 @@ def add_general_arguments(
         ),
     )
     parser.add_argument(
+        "--irrigation-couplings",
+        dest="irrigation_couplings",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "enable the physical couplings of the irrigation agreements "
+            "(partition/district anchors, ledger linkage, attribution "
+            "cap, netted targets).  --no-irrigation-couplings reverts "
+            "the Laja/Maule expansion to the legacy uncoupled shape; the "
+            "granular enable_* keys in the canonical laja.json / "
+            "maule.json give per-feature control"
+        ),
+    )
+    parser.add_argument(
         "--expand-lng",
         dest="expand_lng",
         action=argparse.BooleanOptionalAction,

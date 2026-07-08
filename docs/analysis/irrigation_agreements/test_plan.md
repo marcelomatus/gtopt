@@ -222,3 +222,32 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    previous stage's shared efin — Tier 9.6 now solves and proves the
    prior balance stays intact).
 6. ~~`update_lp` re-clamp vs substitution~~ — fixed 2026-07 (A1).
+
+
+## SDDP cut soundness — irrigation state variables (reviewed 2026-07)
+
+The irrigation buckets are Tilmant-style "dummy reservoirs": their
+`efin` state variables enter Benders cuts exactly like reservoir
+states.  The reset machinery interacts with cut validity as follows,
+with PLP's `IsVarCorteLajaM` / `IsVarCorteMaule` as the reference:
+
+| Situation | gtopt mechanism | Cut coefficient | PLP reference |
+|---|---|---|---|
+| Non-reset stage | state-linked sini (cross-phase) / shared efin column (in-phase) | real gradient | cut variable kept |
+| Plain reset (december rights, monthly/annual electric, seasonal riego) | incoming state DECOUPLED: `skip_state_link` severs the cross-phase link; `break_stage_chain` allocates a fresh in-phase eini | **zero** — the incoming state touches no row, so its dual vanishes naturally | PLP EXCLUDES the variable from the cut at the reset stage (`IsVarCorteLajaM` at INICIOTEMP, `IsVarCorteMaule` for IVMGEMF/IVMGEAF/IVMGRTF/zone reserves) |
+| December debit (riego provision − anticipado) | the antic bucket's incoming column appears IN the debit row `eini + vgaf = provision` | **real, negative gradient** — early spending reduces the provision and the duals flow into the cuts | PLP keeps IVGAF as the ONLY cut variable at INICIOTEMP (`IsVarCorteLajaM:1034-1040`) — same semantics |
+| January credit (compensation) | provision recomputed NUMERICALLY in update_lp from own + annual incoming states | zero (procedural) | PLP also computes VCompElecN numerically from `VarMaulePrev` AND excludes IVMGEAF from the cuts at INICIOANO — parity |
+| Provision-vs-reservoir-volume gradient | December provision = rule(V) pinned numerically per iteration | zero (`∂provision/∂V` not in cuts) | identical PLP limitation (procedural FijaLajaM/FijaMaule) |
+
+Cross-scene cut sharing: the irrigation states are scene-uniform (the
+same provisioning rules and LP structure per scene), so shared cuts
+remain valid — the zero coefficients at reset boundaries are zero in
+every scene alike.  Registered-but-decoupled state variables carry
+zero coefficients, which is equivalent to PLP's explicit exclusion.
+
+Feature switches: `--no-irrigation-couplings` (plp2gtopt) reverts the
+expansion to the legacy uncoupled shape; per-feature keys in the
+canonical laja/maule JSON: `enable_physical_anchoring`,
+`enable_ledger_linkage`, `enable_attribution_cap`,
+`enable_netted_targets` (all default true; toggle tests in
+test_laja.py / test_maule.py).

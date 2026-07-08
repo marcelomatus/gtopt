@@ -448,6 +448,26 @@ class TestMauleWriter:
         assert "constraint invernada_anclaje" in text2
         assert "= turbine('CIPRESES').flow;" in text2
 
+    def test_feature_toggles_disable_couplings(self, maule_config, tmp_path):
+        """The enable_* keys revert the Maule couplings too."""
+        cfg = dict(maule_config)
+        cfg["anchor_gen_ref_maule"] = "waterway('LMAULE_gen_1_2').flow"
+        cfg["districts"] = [dict(d) for d in cfg["districts"]]
+        cfg["districts"][0]["anchor_flow_right"] = (
+            cfg["districts"][0]["name"] + "_irrigation_right"
+        )
+        cfg["enable_physical_anchoring"] = False
+        cfg["enable_ledger_linkage"] = False
+        writer = MauleWriter(cfg)
+        writer.generate_pampl(tmp_path)
+        text = (tmp_path / "maule.pampl").read_text(encoding="utf-8")
+        assert "maule_anclaje_particion" not in text
+        assert "dist_anclaje_" not in text
+        assert "maule_ledger_" not in text
+        # The balance/split constraints are structural and stay.
+        assert "constraint invernada_balance" in text
+        assert "constraint maule_pct_ordinario_elec" in text
+
     def test_district_anchoring(self, maule_config, tmp_path):
         """Anchored Maule districts get a dist_anclaje constraint tying
         the physical diversion offtake to the retiro flow."""
