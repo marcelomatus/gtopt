@@ -434,15 +434,17 @@ inline constexpr auto aperture_selection_mode_entries =
  *   feeding the cut are the exact vertex duals.  Byte-for-byte the legacy
  *   behaviour.
  *
- * - `warm`: only meaningful with `aperture_chunk_size > 1`.  The first
- *   aperture in a chunk seeds a basis (cold barrier + crossover); every
- *   subsequent aperture re-optimizes that resident basis with a **warm
- *   simplex** solve (a few pivots off the previous optimum) instead of a
- *   fresh barrier.  Fastest on small LPs; on large cut-laden LPs the stale
- *   basis after large bound changes makes it net-slower than `cold` (see
- *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`).
+ * - `warm` (**effective default** — an unset option resolves to `warm` in
+ *   `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt emits it
+ *   explicitly): only meaningful with `aperture_chunk_size > 1`.  The first
+ *   aperture in a chunk seeds a basis (cold barrier + crossover, or a dual
+ *   seed from the forward basis under `basis_cross_mode = full_cross`);
+ *   every subsequent aperture re-optimizes that resident basis with a
+ *   **warm dual simplex** solve (a few pivots off the previous optimum,
+ *   presolve off) instead of a fresh barrier.  See
+ *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`.
  *
- * - `reduced_cost` (default): each aperture is a **cold barrier solve
+ * - `reduced_cost`: each aperture is a **cold barrier solve
  *   WITHOUT crossover**.  No vertex basis is formed; the cut coefficients
  *   are taken directly from the interior-point (analytic-center) reduced
  *   costs, whose tolerance-level noise is filtered by `cut_coeff_eps`.
@@ -454,9 +456,11 @@ inline constexpr auto aperture_selection_mode_entries =
 enum class ApertureSolveMode : uint8_t
 {
   cold = 0,  ///< Cold barrier + crossover; cut from vertex reduced costs.
-  warm = 1,  ///< Warm simplex off the resident chunk basis (chunk_size > 1).
+  warm = 1,  ///< Warm dual simplex off the resident chunk basis
+             ///< (chunk_size > 1).  EFFECTIVE DEFAULT (unset resolves to
+             ///< `warm`; see PlanningOptionsLP::sddp_aperture_solve_mode).
   reduced_cost = 2,  ///< Cold barrier, NO crossover; cut from interior-point
-                     ///< reduced costs (filtered by cut_coeff_eps).  Default.
+                     ///< reduced costs (filtered by cut_coeff_eps).
 };
 
 /// Includes "warm_start" / "barrier" as back-compatible aliases.
@@ -500,23 +504,28 @@ inline constexpr auto aperture_solve_mode_entries =
  * forward/backward row structure is not tail-append compatible (e.g.
  * `aperture_drop_fcuts`, `aperture_system_file`).
  *
- * - `off` (default): no basis reuse.
+ * - `off`: no basis reuse.
  * - `warm`: same-direction reuse — each forward solve warm-starts from this
  *   cell's OWN forward basis captured the previous iteration (forward→forward)
  *   and saves its basis for the next one.  No forward<->backward crossing.
  * - `forward_to_backward`: the forward solve's basis seeds the backward
  *   dual/aperture solve of the same (scene, phase).
  * - `backward_to_forward`: the backward basis seeds the next forward solve.
- * - `full_cross`: forward→forward + both cross directions (forward seed prefers
- *   its own forward basis, falling back to the backward basis on iteration 1).
+ * - `full_cross` (**effective default** — an unset option resolves to
+ *   `full_cross` in `PlanningOptionsLP::sddp_basis_cross_mode()`, and
+ *   plp2gtopt emits it explicitly): forward→forward + both cross directions
+ *   (forward seed prefers its own forward basis, falling back to the
+ *   backward basis on iteration 1).
  */
 enum class BasisCrossMode : uint8_t
 {
-  off = 0,  ///< No cross-pass basis reuse (default).
+  off = 0,  ///< No cross-pass basis reuse.
   warm = 1,  ///< Reuse only within the same pass (resident basis chain).
   forward_to_backward = 2,  ///< Forward basis seeds the backward solve.
   backward_to_forward = 3,  ///< Backward basis seeds the next forward solve.
   full_cross = 4,  ///< Bidirectional + per-aperture basis caching.
+                   ///< EFFECTIVE DEFAULT (unset resolves to `full_cross`; see
+                   ///< PlanningOptionsLP::sddp_basis_cross_mode).
 };
 
 /// Includes "fwd2bwd" / "bwd2fwd" / "cross" as convenience aliases.

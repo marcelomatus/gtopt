@@ -649,14 +649,19 @@ auto solve_apertures_for_phase(
               lp_debug_writer->write(clone, dbg_stem);
             }
 
-            // Solve.  Warm-starting IS wired — opt-in via
-            // `aperture_solve_mode = warm` (see the warm-start block
-            // above: dual simplex + advanced_basis + presolve OFF, which
-            // re-optimizes the resident basis in a few pivots because the
-            // `update_aperture` deltas are bound-only and preserve dual
-            // feasibility).  The DEFAULT remains cold: each aperture
-            // re-runs barrier + crossover from scratch, paying K full
-            // solves per (scene, phase) chunk.
+            // Solve.  Warm-starting is wired AND is the effective
+            // default: `sddp_aperture_solve_mode()` resolves unset to
+            // `warm` (planning_options_lp.hpp) — the within-chunk chain
+            // above (dual simplex + advanced_basis + presolve OFF)
+            // re-optimizes the resident basis in a few pivots, because
+            // the `update_aperture` deltas are bound-only and preserve
+            // dual feasibility.  Under the default `basis_cross_mode =
+            // full_cross` the chunk's FIRST aperture is additionally
+            // dual-seeded from the forward-pass basis, so on
+            // basis-capable backends (CPLEX/HiGHS) every aperture solve
+            // is a warm dual re-solve.  plp2gtopt emits both settings
+            // explicitly (`warm` + `full_cross`).  `cold` (barrier +
+            // crossover per aperture) is the opt-out.
             //
             // Backend caveat (cuOpt ≥ 26.08, commit 52d3e0e9): the cuOpt
             // plugin has NO warm-start path at all — set_basis /

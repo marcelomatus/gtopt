@@ -1018,10 +1018,11 @@ public:
     return m_options_.sddp_options.aperture_chunk_size.value_or(0);
   }
 
-  /// Aperture solve / cut-recovery mode.  Default `reduced_cost`
-  /// (barrier without crossover; cut from interior-point reduced costs —
-  /// ~35% faster per aperture than `cold`).  See
-  /// `SddpOptions::aperture_solve_mode` for documentation.
+  /// Aperture solve / cut-recovery mode.  Default `warm` (within-chunk
+  /// dual-simplex warm chain off the resident basis; combined with the
+  /// default `basis_cross_mode = full_cross` below, the chunk's first
+  /// aperture is dual-seeded from the forward basis).  plp2gtopt also
+  /// emits `warm` explicitly.  See `SddpOptions::aperture_solve_mode`.
   [[nodiscard]] constexpr auto sddp_aperture_solve_mode() const noexcept
   {
     return m_options_.sddp_options.aperture_solve_mode.value_or(
