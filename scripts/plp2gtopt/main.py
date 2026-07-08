@@ -609,6 +609,9 @@ def build_options(args: argparse.Namespace) -> dict:
 
     if args.cut_sharing_mode is not None:
         opts["cut_sharing_mode"] = args.cut_sharing_mode
+    # `getattr` defensively — hand-built Namespaces in tests may omit it.
+    if getattr(args, "forward_sampling_mode", None) is not None:
+        opts["forward_sampling_mode"] = args.forward_sampling_mode
     if args.boundary_cuts_mode is not None:
         opts["boundary_cuts_mode"] = args.boundary_cuts_mode
     if args.boundary_max_iterations is not None:

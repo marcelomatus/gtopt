@@ -242,6 +242,61 @@ inline constexpr auto cut_sharing_mode_entries =
       name);
 }
 
+// ─── ForwardSamplingMode ───────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP forward pass samples the stochastic scene data.
+ *
+ * - `persistent` (default): every scene-driver simulates its OWN
+ *   scenario data at every phase — the historical behaviour.  The
+ *   forward UB is then the Monte-Carlo estimate of the PERSISTENT
+ *   per-scene process (each scene rides one frozen sample path end to
+ *   end).  Fully gated: this mode never enters the resampling code and
+ *   is byte-identical to pre-option builds.
+ *
+ * - `resampled`: at every phase boundary (`phase > 0`) the driver
+ *   re-draws a scene realization with probability `p_r` (normalized
+ *   scene `probability_factor`s) and overwrites the phase LP's
+ *   stochastic bounds with the drawn scene's data via the bound-only
+ *   `update_aperture` machinery (flow discharges + profile bounds —
+ *   the same per-element path the aperture backward pass uses; writes
+ *   are replay-recorded so low-memory reconstructs preserve them).
+ *   The forward UB then estimates the **stagewise-resampled** process
+ *   with measure `q_r = p_r` — the SAME process the
+ *   `cut_sharing = multicut` lower bound certifies (theorems M1/M4,
+ *   `docs/formulation/sddp-cut-validity.md` §8), removing the
+ *   Corollary-M2 UB/LB process mismatch by construction.
+ *
+ * v1 semantics (`resampled`): ONE sampled path per scene-driver per
+ * iteration; the draw is a pure deterministic function of
+ * `(iteration, scene, phase)` (`sample_forward_realization` — stable
+ * under forward-pass backtracking and thread scheduling); the drawn id
+ * is cached on `PhaseStateInfo::sampled_scene` so the backward pass
+ * re-solves the SAME realization; the simulation pass restores each
+ * scene's own persistent data so final outputs keep per-scene
+ * semantics.  On heterogeneous dynamics the pure-Benders backward's
+ * cuts are built at the sampled realization (WARN-tier vs the
+ * persistent tails — theorem doc §8 remark); the certified
+ * heterogeneous route remains the aperture backward pass.
+ */
+enum class ForwardSamplingMode : uint8_t
+{
+  persistent = 0,  ///< Each scene-driver on its own path (default; legacy).
+  resampled = 1,  ///< Probability-weighted re-draw at every phase boundary
+                  ///< (deterministic seed; matches the multicut LB process).
+};
+
+inline constexpr auto forward_sampling_mode_entries =
+    std::to_array<EnumEntry<ForwardSamplingMode>>({
+        {.name = "persistent", .value = ForwardSamplingMode::persistent},
+        {.name = "resampled", .value = ForwardSamplingMode::resampled},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(ForwardSamplingMode /*tag*/) noexcept
+{
+  return std::span {forward_sampling_mode_entries};
+}
+
 // ─── CutDrainMode ──────────────────────────────────────────────────────────
 
 /**

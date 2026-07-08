@@ -30,6 +30,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>
@@ -441,6 +442,20 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// in `sddp_enums.hpp` for the full rationale.  Default `iteration`:
   /// symmetric across scenes, run-to-run reproducible.
   CutDrainMode cut_drain_mode {CutDrainMode::iteration};
+
+  /// How the forward pass samples stochastic scene data:
+  ///
+  ///  * `persistent` (default): each scene-driver simulates its own
+  ///    scenario path at every phase — historical behaviour,
+  ///    byte-identical (the resampling code is never entered).
+  ///  * `resampled`: per-phase-boundary probability-weighted re-draw
+  ///    applied via the bound-only `update_aperture` machinery; the UB
+  ///    then estimates the same `q_r = p_r` resampled process the
+  ///    multicut LB certifies.  v1: one sampled path per scene-driver
+  ///    per iteration, deterministic in (iteration, scene, phase).
+  ///
+  /// See `ForwardSamplingMode` (sddp_enums.hpp) for the full story.
+  ForwardSamplingMode forward_sampling {ForwardSamplingMode::persistent};
 
   /// Elastic filter mode: how the FORWARD pass emits feasibility
   /// cuts when a phase LP is infeasible at the trial state.  Only
@@ -1231,6 +1246,38 @@ struct SDDPIterationResult
                                      SceneIndex scene_index,
                                      std::size_t n_alpha) noexcept;
 
+/// Deterministic probability-weighted index draw for the forward-pass
+/// resampling (`ForwardSamplingMode::resampled`).
+///
+/// Pure function of `(weights, iteration, scene, phase)` — a
+/// splitmix64 hash chain mapped through the normalized weight CDF —
+/// deliberately NOT a `<random>` engine/distribution pair, whose
+/// output is implementation-defined across standard libraries: the
+/// sampled path must be bit-reproducible everywhere, stable under
+/// forward-pass BACKTRACKING (re-entering the same (iteration, scene,
+/// phase) re-draws the SAME realization) and independent of thread
+/// scheduling.
+///
+/// Degenerate inputs: an empty span returns 0; a non-positive total
+/// weight falls back to a uniform draw over `weights.size()`.
+/// Negative entries are clamped to 0.
+[[nodiscard]] std::size_t sample_weighted_index(std::span<const double> weights,
+                                                uint64_t iteration,
+                                                uint64_t scene,
+                                                uint64_t phase) noexcept;
+
+/// SimulationLP-facing wrapper over `sample_weighted_index`: draws a
+/// SCENE index with probability proportional to each scene's
+/// `probability_factor` (sum of its scenarios'), keyed on
+/// `(iteration_index, scene_index, phase_index)`.  Consumed by the
+/// forward pass under `ForwardSamplingMode::resampled`; single-scene
+/// simulations always return scene 0.
+[[nodiscard]] SceneIndex sample_forward_realization(
+    const SimulationLP& sim,
+    IterationIndex iteration_index,
+    SceneIndex scene_index,
+    PhaseIndex phase_index) noexcept;
+
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
 /// on the live LP backend and mirrors the change into the
@@ -1482,6 +1529,15 @@ struct PhaseStateInfo
   /// BACKWARD-pass solve last iteration, reused to warm-start the next
   /// forward solve (`BasisCrossMode::backward_to_forward`/`full_cross`).
   Basis backward_basis {};
+  /// Forward-sampling realization cache (`ForwardSamplingMode::resampled`):
+  /// the scene whose scenario data is currently pinned onto this cell's
+  /// forward-LP stochastic bounds — drawn by `sample_forward_realization`
+  /// in the forward pass and re-applied by the backward pass's target
+  /// re-solve so the cut is provably built from the SAME realization the
+  /// forward pass simulated.  `nullopt` under `persistent` (never
+  /// written — byte-identical default path) and after the simulation
+  /// pass restores the scene's own data.
+  std::optional<SceneIndex> sampled_scene {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

@@ -133,6 +133,83 @@ const StateVariable* find_user_alpha_state_var(const SimulationLP& sim,
   return nullptr;
 }
 
+namespace
+{
+/// SplitMix64 mixer (Steele/Lea/Flood; public domain) — tiny,
+/// dependency-free, and platform-stable.  Deliberately used instead of
+/// a `<random>` engine + distribution, whose output is
+/// implementation-defined across standard libraries: the resampled
+/// forward path must be bit-reproducible everywhere.
+[[nodiscard]] constexpr uint64_t splitmix64(uint64_t x) noexcept
+{
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27U)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31U);
+}
+}  // namespace
+
+std::size_t sample_weighted_index(std::span<const double> weights,
+                                  uint64_t iteration,
+                                  uint64_t scene,
+                                  uint64_t phase) noexcept
+{
+  const auto n = weights.size();
+  if (n <= 1) {
+    return 0;
+  }
+  // Hash chain over the key: each stage feeds the previous digest so
+  // (iteration, scene, phase) decorrelate even when numerically small.
+  uint64_t h = splitmix64(iteration + 1);
+  h = splitmix64(h ^ splitmix64(scene + 0x51ULL));
+  h = splitmix64(h ^ splitmix64(phase + 0xF0ULL));
+  // 53 mantissa bits → uniform double in [0, 1).
+  const double u = static_cast<double>(h >> 11U)
+      * 0x1.0p-53;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+
+  double total = 0.0;
+  for (const double w : weights) {
+    total += std::max(w, 0.0);
+  }
+  if (!(total > 0.0)) {
+    // Degenerate weights (all-zero / negative): uniform fallback.
+    return std::min(static_cast<std::size_t>(u * static_cast<double>(n)),
+                    n - 1);
+  }
+  // Inverse-CDF walk; the final index absorbs any FP residue so the
+  // draw always lands in range.
+  double acc = 0.0;
+  for (std::size_t i = 0; i + 1 < n; ++i) {
+    acc += std::max(weights[i], 0.0) / total;
+    if (u < acc) {
+      return i;
+    }
+  }
+  return n - 1;
+}
+
+SceneIndex sample_forward_realization(const SimulationLP& sim,
+                                      IterationIndex iteration_index,
+                                      SceneIndex scene_index,
+                                      PhaseIndex phase_index) noexcept
+{
+  const auto n = static_cast<std::size_t>(sim.scene_count());
+  if (n <= 1) {
+    return SceneIndex {0};
+  }
+  std::vector<double> probs;
+  probs.reserve(n);
+  for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+    probs.push_back(sim.scenes()[si].probability_factor());
+  }
+  const auto drawn = sample_weighted_index(
+      probs,
+      static_cast<uint64_t>(gtopt::uid_of(iteration_index)),
+      static_cast<uint64_t>(static_cast<std::size_t>(scene_index)),
+      static_cast<uint64_t>(static_cast<std::size_t>(phase_index)));
+  return SceneIndex {static_cast<Index>(drawn)};
+}
+
 std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
     const SimulationLP& sim,
     SceneIndex scene_index,

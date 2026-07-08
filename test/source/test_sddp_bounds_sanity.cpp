@@ -261,6 +261,78 @@ TEST_CASE(
   }
 }
 
+// ─── UB-strip parity: multicut UB ≡ none UB on identical scenes ───────────
+//
+// On IDENTICAL dynamics both modes simulate the same persistent forward
+// paths, so once cuts start carrying weight (iteration 2 on) the
+// realised UB must coincide per iteration: the forward opex strip must
+// remove EXACTLY the objective's future term.  Under multicut that term
+// is `w·Σ_r varphi_r` with the shared M4 weight `w = alpha_unit_cost`
+// (`docs/formulation/sddp-cut-validity.md` §8 "UB strip", ledger §1.1 —
+// FIXED 2026-07-08); the pre-fix strip removed only `varphi_0` at full
+// weight.  The 0.5/0.5 split passes even pre-fix (symmetric cut sets
+// keep every varphi at the same floor and w·N = 1); the 0.6/0.4 split
+// is the failing-then-passing gate — with identical dynamics
+// `varphi_r ≈ p_r·Ṽ` differ per column, so the varphi_0-only strip
+// over-subtracts `(varphi_0 − w·Σ varphi_r)` on the low-probability
+// scene and the multicut UB detaches from the none UB.
+TEST_CASE(
+    "SDDP UB strip — multicut UB matches none UB on identical scenes "
+    "from iteration 2 on")
+{
+  const std::array<std::pair<double, double>, 2> prob_splits = {{
+      {0.5, 0.5},
+      {0.6, 0.4},
+  }};
+
+  for (const auto& [p0, p1] : prob_splits) {
+    const auto label = std::format("2s3p identical {}/{}", p0, p1);
+    SUBCASE(label.c_str())
+    {
+      const auto run = [&](CutSharingMode mode)
+      {
+        auto planning = make_2scene_3phase_hydro_planning(p0, p1);
+        PlanningLP plp(std::move(planning));
+
+        SDDPOptions opts;
+        opts.max_iterations = 6;
+        opts.convergence_tol = 1.0e-9;  // keep iterating — no early exit
+        opts.stationary_tol = 0.0;
+        opts.cut_sharing = mode;
+        opts.apertures = std::vector<Uid> {};  // pure Benders backward
+        opts.enable_api = false;
+
+        SDDPMethod sddp(plp, opts);
+        auto results = sddp.solve();
+        REQUIRE(results.has_value());
+        REQUIRE_FALSE(results->empty());
+        return *results;
+      };
+
+      const auto none_results = run(CutSharingMode::none);
+      const auto multi_results = run(CutSharingMode::multicut);
+
+      const auto n = std::min(none_results.size(), multi_results.size());
+      REQUIRE(n >= 2);
+      // Position 0 = iteration 1 (α pinned at 0 in both modes — trivially
+      // equal); the strip divergence can only show from position 1 =
+      // iteration 2 on, once cuts carry weight.  Compare both anyway.
+      for (std::size_t i = 0; i < n; ++i) {
+        INFO("[",
+             label,
+             "] pos=",
+             i,
+             " UB_none=",
+             none_results[i].upper_bound,
+             " UB_multicut=",
+             multi_results[i].upper_bound);
+        CHECK(multi_results[i].upper_bound
+              == doctest::Approx(none_results[i].upper_bound).epsilon(1.0e-6));
+      }
+    }
+  }
+}
+
 // ─── scale_alpha unit-bug probe ───────────────────────────────────────────
 //
 // juan/gtopt_iplp regresses with LB compounding ~10× per iteration in

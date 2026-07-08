@@ -468,6 +468,24 @@ therefore permanent; the correct strict test compares the multicut LB
 against the extensive form of the resampled process (oracle harness,
 deliverable 2).*
 
+> **Remark (forward resampling, 2026-07-08).**  The
+> `forward_sampling_mode = resampled` option makes the forward pass
+> simulate the resampled process itself: at every phase boundary the
+> scene-driver re-draws a realization with probability $p_r$
+> (deterministic in (iteration, scene, phase)) and pins the drawn
+> scene's stochastic bounds onto the phase LP via the bound-only
+> `update_aperture` machinery.  The forward UB then estimates the SAME
+> $q_r = p_r$ process the multicut LB certifies, dissolving the
+> Corollary-M2 mismatch by construction.  v1 caveat: the pure-Benders
+> backward pass builds scenario-$s$'s cut from scene-$s$'s LP carrying
+> the *sampled* realization's bounds (the same realization the forward
+> pass solved — cached on the phase state), which is exact on identical
+> dynamics (strict oracle case) but only demonstrative on
+> heterogeneous dynamics (WARN-tier); the certified heterogeneous
+> route remains the aperture backward pass, which re-solves every
+> realization explicitly.  Default `persistent` is byte-identical to
+> the historical forward pass.
+
 **Theorem M3 (non-uniform probabilities under the historical $1/N$
 pricing — unsound; superseded by M4).**  *For general $p_s$, with every
 $\varphi_r$ priced $1/N$, the substitution gives*
@@ -538,17 +556,28 @@ $\qquad\blacksquare$
 > exactly restituted.  Follow-up: scale the restitution by $p_s N$ (or
 > gate the combination).
 
-**Known defect (UB strip).**  `sddp_forward_pass.cpp:884-895` strips
-only $\varphi_0$ at full weight from the realised opex; under multicut
-the objective's future term is $(1/N)\sum_s \varphi_s$.  The two
-coincide only while all $\varphi_s$ are equal (iteration 0); afterwards
-`forward_objective`, the UB, and the reported gap are biased by
-$(\overline{\varphi} - \varphi_0)\cdot \text{scale\_alpha}$ per cell
+**UB strip (defect — FIXED 2026-07-08).**  The forward-pass opex strip
+in `sddp_forward_pass.cpp` used to remove only $\varphi_0$ at full
+weight from the realised opex, while under multicut the objective's
+future term is $w \sum_s \varphi_s$ with the M4 weight $w = p_s$
+(historically $1/N$).  The two coincide only while all $\varphi_s$
+carry equal value — true on iteration 0 (all bootstrap-pinned $[0,0]$)
+and, by symmetry, on identical scenes with uniform probabilities —
+but with non-uniform probabilities $\varphi_r \approx p_r \tilde V$
+differ per column even on identical dynamics, and the strip biased
+`forward_objective`, the UB, and the reported gap by
+$(w\sum_s \varphi_s - \varphi_0)\cdot \text{scale\_alpha}$ per cell
 (either sign).  Confirmed via the offset-0 semantics of
-`find_alpha_state_var` (`sddp_method.cpp:57-74`).  Fix (after the
-oracle exists): strip $\frac1N \sum_s \varphi_s\,
-\text{scale\_alpha}$ using `alpha_cols_on_cell`.  Single-α modes are
-unaffected.
+`find_alpha_state_var` (`sddp_method.cpp:57-74`).  The fix strips
+$w \sum_s \varphi_s\,\text{scale\_alpha}$ by enumerating the cell's α
+registry (same contiguous-uid walk as `alpha_cols_on_cell`) and reading
+the weight from the SAME shared `alpha_unit_cost` helper that priced
+the columns, so pricing and strip can never diverge again.  Single-α
+modes take the $w = 1$, one-column path — byte-identical to the legacy
+strip.  Regression gate: the identical-dynamics UB-parity test in
+`test_sddp_bounds_sanity.cpp` (multicut UB ≡ none UB per iteration
+from iteration 2 on; the 0.6/0.4 split fails under the varphi_0-only
+strip and passes under the weighted sum).
 
 ---
 
@@ -830,7 +859,11 @@ statements):
 
 Open defects / follow-ups (all documented, none fixed here by design):
 
-1. **UB strip under multicut** (§8) — confirmed; fix after oracle.
+1. ~~**UB strip under multicut** (§8)~~ — **FIXED 2026-07-08**: the
+   strip now removes $w\sum_s \varphi_s\,\text{scale\_alpha}$ using the
+   shared `alpha_unit_cost` weight (see the §8 UB-strip note); gated by
+   the identical-dynamics UB-parity test in
+   `test_sddp_bounds_sanity.cpp`.
 2. ~~**Multicut non-uniform pricing** (M3/M4)~~ — **FIXED 2026-07-08**:
    M4 pricing implemented in `alpha_unit_cost` (see §8 implementation
    note), gated by the failing-then-passing identical-dynamics 0.6/0.4

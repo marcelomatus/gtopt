@@ -308,6 +308,27 @@ for phase = 0 to T-1:
     opex += objective - α value
 ```
 
+**Forward sampling** (`forward_sampling_mode`, 2026-07-08): by default
+(`persistent`) each scene-driver simulates its OWN scenario data at
+every phase — the historical behaviour, byte-identical.  Under
+`resampled`, at every phase boundary (`phase > 0`) the driver re-draws
+a scene realization with probability `p_r` (deterministic in
+`(iteration, scene, phase)` — stable across backtracking re-entries and
+thread scheduling) and overwrites the phase LP's stochastic bounds with
+the drawn scene's data via the same bound-only `update_aperture`
+machinery the aperture backward pass uses (flow discharges + profile
+bounds; replay-recorded, so low-memory reconstructs preserve it).  The
+forward UB then estimates the **stagewise-resampled** process — the
+same measure `q_r = p_r` the `cut_sharing_mode = multicut` lower bound
+certifies (Theorems M1/M4, `docs/formulation/sddp-cut-validity.md` §8)
+— removing the Corollary-M2 UB/LB process mismatch.  v1 draws ONE
+sampled path per scene-driver per iteration; the drawn id is cached on
+the phase state so the backward pass re-solves the SAME realization,
+and the simulation pass restores each scene's own (persistent) data so
+final outputs keep per-scene semantics.  Warm-start seeding (forward
+basis chain, `basis_cross_mode`) is unaffected — realizations differ
+only in column bounds.
+
 ### 4.3 Backward Pass
 
 For each scene (in parallel):
@@ -875,6 +896,7 @@ prefix, since the section name already provides the namespace).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"` or `"multicut"` (the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
+| `forward_sampling_mode` | string | `"persistent"` | Forward-pass sampling: `"persistent"` (each scene-driver on its own path) or `"resampled"` (per-phase-boundary probability-weighted re-draw, deterministic seed; matches the multicut LB's resampled process — see §4.2) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |

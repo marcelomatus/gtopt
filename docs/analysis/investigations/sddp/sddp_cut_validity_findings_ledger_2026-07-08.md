@@ -28,13 +28,23 @@ exceptions noted in §6.
   `(1/N)·Σ_s varphi_s·scale_alpha` — obtainable via `alpha_cols_on_cell`
   (`source/sddp_method.cpp:134-152`).
 - The two coincide only while all `varphi_s` are equal (iteration 0,
-  all bootstrap-pinned `[0,0]`).  Once per-scenario cuts diverge,
-  `forward_objective` (and hence the UB and the gap) is biased by
-  `(mean_s varphi_s − varphi_0)·scale_alpha` per (scene, phase) — either
-  sign.  Single-α modes are unaffected (`n_alpha = 1`, cost 1.0).
-- Status: **defect, do-not-fix until the oracle harness exists**
-  (deliverable 2) so the fix lands with a test that would have caught
-  it.  The fix is mechanical: iterate `alpha_cols_on_cell`, weight 1/N.
+  all bootstrap-pinned `[0,0]`; also identical scenes × uniform
+  probabilities, where symmetric cut sets keep every `varphi_s` at the
+  same floor).  Once the per-scenario values diverge — non-uniform
+  probabilities do this even on identical dynamics, since
+  `varphi_r ≈ p_r·Ṽ` — `forward_objective` (and hence the UB and the
+  gap) is biased by `(w·Σ_s varphi_s − varphi_0)·scale_alpha` per
+  (scene, phase), either sign (`w` = the M4 weight, §1.2).  Single-α
+  modes are unaffected (`n_alpha = 1`, cost 1.0).
+- Status: **FIXED 2026-07-08** (post-oracle, as mandated): the strip
+  now walks the cell's α registry (contiguous uids from
+  `sddp_alpha_uid`, same convention as `alpha_cols_on_cell`) and
+  removes `w·Σ_s varphi_s·scale_alpha`, with `w` read from the SAME
+  shared `alpha_unit_cost` helper that priced the columns
+  (`register_alpha_variables`) — pricing and strip cannot diverge.
+  Regression gate: identical-dynamics UB-parity test in
+  `test_sddp_bounds_sanity.cpp` (multicut UB ≡ none UB per iteration
+  from iteration 2 on; 0.6/0.4 fails pre-fix, passes post-fix).
 
 ### 1.2 Multicut 1/N derivation — CONFIRMED, fix statement refined
 
@@ -82,17 +92,21 @@ the failing-then-passing identical-dynamics 0.6/0.4 oracle case in
 under M4).  The former `initialize_solver` non-uniform WARN became an
 INFO (theorem doc §8, Prop. M4).
 
-Consequences confirmed:
+Consequences confirmed (the second bullet is HISTORICAL — it described
+the pre-M4 `1/N` pricing and is retained as the record of why M4
+shipped):
 
 - Uniform `p_s = 1/N`: multicut LB is valid for the resampled process;
   LB > UB against the persistent-sample-path UB is a process mismatch,
   not a cut bug.  This keeps the heterogeneous-scene multicut test
   WARN-only *permanently* (the comparison is between two different
   stochastic processes).
-- Non-uniform `p_s`: the future term is inflated by `1/(N·p_s) > 1`
-  for scenes with `p_s < 1/N` → LB not valid for any process.  The
-  `test_sddp_bounds_sanity.cpp` multicut WARN case uses 0.6/0.4 —
-  exactly the provably-unsound configuration.
+- (pre-M4) Non-uniform `p_s` under `1/N` pricing: the future term was
+  inflated by `1/(N·p_s) > 1` for scenes with `p_s < 1/N` → LB not
+  valid for any process.  The `test_sddp_bounds_sanity.cpp` multicut
+  WARN case uses 0.6/0.4 — exactly that configuration; since the M4
+  fix it is certified for the `q_r = p_r` resampled process and only
+  the Corollary-M2 process mismatch keeps it WARN-tier.
 
 ---
 
@@ -210,6 +224,23 @@ relative to the row max; the tolerances add.
   degrades to cold under cuOpt — the K-aperture backward bill is K full
   cold solves there, the motivating case for dual-shared aperture cuts
   (Infanger–Morton evaluation over the bound deltas).
+
+- **F11 — forward resampling shipped (2026-07-08 addendum)**:
+  `forward_sampling_mode = resampled` (default `persistent`,
+  byte-identical) re-draws a probability-weighted scene realization at
+  every phase boundary (deterministic splitmix64 draw keyed on
+  (iteration, scene, phase) — stable across forward-pass backtracking
+  and thread scheduling) and applies it to the forward LP through the
+  bound-only `update_aperture` machinery.  The UB then estimates the
+  same `q_r = p_r` resampled process the M4 multicut LB certifies
+  (Corollary-M2 mismatch dissolved by construction).  The drawn id is
+  cached on `PhaseStateInfo::sampled_scene`; the backward target
+  re-solve re-applies it so the cut is provably built from the SAME
+  realization.  v1: one sampled path per scene-driver per iteration;
+  simulation pass restores persistent per-scene data; pure-Benders
+  backward under heterogeneous dynamics stays WARN-tier (theorem doc
+  §8 remark) — the certified heterogeneous route is the aperture
+  backward pass.
 
 ## 6. Not available / deferred
 

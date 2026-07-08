@@ -854,3 +854,88 @@ TEST_CASE(  // NOLINT
                             oracle_persistent_extensive_optimum(scenes),
                             /*strict=*/false);
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// `forward_sampling = resampled` (2026-07-08): the forward pass itself
+// simulates the stagewise-resampled process (per-phase-boundary
+// probability-weighted draw applied through the bound-only
+// `update_aperture` machinery; deterministic in (iteration, scene,
+// phase)).  On IDENTICAL dynamics every drawn realization pins the SAME
+// bound values, so resampled ≡ persistent and the full strict M4 sweep
+// must hold unchanged — cuts and LB against the persistent tail oracle.
+// On HETEROGENEOUS dynamics the pure-Benders backward builds
+// scenario-s's cut from scene-s's LP carrying the SAMPLED realization's
+// bounds (the same realization the forward pass solved — cached on the
+// phase state), which certifies nothing against the persistent tails —
+// WARN-only, same tier as the persistent-forward heterogeneous case
+// (theorem doc §8 remark; the certified heterogeneous route is the
+// aperture backward pass, out of scope for this harness).
+// ═════════════════════════════════════════════════════════════════════════
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — resampled forward sampling, identical dynamics "
+    "(0.6/0.4 multicut): strict M4 sweep unchanged")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  opts.forward_sampling = ForwardSamplingMode::resampled;
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleBaseInflow},
+      {.prob = 0.4, .inflow = kOracleBaseInflow},
+  }};
+
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/true);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/true);
+}
+
+TEST_CASE(  // NOLINT
+    "SDDP cut oracle — resampled forward sampling, heterogeneous "
+    "dynamics (0.6/0.4 multicut): persistent-tail sweep WARN-only")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  oracle_set_scenario_inflows(planning, kOracleWetInflow, kOracleDryInflow);
+  PlanningLP plp(std::move(planning));
+
+  auto opts = oracle_sddp_opts(CutSharingMode::multicut,
+                               /*max_iterations=*/6);
+  opts.forward_sampling = ForwardSamplingMode::resampled;
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  REQUIRE_FALSE(results->empty());
+
+  const std::array<OracleSceneData, 2> scenes = {{
+      {.prob = 0.6, .inflow = kOracleWetInflow},
+      {.prob = 0.4, .inflow = kOracleDryInflow},
+  }};
+
+  // WARN-only: under resampled forward sampling the cut for varphi_s is
+  // built at whatever realization the forward pass drew for that cell,
+  // so the persistent-tail comparison is demonstrative (v1 caveat —
+  // theorem doc §8 remark), exactly like the persistent-forward
+  // heterogeneous case above.
+  const auto cuts = sddp.stored_cuts();
+  const int n_checked =
+      oracle_audit_cuts(plp.simulation(), cuts, scenes, /*strict=*/false);
+  CAPTURE(n_checked);
+  REQUIRE(n_checked >= 2);
+
+  oracle_audit_lower_bounds(*results,
+                            oracle_persistent_extensive_optimum(scenes),
+                            /*strict=*/false);
+}

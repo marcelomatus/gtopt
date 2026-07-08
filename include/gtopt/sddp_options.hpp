@@ -32,6 +32,18 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * 2026-07-08 (invalid — `docs/formulation/sddp-cut-validity.md` §7);
    * their names now hard-error at JSON parse time. */
   std::optional<CutSharingMode> cut_sharing_mode {};
+  /** @brief Forward-pass sampling mode: persistent (default) or
+   * resampled.
+   *
+   * `persistent` keeps each scene-driver on its own scenario path
+   * (historical, byte-identical).  `resampled` re-draws a
+   * probability-weighted scene realization at every phase boundary
+   * (deterministic in (iteration, scene, phase)) and applies it via
+   * the bound-only `update_aperture` machinery, so the forward UB
+   * estimates the same stagewise-resampled process the
+   * `cut_sharing_mode = multicut` LB certifies.  See
+   * `ForwardSamplingMode` in `sddp_enums.hpp`. */
+  std::optional<ForwardSamplingMode> forward_sampling_mode {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName cut_directory {};
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
@@ -763,6 +775,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
+    merge_opt(forward_sampling_mode, opts.forward_sampling_mode);
     merge_opt(cut_drain_mode, opts.cut_drain_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);

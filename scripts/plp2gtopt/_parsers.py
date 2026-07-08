@@ -494,6 +494,28 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ),
     )
     parser.add_argument(
+        "--forward-sampling-mode",
+        dest="forward_sampling_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "persistent",
+            "resampled",
+        ],
+        help=(
+            "SDDP forward-pass sampling mode: "
+            "'persistent' keeps each scene-driver on its own scenario "
+            "path at every phase (the historical behaviour); "
+            "'resampled' re-draws a probability-weighted scene "
+            "realization at every phase boundary (deterministic seed "
+            "per iteration/scene/phase), so the forward UB estimates "
+            "the same stagewise-resampled process the "
+            "cut_sharing_mode=multicut lower bound certifies (see "
+            "docs/formulation/sddp-cut-validity.md section 8). "
+            "(default: not set; gtopt uses persistent)"
+        ),
+    )
+    parser.add_argument(
         "--boundary-cuts-mode",
         dest="boundary_cuts_mode",
         metavar="MODE",
