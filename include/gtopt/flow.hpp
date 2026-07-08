@@ -28,12 +28,38 @@
 
 #pragma once
 
+#include <optional>
+
 #include <gtopt/field_sched.hpp>
 #include <gtopt/lp_class_name.hpp>
 #include <gtopt/object.hpp>
 
 namespace gtopt
 {
+
+/**
+ * @brief Opt-in autoregressive inflow model attached to a Flow element
+ *
+ * When present, the SDDP machinery treats the flow's discharge as an
+ * AR(1) process
+ *   `q_t = mu_t + phi·(q_{t-1} − mu_{t-1}) + eps_t`
+ * where `mu_t` is the existing `discharge` schedule (the v1 forward
+ * realization IS the schedule, `eps = 0`), and the lagged inflow is
+ * registered as a cross-phase state variable so Benders cuts gain
+ * `∂V/∂inflow` coefficients automatically.  Absent (`std::nullopt`),
+ * behaviour is byte-identical to the historical fixed-schedule flow.
+ * See `docs/formulation/sddp-ar-inflows.md`.
+ */
+struct InflowModel
+{
+  OptName type {};  ///< Model type; only "ar1" is supported (default)
+  OptReal phi {};  ///< AR(1) lag-1 coefficient (default 0.0)
+  OptReal sigma {};  ///< Residual std-dev [m³/s] — tooling metadata only;
+                     ///< the LP never reads it (future sampled-eps modes
+                     ///< will)
+};
+
+using OptInflowModel = std::optional<InflowModel>;
 
 /**
  * @brief Exogenous water flow at a hydraulic junction
@@ -86,6 +112,10 @@ struct Flow
   /// close.  When unset the legacy hard-forced semantics are
   /// preserved (no cost, ``flow = discharge`` exactly).
   OptTBRealFieldSched fcost {};
+
+  /// Opt-in AR(1) inflow model (see InflowModel).  Absent = the
+  /// historical fixed-schedule behaviour, byte-identical LP.
+  OptInflowModel inflow_model {};
 
   /// @return true if flow is directed into the junction (inflow)
   [[nodiscard]] constexpr bool is_input() const noexcept
