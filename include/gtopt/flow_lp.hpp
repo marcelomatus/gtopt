@@ -130,11 +130,28 @@ public:
       const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
       const StageLP& stage) const;
 
+  /// True when this flow carries AR(1) recursion rows for the given
+  /// (scenario, stage) — i.e. `update_aperture` rewrites the AR-row
+  /// RHS (a ROW write) instead of pinning column bounds.  Consumed by
+  /// the dual-shared aperture row-touch gate
+  /// (`solve_apertures_for_phase`): Lemma AP2's shared-intercept
+  /// arithmetic prices column-bound deltas only, so an AR-mode flow
+  /// must disable cut synthesis for the chunk
+  /// (docs/formulation/sddp-cut-validity.md §6, "Implementation
+  /// guards").
+  [[nodiscard]] bool has_ar_rows(ScenarioUid scenario_uid,
+                                 StageUid stage_uid) const noexcept
+  {
+    return ar_info.contains(std::tuple {scenario_uid, stage_uid});
+  }
+
+private:
   /// Per-(scenario, stage) AR(1) bookkeeping, populated only when
   /// ``Flow.inflow_model`` is set AND the stage has a usable lag (a
-  /// previous stage with a schedule value).  Consumed by
-  /// `update_aperture` to rewrite the AR row RHS instead of the flow
-  /// column bounds (the columns are free under the AR model).
+  /// previous stage with a schedule value).  Consumed only by FlowLP's
+  /// own members (`update_aperture` rewrites the AR row RHS instead of
+  /// the flow column bounds — the columns are free under the AR model;
+  /// `has_ar_rows` exposes the presence test), hence private.
   struct ArStageInfo
   {
     BIndexHolder<RowIndex> rows;  ///< Per-block AR recursion rows
@@ -149,7 +166,6 @@ public:
     bool cross_phase {false};
   };
 
-private:
   /// Resolved per-(scene, stage, block) discharge schedule.  Now
   /// optional — when ``Flow.discharge`` is unset and ``fcost`` is
   /// set, the LP column upper bound defaults to ``DblMax``

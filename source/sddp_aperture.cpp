@@ -517,9 +517,13 @@ auto solve_apertures_for_phase(
   //         circuit — in chunked mode the clone already carries the
   //         previous aperture's bounds, so the base-scenario aperture
   //         must re-overwrite to base values explicitly).  The
-  //         per-element ``update_aperture`` writes flow col bounds
-  //         densely, so apertures fully overwrite each other — no
-  //         snapshot/restore needed.
+  //         per-element ``update_aperture`` overwrites its LP entries
+  //         (flow col bounds; AR-row RHS under ``Flow.inflow_model``)
+  //         for every (stage, block) its data covers, so apertures
+  //         with the same coverage fully overwrite each other — no
+  //         snapshot/restore needed.  Precondition: every aperture's
+  //         data covers the same (stage, block) set; a sparser
+  //         aperture inherits the previous aperture's values.
   //      c. Solves; build cut from reduced costs.
   //   3. Returns one ``ApertureCutResult`` per inner aperture in
   //      input order.
@@ -576,9 +580,10 @@ auto solve_apertures_for_phase(
           // The FIRST solved aperture in this chunk runs cold (barrier +
           // crossover, leaving an optimal basis on the shared clone);
           // every subsequent aperture re-optimizes that resident basis
-          // with a warm simplex solve.  Bound-only `update_aperture`
-          // deltas keep the basis valid — no basis is saved/restored, the
-          // clone's resident basis is reused in place.
+          // with a warm simplex solve.  `update_aperture` deltas
+          // (column bounds / equality-row RHS) keep the basis valid —
+          // no basis is saved/restored, the clone's resident basis is
+          // reused in place.
           //
           // INVARIANT this relies on: every aperture in a chunk belongs
           // to the SAME (scene, phase).  This holds by construction —
@@ -589,16 +594,19 @@ auto solve_apertures_for_phase(
           // system (hence the LP *matrix* and replayed cuts) is resolved
           // per (scene, phase), not per aperture.  So all apertures in a
           // chunk share an identical matrix and differ only in the
-          // flow-col bounds `update_aperture` rewrites — exactly the
-          // condition under which the resident basis stays valid.  A
+          // flow-col bounds / equality-row RHS `update_aperture`
+          // rewrites — exactly the condition under which the resident
+          // basis stays valid.  A
           // future refactor that batched apertures across phases/scenes
           // into one chunk would break this and must NOT reuse the clone.
           SolverOptions warm_opts = aperture_opts;
           warm_opts.advanced_basis = true;
-          // Apertures differ only in flow-col BOUNDS (update_aperture), so the
-          // resident basis stays dual-feasible — dual simplex resumes from it
-          // efficiently, whereas primal would restart from a primal-infeasible
-          // point.  Use dual for the warm re-solve.
+          // Apertures differ only in flow-col BOUNDS and equality-row
+          // RHS (update_aperture; the RHS case is the AR inflow model
+          // and the profile elements) — both delta kinds preserve dual
+          // feasibility of the resident basis, so dual simplex resumes
+          // from it efficiently, whereas primal would restart from a
+          // primal-infeasible point.  Use dual for the warm re-solve.
           warm_opts.algorithm = LPAlgo::dual;
           // CRITICAL: disable presolve for the warm solve.  CPLEX presolve
           // rebuilds the model and DISCARDS the resident/seeded basis, so an
@@ -664,14 +672,14 @@ auto solve_apertures_for_phase(
             double corr;  ///< intercept correction (for |corr| ranking)
           };
           std::vector<DsSynthEntry> ds_synth;
-          // Sticky sharing gate: a row-touching aperture update (profile
-          // element receiving an aperture value — rewrites row RHS /
-          // coefficients, breaking the shared-dual precondition of
-          // identical (A, b, c)) permanently disables synthesis for the
-          // remainder of the chunk; every later aperture exact-solves,
-          // matching the plain chunked semantics.
+          // Sticky sharing gate: a row-touching aperture update (a
+          // profile element or an AR-mode FlowLP receiving an aperture
+          // value — rewrites row RHS / coefficients, breaking the
+          // shared-dual precondition of identical (A, b, c))
+          // permanently disables synthesis for the remainder of the
+          // chunk; every later aperture exact-solves, matching the
+          // plain chunked semantics.
           bool ds_sharing_allowed = true;
-          int ds_n_synth = 0;
           int ds_n_delta_fallback = 0;
           int ds_n_screen_resolved = 0;
 
@@ -679,13 +687,15 @@ auto solve_apertures_for_phase(
           //
           // Applies `prep`'s stochastic data onto the shared clone via
           // the `HasUpdateAperture` visitor.  Returns true when any
-          // NON-column-bound LP write may have occurred: `FlowLP` is
-          // the only element whose `update_aperture` writes column
-          // bounds exclusively; every other updater (the profile
-          // elements) rewrites a row RHS or matrix coefficient, and a
-          // write happens exactly when its value_fn yields a value.
-          // The detection wrap is applied only in dual-shared modes so
-          // every other mode's call chain is byte-identical.
+          // NON-column-bound LP write may have occurred: the profile
+          // elements rewrite a row RHS or matrix coefficient, and an
+          // AR-mode `FlowLP` (`Flow.inflow_model`) rewrites the AR
+          // equality-row RHS (flow_lp.cpp `update_aperture`); a write
+          // happens exactly when the element's value_fn yields a
+          // value.  Only a plain (non-AR) `FlowLP` writes column
+          // bounds exclusively.  The detection wrap is applied only in
+          // dual-shared modes so every other mode's call chain is
+          // byte-identical.
           //
           // `sys.collections()` is populated on the main thread BEFORE
           // chunk tasks are dispatched.  Read-only access from many
@@ -726,19 +736,33 @@ auto solve_apertures_for_phase(
                           bl);
                     };
                   }
-                  if constexpr (!std::same_as<E, FlowLP>) {
-                    // Row-touching updater: record whether it actually
-                    // receives a value (dual-shared precondition guard).
-                    if (ds_mode) {
-                      value_fn =
-                          [inner = std::move(value_fn), &non_bound_write](
-                              StageUid st, BlockUid bl) -> std::optional<double>
-                      {
-                        auto v = inner(st, bl);
-                        non_bound_write = non_bound_write || v.has_value();
-                        return v;
-                      };
+                  // Row-touching updater: record whether it actually
+                  // receives a value (dual-shared precondition guard).
+                  // Every non-FlowLP updater is row-touching; FlowLP is
+                  // row-touching exactly when it carries AR(1) rows for
+                  // this (scenario, stage) — the AR hydrology enters
+                  // through the AR-row RHS, which Lemma AP2's
+                  // column-bound correction cannot price (ledger F12).
+                  // Conservative for a mixed AR/legacy stage: blocks
+                  // without AR rows still take the bound pin, but any
+                  // delivered value trips the gate → exact solves.
+                  const bool row_touching = [&]
+                  {
+                    if constexpr (std::same_as<E, FlowLP>) {
+                      return e.has_ar_rows(base_scenario.uid(), stage.uid());
+                    } else {
+                      return true;
                     }
+                  }();
+                  if (ds_mode && row_touching) {
+                    value_fn = [inner = std::move(value_fn), &non_bound_write](
+                                   StageUid st,
+                                   BlockUid bl) -> std::optional<double>
+                    {
+                      auto v = inner(st, bl);
+                      non_bound_write = non_bound_write || v.has_value();
+                      return v;
+                    };
                   }
                   [[maybe_unused]] const auto ok =
                       e.update_aperture(clone, base_scenario, value_fn, stage);
@@ -793,15 +817,19 @@ auto solve_apertures_for_phase(
             // circuit): in chunked mode the clone may carry the
             // previous aperture's bounds, so the base-scenario
             // aperture must re-overwrite to base values explicitly.
-            // Per-element `update_aperture` writes flow col bounds
-            // densely → full overwrite → no snapshot/restore needed.
+            // Per-element `update_aperture` overwrites its entries
+            // (flow col bounds; AR-row RHS under `Flow.inflow_model`)
+            // densely over its data coverage → full overwrite → no
+            // snapshot/restore needed (same-coverage precondition,
+            // see the chunk-task comment above).
             const bool non_bound_write = apply_aperture_update(prep);
             if (ds_mode && non_bound_write && ds_sharing_allowed) {
               ds_sharing_allowed = false;
               spdlog::info(
                   "SDDP Aperture [i{} s{} p{} a{}]: row-touching aperture "
-                  "update (profile element) — dual-shared synthesis "
-                  "disabled for this chunk, falling back to exact solves",
+                  "update (profile element or AR-mode flow) — dual-shared "
+                  "synthesis disabled for this chunk, falling back to exact "
+                  "solves",
                   gtopt::uid_of(iteration_index),
                   scene_uid_val,
                   phase_uid_val,
@@ -886,7 +914,6 @@ auto solve_apertures_for_phase(
                     .prep_idx = prep_idx,
                     .corr = *corr,
                 });
-                ++ds_n_synth;
                 // Memo: in-chunk duplicates copy THIS synthesized cut.
                 // If the original is later screen-upgraded to an exact
                 // cut, the duplicate keeps the shared version — both
@@ -912,8 +939,8 @@ auto solve_apertures_for_phase(
             // `warm` (planning_options_lp.hpp) — the within-chunk chain
             // above (dual simplex + advanced_basis + presolve OFF)
             // re-optimizes the resident basis in a few pivots, because
-            // the `update_aperture` deltas are bound-only and preserve
-            // dual feasibility.  Under the default `basis_cross_mode =
+            // the `update_aperture` deltas (bounds / equality-row RHS)
+            // preserve dual feasibility.  Under the default `basis_cross_mode =
             // full_cross` the chunk's FIRST aperture is additionally
             // dual-seeded from the forward-pass basis, so on
             // basis-capable backends (CPLEX/HiGHS) every aperture solve
@@ -967,7 +994,7 @@ auto solve_apertures_for_phase(
 
             // Warm-start when the clone holds a basis: the within-chunk chain
             // (`warm` mode), the cross-iteration seed just installed, or a
-            // dual-shared fallback exact solve (bound-only deltas off the
+            // dual-shared fallback exact solve (bound/RHS deltas off the
             // representative's resident basis — same shape as `warm`).
             const bool use_warm = clone_has_basis
                 && (aperture_solve_mode == ApertureSolveMode::warm
@@ -1116,7 +1143,7 @@ auto solve_apertures_for_phase(
           // apertures whose shared support moved furthest from the
           // representative are where the synthesized cut is loosest —
           // and re-solve the top `aperture_screen_count` exactly on the
-          // resident basis (bound-only deltas, warm dual simplex),
+          // resident basis (bound/RHS deltas, warm dual simplex),
           // replacing their synthesized cuts with exact ones.  In-chunk
           // duplicates that copied a synthesized cut BEFORE this pass
           // deliberately keep the shared version (see the memo comment
@@ -1181,7 +1208,7 @@ auto solve_apertures_for_phase(
           }
 
           // ── Dual-shared timing/coverage summary ─────────────────────
-          if (ds_mode && ds_n_synth > 0
+          if (ds_mode && !ds_synth.empty()
               && spdlog::should_log(spdlog::level::debug))
           {
             spdlog::debug(
@@ -1193,7 +1220,7 @@ auto solve_apertures_for_phase(
                 n_cold_solves + n_warm_solves,
                 n_cold_solves,
                 n_warm_solves,
-                ds_n_synth,
+                ds_synth.size(),
                 ds_n_delta_fallback,
                 ds_n_screen_resolved);
           }

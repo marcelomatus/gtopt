@@ -602,45 +602,24 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // Resolve the α column freshly from the state-variable registry so
   // low_memory reconstruct paths never see a stale cached index.
   //
-  // Under `multicut`, scene S's backward cut must reference S's OWN
-  // future-cost column `varphi_S` (uid = sddp_alpha_uid + S), not the
-  // legacy single α (offset 0).  `share_cuts_for_phase` then broadcasts
-  // this cut to every destination scene-LP, each install targeting the
-  // SAME `varphi_S` column there — mirroring PLP `plp-agrespd.f:94`'s
-  // `IColx = NCol - NSimul + ISimul` source-scenario indexing.  For the
-  // single-α modes `source_scene = scene_index` collapses to offset 0,
-  // reproducing the legacy lookup.
   // User-overridable FCF (piece 5 step 2c): under `use_user_alpha` the built-in
   // α is suppressed (inert, not a state variable), so the Benders cut's `+1`
   // coefficient must land on the USER α column at `prev_phase_index` — the
   // dynamic recourse column the master prices.  Resolve it via
-  // `find_user_alpha_state_var`.  Else: the literal original (multicut → own
-  // `varphi_S`, single-α → offset-0 lookup).  Default path byte-for-byte
-  // unchanged.
+  // `find_user_alpha_state_var`.  Else the shared mode dispatch
+  // `find_source_alpha_state_var` (markov → `varphi_{m(S)}`, multicut →
+  // own `varphi_S`, single-α → offset-0 lookup; see its header doc).
+  // `share_cuts_for_phase` later broadcasts the cut to every destination
+  // scene-LP, each install targeting the SAME source column there —
+  // mirroring PLP `plp-agrespd.f:94`'s `IColx = NCol - NSimul + ISimul`
+  // source-scenario indexing.  Default path byte-for-byte unchanged.
   const StateVariable* src_alpha_svar = nullptr;
   if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
     src_alpha_svar = find_user_alpha_state_var(
         planning_lp().simulation(), scene_index, prev_phase_index, *ua_uid);
-  } else if (m_options_.cut_sharing == CutSharingMode::markov) {
-    // Markov-chain SDDP: scene S's cut targets the Markov-STATE column
-    // `varphi_{m(S)}` (uid = sddp_alpha_uid + m(S)) — the state index
-    // rides the multicut overload's uid-offset scheme.  See
-    // `docs/formulation/sddp-markov.md` §2/§6.
-    const auto mstate = static_cast<std::size_t>(
-        m_options_.markov
-            .state_of_scene[static_cast<std::size_t>(scene_index)]);
-    src_alpha_svar = find_alpha_state_var(planning_lp().simulation(),
-                                          scene_index,
-                                          prev_phase_index,
-                                          /*source_scene=*/SceneIndex {mstate});
   } else {
-    src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
-        ? find_alpha_state_var(planning_lp().simulation(),
-                               scene_index,
-                               prev_phase_index,
-                               /*source_scene=*/scene_index)
-        : find_alpha_state_var(
-              planning_lp().simulation(), scene_index, prev_phase_index);
+    src_alpha_svar = find_source_alpha_state_var(
+        planning_lp().simulation(), m_options_, scene_index, prev_phase_index);
   }
   const auto src_alpha_col = (src_alpha_svar != nullptr)
       ? src_alpha_svar->col()
@@ -676,8 +655,15 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
       // degrades to the LP-relaxation cut instead of stalling the
       // backward pass (aperture-timeout-style accounting).
       auto mip_opts = opts;
-      mip_opts.mip_gap = 1e-9;
-      mip_opts.mip_gap_abs = 1e-6;
+      // Named so the intercept ε-bound stays traceable: the emitted
+      // intercept over-tightens by at most
+      // `max(mip_gap·|m*|, mip_gap_abs)` (ledger E9; doc §6.3), and
+      // `test_sddp_strengthened_cuts.cpp` derives `mip_oracle_tol`
+      // from these exact values.
+      constexpr double kStrengthenedMipGap = 1e-9;
+      constexpr double kStrengthenedMipGapAbs = 1e-6;
+      mip_opts.mip_gap = kStrengthenedMipGap;
+      mip_opts.mip_gap_abs = kStrengthenedMipGapAbs;
       if (!mip_opts.time_limit.has_value()) {
         constexpr double kStrengthenedMipTimeLimit = 30.0;  // seconds
         mip_opts.time_limit = kStrengthenedMipTimeLimit;
@@ -708,6 +694,31 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
             uid_of(phase_index),
             bwd_total_phases);
       }
+    }
+  } else if (gtopt::uid_of(iteration_index) == 0
+             && !m_mip_flat_cut_warned_.load(std::memory_order_relaxed))
+  {
+    // `integer_cuts = none` on an integer-bearing backward cell: the
+    // legacy mirror cut is NOT certified — a MIP re-solve has no
+    // reduced costs, so the cut degenerates to a flat
+    // `α ≥ z_MIP(v̂)` that can overshoot V_MIP away from the trial
+    // point (sddip doc §1; soundness review §6b).  One-shot runtime
+    // WARN, checked only on the first iteration's backward sweep
+    // (which touches every (scene, phase) cell once) so pure-LP runs
+    // pay the `has_integer_cols` column scan exactly once per cell.
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    if (tgt_sys.linear_interface().has_integer_cols()
+        && !m_mip_flat_cut_warned_.exchange(true, std::memory_order_relaxed))
+    {
+      SPDLOG_WARN(
+          "SDDP Backward [s{} p{}]: cell carries integer columns and "
+          "integer_cuts=none — backward cuts from MIP re-solves are NOT "
+          "certified (flat α ≥ z_MIP can overshoot; sddip doc §1).  Set "
+          "sddp_options.integer_cuts_mode=strengthened, or enable "
+          "apertures (LP-relaxation cuts).",
+          uid_of(scene_index),
+          uid_of(phase_index));
     }
   }
 
