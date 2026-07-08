@@ -512,13 +512,15 @@ class TestIrrigationSimilar:
           rank correlation across matched buses probes the network
           and congestion model (observed 0.975); the mean-level band
           is wide (policy differences move the marginal unit).
-        * Water values: PLP EmbPsom ($/dam3 -> x1000 $/hm3) vs
-          gtopt's reservoir water_value duals per stage.  The MEDIAN
-          per-reservoir level ratio is asserted; individual outliers
-          are reported, not asserted — they are findings (2026-07:
-          ELTORO 12.6x / COLBUN 0.35x track the efin_cost vector from
-          the WaterValueResolver cut extraction; PEHUENCHE/RALCO sit
-          at 1.00/0.95 validating both cores).
+        * Water values: PLP EmbPsom2 vs gtopt's reservoir
+          water_value duals per stage.  UNITS MATTER (user-caught
+          2026-07): EmbPsom = CMg x FPhi / FactRendim is the $/MWh
+          representation (divided by the downstream chain yield);
+          EmbPsom2 = CMg x FPhi is the raw VOLUME shadow price —
+          the counterpart of gtopt's volume-balance dual
+          (plp-gdbdemb.f:115-123 vs reservoir_lp.cpp:231).  Against
+          Psom2 the median ratio is ~1.2 with most reservoirs near
+          1; the residual ELTORO ~5x is reported as a finding.
         * Cuts: PLP's EmbPsom IS its FCF gradient at the visited
           state; gtopt's sddp_cuts must carry Reservoir efin states
           AND the irrigation VolumeRight states (the agreements'
@@ -576,7 +578,10 @@ class TestIrrigationSimilar:
                 continue
             pos, pm = 0, []
             for nblk in counts[: len(wv)]:
-                pm.append(float(plp["EmbPsom"].iloc[pos : pos + nblk].mean()) * 1e3)
+                # Psom2 = raw volume shadow price (x1000: PLP writes
+                # per dam3, gtopt per hm3).  Psom (no 2) is the $/MWh
+                # form — NOT comparable to a volume dual.
+                pm.append(float(plp["EmbPsom2"].iloc[pos : pos + nblk].mean()) * 1e3)
                 pos += nblk
             n = min(len(pm), len(wv))
             if n < 6:

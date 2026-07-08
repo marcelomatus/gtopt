@@ -290,16 +290,25 @@ tiers opt-in via `GTOPT_PLP_COMPARE=1`, run with `-n0`).  KPI set:
 | Cut states | FCF composition | Reservoir efin ✓ + **347 VolumeRight coeffs** (irrigation buckets participate) ✓ |
 | Convenio states (`plplajam.csv` vdrf/vdef/vdmf/vgaf, `plpmaule.csv` vmg*/vmdcef) vs `laja_vol_*`/`maule_vol_*` efin | agreement state machines | ready — skips until a PLP run's CSVs are provided (PLP_OUT_DIR) |
 
-**FINDING (inner issue, gtopt side, outside the agreements)**: the
-`efin_cost` vector from `WaterValueResolver`'s cut-lower-bound
-extraction is inconsistent with PLP's own simulated water values
-(`EmbPsom`×1000): ELTORO 411,400 $/hm³ ≈ 13× PLP, while COLBUN 385 ≈
-0.004×.  This single vector explains BOTH dispatch divergences the
-behavioral tier sees (El Toro hoards, Colbún over-releases 1.58×).
-The cut gradients equal efin_cost at the boundary, so the extraction
-(likely the max-gradient/empty-reservoir cut applied as a flat value,
-and/or per-reservoir FEscala handling) is the suspect — follow-up in
-the water-values workstream, not the agreements.
+**FINDING — largely RETRACTED after units correction (2026-07-08,
+user-caught)**: the original claim compared gtopt's volume-balance
+dual against PLP's `EmbPsom`, which is the **$/MWh** representation
+(CMg × FPhi / FactRendim — divided by the downstream chain's summed
+rendimiento, plp-gdbdemb.f:115-119).  The correct counterpart is
+`EmbPsom2` = CMg × FPhi, the raw **volume shadow price**
+(plp-gdbdemb.f:121-123).  Against Psom2 the per-reservoir ratios
+tighten to a median of 1.22 — COLBUN 0.66, RAPEL 1.18, LMAULE 0.80,
+PEHUENCHE 0.89, RALCO 1.25 all healthy; the 12.6×/0.35×/0.18×
+scatter was the chain-yield units artifact.  Per-volume water values
+differing 10× across reservoirs is PHYSICS (value per hm³ ∝ chain
+energy yield; El Toro's cascade extracts far more MWh/hm³), not an
+inconsistency.  **Residual finding**: ELTORO still ~5× (gtopt dual ≈
+383 k$/hm³, efin_cost 411 k$/hm³, vs PLP Psom2 ≈ 74 k$/hm³) — either
+the cut-extraction max-gradient overestimates El Toro's boundary
+value, or gtopt's hoarding equilibrium pins the internal dual to the
+efin_cost boundary price; CANUTILLAR 2.6× / PILMAIQUEN 3.1× milder
+cousins.  Worth one focused look in the water-values workstream;
+everything else validated.
 
 **FINDING (PLP semantics)**: PLP's filtration is an LP variable on
 the segment envelope, not a curve lookup — during extreme refills it
