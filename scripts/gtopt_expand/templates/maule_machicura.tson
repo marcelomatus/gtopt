@@ -25,7 +25,7 @@
 {#                                                                   #}
 {# 2. Zone governance STILL lives on Colbun:                        #}
 {#    * Every `bound_rule.reservoir` in this file still points to   #}
-{#      `res_colbun`.  The three-zone model (Extraord / Ordinary /  #}
+{#      `res_maule`.  The three-zone model (Extraord / Ordinary /   #}
 {#      Normal, thresholds 129 hm³ and 581 hm³) is governed by      #}
 {#      V_Colbun, not V_Machicura — this matches the Convenio       #}
 {#      1947/1983 and DGA Resolución 105/83.                        #}
@@ -272,7 +272,7 @@
       "fmax": {{ elec_day_max }},
       "use_average": true,
       "bound_rule": {
-        "reservoir": {{ res_colbun }},
+        "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
           {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ elec_day_max }}}
@@ -312,7 +312,7 @@
       "use_average": true,
       "fcost": {{ costo_riego_ns_maule }},
       "bound_rule": {
-        "reservoir": {{ res_colbun }},
+        "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
           {"volume": {{ v_zone_normal }}, "slope": 0, "constant": {{ riego_max }}}
@@ -350,7 +350,7 @@
       "fmax": {{ elec_ord_fmax }},
       "use_average": true,
       "bound_rule": {
-        "reservoir": {{ res_colbun }},
+        "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
           {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ elec_day_max }}},
@@ -378,7 +378,7 @@
       "fmax": {{ irr_fmax_schedule }},
       "use_average": true,
       "bound_rule": {
-        "reservoir": {{ res_colbun }},
+        "reservoir": {{ res_maule }},
         "segments": [
           {"volume": 0, "slope": 0, "constant": 0},
           {"volume": {{ v_zone_extraord }}, "slope": 0, "constant": {{ riego_max }}},
@@ -588,14 +588,14 @@
     {# VolumeRight: maule_vol_gasto_elec_mensual (PLP: IVMGEMF)      #}
     {#                                                               #}
     {# Monthly electric accumulator.  Tracks accumulated electric    #}
-    {# extraction within the current MONTH.  Resets every January.   #}
+    {# extraction within the current MONTH.  Resets at EVERY month start.   #}
     {#                                                               #}
     {# PLP balance (genpdmaule.f R9):                                #}
     {#   IVMGEMF = Prev + (etadur/ScaleVol) * IQMNEH                #}
     {# gtopt: VolumeRight energy balance (StorageLP pattern).        #}
     {#                                                               #}
     {# emax = gasto_elec_men_max (25 hm3): monthly electric cap.    #}
-    {# reset_month = january: resets to 0 at each January stage.    #}
+    {# reset_monthly: re-provisions at each month start (PLP TipoEtaDE != INTRAETA, genpdmaule.f:937).    #}
     {# ============================================================= #}
     {
       "name": "maule_vol_gasto_elec_mensual",
@@ -603,7 +603,7 @@
       "eini": {{ v_gasto_elec_men_ini }},
       "emax": {{ gasto_elec_men_max }},
       "use_state_variable": true,
-      "reset_month": "january"
+      "reset_monthly": true
     },
 
     {# ============================================================= #}
@@ -619,7 +619,7 @@
     {# both VolumeRight balance rows.                                #}
     {#                                                               #}
     {# emax = v_der_elect_anu_max (250 hm3): annual electric cap.   #}
-    {# reset_month = june: resets at the Maule convention year start.#}
+    {# reset_month = january: the derechos electricos year starts at ENEROHID (genpdmaule.f:1868-1885).#}
     {# ============================================================= #}
     {
       "name": "maule_vol_gasto_elec_anual",
@@ -627,7 +627,7 @@
       "eini": {{ v_gasto_elec_anu_ini }},
       "emax": {{ v_der_elect_anu_max }},
       "use_state_variable": true,
-      "reset_month": "june"
+      "reset_month": "january"
     },
 
     {# ============================================================= #}
@@ -641,7 +641,7 @@
     {#                                                               #}
     {# emax = v_der_riego_temp_max (800 hm3): seasonal irrigation   #}
     {# cap (total allowed per season).                               #}
-    {# reset_month = june: same annual cycle as electric.            #}
+    {# reset_month: riego season start (PLP MesRiegoIni from the pct_riego_mensual transition; TipoEtaDR).            #}
     {# ============================================================= #}
     {
       "name": "maule_vol_gasto_riego_temp",
@@ -649,7 +649,7 @@
       "eini": {{ v_gasto_riego_ini }},
       "emax": {{ v_der_riego_temp_max }},
       "use_state_variable": true,
-      "reset_month": "june"
+      "reset_month": {{ reset_month_riego }}
     },
 
     {# ============================================================= #}

@@ -229,7 +229,9 @@ class TestMauleWriter:
         )
         assert "bound_rule" in elec_normal
         rule = elec_normal["bound_rule"]
-        assert rule["reservoir"] == "COLBUN"
+        # Zone driver is LAGUNA DEL MAULE (PLP IVMUTIL tracks
+        # vol(IEmbMaule), genpdmaule.f:326-329) — NOT Colbun.
+        assert rule["reservoir"] == "LMAULE"
         assert len(rule["segments"]) == 2
 
     def test_volume_rights_have_reset_month(self, maule_config):
@@ -240,7 +242,9 @@ class TestMauleWriter:
             for vr in writer.volume_rights
             if vr["name"] == "maule_vol_gasto_elec_anual"
         )
-        assert vol_elec_annual["reset_month"] == "june"
+        # The derechos electricos year starts at ENEROHID = calendar
+        # january (genpdmaule.f:1868-1885).
+        assert vol_elec_annual["reset_month"] == "january"
         assert vol_elec_annual["emax"] == pytest.approx(250.0)
 
         vol_irr = next(
@@ -248,7 +252,10 @@ class TestMauleWriter:
             for vr in writer.volume_rights
             if vr["name"] == "maule_vol_gasto_riego_temp"
         )
-        assert vol_irr["reset_month"] == "june"
+        # Season start from the fixture's pct_riego_mensual transition
+        # (hydro month 6 = september); see
+        # test_riego_temp_reset_at_season_start.
+        assert vol_irr["reset_month"] == "september"
 
     def test_res105_fixed_mode(self, maule_config):
         writer = MauleWriter(maule_config)
@@ -439,8 +446,45 @@ class TestMauleWriter:
             for vr in writer.volume_rights
             if vr["name"] == "maule_vol_gasto_elec_mensual"
         )
-        assert vol_monthly["reset_month"] == "january"
+        # PLP re-provisions the monthly counter at EVERY month start
+        # (TipoEtaDE != INTRAETA, genpdmaule.f:937) — not just january.
+        assert vol_monthly["reset_monthly"] is True
+        assert "reset_month" not in vol_monthly
         assert vol_monthly["emax"] == pytest.approx(maule_config["gasto_elec_men_max"])
+
+    def test_riego_temp_reset_at_season_start(self, maule_config):
+        """The seasonal riego bucket restarts at MesRiegoIni — the first
+        hydro month where pct_riego turns non-zero (TipoEtaDR ==
+        INICIOANO, genpdmaule.f:1887-1919)."""
+        writer = MauleWriter(maule_config)
+        vol_riego = next(
+            vr
+            for vr in writer.volume_rights
+            if vr["name"] == "maule_vol_gasto_riego_temp"
+        )
+        # Fixture pct (hydro Apr..Mar): first 0 -> nonzero transition
+        # determines the season start.
+        pct = [float(v) for v in maule_config["pct_riego_mensual"]]
+        ini_hydro = 1
+        for i in range(1, 12):
+            if pct[i - 1] == 0.0 and pct[i] != 0.0:
+                ini_hydro = i + 1
+                break
+        months = [
+            "april",
+            "may",
+            "june",
+            "july",
+            "august",
+            "september",
+            "october",
+            "november",
+            "december",
+            "january",
+            "february",
+            "march",
+        ]
+        assert vol_riego["reset_month"] == months[ini_hydro - 1]
 
     def test_unique_uids(self, maule_config):
         writer = MauleWriter(maule_config)

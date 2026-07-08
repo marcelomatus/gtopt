@@ -87,11 +87,14 @@ unused rights that carry forward across years.
 
 ### 1.3 Maule Agreement — Legal Background
 
-The Convenio del Maule governs water allocation from the Colbun reservoir
-system between ENDESA/Colbun (electric generation) and irrigators
-(~90,000+ ha in the Maule region).
+The Convenio del Maule governs water allocation from the Laguna del
+Maule / Colbun system between ENDESA/Colbun (electric generation) and
+irrigators (~90,000+ ha in the Maule region).
 
-The Colbun reservoir volume is divided into **3 operational zones**:
+The **Laguna del Maule** volume is divided into **3 operational
+zones** (PLP's `IVMUTIL` state tracks `vol(LMAULE)`,
+`genpdmaule.f:326-329` — the 1947 convenio predates Colbun; Colbun's
+volume only drives the separate cota-425 extraction rule):
 
 1. **Reserva Extraordinaria** (bottom, 0–129 hm³): No extraction rights
    for either party

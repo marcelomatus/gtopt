@@ -35,7 +35,15 @@ class StageParser(BaseParser):
             if len(parts) < 6:
                 raise ValueError(f"Invalid stage entry at line {idx + 1}")
 
-            month = int(parts[1])  # Mes is the calendar month (1-12)
+            # `Mes` in plpeta.dat is a HYDROLOGICAL month (1 = April ..
+            # 12 = March; the calendar year rolls at month 10 = January
+            # — see the PLP source assumption in genpdmaule.f:1860-1862
+            # and leelajam.f, plus the February=672h discriminator in
+            # the production files).  Convert to the calendar month
+            # (1 = January .. 12 = December) that every downstream
+            # consumer (Stage.month, the agreement schedules) expects.
+            hydro_month = int(parts[1])
+            month = ((hydro_month + 2) % 12) + 1
             stage_num = int(parts[2])  # Etapa is the stage number
             duration = float(parts[4])  # NHoras is the duration
             # Calculate discount factor from FactTasa if present, default to 1.0

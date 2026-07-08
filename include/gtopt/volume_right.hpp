@@ -193,6 +193,17 @@ struct VolumeRight
   /// rights re-provisioned each December for the Dec-Apr season).
   std::optional<MonthType> reset_month {};
 
+  /// Reset at EVERY stage that starts a new calendar month (PLP:
+  /// ``TipoEtaDE != INTRAETA``, genpdmaule.f:937 — the monthly
+  /// electric counter IVMGEMF re-provisions each month).  Requires
+  /// stage months; the first stage of the horizon keeps its config
+  /// ``eini`` (PLP resets only for ``IEta > 1``).  May be combined
+  /// with ``reset_month`` (either condition fires the reset).  Note:
+  /// ``update_lp`` bound_rule refresh only tracks ``reset_month``
+  /// stages — do not combine ``reset_monthly`` with a ``bound_rule``
+  /// provision.
+  OptBool reset_monthly {};
+
   /// Explicit provision value at reset_month [hm³].  Overrides both
   /// the bound_rule provisioning and the emax fallback.  Use 0 for
   /// PLP-style up-counters that restart each season (IVGAF resets to

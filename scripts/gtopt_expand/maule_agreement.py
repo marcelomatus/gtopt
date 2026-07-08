@@ -90,6 +90,7 @@ import logging
 from typing import Any
 
 from gtopt_expand._base import _RightsAgreementBase
+from gtopt_expand.laja_agreement import _hydro_month_name
 
 _logger = logging.getLogger(__name__)
 
@@ -271,11 +272,15 @@ class MauleAgreement(_RightsAgreementBase):
         return "MACHICURA"
 
     def _monthly_schedule(self, monthly_values: list[float]) -> list[float]:
-        """Convert 12-element monthly array to per-stage values.
+        """Convert a 12-element HYDRO-YEAR array to per-stage values.
 
-        Maps each stage's month (from stage_parser) to the corresponding
-        monthly value. If no stage_parser is available, returns the raw
-        12-element array (the user must ensure stage-month alignment).
+        The plpmaulen.dat monthly arrays are indexed "segun mes en
+        plpeta.dat" — hydrological months (1 = April .. 12 = March),
+        exactly like the Laja arrays.  Stage months are calendar
+        (1 = Jan .. 12 = Dec), so each stage maps through
+        ``hydro_idx = (calendar - 4) % 12``.  If no stage_parser is
+        available, returns the raw hydro-year array (the user must
+        ensure stage-month alignment).
         """
         if self._stage_parser is None:
             return monthly_values
@@ -283,9 +288,9 @@ class MauleAgreement(_RightsAgreementBase):
         stages = self._get_stages()
         schedule: list[float] = []
         for stage in stages:
-            month = stage.get("month", 1)
-            # PLP months are 1-indexed, array is 0-indexed
-            idx = (month - 1) % 12
+            month = stage.get("month", 1)  # calendar: 1=Jan..12=Dec
+            # Calendar month -> hydro index: Apr=0, May=1, ..., Mar=11
+            idx = (month - 4) % 12
             schedule.append(monthly_values[idx])
         return schedule
 
@@ -315,6 +320,25 @@ class MauleAgreement(_RightsAgreementBase):
         cfg = self._cfg
 
         res_colbun = cfg["central_colbun"]
+        # Zone driver: the convenio's reserve zones are LAGUNA DEL
+        # MAULE volumes, not Colbun — PLP's IVMUTIL row is
+        # `vol(IEmbMaule) - vmutil = VolUtilMin` (genpdmaule.f:326-329)
+        # and FijaMaule's RegimenNormal check reads that state.  (The
+        # 1947 convenio predates Colbun by four decades; Colbun's
+        # volume only drives the separate cota-425 extraction rule.)
+        res_maule = cfg["central_maule"]
+
+        # Riego season start (PLP MesRiegoIni, genpdmaule.f:1887-1895):
+        # first hydro month where the irrigation percentage turns
+        # non-zero after a zero month.  The seasonal riego bucket
+        # (IVMGRTF) restarts there — TipoEtaDR == INICIOANO.
+        pct_hydro = [float(v) for v in cfg["pct_riego_mensual"]]
+        riego_ini_hydro = 1
+        for i in range(1, 12):
+            if pct_hydro[i - 1] == 0.0 and pct_hydro[i] != 0.0:
+                riego_ini_hydro = i + 1
+                break
+        reset_month_riego = _hydro_month_name(riego_ini_hydro)
         v_extraord = cfg["v_reserva_extraord"]
         v_ordinaria = cfg["v_reserva_ordinaria"]
         v_zone_extraord = v_extraord
@@ -392,6 +416,8 @@ class MauleAgreement(_RightsAgreementBase):
         return {
             # Reservoir / zone thresholds
             "res_colbun": res_colbun,
+            "res_maule": res_maule,
+            "reset_month_riego": reset_month_riego,
             "v_zone_extraord": v_zone_extraord,
             "v_zone_normal": v_zone_normal,
             "v_reserva_extraord": v_extraord,

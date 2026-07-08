@@ -355,6 +355,65 @@ TEST_CASE("Tier 9.5 - reset_value pins the up-counter to zero at reset")
   CHECK(col_sol[vr_lp.eini_col_at(s, t)] == doctest::Approx(0.0));
 }
 
+TEST_CASE("Tier 9.6 - reset_monthly re-provisions at each month start")
+{
+  // PLP re-provisions the monthly electric counter at every stage
+  // that starts a new calendar month (TipoEtaDE != INTRAETA,
+  // genpdmaule.f:937).  Two monthly stages: the first keeps its
+  // config eini (PLP resets only for IEta > 1); the second is pinned
+  // to the provision (emax, no bound_rule / reset_value).
+  const Array<VolumeRight> vrs = {
+      {.uid = Uid {11},
+       .name = "vmen",
+       .emax = 25.0,
+       .eini = 5.0,
+       .use_state_variable = true,
+       .reset_monthly = true},
+  };
+  const auto system =
+      make_anchored_system(vrs, {}, {}, "Tier9_6_reset_monthly");
+  PlanningOptions popts;
+  popts.model_options.scale_objective = 1.0;
+  popts.model_options.demand_fail_cost = 1000.0;
+  const PlanningOptionsLP options(popts);
+  const Simulation sim = {
+      .block_array =
+          {
+              {.uid = Uid {1}, .duration = 24},
+              {.uid = Uid {2}, .duration = 24},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {1},
+               .first_block = 0,
+               .count_block = 1,
+               .month = MonthType::january},
+              {.uid = Uid {2},
+               .first_block = 1,
+               .count_block = 1,
+               .month = MonthType::february},
+          },
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+  SimulationLP simulation_lp(sim, options);
+  SystemLP system_lp(system, simulation_lp);
+
+  const auto& s = system_lp.scene().scenarios()[0];
+  const auto& stages = system_lp.phase().stages();
+  const auto& li = system_lp.linear_interface();
+  const auto& vr_lp = system_lp.elements<VolumeRightLP>().front();
+
+  // Stage 1: config eini pinned (no reset at the horizon start).
+  const auto e1 = vr_lp.eini_col_at(s, stages[0]);
+  CHECK(li.get_col_low()[e1] == doctest::Approx(5.0));
+  CHECK(li.get_col_upp()[e1] == doctest::Approx(5.0));
+
+  // Stage 2 starts february: monthly reset pins eini to emax = 25.
+  const auto e2 = vr_lp.eini_col_at(s, stages[1]);
+  CHECK(li.get_col_low()[e2] == doctest::Approx(25.0));
+  CHECK(li.get_col_upp()[e2] == doctest::Approx(25.0));
+}
+
 TEST_CASE("Tier 9.3 - depleted ledger caps its category")
 {
   // vdr starts nearly empty: eini = 1.0 hm3 caps qdr at

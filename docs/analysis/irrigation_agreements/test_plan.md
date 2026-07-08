@@ -158,6 +158,16 @@ New file `test_irrigation_maule_lp_structure.cpp` (same recipe):
    nets out hoya-intermedia tributary inflows and filtration
    (GetQsLajaM, scenario- and volume-dependent) — the gross cap is
    looser by that netting.
-5. Maule monthly electric-counter reset (PLP resets EVERY month, not
-   january) and compensation recompute at year start.
+5. ~~Maule monthly electric-counter reset~~ — done 2026-07: new
+   `VolumeRight.reset_monthly` re-provisions at every month start
+   (PLP TipoEtaDE != INTRAETA); the annual bucket resets in january
+   (ENEROHID = hydro 10, plpmod.f:21) and the seasonal riego bucket
+   at the data-derived season start (PLP MesRiegoIni).  Also fixed in
+   the same batch: the Maule zone driver is LAGUNA DEL MAULE (PLP
+   IVMUTIL, genpdmaule.f:326-329 — was Colbun), the electric/riego
+   ledgers accumulate normal+ordinario flows, plpeta stage months are
+   HYDRO-indexed and now convert to calendar in stage_parser (the
+   February=672h discriminator), and the Maule monthly arrays index
+   by hydro month.  Compensation recompute at year start (VCompElecN
+   credit) remains open.
 6. ~~`update_lp` re-clamp vs substitution~~ — fixed 2026-07 (A1).

@@ -8,7 +8,7 @@
 # Direccion de Obras Hidraulicas (DOH) and Enel/Colbun, governing the
 # allocation of water from the Laguna del Maule / Colbun system.
 #
-# The agreement divides the Colbun reservoir volume into three operational
+# The agreement divides the LAGUNA DEL MAULE volume into three operational
 # zones, each with different rights allocation between ENDESA/Enel and
 # irrigators (~90,000+ ha in the Maule region):
 #
@@ -79,7 +79,9 @@
 # Central / reservoir references
 # ---------------------------------------------------------------------------
 
-# Reservoir used for volume zone thresholds (bound_rule): {{ central_colbun }}
+# Reservoir driving the zone thresholds (bound_rule): {{ central_maule }}
+# (Laguna del Maule — PLP's IVMUTIL row, genpdmaule.f:326-329; NOT
+# Colbun, whose volume only drives the separate cota-425 rule)
 
 # ---------------------------------------------------------------------------
 # Volume zone thresholds [hm3]
@@ -304,14 +306,18 @@ constraint invernada_anclaje "Anchor: Invernada releases = physical turbined flo
 # usage.  The VolumeRights carry no `reservoir` coupling — physical
 # water leaves through the anchored turbine arc only.
 # ---------------------------------------------------------------------------
-constraint maule_ledger_elec_mensual "Ledger: monthly electric bucket depletes with qmne":
-  volume_right('maule_vol_gasto_elec_mensual').extraction = flow_right('maule_gasto_normal_elec').flow;
+# PLP accumulates BOTH the normal and ordinary flows in the electric
+# counters (IVMGEMF/IVMGEAF rows carry IQMNEH + IQMOEH) and in the
+# seasonal riego bucket (IVMGRTF carries IQMNRH + IQMORH) —
+# genpdmaule.f:268-290.
+constraint maule_ledger_elec_mensual "Ledger: monthly electric bucket depletes with qmne+qmoe":
+  volume_right('maule_vol_gasto_elec_mensual').extraction = flow_right('maule_gasto_normal_elec').flow + flow_right('maule_gasto_ordinario_elec').flow;
 
-constraint maule_ledger_elec_anual "Ledger: annual electric bucket depletes with qmne":
-  volume_right('maule_vol_gasto_elec_anual').extraction = flow_right('maule_gasto_normal_elec').flow;
+constraint maule_ledger_elec_anual "Ledger: annual electric bucket depletes with qmne+qmoe":
+  volume_right('maule_vol_gasto_elec_anual').extraction = flow_right('maule_gasto_normal_elec').flow + flow_right('maule_gasto_ordinario_elec').flow;
 
-constraint maule_ledger_riego_temp "Ledger: seasonal irrigation bucket depletes with qmnr":
-  volume_right('maule_vol_gasto_riego_temp').extraction = flow_right('maule_gasto_normal_riego').flow;
+constraint maule_ledger_riego_temp "Ledger: seasonal irrigation bucket depletes with qmnr+qmor":
+  volume_right('maule_vol_gasto_riego_temp').extraction = flow_right('maule_gasto_normal_riego').flow + flow_right('maule_gasto_ordinario_riego').flow;
 
 constraint maule_ledger_reserva_elec "Ledger: ordinary-reserve electric bucket depletes with qmoe":
   volume_right('maule_vol_reserva_ord_elec').extraction = flow_right('maule_gasto_ordinario_elec').flow;

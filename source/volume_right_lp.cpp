@@ -170,17 +170,33 @@ bool VolumeRightLP::add_to_lp(SystemContext& sc,
   // linking: the sini value is independently provisioned, so backward
   // duals and forward trial values from the previous phase are meaningless.
   const auto& rm = volume_right().reset_month;
+  const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
+  const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
   // A VR with reset_month requires the stage to carry a calendar month:
   // a silent `nullopt != rm` would skip the provisioning quietly and
   // produce a wrong but feasible LP.  Fail fast instead.
-  const bool is_reset_stage = rm.has_value()
+  bool is_reset_stage = rm.has_value()
       && require_stage_month(stage,
                              Element::class_name.full_name(),
                              std::format("uid={}", uid()),
                              "reset_month")
           == *rm;
-  const auto [prev_stg, prev_ph] = sc.prev_stage(stage);
-  const bool is_cross_phase = (prev_stg != nullptr && prev_ph != nullptr);
+  // Monthly reset (PLP TipoEtaDE != INTRAETA, genpdmaule.f:937):
+  // re-provision at every stage that starts a new calendar month.
+  // The horizon's first stage keeps its config eini (PLP resets only
+  // for IEta > 1).
+  if (volume_right().reset_monthly.value_or(false) && prev_stg != nullptr) {
+    const auto cur_month = require_stage_month(stage,
+                                               Element::class_name.full_name(),
+                                               std::format("uid={}", uid()),
+                                               "reset_monthly");
+    const auto prev_month =
+        require_stage_month(*prev_stg,
+                            Element::class_name.full_name(),
+                            std::format("uid={}", uid()),
+                            "reset_monthly (previous stage)");
+    is_reset_stage = is_reset_stage || (prev_month != cur_month);
+  }
 
   const StorageOptions opts {
       .use_state_variable = volume_right().use_state_variable.value_or(true),
