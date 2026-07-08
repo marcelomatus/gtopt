@@ -355,34 +355,38 @@ TEST_CASE(
   CHECK(backend->obj_value() == doctest::Approx(2.0));
 }
 
-TEST_CASE("cuOpt cuopt.prm sets presolve and plugin-local warmstart")  // NOLINT
+TEST_CASE("cuOpt tuning file: cfg named values and legacy prm")  // NOLINT
 {
-  // The `<solvers>/cuopt.prm` sibling of gtopt's `param_file` accepts any
-  // constants.h key — including integer-typed ones like `presolve` via the
-  // string-keyed setter — plus the PLUGIN-LOCAL `warmstart` key (consumed,
-  // never forwarded).  Pin (a) a prm-selected presolver is accepted and the
-  // solve stays exact, and (b) `warmstart 0` disables the auto seed without
-  // changing results.
+  // The `<solvers>/cuopt.cfg` sibling of gtopt's `param_file` (INI, named
+  // values — `presolve = pslp`) and the legacy `cuopt.prm` dialect both
+  // route through the shared solver_cfg loader, including the PLUGIN-LOCAL
+  // `warmstart` key (consumed, never forwarded).  Pin (a) named-value cfg
+  // presolve is accepted and the solve stays exact, and (b) a legacy prm
+  // `warmstart false` disables the auto seed without changing results.
   auto backend = make_cuopt_or_skip();
   if (!backend) {
     return;
   }
   namespace fs = std::filesystem;
   const auto dir = fs::temp_directory_path() / "gtopt_cuopt_prm_test";
+  // Fresh per-subcase directory: doctest re-enters the case per SUBCASE and
+  // a leftover cuopt.cfg would shadow the prm-dialect subcase.
+  fs::remove_all(dir);
   fs::create_directories(dir);
-  const auto prm = dir / "cuopt.prm";
 
   SolverOptions opts {};
   // param_file itself need not exist — only its DIRECTORY anchors the
-  // cuopt.prm sibling lookup.
+  // cuopt.cfg / cuopt.prm sibling lookup.
   opts.param_file = (dir / "cplex.prm").string();
 
-  SUBCASE("presolve key is accepted and solve stays exact")
+  SUBCASE("cfg with named presolve + section is accepted; solve exact")
   {
     {
-      std::ofstream out {prm};
-      out << "# cuopt.prm test — explicit PSLP presolve\n";
-      out << "presolve 2\n";
+      std::ofstream out {dir / "cuopt.cfg"};
+      out << "# cuopt.cfg test — named values\n";
+      out << "[cuopt]\n";
+      out << "presolve = pslp\n";
+      out << "crossover = on\n";
     }
     backend->apply_options(opts);
     const CuoptTrivialLP2 lp {backend->infinity()};
@@ -392,11 +396,11 @@ TEST_CASE("cuOpt cuopt.prm sets presolve and plugin-local warmstart")  // NOLINT
     CHECK(backend->obj_value() == doctest::Approx(2.0));
   }
 
-  SUBCASE("warmstart 0 disables the auto seed; re-solve stays exact")
+  SUBCASE("legacy prm 'warmstart false' disables the auto seed; exact")
   {
     {
-      std::ofstream out {prm};
-      out << "warmstart 0\n";
+      std::ofstream out {dir / "cuopt.prm"};
+      out << "warmstart false\n";
     }
     backend->apply_options(opts);
     const CuoptTrivialLP2 lp {backend->infinity()};

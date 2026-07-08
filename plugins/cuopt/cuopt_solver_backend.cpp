@@ -17,10 +17,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
-#include <fstream>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -39,7 +37,9 @@
 #  include <cuopt/linear_programming/constants.h>
 #  include <cuopt/linear_programming/cuopt_c.h>
 #endif
+#include <gtopt/enum_option.hpp>
 #include <gtopt/log_and_throw.hpp>
+#include <gtopt/solver_cfg.hpp>
 #include <spdlog/spdlog.h>
 
 namespace gtopt
@@ -148,49 +148,72 @@ struct LoweredModel
   return lm;
 }
 
-/// Parse the ``<solvers>/cuopt.prm`` sibling of gtopt's solver-agnostic
-/// ``param_file`` into ordered (name, value) pairs.  gtopt cases typically
-/// pin ``param_file`` to the CPLEX ``solvers/cplex.prm`` (whose
-/// ``CPXPARAM_*`` keys are meaningless to cuOpt), so the cuOpt knobs live in
-/// a sibling file instead — mirroring how the CPLEX plugin reads its
-/// ``cplex_warmstart.prm`` sibling.  Each non-blank, non-comment line is
-/// ``<name> <value>``; ``#`` / ``//`` lines and blanks are skipped.  Any
-/// key from cuOpt's ``constants.h`` is valid (the string-keyed
-/// ``cuOptSetParameter`` accepts integer- and float-typed parameters too,
-/// e.g. ``presolve 2`` or ``pdlp_precision 2`` — probed on 26.08), plus the
-/// PLUGIN-LOCAL key ``warmstart`` (consumed here, never forwarded).  Pure
-/// host-side file I/O — call it OUTSIDE `g_cuopt_global_mutex`.
-[[nodiscard]] std::vector<std::pair<std::string, std::string>> parse_prm_file(
-    const std::optional<std::string>& param_file)
-{
-  std::vector<std::pair<std::string, std::string>> pairs;
-  if (!param_file.has_value() || param_file->empty()) {
-    return pairs;
-  }
-  std::error_code ec;
-  const std::filesystem::path prm_path =
-      std::filesystem::path {*param_file}.parent_path() / "cuopt.prm";
-  if (!std::filesystem::exists(prm_path, ec) || ec) {
-    return pairs;
-  }
-  std::ifstream prm {prm_path};
-  std::string line;
-  while (std::getline(prm, line)) {
-    const auto first = line.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos || line[first] == '#'
-        || line.compare(first, 2, "//") == 0)
-    {
-      continue;
-    }
-    std::istringstream iss {line.substr(first)};
-    std::string name;
-    std::string value;
-    if (iss >> name >> value) {
-      pairs.emplace_back(std::move(name), std::move(value));
-    }
-  }
-  return pairs;
-}
+// ---- cuOpt tuning-file named values ----------------------------------------
+//
+// Per-key EnumEntry tables (the project's named-enum framework — see
+// enum_option.hpp) so ``cuopt.cfg`` / legacy ``cuopt.prm`` can use the
+// documented names instead of integer codes.  The integer values are cuOpt's
+// own codes from ``constants.h``; ``is_alias`` entries tolerate the common
+// alternate spellings.  Loading + translation is the shared
+// ``gtopt::load_solver_cfg`` (solver_cfg.hpp): numbers always pass through,
+// unknown symbolic values are dropped with an expected-names warning, and
+// any key OUTSIDE these tables still accepts generic true/false/on/off.
+
+inline constexpr auto cuopt_method_entries = std::to_array<EnumEntry<int>>({
+    {.name = "concurrent", .value = CUOPT_METHOD_CONCURRENT},
+    {.name = "pdlp", .value = CUOPT_METHOD_PDLP},
+    {.name = "dual_simplex", .value = CUOPT_METHOD_DUAL_SIMPLEX},
+    {.name = "barrier", .value = CUOPT_METHOD_BARRIER},
+    {.name = "primal", .value = CUOPT_METHOD_PDLP, .is_alias = true},
+    {.name = "dual", .value = CUOPT_METHOD_DUAL_SIMPLEX, .is_alias = true},
+});
+
+inline constexpr auto cuopt_presolve_entries = std::to_array<EnumEntry<int>>({
+    {.name = "default", .value = CUOPT_PRESOLVE_DEFAULT},
+    {.name = "off", .value = CUOPT_PRESOLVE_OFF},
+    {.name = "papilo", .value = CUOPT_PRESOLVE_PAPILO},
+    {.name = "pslp", .value = CUOPT_PRESOLVE_PSLP},
+    {.name = "none", .value = CUOPT_PRESOLVE_OFF, .is_alias = true},
+});
+
+inline constexpr auto cuopt_pdlp_mode_entries = std::to_array<EnumEntry<int>>({
+    {.name = "stable1", .value = CUOPT_PDLP_SOLVER_MODE_STABLE1},
+    {.name = "stable2", .value = CUOPT_PDLP_SOLVER_MODE_STABLE2},
+    {.name = "methodical1", .value = CUOPT_PDLP_SOLVER_MODE_METHODICAL1},
+    {.name = "fast1", .value = CUOPT_PDLP_SOLVER_MODE_FAST1},
+    {.name = "stable3", .value = CUOPT_PDLP_SOLVER_MODE_STABLE3},
+});
+
+inline constexpr auto cuopt_precision_entries = std::to_array<EnumEntry<int>>({
+    {.name = "default", .value = CUOPT_PDLP_DEFAULT_PRECISION},
+    {.name = "single", .value = CUOPT_PDLP_SINGLE_PRECISION},
+    {.name = "double", .value = CUOPT_PDLP_DOUBLE_PRECISION},
+    {.name = "mixed", .value = CUOPT_PDLP_MIXED_PRECISION},
+    {.name = "fp32", .value = CUOPT_PDLP_SINGLE_PRECISION, .is_alias = true},
+    {.name = "fp64", .value = CUOPT_PDLP_DOUBLE_PRECISION, .is_alias = true},
+});
+
+inline constexpr auto cuopt_determinism_entries =
+    std::to_array<EnumEntry<int>>({
+        {.name = "opportunistic", .value = CUOPT_MODE_OPPORTUNISTIC},
+        {.name = "deterministic", .value = CUOPT_MODE_DETERMINISTIC},
+    });
+
+inline constexpr auto cuopt_mip_scaling_entries =
+    std::to_array<EnumEntry<int>>({
+        {.name = "off", .value = CUOPT_MIP_SCALING_OFF},
+        {.name = "on", .value = CUOPT_MIP_SCALING_ON},
+        {.name = "no_objective", .value = CUOPT_MIP_SCALING_NO_OBJECTIVE},
+    });
+
+inline constexpr auto cuopt_cfg_enum_keys = std::to_array<SolverCfgEnumKey>({
+    {.key = CUOPT_METHOD, .entries = cuopt_method_entries},
+    {.key = CUOPT_PRESOLVE, .entries = cuopt_presolve_entries},
+    {.key = CUOPT_PDLP_SOLVER_MODE, .entries = cuopt_pdlp_mode_entries},
+    {.key = CUOPT_PDLP_PRECISION, .entries = cuopt_precision_entries},
+    {.key = CUOPT_MIP_DETERMINISM_MODE, .entries = cuopt_determinism_entries},
+    {.key = CUOPT_MIP_SCALING, .entries = cuopt_mip_scaling_entries},
+});
 
 /// Build the immutable cuOpt problem object from a lowered model.  Ranged
 /// form maps gtopt's (row_lb, row_ub) pair directly — no sense/RHS
@@ -624,15 +647,20 @@ void CuOptSolverBackend::solve_()
   // 1) Lower the row-major model into cuOpt's CSR ranged-problem arrays.
   const auto lowered = lower_model(m_model_);
 
-  // 1b) Read ``<solvers>/cuopt.prm`` (host-side file I/O, outside the GPU
-  // mutex).  The pairs are applied to the settings object LAST (step 3b) so
+  // 1b) Read the cuOpt tuning file (host-side file I/O, outside the GPU
+  // mutex): ``<solvers>/cuopt.cfg`` (INI with named values, preferred) or
+  // legacy ``<solvers>/cuopt.prm`` — resolution, dialects, and value
+  // translation live in the shared ``gtopt::load_solver_cfg``
+  // (solver_cfg.hpp); the named-value tables are ``cuopt_cfg_enum_keys``
+  // above.  The pairs are applied to the settings object LAST (step 3b) so
   // file values override every gtopt-set default — but two keys interact
   // with the warm-start machinery and are handled up-front:
   //
-  //   * ``warmstart 0|1`` — PLUGIN-LOCAL (consumed here, never forwarded to
+  //   * ``warmstart`` — PLUGIN-LOCAL (consumed here, never forwarded to
   //     cuOpt): per-case default for the auto warm start.  Precedence:
-  //     built-in default (on) < prm file < GTOPT_CUOPT_WARMSTART env (the
-  //     env stays the final triage lever).
+  //     built-in default (on) < tuning file < GTOPT_CUOPT_WARMSTART env
+  //     (the env stays the final triage lever).  Boolean spellings arrive
+  //     already normalised to "0"/"1" by the generic translation.
   //   * ``presolve <mode>`` — forwarded to cuOpt as usual, but a non-zero
   //     mode DISABLES the auto warm start for this solve (a seeded start is
   //     empirically wasted under any presolver, and the user's explicit
@@ -641,7 +669,8 @@ void CuOptSolverBackend::solve_()
   //     cuOptAddMIPStart is unsupported with presolve on, and the MIP start
   //     is explicit gtopt machinery (seed pipelines) that must not be
   //     silently broken by a tuning file.
-  auto prm_pairs = parse_prm_file(m_options_.param_file);
+  auto prm_pairs = load_solver_cfg(
+      m_options_.param_file, solver_name(), cuopt_cfg_enum_keys);
   const bool has_mip_start = !m_mip_start_.empty();
   std::optional<bool> prm_warmstart;
   bool prm_presolve_on = false;
