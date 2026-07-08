@@ -596,6 +596,66 @@ Enable DC power flow constraints for multi-bus systems:
 gtopt system_c0.json --set use_kirchhoff=true
 ```
 
+### cuOpt tuning file (`cuopt.cfg`)
+
+When the cuOpt (GPU) backend is selected and the planning option
+`solver_options.param_file` points into a `solvers/` directory (gtopt
+cases typically pin it to the CPLEX `solvers/cplex.prm`), the cuOpt
+plugin also reads a **sibling** tuning file from that same directory:
+`cuopt.cfg` (preferred) or, when no `.cfg` exists, the legacy
+`cuopt.prm`. The pairs are applied **last**, so they override every
+default the plugin sets — including the algorithm mapping and the
+presolver.
+
+`cuopt.cfg` is standard INI — the same dialect as `.gtopt.conf`
+(`key = value`, `#`/`;` comment lines, inline trailing comments,
+optional `[cuopt]` section) — and values may be the **documented names**
+instead of cuOpt's integer codes (case-insensitive; plain numbers are
+always accepted too):
+
+```ini
+# solvers/cuopt.cfg — example
+[cuopt]
+method    = concurrent      ; concurrent | pdlp | dual_simplex | barrier
+presolve  = pslp            ; default | off | papilo | pslp
+crossover = on              ; booleans: true/false, on/off, yes/no, 1/0
+pdlp_solver_mode = stable3  ; stable1 | stable2 | methodical1 | fast1 | stable3
+pdlp_precision   = mixed    ; default | single | double | mixed
+mip_determinism_mode = deterministic
+relative_gap_tolerance = 1e-4
+warmstart = on              ; plugin-local: auto warm start
+```
+
+A symbolic value that matches neither a documented name nor a boolean
+is dropped with a warning listing the expected names — never forwarded
+as garbage. Legacy `cuopt.prm` files (`<name> <value>` per line) keep
+working unchanged and also accept the named values.
+
+Any parameter from cuOpt's `constants.h` is accepted (the string-keyed
+setter handles integer- and float-typed parameters too). The most
+useful keys:
+
+| Key | Values | Effect |
+|-----|--------|--------|
+| `presolve` | `default`, `off`, `papilo`, `pslp` (or `-1`/`0`/`1`/`2`) | On real CEN LPs PSLP was fastest with crossover; note any non-`off` value disables the plugin's auto warm start for that solve, and the key is ignored (with a warning) while a MIP start is set |
+| `method` | `concurrent`, `pdlp`, `dual_simplex`, `barrier` (or `0`–`3`) | same override as `GTOPT_CUOPT_METHOD` but per-case |
+| `crossover` | boolean | vertex duals from the PDLP/barrier legs |
+| `pdlp_solver_mode` | `stable1`, `stable2`, `methodical1`, `fast1`, `stable3` (or `0`–`4`) | PDLP restart strategy |
+| `pdlp_precision` | `default`, `single`, `double`, `mixed` (or `-1`/`0`/`1`/`2`) | `single`/`mixed` can help on GeForce GPUs with throttled fp64 |
+| `infeasibility_detection`, `strict_infeasibility` | `0`/`1` | PDLP infeasibility-verdict controls (relevant before trusting lone-PDLP verdicts) |
+| `time_limit`, `iteration_limit`, `work_limit`, `node_limit` | numeric | solve budgets (MIP: `node_limit`) |
+| `absolute_/relative_gap_tolerance`, `absolute_/relative_primal_tolerance`, `absolute_/relative_dual_tolerance` | float | LP convergence tolerances |
+| `mip_relative_gap`, `mip_absolute_gap`, `mip_integrality_tolerance` | float | MIP termination |
+| `mip_determinism_mode` | `opportunistic`, `deterministic` (or `0`/`1`) | parallel B&B reproducibility |
+| `mip_heuristics_only`, `mip_scaling`, `mip_presolve`, `mip_symmetry`, cut-family toggles (`mip_*_cuts`) | int | MIP search shaping |
+| `dual_postsolve` | `0`/`1` | recover duals through presolve (on by default) |
+| `num_cpu_threads`, `num_gpus`, `random_seed` | int | resources / reproducibility |
+| `folding`, `augmented`, `dualize`, `ordering`, `barrier_iterative_refinement`, `eliminate_dense_columns`, `cudss_deterministic` | int | barrier (cuDSS) internals |
+| `per_constraint_residual`, `save_best_primal_so_far`, `first_primal_feasible` | `0`/`1` | PDLP residual semantics / stop-early |
+| `warmstart` | boolean | **plugin-local** (not forwarded to cuOpt): per-case default for the automatic PDLP warm start on incremental re-solves. Precedence: default (on) < tuning file < `GTOPT_CUOPT_WARMSTART` env |
+
+Unknown keys log a warning and are skipped; the solve proceeds.
+
 ### Merging multiple system files
 
 Multiple JSON files can be passed and will be merged into a single system.

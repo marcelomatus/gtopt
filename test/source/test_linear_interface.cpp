@@ -332,37 +332,49 @@ TEST_CASE(  // NOLINT
   for (const auto& name : solvers) {
     CAPTURE(name);
 
-    LinearInterface iface(name);
-    const auto x1 = iface.add_col(SparseCol {.uppb = 4.0, .cost = -3.0});
-    const auto x2 = iface.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
-    SparseRow row1;
-    row1[x1] = 1.0;
-    row1[x2] = 2.0;
-    row1.uppb = 10.0;
-    (void)iface.add_row(row1);  // NOLINT
+    // Licensed backends can vanish transiently even after plugin validation
+    // succeeded (license-daemon hiccups under parallel test load — MindOpt
+    // `MDOstartenv rc=-10` observed 2026-07-08 under `ctest -j20`).  Skip
+    // that solver; anything else still fails loudly.
+    const bool ran = solver_test::run_or_skip_license(
+        [&]
+        {
+          LinearInterface iface(name);
+          const auto x1 = iface.add_col(SparseCol {.uppb = 4.0, .cost = -3.0});
+          const auto x2 = iface.add_col(SparseCol {.uppb = 3.0, .cost = -2.0});
+          SparseRow row1;
+          row1[x1] = 1.0;
+          row1[x2] = 2.0;
+          row1.uppb = 10.0;
+          (void)iface.add_row(row1);  // NOLINT
 
-    // Cold seed.  A solver that is present but not usable here (e.g. an
-    // unlicensed commercial backend) fails to reach optimal — skip it.
-    const auto r0 = iface.initial_solve(SolverOptions {});
-    if (!r0.has_value() || r0.value() != 0) {
-      MESSAGE("solver '" << name << "' cold solve unavailable — skipping");
-      continue;
+          // Cold seed.  A solver that is present but not usable here (e.g. an
+          // unlicensed commercial backend) fails to reach optimal — skip it.
+          const auto r0 = iface.initial_solve(SolverOptions {});
+          if (!r0.has_value() || r0.value() != 0) {
+            MESSAGE("solver '" << name
+                               << "' cold solve unavailable — skipping");
+            return;
+          }
+          ++tested;
+          CHECK(iface.get_obj_value_raw() == doctest::Approx(-18.0));
+
+          // Aperture-style bound delta + warm re-solve via advanced_basis.
+          // The warm path must reproduce the cold optimum on every backend (a
+          // bound change keeps the basis valid; backends that cannot
+          // warm-start degrade to a normal solve — still correct).
+          iface.set_col_upp(x1, 2.0);
+          SolverOptions warm;
+          warm.advanced_basis = true;
+          warm.algorithm = LPAlgo::primal;
+          const auto r1 = iface.resolve(warm);
+          REQUIRE(r1.has_value());
+          CHECK(r1.value() == 0);
+          CHECK(iface.get_obj_value_raw() == doctest::Approx(-12.0));
+        });
+    if (!ran) {
+      MESSAGE("solver '" << name << "' skipped on transient license failure");
     }
-    ++tested;
-    CHECK(iface.get_obj_value_raw() == doctest::Approx(-18.0));
-
-    // Aperture-style bound delta + warm re-solve via advanced_basis.  The
-    // warm path must reproduce the cold optimum on every backend (a bound
-    // change keeps the basis valid; backends that cannot warm-start degrade
-    // to a normal solve — still correct).
-    iface.set_col_upp(x1, 2.0);
-    SolverOptions warm;
-    warm.advanced_basis = true;
-    warm.algorithm = LPAlgo::primal;
-    const auto r1 = iface.resolve(warm);
-    REQUIRE(r1.has_value());
-    CHECK(r1.value() == 0);
-    CHECK(iface.get_obj_value_raw() == doctest::Approx(-12.0));
   }
   // At least one real solver must have exercised the warm path.
   REQUIRE(tested >= 1);
