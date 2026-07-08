@@ -335,12 +335,12 @@ class TestWaterRightsIntegration:
         ):
             assert node in junctions, f"{node} junction dropped"
             assert inflows(node), f"{node} lost its upstream feed"
-            assert any(
-                fr["name"] == f"{node}_irrigation_right" for fr in frs
-            ), f"{node} diversion offtake dropped"
-            assert any(
-                w["name"].startswith(ver_prefix) for w in wws
-            ), f"{node} spill continuation dropped"
+            assert any(fr["name"] == f"{node}_irrigation_right" for fr in frs), (
+                f"{node} diversion offtake dropped"
+            )
+            assert any(w["name"].startswith(ver_prefix) for w in wws), (
+                f"{node} spill continuation dropped"
+            )
         # PLP PotMax 70 (the Zanartu-Collao canal capacity) survives.
         zaco = next(fr for fr in frs if fr["name"] == "RIEGZACO_irrigation_right")
         assert zaco.get("fmax") == pytest.approx(70.0)
@@ -365,8 +365,7 @@ class TestWaterRightsIntegration:
             attached = [
                 fr
                 for fr in frs
-                if fr.get("junction_a") == node
-                and fr["name"].startswith(fr_prefix)
+                if fr.get("junction_a") == node and fr["name"].startswith(fr_prefix)
             ]
             assert attached, f"{node} has no accounted retiro categories"
 
