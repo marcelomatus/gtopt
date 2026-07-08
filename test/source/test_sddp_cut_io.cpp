@@ -362,6 +362,99 @@ TEST_CASE(  // NOLINT
   std::filesystem::remove_all(dir);
 }
 
+TEST_CASE(  // NOLINT
+    "load_cuts_parquet markov broadcasts inherited optimality cuts to "
+    "all scenes (save/load round-trip)")
+{
+  // `cut_sharing_mode=markov` shares the multicut persistence mechanics
+  // (`docs/formulation/sddp-markov.md` §6): saves stay origin-only, the
+  // cut's scene→state routing is baked into the α coefficient's typed
+  // identity (`Sddp:alpha:` uid = sddp_alpha_uid + m(S)), and the
+  // loader's broadcast reconstruction must fire so every scene-LP
+  // carries every state's cuts — otherwise the non-origin `varphi_m`
+  // columns free-fall to 0 on reload.
+
+  const auto dir = std::filesystem::temp_directory_path()
+      / "gtopt_test_markov_bcast_roundtrip";
+  std::filesystem::create_directories(dir);
+  const auto cuts_file = (dir / "sddp_cuts.parquet").string();
+
+  // Singleton 2-state config; deliberately non-uniform transition rows
+  // so the mode-specific pricing path is genuinely exercised.
+  const auto markov_config = make_markov_config(
+      {
+          0,
+          1,
+      },
+      {
+          0.7,
+          0.3,
+          0.2,
+          0.8,
+      });
+
+  // ── Phase 1: generate + save markov cuts from a 2-scene SDDP ──
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    planning.options.sddp_options.cut_sharing_mode = CutSharingMode::markov;
+    PlanningLP planning_lp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 3;
+    opts.convergence_tol = 1e-6;
+    opts.cut_sharing = CutSharingMode::markov;
+    opts.markov = markov_config;
+    opts.cuts_output_file = cuts_file;
+
+    SDDPMethod sddp(planning_lp, opts);
+    REQUIRE(sddp.solve().has_value());
+    REQUIRE_FALSE(sddp.stored_cuts().empty());
+  }
+  REQUIRE(std::filesystem::exists(cuts_file));
+
+  // ── Phase 2: load into a fresh markov 2-scene solver ──
+  auto planning2 = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  planning2.options.sddp_options.cut_sharing_mode = CutSharingMode::markov;
+  PlanningLP planning_lp2(std::move(planning2));
+
+  SDDPOptions lopts;
+  lopts.cut_sharing = CutSharingMode::markov;
+  lopts.markov = markov_config;
+  SDDPMethod sddp2(planning_lp2, lopts);
+  REQUIRE(sddp2.ensure_initialized().has_value());
+
+  const auto& sim = planning_lp2.simulation();
+  const auto num_scenes = static_cast<Index>(sim.scenes().size());
+  const auto num_phases = static_cast<Index>(sim.phases().size());
+  REQUIRE(num_scenes == 2);
+
+  const auto total_rows = [&]
+  {
+    std::ptrdiff_t n = 0;
+    for (const auto si : iota_range<SceneIndex>(0, num_scenes)) {
+      for (const auto pi : iota_range<PhaseIndex>(0, num_phases)) {
+        n += planning_lp2.system(si, pi).linear_interface().get_numrows();
+      }
+    }
+    return n;
+  };
+  const auto rows_before = total_rows();
+
+  auto loaded = sddp2.load_cuts(cuts_file);
+  REQUIRE(loaded.has_value());
+  REQUIRE(loaded->count >= 1);
+
+  const auto installed = total_rows() - rows_before;
+
+  // Broadcast reconstruction fired: every loaded optimality cut is
+  // installed on ALL scene-LPs, so the installed row count strictly
+  // exceeds the origin-only source count (same regression shape as the
+  // multicut guard above).
+  CHECK(installed > static_cast<std::ptrdiff_t>(loaded->count));
+
+  std::filesystem::remove_all(dir);
+}
+
 // ─── alpha resolution as a state variable ──────────────────────────────────
 
 // ─── load_cuts_csv edge cases ───────────────────────────────────────────────
