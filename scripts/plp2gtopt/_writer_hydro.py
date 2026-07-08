@@ -909,13 +909,8 @@ class HydroMixin:
           injection node (RieSaltos -> LAJA_I) instead of vanishing.
         """
         system = self.planning["system"]
-        frs = {
-            str(fr.get("name", "")): fr
-            for fr in system.get("flow_right_array", [])
-        }
-        junctions = {
-            str(j.get("name", "")) for j in system.get("junction_array", [])
-        }
+        frs = {str(fr.get("name", "")): fr for fr in system.get("flow_right_array", [])}
+        junctions = {str(j.get("name", "")) for j in system.get("junction_array", [])}
         cfg["districts"] = [dict(d) for d in cfg.get("districts", [])]
         for district in cfg["districts"]:
             name = str(district.get("name", ""))
