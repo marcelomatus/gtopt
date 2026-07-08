@@ -235,6 +235,39 @@ class TestEqualTier:
             checked += 1
         assert checked >= 1
 
+    def test_efin_cost_from_boundary_cuts(self, converted):
+        """Reservoir.efin_cost must come from the BOUNDARY CUTS file
+        (plpplem1/2 planos, cut lower-bound water value un-discounted
+        by the last stage's discount factor) — never from the
+        ANCHOR x lost_pf fail-cost estimate when cuts exist for the
+        reservoir (user requirement 2026-07)."""
+        from plp2gtopt.planos_parser import (  # pylint: disable=import-outside-toplevel
+            PlanosParser,
+            find_planos_files,
+        )
+
+        _, planning = converted
+        files = find_planos_files(_PLP_2Y)
+        assert files is not None, "planos files missing from the case"
+        planos = PlanosParser(files[0], files[1])
+        planos.parse()
+        cut_wv = planos.lower_bound_water_value_by_reservoir(num_scenarios=None)
+        last_df = float(planning["simulation"]["stage_array"][-1]["discount_factor"])
+        checked = 0
+        for entity in planning["system"].get("reservoir_array", []):
+            name = entity["name"]
+            efin_cost = entity.get("efin_cost")
+            if name not in cut_wv or not isinstance(efin_cost, (int, float)):
+                continue
+            expected = cut_wv[name] / last_df
+            assert efin_cost == pytest.approx(expected, rel=0.01), (
+                f"{name}: efin_cost {efin_cost} != boundary-cut value "
+                f"{cut_wv[name]} / discount {last_df} = {expected:.1f} — "
+                f"fell back to the fail-cost estimate?"
+            )
+            checked += 1
+        assert checked >= 8, f"only {checked} reservoirs cut-priced"
+
     def test_seepage_piecewise_matches_plp_filtration(self, plp_emb, converted):
         """gtopt's ReservoirSeepage piecewise reproduces PLP's
         per-block EmbQFil when evaluated at PLP's own volumes — the

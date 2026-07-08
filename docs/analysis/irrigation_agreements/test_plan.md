@@ -303,12 +303,28 @@ scatter was the chain-yield units artifact.  Per-volume water values
 differing 10× across reservoirs is PHYSICS (value per hm³ ∝ chain
 energy yield; El Toro's cascade extracts far more MWh/hm³), not an
 inconsistency.  **Residual finding**: ELTORO still ~5× (gtopt dual ≈
-383 k$/hm³, efin_cost 411 k$/hm³, vs PLP Psom2 ≈ 74 k$/hm³) — either
-the cut-extraction max-gradient overestimates El Toro's boundary
-value, or gtopt's hoarding equilibrium pins the internal dual to the
-efin_cost boundary price; CANUTILLAR 2.6× / PILMAIQUEN 3.1× milder
-cousins.  Worth one focused look in the water-values workstream;
-everything else validated.
+383 k$/hm³, efin_cost 411 k$/hm³, vs PLP Psom2 ≈ 74 k$/hm³);
+CANUTILLAR 2.6× / PILMAIQUEN 3.1× milder cousins.
+
+VERIFIED (2026-07-09, user request): every reservoir's `efin_cost`
+comes from the BOUNDARY CUTS file — planos `plpplem1/2` cut
+lower-bound water value (−max GradX per reservoir) divided by the
+last stage's discount factor (0.9091 = 1/1.1), all 10 exact
+(ELTORO: 374,000 / 0.9091 = 411,400 ✓) — NOT from the
+ANCHOR×lost_pf fail-cost estimate (that auto path only covers
+reservoirs absent from the planos).  Pinned by
+`test_efin_cost_from_boundary_cuts`.  The mode is `combined`: the
+cut hyperplanes are ALSO loaded (α′ re-centered at the efin target,
+sddp_boundary_cuts.cpp:675-717) while efin_cost prices only the
+last-stage soft-efin slack — complementary, not double-counted.
+So the ELTORO 5× is a property of the planos data itself: even the
+SHALLOWEST cut gradient prices El Toro at 374 k$/hm³ while PLP's
+own simulation prices interior water at ~74 k$/hm³ — i.e. the
+vendored cuts value the El Toro boundary far above the operating
+water value (steep FCF tail at the 2017-Acuerdo recovery volumes).
+gtopt faithfully consumes them; whether PLP's planos SHOULD be that
+steep is a question for the cut-generation run, not the converter.
+Everything else validated.
 
 **FINDING (PLP semantics)**: PLP's filtration is an LP variable on
 the segment envelope, not a curve lookup — during extreme refills it
