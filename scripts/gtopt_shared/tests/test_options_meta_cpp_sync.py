@@ -164,6 +164,47 @@ def test_known_drift_entries_still_drift(
     )
 
 
+# Reverse-direction gate, SDDP partition ONLY.  ``SDDP_OPTION_KEYS``
+# is load-bearing for igtopt's flat-key → ``sddp_options`` routing
+# (igtopt.py): a C++ contract field missing from the Python set is
+# NOT merely "advisory extra surface" — the key set at top level is
+# silently mis-placed instead of nested into ``sddp_options``.  That
+# exact failure shipped with ``integer_cuts_mode`` (2026-07-08 wave):
+# the C++ side added the field, 13 of 14 plumbing sites followed, and
+# this set was the one missed.  The other partitions legitimately
+# surface more C++ fields than the Excel template needs, so the
+# reverse gate stays SDDP-only.
+#
+# Fields the C++ contract declares that the Python routing set
+# deliberately omits.  Empty today; add entries ONLY with a rationale.
+_SDDP_CPP_ONLY_WAIVERS: frozenset[str] = frozenset()
+
+
+def test_sddp_cpp_contract_is_subset_of_python_partition() -> None:
+    """Every C++ ``json_data_contract<SddpOptions>`` field must be routed.
+
+    The forward gate above catches Python-side staleness; this reverse
+    gate catches the C++-side *addition* that forgets the Python set —
+    the failure mode that silently drops a user's flat option key.
+    """
+    header = JSON_DIR / "json_sddp_options.hpp"
+    if not header.exists():
+        pytest.skip("json_sddp_options.hpp not found; build tree relocated")
+
+    cpp_fields = _extract_field_names(header)
+    if not cpp_fields:
+        pytest.skip("no daw::json contract fields parsed; matcher stale")
+
+    missing = (cpp_fields - options_meta.SDDP_OPTION_KEYS) - _SDDP_CPP_ONLY_WAIVERS
+    assert not missing, (
+        f"C++ SddpOptions contract fields missing from SDDP_OPTION_KEYS: "
+        f"{sorted(missing)}.  igtopt will NOT nest these keys into "
+        "sddp_options (silent drop).  Add them to SDDP_OPTION_KEYS in "
+        "gtopt_shared/options_meta.py, or waive with a rationale in "
+        "_SDDP_CPP_ONLY_WAIVERS."
+    )
+
+
 def test_intentional_overlaps_are_actually_present_in_both_partitions() -> None:
     """Each ``INTENTIONAL_OPTION_KEY_OVERLAPS`` key must be in BOTH SDDP and monolithic.
 
