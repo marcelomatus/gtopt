@@ -380,7 +380,6 @@ class TestGlobalSimilar:
             gt = _gtopt_solution_series(output_dir, planning, "Reservoir", name, "efin")
             if plp.empty or not gt:
                 continue
-            n = min(len(gt) * 0 + len(plp), len(plp))
             fac = float(plp["EmbFac"].iloc[0])
             # Compare at gtopt's horizon end (PLP covers 2y, gtopt 1y).
             idx = min(len(plp) - 1, max(0, len(gt) - 1))
