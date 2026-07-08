@@ -272,3 +272,36 @@ free physical offtakes; only the agreement categories carry demands
 and fail costs).  Pinned by
 ``test_fictitious_irrigation_topology_recovered`` so converter
 changes cannot silently erase the irrigation reaches again.
+
+
+## PLP vs gtopt comparison — KPIs and findings (2026-07-08)
+
+`test_plp_gtopt_comparison.py` (equal tier always-on; behavioral/KPI
+tiers opt-in via `GTOPT_PLP_COMPARE=1`, run with `-n0`).  KPI set:
+
+| KPI | Probe for | Observed |
+|---|---|---|
+| Initial volumes / inflow passthrough | conversion factors | equal ✓ |
+| Seepage piecewise vs PLP `EmbQFil` | filtration model | 1.3% (ELTORO) ✓ |
+| Laja partition ≡ El Toro turbinado | anchor integrity | exact ✓ |
+| LMP spatial rank corr (241 buses) | network/congestion model | **0.975** ✓ |
+| LMP level ratio | marginal-unit calibration | 1.5 (band 0.5–2) |
+| Water-value ratio per reservoir | storage valuation | PEHUENCHE 1.00, RALCO 0.95 ✓; **ELTORO 12.6×, COLBUN 0.35×, RAPEL 0.20× — flagged** |
+| Cut states | FCF composition | Reservoir efin ✓ + **347 VolumeRight coeffs** (irrigation buckets participate) ✓ |
+| Convenio states (`plplajam.csv` vdrf/vdef/vdmf/vgaf, `plpmaule.csv` vmg*/vmdcef) vs `laja_vol_*`/`maule_vol_*` efin | agreement state machines | ready — skips until a PLP run's CSVs are provided (PLP_OUT_DIR) |
+
+**FINDING (inner issue, gtopt side, outside the agreements)**: the
+`efin_cost` vector from `WaterValueResolver`'s cut-lower-bound
+extraction is inconsistent with PLP's own simulated water values
+(`EmbPsom`×1000): ELTORO 411,400 $/hm³ ≈ 13× PLP, while COLBUN 385 ≈
+0.004×.  This single vector explains BOTH dispatch divergences the
+behavioral tier sees (El Toro hoards, Colbún over-releases 1.58×).
+The cut gradients equal efin_cost at the boundary, so the extraction
+(likely the max-gradient/empty-reservoir cut applied as a flat value,
+and/or per-reservoir FEscala handling) is the suspect — follow-up in
+the water-values workstream, not the agreements.
+
+**FINDING (PLP semantics)**: PLP's filtration is an LP variable on
+the segment envelope, not a curve lookup — during extreme refills it
+legitimately sits off the curve (CIPRESES).  Matches our
+ReservoirSeepage semantics; equality asserted in the binding regime.

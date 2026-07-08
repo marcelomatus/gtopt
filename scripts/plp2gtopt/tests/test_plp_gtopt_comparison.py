@@ -301,7 +301,7 @@ def _gtopt_solution_series(output_dir, planning, kind, name, field):
     rows: list[float] = []
     rdir = output_dir / "results" / kind
     for p in sorted(
-        rdir.glob(f"{field}_sol_s1_p*.csv.zst"),
+        rdir.glob(f"{field}_s1_p*.csv.zst"),
         key=lambda x: int(x.stem.split("_p")[-1].split(".")[0]),
     ):
         df = pd.read_csv(p)
@@ -346,7 +346,9 @@ class TestGlobalSimilar:
             plp = _plp_reservoir(plp_emb, name)
             if plp.empty:
                 continue
-            gt = _gtopt_solution_series(output_dir, planning, "Turbine", name, "flow")
+            gt = _gtopt_solution_series(
+                output_dir, planning, "Turbine", name, "flow_sol"
+            )
             counts = _stage_block_counts(planning)
             plp_stage = _plp_stage_means(plp["EmbQgen"], counts)
             n = min(len(gt), len(plp_stage))
@@ -377,7 +379,9 @@ class TestGlobalSimilar:
         for entity in planning["system"].get("reservoir_array", []):
             name = entity["name"]
             plp = _plp_reservoir(plp_emb, name)
-            gt = _gtopt_solution_series(output_dir, planning, "Reservoir", name, "efin")
+            gt = _gtopt_solution_series(
+                output_dir, planning, "Reservoir", name, "efin_sol"
+            )
             if plp.empty or not gt:
                 continue
             fac = float(plp["EmbFac"].iloc[0])
@@ -406,10 +410,10 @@ class TestIrrigationSimilar:
         output_dir, planning = solved
         plp = _plp_reservoir(plp_emb, "ELTORO")
         gt_flow = _gtopt_solution_series(
-            output_dir, planning, "Turbine", "ELTORO", "flow"
+            output_dir, planning, "Turbine", "ELTORO", "flow_sol"
         )
         gt_vol = _gtopt_solution_series(
-            output_dir, planning, "Reservoir", "ELTORO", "efin"
+            output_dir, planning, "Reservoir", "ELTORO", "efin_sol"
         )
         # gtopt turbine/right solutions are one value per phase (stage
         # mean) — compare in stage space.
@@ -478,7 +482,7 @@ class TestIrrigationSimilar:
         plp_spill_stage = _plp_stage_means(plp["EmbQver"], counts_all)
         plp_spill = float(pd.Series(plp_spill_stage[:n]).sum())
         gt_spill_series = _gtopt_solution_series(
-            output_dir, planning, "Waterway", "ELTORO_ver_37_39", "flow"
+            output_dir, planning, "Waterway", "ELTORO_ver_37_39", "flow_sol"
         ) or [0.0]
         gt_spill = float(pd.Series(gt_spill_series[:n]).sum())
         assert gt_spill <= plp_spill + 0.2 * max(plp_total, gt_total), (
@@ -499,13 +503,220 @@ class TestIrrigationSimilar:
             columns=["metric", "plp", "gtopt"],
         ).to_csv(output_dir / "plp_gtopt_irrigation_comparison.csv", index=False)
 
+    def test_price_and_water_value_kpis(self, plp_emb, solved):
+        """LMP / water-value / cut KPIs (the inner-issue detectors).
+
+        * LMPs: PLP CMgBar vs gtopt bus balance duals — the spatial
+          rank correlation across matched buses probes the network
+          and congestion model (observed 0.975); the mean-level band
+          is wide (policy differences move the marginal unit).
+        * Water values: PLP EmbPsom ($/dam3 -> x1000 $/hm3) vs
+          gtopt's reservoir water_value duals per stage.  The MEDIAN
+          per-reservoir level ratio is asserted; individual outliers
+          are reported, not asserted — they are findings (2026-07:
+          ELTORO 12.6x / COLBUN 0.35x track the efin_cost vector from
+          the WaterValueResolver cut extraction; PEHUENCHE/RALCO sit
+          at 1.00/0.95 validating both cores).
+        * Cuts: PLP's EmbPsom IS its FCF gradient at the visited
+          state; gtopt's sddp_cuts must carry Reservoir efin states
+          AND the irrigation VolumeRight states (the agreements'
+          buckets participate in the value function).
+        Writes plp_gtopt_kpi_report.csv.
+        """
+        output_dir, planning = solved
+        bar_file = _PLP_2Y / "plpbar.parquet"
+        report_rows = []
+
+        # ---- LMP ----
+        if bar_file.exists():
+            plp_bar = pd.read_parquet(bar_file)
+            plp_bar = plp_bar[plp_bar["Hidro"] == _HIDRO_FIRST].copy()
+            plp_bar["BarNom"] = plp_bar["BarNom"].str.strip()
+            buses = {b["uid"]: b["name"] for b in planning["system"]["bus_array"]}
+            frames = [
+                pd.read_csv(fp)
+                for fp in (output_dir / "results" / "Bus").glob(
+                    "balance_dual_s1_p*.csv.zst"
+                )
+            ]
+            gt = pd.concat(frames)
+            n_blocks = int(gt["block"].max())
+            gt_mean = gt.groupby("uid")["value"].mean().rename(index=buses)
+            plp_mean = bar[bar["Bloque"] <= n_blocks].groupby("BarNom")["CMgBar"].mean()
+            both = pd.concat([plp_mean, gt_mean], axis=1, join="inner")
+            both.columns = ["plp", "gtopt"]
+            both = both.dropna()
+            assert len(both) >= 100, "too few matched buses"
+            rank_corr = both["plp"].corr(both["gtopt"], method="spearman")
+            level_ratio = both["gtopt"].mean() / max(both["plp"].mean(), 1.0)
+            assert rank_corr >= 0.8, f"LMP spatial rank corr {rank_corr:.2f}"
+            assert 0.5 <= level_ratio <= 2.0, f"LMP level ratio {level_ratio:.2f}"
+            report_rows.append(("lmp_matched_buses", len(both), ""))
+            report_rows.append(("lmp_rank_corr", round(rank_corr, 3), ""))
+            report_rows.append(("lmp_level_ratio", round(level_ratio, 3), ""))
+
+        # ---- water values ----
+        counts = _stage_block_counts(planning)
+        ratios = []
+        for entity in planning["system"].get("reservoir_array", []):
+            name = entity["name"]
+            plp = _plp_reservoir(plp_emb, name)
+            if plp.empty:
+                continue
+            wv = _gtopt_solution_series(
+                output_dir, planning, "Reservoir", name, "water_value_dual"
+            )
+            if not wv:
+                continue
+            pos, pm = 0, []
+            for nblk in counts[: len(wv)]:
+                pm.append(float(plp["EmbPsom"].iloc[pos : pos + nblk].mean()) * 1e3)
+                pos += nblk
+            n = min(len(pm), len(wv))
+            if n < 6:
+                continue
+            s_p = pd.Series(pm[:n])
+            s_g = pd.Series(wv[:n])
+            ratio = s_g.mean() / max(s_p.mean(), 1.0)
+            ratios.append(ratio)
+            report_rows.append(
+                (
+                    f"water_value_ratio_{name}",
+                    round(ratio, 3),
+                    round(float(s_p.corr(s_g)), 3) if n > 3 else "",
+                )
+            )
+        assert len(ratios) >= 5
+        median_ratio = float(pd.Series(ratios).median())
+        assert 0.3 <= median_ratio <= 3.0, (
+            f"median water-value ratio {median_ratio:.2f}"
+        )
+        report_rows.append(("water_value_median_ratio", round(median_ratio, 3), ""))
+
+        # ---- cuts: irrigation states participate in the FCF ----
+        cuts_file = output_dir / "results" / "cuts" / "sddp_cuts.parquet"
+        if cuts_file.exists():
+            cuts = pd.read_parquet(cuts_file)
+            n_res, n_vr = 0, 0
+            for coeffs in cuts["coeffs"]:
+                for e in coeffs:
+                    if e["cls"] == "Reservoir":
+                        n_res += 1
+                    elif e["cls"] == "VolumeRight":
+                        n_vr += 1
+            assert n_res > 0, "no reservoir states in cuts"
+            assert n_vr > 0, (
+                "no VolumeRight states in cuts — the irrigation buckets "
+                "must participate in the value function"
+            )
+            report_rows.append(("cut_reservoir_coeffs", n_res, ""))
+            report_rows.append(("cut_volume_right_coeffs", n_vr, ""))
+
+        pd.DataFrame(report_rows, columns=["kpi", "value", "extra"]).to_csv(
+            output_dir / "plp_gtopt_kpi_report.csv", index=False
+        )
+
+    # PLP convenio state names (plplajam.csv / plpmaule.csv columns,
+    # leelajam.f:62-83 / genpdmaule.f:1385-1399) -> gtopt VolumeRights.
+    _LAJA_STATES = {
+        "vdrf": "laja_vol_der_riego",
+        "vdef": "laja_vol_der_electrico",
+        "vdmf": "laja_vol_der_mixto",
+        "vgaf": "laja_vol_gasto_anticipado",
+    }
+    _MAULE_STATES = {
+        "vmgemf": "maule_vol_gasto_elec_mensual",
+        "vmgeaf": "maule_vol_gasto_elec_anual",
+        "vmgrtf": "maule_vol_gasto_riego_temp",
+        "vmgoef": "maule_vol_reserva_ord_elec",
+        "vmgorf": "maule_vol_reserva_ord_riego",
+        "vmdcef": "maule_vol_compensacion_elec",
+    }
+
+    def _plp_convenio_csv(self, filename):
+        for base in (os.environ.get("PLP_OUT_DIR"), str(_PLP_2Y)):
+            if not base:
+                continue
+            path = Path(base) / filename
+            if path.exists():
+                df = pd.read_csv(path, skipinitialspace=True)
+                df.columns = [c.strip() for c in df.columns]
+                return df
+        return None
+
+    def _compare_states(self, solved, plp_df, mapping, report_name):
+        output_dir, planning = solved
+        hidro = [h for h in plp_df["Hidro"].unique() if str(h).strip() != "MEDIA"][0]
+        sim = plp_df[plp_df["Hidro"] == hidro].sort_values("Bloque")
+        vrs = {
+            v["name"]: v["uid"]
+            for v in planning["system"].get("volume_right_array", [])
+        }
+        counts = _stage_block_counts(planning)
+        rows = []
+        for plp_col, gt_name in mapping.items():
+            if plp_col not in sim.columns or gt_name not in vrs:
+                continue
+            gt = _gtopt_solution_series(
+                output_dir, planning, "VolumeRight", gt_name, "efin_sol"
+            )
+            pos, pm = 0, []
+            for nblk in counts[: len(gt)]:
+                pm.append(float(sim[plp_col].iloc[pos : pos + nblk].mean()))
+                pos += nblk
+            n = min(len(pm), len(gt))
+            if n < 6:
+                continue
+            s_p, s_g = pd.Series(pm[:n]), pd.Series(gt[:n])
+            corr = float(s_p.corr(s_g)) if s_p.std() > 1e-9 else float("nan")
+            ratio = float(s_g.mean() / max(s_p.mean(), 1e-9))
+            rows.append((plp_col, gt_name, round(ratio, 3), round(corr, 3)))
+            # The buckets share provisioning rules and zone formulas:
+            # levels must be the same order of magnitude and move
+            # together (not number-by-number: dispatch differs).
+            assert 0.2 <= ratio <= 5.0, (
+                f"{gt_name}: state-level ratio {ratio:.2f} vs PLP {plp_col}"
+            )
+        assert rows, "no comparable convenio states found"
+        pd.DataFrame(
+            rows, columns=["plp_var", "gtopt_volume_right", "ratio", "corr"]
+        ).to_csv(output_dir / report_name, index=False)
+
+    def test_laja_state_variables_vs_plp(self, solved):
+        """Direct convenio state comparison: PLP's vdrf/vdef/vdmf/vgaf
+        bucket volumes (plplajam.csv) vs gtopt's laja_vol_* efin.
+        Skipped until a PLP run's plplajam.csv is placed in the case
+        dir (or PLP_OUT_DIR)."""
+        plp_df = self._plp_convenio_csv("plplajam.csv")
+        if plp_df is None:
+            pytest.skip(
+                "plplajam.csv not available — run PLP on the case with "
+                "the Laja convenio active (or set PLP_OUT_DIR)"
+            )
+        self._compare_states(
+            solved, plp_df, self._LAJA_STATES, "plp_gtopt_laja_states.csv"
+        )
+
+    def test_maule_state_variables_vs_plp(self, solved):
+        """Direct convenio state comparison: PLP's vmg*/vmdcef bucket
+        volumes (plpmaule.csv) vs gtopt's maule_vol_* efin."""
+        plp_df = self._plp_convenio_csv("plpmaule.csv")
+        if plp_df is None:
+            pytest.skip(
+                "plpmaule.csv not available — run PLP on the case with "
+                "the Maule convenio active (or set PLP_OUT_DIR)"
+            )
+        self._compare_states(
+            solved, plp_df, self._MAULE_STATES, "plp_gtopt_maule_states.csv"
+        )
+
     def test_lmaule_extraction_totals(self, plp_emb, solved):
         """Laguna del Maule: the gasto machinery bounds both models'
         extraction — totals must land in the same band."""
         output_dir, planning = solved
         plp = _plp_reservoir(plp_emb, "LMAULE")
         gt = _gtopt_solution_series(
-            output_dir, planning, "Waterway", "LMAULE_gen_1_2", "flow"
+            output_dir, planning, "Waterway", "LMAULE_gen_1_2", "flow_sol"
         )
         counts = _stage_block_counts(planning)
         plp_stage = _plp_stage_means(plp["EmbQgen"], counts)
