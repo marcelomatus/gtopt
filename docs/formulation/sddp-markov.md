@@ -193,7 +193,13 @@ iteration.
 - **Forward UB strip**: the realized-opex strip removes the full
   priced future term $\sum_{m} w_{s,m}\, \varphi_m \cdot
   \text{scale\_alpha}$ (same shape as the multicut
-  $\sum_r w_r \varphi_r$ strip).
+  $\sum_r w_r \varphi_r$ strip).  Both the strip and the column
+  pricing read the weights from the single mode-aware accessor
+  `alpha_col_weights` (which delegates to `markov_alpha_weights` for
+  non-terminal markov phases and to the M4 `alpha_unit_cost` rule
+  everywhere else — terminal phases included, since the terminal
+  layout follows `boundary_cut_sharing`), so the two are structurally
+  unable to diverge.
 
 ## 7. Future work
 
