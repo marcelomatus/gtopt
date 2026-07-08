@@ -261,6 +261,52 @@ inline constexpr auto cut_sharing_mode_entries =
       name);
 }
 
+// ─── IntegerCutsMode ───────────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP backward pass builds optimality cuts on cells
+ *        whose LP carries integer columns (integer expansion modules,
+ *        unit-commitment binaries, …).
+ *
+ * - `none` (default): legacy behaviour, byte-identical — the backward
+ *   pass reads whatever the target solve produced.  On pure-LP cells
+ *   this is the certified Theorem-O1 cut; on integer-bearing cells it
+ *   is UNSOUND (a MIP re-solve has no reduced costs; the emitted cut
+ *   degenerates to a flat `α ≥ z_MIP(v̂)` that can overshoot — see
+ *   `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`
+ *   §1).  Kept as the default so pure-LP runs pay nothing and existing
+ *   behaviour is unchanged.
+ *
+ * - `strengthened`: strengthened Benders cuts (Zou, Ahmed & Sun 2019
+ *   §5).  On integer-bearing cells the backward step clones the
+ *   target LP, relaxes integrality, solves the LP relaxation at the
+ *   pinned trial state (duals λ = pinned reduced costs — the sound
+ *   LP-relaxation cut), then re-instates integrality, relaxes the
+ *   state pins to their physical box, charges `−λ` on the state
+ *   columns, and solves ONE MIP: its optimum is the Lagrangian value
+ *   L(λ) − ⟨λ, v̂⟩, which replaces the cut intercept.  Valid by weak
+ *   Lagrangian duality (Theorem SB1 in the investigation doc) and
+ *   never looser than the LP cut (Corollary SB2).  Falls back
+ *   silently to the LP-relaxation cut when the MIP solve fails or
+ *   times out.  Pure-LP cells never enter this path.
+ */
+enum class IntegerCutsMode : uint8_t
+{
+  none = 0,  ///< Legacy behaviour (LP cells certified; MIP cells unsound)
+  strengthened = 1,  ///< LP-relaxation cut + Lagrangian (MIP) intercept
+};
+
+inline constexpr auto integer_cuts_mode_entries =
+    std::to_array<EnumEntry<IntegerCutsMode>>({
+        {.name = "none", .value = IntegerCutsMode::none},
+        {.name = "strengthened", .value = IntegerCutsMode::strengthened},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(IntegerCutsMode /*tag*/) noexcept
+{
+  return std::span {integer_cuts_mode_entries};
+}
+
 // ─── ForwardSamplingMode ───────────────────────────────────────────────────
 
 /**

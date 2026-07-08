@@ -898,6 +898,7 @@ prefix, since the section name already provides the namespace).
 |-------|------|---------|-------------|
 | `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"multicut"`, or `"markov"` (experimental; the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
 | `forward_sampling_mode` | string | `"persistent"` | Forward-pass sampling: `"persistent"` (each scene-driver on its own path) or `"resampled"` (per-phase-boundary probability-weighted re-draw, deterministic seed; matches the multicut LB's resampled process — see §4.2) |
+| `integer_cuts_mode` | string | `"none"` | Backward cuts on integer-bearing cells: `"none"` (legacy — LP cells certified, MIP cells convexified/unsound) or `"strengthened"` (LP-relaxation cut + one-MIP Lagrangian intercept, valid by weak duality and never looser; requires a MIP-capable solver — see `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`) |
 | `markov_states` | array of int | unset | `markov` only: scene → Markov-state assignment, one entry per scene, each in `[0, M)` (`docs/formulation/sddp-markov.md`) |
 | `markov_transition` | array of double | unset | `markov` only: row-major M×M row-stochastic transition matrix (rows sum to 1) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |

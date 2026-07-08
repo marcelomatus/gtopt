@@ -998,6 +998,13 @@ class GTOptWriter(
         if forward_sampling_mode is not None:
             sddp_opts["forward_sampling_mode"] = forward_sampling_mode
 
+        # Integer-cut mode ('none' | 'strengthened') -- see the
+        # --integer-cuts-mode CLI help in _parsers.py.  Unset = gtopt's
+        # default ('none'), so nothing is emitted.
+        integer_cuts_mode = options.get("integer_cuts_mode")
+        if integer_cuts_mode is not None:
+            sddp_opts["integer_cuts_mode"] = integer_cuts_mode
+
         # elastic_mode controls how the forward-pass elastic filter emits
         # feasibility cuts when a subproblem is infeasible:
         #   - "single_cut" (gtopt C++ default): one aggregated π-weighted

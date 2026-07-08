@@ -1095,6 +1095,11 @@ public:
    * multicut LB's stagewise-resampled process) */
   static constexpr ForwardSamplingMode default_sddp_forward_sampling_mode =
       ForwardSamplingMode::persistent;
+  /** @brief Default integer-cut mode (legacy: no strengthening; the
+   * `strengthened` mode is the opt-in one-MIP Lagrangian intercept for
+   * integer-bearing backward cells — see `IntegerCutsMode`) */
+  static constexpr IntegerCutsMode default_sddp_integer_cuts_mode =
+      IntegerCutsMode::none;
   /** @brief Default async cut-drain mode (symmetric, deterministic) */
   static constexpr CutDrainMode default_sddp_cut_drain_mode =
       CutDrainMode::iteration;
@@ -1314,6 +1319,17 @@ public:
   [[nodiscard]] auto sddp_markov_transition() const -> std::vector<double>
   {
     return m_options_.sddp_options.markov_transition.value_or(Array<double> {});
+  }
+
+  /**
+   * @brief Gets the SDDP integer-cut mode as a typed enum
+   * @return The IntegerCutsMode enum value
+   */
+  [[nodiscard]] constexpr auto sddp_integer_cuts_mode_enum() const
+      -> IntegerCutsMode
+  {
+    return m_options_.sddp_options.integer_cuts_mode.value_or(
+        default_sddp_integer_cuts_mode);
   }
 
   /**

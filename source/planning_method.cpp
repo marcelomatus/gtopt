@@ -89,6 +89,7 @@ namespace
   // directory so all solver output is self-contained.
   sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
   sddp_opts.forward_sampling = options.sddp_forward_sampling_mode_enum();
+  sddp_opts.integer_cuts = options.sddp_integer_cuts_mode_enum();
   // Markov-chain configuration (consulted only under
   // cut_sharing = markov; validated by SDDPMethod::initialize_solver).
   sddp_opts.markov = make_markov_config(options.sddp_markov_states(),

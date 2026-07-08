@@ -46,6 +46,14 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * `cut_sharing_mode = multicut` LB certifies.  See
    * `ForwardSamplingMode` in `sddp_enums.hpp`. */
   std::optional<ForwardSamplingMode> forward_sampling_mode {};
+  /** @brief Integer-cut mode for backward-pass cells whose LP carries
+   * integer columns: none (default, legacy) or strengthened
+   * (LP-relaxation cut + one-MIP Lagrangian intercept — Zou, Ahmed &
+   * Sun 2019; see `IntegerCutsMode` in `sddp_enums.hpp` and
+   * `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`).
+   * Requires a MIP-capable solver backend (implied: LP-only backends
+   * refuse integer columns at load).  Pure-LP cells are unaffected. */
+  std::optional<IntegerCutsMode> integer_cuts_mode {};
   /** @brief Scene → Markov-state assignment for
    * `cut_sharing_mode = markov`: one integer per scene (in scene
    * order), each in `[0, M)` where `M` is the transition matrix
@@ -790,6 +798,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
     merge_opt(forward_sampling_mode, opts.forward_sampling_mode);
+    merge_opt(integer_cuts_mode, opts.integer_cuts_mode);
     merge_opt(markov_states, std::move(opts.markov_states));
     merge_opt(markov_transition, std::move(opts.markov_transition));
     merge_opt(cut_drain_mode, opts.cut_drain_mode);

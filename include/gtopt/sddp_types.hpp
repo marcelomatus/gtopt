@@ -507,6 +507,20 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// setup; see `docs/formulation/sddp-markov.md`.
   MarkovChainConfig markov {};
 
+  /// Integer-cut mode for backward-pass cells whose LP carries integer
+  /// columns (integer expansion modules, unit-commitment binaries):
+  ///
+  ///  * `none` (default): legacy behaviour, byte-identical.  Pure-LP
+  ///    cells emit the certified Theorem-O1 cut; integer-bearing cells
+  ///    are UNSOUND (no reduced costs on a MIP — see
+  ///    `docs/analysis/investigations/sddp/`
+  ///    `sddip_integer_expansion_2026-07.md` §1).
+  ///  * `strengthened`: LP-relaxation cut + one-MIP Lagrangian
+  ///    intercept (Zou, Ahmed & Sun 2019).  Valid by weak Lagrangian
+  ///    duality (Theorem SB1), never looser than the LP cut
+  ///    (Corollary SB2); silent LP fallback on MIP failure/timeout.
+  IntegerCutsMode integer_cuts {IntegerCutsMode::none};
+
   /// How terminal/boundary cuts are shared across scenes on the terminal α —
   /// the terminal-phase analogue of `cut_sharing` (resolved from
   /// `SddpOptions::boundary_cut_sharing_mode`, with the legacy

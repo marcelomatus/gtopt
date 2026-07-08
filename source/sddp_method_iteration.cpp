@@ -648,11 +648,76 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   const auto scale_obj = planning_lp().options().scale_objective();
   const auto t_build = Clock::now();
-  auto cut = build_benders_cut_physical(src_alpha_col,
-                                        src_state.outgoing_links,
-                                        target_state.forward_full_obj_physical,
-                                        scale_obj,
-                                        ceps);
+
+  // ── Strengthened Benders cut (integer_cuts = strengthened) ─────────
+  //
+  // Gated to cells whose target LP genuinely carries integer columns
+  // (integer expansion modules, unit-commitment binaries).  On such a
+  // cell the legacy path below is unsound — the target re-solve is a
+  // MIP with no reduced costs, so the mirror-based cut degenerates to
+  // a flat `α ≥ z_MIP(v̂)` that can overshoot (investigation doc §1).
+  // The strengthened builder replaces it with the certified
+  // LP-relaxation cut whose intercept is tightened by ONE extra MIP
+  // solve (Lagrangian at the LP duals — Theorem SB1 / Corollary SB2 in
+  // `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`).
+  // On failure of the LP-relaxation clone solve, fall back to the
+  // legacy cut path (today's behaviour).  Pure-LP cells never enter
+  // this branch, and `integer_cuts = none` (default) is byte-identical
+  // to previous behaviour.
+  std::optional<StrengthenedCutResult> strengthened;
+  if (m_options_.integer_cuts == IntegerCutsMode::strengthened) {
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    auto& tgt_li = tgt_sys.linear_interface();
+    if (tgt_li.has_integer_cols()) {
+      // The tightening MIP gets a tight gap (a positive gap makes the
+      // incumbent value over-tighten the intercept by up to
+      // gap × |m*| — doc §6.3) and a hard time limit so a hard MIP
+      // degrades to the LP-relaxation cut instead of stalling the
+      // backward pass (aperture-timeout-style accounting).
+      auto mip_opts = opts;
+      mip_opts.mip_gap = 1e-9;
+      mip_opts.mip_gap_abs = 1e-6;
+      if (!mip_opts.time_limit.has_value()) {
+        constexpr double kStrengthenedMipTimeLimit = 30.0;  // seconds
+        mip_opts.time_limit = kStrengthenedMipTimeLimit;
+      }
+      strengthened = build_strengthened_benders_cut(src_alpha_col,
+                                                    src_state.outgoing_links,
+                                                    tgt_li,
+                                                    ceps,
+                                                    opts,
+                                                    mip_opts);
+      if (strengthened.has_value()) {
+        spdlog::debug(
+            "SDDP Backward [i{} s{} p{}/{}]: strengthened cut b_LP={} "
+            "m*={} (tightened={})",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            bwd_total_phases,
+            format_si(strengthened->lp_rhs),
+            format_si(strengthened->mip_rhs),
+            strengthened->tightened);
+      } else {
+        spdlog::warn(
+            "SDDP Backward [i{} s{} p{}/{}]: strengthened-cut LP "
+            "relaxation failed — falling back to the legacy cut path",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            bwd_total_phases);
+      }
+    }
+  }
+
+  auto cut = strengthened.has_value()
+      ? std::move(strengthened->row)
+      : build_benders_cut_physical(src_alpha_col,
+                                   src_state.outgoing_links,
+                                   target_state.forward_full_obj_physical,
+                                   scale_obj,
+                                   ceps);
   sddp_scut_tag.apply_to(cut);
   cut.variable_uid = uid_of(prev_phase_index);
   cut.context = make_iteration_context(uid_of(scene_index),

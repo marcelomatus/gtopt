@@ -74,6 +74,26 @@ class TestProcessOptions:
         sddp = writer.planning["options"].get("sddp_options", {})
         assert "forward_sampling_mode" not in sddp
 
+    def test_process_options_integer_cuts(self, tmp_path):
+        """process_options pipes integer_cuts_mode into sddp_options."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        opts = _make_opts(tmp_path)
+        opts["integer_cuts_mode"] = "strengthened"
+        writer.process_options(opts)
+        sddp = writer.planning["options"].get("sddp_options", {})
+        assert sddp.get("integer_cuts_mode") == "strengthened"
+
+    def test_process_options_integer_cuts_unset(self, tmp_path):
+        """Unset integer_cuts_mode emits nothing (gtopt default wins)."""
+        parser = PLPParser({"input_dir": _PLPMin1Bus})
+        parser.parse_all()
+        writer = GTOptWriter(parser)
+        writer.process_options(_make_opts(tmp_path))
+        sddp = writer.planning["options"].get("sddp_options", {})
+        assert "integer_cuts_mode" not in sddp
+
     def test_process_options_backward_solver_threads_default(self, tmp_path):
         """Default (sddp method) gets the iterative fast-path dual backward solver.
 

@@ -27,6 +27,7 @@ using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
 using gtopt::ForwardSamplingMode;
 using gtopt::HotStartMode;
+using gtopt::IntegerCutsMode;
 using gtopt::LowMemoryMode;
 using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
@@ -40,6 +41,7 @@ struct SddpOptionsConstructor
   [[nodiscard]] SddpOptions operator()(
       OptName cut_sharing_mode_str,
       OptName forward_sampling_mode_str,
+      OptName integer_cuts_mode_str,
       OptName cut_drain_mode_str,
       OptName cut_directory,
       OptBool api_enabled,
@@ -119,6 +121,10 @@ struct SddpOptionsConstructor
     if (forward_sampling_mode_str) {
       opts.forward_sampling_mode = gtopt::require_enum<ForwardSamplingMode>(
           "forward_sampling_mode", *forward_sampling_mode_str);
+    }
+    if (integer_cuts_mode_str) {
+      opts.integer_cuts_mode = gtopt::require_enum<IntegerCutsMode>(
+          "integer_cuts_mode", *integer_cuts_mode_str);
     }
     if (cut_drain_mode_str) {
       opts.cut_drain_mode = gtopt::require_enum<CutDrainMode>(
@@ -235,6 +241,7 @@ struct json_data_contract<SddpOptions>
   using type = json_member_list<
       json_string_null<"cut_sharing_mode", OptName>,
       json_string_null<"forward_sampling_mode", OptName>,
+      json_string_null<"integer_cuts_mode", OptName>,
       json_string_null<"cut_drain_mode", OptName>,
       json_string_null<"cut_directory", OptName>,
       json_bool_null<"api_enabled", OptBool>,
@@ -309,6 +316,7 @@ struct json_data_contract<SddpOptions>
     return std::make_tuple(
         detail::enum_to_opt_name(opt.cut_sharing_mode),
         detail::enum_to_opt_name(opt.forward_sampling_mode),
+        detail::enum_to_opt_name(opt.integer_cuts_mode),
         detail::enum_to_opt_name(opt.cut_drain_mode),
         opt.cut_directory,
         opt.api_enabled,
