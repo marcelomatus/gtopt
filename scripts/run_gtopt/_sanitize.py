@@ -32,6 +32,7 @@ _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
 # markov_transition in sddp_options (docs/formulation/sddp-markov.md).
 _VALID_CUT_SHARING_MODES = {"none", "multicut", "markov"}
 _VALID_FORWARD_SAMPLING_MODES = {"persistent", "resampled"}
+_VALID_INTEGER_CUTS_MODES = {"none", "strengthened"}
 _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
@@ -207,6 +208,7 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         ("recovery_mode", _VALID_RECOVERY_MODES),
         ("cut_sharing_mode", _VALID_CUT_SHARING_MODES),
         ("forward_sampling_mode", _VALID_FORWARD_SAMPLING_MODES),
+        ("integer_cuts_mode", _VALID_INTEGER_CUTS_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
         ("boundary_cuts_mode", _VALID_BOUNDARY_MODES),
     ]:

@@ -540,6 +540,30 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         ),
     )
     parser.add_argument(
+        "--integer-cuts-mode",
+        dest="integer_cuts_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "none",
+            "strengthened",
+        ],
+        help=(
+            "SDDP integer-cut mode for backward-pass subproblems that "
+            "carry integer columns (integer expansion modules, "
+            "unit-commitment binaries): "
+            "'none' keeps the legacy behaviour (LP cells certified; "
+            "integer cells convexified/unsound); "
+            "'strengthened' emits strengthened Benders cuts -- the "
+            "LP-relaxation cut whose intercept is tightened by one "
+            "extra MIP solve (Lagrangian at the LP duals; valid by "
+            "weak duality, never looser than the LP cut).  Requires a "
+            "MIP-capable solver.  See docs/analysis/investigations/"
+            "sddp/sddip_integer_expansion_2026-07.md. "
+            "(default: not set; gtopt uses none)"
+        ),
+    )
+    parser.add_argument(
         "--boundary-cuts-mode",
         dest="boundary_cuts_mode",
         metavar="MODE",

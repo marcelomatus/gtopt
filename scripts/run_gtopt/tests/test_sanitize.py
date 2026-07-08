@@ -236,6 +236,26 @@ def test_valid_forward_sampling_modes_pass(tmp_path: Path):
         assert sanitize_json(p) == p
 
 
+def test_warn_invalid_integer_cuts_mode(tmp_path: Path):
+    """Unknown sddp integer_cuts_mode warns but applies no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"integer_cuts_mode": "bogus"}},
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_valid_integer_cuts_modes_pass(tmp_path: Path):
+    """Both valid integer_cuts_mode spellings pass untouched."""
+    for mode in ("none", "strengthened"):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"integer_cuts_mode": mode}},
+        )
+        assert sanitize_json(p) == p
+
+
 def test_fix_lp_names_invalid(tmp_path: Path):
     """Invalid use_lp_names is fixed to 1."""
     p = _write_plan(tmp_path / "plan.json", {"use_lp_names": 5})

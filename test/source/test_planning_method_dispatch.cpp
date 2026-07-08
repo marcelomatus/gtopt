@@ -100,6 +100,7 @@ auto build_expected_sddp_opts(const PlanningOptionsLP& options) -> SDDPOptions
   // Cut sharing and cuts_output_file path
   sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
   sddp_opts.forward_sampling = options.sddp_forward_sampling_mode_enum();
+  sddp_opts.integer_cuts = options.sddp_integer_cuts_mode_enum();
   const auto output_dir_sv = options.output_directory();
   const auto cut_dir =
       (std::filesystem::path(output_dir_sv.empty() ? "output"
@@ -235,6 +236,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // ── Cut sharing and files ──
     CHECK(so.cut_sharing == CutSharingMode::none);
     CHECK(so.forward_sampling == ForwardSamplingMode::persistent);
+    CHECK(so.integer_cuts == IntegerCutsMode::none);
     // cuts_output_file = <output_directory>/<sddp_cut_directory>/<combined>
     const auto expected_cuts_out =
         (std::filesystem::path("output") / "cuts" / sddp_file::combined_cuts)
@@ -339,6 +341,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // Cut sharing and files
     popts.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
     popts.sddp_options.forward_sampling_mode = ForwardSamplingMode::resampled;
+    popts.sddp_options.integer_cuts_mode = IntegerCutsMode::strengthened;
     popts.sddp_options.cut_directory = std::string("snapshot_cuts");
     popts.sddp_options.cut_recovery_mode = HotStartMode::append;
     popts.sddp_options.recovery_mode = RecoveryMode::cuts;
@@ -403,6 +406,7 @@ TEST_CASE("make_planning_method SDDP wiring snapshot")  // NOLINT
     // ── Cut sharing and files ──
     CHECK(so.cut_sharing == CutSharingMode::multicut);
     CHECK(so.forward_sampling == ForwardSamplingMode::resampled);
+    CHECK(so.integer_cuts == IntegerCutsMode::strengthened);
     const auto expected_cuts_out =
         (std::filesystem::path("snapshot_out") / "snapshot_cuts"
          / sddp_file::combined_cuts)

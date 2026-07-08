@@ -470,6 +470,184 @@ auto build_feasibility_cut_physical(std::span<const StateVarLink> links,
   return row;
 }
 
+// ─── Strengthened Benders cut ───────────────────────────────────────────────
+
+auto build_strengthened_benders_cut(ColIndex alpha_col,
+                                    std::span<const StateVarLink> links,
+                                    const LinearInterface& target_li,
+                                    double cut_coeff_eps,
+                                    const SolverOptions& lp_opts,
+                                    const SolverOptions& mip_opts)
+    -> std::optional<StrengthenedCutResult>
+{
+  // Clone route — same parallel-safe manual+replay gate as
+  // `elastic_filter_solve` (see the long rationale there): the manual
+  // path needs a decompressed snapshot AND an active replay buffer;
+  // otherwise the native `clone()` (serialised by the process-global
+  // clone mutex) is the correctness-safe fallback.
+  //
+  // TWO independent clones, one per solve:
+  //
+  //   * `lp_clone`  — integrality relaxed, state pins kept: the LP
+  //     relaxation whose pinned reduced costs are the multipliers λ.
+  //   * `mip_clone` — integrality INTACT (a fresh clone, so no
+  //     `relax_integers` → `restore_integers` round-trip is needed),
+  //     state pins relaxed to the box, objective charged −λ: the
+  //     Lagrangian MIP.
+  //
+  // The two-clone split is deliberate: it avoids the
+  // `relax_integers` → `restore_integers` round-trip on a live
+  // backend (a problem-type flip plus per-column ctype rewrites whose
+  // interaction with resident solve state differs per plugin) — the
+  // fresh clone starts the Lagrangian MIP from clean solver state at
+  // the cost of one extra clone, negligible next to the MIP solve.
+  const bool can_use_manual = target_li.has_decompressed_snapshot()
+      && target_li.low_memory_mode() != LowMemoryMode::off;
+  const auto make_clone = [&]() -> LinearInterface
+  {
+    return can_use_manual
+        ? target_li.clone_from_flat(LinearInterface::CloneKind::shallow)
+        : target_li.clone(LinearInterface::CloneKind::shallow);
+  };
+
+  auto lp_clone = make_clone();
+  if (!lp_clone.has_integer_cols()) {
+    // Callers gate on `has_integer_cols()`; defensive no-op so a
+    // pure-LP cell silently falls back to the legacy cut path.
+    return std::nullopt;
+  }
+
+  // ── Step 1: LP relaxation at the pinned trial state v̂ ────────────
+  //
+  // This is where the sound duals come from: a MIP re-solve has no
+  // reduced costs (the CPLEX backend's CPXgetdj error is silently
+  // ignored, leaving zeros/stale values — investigation doc §1), so
+  // the relaxation must be explicit.
+  lp_clone.relax_integers();
+  auto r_lp = lp_clone.resolve(lp_opts);
+  if (!r_lp.has_value() || !lp_clone.is_optimal()) {
+    SPDLOG_WARN(
+        "build_strengthened_benders_cut: LP-relaxation solve failed "
+        "(status {}) — caller falls back to the legacy cut path",
+        lp_clone.get_status());
+    return std::nullopt;
+  }
+  const double z_lp = lp_clone.get_obj_value();
+  if (!std::isfinite(z_lp)) {
+    SPDLOG_WARN(
+        "build_strengthened_benders_cut: non-finite LP-relaxation "
+        "objective ({}) — caller falls back to the legacy cut path",
+        z_lp);
+    return std::nullopt;
+  }
+
+  // ── Step 2: the certified Theorem-O1 cut off the relaxed clone ────
+  //
+  //   α + Σ(−λ_i)·x_i ≥ b_LP,   b_LP = z*_LP − ⟨λ, v̂⟩
+  //
+  // λ = pinned reduced costs read from the clone (ovld2 semantics);
+  // the |λ| < cut_coeff_eps filter drops a link from BOTH the row and
+  // the Lagrangian charge below, i.e. dropped links carry λ_i = 0
+  // exactly — the strengthened intercept is exact for the emitted
+  // slopes (no Theorem-O3 ε on the intercept itself).
+  StrengthenedCutResult result;
+  result.row = build_benders_cut_physical(
+      alpha_col, links, lp_clone, z_lp, cut_coeff_eps);
+  result.lp_rhs = result.row.lowb;
+  result.mip_rhs = result.row.lowb;
+
+  // The kept multipliers (keep-filter mirrors
+  // build_benders_cut_physical[ovld2] exactly).
+  struct Charge
+  {
+    ColIndex dep {};
+    double rc_phys {};
+  };
+  std::vector<Charge> charges;
+  charges.reserve(links.size());
+  {
+    const auto rc_view = lp_clone.get_col_cost();
+    for (const auto& link : links) {
+      const auto rc_phys = rc_view[link.dependent_col];
+      if (!std::isfinite(rc_phys) || std::abs(rc_phys) < cut_coeff_eps) {
+        continue;
+      }
+      charges.push_back(Charge {
+          .dep = link.dependent_col,
+          .rc_phys = rc_phys,
+      });
+    }
+  }
+
+  // ── Step 3: the Lagrangian MIP (fresh clone, integrality intact) ──
+  //
+  //   m* = min { c'u − ⟨λ, z⟩ : (u, z) ∈ X_MIP, z ∈ box }
+  //      = L(λ) − ⟨λ, v̂⟩
+  //
+  // Every pinned dependent column is relaxed to its physical source
+  // box (the same box `relax_fixed_state_variable` uses — the cut's
+  // validity domain), including eps-dropped links (their λ_i = 0, so
+  // the pin must not survive either: a surviving pin would make the
+  // bound invalid away from v̂).  The kept links get the −λ objective
+  // charge in physical units.
+  auto mip_clone = make_clone();
+  for (const auto& link : links) {
+    const auto dep = link.dependent_col;
+    const auto lo = mip_clone.get_col_low_raw()[dep];
+    const auto hi = mip_clone.get_col_upp_raw()[dep];
+    if (std::abs(lo - hi) >= 1e-10) {
+      continue;  // not pinned (mirror relax_fixed_state_variable)
+    }
+    // Physical setters descale by the dep column's own col_scale, so
+    // cross-phase scale drift is absorbed (see the elastic path).
+    mip_clone.set_col_low(dep, link.source_low);
+    mip_clone.set_col_upp(dep, link.source_upp);
+  }
+  const auto scale_obj = mip_clone.scale_objective();
+  for (const auto& [dep, rc_phys] : charges) {
+    // obj_phys(dep) −= λ: read the current raw coefficient, lift to
+    // physical (`raw × scale_obj / col_scale` — the inverse of the
+    // flatten composition), subtract, write back via the physical
+    // setter (which re-applies `× col_scale / scale_obj`).
+    const double cs = mip_clone.get_col_scale(dep);
+    const double old_raw = mip_clone.get_obj_coeff()[dep];
+    const double old_phys = (cs != 0.0) ? old_raw * scale_obj / cs : 0.0;
+    mip_clone.set_obj_coeff(dep, old_phys - rc_phys);
+  }
+
+  auto r_mip = mip_clone.resolve(mip_opts);
+  if (r_mip.has_value() && mip_clone.is_optimal()) {
+    const double m_star = mip_clone.get_obj_value();
+    // `max(b_LP, m*)`: Corollary SB2 guarantees m* ≥ b_LP for exact
+    // solves; the guard keeps solver noise / a positive MIP gap on a
+    // minimization stopped early from ever loosening the cut below
+    // the certified LP baseline.
+    if (std::isfinite(m_star) && m_star > result.row.lowb) {
+      result.mip_rhs = m_star;
+      result.row.lowb = m_star;
+      result.tightened = true;
+    }
+  } else {
+    // Aperture-timeout-style silent fallback: the LP-relaxation cut
+    // (already in `result.row`) is valid on its own; the MIP was only
+    // ever a tightening.
+    SPDLOG_DEBUG(
+        "build_strengthened_benders_cut: Lagrangian MIP solve failed / "
+        "timed out (status {}) — emitting the LP-relaxation cut",
+        mip_clone.get_status());
+  }
+
+  SPDLOG_DEBUG(
+      "build_strengthened_benders_cut: b_LP={:.6e} m*={:.6e} "
+      "tightened={} ({} charged link(s))",
+      result.lp_rhs,
+      result.mip_rhs,
+      result.tightened,
+      charges.size());
+
+  return result;
+}
+
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
 RelaxedVarInfo relax_fixed_state_variable(

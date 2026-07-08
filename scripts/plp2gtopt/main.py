@@ -617,6 +617,8 @@ def build_options(args: argparse.Namespace) -> dict:
     # `getattr` defensively — hand-built Namespaces in tests may omit it.
     if getattr(args, "forward_sampling_mode", None) is not None:
         opts["forward_sampling_mode"] = args.forward_sampling_mode
+    if getattr(args, "integer_cuts_mode", None) is not None:
+        opts["integer_cuts_mode"] = args.integer_cuts_mode
     if args.boundary_cuts_mode is not None:
         opts["boundary_cuts_mode"] = args.boundary_cuts_mode
     if args.boundary_max_iterations is not None:
