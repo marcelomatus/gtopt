@@ -21,6 +21,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include <array>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -352,6 +353,75 @@ TEST_CASE(
   backend->initial_solve();
   REQUIRE(backend->is_proven_optimal());
   CHECK(backend->obj_value() == doctest::Approx(2.0));
+}
+
+TEST_CASE("cuOpt cuopt.prm sets presolve and plugin-local warmstart")  // NOLINT
+{
+  // The `<solvers>/cuopt.prm` sibling of gtopt's `param_file` accepts any
+  // constants.h key — including integer-typed ones like `presolve` via the
+  // string-keyed setter — plus the PLUGIN-LOCAL `warmstart` key (consumed,
+  // never forwarded).  Pin (a) a prm-selected presolver is accepted and the
+  // solve stays exact, and (b) `warmstart 0` disables the auto seed without
+  // changing results.
+  auto backend = make_cuopt_or_skip();
+  if (!backend) {
+    return;
+  }
+  namespace fs = std::filesystem;
+  const auto dir = fs::temp_directory_path() / "gtopt_cuopt_prm_test";
+  fs::create_directories(dir);
+  const auto prm = dir / "cuopt.prm";
+
+  SolverOptions opts {};
+  // param_file itself need not exist — only its DIRECTORY anchors the
+  // cuopt.prm sibling lookup.
+  opts.param_file = (dir / "cplex.prm").string();
+
+  SUBCASE("presolve key is accepted and solve stays exact")
+  {
+    {
+      std::ofstream out {prm};
+      out << "# cuopt.prm test — explicit PSLP presolve\n";
+      out << "presolve 2\n";
+    }
+    backend->apply_options(opts);
+    const CuoptTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->initial_solve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(2.0));
+  }
+
+  SUBCASE("warmstart 0 disables the auto seed; re-solve stays exact")
+  {
+    {
+      std::ofstream out {prm};
+      out << "warmstart 0\n";
+    }
+    backend->apply_options(opts);
+    const CuoptTrivialLP2 lp {backend->infinity()};
+    lp.load_into(*backend);
+    backend->initial_solve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(2.0));
+    // Incremental re-solve (would auto-warm by default) must still be exact
+    // with the seed disabled by the file.
+    const std::array<int, 2> cut_cols {
+        0,
+        1,
+    };
+    const std::array<double, 2> cut_vals {
+        1.0,
+        1.0,
+    };
+    backend->add_row(
+        2, cut_cols.data(), cut_vals.data(), 3.0, backend->infinity());
+    backend->resolve();
+    REQUIRE(backend->is_proven_optimal());
+    CHECK(backend->obj_value() == doctest::Approx(3.0));
+  }
+
+  fs::remove_all(dir);
 }
 
 TEST_CASE("cuOpt write_lp dumps a readable MPS file")  // NOLINT

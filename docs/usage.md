@@ -596,6 +596,51 @@ Enable DC power flow constraints for multi-bus systems:
 gtopt system_c0.json --set use_kirchhoff=true
 ```
 
+### cuOpt tuning file (`cuopt.prm`)
+
+When the cuOpt (GPU) backend is selected and the planning option
+`solver_options.param_file` points into a `solvers/` directory (gtopt
+cases typically pin it to the CPLEX `solvers/cplex.prm`), the cuOpt
+plugin also reads a **sibling** file named `cuopt.prm` from that same
+directory. Each non-blank, non-comment line is `<name> <value>`
+(`#`/`//` start comments). The pairs are applied **last**, so they
+override every default the plugin sets — including the algorithm
+mapping and the presolver.
+
+```
+# solvers/cuopt.prm — example
+presolve 2                  # -1 default, 0 off, 1 PAPILO, 2 PSLP
+method 0                    # 0 concurrent, 1 PDLP, 2 dual simplex, 3 barrier
+pdlp_precision 2            # -1 default, 0 fp32, 1 fp64, 2 mixed
+relative_gap_tolerance 1e-4
+warmstart 1                 # plugin-local: auto warm start on/off
+```
+
+Any parameter from cuOpt's `constants.h` is accepted (the string-keyed
+setter handles integer- and float-typed parameters too). The most
+useful keys:
+
+| Key | Values | Effect |
+|-----|--------|--------|
+| `presolve` | `-1`/`0`/`1`/`2` | default / off / PAPILO / PSLP. On real CEN LPs PSLP was fastest with crossover; note any non-`0` value disables the plugin's auto warm start for that solve, and the key is ignored (with a warning) while a MIP start is set |
+| `method` | `0`–`3` | concurrent / PDLP / dual simplex / barrier — same override as `GTOPT_CUOPT_METHOD` but per-case |
+| `crossover` | `0`/`1` | vertex duals from the PDLP/barrier legs |
+| `pdlp_solver_mode` | `0`–`4` | PDLP restart strategy (Stable1/2/3, Methodical1, Fast1) |
+| `pdlp_precision` | `-1`/`0`/`1`/`2` | default / fp32 / fp64 / mixed — fp32/mixed can help on GeForce GPUs with throttled fp64 |
+| `infeasibility_detection`, `strict_infeasibility` | `0`/`1` | PDLP infeasibility-verdict controls (relevant before trusting lone-PDLP verdicts) |
+| `time_limit`, `iteration_limit`, `work_limit`, `node_limit` | numeric | solve budgets (MIP: `node_limit`) |
+| `absolute_/relative_gap_tolerance`, `absolute_/relative_primal_tolerance`, `absolute_/relative_dual_tolerance` | float | LP convergence tolerances |
+| `mip_relative_gap`, `mip_absolute_gap`, `mip_integrality_tolerance` | float | MIP termination |
+| `mip_determinism_mode` | `0`/`1` | opportunistic / deterministic parallel B&B |
+| `mip_heuristics_only`, `mip_scaling`, `mip_presolve`, `mip_symmetry`, cut-family toggles (`mip_*_cuts`) | int | MIP search shaping |
+| `dual_postsolve` | `0`/`1` | recover duals through presolve (on by default) |
+| `num_cpu_threads`, `num_gpus`, `random_seed` | int | resources / reproducibility |
+| `folding`, `augmented`, `dualize`, `ordering`, `barrier_iterative_refinement`, `eliminate_dense_columns`, `cudss_deterministic` | int | barrier (cuDSS) internals |
+| `per_constraint_residual`, `save_best_primal_so_far`, `first_primal_feasible` | `0`/`1` | PDLP residual semantics / stop-early |
+| `warmstart` | `0`/`1` | **plugin-local** (not forwarded to cuOpt): per-case default for the automatic PDLP warm start on incremental re-solves. Precedence: default (on) < `cuopt.prm` < `GTOPT_CUOPT_WARMSTART` env |
+
+Unknown keys log a warning and are skipped; the solve proceeds.
+
 ### Merging multiple system files
 
 Multiple JSON files can be passed and will be merged into a single system.

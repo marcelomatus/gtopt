@@ -42,8 +42,11 @@
  *     that CPLEX/HiGHS use (`get_basis`/`set_basis`, which cuOpt lacks) —
  *     the `no-warm-start` project memory refers to that basis path.
  *     Presolve is forced OFF whenever a start is seeded (warm starts are
- *     empirically wasted under any presolver).  Kill switch:
- *     `GTOPT_CUOPT_WARMSTART=0`.
+ *     empirically wasted under any presolver).  Control precedence:
+ *     built-in default (on) < `warmstart 0|1` in `<solvers>/cuopt.prm`
+ *     (plugin-local key) < `GTOPT_CUOPT_WARMSTART` env (final triage
+ *     lever).  A cuopt.prm that turns `presolve` on also disables the
+ *     auto seed for that solve.
  *   - `supports_set_coeff()` returns TRUE (we buffer the override into the
  *     CSR), so SDDP's volume-dependent coefficient updates in
  *     `update_lp()` are NOT silently dropped.

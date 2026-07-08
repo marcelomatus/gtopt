@@ -19,10 +19,12 @@
 #include <format>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "cuopt_solver_backend.hpp"
@@ -144,6 +146,50 @@ struct LoweredModel
     lm.var_ub[static_cast<size_t>(j)] = to_cuopt_bound(model.col_ub[j]);
   }
   return lm;
+}
+
+/// Parse the ``<solvers>/cuopt.prm`` sibling of gtopt's solver-agnostic
+/// ``param_file`` into ordered (name, value) pairs.  gtopt cases typically
+/// pin ``param_file`` to the CPLEX ``solvers/cplex.prm`` (whose
+/// ``CPXPARAM_*`` keys are meaningless to cuOpt), so the cuOpt knobs live in
+/// a sibling file instead — mirroring how the CPLEX plugin reads its
+/// ``cplex_warmstart.prm`` sibling.  Each non-blank, non-comment line is
+/// ``<name> <value>``; ``#`` / ``//`` lines and blanks are skipped.  Any
+/// key from cuOpt's ``constants.h`` is valid (the string-keyed
+/// ``cuOptSetParameter`` accepts integer- and float-typed parameters too,
+/// e.g. ``presolve 2`` or ``pdlp_precision 2`` — probed on 26.08), plus the
+/// PLUGIN-LOCAL key ``warmstart`` (consumed here, never forwarded).  Pure
+/// host-side file I/O — call it OUTSIDE `g_cuopt_global_mutex`.
+[[nodiscard]] std::vector<std::pair<std::string, std::string>> parse_prm_file(
+    const std::optional<std::string>& param_file)
+{
+  std::vector<std::pair<std::string, std::string>> pairs;
+  if (!param_file.has_value() || param_file->empty()) {
+    return pairs;
+  }
+  std::error_code ec;
+  const std::filesystem::path prm_path =
+      std::filesystem::path {*param_file}.parent_path() / "cuopt.prm";
+  if (!std::filesystem::exists(prm_path, ec) || ec) {
+    return pairs;
+  }
+  std::ifstream prm {prm_path};
+  std::string line;
+  while (std::getline(prm, line)) {
+    const auto first = line.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos || line[first] == '#'
+        || line.compare(first, 2, "//") == 0)
+    {
+      continue;
+    }
+    std::istringstream iss {line.substr(first)};
+    std::string name;
+    std::string value;
+    if (iss >> name >> value) {
+      pairs.emplace_back(std::move(name), std::move(value));
+    }
+  }
+  return pairs;
 }
 
 /// Build the immutable cuOpt problem object from a lowered model.  Ranged
@@ -578,11 +624,54 @@ void CuOptSolverBackend::solve_()
   // 1) Lower the row-major model into cuOpt's CSR ranged-problem arrays.
   const auto lowered = lower_model(m_model_);
 
+  // 1b) Read ``<solvers>/cuopt.prm`` (host-side file I/O, outside the GPU
+  // mutex).  The pairs are applied to the settings object LAST (step 3b) so
+  // file values override every gtopt-set default — but two keys interact
+  // with the warm-start machinery and are handled up-front:
+  //
+  //   * ``warmstart 0|1`` — PLUGIN-LOCAL (consumed here, never forwarded to
+  //     cuOpt): per-case default for the auto warm start.  Precedence:
+  //     built-in default (on) < prm file < GTOPT_CUOPT_WARMSTART env (the
+  //     env stays the final triage lever).
+  //   * ``presolve <mode>`` — forwarded to cuOpt as usual, but a non-zero
+  //     mode DISABLES the auto warm start for this solve (a seeded start is
+  //     empirically wasted under any presolver, and the user's explicit
+  //     presolve request wins over the opportunistic seed).  When a MIP
+  //     start is buffered the pair is DROPPED instead with a warning:
+  //     cuOptAddMIPStart is unsupported with presolve on, and the MIP start
+  //     is explicit gtopt machinery (seed pipelines) that must not be
+  //     silently broken by a tuning file.
+  auto prm_pairs = parse_prm_file(m_options_.param_file);
+  const bool has_mip_start = !m_mip_start_.empty();
+  std::optional<bool> prm_warmstart;
+  bool prm_presolve_on = false;
+  std::erase_if(
+      prm_pairs,
+      [&](const auto& kv)
+      {
+        const auto& [name, value] = kv;
+        if (name == "warmstart") {
+          prm_warmstart = (value != "0");
+          return true;  // plugin-local: consume
+        }
+        if (name == CUOPT_PRESOLVE && value != "0") {
+          if (has_mip_start) {
+            spdlog::warn(
+                "cuOpt: cuopt.prm 'presolve {}' ignored — a MIP start is "
+                "set and cuOptAddMIPStart is unsupported with presolve on",
+                value);
+            return true;  // drop the colliding pair
+          }
+          prm_presolve_on = true;
+        }
+        return false;
+      });
+
   // Serialize every cuOpt C-API interaction below: the library's global
   // logger/cuBLAS state is not thread-safe and the SDDP work pool drives
   // several scene solves concurrently (see g_cuopt_global_mutex).  The
-  // host-side CSR lowering above is per-instance and stays outside the lock
-  // so it can overlap another thread's GPU solve.
+  // host-side CSR lowering / prm parsing above is per-instance and stays
+  // outside the lock so it can overlap another thread's GPU solve.
   const std::scoped_lock cuopt_guard(g_cuopt_global_mutex);
 
   // 2) Build the immutable problem object.
@@ -670,7 +759,6 @@ void CuOptSolverBackend::solve_()
   }
   // cuOptAddMIPStart is "unsupported with presolve on", so force presolve OFF
   // whenever a MIP start is buffered (and warn if the user had asked for it).
-  const bool has_mip_start = !m_mip_start_.empty();
   if (has_mip_start && m_options_.presolve) {
     spdlog::warn(
         "cuOpt: forcing presolve OFF because a MIP start is set "
@@ -699,8 +787,10 @@ void CuOptSolverBackend::solve_()
   // The 26.02 release notes made the same point ("to use PDLP warm start,
   // presolve must now be explicitly disabled").
   //
-  // Kill switch: GTOPT_CUOPT_WARMSTART=0 (triage lever, mirrors
-  // GTOPT_CUOPT_METHOD).
+  // Enable precedence: built-in default (on) < cuopt.prm ``warmstart`` <
+  // GTOPT_CUOPT_WARMSTART env (final triage lever).  A cuopt.prm that
+  // explicitly turns presolve ON also disables the auto seed for this solve
+  // — the two are mutually wasteful (see 1b above).
   bool is_mip_model = false;
   for (const char t : m_model_.col_type) {
     if (t != CUOPT_CONTINUOUS) {
@@ -708,11 +798,16 @@ void CuOptSolverBackend::solve_()
       break;
     }
   }
-  bool warm_enabled = true;
-  if (const char* env = std::getenv("GTOPT_CUOPT_WARMSTART");
-      env != nullptr && env[0] == '0')
-  {
+  bool warm_enabled = prm_warmstart.value_or(true);
+  if (warm_enabled && prm_presolve_on) {
+    spdlog::debug(
+        "cuOpt: auto warm start disabled — cuopt.prm requests presolve");
     warm_enabled = false;
+  }
+  if (const char* env = std::getenv("GTOPT_CUOPT_WARMSTART");
+      env != nullptr && env[0] != '\0')
+  {
+    warm_enabled = (env[0] != '0');
   }
   bool warm_seeded = false;
   // Lifetime: the Set-initial-* docs only promise the pointers refer to
@@ -817,47 +912,24 @@ void CuOptSolverBackend::solve_()
     cuOptSetParameter(settings, CUOPT_LOG_FILE, m_log_filename_.c_str());
   }
 
-  // 3b) Optional user parameter file: ``<solvers>/cuopt.prm``.  gtopt's
-  // ``param_file`` is solver-agnostic and the case typically pins it to the
-  // CPLEX ``solvers/cplex.prm`` (whose ``CPXPARAM_*`` keys are meaningless to
-  // cuOpt), so we read the ``cuopt.prm`` SIBLING of that path instead —
-  // mirroring how the CPLEX plugin reads its ``cplex_warmstart.prm`` sibling.
-  // Each non-blank, non-comment line is ``<name> <value>`` and is applied
+  // 3b) Apply the pre-parsed ``cuopt.prm`` pairs (see 1b for the file
+  // format, path resolution, and the two specially-handled keys).  Applied
   // LAST via cuOpt's string-keyed ``cuOptSetParameter`` so file values
-  // OVERRIDE every gtopt-set default above (e.g. ``method 1`` for PDLP,
-  // ``relative_gap_tolerance 1e-4`` to hit the fast first-order regime).
-  // ``#``/``//`` lines and blanks are skipped; an unknown key logs a warning
-  // but does not abort the solve.
-  if (m_options_.param_file.has_value() && !m_options_.param_file->empty()) {
-    std::error_code ec;
-    const std::filesystem::path prm_path =
-        std::filesystem::path {*m_options_.param_file}.parent_path()
-        / "cuopt.prm";
-    if (std::filesystem::exists(prm_path, ec) && !ec) {
-      std::ifstream prm {prm_path};
-      std::string line;
-      while (std::getline(prm, line)) {
-        const auto first = line.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos || line[first] == '#'
-            || line.compare(first, 2, "//") == 0)
-        {
-          continue;
-        }
-        std::istringstream iss {line.substr(first)};
-        std::string name;
-        std::string value;
-        if (iss >> name >> value) {
-          if (cuOptSetParameter(settings, name.c_str(), value.c_str())
-              != CUOPT_SUCCESS)
-          {
-            spdlog::warn(
-                "cuOpt: cuopt.prm parameter '{}' = '{}' was rejected "
-                "(unknown key or bad value)",
-                name,
-                value);
-          }
-        }
-      }
+  // OVERRIDE every gtopt-set default above — e.g. ``method 1`` for lone
+  // PDLP, ``presolve 2`` to pick PSLP explicitly, ``pdlp_precision 2`` for
+  // mixed precision, ``relative_gap_tolerance 1e-4`` for the fast
+  // first-order regime.  The string setter accepts every ``constants.h``
+  // parameter regardless of its native type (verified on 26.08); an unknown
+  // key logs a warning but does not abort the solve.
+  for (const auto& [name, value] : prm_pairs) {
+    if (cuOptSetParameter(settings, name.c_str(), value.c_str())
+        != CUOPT_SUCCESS)
+    {
+      spdlog::warn(
+          "cuOpt: cuopt.prm parameter '{}' = '{}' was rejected "
+          "(unknown key or bad value)",
+          name,
+          value);
     }
   }
 
