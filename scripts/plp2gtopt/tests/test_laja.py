@@ -799,9 +799,7 @@ class TestLajaWriter:
         tucapel = next(d for d in cfg["districts"] if d["name"] == "RieTucapel")
         tucapel["anchor_junction"] = "RieTucapel"
         writer = LajaWriter(cfg)
-        cats = [
-            fr for fr in writer.flow_rights if fr["name"].startswith("RieTucapel_")
-        ]
+        cats = [fr for fr in writer.flow_rights if fr["name"].startswith("RieTucapel_")]
         assert cats
         for fr in cats:
             assert fr["junction_a"] == "RieTucapel"

@@ -680,6 +680,48 @@ class HydroMixin:
             fh.write("\n")
         return target
 
+    def _require_irrigation_refs(
+        self,
+        cfg: Dict[str, Any],
+        agreement: str,
+        anchors: Dict[str, str],
+    ) -> None:
+        """Fail LOUDLY when a coupling reference could not be resolved.
+
+        A silent fallback here would leave the irrigation agreement
+        quietly un-anchored — floating rights, fictional deliveries —
+        which is far worse than aborting the conversion.  Raises
+        ``ValueError`` naming the missing element, what was searched,
+        and the two escape hatches (fix the topology, or disable the
+        coupling explicitly).
+        """
+        remedy = (
+            "  Fix the topology (rename the central/waterway/junction), "
+            "or disable explicitly with --no-irrigation-couplings / "
+            "`enable_physical_anchoring: false` in the canonical JSON."
+        )
+        for key, central in anchors.items():
+            if key not in cfg:
+                raise ValueError(
+                    f"{agreement}: no generation flow found for central "
+                    f"{central!r} — searched a turbine named {central!r} "
+                    f"(flow-mode or via its waterway) and waterways "
+                    f"'{central}_gen[_*]'.  The {key} anchor cannot be "
+                    f"emitted and the rights partition would silently "
+                    f"float free of the dispatch." + remedy
+                )
+        for district in cfg.get("districts", []):
+            name = str(district.get("name", ""))
+            if "anchor_flow_right" in district or "anchor_junction" in district:
+                continue
+            raise ValueError(
+                f"{agreement}: district {name!r} has no physical "
+                f"offtake in the topology — searched a "
+                f"'{name}_irrigation_right' diversion FlowRight and a "
+                f"junction named {name!r}.  Its deliveries would be "
+                f"fictional (soft sink)." + remedy
+            )
+
     def _irrigation_couplings_enabled(self, cfg: Dict[str, Any]) -> bool:
         """Master switch for the physical-coupling features.
 
@@ -731,13 +773,31 @@ class HydroMixin:
         no recognizable generation flow in the merged system.
         """
         system = self.planning["system"]
+        central_l = central.lower()
+
+        # 1. Turbine named after the central: flow-mode turbines carry
+        #    their own flow column; waterway-connected turbines route
+        #    through their waterway's flow.
         for turbine in system.get("turbine_array", []):
-            if str(turbine.get("name", "")) == central and not turbine.get("waterway"):
-                return f"turbine('{central}').flow"
-        prefix = f"{central}_gen_"
+            tname = str(turbine.get("name", ""))
+            if tname.lower() != central_l:
+                continue
+            waterway = turbine.get("waterway")
+            if not waterway:
+                return f"turbine('{tname}').flow"
+            for ww in system.get("waterway_array", []):
+                if (
+                    str(ww.get("name", "")) == str(waterway)
+                    or ww.get("uid") == waterway
+                ):
+                    wname = str(ww.get("name", ""))
+                    return f"waterway('{wname}').flow"
+        # 2. Generation waterway: `{central}_gen_{src}_{dst}` or the
+        #    plain `{central}_gen` spelling (case-insensitive).
         for ww in system.get("waterway_array", []):
             name = str(ww.get("name", ""))
-            if name.startswith(prefix):
+            name_l = name.lower()
+            if name_l == f"{central_l}_gen" or name_l.startswith(f"{central_l}_gen_"):
                 return f"waterway('{name}').flow"
         return None
 
@@ -864,6 +924,13 @@ class HydroMixin:
         }
         entity = seepages.get(central)
         if entity is None:
+            _logger.warning(
+                "irrigation: no ReservoirSeepage element for central %r — "
+                "the attribution cap falls back to the STATIC filtration "
+                "approximation (QFiltLaja = QFiltHist).  This is a "
+                "documented modeling fallback, not a dangling reference.",
+                central,
+            )
             return
         emax = 0.0
         for rsv in system.get("reservoir_array", []):
@@ -909,13 +976,8 @@ class HydroMixin:
           injection node (RieSaltos -> LAJA_I) instead of vanishing.
         """
         system = self.planning["system"]
-        frs = {
-            str(fr.get("name", "")): fr
-            for fr in system.get("flow_right_array", [])
-        }
-        junctions = {
-            str(j.get("name", "")) for j in system.get("junction_array", [])
-        }
+        frs = {str(fr.get("name", "")): fr for fr in system.get("flow_right_array", [])}
+        junctions = {str(j.get("name", "")) for j in system.get("junction_array", [])}
         cfg["districts"] = [dict(d) for d in cfg.get("districts", [])]
         for district in cfg["districts"]:
             name = str(district.get("name", ""))
@@ -964,6 +1026,11 @@ class HydroMixin:
                 cfg["q_hoya_inter"] = q_hoya
             self._inject_district_anchors(cfg)
             self._inject_seepage_ref(cfg, str(cfg.get("central_laja", "")))
+            self._require_irrigation_refs(
+                cfg,
+                "laja",
+                {"anchor_turbinado_ref": str(cfg.get("central_laja", ""))},
+            )
         agreement = LajaAgreement(
             dict(cfg),
             stage_parser=stage_parser,
@@ -1005,6 +1072,14 @@ class HydroMixin:
                 },
             )
             self._inject_district_anchors(cfg)
+            self._require_irrigation_refs(
+                cfg,
+                "maule",
+                {
+                    "anchor_gen_ref_maule": str(cfg.get("central_maule", "")),
+                    "anchor_gen_ref_invernada": str(cfg.get("central_invernada", "")),
+                },
+            )
         agreement = MauleAgreement(
             dict(cfg),
             stage_parser=stage_parser,
