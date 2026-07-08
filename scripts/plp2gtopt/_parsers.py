@@ -397,6 +397,23 @@ def add_scenario_arguments(
         ),
     )
     parser.add_argument(
+        "--inflow-model",
+        dest="inflow_model",
+        choices=["ar1"],
+        default=None,
+        help=(
+            "estimate a per-central autoregressive inflow model from the "
+            "plpaflce.dat hydrology ensemble and emit it as the "
+            "'inflow_model' object on each generated Flow element.  "
+            "'ar1' fits phi as the pooled lag-1 autocorrelation of the "
+            "stage-mean residuals and sigma as the residual std-dev "
+            "(see docs/formulation/sddp-ar-inflows.md).  The discharge "
+            "schedule itself is unchanged; a gtopt build with AR-inflow "
+            "support then prices hydrological memory in the SDDP cuts "
+            "(default: off)"
+        ),
+    )
+    parser.add_argument(
         "-A",
         "--aperture-directory",
         dest="aperture_directory",
