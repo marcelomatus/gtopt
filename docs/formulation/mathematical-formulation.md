@@ -1166,6 +1166,34 @@ spillage arcs (e.g. PLEXOS `Vert_*`) when the flow needs to remain
 visible / accountable rather than collapsed onto a `Junction.drain`
 column.
 
+#### Autoregressive Inflows (opt-in, `Flow.inflow_model`)
+
+By default the exogenous inflow $Q_f$ is data: the flow column is
+pinned by bounds to the `discharge` schedule $\mu_{f,s,t,b}$.  When a
+`Flow` carries `inflow_model = {type: "ar1", phi, sigma}`, the inflow
+becomes an AR(1) state (NEWAVE / PSR-SDDP style): the column
+$q_{f,s,t,b}$ is released to $(-\infty, \infty)$ and pinned instead by
+the per-block recursion row
+
+$$
+q_{f,s,t,b} \;-\; \phi_f \, \ell_{f,s,t}
+\;=\; \mu_{f,s,t,b} \;-\; \phi_f\,\mu_{f,s,t-1}^{\text{ref}}
+\;+\; \varepsilon_{f,s,t}
+\qquad \forall \; b,
+$$
+
+where $\ell_{f,s,t}$ is the lagged inflow — the previous stage's
+last-block column within a phase, or a dependent `inflow_lag` column
+linked to the previous phase's registered `inflow` state variable at a
+cross-phase (SDDP) boundary — and $\varepsilon = 0$ on the forward
+path (the schedule is the realization; backward apertures rewrite the
+row RHS with their own hydrology).  With the lag at its reference the
+row reproduces $q = \mu$ exactly, so the deterministic LP is
+value-identical to the pinned formulation; the gain is that SDDP
+Benders cuts acquire $\partial V/\partial q_{t-1}$ coefficients.
+Full derivation and cut-validity argument:
+[`sddp-ar-inflows.md`](sddp-ar-inflows.md).
+
 #### Waterway Flow Bounds
 
 $$

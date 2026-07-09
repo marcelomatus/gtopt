@@ -1229,6 +1229,7 @@ class HydroMixin:
         turbines = self.planning["system"].setdefault("turbine_array", [])
 
         aflce_parser = self.parser.parsed_data.get("aflce_parser")
+        block_parser = self.parser.parsed_data.get("block_parser")
 
         for central in pasada_centrals:
             central_name = central["name"]
@@ -1255,13 +1256,24 @@ class HydroMixin:
                 continue
 
             # Create Flow element
-            flows.append(
-                {
-                    "uid": central_id,
-                    "name": central_name,
-                    "discharge": afluent,
-                }
-            )
+            flow_entry: Dict[str, Any] = {
+                "uid": central_id,
+                "name": central_name,
+                "discharge": afluent,
+            }
+            # --inflow-model ar1: attach the estimated AR(1) model when
+            # the central has a hydrology ensemble (see inflow_model.py).
+            if options.get("inflow_model") == "ar1" and aflce_parser:
+                item = aflce_parser.get_item_by_name(central_name)
+                if item is not None:
+                    from .inflow_model import (  # noqa: PLC0415
+                        estimate_ar1_from_aflce,
+                    )
+
+                    model = estimate_ar1_from_aflce(item, block_parser)
+                    if model is not None:
+                        flow_entry["inflow_model"] = model
+            flows.append(flow_entry)
 
             # Create Turbine with flow reference (not waterway)
             turbines.append(

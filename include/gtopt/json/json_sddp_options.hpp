@@ -8,6 +8,9 @@
 
 #pragma once
 
+#include <tuple>
+#include <utility>
+
 #include <daw/json/daw_json_link.h>
 #include <gtopt/json/json_basic_types.hpp>
 #include <gtopt/json/json_enum_option.hpp>
@@ -25,7 +28,9 @@ using gtopt::ConvergenceMode;
 using gtopt::CutDrainMode;
 using gtopt::CutSharingMode;
 using gtopt::ElasticFilterMode;
+using gtopt::ForwardSamplingMode;
 using gtopt::HotStartMode;
+using gtopt::IntegerCutsMode;
 using gtopt::LowMemoryMode;
 using gtopt::MissingCutVarMode;
 using gtopt::RecoveryMode;
@@ -38,6 +43,8 @@ struct SddpOptionsConstructor
 {
   [[nodiscard]] SddpOptions operator()(
       OptName cut_sharing_mode_str,
+      OptName forward_sampling_mode_str,
+      OptName integer_cuts_mode_str,
       OptName cut_drain_mode_str,
       OptName cut_directory,
       OptBool api_enabled,
@@ -66,6 +73,7 @@ struct SddpOptionsConstructor
       OptBool aperture_drop_fcuts,
       OptInt aperture_chunk_size,
       OptName aperture_solve_mode_str,
+      OptInt aperture_screen_count,
       OptBool aperture_seed_basis,
       OptName basis_cross_mode_str,
       OptName boundary_cuts_file,
@@ -97,12 +105,30 @@ struct SddpOptionsConstructor
       OptInt backward_max_fallbacks,
       OptInt max_async_spread,
       std::optional<SolverOptions> forward_solver_options,
-      std::optional<SolverOptions> backward_solver_options) const
+      std::optional<SolverOptions> backward_solver_options,
+      std::optional<Array<int>> markov_states,
+      std::optional<Array<double>> markov_transition) const
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
+      // Loud failure for the modes REMOVED 2026-07-08 (accumulate /
+      // broadcast_mean / expected / max) — the dedicated message names
+      // the removal and points at none/multicut instead of the generic
+      // unknown-value error from `require_enum`.
+      if (gtopt::is_removed_cut_sharing_mode_name(*cut_sharing_mode_str)) {
+        throw std::invalid_argument(
+            gtopt::removed_cut_sharing_mode_message(*cut_sharing_mode_str));
+      }
       opts.cut_sharing_mode = gtopt::require_enum<CutSharingMode>(
           "cut_sharing_mode", *cut_sharing_mode_str);
+    }
+    if (forward_sampling_mode_str) {
+      opts.forward_sampling_mode = gtopt::require_enum<ForwardSamplingMode>(
+          "forward_sampling_mode", *forward_sampling_mode_str);
+    }
+    if (integer_cuts_mode_str) {
+      opts.integer_cuts_mode = gtopt::require_enum<IntegerCutsMode>(
+          "integer_cuts_mode", *integer_cuts_mode_str);
     }
     if (cut_drain_mode_str) {
       opts.cut_drain_mode = gtopt::require_enum<CutDrainMode>(
@@ -147,6 +173,7 @@ struct SddpOptionsConstructor
       opts.aperture_solve_mode = gtopt::require_enum<ApertureSolveMode>(
           "aperture_solve_mode", *aperture_solve_mode_str);
     }
+    opts.aperture_screen_count = aperture_screen_count;
     opts.aperture_seed_basis = aperture_seed_basis;
     if (basis_cross_mode_str) {
       opts.basis_cross_mode = gtopt::require_enum<BasisCrossMode>(
@@ -205,6 +232,8 @@ struct SddpOptionsConstructor
     opts.max_async_spread = max_async_spread;
     opts.forward_solver_options = forward_solver_options;
     opts.backward_solver_options = backward_solver_options;
+    opts.markov_states = std::move(markov_states);
+    opts.markov_transition = std::move(markov_transition);
     return opts;
   }
 };
@@ -216,6 +245,8 @@ struct json_data_contract<SddpOptions>
 
   using type = json_member_list<
       json_string_null<"cut_sharing_mode", OptName>,
+      json_string_null<"forward_sampling_mode", OptName>,
+      json_string_null<"integer_cuts_mode", OptName>,
       json_string_null<"cut_drain_mode", OptName>,
       json_string_null<"cut_directory", OptName>,
       json_bool_null<"api_enabled", OptBool>,
@@ -246,6 +277,7 @@ struct json_data_contract<SddpOptions>
       json_bool_null<"aperture_drop_fcuts", OptBool>,
       json_number_null<"aperture_chunk_size", OptInt>,
       json_string_null<"aperture_solve_mode", OptName>,
+      json_number_null<"aperture_screen_count", OptInt>,
       json_bool_null<"aperture_seed_basis", OptBool>,
       json_string_null<"basis_cross_mode", OptName>,
       json_string_null<"boundary_cuts_file", OptName>,
@@ -277,12 +309,20 @@ struct json_data_contract<SddpOptions>
       json_number_null<"backward_max_fallbacks", OptInt>,
       json_number_null<"max_async_spread", OptInt>,
       json_class_null<"forward_solver_options", SolverOptions>,
-      json_class_null<"backward_solver_options", SolverOptions>>;
+      json_class_null<"backward_solver_options", SolverOptions>,
+      json_array_null<"markov_states",
+                      std::optional<Array<int>>,
+                      json_number_no_name<int>>,
+      json_array_null<"markov_transition",
+                      std::optional<Array<double>>,
+                      json_number_no_name<double>>>;
 
   static auto to_json_data(SddpOptions const& opt)
   {
     return std::make_tuple(
         detail::enum_to_opt_name(opt.cut_sharing_mode),
+        detail::enum_to_opt_name(opt.forward_sampling_mode),
+        detail::enum_to_opt_name(opt.integer_cuts_mode),
         detail::enum_to_opt_name(opt.cut_drain_mode),
         opt.cut_directory,
         opt.api_enabled,
@@ -311,6 +351,7 @@ struct json_data_contract<SddpOptions>
         opt.aperture_drop_fcuts,
         opt.aperture_chunk_size,
         detail::enum_to_opt_name(opt.aperture_solve_mode),
+        opt.aperture_screen_count,
         opt.aperture_seed_basis,
         detail::enum_to_opt_name(opt.basis_cross_mode),
         opt.boundary_cuts_file,
@@ -342,8 +383,26 @@ struct json_data_contract<SddpOptions>
         opt.backward_max_fallbacks,
         opt.max_async_spread,
         opt.forward_solver_options,
-        opt.backward_solver_options);
+        opt.backward_solver_options,
+        opt.markov_states,
+        opt.markov_transition);
   }
 };
+
+// Plumbing guard (B1): the three lists above (constructor parameters,
+// `json_member_list`, `to_json_data` tuple) are POSITION-synced — daw
+// maps them by position, so a missing entry compiles clean and silently
+// shifts every later field.  Adding a `SddpOptions` field without
+// touching all three (and bumping `SddpOptions::json_field_count`) now
+// fails here instead.  Positional TRANSPOSITION of two same-typed
+// fields still compiles — the full-population round-trip doctest in
+// `test/source/test_sddp_options.cpp` catches that class.
+static_assert(
+    std::tuple_size_v<decltype(json_data_contract<SddpOptions>::to_json_data(
+            std::declval<const SddpOptions&>()))>
+        == SddpOptions::json_field_count,
+    "json_sddp_options.hpp: to_json_data tuple size differs from "
+    "SddpOptions::json_field_count — update the constructor parameter "
+    "list, json_member_list, to_json_data, AND the count together");
 
 }  // namespace daw::json

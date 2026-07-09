@@ -148,9 +148,9 @@ void SDDPMethod::diagnose_kappa(SceneIndex scene_index,
   }
 
   // Also check other scenes' cuts for the same (phase) — under
-  // CutSharingMode::max / expected / accumulate, cuts from other
-  // scenes are also present on this scene's LP row span.  Walk every
-  // scene's vector, dedup by row index.
+  // CutSharingMode::multicut, cuts from other scenes are also present
+  // on this scene's LP row span (broadcast onto their own varphi_s).
+  // Walk every scene's vector, dedup by row index.
   for (auto&& [other_si, other_cuts] :
        enumerate<SceneIndex>(m_cut_store_.scene_cuts()))
   {
@@ -438,6 +438,18 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
     // (same coefficient re-written), so this is a no-op cost.
     update_lp_for_phase(scene_index, phase_index);
 
+    // Forward-sampling consistency (`ForwardSamplingMode::resampled`):
+    // the cut for this cell must be built from the SAME realization the
+    // forward pass simulated.  The forward `update_aperture` bound
+    // writes are replay-recorded (a compress reconstruct replays them),
+    // but re-applying from the cached id costs one dense bound sweep
+    // and makes the invariant explicit — robust against any future
+    // update path that rewrites stochastic bounds between the passes.
+    // `nullopt` under `persistent` (never set) → byte-identical default.
+    if (const auto sampled = phase_states[phase_index].sampled_scene) {
+      apply_sampled_realization(scene_index, phase_index, *sampled);
+    }
+
     tgt_li.set_log_tag(sddp_log("Backward",
                                 gtopt::uid_of(iteration_index),
                                 uid_of(scene_index),
@@ -590,33 +602,24 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
   // Resolve the α column freshly from the state-variable registry so
   // low_memory reconstruct paths never see a stale cached index.
   //
-  // Under `multicut`, scene S's backward cut must reference S's OWN
-  // future-cost column `varphi_S` (uid = sddp_alpha_uid + S), not the
-  // legacy single α (offset 0).  `share_cuts_for_phase` then broadcasts
-  // this cut to every destination scene-LP, each install targeting the
-  // SAME `varphi_S` column there — mirroring PLP `plp-agrespd.f:94`'s
-  // `IColx = NCol - NSimul + ISimul` source-scenario indexing.  For the
-  // single-α modes `source_scene = scene_index` collapses to offset 0,
-  // reproducing the legacy lookup.
   // User-overridable FCF (piece 5 step 2c): under `use_user_alpha` the built-in
   // α is suppressed (inert, not a state variable), so the Benders cut's `+1`
   // coefficient must land on the USER α column at `prev_phase_index` — the
   // dynamic recourse column the master prices.  Resolve it via
-  // `find_user_alpha_state_var`.  Else: the literal original (multicut → own
-  // `varphi_S`, single-α → offset-0 lookup).  Default path byte-for-byte
-  // unchanged.
+  // `find_user_alpha_state_var`.  Else the shared mode dispatch
+  // `find_source_alpha_state_var` (markov → `varphi_{m(S)}`, multicut →
+  // own `varphi_S`, single-α → offset-0 lookup; see its header doc).
+  // `share_cuts_for_phase` later broadcasts the cut to every destination
+  // scene-LP, each install targeting the SAME source column there —
+  // mirroring PLP `plp-agrespd.f:94`'s `IColx = NCol - NSimul + ISimul`
+  // source-scenario indexing.  Default path byte-for-byte unchanged.
   const StateVariable* src_alpha_svar = nullptr;
   if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
     src_alpha_svar = find_user_alpha_state_var(
         planning_lp().simulation(), scene_index, prev_phase_index, *ua_uid);
   } else {
-    src_alpha_svar = (m_options_.cut_sharing == CutSharingMode::multicut)
-        ? find_alpha_state_var(planning_lp().simulation(),
-                               scene_index,
-                               prev_phase_index,
-                               /*source_scene=*/scene_index)
-        : find_alpha_state_var(
-              planning_lp().simulation(), scene_index, prev_phase_index);
+    src_alpha_svar = find_source_alpha_state_var(
+        planning_lp().simulation(), m_options_, scene_index, prev_phase_index);
   }
   const auto src_alpha_col = (src_alpha_svar != nullptr)
       ? src_alpha_svar->col()
@@ -624,11 +627,108 @@ auto SDDPMethod::backward_pass_single_phase(SceneIndex scene_index,
 
   const auto scale_obj = planning_lp().options().scale_objective();
   const auto t_build = Clock::now();
-  auto cut = build_benders_cut_physical(src_alpha_col,
-                                        src_state.outgoing_links,
-                                        target_state.forward_full_obj_physical,
-                                        scale_obj,
-                                        ceps);
+
+  // ── Strengthened Benders cut (integer_cuts = strengthened) ─────────
+  //
+  // Gated to cells whose target LP genuinely carries integer columns
+  // (integer expansion modules, unit-commitment binaries).  On such a
+  // cell the legacy path below is unsound — the target re-solve is a
+  // MIP with no reduced costs, so the mirror-based cut degenerates to
+  // a flat `α ≥ z_MIP(v̂)` that can overshoot (investigation doc §1).
+  // The strengthened builder replaces it with the certified
+  // LP-relaxation cut whose intercept is tightened by ONE extra MIP
+  // solve (Lagrangian at the LP duals — Theorem SB1 / Corollary SB2 in
+  // `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`).
+  // On failure of the LP-relaxation clone solve, fall back to the
+  // legacy cut path (today's behaviour).  Pure-LP cells never enter
+  // this branch, and `integer_cuts = none` (default) is byte-identical
+  // to previous behaviour.
+  std::optional<StrengthenedCutResult> strengthened;
+  if (m_options_.integer_cuts == IntegerCutsMode::strengthened) {
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    auto& tgt_li = tgt_sys.linear_interface();
+    if (tgt_li.has_integer_cols()) {
+      // The tightening MIP gets a tight gap (a positive gap makes the
+      // incumbent value over-tighten the intercept by up to
+      // gap × |m*| — doc §6.3) and a hard time limit so a hard MIP
+      // degrades to the LP-relaxation cut instead of stalling the
+      // backward pass (aperture-timeout-style accounting).
+      auto mip_opts = opts;
+      // Named so the intercept ε-bound stays traceable: the emitted
+      // intercept over-tightens by at most
+      // `max(mip_gap·|m*|, mip_gap_abs)` (ledger E9; doc §6.3), and
+      // `test_sddp_strengthened_cuts.cpp` derives `mip_oracle_tol`
+      // from these exact values.
+      constexpr double kStrengthenedMipGap = 1e-9;
+      constexpr double kStrengthenedMipGapAbs = 1e-6;
+      mip_opts.mip_gap = kStrengthenedMipGap;
+      mip_opts.mip_gap_abs = kStrengthenedMipGapAbs;
+      if (!mip_opts.time_limit.has_value()) {
+        constexpr double kStrengthenedMipTimeLimit = 30.0;  // seconds
+        mip_opts.time_limit = kStrengthenedMipTimeLimit;
+      }
+      strengthened = build_strengthened_benders_cut(src_alpha_col,
+                                                    src_state.outgoing_links,
+                                                    tgt_li,
+                                                    ceps,
+                                                    opts,
+                                                    mip_opts);
+      if (strengthened.has_value()) {
+        spdlog::debug(
+            "SDDP Backward [i{} s{} p{}/{}]: strengthened cut b_LP={} "
+            "m*={} (tightened={})",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            bwd_total_phases,
+            format_si(strengthened->lp_rhs),
+            format_si(strengthened->mip_rhs),
+            strengthened->tightened);
+      } else {
+        spdlog::warn(
+            "SDDP Backward [i{} s{} p{}/{}]: strengthened-cut LP "
+            "relaxation failed — falling back to the legacy cut path",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            bwd_total_phases);
+      }
+    }
+  } else if (gtopt::uid_of(iteration_index) == 0
+             && !m_mip_flat_cut_warned_.load(std::memory_order_relaxed))
+  {
+    // `integer_cuts = none` on an integer-bearing backward cell: the
+    // legacy mirror cut is NOT certified — a MIP re-solve has no
+    // reduced costs, so the cut degenerates to a flat
+    // `α ≥ z_MIP(v̂)` that can overshoot V_MIP away from the trial
+    // point (sddip doc §1; soundness review §6b).  One-shot runtime
+    // WARN, checked only on the first iteration's backward sweep
+    // (which touches every (scene, phase) cell once) so pure-LP runs
+    // pay the `has_integer_cols` column scan exactly once per cell.
+    auto& tgt_sys = planning_lp().system(scene_index, phase_index);
+    tgt_sys.ensure_lp_built();
+    if (tgt_sys.linear_interface().has_integer_cols()
+        && !m_mip_flat_cut_warned_.exchange(true, std::memory_order_relaxed))
+    {
+      SPDLOG_WARN(
+          "SDDP Backward [s{} p{}]: cell carries integer columns and "
+          "integer_cuts=none — backward cuts from MIP re-solves are NOT "
+          "certified (flat α ≥ z_MIP can overshoot; sddip doc §1).  Set "
+          "sddp_options.integer_cuts_mode=strengthened, or enable "
+          "apertures (LP-relaxation cuts).",
+          uid_of(scene_index),
+          uid_of(phase_index));
+    }
+  }
+
+  auto cut = strengthened.has_value()
+      ? std::move(strengthened->row)
+      : build_benders_cut_physical(src_alpha_col,
+                                   src_state.outgoing_links,
+                                   target_state.forward_full_obj_physical,
+                                   scale_obj,
+                                   ceps);
   sddp_scut_tag.apply_to(cut);
   cut.variable_uid = uid_of(prev_phase_index);
   cut.context = make_iteration_context(uid_of(scene_index),
@@ -1477,8 +1577,8 @@ auto SDDPMethod::run_backward_pass_synchronized(
     const char* env = std::getenv("GTOPT_PARALLEL_APERTURE_BACKWARD");
     return env != nullptr && env[0] != '\0' && env[0] != '0';
   }();
-  const bool aperture_tier2 = tier2_opt_in && use_apertures
-      && static_cast<unsigned>(num_scenes) < hw_cores;
+  const bool aperture_tier2 =
+      tier2_opt_in && use_apertures && std::cmp_less(num_scenes, hw_cores);
   std::optional<CoordinatorPool> aperture_coord;
   if (aperture_tier2) {
     aperture_coord.emplace(static_cast<std::size_t>(num_scenes));

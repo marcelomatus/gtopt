@@ -24,6 +24,20 @@
 namespace daw::json
 {
 using gtopt::Flow;
+using gtopt::InflowModel;
+
+template<>
+struct json_data_contract<InflowModel>
+{
+  using type = json_member_list<json_string_null<"type", OptName>,
+                                json_number_null<"phi", OptReal>,
+                                json_number_null<"sigma", OptReal>>;
+
+  constexpr static auto to_json_data(InflowModel const& im)
+  {
+    return std::forward_as_tuple(im.type, im.phi, im.sigma);
+  }
+};
 
 template<>
 struct json_data_contract<Flow>
@@ -39,7 +53,8 @@ struct json_data_contract<Flow>
       json_variant_null<"discharge",
                         OptSTBRealFieldSched,
                         jvtl_STBRealFieldSched>,
-      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>>;
+      json_variant_null<"fcost", OptTBRealFieldSched, jvtl_TBRealFieldSched>,
+      json_class_null<"inflow_model", gtopt::OptInflowModel>>;
 
   constexpr static auto to_json_data(Flow const& flow)
   {
@@ -51,7 +66,8 @@ struct json_data_contract<Flow>
                                  flow.direction,
                                  flow.junction,
                                  flow.discharge,
-                                 flow.fcost);
+                                 flow.fcost,
+                                 flow.inflow_model);
   }
 };
 }  // namespace daw::json

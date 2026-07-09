@@ -169,17 +169,25 @@ TEST_CASE("CutSharingMode from_name")  // NOLINT
 {
   using namespace gtopt;
 
-  CHECK(enum_from_name<CutSharingMode>("none").value_or(
-            CutSharingMode::broadcast_mean)
-        == CutSharingMode::none);
   CHECK(
-      enum_from_name<CutSharingMode>("expected").value_or(CutSharingMode::none)
-      == CutSharingMode::broadcast_mean);
-  CHECK(enum_from_name<CutSharingMode>("accumulate")
-            .value_or(CutSharingMode::none)
-        == CutSharingMode::accumulate);
-  CHECK(enum_from_name<CutSharingMode>("max").value_or(CutSharingMode::none)
-        == CutSharingMode::max);
+      enum_from_name<CutSharingMode>("none").value_or(CutSharingMode::multicut)
+      == CutSharingMode::none);
+  CHECK(
+      enum_from_name<CutSharingMode>("multicut").value_or(CutSharingMode::none)
+      == CutSharingMode::multicut);
+  // The invalid modes were REMOVED 2026-07-08 — their names no longer
+  // parse (ingestion paths report a dedicated removal error via
+  // `is_removed_cut_sharing_mode_name`).
+  CHECK_FALSE(enum_from_name<CutSharingMode>("expected").has_value());
+  CHECK_FALSE(enum_from_name<CutSharingMode>("broadcast_mean").has_value());
+  CHECK_FALSE(enum_from_name<CutSharingMode>("accumulate").has_value());
+  CHECK_FALSE(enum_from_name<CutSharingMode>("max").has_value());
+  CHECK(is_removed_cut_sharing_mode_name("expected"));
+  CHECK(is_removed_cut_sharing_mode_name("broadcast_mean"));
+  CHECK(is_removed_cut_sharing_mode_name("accumulate"));
+  CHECK(is_removed_cut_sharing_mode_name("MAX"));  // case-insensitive
+  CHECK_FALSE(is_removed_cut_sharing_mode_name("none"));
+  CHECK_FALSE(is_removed_cut_sharing_mode_name("multicut"));
   CHECK_FALSE(enum_from_name<CutSharingMode>("bad").has_value());
 }
 
@@ -302,7 +310,7 @@ TEST_CASE("validate_enum_options returns empty for valid explicit values")
   raw.input_format = DataFormat::csv;
   raw.output_format = DataFormat::parquet;
   raw.output_compression = CompressionCodec::gzip;
-  raw.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
   raw.sddp_options.elastic_mode = ElasticFilterMode::multi_cut;
   raw.sddp_options.boundary_cuts_mode = BoundaryCutsMode::combined;
   raw.sddp_options.cut_recovery_mode = HotStartMode::replace;
@@ -340,7 +348,7 @@ TEST_CASE(
   PlanningOptions raw;
   raw.method = MethodType::sddp;
   raw.input_format = DataFormat::csv;
-  raw.sddp_options.cut_sharing_mode = CutSharingMode::broadcast_mean;
+  raw.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
   const PlanningOptionsLP opts(std::move(raw));
   const auto warnings = opts.validate_enum_options();
   CHECK(warnings.empty());

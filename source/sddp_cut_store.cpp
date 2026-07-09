@@ -544,14 +544,12 @@ void SDDPCutManager::apply_cut_sharing_for_iteration(
 
     // ``share_cuts_for_phase`` builds a per-scene
     // ``IterationContext`` internally (using the destination scene's
-    // UID) so the accumulated/expected shared cut row carries
-    // unique label metadata in every destination scene's LP — see
-    // its ``stamp_for_scene`` helper.  Without that, the new
-    // SparseRow synthesised by ``accumulate_benders_cuts`` /
-    // ``average_benders_cut`` would land in the LP with empty
-    // ``class_name`` and ``generate_labels_from_maps`` would
-    // throw "row N has metadata without a class_name
-    // (unlabelable)".
+    // UID) so every broadcast cut row carries unique label metadata
+    // in every destination scene's LP — see its ``stamp_for_scene``
+    // helper.  Without that, ``generate_labels_from_maps`` would
+    // throw "row N has metadata without a class_name (unlabelable)"
+    // or trip the duplicate-label invariant when the same cut is
+    // replicated across scenes.
     gtopt::share_cuts_for_phase(
         pi, per_scene_cuts, options.cut_sharing, planning_lp, iteration_index);
   }

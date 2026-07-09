@@ -13,6 +13,7 @@
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/output_context.hpp>
 #include <gtopt/system_context.hpp>
+#include <gtopt/system_lp.hpp>  // sc.system().scene() needs the full definition
 
 namespace gtopt
 {
@@ -28,6 +29,29 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   }
 
   const auto stage_uid = stage.uid();
+
+  // Per-scene probability weight for the capacity carrying-cost (CAPEX)
+  // coefficients.  Capacity columns are added ONCE per scene (the
+  // `scenario.is_first()` guard above), but the objective must still fold
+  // the SAME probability mass the dispatch/OPEX coefficients carry, or the
+  // carrying charge is mis-weighted relative to dispatch.
+  //
+  //   * Monolithic LP: `scene_array` is empty → a single synthetic scene
+  //     (`count_scenario = dynamic_extent`) holds EVERY scenario, whose
+  //     `probability_factor` values sum to 1.0 → `scene_prob = 1.0`.  This
+  //     reproduces the previous `stage_ecost(stage, 1.0)` behaviour exactly.
+  //   * Per-scene SDDP LP: each scene holds its own scenario(s) carrying the
+  //     GLOBALLY-normalized weight p_s (one scenario per scene → p_s, e.g.
+  //     0.5), so dispatch folds by p_s via `block_ecost`; folding CAPEX by
+  //     the same `scene_prob = p_s` keeps carrying cost and dispatch on the
+  //     same probability footing.  Summed across scenes
+  //     (`compute_iteration_bounds` is a plain sum) the carrying charge
+  //     reconstitutes exactly once — matching the extensive form.
+  //
+  // `SceneLP::probability_factor()` sums the (active) scenarios in the
+  // scene; the bound `SystemLP` exposes the scene for the current
+  // (scene, phase) cell.
+  const auto scene_prob = sc.system().scene().probability_factor();
 
   const auto stage_expcap = m_expcap_.at(stage_uid).value_or(0.0);
   const auto stage_expmod = m_expmod_.at(stage_uid).value_or(0.0);
@@ -143,16 +167,16 @@ bool CapacityObjectBase::add_to_lp(SystemContext& sc,
   capainst_row.context = stg_ctx;
   capainst_row[capainst_col] = -1;
 
-  const auto capacost_col =
-      sc.add_state_col(lp,
-                       sv_key_p(scenario, stage, CapacostName),
-                       SparseCol {
-                           .cost = CostHelper::stage_ecost(stage, 1.0),
-                           .class_name = m_class_name_,
-                           .variable_name = CapacostName,
-                           .variable_uid = uid(),
-                           .context = stg_ctx,
-                       });
+  const auto capacost_col = sc.add_state_col(
+      lp,
+      sv_key_p(scenario, stage, CapacostName),
+      SparseCol {
+          .cost = CostHelper::stage_ecost(stage, 1.0, scene_prob),
+          .class_name = m_class_name_,
+          .variable_name = CapacostName,
+          .variable_uid = uid(),
+          .context = stg_ctx,
+      });
 
   SparseRow capacost_row;
   capacost_row.class_name = m_class_name_;

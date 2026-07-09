@@ -29,7 +29,9 @@
 
 #pragma once
 
+#include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>
@@ -60,8 +62,12 @@ class PlanningLP;
 // The generic enum_from_name<CutSharingMode>() replaces the old
 // parse_cut_sharing_mode() free function.
 
-/// Parse a cut-sharing mode from a string (backward-compatible wrapper).
-/// ("none", "expected", "accumulate", "max")
+/// Parse a cut-sharing mode from a string ("none", "multicut",
+/// "markov").
+/// Throws `std::invalid_argument` on any other spelling — including
+/// the modes REMOVED 2026-07-08 ("accumulate", "broadcast_mean" /
+/// "expected", "max"), which get a dedicated removal message plus an
+/// ERROR-level log (see `is_removed_cut_sharing_mode_name`).
 [[nodiscard]] CutSharingMode parse_cut_sharing_mode(std::string_view name);
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -370,6 +376,118 @@ constexpr double kSddpGapFpEpsilon = 1.0e-9;
 [[nodiscard]] ElasticFilterMode parse_elastic_filter_mode(
     std::string_view name);
 
+// ─── Markov-chain SDDP configuration ────────────────────────────────────────
+
+/// Configuration for `CutSharingMode::markov` (Markov-chain SDDP,
+/// opt-in / experimental — `docs/formulation/sddp-markov.md`).
+///
+/// Each scene `s` is statically assigned a Markov state
+/// `state_of_scene[s] ∈ [0, num_states)`; `transition` is the
+/// row-major `num_states × num_states` row-stochastic matrix `P`.
+/// Every non-terminal scene-LP then carries `num_states` future-cost
+/// columns `varphi_0..M-1` (uid = `sddp_alpha_uid + m`), scene-S's
+/// backward cut lands on `varphi_{m(S)}` in every scene-LP, and
+/// `varphi_{m'}` is priced `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}`
+/// where `pi_{m'}` is the state's total scene-probability mass
+/// (theorem MK1).  Validate with `validate_markov_config` before use.
+struct MarkovChainConfig
+{
+  /// Scene → Markov-state assignment (size = number of scenes, each
+  /// value in `[0, num_states)`).  Static per scene (v1).
+  std::vector<int> state_of_scene {};
+  /// Row-major `num_states × num_states` row-stochastic transition
+  /// matrix `P` (rows sum to ≈ 1, entries ≥ 0).
+  std::vector<double> transition {};
+  /// Number of Markov states `M` (the transition matrix dimension).
+  std::size_t num_states {0};
+
+  /// True when no Markov configuration was supplied.
+  [[nodiscard]] constexpr bool empty() const noexcept
+  {
+    return num_states == 0;
+  }
+
+  /// Transition probability `P[from][to]` (callers go through
+  /// `validate_markov_config` first; the assert catches the one that
+  /// forgets).
+  [[nodiscard]] double probability(std::size_t from,
+                                   std::size_t to) const noexcept
+  {
+    assert(from < num_states && to < num_states);
+    return transition[(from * num_states) + to];
+  }
+
+  /// Markov state `m(s)` of the given scene (callers go through
+  /// `validate_markov_config` first).  Absorbs the double-cast chain
+  /// at the α-routing call sites.
+  [[nodiscard]] std::size_t state_of(SceneIndex scene_index) const noexcept
+  {
+    assert(static_cast<std::size_t>(scene_index) < state_of_scene.size());
+    return static_cast<std::size_t>(
+        state_of_scene[static_cast<std::size_t>(scene_index)]);
+  }
+};
+
+/// True when Markov-chain SDDP pricing/routing is in effect: the mode
+/// is `markov` AND a non-empty chain configuration is present.  THE
+/// single predicate shared by `alpha_col_weights` (pricing) and
+/// `register_alpha_variables` (column layout) so the two cannot drift.
+[[nodiscard]] constexpr bool markov_active(
+    CutSharingMode cut_sharing, const MarkovChainConfig* markov) noexcept
+{
+  return cut_sharing == CutSharingMode::markov && markov != nullptr
+      && !markov->empty();
+}
+
+/// Build a `MarkovChainConfig` from the JSON-facing arrays
+/// (`SddpOptions::markov_states` / `markov_transition`).  `num_states`
+/// is inferred as the integer square root of the transition length;
+/// a non-square length yields the raw length preserved so
+/// `validate_markov_config` can report it.  No validation here.
+[[nodiscard]] MarkovChainConfig make_markov_config(
+    std::vector<int> state_of_scene, std::vector<double> transition);
+
+/// Validate a Markov configuration against the scene count: `M ≥ 1`,
+/// square transition of matching dimension with finite non-negative
+/// entries and row sums within `1e-6` of 1, one assignment per scene,
+/// every assignment in range, and every state non-empty (an empty
+/// state has zero mass and the `w = p_s·P/pi` pricing divides by it).
+/// Returns the error message, or `nullopt` when valid.
+[[nodiscard]] std::optional<std::string> validate_markov_config(
+    const MarkovChainConfig& markov, std::size_t num_scenes);
+
+/// Per-scene probability mass `p_s` — THE single derivation shared by
+/// the M4/MK1 pricing (`alpha_col_weights` → `alpha_unit_cost` /
+/// `markov_alpha_weights`) and the resampled forward draw
+/// (`sample_forward_realization`).
+///
+/// Rule: `mass_s = max(SceneLP::probability_factor(), 0)` — negative
+/// data is clamped to 0 — and when EVERY scene is degenerate
+/// (total ≤ 0) the whole vector falls back to all-ones (uniform).  A
+/// single zero-mass scene among positive ones stays 0: it must never
+/// be sampled and its folded objective contributes 0.
+/// (`compute_scene_weights` keeps its own per-scene feasibility layer
+/// on top of raw probabilities — that path masks infeasible scenes,
+/// which this pure mass derivation has no business knowing about.)
+[[nodiscard]] std::vector<double> scene_probability_masses(
+    const SimulationLP& sim);
+
+/// Per-column pricing weights of scene-@p scene_index's LP under
+/// `CutSharingMode::markov`: `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}`
+/// for `m' = 0..M-1` (theorem MK1 in `docs/formulation/sddp-markov.md`
+/// §2).  Scene probabilities come from `scene_probability_masses`
+/// (single shared derivation); the weights are scale-invariant in the
+/// total mass, so no normalization is applied.  A zero-mass state
+/// (every assigned scene degenerate) prices its column 0 — the state
+/// is unreachable under the folded measure.  Consumed via the
+/// mode-aware `alpha_col_weights` accessor, which
+/// `register_alpha_variables` (objective pricing) and the forward-pass
+/// UB strip both call so the two always agree.
+[[nodiscard]] std::vector<double> markov_alpha_weights(
+    const SimulationLP& sim,
+    const MarkovChainConfig& markov,
+    SceneIndex scene_index);
+
 /// Configuration options for the SDDP iterative solver
 struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
@@ -400,21 +518,49 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// legitimately go negative (net-revenue phases, mid-convergence
   /// cuts that haven't yet tightened LB above zero).
   double scale_alpha {0};
-  /// Cut sharing mode across scenes.  WARNING: only `none` is
-  /// mathematically valid for HETEROGENEOUS scenes (scenes with
-  /// different probabilities or different dynamics).  Modes
-  /// `accumulate`, `expected`, and `max` broadcast a cut from scene S
-  /// to every other scene's α LP, which is only valid when all scenes
-  /// are mathematically identical (cuts from any scene coincide).
-  /// Otherwise the broadcast cut over-tightens α at scenes whose
-  /// actual future cost is below the broadcast bound, producing
-  /// LB > UB ("LB overshoot") that compounds across iterations and
-  /// can grow by orders of magnitude (juan/gtopt_iplp regressed at
-  /// 7225× before this was diagnosed).  See
-  /// `test/source/test_sddp_bounds_sanity.cpp` for the regression
-  /// guard.  Default `none` is the only safe choice for production
-  /// runs with non-uniform hydrology / probability scenarios.
+  /// Cut sharing mode across scenes.  Two modes remain
+  /// (`docs/formulation/sddp-cut-validity.md` §7–§8):
+  ///
+  ///  * `none` (default): each scene's single α is bounded only by its
+  ///    own cuts — the per-scene persistent-path (wait-and-see) lower
+  ///    bound, **unconditionally valid** (theorem N1).
+  ///  * `multicut`: PLP-faithful per-scenario varphi columns priced at
+  ///    the M4 weight `w_r = p_s` (`alpha_col_weights`; = 1/N under
+  ///    uniform probabilities); the LB is the lower bound of the
+  ///    stagewise-RESAMPLED process with measure `q_r = p_r`, valid for
+  ///    any probability vector (theorems M1/M4 — an INFO notes the
+  ///    persistent-UB vs resampled-LB process mismatch at SDDP setup
+  ///    when probabilities are non-uniform).
+  ///
+  /// REMOVED 2026-07-08: `accumulate`, `broadcast_mean` (alias
+  /// `expected`), and `max` — KNOWN INVALID broadcasts onto the
+  /// destination scene's own α that produced compounding LB > UB on
+  /// distinct sample paths (juan/gtopt_iplp regressed at 7225× before
+  /// this was diagnosed).  Their names now hard-error at ingestion.
+  /// See `test/source/test_sddp_bounds_sanity.cpp` for the regression
+  /// guards and `test/source/test_sddp_cut_oracle.cpp` for the
+  /// extensive-form certification harness.
   CutSharingMode cut_sharing {CutSharingMode::none};
+
+  /// Markov-chain configuration for `cut_sharing = markov` (scene →
+  /// state assignment + row-stochastic transition matrix).  Ignored by
+  /// every other mode.  Validated by `validate_markov_config` at SDDP
+  /// setup; see `docs/formulation/sddp-markov.md`.
+  MarkovChainConfig markov {};
+
+  /// Integer-cut mode for backward-pass cells whose LP carries integer
+  /// columns (integer expansion modules, unit-commitment binaries):
+  ///
+  ///  * `none` (default): legacy behaviour, byte-identical.  Pure-LP
+  ///    cells emit the certified Theorem-O1 cut; integer-bearing cells
+  ///    are UNSOUND (no reduced costs on a MIP — see
+  ///    `docs/analysis/investigations/sddp/`
+  ///    `sddip_integer_expansion_2026-07.md` §1).
+  ///  * `strengthened`: LP-relaxation cut + one-MIP Lagrangian
+  ///    intercept (Zou, Ahmed & Sun 2019).  Valid by weak Lagrangian
+  ///    duality (Theorem SB1), never looser than the LP cut
+  ///    (Corollary SB2); silent LP fallback on MIP failure/timeout.
+  IntegerCutsMode integer_cuts {IntegerCutsMode::none};
 
   /// How terminal/boundary cuts are shared across scenes on the terminal α —
   /// the terminal-phase analogue of `cut_sharing` (resolved from
@@ -430,6 +576,20 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// in `sddp_enums.hpp` for the full rationale.  Default `iteration`:
   /// symmetric across scenes, run-to-run reproducible.
   CutDrainMode cut_drain_mode {CutDrainMode::iteration};
+
+  /// How the forward pass samples stochastic scene data:
+  ///
+  ///  * `persistent` (default): each scene-driver simulates its own
+  ///    scenario path at every phase — historical behaviour,
+  ///    byte-identical (the resampling code is never entered).
+  ///  * `resampled`: per-phase-boundary probability-weighted re-draw
+  ///    applied via the bound-only `update_aperture` machinery; the UB
+  ///    then estimates the same `q_r = p_r` resampled process the
+  ///    multicut LB certifies.  v1: one sampled path per scene-driver
+  ///    per iteration, deterministic in (iteration, scene, phase).
+  ///
+  /// See `ForwardSamplingMode` (sddp_enums.hpp) for the full story.
+  ForwardSamplingMode forward_sampling {ForwardSamplingMode::persistent};
 
   /// Elastic filter mode: how the FORWARD pass emits feasibility
   /// cuts when a phase LP is infeasible at the trial state.  Only
@@ -775,16 +935,28 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   int aperture_chunk_size {0};
 
   /// Aperture solve / cut-recovery mode: `cold` (barrier + crossover,
-  /// vertex reduced-cost cuts; default), `warm` (warm simplex off the
-  /// resident chunk basis), or `reduced_cost` (barrier without crossover,
-  /// interior-point reduced-cost cuts).  See
+  /// vertex reduced-cost cuts), `warm` (warm simplex off the resident
+  /// chunk basis; default), `reduced_cost` (barrier without crossover,
+  /// interior-point reduced-cost cuts), `dual_shared` (representative
+  /// solve + Infanger–Morton dual-shared synthesis), or `screened`
+  /// (`dual_shared` + exact re-solve of the top `aperture_screen_count`
+  /// cuts by |correction|).  See
   /// `sddp_options.hpp::aperture_solve_mode` for the full rationale.
   ApertureSolveMode aperture_solve_mode {ApertureSolveMode::warm};
 
+  /// Number of dual-shared aperture cuts re-solved exactly under
+  /// `aperture_solve_mode = screened` (picked by largest |intercept
+  /// correction|).  Ignored by every other mode.  Default: the shared
+  /// `default_sddp_aperture_screen_count` constant (sddp_enums.hpp).
+  /// See `sddp_options.hpp::aperture_screen_count`.
+  int aperture_screen_count {default_sddp_aperture_screen_count};
+
   /// Seed each iteration's first backward aperture from the previous
   /// iteration's first-aperture basis (dual warm start).  Orthogonal to
-  /// `aperture_solve_mode`; only acts when the mode is `cold`/`warm`.
-  /// Default false.  See `sddp_options.hpp::aperture_seed_basis`.
+  /// `aperture_solve_mode`; acts for every basis-capable (vertex) mode
+  /// — i.e. all modes except `reduced_cost`, which has no basis to
+  /// capture.  Default false.  See
+  /// `sddp_options.hpp::aperture_seed_basis`.
   bool aperture_seed_basis {false};
 
   /// Cross-pass simplex-basis warm-start reuse between the forward and
@@ -1154,6 +1326,31 @@ struct SDDPIterationResult
     SceneIndex source_scene,
     SystemKind kind = SystemKind::forward) noexcept;
 
+/// Resolve THE α column a scene-S backward/aperture cut must target on
+/// `(scene_index, src_phase_index)` under the configured cut-sharing
+/// mode — the single mode-dispatch shared by the pure-Benders backward
+/// pass and both aperture backward variants (a fourth cut-sharing mode
+/// extends the routing here, in exactly one place):
+///
+///  * `markov`: the Markov-STATE column `varphi_{m(S)}`
+///    (uid = `sddp_alpha_uid + m(S)` — the state index rides the
+///    multicut overload's uid-offset scheme;
+///    `docs/formulation/sddp-markov.md` §2/§6).
+///  * `multicut`: scene S's OWN column `varphi_S`
+///    (uid = `sddp_alpha_uid + S`; PLP `plp-agrespd.f:94` parity).
+///  * single-α modes: the legacy offset-0 lookup.
+///
+/// Does NOT handle the user-overridable FCF (`use_user_alpha`) — the
+/// one call site that supports it (`backward_pass_single_phase`)
+/// dispatches to `find_user_alpha_state_var` BEFORE falling back to
+/// this resolution.  Returns `nullptr` when the cell has no registered
+/// α (mirrors `find_alpha_state_var`).
+[[nodiscard]] const StateVariable* find_source_alpha_state_var(
+    const SimulationLP& sim,
+    const SDDPOptions& options,
+    SceneIndex scene_index,
+    PhaseIndex src_phase_index) noexcept;
+
 /// Look up the USER-authored α (future-cost) state variable for the dynamic
 /// `AmplFutureCost` recourse (piece 5 step 2c).  Unlike `find_alpha_state_var`
 /// (which is keyed on the built-in `sddp_alpha_lp_class`), this resolves the
@@ -1185,6 +1382,77 @@ struct SDDPIterationResult
     SceneIndex scene_index,
     PhaseIndex phase_index,
     SystemKind kind = SystemKind::forward);
+
+/// THE single mode-aware accessor for the per-column objective weights
+/// of the `n_alpha` α (future-cost) columns on a scene-LP cell —
+/// shared by `register_alpha_variables` (column pricing) and the
+/// forward-pass UB strip so the priced future term and the stripped
+/// future term are structurally unable to diverge.  This is the ONLY
+/// public pricing accessor; the uniform M4 weight it replicates for
+/// non-Markov layouts (`alpha_unit_cost`) is an implementation detail
+/// internal to `sddp_method_alpha.cpp`.
+///
+///  * `markov_active(cut_sharing, markov)` on a NON-terminal phase
+///    with `markov->num_states == n_alpha`: the MK1 per-state weights
+///    `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}`
+///    (`markov_alpha_weights`; `docs/formulation/sddp-markov.md` §2).
+///  * every other layout — `none` (n_alpha = 1 → weight 1.0),
+///    `multicut`, and ANY terminal phase (which follows
+///    `boundary_cut_sharing`, never markov): the uniform M4 weight
+///    `w_r = p_s` replicated `n_alpha` times (Prop. M4,
+///    `docs/formulation/sddp-cut-validity.md` §8; ledger §1.2) — the
+///    normalized probability of the scene that OWNS the LP, uniform
+///    across the N columns (NOT `p_r` per column).  With
+///    `varphi_r ≈ V_r = p_r·Ṽ_r`, the scene-LP future term becomes
+///    `Σ_r p_s·p_r·Ṽ_r`, i.e. after dividing by `p_s` the Bellman
+///    recursion of the process resampled with measure `q_r = p_r` — a
+///    certified lower bound for that process for ANY probability
+///    vector.  Under uniform probabilities `p_s = 1/N` this reproduces
+///    the historical `1/N` pricing exactly.  Masses come from
+///    `scene_probability_masses`; a zero-mass OWNING scene (folded
+///    objective 0 anyway) falls back to the uniform `1/n_alpha`.
+///
+/// Always returns exactly `n_alpha` entries.  @p markov may be null
+/// (treated as empty — non-markov pricing).
+[[nodiscard]] std::vector<double> alpha_col_weights(
+    const SimulationLP& sim,
+    CutSharingMode cut_sharing,
+    const MarkovChainConfig* markov,
+    SceneIndex scene_index,
+    std::size_t n_alpha,
+    bool terminal_phase);
+
+/// Deterministic probability-weighted index draw for the forward-pass
+/// resampling (`ForwardSamplingMode::resampled`).
+///
+/// Pure function of `(weights, iteration, scene, phase)` — a
+/// splitmix64 hash chain mapped through the normalized weight CDF —
+/// deliberately NOT a `<random>` engine/distribution pair, whose
+/// output is implementation-defined across standard libraries: the
+/// sampled path must be bit-reproducible everywhere, stable under
+/// forward-pass BACKTRACKING (re-entering the same (iteration, scene,
+/// phase) re-draws the SAME realization) and independent of thread
+/// scheduling.
+///
+/// Degenerate inputs: an empty span returns 0; a non-positive total
+/// weight falls back to a uniform draw over `weights.size()`.
+/// Negative entries are clamped to 0.
+[[nodiscard]] std::size_t sample_weighted_index(std::span<const double> weights,
+                                                std::uint64_t iteration,
+                                                std::uint64_t scene,
+                                                std::uint64_t phase) noexcept;
+
+/// SimulationLP-facing wrapper over `sample_weighted_index`: draws a
+/// SCENE index with probability proportional to each scene's
+/// `probability_factor` (sum of its scenarios'), keyed on
+/// `(iteration_index, scene_index, phase_index)`.  Consumed by the
+/// forward pass under `ForwardSamplingMode::resampled`; single-scene
+/// simulations always return scene 0.
+[[nodiscard]] SceneIndex sample_forward_realization(
+    const SimulationLP& sim,
+    IterationIndex iteration_index,
+    SceneIndex scene_index,
+    PhaseIndex phase_index) noexcept;
 
 /// Release α's bootstrap pin (`lowb = uppb = 0`) at the given
 /// `(scene, phase)` cell.  Sets `lowb = -DblMax`, `uppb = +DblMax`
@@ -1291,13 +1559,20 @@ void record_col_bounds_dynamic(PlanningLP& planning_lp,
 ///        the built-in α is inert (pinned `lowb = uppb = 0`, never priced,
 ///        never floored, never cut) and the user-authored α + cuts fully
 ///        replace it.
+/// @param markov  Markov-chain configuration, consulted only when
+///        `cut_sharing == CutSharingMode::markov`: non-terminal phases
+///        then carry `markov->num_states` α columns priced by
+///        `markov_alpha_weights` (theorem MK1,
+///        `docs/formulation/sddp-markov.md`).  `nullptr` / empty keeps
+///        the mode-independent legacy layout.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha,
                               CutSharingMode cut_sharing = CutSharingMode::none,
                               BoundaryCutSharingMode boundary_cut_sharing =
                                   BoundaryCutSharingMode::per_scene,
-                              bool register_as_state_variable = true);
+                              bool register_as_state_variable = true,
+                              const MarkovChainConfig* markov = nullptr);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case
@@ -1437,6 +1712,15 @@ struct PhaseStateInfo
   /// BACKWARD-pass solve last iteration, reused to warm-start the next
   /// forward solve (`BasisCrossMode::backward_to_forward`/`full_cross`).
   Basis backward_basis {};
+  /// Forward-sampling realization cache (`ForwardSamplingMode::resampled`):
+  /// the scene whose scenario data is currently pinned onto this cell's
+  /// forward-LP stochastic bounds — drawn by `sample_forward_realization`
+  /// in the forward pass and re-applied by the backward pass's target
+  /// re-solve so the cut is provably built from the SAME realization the
+  /// forward pass simulated.  `nullopt` under `persistent` (never
+  /// written — byte-identical default path) and after the simulation
+  /// pass restores the scene's own data.
+  std::optional<SceneIndex> sampled_scene {};
 };
 
 // ─── Callback / observer API ────────────────────────────────────────────────

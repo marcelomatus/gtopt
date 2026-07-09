@@ -3,7 +3,24 @@
     "Golden reference for the sddp_hydro_3phase integration case.",
     "Captured from a converged iter=50 low_memory=off run.",
     "`tools/validate_sddp_output.py --golden-json` asserts the current",
-    "run matches these values to `tolerance`."
+    "run matches these values to `tolerance`.",
+    "",
+    "Reduced pin set (2026-07-08): this fixture's optimum is PRIMAL",
+    "DEGENERATE — hydro (gcost 5) substitutes thermal (gcost 50) at a",
+    "constant 45/MWh saving in every phase, so the marginal water value",
+    "is flat and ANY allocation of the reservoir budget across phases",
+    "and blocks is an alternate optimum with the same total objective.",
+    "The per-phase obj_value tails, the intermediate reservoir efin,",
+    "and the per-block dispatch all sit on that flat face and drift",
+    "with solver pivot order, low_memory mode, and cut-path details.",
+    "The base golden therefore pins only solver-invariant quantities:",
+    "the TOTAL objective / LB / UB / gap, per-phase solve statuses,",
+    "the drained horizon efin (leftover water always has positive",
+    "substitution value, so every optimum drains), and the phase-1 bus",
+    "balance dual (thermal is strictly interior, so the marginal cost",
+    "is its gcost).  The per-solver variants",
+    "(golden_iter50_<solver>.json) adopted this reduced set first; see",
+    "golden_iter50_hotstart_clp.json for the original diagnosis."
   ],
   "tolerance": {
     "abs": 1.0,
@@ -17,28 +34,19 @@
     "upper_bound": 323100.0,
     "gap": 0.0
   },
+  "// solution_csv_rows": [
+    "Phase-1 obj_value is the cumulative total (strict pin).  Phases 2-3",
+    "pin status only — their obj_value tails are the degenerate",
+    "per-phase split (see description)."
+  ],
   "solution_csv_rows": [
     {"scene": 0, "phase": 1, "status": 0, "obj_value": 323100.0},
-    {"scene": 0, "phase": 2, "status": 0, "obj_value": 212325.0},
-    {"scene": 0, "phase": 3, "status": 0, "obj_value": 103125.0}
-  ],
-  "// element_samples": [
-    "Pins concrete primal/dual values at specific (class, stem, filter,",
-    "column) points in the hive-partitioned parquet.",
-    "`filter` is a {col: value} map applied to the loaded DataFrame;",
-    "`value_column` names the column to read; `expected` is the target."
+    {"scene": 0, "phase": 2, "status": 0},
+    {"scene": 0, "phase": 3, "status": 0}
   ],
   "element_samples": [
     {
-      "// Reservoir final energy — end of phase 1, stage 1:": "",
-      "class": "Reservoir",
-      "stem": "efin_sol",
-      "filter": {"scene": 0, "phase": 1, "stage": 1},
-      "value_column": "uid:1",
-      "expected": 135.0
-    },
-    {
-      "// Reservoir final energy — end of phase 3, stage 3 (drained):": "",
+      "// Reservoir drained at the horizon — solver-invariant:": "",
       "class": "Reservoir",
       "stem": "efin_sol",
       "filter": {"scene": 0, "phase": 3, "stage": 3},
@@ -46,23 +54,7 @@
       "expected": 0.0
     },
     {
-      "// Hydro generation — phase 1, stage 1, block 1:": "",
-      "class": "Generator",
-      "stem": "generation_sol",
-      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
-      "value_column": "uid:1",
-      "expected": 10.0
-    },
-    {
-      "// Thermal generation (back-fill) — phase 1, stage 1, block 1:": "",
-      "class": "Generator",
-      "stem": "generation_sol",
-      "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},
-      "value_column": "uid:2",
-      "expected": 90.0
-    },
-    {
-      "// Bus balance dual = marginal cost — thermal gcost dominates:": "",
+      "// Bus balance dual = marginal cost = thermal gcost:": "",
       "class": "Bus",
       "stem": "balance_dual",
       "filter": {"scene": 0, "phase": 1, "stage": 1, "block": 1},

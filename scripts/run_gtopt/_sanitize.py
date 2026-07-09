@@ -25,7 +25,26 @@ _VALID_OUTPUT_FORMATS = {"parquet", "csv"}
 _VALID_LP_ALGORITHMS = {0, 1, 2, 3}
 _VALID_CUT_RECOVERY_MODES = {"none", "keep", "append", "replace"}
 _VALID_RECOVERY_MODES = {"none", "cuts", "full"}
-_VALID_CUT_SHARING_MODES = {"none", "expected", "accumulate", "max"}
+# "expected"/"broadcast_mean", "accumulate", and "max" were REMOVED from
+# gtopt on 2026-07-08 (invalid cut broadcasts; see
+# docs/formulation/sddp-cut-validity.md section 7) -- gtopt now hard-errors.
+# "markov" (opt-in, experimental) additionally requires markov_states +
+# markov_transition in sddp_options (docs/formulation/sddp-markov.md).
+_VALID_CUT_SHARING_MODES = {"none", "multicut", "markov"}
+_VALID_FORWARD_SAMPLING_MODES = {"persistent", "resampled"}
+_VALID_INTEGER_CUTS_MODES = {"none", "strengthened"}
+# Canonical names + back-compat aliases (warm_start -> warm,
+# barrier -> reduced_cost); mirrors `aperture_solve_mode_entries`
+# in include/gtopt/sddp_enums.hpp.
+_VALID_APERTURE_SOLVE_MODES = {
+    "cold",
+    "warm",
+    "warm_start",
+    "reduced_cost",
+    "barrier",
+    "dual_shared",
+    "screened",
+}
 _VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
@@ -200,12 +219,26 @@ def _validate_sddp_options(sddp: dict, messages: list[str]) -> None:
         ("cut_recovery_mode", _VALID_CUT_RECOVERY_MODES),
         ("recovery_mode", _VALID_RECOVERY_MODES),
         ("cut_sharing_mode", _VALID_CUT_SHARING_MODES),
+        ("forward_sampling_mode", _VALID_FORWARD_SAMPLING_MODES),
+        ("integer_cuts_mode", _VALID_INTEGER_CUTS_MODES),
+        ("aperture_solve_mode", _VALID_APERTURE_SOLVE_MODES),
         ("elastic_mode", _VALID_ELASTIC_MODES),
         ("boundary_cuts_mode", _VALID_BOUNDARY_MODES),
     ]:
         val = sddp.get(mode_key)
         if val and val not in valid:
             messages.append(f"WARN: sddp {mode_key}='{val}' not in {valid}")
+
+    # markov cut sharing needs its chain configuration; C++ hard-errors
+    # at SDDP setup (validate_markov_config), surface it pre-flight.
+    if sddp.get("cut_sharing_mode") == "markov":
+        for req in ("markov_states", "markov_transition"):
+            if not sddp.get(req):
+                messages.append(
+                    f"WARN: sddp cut_sharing_mode='markov' without {req} — "
+                    "the C++ side rejects this at SDDP setup "
+                    "(validate_markov_config)"
+                )
 
     svlm = sddp.get("state_variable_lookup_mode")
     if svlm is not None and svlm not in ("warm_start", "cross_phase"):

@@ -23,9 +23,11 @@
 #include <gtopt/iteration.hpp>
 #include <gtopt/lp_context.hpp>
 #include <gtopt/planning_lp.hpp>
+#include <gtopt/sddp_aperture.hpp>
 #include <gtopt/sddp_common.hpp>
 #include <gtopt/sddp_method.hpp>
 #include <gtopt/system_lp.hpp>
+#include <gtopt/utils.hpp>
 
 #ifndef SPDLOG_ACTIVE_LEVEL
 #  define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_TRACE
@@ -35,6 +37,60 @@
 
 namespace gtopt
 {
+
+void SDDPMethod::apply_sampled_realization(SceneIndex scene_index,
+                                           PhaseIndex phase_index,
+                                           SceneIndex realization)
+{
+  const auto& sim = planning_lp().simulation();
+  const auto& scene_scenarios = sim.scenes()[scene_index].scenarios();
+  const auto& real_scenarios = sim.scenes()[realization].scenarios();
+  if (scene_scenarios.empty() || real_scenarios.empty()) {
+    return;  // no scenario data to read/write — leave the LP untouched
+  }
+  // v1 convention: ONE sampled path per scene-driver per iteration — the
+  // realization is the drawn scene's FIRST scenario, mirroring the
+  // aperture backward pass's `scene_scenarios.front()` base-scenario
+  // convention (`backward_pass_with_apertures`).
+  const auto& base_scenario = scene_scenarios.front();
+  const auto realization_uid = real_scenarios.front().uid();
+
+  auto& sys = planning_lp().system(scene_index, phase_index);
+  sys.ensure_lp_built();
+  auto& li = sys.linear_interface();
+  const auto& phase_lp = sim.phases()[phase_index];
+
+  // Same per-element visitor shape as the aperture backward pass
+  // (`solve_apertures_for_phase`): every HasUpdateAperture element
+  // (FlowLP + the profile elements) overwrites its (scenario, stage,
+  // block) entries with the realization's values — column-bound pins
+  // for plain flows/profiles, the AR equality-row RHS for an AR-mode
+  // FlowLP (`Flow.inflow_model`); `nullopt` lookups keep the current
+  // value.  Writes are DENSE per registered column/row, so successive
+  // draws fully overwrite each other — no snapshot/restore needed —
+  // and each write is replay-recorded (`set_col_bounds_raw`; equality
+  // RHS via the `pending_rhs` channel of `set_row_bounds_raw`), so a
+  // `LowMemoryMode::compress` release/reload cycle preserves the
+  // sampled data for the backward pass.  Both delta kinds (bounds and
+  // equality-row RHS) keep any resident simplex basis dual-repairable,
+  // so the forward warm-start chain (`basis_cross_mode`) stays
+  // effective under resampling.
+  auto visitor = [&](auto& e) -> bool
+  {
+    using E = std::remove_cvref_t<decltype(e)>;
+    if constexpr (HasUpdateAperture<E>) {
+      for (const auto& stage : phase_lp.stages()) {
+        const ApertureValueFn value_fn =
+            [&e, realization_uid](StageUid st,
+                                  BlockUid bl) -> std::optional<double>
+        { return e.aperture_value(realization_uid, st, bl); };
+        std::ignore = e.update_aperture(li, base_scenario, value_fn, stage);
+      }
+    }
+    return true;
+  };
+  visit_elements(sys.collections(), visitor);
+}
 
 auto SDDPMethod::forward_pass(SceneIndex scene_index,
                               const SolverOptions& opts,
@@ -169,6 +225,51 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                      uid_of(scene_index),
                      uid_of(phase_index),
                      updated);
+      }
+    }
+
+    // ── Forward sampling (`ForwardSamplingMode::resampled`) ───────────
+    //
+    // Stagewise re-draw: overwrite this phase's stochastic bounds with a
+    // probability-weighted scene realization drawn at the phase boundary.
+    // The draw is a pure function of (iteration, scene, phase)
+    // (`sample_forward_realization`), so a BACKTRACKING re-entry of the
+    // same phase re-draws the SAME realization and thread scheduling is
+    // irrelevant.  Phase 0 keeps the scene-driver's own data (the
+    // initial scene IS the draw — the multicut LB `Σ_s V_s(0)` sums over
+    // initial scenes s, theorem doc §8).  Training iterations cache the
+    // drawn id on the phase state so the backward target re-solve uses
+    // the SAME realization; the simulation pass restores the persistent
+    // per-scene data (and clears the cache) so final outputs keep
+    // per-scene semantics.  Fully gated: `persistent` (default) never
+    // enters this block — byte-identical legacy forward pass, including
+    // the basis capture below.
+    if (m_options_.forward_sampling == ForwardSamplingMode::resampled
+        && phase_index)
+    {
+      if (!m_in_simulation_) {
+        const auto realization =
+            sample_forward_realization(planning_lp().simulation(),
+                                       iteration_index,
+                                       scene_index,
+                                       phase_index);
+        apply_sampled_realization(scene_index, phase_index, realization);
+        state.sampled_scene = realization;
+        // Function-form spdlog: the SPDLOG_TRACE macro is compiled
+        // out under the INFO-baked PCH; the sampled path must stay
+        // observable at --log-level=trace.
+        spdlog::trace(
+            "SDDP Forward [i{} s{} p{}]: resampled realization -> scene {}",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            uid_of(realization));
+      } else if (state.sampled_scene.value_or(scene_index) != scene_index) {
+        // Simulation pass evaluates the PERSISTENT per-scene policy:
+        // restore the scene-driver's own data if a training iteration
+        // left a foreign realization pinned on this cell.
+        apply_sampled_realization(scene_index, phase_index, scene_index);
+        state.sampled_scene.reset();
       }
     }
 
@@ -874,13 +975,26 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       capture_state_variable_values(scene_index, phase_index, sol_phys, rc);
 
       // Strip the future-cost α from the realised opex so the UB sums only
-      // stage costs.  Default path: the built-in α's raw col_sol × scale_alpha
-      // (var_scale = scale_alpha).  Under `use_user_alpha` (piece 5 step 2c)
-      // the built-in α is suppressed (null here → alpha_val would be 0,
-      // inflating the UB by the cost-to-go); instead read the USER α's
-      // col_sol() directly — its `var_scale = 1` so the raw LP value is already
-      // physical, with NO `× scale_alpha`.  Compress-safe element read; default
-      // path unchanged.
+      // stage costs.  Default path: the objective's future term is
+      // `Σ_r w_r · varphi_r_phys` with the SAME per-column weights
+      // (`alpha_col_weights` — M4 `w_r = p_s` under multicut, MK1
+      // `w_{s,m'}` under markov) used to price the columns at
+      // registration (`register_alpha_variables`) — walk the cell's α
+      // registry (contiguous uids from `sddp_alpha_uid`, the
+      // `alpha_cols_on_cell` convention) and remove exactly that.
+      // Single-α layouts have one column and `w = 1.0`: byte-identical
+      // to the legacy `varphi_0 × scale_alpha` strip.  Under multicut
+      // the pre-fix varphi_0-only full-weight strip biased the UB by
+      // `(varphi_0 − w·Σ_r varphi_r)·scale_alpha` per cell (theorem doc
+      // §8 "UB strip", ledger §1.1 — FIXED 2026-07-08; regression gate:
+      // the UB-parity test in `test_sddp_bounds_sanity.cpp`).  Each
+      // `col_sol()` is the raw LP value (var_scale = scale_alpha), so
+      // `× scale_alpha` recovers physical $.  Under `use_user_alpha`
+      // (piece 5 step 2c) the built-in α is suppressed (never a state
+      // variable → the registry walk would find nothing, inflating the
+      // UB by the cost-to-go); instead read the USER α's col_sol()
+      // directly — its `var_scale = 1` so the raw LP value is already
+      // physical, with NO `× scale_alpha`.  Compress-safe element read.
       double alpha_val = 0.0;
       if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
         const auto* ua_svar = find_user_alpha_state_var(
@@ -888,9 +1002,32 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
       } else {
         const auto sa = m_options_.scale_alpha;
-        const auto* alpha_svar = find_alpha_state_var(
-            planning_lp().simulation(), scene_index, phase_index);
-        alpha_val = (alpha_svar != nullptr) ? alpha_svar->col_sol() * sa : 0.0;
+        const auto& sim = planning_lp().simulation();
+        // Registry walk: collect each varphi's raw LP value in uid
+        // order; the layout length then selects the pricing rule via
+        // the shared accessor (uniform M4 for none/multicut and for
+        // the terminal phase, MK1 per-state weights for non-terminal
+        // markov phases) — the strip and the registration pricing read
+        // the identical weights by construction.
+        std::vector<double> alpha_sols;
+        for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
+          const auto* alpha_svar =
+              find_alpha_state_var(sim, scene_index, phase_index, src);
+          if (alpha_svar == nullptr) {
+            break;  // α uids are contiguous — first gap ends the layout
+          }
+          alpha_sols.push_back(alpha_svar->col_sol());
+        }
+        const auto weights =
+            alpha_col_weights(sim,
+                              m_options_.cut_sharing,
+                              &m_options_.markov,
+                              scene_index,
+                              alpha_sols.size(),
+                              phase_index == sim.last_phase_index());
+        for (const auto& [r, w] : enumerate(weights)) {
+          alpha_val += w * alpha_sols[r] * sa;
+        }
       }
       state.forward_objective = obj_physical - alpha_val;
 

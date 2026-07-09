@@ -8,24 +8,22 @@
  *  1. LB <= UB + FP epsilon at EVERY iteration (no negative gap).
  *  2. LB monotone non-decreasing across iterations (cuts only tighten).
  *  3. weighted UB lies in [min, max] of per-scene UBs.
- *  4. Bounds invariants hold across all CutSharingMode values for IDENTICAL
- *     scenes (same dynamics, same probability).  Cross-scene cut sharing
- *     for HETEROGENEOUS scenes (different probability or different
- *     dynamics) is mathematically invalid in gtopt's per-scene-LP
- *     architecture: a cut from scene S bounds α_S by S's expected future,
- *     but broadcasting that constraint to scene D forces α_D ≥ S's bound.
- *     If D's actual future is below S's, the broadcast cut is too tight
- *     and produces LB > UB.
+ *  4. Bounds invariants hold for both CutSharingMode values ({none,
+ *     multicut}) on IDENTICAL scenes (same dynamics, same probability).
+ *     For HETEROGENEOUS scenes under `multicut`, LB > UB against the
+ *     persistent-path forward UB is a PROCESS MISMATCH, not a cut bug:
+ *     the multicut LB bounds the stagewise-RESAMPLED process (Corollary
+ *     M2 in `docs/formulation/sddp-cut-validity.md` §8), so that case
+ *     stays WARN-only permanently — the strict comparison lives in the
+ *     extensive-form oracle harness (`test_sddp_cut_oracle.cpp`).
  *
- * The test was written to expose the LB-overshoot regression observed on
- * juan/gtopt_iplp where iter 1+ produced LB ≫ UB by orders of magnitude
- * (compounding ~10× per iteration).  The fix shipped alongside this test
- * was to set juan's `cut_sharing_mode` to `none` — the only
- * mathematically valid mode for heterogeneous scenes.
- *
- * The buggy modes (`accumulate`, `expected`, `max`) are kept here as
- * regression guards via `WARN` rather than `CHECK` so CI still passes
- * while the bug remains visible in test output.
+ * The test was originally written to expose the LB-overshoot regression
+ * observed on juan/gtopt_iplp where iter 1+ produced LB ≫ UB by orders
+ * of magnitude (compounding ~10× per iteration) under the legacy
+ * broadcast modes.  Those modes (`accumulate`, `broadcast_mean` /
+ * `expected`, `max`) were REMOVED 2026-07-08 (verdicts in
+ * `docs/formulation/sddp-cut-validity.md` §7); their regression guards
+ * were deleted with them.
  */
 
 #include <doctest/doctest.h>
@@ -182,51 +180,31 @@ TEST_CASE("SDDP bounds sanity — cut_sharing=none is strictly correct")
     REQUIRE(results.has_value());
     check_iteration_invariants_strict(*results, "2s10p none");
   }
-}
 
-// ─── cut_sharing=accumulate/expected/max: KNOWN ISSUE for heterogeneous ──
-//
-// Cross-scene cut sharing is mathematically invalid when scenes have
-// heterogeneous probabilities or dynamics.  This test pins the known
-// regression: under non-`none` modes, LB exceeds UB after the simulation
-// pass by 5–10% on the 2-scene 3-phase fixture (and by orders of
-// magnitude on real cases like juan/gtopt_iplp with 16 hydrology
-// scenarios and 50 phases).  See juan json fix that pins
-// `cut_sharing_mode: none`.
-//
-// We use WARN here so the regression stays visible in test output but
-// doesn't fail CI.  Convert to CHECK only when cut sharing has been
-// either rewritten to be unit-correct across heterogeneous scenes, or
-// removed from the API entirely.
+  // T8 (coverage-audit G10): resampled forward sampling composed with
+  // the unconditionally-valid `none` LB.  Identical scene data (the
+  // fixture differs only in probabilities, and 0.5/0.5 makes even the
+  // measure identical), so resampled ≡ persistent process-wise and the
+  // strict LB <= UB invariant must hold end-to-end through the re-draw
+  // + `apply_sampled_realization` machinery.  Cheap defense-in-depth
+  // next to the oracle's resampled cases.
+  SUBCASE("2s3p cut_sharing=none forward_sampling=resampled")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+    PlanningLP plp(std::move(planning));
 
-TEST_CASE(
-    "SDDP bounds sanity — heterogeneous scenes, non-none cut_sharing "
-    "is a known LB-overshoot bug (WARN-only)")
-{
-  const std::array<CutSharingMode, 3> modes = {
-      CutSharingMode::accumulate,
-      CutSharingMode::broadcast_mean,
-      CutSharingMode::max,
-  };
+    SDDPOptions opts;
+    opts.max_iterations = 8;
+    opts.convergence_tol = 1.0e-4;
+    opts.cut_sharing = CutSharingMode::none;
+    opts.forward_sampling = ForwardSamplingMode::resampled;
+    opts.apertures = std::vector<Uid> {};  // pure Benders backward pass
+    opts.enable_api = false;
 
-  for (const auto mode : modes) {
-    const auto label = std::format("2s3p cut_sharing={}", enum_name(mode));
-    SUBCASE(label.c_str())
-    {
-      auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
-      PlanningLP plp(std::move(planning));
-
-      SDDPOptions opts;
-      opts.max_iterations = 8;
-      opts.convergence_tol = 1.0e-4;
-      opts.cut_sharing = mode;
-      opts.enable_api = false;
-
-      SDDPMethod sddp(plp, opts);
-      auto results = sddp.solve();
-      REQUIRE(results.has_value());
-      check_iteration_invariants_soft(*results, label);
-    }
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    check_iteration_invariants_strict(*results, "2s3p none+resampled");
   }
 }
 
@@ -235,18 +213,20 @@ TEST_CASE(
 // `multicut` gives every scene-LP N dedicated future-cost columns
 // `varphi_0..N-1`, each bounded ONLY by its own scenario's backward cuts
 // (PLP `plp-agrespd.f:94` source indexing + `defprbpd.f:810` 1/N average).
-// Unlike accumulate/broadcast_mean/max — which broadcast onto the single
-// shared α and so corrupt every scene's own bound — multicut keeps each
-// scenario's cuts on a dedicated column, which is the PLP-faithful sharing
-// the converter targets.
 //
-// We assert with a SOFT (WARN) check here, NOT strict: a negative gap
-// (LB > UB) on heterogeneous scenes is NOT a correctness failure.  The
-// forward UB is a sample-path estimate, and an SDDP cut set that does not
-// yet perfectly match the value function legitimately produces LB > UB
-// transiently — see the juan/gtopt_iplp investigation notes.  The strict
-// LB <= UB property is exercised on IDENTICAL scenes (next test), where
-// the cuts coincide exactly and multicut converges to a zero gap.
+// We assert with a SOFT (WARN) check here, NOT strict — and this is
+// PERMANENT per `docs/formulation/sddp-cut-validity.md` §8: the multicut
+// LB bounds the stagewise-RESAMPLED process (Theorems M1/M4 — since the
+// M4 pricing fix the 0.6/0.4 probabilities are certified for the
+// process resampled with measure q_r = p_r), while the forward UB
+// simulates PERSISTENT per-scene sample paths; the two optima are not
+// ordered for heterogeneous scenes (Corollary M2), so LB > UB here is a
+// process mismatch, not a cut bug.  The correct strict comparison —
+// cuts vs the extensive form — lives in `test_sddp_cut_oracle.cpp`
+// (including the strict identical-dynamics 0.6/0.4 M4 case).  The
+// strict LB <= UB property is exercised on IDENTICAL scenes (next
+// test), where resampled ≡ persistent and multicut converges to a zero
+// gap.
 TEST_CASE(
     "SDDP bounds sanity — heterogeneous scenes, multicut (PLP-faithful, "
     "WARN-only)")
@@ -269,23 +249,216 @@ TEST_CASE(
   }
 }
 
-// ─── cut_sharing=any with IDENTICAL scenes: should NOT overshoot ──
+// ─── cut_sharing=markov: Markov-chain SDDP (WARN on heterogeneous) ──
+//
+// `markov` (opt-in, experimental) prices one varphi column per Markov
+// state at `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}` (theorem MK1 in
+// `docs/formulation/sddp-markov.md`).  Like multicut, the LB bounds a
+// RESAMPLED process — here the Markov-modulated one — while the forward
+// UB simulates PERSISTENT per-scene sample paths; the two optima are
+// not ordered for heterogeneous scenes (Corollary MK2, the mirror of
+// Corollary M2 in `docs/formulation/sddp-cut-validity.md` §8), so this
+// pin stays WARN-only permanently.  The strict comparisons live in the
+// extensive-form oracle harness (`test_sddp_cut_oracle.cpp`).
+TEST_CASE(
+    "SDDP bounds sanity — heterogeneous scenes, markov (process "
+    "mismatch, WARN-only)")
+{
+  SUBCASE("2s3p cut_sharing=markov (0.6/0.4, singleton states)")
+  {
+    auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+    PlanningLP plp(std::move(planning));
+
+    SDDPOptions opts;
+    opts.max_iterations = 8;
+    opts.convergence_tol = 1.0e-4;
+    opts.cut_sharing = CutSharingMode::markov;
+    opts.enable_api = false;
+    // Singleton states with transition rows = the scene probabilities:
+    // the M4-degenerate configuration (w = p_s), i.e. the process
+    // resampled with measure p at every phase boundary.
+    opts.markov = make_markov_config(
+        {
+            0,
+            1,
+        },
+        {
+            0.6,
+            0.4,
+            0.6,
+            0.4,
+        });
+
+    SDDPMethod sddp(plp, opts);
+    auto results = sddp.solve();
+    REQUIRE(results.has_value());
+    check_iteration_invariants_soft(*results, "2s3p markov");
+  }
+}
+
+// Identical scenes: every process (persistent, resampled, Markov-
+// modulated with any row-stochastic P) coincides, so the strict
+// LB <= UB invariant applies at every iteration (theorem MK1
+// degenerate case — `docs/formulation/sddp-markov.md` §5).
+TEST_CASE("SDDP bounds sanity — identical scenes, markov preserves LB <= UB")
+{
+  auto planning = make_2scene_10phase_two_reservoir_planning();
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 6;
+  opts.convergence_tol = 1.0e-4;
+  opts.cut_sharing = CutSharingMode::markov;
+  opts.enable_api = false;
+  // Non-uniform transition rows: with identical dynamics the value
+  // functions are P-invariant, so the strict invariants must hold for
+  // any row-stochastic matrix.
+  opts.markov = make_markov_config(
+      {
+          0,
+          1,
+      },
+      {
+          0.7,
+          0.3,
+          0.2,
+          0.8,
+      });
+
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  check_iteration_invariants_strict(*results, "2s10p markov");
+}
+
+// T1 (coverage-audit G1): markov × dual_shared cross-feature.  The
+// dual-shared synthesis copies the representative's cut ROW (same α
+// coefficient/column) and only corrects the intercept, so under markov
+// the synthesized/ecut rows must land on the Markov-STATE column
+// `varphi_{m(S)}` resolved by `find_source_alpha_state_var` — exactly
+// like the exact-aperture path (soundness review §2).  The state map is
+// deliberately NON-identity ({1, 0}), so a routing bug that falls back
+// to `varphi_S` (the multicut column) or `varphi_0` (single-α) flips
+// the assertion.  Identical scene data (0.5/0.5) keeps the strict
+// LB <= UB gate applicable.
+TEST_CASE(
+    "SDDP bounds sanity — markov × dual_shared routes cuts onto "
+    "varphi_m(S) and preserves LB <= UB")
+{
+  auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 6;
+  opts.convergence_tol = 1.0e-4;
+  opts.cut_sharing = CutSharingMode::markov;
+  // Singleton states with a SWAPPED scene→state map: scene 0 → state 1,
+  // scene 1 → state 0.
+  opts.markov = make_markov_config(
+      {
+          1,
+          0,
+      },
+      {
+          0.5,
+          0.5,
+          0.5,
+          0.5,
+      });
+  // Cross-scenario synthetic apertures (non-empty UID request with no
+  // aperture_array — see resolve_effective_apertures) + dual-shared
+  // synthesis.
+  opts.apertures = std::vector<Uid> {Uid {1}, Uid {2}};
+  opts.aperture_solve_mode = ApertureSolveMode::dual_shared;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+  check_iteration_invariants_strict(*results, "2s3p markov×dual_shared");
+
+  const auto& sim = plp.simulation();
+  const auto scene_pos_of = [&](SceneUid uid) -> std::optional<SceneIndex>
+  {
+    for (const auto si : iota_range<SceneIndex>(0, sim.scene_count())) {
+      if (sim.uid_of(si) == uid) {
+        return si;
+      }
+    }
+    return std::nullopt;
+  };
+  const auto phase_pos_of = [&](PhaseUid uid) -> std::optional<PhaseIndex>
+  {
+    for (const auto pi : iota_range<PhaseIndex>(0, sim.phase_count())) {
+      if (sim.uid_of(pi) == uid) {
+        return pi;
+      }
+    }
+    return std::nullopt;
+  };
+
+  int checked = 0;
+  for (const auto& sc : sddp.stored_cuts()) {
+    if (sc.type != CutType::Optimality) {
+      continue;
+    }
+    const auto scene = scene_pos_of(sc.scene_uid);
+    const auto phase = phase_pos_of(sc.phase_uid);
+    REQUIRE(scene.has_value());
+    REQUIRE(phase.has_value());
+
+    const auto mstate = opts.markov.state_of(*scene);
+    const auto other_state = 1 - mstate;
+    const auto* expected_svar = find_alpha_state_var(
+        sim,
+        *scene,
+        *phase,
+        /*source_scene=*/SceneIndex {static_cast<Index>(mstate)});
+    const auto* other_svar = find_alpha_state_var(
+        sim,
+        *scene,
+        *phase,
+        /*source_scene=*/SceneIndex {static_cast<Index>(other_state)});
+    REQUIRE(expected_svar != nullptr);
+    REQUIRE(other_svar != nullptr);
+
+    const auto coeff_on = [&](ColIndex col) -> double
+    {
+      for (const auto& [c, v] : sc.coefficients) {
+        if (c == col) {
+          return v;
+        }
+      }
+      return 0.0;
+    };
+    INFO("cut scene_uid=",
+         static_cast<int>(sc.scene_uid),
+         " phase_uid=",
+         static_cast<int>(sc.phase_uid),
+         " m(S)=",
+         mstate);
+    CHECK(coeff_on(expected_svar->col()) != 0.0);
+    CHECK(coeff_on(other_svar->col()) == 0.0);
+    ++checked;
+  }
+  // The run must actually have produced optimality cuts to certify.
+  CHECK(checked > 0);
+}
+
+// ─── cut_sharing ∈ {none, multicut} with IDENTICAL scenes: no overshoot ──
 //
 // When all scenes have equal probability AND identical dynamics, every
-// scene's backward cut coincides; broadcasting therefore produces
-// duplicate (but valid) cuts.  This subset of cut-sharing inputs is
-// what the docstring of `share_cuts_for_phase` tacitly assumes and is
-// the only configuration for which sharing is provably safe.
+// scene's backward cut coincides and the resampled process equals the
+// persistent one, so both remaining modes are provably safe and the
+// LB <= UB invariant is strict (`docs/formulation/sddp-cut-validity.md`
+// §7 Theorem N1, §8 Theorem M1 degenerate case).
 
 TEST_CASE(
     "SDDP bounds sanity — identical scenes, all cut_sharing modes "
     "preserve LB <= UB")
 {
-  const std::array<CutSharingMode, 5> modes = {
+  const std::array<CutSharingMode, 2> modes = {
       CutSharingMode::none,
-      CutSharingMode::accumulate,
-      CutSharingMode::broadcast_mean,
-      CutSharingMode::max,
       CutSharingMode::multicut,
   };
 
@@ -306,6 +479,78 @@ TEST_CASE(
       auto results = sddp.solve();
       REQUIRE(results.has_value());
       check_iteration_invariants_strict(*results, label);
+    }
+  }
+}
+
+// ─── UB-strip parity: multicut UB ≡ none UB on identical scenes ───────────
+//
+// On IDENTICAL dynamics both modes simulate the same persistent forward
+// paths, so once cuts start carrying weight (iteration 2 on) the
+// realised UB must coincide per iteration: the forward opex strip must
+// remove EXACTLY the objective's future term.  Under multicut that term
+// is `w·Σ_r varphi_r` with the shared M4 weight `w = alpha_unit_cost`
+// (`docs/formulation/sddp-cut-validity.md` §8 "UB strip", ledger §1.1 —
+// FIXED 2026-07-08); the pre-fix strip removed only `varphi_0` at full
+// weight.  The 0.5/0.5 split passes even pre-fix (symmetric cut sets
+// keep every varphi at the same floor and w·N = 1); the 0.6/0.4 split
+// is the failing-then-passing gate — with identical dynamics
+// `varphi_r ≈ p_r·Ṽ` differ per column, so the varphi_0-only strip
+// over-subtracts `(varphi_0 − w·Σ varphi_r)` on the low-probability
+// scene and the multicut UB detaches from the none UB.
+TEST_CASE(
+    "SDDP UB strip — multicut UB matches none UB on identical scenes "
+    "from iteration 2 on")
+{
+  const std::array<std::pair<double, double>, 2> prob_splits = {{
+      {0.5, 0.5},
+      {0.6, 0.4},
+  }};
+
+  for (const auto& [p0, p1] : prob_splits) {
+    const auto label = std::format("2s3p identical {}/{}", p0, p1);
+    SUBCASE(label.c_str())
+    {
+      const auto run = [&](CutSharingMode mode)
+      {
+        auto planning = make_2scene_3phase_hydro_planning(p0, p1);
+        PlanningLP plp(std::move(planning));
+
+        SDDPOptions opts;
+        opts.max_iterations = 6;
+        opts.convergence_tol = 1.0e-9;  // keep iterating — no early exit
+        opts.stationary_tol = 0.0;
+        opts.cut_sharing = mode;
+        opts.apertures = std::vector<Uid> {};  // pure Benders backward
+        opts.enable_api = false;
+
+        SDDPMethod sddp(plp, opts);
+        auto results = sddp.solve();
+        REQUIRE(results.has_value());
+        REQUIRE_FALSE(results->empty());
+        return *results;
+      };
+
+      const auto none_results = run(CutSharingMode::none);
+      const auto multi_results = run(CutSharingMode::multicut);
+
+      const auto n = std::min(none_results.size(), multi_results.size());
+      REQUIRE(n >= 2);
+      // Position 0 = iteration 1 (α pinned at 0 in both modes — trivially
+      // equal); the strip divergence can only show from position 1 =
+      // iteration 2 on, once cuts carry weight.  Compare both anyway.
+      for (std::size_t i = 0; i < n; ++i) {
+        INFO("[",
+             label,
+             "] pos=",
+             i,
+             " UB_none=",
+             none_results[i].upper_bound,
+             " UB_multicut=",
+             multi_results[i].upper_bound);
+        CHECK(multi_results[i].upper_bound
+              == doctest::Approx(none_results[i].upper_bound).epsilon(1.0e-6));
+      }
     }
   }
 }
@@ -450,53 +695,74 @@ TEST_CASE("SDDP scale_alpha probe — variable_scales force scale_alpha")
   }
 }
 
-// ─── Phase 1: runtime WARN when non-`none` cut_sharing meets multi-scene ──
+// ─── Runtime INFO: multicut × non-uniform scene probabilities (M4) ──
 //
-// `SDDPMethod::initialize_solver` emits a SPDLOG_WARN when
-// `cut_sharing != none` and `num_scenes > 1`, alerting users that the
-// configuration may produce LB > UB on distinct sample paths.  These
-// tests verify the warning fires in exactly the at-risk configurations.
+// Since the M4 pricing fix (2026-07-08) every `varphi_r` in scene-s's
+// LP is priced at `w_r = p_s` (`alpha_unit_cost`), so multicut with
+// non-uniform probabilities is a CERTIFIED configuration (Prop. M4 in
+// `docs/formulation/sddp-cut-validity.md` §8) and the former
+// theorem-M3 WARN is obsolete.  `SDDPMethod::initialize_solver` now
+// emits an INFO (mentioning "Prop. M4") for `cut_sharing == multicut`
+// with `num_scenes > 1` and non-uniform probabilities — reminding
+// operators of the persistent-UB vs resampled-LB process mismatch
+// (Corollary M2) — and stays silent everywhere else.
 
-TEST_CASE("SDDP cut_sharing WARN — fires for multi-scene non-none modes")
+TEST_CASE(
+    "SDDP cut_sharing INFO — M4 pricing note for multicut with "
+    "non-uniform scene probabilities (no WARN)")
 {
-  const std::array<CutSharingMode, 3> at_risk = {
-      CutSharingMode::accumulate,
-      CutSharingMode::broadcast_mean,
-      CutSharingMode::max,
-  };
+  gtopt::test::LogCapture logs;
 
-  for (const auto mode : at_risk) {
-    const auto label =
-        std::format("multi-scene cut_sharing={}", enum_name(mode));
-    SUBCASE(label.c_str())
-    {
-      gtopt::test::LogCapture logs;
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
+  PlanningLP plp(std::move(planning));
 
-      auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
-      PlanningLP plp(std::move(planning));
+  SDDPOptions opts;
+  opts.max_iterations = 1;  // single iter is enough to trigger init
+  opts.cut_sharing = CutSharingMode::multicut;
+  opts.enable_api = false;
 
-      SDDPOptions opts;
-      opts.max_iterations = 1;  // single iter is enough to trigger init
-      opts.cut_sharing = mode;
-      opts.enable_api = false;
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
 
-      SDDPMethod sddp(plp, opts);
-      auto results = sddp.solve();
-      REQUIRE(results.has_value());
-
-      // The WARN log must mention "cross-scene broadcasting" — the
-      // distinctive phrase from the warning text.
-      CHECK(logs.contains("cross-scene broadcasting"));
-      CHECK(logs.contains("cut_sharing="));
-    }
-  }
+  // The INFO log must mention the M4 pricing rule and the distinctive
+  // "non-uniform scene probabilities" phrase.
+  CHECK(logs.contains("non-uniform scene probabilities"));
+  CHECK(logs.contains("Prop. M4"));
+  CHECK(logs.contains("cut_sharing=multicut"));
+  // The pre-M4 "NOT certified" warning must be gone: non-uniform
+  // multicut is sound under M4 pricing.
+  CHECK_FALSE(logs.contains("NOT certified"));
 }
 
-TEST_CASE("SDDP cut_sharing WARN — silent for cut_sharing=none")
+TEST_CASE(
+    "SDDP cut_sharing INFO — silent for multicut with uniform "
+    "scene probabilities")
 {
   gtopt::test::LogCapture logs;
 
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
+  PlanningLP plp(std::move(planning));
+
+  SDDPOptions opts;
+  opts.max_iterations = 1;
+  opts.cut_sharing = CutSharingMode::multicut;
+  opts.enable_api = false;
+
+  SDDPMethod sddp(plp, opts);
+  auto results = sddp.solve();
+  REQUIRE(results.has_value());
+
+  // Uniform probabilities: theorem M1 certifies the resampled-process
+  // LB → no probability note expected.
+  CHECK_FALSE(logs.contains("non-uniform scene probabilities"));
+}
+
+TEST_CASE("SDDP cut_sharing INFO — silent for cut_sharing=none")
+{
+  gtopt::test::LogCapture logs;
+
+  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
   PlanningLP plp(std::move(planning));
 
   SDDPOptions opts;
@@ -508,28 +774,28 @@ TEST_CASE("SDDP cut_sharing WARN — silent for cut_sharing=none")
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // none mode is mathematically valid → no warning expected.
-  CHECK_FALSE(logs.contains("cross-scene broadcasting"));
+  // none mode is unconditionally valid (theorem N1) → no probability
+  // note even with non-uniform probabilities.
+  CHECK_FALSE(logs.contains("non-uniform scene probabilities"));
 }
 
-TEST_CASE("SDDP cut_sharing WARN — silent for single-scene runs")
+TEST_CASE("SDDP cut_sharing INFO — silent for single-scene runs")
 {
   gtopt::test::LogCapture logs;
 
-  // Single-scene planning: cross-scene sharing is a no-op regardless
-  // of mode, so no warning should fire even with cut_sharing=max.
+  // Single-scene planning: the multicut recursion degenerates to the
+  // single-α layout (N = 1), so no warning should fire.
   auto planning = make_3phase_hydro_planning();
   PlanningLP plp(std::move(planning));
 
   SDDPOptions opts;
   opts.max_iterations = 1;
-  opts.cut_sharing = CutSharingMode::max;
+  opts.cut_sharing = CutSharingMode::multicut;
   opts.enable_api = false;
 
   SDDPMethod sddp(plp, opts);
   auto results = sddp.solve();
   REQUIRE(results.has_value());
 
-  // Single scene: no broadcast is possible, so no WARN.
-  CHECK_FALSE(logs.contains("cross-scene broadcasting"));
+  CHECK_FALSE(logs.contains("non-uniform scene probabilities"));
 }

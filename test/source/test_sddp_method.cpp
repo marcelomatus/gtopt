@@ -11,6 +11,8 @@
 #include <iomanip>
 #include <map>
 #include <sstream>
+#include <stdexcept>
+#include <tuple>
 
 #include <doctest/doctest.h>
 #include <gtopt/cascade_method.hpp>
@@ -407,20 +409,17 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "SDDPMethod 2-scene Expected cut sharing with prob weights")  // NOLINT
+    "SDDPMethod 2-scene multicut cut sharing with prob weights")  // NOLINT
 {
-  // Verify that Expected cut-sharing mode produces the correct
+  // Verify that multicut cut-sharing produces the correct
   // probability-weighted UB whether the weights are equal or unequal.
   //
-  // Convergence is *not* asserted: the 2-scene/3-phase fixture is too
-  // small to converge under the negative-gap guard (commit 5d7f7a57)
-  // at the tight 1e-4 tolerance — the cut accumulator overshoots LB
-  // above UB after ~5 iters and the guard correctly refuses to
-  // declare ``[CONVERGED]`` on a negative gap.  The thing actually
-  // under test here is the probability-weighted UB formula in
+  // Convergence is *not* asserted: the thing actually under test here
+  // is the probability-weighted UB formula in
   // ``compute_iteration_bounds`` (commit 13862f1e), which is
-  // independent of whether the loop converges.
-  SUBCASE("equal probabilities with Expected cut sharing")
+  // independent of whether the loop converges.  (This test previously
+  // exercised the ``broadcast_mean`` mode, REMOVED 2026-07-08.)
+  SUBCASE("equal probabilities with multicut cut sharing")
   {
     auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
     PlanningLP planning_lp(std::move(planning));
@@ -428,7 +427,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 5;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+    sddp_opts.cut_sharing = CutSharingMode::multicut;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -445,7 +444,7 @@ TEST_CASE(
     CHECK(last.upper_bound == doctest::Approx(sum_ub).epsilon(1e-9));
   }
 
-  SUBCASE("unequal probabilities with Expected cut sharing")
+  SUBCASE("unequal probabilities with multicut cut sharing")
   {
     auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
     PlanningLP planning_lp(std::move(planning));
@@ -453,7 +452,7 @@ TEST_CASE(
     SDDPOptions sddp_opts;
     sddp_opts.max_iterations = 5;
     sddp_opts.convergence_tol = 1e-4;
-    sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+    sddp_opts.cut_sharing = CutSharingMode::multicut;
     sddp_opts.enable_api = false;
 
     SDDPMethod sddp(planning_lp, sddp_opts);
@@ -1824,57 +1823,12 @@ TEST_CASE("SDDPMethod — warm_start=false converges")  // NOLINT
 }
 
 // ─── Cut sharing modes via solve() ──────────────────────────────────────────
+//
+// The removed modes' smoke tests (accumulate / expected) were deleted
+// 2026-07-08 with the modes themselves; multicut keeps the coverage.
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_sharing accumulate mode via solve")
-{
-  auto planning = make_2scene_3phase_hydro_planning(0.6, 0.4);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Smoke test: solve() succeeds with the requested cut-sharing mode
-  // and returns at least one iteration result with both bounds
-  // populated.  Convergence is not asserted — the small fixture
-  // overshoots LB > UB after a handful of iters under the
-  // negative-gap guard (see "2-scene Expected cut sharing" above).
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 5;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::accumulate;
-  sddp_opts.enable_api = false;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  REQUIRE_FALSE(results->empty());
-  const auto& last = results->back();
-  CHECK(last.upper_bound > 0.0);
-  CHECK(last.lower_bound > 0.0);
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_sharing expected mode via solve")
-{
-  auto planning = make_2scene_3phase_hydro_planning(0.7, 0.3);
-  PlanningLP planning_lp(std::move(planning));
-
-  // Smoke test analogous to the accumulate variant above.
-  SDDPOptions sddp_opts;
-  sddp_opts.max_iterations = 5;
-  sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
-  sddp_opts.enable_api = false;
-
-  SDDPMethod sddp(planning_lp, sddp_opts);
-  auto results = sddp.solve();
-  REQUIRE(results.has_value());
-  REQUIRE_FALSE(results->empty());
-  const auto& last = results->back();
-  CHECK(last.upper_bound > 0.0);
-  CHECK(last.lower_bound > 0.0);
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod — cut_sharing max mode via solve")
+    "SDDPMethod — cut_sharing multicut mode via solve")
 {
   auto planning = make_2scene_3phase_hydro_planning(0.5, 0.5);
   PlanningLP planning_lp(std::move(planning));
@@ -1882,7 +1836,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 20;
   sddp_opts.convergence_tol = 1e-3;
-  sddp_opts.cut_sharing = CutSharingMode::max;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
   sddp_opts.enable_api = false;
 
   SDDPMethod sddp(planning_lp, sddp_opts);
@@ -4367,9 +4321,10 @@ TEST_CASE(  // NOLINT
 //
 // Reuses the L2975 hard-vs-soft + dual±1 base test, extended to a
 // 2-scene fixture (each scene wraps one scenario of the same 10-phase
-// 2-reservoir cascade), with the outer iteration sweeping the four
-// supported ``CutSharingMode`` values: ``none``, ``expected``,
-// ``accumulate``, ``max``.
+// 2-reservoir cascade), with the outer iteration sweeping the
+// ``CutSharingMode`` values: ``none`` (reference) and ``multicut``.
+// (The removed broadcast modes — accumulate/broadcast_mean/max — were
+// dropped from this sweep 2026-07-08.)
 //
 // What this exercises that the single-scene variants do not:
 //   * Every iteration the backward pass dispatches across both scenes;
@@ -4535,10 +4490,8 @@ TEST_CASE(  // NOLINT
   constexpr double kParityRel = 0.03;
   constexpr double kAboveRel = 0.01;  // matches the L2975 above-vs-hard tol
 
-  const std::array<ShareCfg, 3> cfgs = {{
-      {.mode = CutSharingMode::broadcast_mean, .label = "broadcast_mean"},
-      {.mode = CutSharingMode::accumulate, .label = "accumulate"},
-      {.mode = CutSharingMode::max, .label = "max"},
+  const std::array<ShareCfg, 1> cfgs = {{
+      {.mode = CutSharingMode::multicut, .label = "multicut"},
   }};
 
   for (const auto& cfg : cfgs) {
@@ -4655,20 +4608,17 @@ TEST_CASE(  // NOLINT
   }
 }
 
-// ─── Cut-sharing parity under NON-UNIFORM scenario probabilities ──────────
+// ─── Cut-sharing behaviour under NON-UNIFORM scenario probabilities ───────
 //
 // The 0.5/0.5 parity test above pins the cross-scene cut math under
 // uniform prob.  This regression covers the non-uniform case
-// (prob = [0.6, 0.4]) — the asymmetry where ``Σ_s prob_s × phys_π_s``
-// (the accumulate-mode aggregate) genuinely differs from each scene's
-// own per-LP π.  A latent bug in the prob-folding cancellation between
-// source and master would surface here as a mismatch between the
-// expected (prob-weighted) UB and the converged value.
-//
-// Compares the cross-mode UB rather than the dual: under non-uniform
-// prob the 10-phase 2-reservoir cascade can converge with dual = 0 on
-// the efin row (efin not binding when the cost weighting tilts toward
-// one scenario).  The prob-weighted UB is the more robust invariant.
+// (prob = [0.6, 0.4]).  With the invalid broadcast modes removed
+// (2026-07-08), the only sharing mode left to sweep is `multicut` —
+// which is exactly the theorem-M3 UNCERTIFIED configuration at
+// non-uniform probabilities (`docs/formulation/sddp-cut-validity.md`
+// §8), so cross-mode UB parity is asserted only as WARN; the strict
+// content is end-to-end sanity (finite positive UB, no crash) plus
+// the `none` reference invariants.
 TEST_CASE(  // NOLINT
     "SDDPMethod — cut_sharing parity 2-scene non-uniform prob [0.6, 0.4]")
 {
@@ -4714,29 +4664,20 @@ TEST_CASE(  // NOLINT
   REQUIRE(std::isfinite(ref_ub));
   REQUIRE(ref_ub > 0.0);
 
-  // Sweep cut-sharing modes.  Each mode's UB must match the
-  // `none`-mode reference within tolerance — the LP physics doesn't
-  // change across cut-sharing modes; only the convergence path does.
-  // A latent prob-folding mismatch (Item B from the deep audit) would
-  // shift this by O(prob_max - prob_min) = 0.2 — well above the 5%
-  // tolerance.
-  const std::array<CutSharingMode, 3> modes = {
-      CutSharingMode::broadcast_mean,
-      CutSharingMode::accumulate,
-      CutSharingMode::max,
-  };
-  const std::array<const char*, 3> labels = {"expected", "accumulate", "max"};
-
-  for (std::size_t i = 0; i < modes.size(); ++i) {
-    CAPTURE(labels[i]);
-    SUBCASE(labels[i])
-    {
-      const double ub = run_case(modes[i]);
-      CAPTURE(ub);
-      CHECK(std::isfinite(ub));
-      CHECK(ub > 0.0);
-      CHECK(ub == doctest::Approx(ref_ub).epsilon(kParityRel));
-    }
+  // multicut × non-uniform probabilities: theorem-M3 uncertified —
+  // the 1/N pricing distorts the present/future blend per scene, so
+  // the converged policy (hence UB) may legitimately drift from the
+  // `none` reference.  Sanity is strict; parity is WARN-only.
+  SUBCASE("multicut")
+  {
+    const double ub = run_case(CutSharingMode::multicut);
+    CAPTURE(ub);
+    CHECK(std::isfinite(ub));
+    CHECK(ub > 0.0);
+    WARN_MESSAGE(std::abs(ub - ref_ub) <= kParityRel * std::abs(ref_ub),
+                 "multicut UB drifted from the none reference — expected "
+                 "under non-uniform probabilities (theorem M3, "
+                 "docs/formulation/sddp-cut-validity.md §8)");
   }
 }
 
@@ -5471,15 +5412,26 @@ TEST_CASE("compute_convergence_gap — denominator clamping")  // NOLINT
   CHECK(compute_convergence_gap(-100.0, -110.0) == doctest::Approx(0.10));
 }
 
-TEST_CASE("parse_cut_sharing_mode — known + unknown strings")  // NOLINT
+TEST_CASE(
+    "parse_cut_sharing_mode — known + removed + unknown strings")  // NOLINT
 {
   CHECK(parse_cut_sharing_mode("none") == CutSharingMode::none);
-  CHECK(parse_cut_sharing_mode("expected") == CutSharingMode::broadcast_mean);
-  CHECK(parse_cut_sharing_mode("accumulate") == CutSharingMode::accumulate);
-  CHECK(parse_cut_sharing_mode("max") == CutSharingMode::max);
-  // Fallback contract — unknown spelling resolves to ``none``.
-  CHECK(parse_cut_sharing_mode("garbage") == CutSharingMode::none);
-  CHECK(parse_cut_sharing_mode("") == CutSharingMode::none);
+  CHECK(parse_cut_sharing_mode("multicut") == CutSharingMode::multicut);
+  // Removed modes (2026-07-08) hard-error with the removal message —
+  // no silent degrade to `none`.
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("expected"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("broadcast_mean"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("accumulate"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("max"),
+                  std::invalid_argument);
+  // Unknown spellings are hard errors too (require_enum contract).
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode("garbage"),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(std::ignore = parse_cut_sharing_mode(""),
+                  std::invalid_argument);
 }
 
 TEST_CASE("parse_elastic_filter_mode — known + unknown strings")  // NOLINT
@@ -5764,9 +5716,10 @@ TEST_CASE(
 // These tests use the `make_2scene_10phase_two_reservoir_planning` fixture
 // which repeats the 10-phase 2-reservoir hydro case for two equally probable
 // scenarios (0.5 each).  Because both scenes are identical, the per-scene
-// upper bounds should be equal and every cut-sharing mode should converge to
-// the same total upper bound.  The tests pin that invariant across all four
-// CutSharingMode values: none, expected, accumulate, max.
+// upper bounds should be equal and both cut-sharing modes should converge to
+// the same total upper bound.  The tests pin that invariant across the
+// CutSharingMode values: none, multicut.  (The removed
+// expected/accumulate/max variants were dropped 2026-07-08.)
 //
 // SDDP configuration mirrors the single-scene backtracking recovery fixture:
 //   * elastic_filter_mode = single_cut (robust on this toy geometry)
@@ -5840,7 +5793,8 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing expected converges")
+    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing multicut "
+    "converges")
 {
   using namespace gtopt;
 
@@ -5848,7 +5802,7 @@ TEST_CASE(  // NOLINT
   PlanningLP plp(std::move(planning));
 
   auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
-  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
 
   SDDPMethod sddp(plp, sddp_opts);
   auto results = sddp.solve();
@@ -5864,8 +5818,9 @@ TEST_CASE(  // NOLINT
   CHECK(std::isfinite(last.scene_upper_bounds[0]));
   CHECK(std::isfinite(last.scene_upper_bounds[1]));
 
-  // Symmetric fixture: expected cut sharing averages identical cuts from
-  // both scenes — result should still be symmetric.
+  // Symmetric fixture: each scene's cuts land on its own varphi_s in
+  // every LP; with identical scenes the two columns carry identical
+  // bounds — the result should still be symmetric.
   CAPTURE(last.scene_upper_bounds[0]);
   CAPTURE(last.scene_upper_bounds[1]);
   CHECK(last.scene_upper_bounds[0]
@@ -5878,87 +5833,10 @@ TEST_CASE(  // NOLINT
 }
 
 TEST_CASE(  // NOLINT
-    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing accumulate "
-    "converges")
-{
-  using namespace gtopt;
-
-  auto planning = make_2scene_10phase_two_reservoir_planning();
-  PlanningLP plp(std::move(planning));
-
-  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
-  sddp_opts.cut_sharing = CutSharingMode::accumulate;
-
-  SDDPMethod sddp(plp, sddp_opts);
-  auto results = sddp.solve();
-
-  REQUIRE(results.has_value());
-  REQUIRE_FALSE(results->empty());
-
-  const auto& last = results->back();
-  CHECK(std::isfinite(last.upper_bound));
-  CHECK(last.upper_bound > 0.0);
-
-  REQUIRE(last.scene_upper_bounds.size() == 2);
-  CHECK(std::isfinite(last.scene_upper_bounds[0]));
-  CHECK(std::isfinite(last.scene_upper_bounds[1]));
-
-  // Under accumulate mode the shared cut row is the plain sum of all scene
-  // cuts.  On a symmetric 2-scene fixture the two scenes' cuts are identical
-  // so the accumulated cut is a 2× scaled version of either individual cut.
-  // Convergence must still hold.
-  CAPTURE(last.scene_upper_bounds[0]);
-  CAPTURE(last.scene_upper_bounds[1]);
-
-  // Sum of per-scene UBs (each already prob-weighted via block_ecost).
-  const double expected_ub =
-      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
-  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
-}
-
-TEST_CASE(  // NOLINT
-    "SDDPMethod 2-scene 10-phase 2-reservoir — cut_sharing max converges")
-{
-  using namespace gtopt;
-
-  auto planning = make_2scene_10phase_two_reservoir_planning();
-  PlanningLP plp(std::move(planning));
-
-  auto sddp_opts = make_2scene_10phase_2rsv_sddp_opts();
-  sddp_opts.cut_sharing = CutSharingMode::max;
-
-  SDDPMethod sddp(plp, sddp_opts);
-  auto results = sddp.solve();
-
-  REQUIRE(results.has_value());
-  REQUIRE_FALSE(results->empty());
-
-  const auto& last = results->back();
-  CHECK(std::isfinite(last.upper_bound));
-  CHECK(last.upper_bound > 0.0);
-
-  REQUIRE(last.scene_upper_bounds.size() == 2);
-  CHECK(std::isfinite(last.scene_upper_bounds[0]));
-  CHECK(std::isfinite(last.scene_upper_bounds[1]));
-
-  // Under max mode every scene receives ALL other scenes' cuts in addition to
-  // its own.  On a symmetric 2-scene fixture this means each scene sees 2×
-  // the cuts of the none-sharing case, which typically speeds up convergence.
-  CAPTURE(last.scene_upper_bounds[0]);
-  CAPTURE(last.scene_upper_bounds[1]);
-  CAPTURE(last.upper_bound);
-
-  // Sum of per-scene UBs (each already prob-weighted via block_ecost).
-  const double expected_ub =
-      last.scene_upper_bounds[0] + last.scene_upper_bounds[1];
-  CHECK(last.upper_bound == doctest::Approx(expected_ub).epsilon(1e-9));
-}
-
-TEST_CASE(  // NOLINT
     "SDDPMethod 2-scene 10-phase 2-reservoir — all cut_sharing modes produce "
     "consistent upper bound")
 {
-  // Cross-mode consistency check: run all four cut-sharing modes on the
+  // Cross-mode consistency check: run both cut-sharing modes on the
   // same symmetric 2-scene 10-phase 2-reservoir fixture and verify that
   // the final upper bounds are within a reasonable relative tolerance
   // (10%) of each other.  On a symmetric fixture the optimal policy is the
@@ -5973,11 +5851,9 @@ TEST_CASE(  // NOLINT
     double ub {0.0};
   };
 
-  std::array<ModeResult, 4> mode_results = {{
+  std::array<ModeResult, 2> mode_results = {{
       {CutSharingMode::none, "none", 0.0},
-      {CutSharingMode::broadcast_mean, "expected", 0.0},
-      {CutSharingMode::accumulate, "accumulate", 0.0},
-      {CutSharingMode::max, "max", 0.0},
+      {CutSharingMode::multicut, "multicut", 0.0},
   }};
 
   for (auto& mr : mode_results) {
@@ -6418,10 +6294,10 @@ TEST_CASE(  // NOLINT
                          std::nullopt,
                          std::nullopt,
                          std::nullopt),
-      run_efin500_config("resolve=true + cut_sharing=expected (2 scenes)",
+      run_efin500_config("resolve=true + cut_sharing=multicut (2 scenes)",
                          true,
                          LpEquilibrationMethod::row_max,
-                         CutSharingMode::broadcast_mean,
+                         CutSharingMode::multicut,
                          std::nullopt,
                          std::nullopt),
       run_efin500_config("resolve=true + scale_alpha=1.0",

@@ -599,16 +599,16 @@ TEST_CASE(  // NOLINT
   // ``cut_sharing != none``.  Under ``none`` the un-terminal /
   // stall-stop guard rightly compares against the scene's own cut
   // store (peer growth is invisible) and would NOT clear the marker
-  // here.  Pick ``accumulate`` so the test premise — "peer cuts
+  // here.  Pick ``multicut`` so the test premise — "peer cuts
   // reached this scene" — is actually realised.
-  planning.options.sddp_options.cut_sharing_mode = CutSharingMode::accumulate;
+  planning.options.sddp_options.cut_sharing_mode = CutSharingMode::multicut;
   PlanningLP plp(std::move(planning));
 
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
   sddp_opts.enable_api = false;
   sddp_opts.forward_infeas_rollback = true;
-  sddp_opts.cut_sharing = CutSharingMode::accumulate;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
   SDDPMethod sddp(plp, sddp_opts);
   REQUIRE(sddp.ensure_initialized().has_value());
 

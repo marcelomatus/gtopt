@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include <gtopt/planning_enums.hpp>
 #include <gtopt/sddp_enums.hpp>
 #include <gtopt/solver_options.hpp>
@@ -27,8 +29,46 @@ namespace gtopt
  */
 struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
 {
-  /** @brief Cut sharing mode: none (default), expected, accumulate, or max */
+  /** @brief Cut sharing mode: none (default), multicut, or markov
+   * (opt-in, experimental — requires `markov_states` +
+   * `markov_transition`).  The legacy expected/broadcast_mean,
+   * accumulate, and max modes were REMOVED 2026-07-08 (invalid —
+   * `docs/formulation/sddp-cut-validity.md` §7); their names now
+   * hard-error at JSON parse time. */
   std::optional<CutSharingMode> cut_sharing_mode {};
+  /** @brief Forward-pass sampling mode: persistent (default) or
+   * resampled.
+   *
+   * `persistent` keeps each scene-driver on its own scenario path
+   * (historical, byte-identical).  `resampled` re-draws a
+   * probability-weighted scene realization at every phase boundary
+   * (deterministic in (iteration, scene, phase)) and applies it via
+   * the per-element `update_aperture` machinery (column-bound pins;
+   * the AR equality-row RHS under `Flow.inflow_model`), so the
+   * forward UB estimates the same stagewise-resampled process the
+   * `cut_sharing_mode = multicut` LB certifies.  See
+   * `ForwardSamplingMode` in `sddp_enums.hpp`. */
+  std::optional<ForwardSamplingMode> forward_sampling_mode {};
+  /** @brief Integer-cut mode for backward-pass cells whose LP carries
+   * integer columns: none (default, legacy) or strengthened
+   * (LP-relaxation cut + one-MIP Lagrangian intercept — Zou, Ahmed &
+   * Sun 2019; see `IntegerCutsMode` in `sddp_enums.hpp` and
+   * `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`).
+   * Requires a MIP-capable solver backend (implied: LP-only backends
+   * refuse integer columns at load).  Pure-LP cells are unaffected. */
+  std::optional<IntegerCutsMode> integer_cuts_mode {};
+  /** @brief Scene → Markov-state assignment for
+   * `cut_sharing_mode = markov`: one integer per scene (in scene
+   * order), each in `[0, M)` where `M` is the transition matrix
+   * dimension.  Static per scene (v1).  Validated at SDDP setup; see
+   * `docs/formulation/sddp-markov.md` §1. */
+  std::optional<Array<int>> markov_states {};
+  /** @brief Row-major M×M row-stochastic Markov transition matrix for
+   * `cut_sharing_mode = markov` (`M` inferred from the array length,
+   * which must be a perfect square).  Rows must sum to ≈ 1
+   * (tolerance 1e-6) with non-negative entries.  See
+   * `docs/formulation/sddp-markov.md` §1. */
+  std::optional<Array<double>> markov_transition {};
   /** @brief Directory for Benders cut files (default: `"cuts"`) */
   OptName cut_directory {};
   /** @brief Enable the SDDP monitoring API (writes JSON status file each
@@ -318,37 +358,68 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   OptInt aperture_chunk_size {};
 
   /** @brief How each backward-pass aperture is solved and how its cut's
-   *         coefficients are recovered (`cold` / `warm` / `reduced_cost`).
+   *         coefficients are recovered (`cold` / `warm` / `reduced_cost` /
+   *         `dual_shared` / `screened`).
    *
    * See `ApertureSolveMode` for the full per-mode rationale.  Summary:
    *
    * - `cold`: independent cold barrier + crossover per aperture; cut
    *   coefficients are the exact vertex reduced costs.  Byte-for-byte the
    *   legacy behaviour.
-   * - `warm`: only meaningful with `aperture_chunk_size > 1`; the first
-   *   aperture in a chunk seeds a basis (barrier + crossover) and every
-   *   subsequent aperture re-optimizes it with a warm simplex solve (via
-   *   `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`) instead of a
-   *   fresh cold barrier.  Aperture deltas are bound-only so the basis
-   *   stays valid across apertures.  Net-positive only on small LPs.
-   * - `reduced_cost` (default): cold barrier WITHOUT crossover per
-   *   aperture; the cut coefficients come straight from the interior-point
-   *   reduced costs, filtered by `cut_coeff_eps`.  Skips crossover on big
-   *   LPs (~35% faster per aperture than `cold`).
+   * - `warm` (**effective default** — an unset option resolves to `warm`
+   *   in `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt
+   *   emits it explicitly): only meaningful with `aperture_chunk_size > 1`;
+   *   the first aperture in a chunk seeds a basis (barrier + crossover)
+   *   and every subsequent aperture re-optimizes it with a warm simplex
+   *   solve (via `SolverOptions::advanced_basis` → CPLEX `ADVIND=1`)
+   *   instead of a fresh cold barrier.  Aperture deltas (column bounds;
+   *   equality-row RHS under AR inflows / profile elements) preserve
+   *   dual feasibility, so the basis stays valid across apertures.
+   * - `reduced_cost`: cold barrier WITHOUT crossover per aperture; the
+   *   cut coefficients come straight from the interior-point reduced
+   *   costs, filtered by `cut_coeff_eps`.  Skips crossover on big LPs
+   *   (~35% faster per aperture than `cold`).
+   * - `dual_shared` (opt-in): solve only the highest-weight
+   *   representative aperture; synthesize every other aperture's cut from
+   *   the representative's vertex duals via the Infanger–Morton
+   *   bound-delta correction (Lemma AP2,
+   *   `docs/formulation/sddp-cut-validity.md` §6).  Skips all
+   *   non-representative re-solves — the remaining lever on backends
+   *   without any warm-start path (e.g. cuOpt/PDLP; ledger F10).
+   * - `screened` (opt-in): `dual_shared`, then the `aperture_screen_count`
+   *   synthesized cuts with the largest |intercept correction| are
+   *   re-solved exactly on the resident basis.
    *
-   * Absent / `nullopt` resolves to `reduced_cost`.
+   * Absent / `nullopt` resolves to `warm`.
    */
   std::optional<ApertureSolveMode> aperture_solve_mode {};
+
+  /** @brief Number of dual-shared aperture cuts re-solved exactly under
+   *         `aperture_solve_mode = screened`.
+   *
+   * After the representative solve and the dual-shared synthesis pass,
+   * the `screened` mode picks the N synthesized cuts with the largest
+   * absolute intercept correction |Σ max(d,0)Δl + Σ min(d,0)Δu| — the
+   * apertures whose shared support is loosest — and re-solves them
+   * exactly (warm dual simplex on the resident basis), replacing their
+   * synthesized cuts with exact ones.  Ignored by every other mode.
+   *
+   * Default: `nullopt` → `default_sddp_aperture_screen_count`
+   * (2, `sddp_enums.hpp`).
+   */
+  OptInt aperture_screen_count {};
 
   /** @brief Seed each iteration's first backward aperture from the previous
    *         iteration's first-aperture simplex basis (dual warm start).
    *
-   * Orthogonal to `aperture_solve_mode`; only acts when the mode is `cold`
-   * or `warm` (vertex cuts).  One basis per `(scene, phase)` cell is kept
+   * Orthogonal to `aperture_solve_mode`; acts for every basis-capable
+   * (vertex) mode — all modes except `reduced_cost`, which has no basis
+   * to capture.  One basis per `(scene, phase)` cell is kept
    * across iterations (PhaseStateInfo) — `O(cells)` memory, not
    * `O(cells × apertures)`.  Same realization each iteration (the first
-   * aperture), so the only delta is the incoming state (bound-only) plus
-   * appended cut rows; the captured basis is an exact dual-simplex seed and
+   * aperture), so the only delta is the incoming state (a bound pin)
+   * plus appended cut rows; the captured basis is an exact dual-simplex
+   * seed and
    * the gap shrinks as the policy converges.  The within-chunk resident
    * basis carries the remaining apertures (`aperture_chunk_size > 1`).
    *
@@ -416,8 +487,9 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *   scenario's boundary cuts (valid; pairs with cut_sharing none/multicut).
    * - shared: broadcast each boundary cut onto every scene's single terminal α
    *   (valid only when the post-horizon value is scenario-identical).
-   * - multicut: N terminal α columns, cut s → varphi_s, averaged 1/N (pairs
-   *   with cut_sharing_mode=multicut).
+   * - multicut: N terminal α columns, cut s → varphi_s, priced at the M4
+   *   weight w_r = p_s (= 1/N under uniform probabilities; pairs with
+   *   cut_sharing_mode=multicut).
    * When unset, derived from the legacy `boundary_cuts_mode` scope:
    * separated→per_scene, combined→shared; else per_scene.
    */
@@ -756,9 +828,23 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    */
   std::optional<SolverOptions> backward_solver_options {};
 
+  /// Number of JSON-facing fields in this struct.  MUST be bumped when
+  /// a field is added, together with the THREE position-synced lists in
+  /// `json_sddp_options.hpp` (constructor parameters, `json_member_list`,
+  /// `to_json_data` tuple), the `merge()` below, the
+  /// `PlanningOptionsLP` accessor, the `planning_method.cpp` copy line,
+  /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
+  /// (a schema-parity pytest enforces the Python side; a `static_assert`
+  /// in `json_sddp_options.hpp` enforces the tuple against this count).
+  static constexpr std::size_t json_field_count = 66;
+
   void merge(SddpOptions&& opts)
   {
     merge_opt(cut_sharing_mode, opts.cut_sharing_mode);
+    merge_opt(forward_sampling_mode, opts.forward_sampling_mode);
+    merge_opt(integer_cuts_mode, opts.integer_cuts_mode);
+    merge_opt(markov_states, std::move(opts.markov_states));
+    merge_opt(markov_transition, std::move(opts.markov_transition));
     merge_opt(cut_drain_mode, opts.cut_drain_mode);
     merge_opt(cut_directory, std::move(opts.cut_directory));
     merge_opt(api_enabled, opts.api_enabled);
@@ -786,6 +872,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(aperture_drop_fcuts, opts.aperture_drop_fcuts);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
+    merge_opt(aperture_screen_count, opts.aperture_screen_count);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
     merge_opt(basis_cross_mode, opts.basis_cross_mode);
     merge_opt(boundary_cuts_file, std::move(opts.boundary_cuts_file));

@@ -74,6 +74,7 @@ namespace
       options.sddp_aperture_use_manual_clone();
   sddp_opts.aperture_chunk_size = options.sddp_aperture_chunk_size();
   sddp_opts.aperture_solve_mode = options.sddp_aperture_solve_mode();
+  sddp_opts.aperture_screen_count = options.sddp_aperture_screen_count();
   sddp_opts.aperture_seed_basis = options.sddp_aperture_seed_basis();
   sddp_opts.basis_cross_mode = options.sddp_basis_cross_mode();
   sddp_opts.max_cuts_per_phase = options.sddp_max_cuts_per_phase();
@@ -88,6 +89,12 @@ namespace
   // Cut sharing and files.  Place the cuts directory inside the output
   // directory so all solver output is self-contained.
   sddp_opts.cut_sharing = options.sddp_cut_sharing_mode_enum();
+  sddp_opts.forward_sampling = options.sddp_forward_sampling_mode_enum();
+  sddp_opts.integer_cuts = options.sddp_integer_cuts_mode_enum();
+  // Markov-chain configuration (consulted only under
+  // cut_sharing = markov; validated by SDDPMethod::initialize_solver).
+  sddp_opts.markov = make_markov_config(options.sddp_markov_states(),
+                                        options.sddp_markov_transition());
   sddp_opts.cut_drain_mode = options.sddp_cut_drain_mode();
   const auto output_dir_sv = options.output_directory();
   const auto cut_dir =

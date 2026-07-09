@@ -119,10 +119,10 @@ TEST_CASE(  // NOLINT
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 2. Synchronized backward (cut_sharing=expected): all backends released
+// 2. Synchronized backward (cut_sharing=multicut): all backends released
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// 2-scene 3-phase fixture, cut_sharing=expected, low_memory=compress,
+// 2-scene 3-phase fixture, cut_sharing=multicut, low_memory=compress,
 // 1 iteration.  After solve(), every (scene, phase) cell's backend
 // must be released.  Confirms the per-cell scheme + bulk safety net
 // converge on the correct end state under the synchronized backward.
@@ -141,7 +141,7 @@ TEST_CASE(  // NOLINT
   SDDPOptions sddp_opts;
   sddp_opts.max_iterations = 1;
   sddp_opts.convergence_tol = 1e-6;
-  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
   sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.memory_codec = CompressionCodec::uncompressed;
   sddp_opts.enable_api = false;
@@ -205,7 +205,7 @@ TEST_CASE(  // NOLINT
   sddp_opts.max_iterations = 2;
   sddp_opts.convergence_tol = 1e-9;  // force both iterations
   sddp_opts.min_iterations = 2;
-  sddp_opts.cut_sharing = CutSharingMode::broadcast_mean;
+  sddp_opts.cut_sharing = CutSharingMode::multicut;
   sddp_opts.low_memory_mode = LowMemoryMode::compress;
   sddp_opts.memory_codec = CompressionCodec::uncompressed;
   sddp_opts.enable_api = false;

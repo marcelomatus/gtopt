@@ -2,6 +2,7 @@
 """Tests for JSON sanitization."""
 
 import json
+import logging
 from pathlib import Path
 
 from run_gtopt._sanitize import sanitize_json
@@ -214,6 +215,109 @@ def test_warn_invalid_solver_type(tmp_path: Path):
     p = _write_plan(tmp_path / "plan.json", {"method": "gurobi"})
     result = sanitize_json(p)
     assert result == p
+
+
+def test_warn_invalid_forward_sampling_mode(tmp_path: Path):
+    """Unknown sddp forward_sampling_mode warns but applies no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"forward_sampling_mode": "bogus"}},
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_valid_forward_sampling_modes_pass(tmp_path: Path):
+    """Both valid forward_sampling_mode spellings pass untouched."""
+    for mode in ("persistent", "resampled"):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"forward_sampling_mode": mode}},
+        )
+        assert sanitize_json(p) == p
+
+
+def test_warn_invalid_integer_cuts_mode(tmp_path: Path):
+    """Unknown sddp integer_cuts_mode warns but applies no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"integer_cuts_mode": "bogus"}},
+    )
+    result = sanitize_json(p)
+    assert result == p
+
+
+def test_valid_integer_cuts_modes_pass(tmp_path: Path):
+    """Both valid integer_cuts_mode spellings pass untouched."""
+    for mode in ("none", "strengthened"):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"integer_cuts_mode": mode}},
+        )
+        assert sanitize_json(p) == p
+
+
+def test_warn_invalid_aperture_solve_mode(tmp_path: Path, caplog):
+    """Unknown sddp aperture_solve_mode warns but applies no fix."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"aperture_solve_mode": "dual_sahred"}},
+    )
+    with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+        result = sanitize_json(p)
+    assert result == p
+    assert "aperture_solve_mode" in caplog.text
+
+
+def test_valid_aperture_solve_modes_pass(tmp_path: Path, caplog):
+    """All canonical + alias aperture_solve_mode spellings pass."""
+    for mode in (
+        "cold",
+        "warm",
+        "warm_start",
+        "reduced_cost",
+        "barrier",
+        "dual_shared",
+        "screened",
+    ):
+        p = _write_plan(
+            tmp_path / f"plan_{mode}.json",
+            {"sddp_options": {"aperture_solve_mode": mode}},
+        )
+        with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+            assert sanitize_json(p) == p
+    assert "aperture_solve_mode" not in caplog.text
+
+
+def test_warn_markov_mode_missing_config(tmp_path: Path, caplog):
+    """markov cut sharing without its chain config surfaces a WARN."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {"sddp_options": {"cut_sharing_mode": "markov"}},
+    )
+    with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+        result = sanitize_json(p)
+    assert result == p
+    assert "markov_states" in caplog.text
+    assert "markov_transition" in caplog.text
+
+
+def test_markov_mode_with_full_config_is_silent(tmp_path: Path, caplog):
+    """markov cut sharing with both arrays present emits no markov WARN."""
+    p = _write_plan(
+        tmp_path / "plan.json",
+        {
+            "sddp_options": {
+                "cut_sharing_mode": "markov",
+                "markov_states": [0, 1],
+                "markov_transition": [0.5, 0.5, 0.5, 0.5],
+            }
+        },
+    )
+    with caplog.at_level(logging.INFO, logger="run_gtopt._sanitize"):
+        result = sanitize_json(p)
+    assert result == p
+    assert "markov_states" not in caplog.text
 
 
 def test_fix_lp_names_invalid(tmp_path: Path):
