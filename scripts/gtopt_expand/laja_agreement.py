@@ -527,13 +527,24 @@ class LajaAgreement(_RightsAgreementBase):
 
             by_scenario = cfg.get("q_hoya_inter_by_scenario")
             if by_scenario and len(by_scenario) > 1:
-                # Scenario-dimensioned carrier: one qdefm series per
-                # forward scenario (each maps to a PLP hydrology).
-                counts = self._stage_block_counts(len(self._get_stages()))
-                qdefm_sched = [
-                    [[v] * nb for v, nb in zip(qdefm_series(series), counts)]
-                    for series in by_scenario
+                # The carrier is a FlowRight ``fmin``/``fmax`` bound,
+                # which gtopt samples per (stage, block) only — the LP
+                # has no scenario axis for it (flow_right_lp
+                # ``fmin_sched.at(stage, block)``).  So the net Lago
+                # requirement, though it truly varies with each
+                # hydrology's tributary inflows, must be a single
+                # scenario-invariant series.  Use the per-stage MEAN of
+                # the hoya-intermedia inflows across scenarios — the
+                # least-biased representative of PLP's per-simulation
+                # qdefm (documented approximation, like static
+                # filtration).  A 3D [scenario][stage][block] schedule
+                # is NOT emitted: gtopt's TB field cannot parse it.
+                n_stg = len(self._get_stages())
+                mean_hoya = [
+                    sum(series[i] for series in by_scenario) / len(by_scenario)
+                    for i in range(n_stg)
                 ]
+                qdefm_sched = self._to_tb_sched(qdefm_series(mean_hoya))
             else:
                 qdefm_sched = self._to_tb_sched(qdefm_series(q_hoya))
             # Expose to the .tampl renderer (it renders from the raw

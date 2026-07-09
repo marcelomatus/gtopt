@@ -897,10 +897,11 @@ class TestLajaWriter:
         # The partition identity itself is always emitted.
         assert "constraint laja_particion_derechos" in text
 
-    def test_qdefm_scenario_dimensioned(self, laja_config):
-        """With per-scenario hoya inflows the carrier is a 3D
-        [scenario][stage][block] schedule — one qdefm series per
-        forward scenario (hydrology)."""
+    def test_qdefm_scenario_mean(self, laja_config):
+        """With per-scenario hoya inflows the carrier stays a 2D
+        [stage][block] schedule built from the per-stage MEAN inflow —
+        gtopt's FlowRight fmin/fmax is sampled per (stage, block) only
+        (no scenario axis), so a 3D schedule cannot be emitted."""
 
         class _Stages:
             def get_all(self):
@@ -912,10 +913,18 @@ class TestLajaWriter:
         writer = LajaWriter(cfg, stage_parser=_Stages())
         carrier = next(fr for fr in writer.flow_rights if fr["name"] == "laja_qdefm")
         fmax = carrier["fmax"]
-        # scenario 0 (wet, hoya 60): min(90-60-47,0)+53+3.5 = 39.5
-        # scenario 1 (dry, hoya 10): min(90-10-47,0)+53+3.5 = 56.5
-        assert fmax[0][0][0] == pytest.approx(39.5)
-        assert fmax[1][0][0] == pytest.approx(56.5)
+
+        def _depth(x):
+            return 1 + _depth(x[0]) if isinstance(x, list) and x else 0
+
+        # At most 2D (stage[/block]) — NEVER 3D scenario-dimensioned
+        # (gtopt's FlowRight fmin/fmax has no scenario axis).
+        assert _depth(fmax) <= 2, f"carrier must not be scenario-dimensioned: {fmax}"
+        # mean hoya = (60+10)/2 = 35 -> min(90-35-47,0)+53+3.5 = 56.5
+        flat = fmax
+        while isinstance(flat, list):
+            flat = flat[0]
+        assert flat == pytest.approx(56.5)
 
     def test_district_anchoring(self, laja_config, tmp_path):
         """A district stamped with `anchor_flow_right` (by plp2gtopt when
