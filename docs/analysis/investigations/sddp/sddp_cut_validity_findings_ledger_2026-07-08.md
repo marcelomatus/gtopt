@@ -295,6 +295,64 @@ relative to the row max; the tolerances add.
   was rejected: it perturbs the objective every golden pins and hides,
   rather than documents, the degeneracy.
 
+- **F14 — per-scene expansion-CAPEX over-weighting (2026-07-08 found,
+  2026-07-09 FIXED)**: `CapacityObjectBase::add_to_lp`
+  (`source/capacity_object_lp.cpp`) priced the `capacost` carrying-cost
+  objective column with `CostHelper::stage_ecost(stage, 1.0)` —
+  probability weight **1.0** — because capacity columns are built once
+  per scene (the `scenario.is_first()` guard) and, in the all-scenarios
+  monolithic LP, the dispatch probabilities that share those columns
+  sum to 1.  In the per-scene SDDP LPs, however, each LP carries ONLY
+  its own scenario(s) with the GLOBALLY-normalized weight `p_s` (one
+  scenario per scene → `p_s`; e.g. 0.5), so dispatch/OPEX folds by
+  `p_s` via `block_ecost` while CAPEX stayed at 1.0 — the carrying
+  charge was over-weighted by `1/p_s` in **every** scene-LP.
+
+  *Why the renormalization hypothesis is refuted*: neither
+  `PlanningLP::renormalize_scenario_probabilities`
+  (`source/planning_lp.cpp:670`) nor `validate_planning` renormalizes
+  *within* a scene on the one-scenario-per-scene SDDP path.  The former
+  rescales the whole active subset (all scenes together) to sum 1.0 —
+  here the two `p_s = 0.5` already sum to 1.0, so it is a silent no-op —
+  and `validate_planning` explicitly **skips** single-scenario scenes
+  (`validate_planning.cpp:1717-1740`: "their `probability_factor`
+  represents the global weight used for cross-scene aggregation").  So
+  each scene's scenario genuinely carries `p_s`, not a per-scene 1.0.
+
+  *Derivation (test-4 fixture, 2 identical dry scenes, `p_s = 0.5`,
+  build `K = 24.333 MW`, dispatch physical 36 760, carrying 292)*:
+  * per scene-LP (defect) = `0.5 × 36 760 + 1.0 × 292 = 18 672`;
+  * `compute_iteration_bounds` sums scenes (each per-scene obj already
+    has `p_s` baked in) → LB = UB = `18 672 × 2 = 37 344`;
+  * extensive twin (1 scenario, `p = 1`) `v_full = 36 760 + 292 =
+    37 052`;
+  * `37 344 − 37 052 = 292` = exactly **one** duplicated carrying
+    charge (`= K × 12 h × 1 $/MW-h`).  Integer variant: `K = 50` →
+    over-count `600`, observed LB `37 960 = 37 360 + 600`.
+
+  *Fix*: fold the carrying-cost objective coefficient by the owning
+  scene's total probability mass —
+  `CostHelper::stage_ecost(stage, 1.0, scene_prob)` with
+  `scene_prob = sc.system().scene().probability_factor()`
+  (`SceneLP::probability_factor()` sums the scene's active scenarios).
+  Only ONE objective site changed (the `capacost_col` `.cost`); the
+  `capacost_row` coefficient `−stage_expcap · stage_hour_capcost` and
+  the `capainst_row`/derating coefficients are **physical** ($ or MW)
+  constraint structure and must stay probability-free (folding there
+  would double-count).  The `capainst_col` has `.cost = 0.0` (no
+  objective contribution).
+
+  *Monolithic invariance*: in the monolithic solve `scene_array` is
+  empty → `create_scene_array` synthesises ONE scene with
+  `count_scenario = dynamic_extent` covering every scenario, so
+  `SceneLP::probability_factor()` sums all scenarios = 1.0 → identical
+  to the previous `stage_ecost(stage, 1.0)`.  Result: after the fix
+  each identical scene folds carrying by `0.5`, the plain cross-scene
+  sum reconstitutes the single 292 (resp. 600) charge, and LB = UB =
+  `v_full` (resp. `≤ v_mip`) — the theorem-mandated Benders ≡ SDDP
+  identity.  Tests 4-5 in `test_sddp_expansion_sharing.cpp` upgraded
+  their WARNs to CHECKs and dropped the over-count pins.
+
 ## 6. Not available / deferred
 
 - `support/plp/juan/sddp_lb_overshoot_iter01_2026-05-01.md` — the

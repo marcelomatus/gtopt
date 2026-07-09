@@ -164,17 +164,24 @@ today and is exercised on a production-shaped fixture in
 `test_sddp_expansion_sharing.cpp`; the master loop itself is
 designed but not yet implemented (investigation doc §7).
 
-> **Known defect — multi-scene CAPEX weighting (2026-07-08).**
-> Per-scene SDDP LPs currently price expansion carrying cost
-> (`capacost`) at probability weight 1.0 while dispatch folds by the
+> **Fixed — multi-scene CAPEX weighting (found 2026-07-08, fixed
+> 2026-07-09).**
+> Per-scene SDDP LPs previously priced expansion carrying cost
+> (`capacost`) at probability weight 1.0 while dispatch folded by the
 > scene probability `p_s` (`capacity_object_lp.cpp`,
 > `stage_ecost(stage, 1.0)`); correct in the all-scenario monolithic
-> LP, but in each scene-LP the CAPEX is over-weighted by `1/p_s`
-> (×N for N equiprobable scenes).  On the pinned fixture the build
-> *decisions* are unaffected and the objective shifts by exactly one
-> duplicated carrying charge; expansion-heavy multi-scene SDDP runs
-> should read reported costs (and LB/UB) accordingly until this is
-> fixed.  Pinned by `test_sddp_expansion_sharing.cpp` (tests 4-5).
+> LP, but in each scene-LP the CAPEX was over-weighted by `1/p_s`
+> (×N for N equiprobable scenes), shifting the reported objective by
+> exactly one duplicated carrying charge (build *decisions* were
+> unaffected).  The fix folds the carrying-cost objective coefficient
+> by the owning scene's total probability mass —
+> `stage_ecost(stage, 1.0, scene_prob)` with
+> `scene_prob = SceneLP::probability_factor()` — which equals `p_s`
+> per scene and `1.0` in the monolithic single-scene LP (so monolithic
+> costs are unchanged).  Summed across scenes the carrying charge is
+> now counted exactly once, and multi-scene SDDP LB/UB match the
+> extensive form.  Regression-pinned by `test_sddp_expansion_sharing.cpp`
+> (tests 4-5, Benders ≡ SDDP objective equalities) and ledger F14.
 
 ## Cross-references
 

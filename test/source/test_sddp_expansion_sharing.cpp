@@ -37,13 +37,18 @@
  * module subcase); design: §7 of
  * docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md.
  *
- * FINDING (2026-07-08, uncovered by this fixture): per-scene SDDP LPs
- * over-weight expansion CAPEX by 1/p_s — `capacity_object_lp.cpp`
- * prices `capacost` at probability 1.0 (correct only when all
- * scenarios share one LP).  Decisions are unaffected here; objectives
- * shift by exactly one duplicated carrying charge.  Tests 4-5 pin the
- * signature (deliberate CHECK flips when the weighting is fixed) and
- * keep the theorem-mandated equalities as WARNs.
+ * FINDING (2026-07-08, uncovered by this fixture; FIXED 2026-07-09):
+ * per-scene SDDP LPs over-weighted expansion CAPEX by 1/p_s —
+ * `capacity_object_lp.cpp` priced `capacost` at probability 1.0
+ * (correct only when all scenarios share one LP).  Decisions were
+ * unaffected; objectives shifted by exactly one duplicated carrying
+ * charge.  FIX: `capacity_object_lp.cpp` now folds the carrying-cost
+ * objective coefficient by the owning scene's total probability mass
+ * (`SceneLP::probability_factor()` = p_s per scene; = 1.0 in the
+ * monolithic single-scene LP, so monolithic behaviour is unchanged).
+ * Tests 4-5 now assert the theorem-mandated Benders ≡ SDDP objective
+ * equalities strictly (the WARNs became CHECKs, the over-count pins
+ * were removed).
  */
 
 #include <algorithm>
@@ -557,32 +562,38 @@ TEST_CASE(  // NOLINT
 
 // ═════════════════════════════════════════════════════════════════════════
 // 4. Identical-scene sanity (Benders ≡ SDDP for expansion) — and the
-// per-scene CAPEX weighting DEFECT this fixture uncovered (2026-07-08):
+// per-scene CAPEX weighting FIX this fixture uncovered (2026-07-08, fixed
+// 2026-07-09):
 //
-// `CapacityObjectBase::add_to_lp` prices the `capacost` column with
-// `CostHelper::stage_ecost(stage, 1.0)` — probability weight 1.0 —
-// because capacity columns are built once (first scenario only) and in
-// the all-scenario monolithic LP the dispatch probabilities sum to 1
-// around them.  In per-scene SDDP LPs, however, each LP carries ONLY
-// its own scenario with the GLOBALLY-normalized p_s (0.5 here), so
-// dispatch folds by 0.5 while CAPEX stays at 1.0: expansion carrying
-// cost is over-weighted by 1/p_s in every scene-LP (×2 here).
+// `CapacityObjectBase::add_to_lp` now prices the `capacost` column with
+// `CostHelper::stage_ecost(stage, 1.0, scene_prob)`, where `scene_prob`
+// is the owning scene's total probability mass
+// (`SceneLP::probability_factor()`).  Capacity columns are still built
+// once (first scenario only), but the objective folds the SAME
+// probability mass the dispatch/OPEX coefficients carry:
+//   * Monolithic LP: the single synthetic scene holds every scenario →
+//     `scene_prob` sums to 1.0 → identical to the previous `stage_ecost
+//     (stage, 1.0)` behaviour (monolithic invariance).
+//   * Per-scene SDDP LP: each LP carries ONLY its own scenario with the
+//     GLOBALLY-normalized p_s (0.5 here), so BOTH dispatch and CAPEX
+//     fold by 0.5.  Summed across scenes (`compute_iteration_bounds` is
+//     a plain sum) the carrying charge reconstitutes exactly once.
 //
 // Verified decomposition on this fixture (probe run 2026-07-08): both
 // the SDDP run and the single-phase extensive twin build the SAME
-// K = 24.333 MW (expmod 0.48667), and each scene-LP total is exactly
-// 0.5 × dispatch(36 760) + 1.0 × carrying(292) = 18 672 → LB = UB =
-// 37 344 = v_full(37 052) + one extra 12 h × K × 1 $/MW-h charge.
+// K = 24.333 MW (expmod 0.48667).  Post-fix each scene-LP total is
+// 0.5 × dispatch(36 760) + 0.5 × carrying(292) = 18 526 → summed over
+// the two identical scenes LB = UB = 37 052 = v_full exactly (the
+// carrying charge is now counted once, not twice).
 //
-// The DECISION equivalence (Benders ≡ SDDP builds) holds and is
-// asserted strictly; the objective equality is pinned at the defect
-// signature (deliberate: fixing the weighting must flip this CHECK)
-// and the theorem-mandated LB ≤ v_full stays as a WARN until then.
+// Both the DECISION equivalence (Benders ≡ SDDP builds) AND the
+// objective equality (LB = UB = v_full, the theorem-mandated
+// Benders ≡ SDDP identity) now hold and are asserted strictly.
 // ═════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
     "SDDP expansion sharing — identical scenes: SDDP reproduces the "
-    "extensive build; objective pins the per-scene CAPEX over-weighting")
+    "extensive build AND the extensive objective (Benders ≡ SDDP)")
 {
   auto planning = ex_make_planning(kExDryInflow, kExDryInflow);
   PlanningLP plp(std::move(planning));
@@ -624,38 +635,36 @@ TEST_CASE(  // NOLINT
   const auto& last = results->back();
   const double tol = 2.0 * ex_tol(std::abs(v_full));
   INFO("LB=", last.lower_bound, " UB=", last.upper_bound, " v_full=", v_full);
-  // Theorem-mandated equivalence — FAILS today because of the CAPEX
-  // over-weighting defect above; upgrade to CHECK when it is fixed.
-  WARN(last.lower_bound <= v_full + tol);
+  // Theorem-mandated equivalence — holds now that the per-scene CAPEX
+  // weighting is fixed (folded by scene_prob = p_s).
+  CHECK(last.lower_bound <= v_full + tol);
   // Converged (LB = UB) …
   CHECK(last.lower_bound == doctest::Approx(last.upper_bound).epsilon(1e-6));
-  // … onto the extensive optimum PLUS exactly one duplicated carrying
-  // charge (the defect signature: 12 h × K × 1 $/MW-h; 292 here).
-  const double capex_overcount = caps[0] * 12.0 * 1.0;
-  CHECK(last.upper_bound
-        == doctest::Approx(v_full + capex_overcount).epsilon(1e-3));
-  MESSAGE("identical-scene gate: v_full=",
-          v_full,
-          " sddp=",
-          last.upper_bound,
-          " capex_overcount=",
-          capex_overcount);
+  // … exactly onto the extensive optimum: the carrying charge is now
+  // folded by p_s in each identical scene and the plain cross-scene sum
+  // reconstitutes it once (no duplication).  Previously (defect) the
+  // SDDP objective was v_full + one extra 12 h × K × 1 $/MW-h charge.
+  CHECK(last.upper_bound == doctest::Approx(v_full).epsilon(1e-3));
+  MESSAGE("identical-scene gate: v_full=", v_full, " sddp=", last.upper_bound);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
 // 5. Integer expansion module (MIP-gated): `integer_expmod = true` on
 // the identical-scene fixture — the build is integral (0 or the full
-// 50 MW module) and matches the extensive MIP, and the SDDP LB stays
-// below the monolithic extensive MIP optimum SHIFTED by the pinned
-// per-scene CAPEX over-weight (see the test-4 banner: the 50 MW module
-// is double-charged, +600 exactly, observed LB = 37 960 = 37 360 +
-// 600).  Runs with `integer_cuts = strengthened` (the certified mode
-// on integer-bearing cells, Theorem SB1).
+// 50 MW module) and matches the extensive MIP, and the SDDP LB stays at
+// or below the monolithic extensive MIP optimum (the theorem-mandated
+// Benders ≡ SDDP gate).  With the per-scene CAPEX weighting fixed
+// (folded by scene_prob = p_s) the previous +600 over-charge (the
+// 50 MW module double-counted across two identical p_s = 0.5 scenes)
+// is gone: each scene charges 0.5 × 600 and the plain cross-scene sum
+// reconstitutes the single 600 carrying charge that the extensive MIP
+// also pays.  Runs with `integer_cuts = strengthened` (the certified
+// mode on integer-bearing cells, Theorem SB1).
 // ═════════════════════════════════════════════════════════════════════════
 
 TEST_CASE(  // NOLINT
     "SDDP expansion sharing — integer module (MIP): integral build; "
-    "LB pins the CAPEX over-weight vs the monolithic MIP optimum")
+    "LB ≤ the monolithic MIP optimum (Benders ≡ SDDP gate)")
 {
   const auto mip_solver = solver_test::first_mip_solver();
   if (mip_solver.empty()) {
@@ -698,12 +707,12 @@ TEST_CASE(  // NOLINT
         CHECK(caps[0] == doctest::Approx(kExExpCap).epsilon(1e-3));
         CHECK(caps[1] == doctest::Approx(kExExpCap).epsilon(1e-3));
 
-        // LB validity against the CAPEX-over-weight-corrected optimum
-        // (the built module is double-charged in the per-scene LPs:
-        // +12 h × 50 MW × 1 $/MW-h = +600 — test-4 banner).  The
-        // uncorrected LB ≤ v_mip is the theorem-mandated gate — WARN
-        // until the weighting defect is fixed, then fold the two.
-        const double capex_overcount = kExExpCap * 12.0 * 1.0;
+        // LB validity: the theorem-mandated Benders ≡ SDDP gate
+        // LB ≤ v_mip now holds directly, because the per-scene CAPEX
+        // weighting is fixed (folded by scene_prob = p_s).  Previously
+        // (defect) the built module was double-charged across the two
+        // identical p_s = 0.5 scenes (+12 h × 50 MW × 1 $/MW-h = +600),
+        // and this assertion had to be relaxed by that over-count.
         const double tol = 2.0 * ex_tol(std::abs(v_mip));
         for (const auto& ir : *results) {
           INFO("iter=",
@@ -712,15 +721,12 @@ TEST_CASE(  // NOLINT
                ir.lower_bound,
                " v_mip=",
                v_mip);
-          CHECK(ir.lower_bound <= v_mip + capex_overcount + tol);
-          WARN(ir.lower_bound <= v_mip + tol);
+          CHECK(ir.lower_bound <= v_mip + tol);
         }
         MESSAGE("integer gate: v_mip=",
                 v_mip,
                 " final LB=",
-                results->back().lower_bound,
-                " capex_overcount=",
-                capex_overcount);
+                results->back().lower_bound);
       });
   if (!ran) {
     MESSAGE("MIP solver license unavailable — integer-module tier skipped");
