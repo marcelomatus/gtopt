@@ -139,8 +139,7 @@ def test_locate_and_read_table_csv_fallback(tmp_path) -> None:
     gdir = tmp_path / "Generator"
     gdir.mkdir()
     (gdir / "pmax.csv").write_text(
-        "block,stage,uid,value\n"
-        "1,1,37,400.0\n2,1,37,437.3\n1,1,65,900.0\n",
+        "block,stage,uid,value\n1,1,37,400.0\n2,1,37,437.3\n1,1,65,900.0\n",
         encoding="utf-8",
     )
     peaks = _locate_and_read_table("pmax", tmp_path, subdir="Generator")
