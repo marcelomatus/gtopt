@@ -398,6 +398,21 @@ def compute_turbine_maxflow(
             if pmax is None and isinstance(gref, str):
                 pmax = peaks.get(gref)
         if pmax is None:
+            # Fallback: the turbine's own ``capacity`` field is the
+            # already-resolved max flow [m³/s] (= gen_pmax / pf, stamped
+            # upstream by the hydro writer).  Use it when the generator
+            # ``pmax`` is an unresolved parquet-ref string, so reservoirs
+            # like RALCO (``gen pmax == 'pmax'`` string) still contribute
+            # their FULL turbine release to ``max_release``.  Without this
+            # the estimator omits the turbine entirely and sets the
+            # reservoir extraction bound far too tight (e.g. RALCO ±60 vs
+            # a 438 m³/s turbine) — a dry-hydrology solve then goes
+            # infeasible because the node balance cannot pass the inflow
+            # through a spuriously-capped storage flow (PLP leaves qe
+            # unbounded).  ``capacity`` is already a flow, so no ``/ pf``.
+            cap = _numeric_cap(t.get("capacity"))
+            if cap is not None:
+                out[_turbine_maxflow_key(t)] = cap
             continue
         out[_turbine_maxflow_key(t)] = pmax / pf
     return out

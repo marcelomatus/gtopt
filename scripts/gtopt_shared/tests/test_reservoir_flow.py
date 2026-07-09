@@ -106,6 +106,30 @@ def test_turbine_maxflow_division() -> None:
     assert mf["t_term"] == pytest.approx(50.0)
 
 
+def test_turbine_maxflow_capacity_fallback_unresolved_pmax() -> None:
+    """When the generator ``pmax`` is an unresolved parquet-ref string,
+    the turbine's own resolved ``capacity`` [m³/s] is used so the
+    reservoir still gets its full release capacity (the RALCO
+    infeasibility fix — gen pmax=='pmax' string, capacity=438)."""
+    sys = {
+        "turbine_array": [
+            {
+                "uid": 65,
+                "name": "RALCO",
+                "generator": "RALCO",
+                "junction_a": "RALCO",
+                "junction_b": "PANGUE",
+                "production_factor": 1.575,
+                "capacity": 438.095,
+            }
+        ],
+        "generator_array": [{"uid": 65, "name": "RALCO", "pmax": "pmax"}],
+    }
+    mf = compute_turbine_maxflow(sys)
+    # pmax unresolved -> fall back to capacity directly (no /pf).
+    assert mf["RALCO"] == pytest.approx(438.095)
+
+
 def test_turbine_maxflow_resolves_time_series_pmax_and_pf() -> None:
     """Inline time-series ``pmax``/``production_factor`` resolve to the
     conservative outer bound: peak pmax / minimum positive pf (not dropped).
