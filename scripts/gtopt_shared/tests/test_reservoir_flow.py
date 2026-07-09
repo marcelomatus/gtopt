@@ -130,6 +130,23 @@ def test_turbine_maxflow_capacity_fallback_unresolved_pmax() -> None:
     assert mf["RALCO"] == pytest.approx(438.095)
 
 
+def test_locate_and_read_table_csv_fallback(tmp_path) -> None:
+    """The shared table reader resolves peaks from CSV (-F csv output),
+    not just parquet — otherwise string-ref pmax/fmax never resolve and
+    extraction bounds are left far too tight."""
+    from gtopt_shared.reservoir_flow import _locate_and_read_table
+
+    gdir = tmp_path / "Generator"
+    gdir.mkdir()
+    (gdir / "pmax.csv").write_text(
+        "block,stage,uid,value\n"
+        "1,1,37,400.0\n2,1,37,437.3\n1,1,65,900.0\n",
+        encoding="utf-8",
+    )
+    peaks = _locate_and_read_table("pmax", tmp_path, subdir="Generator")
+    assert peaks == {37: pytest.approx(437.3), 65: pytest.approx(900.0)}
+
+
 def test_turbine_maxflow_resolves_time_series_pmax_and_pf() -> None:
     """Inline time-series ``pmax``/``production_factor`` resolve to the
     conservative outer bound: peak pmax / minimum positive pf (not dropped).

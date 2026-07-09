@@ -636,28 +636,67 @@ def _resolve_parquet_peak(
     return None
 
 
+def _read_csv_peaks_by_uid(path: Path) -> dict[int, float] | None:
+    """Read a long-layout CSV time-series and return ``{uid: peak}``.
+
+    Columns ``scenario|block, stage, uid, value`` (the ``value`` peak per
+    ``uid``).  The CSV counterpart of :func:`_read_parquet_peaks_by_uid`
+    so a ``-F csv`` conversion resolves ``pmax`` / ``fmax`` peaks exactly
+    like a parquet one — without this, string-ref bounds (e.g. ELTORO's
+    ``gen pmax == 'pmax'``) never resolve and the extraction estimate is
+    left far too tight.
+    """
+    try:
+        import csv  # noqa: PLC0415  pylint: disable=import-outside-toplevel
+
+        peaks: dict[int, float] = {}
+        with open(path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames is None or "uid" not in reader.fieldnames:
+                return None
+            for row in reader:
+                try:
+                    u = int(row["uid"])
+                    v = float(row["value"])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if math.isfinite(v) and (u not in peaks or v > peaks[u]):
+                    peaks[u] = v
+        return peaks
+    except OSError as exc:
+        logger.warning("reservoir_flow: failed to read %s: %s", path, exc)
+        return None
+
+
 def _locate_and_read_table(
     table_name: str, input_dir: Path | None, *, subdir: str = "Flow"
 ) -> dict[int, float] | None:
-    """Find ``<table>.parquet`` under common locations and read peaks.
+    """Find ``<table>.{parquet,csv}`` under common locations, read peaks.
 
     Tries ``<input_dir>/<subdir>/<table>.parquet`` first (the per-element
     class directory, e.g. ``Generator/pmax.parquet``,
     ``Waterway/fmax.parquet``, ``Flow/discharge.parquet``), then the
-    flat ``<input_dir>/<table>.parquet`` fallback.  Keyed by element uid.
+    flat ``<input_dir>/<table>.parquet`` fallback, then the ``.csv``
+    variants (a ``-F csv`` conversion emits CSV time-series).  Keyed by
+    element uid.
     """
     if input_dir is None:
         return None
-    candidates = [
+    for path in (
         input_dir / subdir / f"{table_name}.parquet",
         input_dir / f"{table_name}.parquet",
-    ]
-    for path in candidates:
+    ):
         if path.exists():
             return _read_parquet_peaks_by_uid(path)
+    for path in (
+        input_dir / subdir / f"{table_name}.csv",
+        input_dir / f"{table_name}.csv",
+    ):
+        if path.exists():
+            return _read_csv_peaks_by_uid(path)
     logger.warning(
-        "reservoir_flow: could not locate parquet table %r under %s; "
-        "treating peak as 0",
+        "reservoir_flow: could not locate table %r (.parquet/.csv) under "
+        "%s; treating peak as 0",
         table_name,
         input_dir,
     )
