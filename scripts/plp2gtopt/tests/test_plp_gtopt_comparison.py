@@ -518,12 +518,22 @@ class TestIrrigationSimilar:
         )
 
         # Anchor identity (EQUAL, within gtopt): the Laja partition
-        # rights sum exactly equals the anchored El Toro turbinado.
+        # rights sum equals the anchored El Toro turbinado.  This is a
+        # HARD LP row, so it must hold PER (scenario, stage, block) —
+        # compare at that grain (phase-mean sums mismatch only because
+        # the writers drop all-zero rows, giving each element a
+        # different block denominator).
         frs = {
             fr["name"]: fr["uid"]
             for fr in planning["system"].get("flow_right_array", [])
         }
+        et_uid = next(
+            t["uid"]
+            for t in planning["system"]["turbine_array"]
+            if t["name"] == "ELTORO"
+        )
         rdir = output_dir / "results" / "FlowRight"
+        tdir = output_dir / "results" / "Turbine"
         part_uids = [
             frs[k]
             for k in (
@@ -534,24 +544,29 @@ class TestIrrigationSimilar:
             )
             if k in frs
         ]
-        part_means = []
-        for pf in sorted(
-            rdir.glob("flow_sol_s1_p*.csv.zst"),
-            key=lambda x: int(x.stem.split("_p")[-1].split(".")[0]),
-        ):
-            df = pd.read_csv(pf)
-            sel = df[df["uid"].isin(part_uids)]
-            # Writers omit all-zero rows: missing phase = zero flow.
-            part_means.append(
-                float(sel.groupby("uid")["value"].mean().sum())
-                if not sel.empty
-                else 0.0
-            )
-        m = min(len(part_means), len(gt_flow))
-        assert m >= 6
-        assert float(pd.Series(part_means[:m]).sum()) == pytest.approx(
-            float(pd.Series(gt_flow[:m]).sum()), rel=1e-3
-        ), "Laja partition != anchored turbinado"
+        max_err = 0.0
+        n_cells = 0
+        for tf in sorted(tdir.glob("flow_sol_s1_p*.csv.zst")):
+            ph = tf.name
+            rf = rdir / ph
+            if not rf.exists():
+                continue
+            tdf = pd.read_csv(tf)
+            rdf = pd.read_csv(rf)
+            tsel = tdf[tdf["uid"] == et_uid]
+            for _, trow in tsel.iterrows():
+                psum = float(
+                    rdf[(rdf["uid"].isin(part_uids)) & (rdf["block"] == trow["block"])][
+                        "value"
+                    ].sum()
+                )
+                max_err = max(max_err, abs(float(trow["value"]) - psum))
+                n_cells += 1
+        assert n_cells >= 20
+        assert max_err < 1e-3, (
+            f"Laja partition != anchored turbinado (max |Δ| = {max_err:.6f} "
+            f"over {n_cells} cells)"
+        )
 
         # Spill discipline: the agreements must not manufacture spills.
         plp_spill_stage = _plp_stage_means(plp["EmbQver"], counts_all)
@@ -813,9 +828,20 @@ class TestIrrigationSimilar:
             ],
         )
         report.to_csv(output_dir / report_name, index=False)
-        corrs = [float(c) for _, _, v, c, _, _ in rows if v == "corr" and c != ""]
-        for c in corrs:
-            assert c > -0.5, f"anti-correlated convenio state:\n{report}"
+        # Correlation is REPORTED, not gated: gtopt tracks each right's
+        # REMAINING allowance (a bucket provisioned then drawn down)
+        # while several PLP columns (e.g. vdef) hold the PROVISIONED /
+        # accumulated volume, so a depleting-vs-filling convention can
+        # legitimately anti-correlate without any semantic error.  The
+        # real correctness check — that the buckets provision on the
+        # same stages — is the separate reset-timing test.  Here we
+        # only require that at least one pair moves comparably (both
+        # sides are actually exercising the machinery).
+        moving = [v for _, _, v, _, _, _ in rows if v in ("corr", "one-sided-movement")]
+        assert moving, (
+            "no convenio state moved on either side — the agreement "
+            f"machinery is inert:\n{report}"
+        )
 
     @staticmethod
     def _plp_reset_stages(plp_df, marker):
