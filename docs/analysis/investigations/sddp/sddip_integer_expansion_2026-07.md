@@ -434,10 +434,60 @@ running SDDiP).
 ### 7.4 Delivery status (honest scope)
 
 Shipped in this campaign: the **extraction API + unit tests + this
-design**.  The minimal master loop (fixed iteration count,
-LinearInterface master, c0-style acceptance test vs the monolithic
-MIP) did **not** fit the session budget alongside deliverable 2's
-solver-level work; it is the precisely-scoped remainder — see §8.
+design**, plus the **minimal master loop** (`solve_investment_master`,
+`sddp_investment_master.{hpp,cpp}`) with its pure-expansion acceptance
+test against the monolithic MIP
+(`test_sddp_investment_master.cpp`) — the loop now converges
+(LB = UB = 1200, build 1 module) on the fixture.
+
+**Convergence bug FIXED (2026-07-09) — the capacity subgradient
+source.**  The first cut of the loop is
+`θ_s ≥ V_s + Σ_j g_j·(K_j − K̂_j)`, with `g_j = ∂V_s/∂K_j` the
+per-scene value-function slope w.r.t. installed capacity.  The initial
+implementation read `g_j` as the `capainst` COLUMN reduced cost via
+`LinearInterface::get_col_cost()`.  That is **structurally 0**:
+`capainst` is a BASIC column, pinned by its own defining equality
+`capainst = base + expcap·expmod + prev_capainst`
+(`capacity_object_lp.cpp`), so its reduced cost is 0 by simplex
+stationarity.  Every cut was therefore FLAT (`θ_s ≥ V_s`, no
+K-dependence); the master saw `θ_s ≥ max(600, 8000) = 8000 ∀K`, built
+0, and "converged" at LB = UB ≈ 16000 — well above the true optimum
+1200.  Diagnosed trajectory: iter0 (free K̂ = 100) → V_s = 600, g = 0;
+iter1 (pinned build 0, K̂ ≈ 0) → V_s ≈ 8000, g = 0 → false
+convergence.
+
+Investigated (via DIAG instrumentation) every candidate source at the
+two evaluated capacity points:
+
+- **capainst column rc** — 0 (basic), as above.
+- **expmod column rc** — 0: at K = demand the marginal module beyond
+  the served load has no value (a value-function kink); at K ≈ 0 the
+  bound-pinned column is degenerate.
+- **capainst-equality / capacost row duals** — folded to a constant 1
+  at BOTH capacity points (row-max equilibration of the ±expcap
+  coefficient masks the value); NOT the −74/scene true slope.
+- **phase-0→phase-1 `capainst_prev` dependent-column rc** — 0: in the
+  fixture each stage builds its OWN capacity via its own pinned
+  `expmod`, so stage-2 dispatch does not depend on stage-1's carried
+  capacity → no coupling reduced cost.
+
+The **correct source is the `capacity` constraint dual** (`generation
+≤ capainst`, `generator_lp.cpp` `CapacityName`): its dual π_cap ≥ 0 is
+the shadow price of the dispatch ceiling — a valid subgradient of the
+convex value function at the trial point (standard LP sensitivity).
+Each per-block dual is already folded by its `cost_factor = prob ×
+discount × duration`, the SAME probability-folded, `scale_objective`-
+unscaled space as `V_s = get_obj_value()` (= `scene_lower_bounds`), so
+`g_j = −Σ_{(phase, block)} π_cap` is the slope directly in the master's
+θ_s units, no extra scaling.  Summing across phases folds in the
+stage-≥1 cost-to-go (the master pins the same build to every stage, so
+every stage's ceiling moves with K_j).  On the fixture this yields a
+valid (non-flat) support at K̂ = 100 and the master converges to
+build 1 in one round trip.  See `SceneCapSubgradients` in
+`sddp_investment_master.cpp` for the derivation.
+
+Per-stage staggered builds (distinct `n*` per stage) remain the
+documented remainder — see §8.
 
 <a id="8-effort"></a>
 ## 8. Effort estimates and certification plan
@@ -447,7 +497,8 @@ solver-level work; it is the precisely-scoped remainder — see §8.
 | Strengthened cuts (option, builder, backward hook) | 2-3 d | **done** |
 | MIP-fixture oracle tests (tail-MIP extensive form) | 1-2 d | **done** |
 | Capacity-cut extraction API + tests | 1 d | **done** |
-| Investment master loop v1 + c0 acceptance test | 2-3 d | designed (§7), not implemented |
+| Investment master loop v1 + acceptance test | 2-3 d | **done** (§7.4; capacity-dual subgradient, converges to the monolithic MIP on the pure-expansion fixture) |
+| Per-stage staggered builds (distinct n* per stage) | 1-2 d | remainder (§7 caveat 2) |
 | Best-bound intercept (remove MIP-gap ε term) | 0.5 d | punted |
 | Strengthened cuts on the aperture path | 1-2 d | punted (Agent-D conflict) |
 | Full SDDiP (binarization + Lagrangian cuts) | months | rejected for now (§5) |
