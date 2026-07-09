@@ -78,10 +78,7 @@ def _plp_reservoir(plp_emb, name: str, hidro: str = _HIDRO_FIRST):
     return sel.sort_values("Bloque").reset_index(drop=True)
 
 
-@pytest.fixture(scope="module", name="converted")
-def fixture_converted(tmp_path_factory):
-    """Convert the case with ALL irrigation couplings enabled (default)."""
-    output_dir = tmp_path_factory.mktemp("plp_compare")
+def _convert(output_dir, extra_args=()):
     result = subprocess.run(
         [
             sys.executable,
@@ -102,6 +99,7 @@ def fixture_converted(tmp_path_factory):
             "--scale-objective",
             "1000",
             "--no-drop-spillway-waterway",
+            *extra_args,
         ],
         capture_output=True,
         text=True,
@@ -111,6 +109,25 @@ def fixture_converted(tmp_path_factory):
     assert result.returncode == 0, result.stderr[-2000:]
     planning_file = _planning_file(output_dir)
     return output_dir, json.loads(planning_file.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module", name="converted")
+def fixture_converted(tmp_path_factory):
+    """Convert with all irrigation couplings enabled (plp2gtopt
+    defaults — including cuts-govern-terminal, so cut-covered
+    reservoirs carry no efin/efin_cost)."""
+    return _convert(tmp_path_factory.mktemp("plp_compare"))
+
+
+@pytest.fixture(scope="module", name="converted_legacy")
+def fixture_converted_legacy(tmp_path_factory):
+    """Convert with ``--no-cuts-govern-terminal`` so cut-covered
+    reservoirs retain the boundary-cut ``efin_cost`` (for provenance
+    checks that inspect the emitted value)."""
+    return _convert(
+        tmp_path_factory.mktemp("plp_compare_legacy"),
+        ("--no-cuts-govern-terminal",),
+    )
 
 
 def _planning_file(output_dir: Path) -> Path:
@@ -235,7 +252,30 @@ class TestEqualTier:
             checked += 1
         assert checked >= 1
 
-    def test_efin_cost_from_boundary_cuts(self, converted):
+    def test_default_strips_cut_covered_efin(self, converted):
+        """plp2gtopt replicates PLP: by DEFAULT cut-covered reservoirs
+        are governed by the FCF cuts, so they carry no efin/efin_cost
+        soft-slack (PLP EmbCFUE behaviour)."""
+        _, planning = converted
+        from plp2gtopt.planos_parser import (  # pylint: disable=import-outside-toplevel
+            PlanosParser,
+            find_planos_files,
+        )
+
+        files = find_planos_files(_PLP_2Y)
+        assert files is not None
+        planos = PlanosParser(files[0], files[1])
+        planos.parse()
+        cut_names = set(planos.lower_bound_water_value_by_reservoir(num_scenarios=None))
+        assert cut_names
+        for entity in planning["system"].get("reservoir_array", []):
+            if entity["name"] in cut_names:
+                assert "efin_cost" not in entity, (
+                    f"{entity['name']}: cut-covered reservoir still carries "
+                    "efin_cost under the default (should be cuts-governed)"
+                )
+
+    def test_efin_cost_from_boundary_cuts(self, converted_legacy):
         """Reservoir.efin_cost must come from the BOUNDARY CUTS file
         (plpplem1/2 planos, cut lower-bound water value un-discounted
         by the last stage's discount factor) — never from the
@@ -246,7 +286,7 @@ class TestEqualTier:
             find_planos_files,
         )
 
-        _, planning = converted
+        _, planning = converted_legacy
         files = find_planos_files(_PLP_2Y)
         assert files is not None, "planos files missing from the case"
         planos = PlanosParser(files[0], files[1])

@@ -247,6 +247,14 @@ class CentralParser(BaseParser):
                 current_gen["emin"] = self._parse_float(parts[9]) * scale
                 current_gen["emax"] = self._parse_float(parts[10]) * scale
                 current_gen["energy_scale"] = scale
+                # EmbCFUE (parts[12]): T = reservoir carries a future-cost
+                # function (FCF cuts govern its terminal value); F = the
+                # last-stage volume is pinned by a hard vol_end>=EmbVFin
+                # bound instead (VolFinEmb / volfinem.f).  Default True
+                # (matches the big regulating reservoirs) when absent.
+                current_gen["cfue"] = len(parts) <= 12 or str(
+                    parts[12]
+                ).strip().upper().startswith("T")
 
         except (ValueError, IndexError) as e:
             raise ValueError(

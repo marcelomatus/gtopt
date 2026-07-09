@@ -613,8 +613,7 @@ def build_options(args: argparse.Namespace) -> dict:
         opts["boundary_cuts_mode"] = args.boundary_cuts_mode
     if args.boundary_max_iterations is not None:
         opts["boundary_max_iterations"] = args.boundary_max_iterations
-    if getattr(args, "cuts_govern_terminal", False):
-        opts["cuts_govern_terminal"] = True
+    opts["cuts_govern_terminal"] = getattr(args, "cuts_govern_terminal", True)
     if args.no_boundary_cuts:
         opts["no_boundary_cuts"] = True
         # Keep the gtopt JSON consistent with the missing CSV: an

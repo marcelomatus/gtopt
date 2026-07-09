@@ -400,6 +400,28 @@ reservoirs keep their hard `efin` bound (gtopt already uses hard
 through the real converter: ELTORO 1039 (matches the hand-edit),
 removing both the hoarding and the objective pollution.
 
+**PLP `vfin` last-stage review (2026-07-09, plpcnfce.dat + volfinem.f + plpmat.dat)**:
+`EmbVFin` (plpcnfce "Volumen Final") enters the LP only at the LAST
+stage via `VolFinEmb`: `EmbVMin(NEtapa)=EmbVFin`,
+`EmbVMax(NEtapa)=MAX(EmbVMax,EmbVFin)` — a HARD `vol_end>=EmbVFin`
+bound (an EQUALITY when the normal max sits below `EmbVFin`), gated by
+`FVolFinEmb .OR. .NOT. EmbCFUE`.  In the 2-year case `plpmat.dat` has
+`FCotFinEF=F` (FVolFinEmb off), so:
+
+* **CFUE=T** reservoirs (ELTORO/LMAULE/COLBUN/CIPRESES/RALCO/CANUTILLAR/
+  RAPEL/PILMAIQUEN — 8 of 10): the future-cost cuts govern the terminal
+  value; NO `vfin` bound.  `--cuts-govern-terminal` drops their
+  `efin`+`efin_cost`.
+* **CFUE=F** reservoirs (**PEHUENCHE, PANGUE** — in the cut set but
+  `EmbCFUE=F`): PLP pins them with the HARD `vol_end>=EmbVFin` bound.
+  The converter now KEEPS their `efin` (gtopt uses a hard `>=` when
+  `efin_cost` is unset) and only drops the soft-slack price.
+
+The CFUE flag is `plpcnfce` field 13 (`parts[12]`), newly parsed by
+`central_parser`; the terminal policy gates on it so cut-covered but
+non-CFUE reservoirs get the hard bound, not cuts.  End-to-end verified:
+ELTORO/COLBUN efin dropped, PEHUENCHE/PANGUE efin retained (hard).
+
 **Discount division (checked)**: the writer divides the cut water
 value by the last stage's discount factor, and gtopt's LP RE-applies
 that discount via `scenario_stage_ecost` (`cost_helper.hpp:139`,

@@ -458,8 +458,10 @@ class TestProcessBoundaryCuts:
         # Non-cut reservoir keeps its hard efin bound.
         assert res["NOCUT"]["efin"] == 50.0
 
-    def test_cuts_govern_terminal_off_by_default(self, tmp_path):
-        """Without the flag, cut-covered reservoirs keep efin/efin_cost."""
+    def test_cuts_govern_terminal_on_by_default(self, tmp_path):
+        """plp2gtopt replicates PLP: cut-covered reservoirs are
+        cuts-governed by DEFAULT (efin/efin_cost stripped) even without
+        the flag, in combined mode."""
         mock_planos = MagicMock()
         mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
         parser = MagicMock()
@@ -477,6 +479,70 @@ class TestProcessBoundaryCuts:
         writer._build_cut_water_values = lambda: {"ELTORO": 374000.0}
         opts = _make_opts(tmp_path)
         opts["boundary_cuts_mode"] = "combined"
+        # No cuts_govern_terminal key -> defaults to True.
+        writer.process_boundary_cuts(opts)
+        res = writer.planning["system"]["reservoir_array"][0]
+        assert "efin" not in res and "efin_cost" not in res
+
+    def test_cuts_govern_terminal_cfue_false_keeps_hard_efin(self, tmp_path):
+        """A CFUE=F reservoir in the cut set keeps its efin (hard
+        vol_end>=EmbVFin bound, PLP volfinem.f) and only sheds the
+        soft-slack price — CFUE=T reservoirs drop both."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
+        central = MagicMock()
+        central.centrals = [
+            {"name": "ELTORO", "cfue": True},
+            {"name": "PEHUENCHE", "cfue": False},
+        ]
+        parser = MagicMock()
+        parser.parsed_data = {"planos_parser": mock_planos, "central_parser": central}
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {
+                "reservoir_array": [
+                    {"name": "ELTORO", "efin": 3777.0, "efin_cost": 411400.0},
+                    {"name": "PEHUENCHE", "efin": 133.0, "efin_cost": 1584.0},
+                ]
+            },
+            "simulation": {"scenario_array": [{"uid": 1}]},
+        }
+        writer._build_cut_water_values = lambda: {
+            "ELTORO": 374000.0,
+            "PEHUENCHE": 1440.0,
+        }
+        opts = _make_opts(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        writer.process_boundary_cuts(opts)
+        res = {r["name"]: r for r in writer.planning["system"]["reservoir_array"]}
+        # CFUE=T -> cuts govern (both gone).
+        assert "efin" not in res["ELTORO"] and "efin_cost" not in res["ELTORO"]
+        # CFUE=F -> hard vol_end>=EmbVFin (efin kept, price dropped).
+        assert res["PEHUENCHE"]["efin"] == 133.0
+        assert "efin_cost" not in res["PEHUENCHE"]
+
+    def test_cuts_govern_terminal_disabled_keeps_efin(self, tmp_path):
+        """--no-cuts-govern-terminal (False) restores the legacy soft
+        slack: cut-covered reservoirs keep efin/efin_cost."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
+        parser = MagicMock()
+        parser.parsed_data = {"planos_parser": mock_planos}
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {
+                "reservoir_array": [
+                    {"name": "ELTORO", "efin": 3777.0, "efin_cost": 411400.0},
+                ]
+            },
+            "simulation": {"scenario_array": [{"uid": 1}]},
+        }
+        writer._build_cut_water_values = lambda: {"ELTORO": 374000.0}
+        opts = _make_opts(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        opts["cuts_govern_terminal"] = False
         writer.process_boundary_cuts(opts)
         res = writer.planning["system"]["reservoir_array"][0]
         assert res["efin"] == 3777.0 and res["efin_cost"] == 411400.0

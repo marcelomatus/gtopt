@@ -532,8 +532,8 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
     parser.add_argument(
         "--cuts-govern-terminal",
         dest="cuts_govern_terminal",
-        action="store_true",
-        default=False,
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help=(
             "When boundary cuts are loaded in 'combined' mode, drop the "
             "soft efin/efin_cost terminal-volume slack from every "
@@ -542,8 +542,8 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "volfinem.f gates its hard vol_end>=EmbVFin bound to "
             "non-CFUE reservoirs).  Removes the double-counted terminal "
             "penalty that over-hoards reservoirs with unreachable "
-            "EmbVFin targets.  Off by default (shifts results for every "
-            "cut-priced reservoir)."
+            "EmbVFin targets.  ON by default (plp2gtopt replicates PLP); "
+            "--no-cuts-govern-terminal restores the legacy soft slack."
         ),
     )
     parser.add_argument(

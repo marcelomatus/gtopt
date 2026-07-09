@@ -197,9 +197,11 @@ class BoundaryMixin:
         # ~efin_cost × (target − reachable).  ``--cuts-govern-terminal``
         # drops ``efin``/``efin_cost`` from every cut-covered reservoir
         # so the loaded cuts are the sole terminal-value mechanism —
-        # matching PLP's CFUE handling.  Off by default (changes results
-        # for every cut-priced reservoir); opt-in per case.
-        if options.get("cuts_govern_terminal") and bc_mode == "combined":
+        # matching PLP's CFUE handling.  ON by default: plp2gtopt's
+        # purpose is to replicate PLP as closely as possible, and PLP
+        # governs CFUE reservoirs by the FCF cuts (not a soft slack).
+        # ``--no-cuts-govern-terminal`` restores the legacy behaviour.
+        if options.get("cuts_govern_terminal", True) and bc_mode == "combined":
             self._apply_cuts_govern_terminal()
 
         # ── Hot-start cuts retired (2026-05) ───────────────────────────────
@@ -223,18 +225,38 @@ class BoundaryMixin:
         cut_names = set(self._build_cut_water_values())
         if not cut_names:
             return
-        stripped = 0
+        # Per-reservoir EmbCFUE flag (default True when the central
+        # parser is absent — preserves the cut-governs behaviour).
+        cfue: dict[str, bool] = {}
+        centrals = self.parser.parsed_data.get("central_parser")
+        if centrals is not None:
+            for c in getattr(centrals, "centrals", []):
+                cfue[str(c.get("name", ""))] = bool(c.get("cfue", True))
+        govern = pinned = 0
         for r in self.planning["system"].get("reservoir_array", []):
-            if str(r.get("name", "")) in cut_names:
-                had = r.pop("efin_cost", None) is not None
+            name = str(r.get("name", ""))
+            if name not in cut_names:
+                continue
+            had_cost = r.pop("efin_cost", None) is not None
+            if cfue.get(name, True):
+                # CFUE=T: FCF cuts are the sole terminal mechanism —
+                # drop the efin target entirely (PLP: no vol_fin bound).
                 r.pop("efin", None)
-                stripped += int(had)
-        if stripped:
+                govern += int(had_cost)
+            else:
+                # CFUE=F: PLP pins the last stage with a HARD
+                # vol_end>=EmbVFin bound (volfinem.f).  Keep ``efin``
+                # (gtopt uses a hard ``>=`` when ``efin_cost`` is unset)
+                # and only drop the soft-slack price.
+                pinned += int(had_cost)
+        if govern or pinned:
             _logger.info(
-                "cuts_govern_terminal: dropped efin soft-slack from %d "
-                "cut-covered reservoir(s); the loaded boundary cuts now "
-                "govern their terminal value (PLP CFUE behaviour).",
-                stripped,
+                "cuts_govern_terminal: %d CFUE reservoir(s) now "
+                "cut-governed (efin dropped); %d non-CFUE reservoir(s) "
+                "switched to a hard vol_end>=EmbVFin bound (efin_cost "
+                "dropped) — PLP VolFinEmb behaviour.",
+                govern,
+                pinned,
             )
 
     @staticmethod
