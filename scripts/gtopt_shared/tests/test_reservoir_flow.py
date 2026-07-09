@@ -130,6 +130,29 @@ def test_turbine_maxflow_capacity_fallback_unresolved_pmax() -> None:
     assert mf["RALCO"] == pytest.approx(438.095)
 
 
+def test_inflow_peaks_by_uid_overrides_file_read() -> None:
+    """A caller-supplied {flow_uid: peak} (built from the ORIGINAL PLP
+    *.dat, e.g. plpaflce) is used for string-ref discharge instead of
+    re-reading the emitted output — so the estimate needs no input_dir
+    (no read of plp2gtopt's own output = gtopt's input)."""
+    from gtopt_shared.reservoir_flow import resolve_inflow_peaks
+
+    system = {
+        "junction_array": [{"uid": 1, "name": "J1"}],
+        "flow_array": [
+            {"uid": 10, "name": "F1", "junction": "J1", "discharge": "discharge"},
+        ],
+    }
+    # No input_dir, but peak supplied in-memory -> resolves.
+    peaks = resolve_inflow_peaks(
+        system, input_dir=None, inflow_peaks_by_uid={10: 382.2}
+    )
+    assert peaks["J1"] == pytest.approx(382.2)
+    # Without the supplied map and no input_dir -> 0 (would warn).
+    empty = resolve_inflow_peaks(system, input_dir=None)
+    assert "J1" not in empty
+
+
 def test_locate_and_read_table_csv_fallback(tmp_path) -> None:
     """The shared table reader resolves peaks from CSV (-F csv output),
     not just parquet — otherwise string-ref pmax/fmax never resolve and
@@ -139,8 +162,7 @@ def test_locate_and_read_table_csv_fallback(tmp_path) -> None:
     gdir = tmp_path / "Generator"
     gdir.mkdir()
     (gdir / "pmax.csv").write_text(
-        "block,stage,uid,value\n"
-        "1,1,37,400.0\n2,1,37,437.3\n1,1,65,900.0\n",
+        "block,stage,uid,value\n1,1,37,400.0\n2,1,37,437.3\n1,1,65,900.0\n",
         encoding="utf-8",
     )
     peaks = _locate_and_read_table("pmax", tmp_path, subdir="Generator")

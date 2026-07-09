@@ -16,6 +16,7 @@ focused on orchestration:
 * :mod:`._writer_boundary` — boundary cuts and variable scales
 """
 
+import math
 import json
 import logging
 from pathlib import Path
@@ -1544,9 +1545,66 @@ class GTOptWriter(
             )
 
             out_dir = options.get("output_dir") if options else None
+            # Generator NAMEPLATE capacities [MW] straight from the PLP
+            # INPUT files (plpcnfce PotMax via central_parser) — NOT
+            # re-read from the just-written gtopt output tables.  The
+            # generators ship ``pmax`` as a string parquet/csv ref
+            # (dispatch time-series) that isn't reliably resolvable at
+            # estimate time (in-memory vs serialized state), so turbine
+            # max-flows were dropped and reservoirs like PEHUENCHE got no
+            # extraction bound.  Passing the nameplate here mirrors
+            # plexos2gtopt's ``generator_capacities=case.generator_nameplates``
+            # and makes the estimate deterministic and format-independent.
+            central_parser = self.parser.parsed_data.get("central_parser")
+            generator_capacities: dict[str, float] = {}
+            if central_parser is not None:
+                for central in getattr(central_parser, "centrals", []) or []:
+                    name = central.get("name")
+                    pmax = central.get("pmax")
+                    if (
+                        isinstance(name, str)
+                        and isinstance(pmax, (int, float))
+                        and not isinstance(pmax, bool)
+                        and 0.0 < float(pmax) < 9000.0
+                    ):
+                        generator_capacities[name] = float(pmax)
+            # Peak natural inflows straight from the ORIGINAL PLP source
+            # (plpaflce.dat via aflce_parser), keyed by the emitted Flow
+            # uid — so the estimate never re-reads the discharge table it
+            # just wrote to ``out_dir`` (that dir is plp2gtopt's OUTPUT and
+            # gtopt's INPUT; re-reading it risks stale/foreign files and
+            # in-memory-vs-serialised drift).  With both the nameplate and
+            # the inflow peaks sourced from *.dat, the estimate runs with
+            # ``input_dir=None`` — zero output reads.
+            inflow_peaks_by_uid: dict[int, float] = {}
+            aflce = self.parser.parsed_data.get("aflce_parser")
+            if aflce is not None:
+                for flow in self.planning["system"].get("flow_array", []):
+                    fuid = flow.get("uid")
+                    fname = flow.get("name")
+                    if not (
+                        isinstance(fuid, int)
+                        and not isinstance(fuid, bool)
+                        and isinstance(fname, str)
+                    ):
+                        continue
+                    entry = aflce.get_flow_by_name(fname)
+                    series = entry.get("flow") if entry else None
+                    if series is None:
+                        continue
+                    try:
+                        import numpy as _np  # noqa: PLC0415
+
+                        peak = float(_np.max(_np.asarray(series, dtype=float)))
+                    except (ValueError, TypeError):
+                        continue
+                    if math.isfinite(peak) and peak > 0.0:
+                        inflow_peaks_by_uid[fuid] = peak
             apply_reservoir_flow_estimates(
                 self.planning,
-                input_dir=Path(out_dir) if out_dir is not None else None,
+                input_dir=None,
+                generator_capacities=generator_capacities or None,
+                inflow_peaks_by_uid=inflow_peaks_by_uid or None,
             )
             # Replace the tight directional estimate with the SAME symmetric
             # box plexos2gtopt uses: ``[-2·e, +2·e]`` with

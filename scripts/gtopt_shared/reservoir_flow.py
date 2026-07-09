@@ -560,6 +560,7 @@ def resolve_inflow_peaks(
     system: dict[str, Any],
     *,
     input_dir: Path | None,
+    inflow_peaks_by_uid: dict[int, float] | None = None,
 ) -> dict[str, float]:
     """Resolve the peak inflow per junction key from ``flow_array``.
 
@@ -567,9 +568,12 @@ def resolve_inflow_peaks(
 
     * scalar → the value
     * inline nested list → the max leaf
-    * string parquet-table ref → read ``<input_dir>/Flow/<table>.parquet``
-      (or ``<input_dir>/<table>.parquet``) and take the per-flow max,
-      keyed by flow uid.
+    * string parquet-table ref → resolved from *inflow_peaks_by_uid*
+      (a caller-supplied ``{flow_uid: peak}`` map, e.g. plp2gtopt building
+      it straight from ``plpaflce.dat`` — the ORIGINAL PLP source — so the
+      estimate never re-reads its own emitted output tables); falling back
+      to ``<input_dir>/Flow/<table>.parquet`` only when no in-memory peak
+      is supplied.
 
     Peaks of multiple flows that share a junction are summed.  An
     unresolvable parquet ref logs a warning and contributes 0 (never
@@ -601,7 +605,18 @@ def resolve_inflow_peaks(
         discharge = flow.get("discharge")
         peak = _peak_from_schedule(discharge)
         if peak is None and isinstance(discharge, str):
-            peak = _resolve_parquet_peak(discharge, flow, input_dir, table_cache)
+            # Prefer the caller-supplied PLP-sourced peak (plpaflce.dat)
+            # over re-reading the emitted output table.
+            fuid = flow.get("uid")
+            if (
+                inflow_peaks_by_uid
+                and isinstance(fuid, int)
+                and not isinstance(fuid, bool)
+                and fuid in inflow_peaks_by_uid
+            ):
+                peak = inflow_peaks_by_uid[fuid]
+            else:
+                peak = _resolve_parquet_peak(discharge, flow, input_dir, table_cache)
         if peak is None or peak <= 0.0:
             continue
         peaks[jkey] = peaks.get(jkey, 0.0) + peak
@@ -1340,6 +1355,7 @@ def apply_reservoir_flow_estimates(
     *,
     input_dir: Path | None,
     generator_capacities: dict[Any, float] | None = None,
+    inflow_peaks_by_uid: dict[int, float] | None = None,
     extra_turbines: list[dict[str, Any]] | None = None,
     default_accept: float = 9000.0,
     default_release: float = 6000.0,
@@ -1364,7 +1380,9 @@ def apply_reservoir_flow_estimates(
     if not (system.get("reservoir_array") or []):
         return {}
 
-    inflow_peaks = resolve_inflow_peaks(system, input_dir=input_dir)
+    inflow_peaks = resolve_inflow_peaks(
+        system, input_dir=input_dir, inflow_peaks_by_uid=inflow_peaks_by_uid
+    )
     generator_peaks = resolve_generator_pmax_peaks(system, input_dir=input_dir)
     ww_peaks = resolve_waterway_fmax_peaks(system, input_dir=input_dir)
     seepage_caps = resolve_reservoir_seepage_caps(system)
