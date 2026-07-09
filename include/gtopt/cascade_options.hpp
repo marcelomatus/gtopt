@@ -69,9 +69,16 @@ struct CascadeLevelMethod
   /// ``K`` = K apertures per chunk.  Pair ``-1``/large with ``"warm"`` and
   /// ``0``/small with ``"reduced_cost"``.
   OptInt aperture_chunk_size {};
+  /// Number of dual-shared cuts re-solved exactly under
+  /// ``aperture_solve_mode = "screened"`` for this level (nullopt =
+  /// inherit base ``SDDPOptions::aperture_screen_count``).  Ignored by
+  /// every other mode.
+  OptInt aperture_screen_count {};
   /// Seed each iteration's first aperture from the previous iteration's
   /// first-aperture basis for this level (nullopt = inherit base
-  /// ``SDDPOptions::aperture_seed_basis``).  Only acts with cold/warm modes.
+  /// ``SDDPOptions::aperture_seed_basis``).  Acts for every
+  /// basis-capable (vertex) mode, i.e. all modes except
+  /// ``reduced_cost``.
   OptBool aperture_seed_basis {};
   /// Convergence tolerance for this level.
   OptReal convergence_tol {};
@@ -118,6 +125,7 @@ struct CascadeLevelMethod
     merge_opt(aperture_selection_mode, opts.aperture_selection_mode);
     merge_opt(aperture_solve_mode, opts.aperture_solve_mode);
     merge_opt(aperture_chunk_size, opts.aperture_chunk_size);
+    merge_opt(aperture_screen_count, opts.aperture_screen_count);
     merge_opt(aperture_seed_basis, opts.aperture_seed_basis);
     merge_opt(convergence_tol, opts.convergence_tol);
     merge_opt(stationary_tol, opts.stationary_tol);

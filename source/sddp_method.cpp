@@ -17,10 +17,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <map>
 #include <ranges>
 #include <set>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -98,6 +100,35 @@ const StateVariable* find_alpha_state_var(const SimulationLP& sim,
   return svar ? &svar->get() : nullptr;
 }
 
+const StateVariable* find_source_alpha_state_var(
+    const SimulationLP& sim,
+    const SDDPOptions& options,
+    SceneIndex scene_index,
+    PhaseIndex src_phase_index) noexcept
+{
+  if (options.cut_sharing == CutSharingMode::markov) {
+    // Markov-chain SDDP: scene S's cut targets the Markov-STATE column
+    // `varphi_{m(S)}` (uid = sddp_alpha_uid + m(S)) — the state index
+    // rides the multicut overload's uid-offset scheme.  See
+    // `docs/formulation/sddp-markov.md` §2/§6.
+    return find_alpha_state_var(
+        sim,
+        scene_index,
+        src_phase_index,
+        /*source_scene=*/
+        SceneIndex {static_cast<Index>(options.markov.state_of(scene_index))});
+  }
+  if (options.cut_sharing == CutSharingMode::multicut) {
+    // Multicut: scene S's cut references S's OWN dedicated column
+    // `varphi_S` (uid = sddp_alpha_uid + S) — PLP `plp-agrespd.f:94`
+    // source-scenario indexing.
+    return find_alpha_state_var(
+        sim, scene_index, src_phase_index, /*source_scene=*/scene_index);
+  }
+  // Single-α modes: the legacy offset-0 lookup.
+  return find_alpha_state_var(sim, scene_index, src_phase_index);
+}
+
 const StateVariable* find_user_alpha_state_var(const SimulationLP& sim,
                                                SceneIndex scene_index,
                                                PhaseIndex phase_index,
@@ -131,6 +162,82 @@ const StateVariable* find_user_alpha_state_var(const SimulationLP& sim,
   return nullptr;
 }
 
+namespace
+{
+/// SplitMix64 mixer (Steele/Lea/Flood; public domain) — tiny,
+/// dependency-free, and platform-stable.  Deliberately used instead of
+/// a `<random>` engine + distribution, whose output is
+/// implementation-defined across standard libraries: the resampled
+/// forward path must be bit-reproducible everywhere.
+[[nodiscard]] constexpr std::uint64_t splitmix64(std::uint64_t x) noexcept
+{
+  x += 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27U)) * 0x94d049bb133111ebULL;
+  return x ^ (x >> 31U);
+}
+}  // namespace
+
+std::size_t sample_weighted_index(std::span<const double> weights,
+                                  std::uint64_t iteration,
+                                  std::uint64_t scene,
+                                  std::uint64_t phase) noexcept
+{
+  const auto n = weights.size();
+  if (n <= 1) {
+    return 0;
+  }
+  // Hash chain over the key: each stage feeds the previous digest so
+  // (iteration, scene, phase) decorrelate even when numerically small.
+  std::uint64_t h = splitmix64(iteration + 1);
+  h = splitmix64(h ^ splitmix64(scene + 0x51ULL));
+  h = splitmix64(h ^ splitmix64(phase + 0xF0ULL));
+  // 53 mantissa bits → uniform double in [0, 1).
+  const double u = static_cast<double>(h >> 11U)
+      * 0x1.0p-53;  // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+
+  double total = 0.0;
+  for (const double w : weights) {
+    total += std::max(w, 0.0);
+  }
+  if (!(total > 0.0)) {
+    // Degenerate weights (all-zero / negative): uniform fallback.
+    return std::min(static_cast<std::size_t>(u * static_cast<double>(n)),
+                    n - 1);
+  }
+  // Inverse-CDF walk; the final index absorbs any FP residue so the
+  // draw always lands in range.
+  double acc = 0.0;
+  for (std::size_t i = 0; i + 1 < n; ++i) {
+    acc += std::max(weights[i], 0.0) / total;
+    if (u < acc) {
+      return i;
+    }
+  }
+  return n - 1;
+}
+
+SceneIndex sample_forward_realization(const SimulationLP& sim,
+                                      IterationIndex iteration_index,
+                                      SceneIndex scene_index,
+                                      PhaseIndex phase_index) noexcept
+{
+  const auto n = static_cast<std::size_t>(sim.scene_count());
+  if (n <= 1) {
+    return SceneIndex {0};
+  }
+  // Single shared mass derivation (`scene_probability_masses`): the
+  // sampled measure is the SAME `p_s` the M4/MK1 pricing folds, so the
+  // UB estimate and the LB certificate speak about one process.
+  const auto probs = scene_probability_masses(sim);
+  const auto drawn = sample_weighted_index(
+      probs,
+      static_cast<std::uint64_t>(gtopt::uid_of(iteration_index)),
+      static_cast<std::uint64_t>(static_cast<std::size_t>(scene_index)),
+      static_cast<std::uint64_t>(static_cast<std::size_t>(phase_index)));
+  return SceneIndex {static_cast<Index>(drawn)};
+}
+
 std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
     const SimulationLP& sim,
     SceneIndex scene_index,
@@ -153,7 +260,17 @@ std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
 
 CutSharingMode parse_cut_sharing_mode(std::string_view name)
 {
-  return enum_from_name<CutSharingMode>(name).value_or(CutSharingMode::none);
+  // Loud failure on the modes REMOVED 2026-07-08 (accumulate /
+  // broadcast_mean / expected / max): a silent `value_or(none)` would
+  // let a config that previously selected a KNOWN-INVALID broadcast
+  // degrade without any signal.  Unknown names are hard errors too
+  // (`require_enum` lists the valid spellings).
+  if (is_removed_cut_sharing_mode_name(name)) {
+    const auto msg = removed_cut_sharing_mode_message(name);
+    SPDLOG_ERROR("{}", msg);
+    throw std::invalid_argument(msg);
+  }
+  return require_enum<CutSharingMode>("cut_sharing_mode", name);
 }
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
@@ -221,6 +338,153 @@ double compute_convergence_gap(double upper_bound, double lower_bound) noexcept
 {
   const double denom = std::max(1.0, std::abs(upper_bound));
   return (upper_bound - lower_bound) / denom;
+}
+
+// ─── Markov-chain SDDP configuration (cut_sharing = markov) ─────────────────
+
+// Free-function implementation declared in <gtopt/sddp_types.hpp> —
+// THE single per-scene probability-mass derivation shared by the
+// M4/MK1 pricing and the resampled forward draw.  See the header doc
+// for the (single) fallback rule.
+std::vector<double> scene_probability_masses(const SimulationLP& sim)
+{
+  const auto& scenes = sim.scenes();
+  std::vector<double> masses;
+  masses.reserve(scenes.size());
+  double total = 0.0;
+  for (const auto& scene : scenes) {
+    // `SceneLP::probability_factor()` already folds the scene's
+    // scenarios; clamp negative data to 0.
+    const double p = std::max(scene.probability_factor(), 0.0);
+    masses.push_back(p);
+    total += p;
+  }
+  if (!(total > 0.0)) {
+    // EVERY scene degenerate → uniform masses.  A single zero-mass
+    // scene among positive ones deliberately stays 0 (see header doc).
+    std::ranges::fill(masses, 1.0);
+  }
+  return masses;
+}
+
+MarkovChainConfig make_markov_config(std::vector<int> state_of_scene,
+                                     std::vector<double> transition)
+{
+  MarkovChainConfig config {
+      .state_of_scene = std::move(state_of_scene),
+      .transition = std::move(transition),
+  };
+  // M is the integer square root of the transition length; a non-square
+  // length leaves `num_states² != transition.size()`, which
+  // `validate_markov_config` reports.
+  const auto len = config.transition.size();
+  config.num_states = static_cast<std::size_t>(
+      std::llround(std::sqrt(static_cast<double>(len))));
+  return config;
+}
+
+std::optional<std::string> validate_markov_config(
+    const MarkovChainConfig& markov, std::size_t num_scenes)
+{
+  const auto m = markov.num_states;
+  if (m < 1) {
+    return "markov: num_states must be >= 1 (markov_transition is "
+           "missing or empty)";
+  }
+  if (markov.transition.size() != m * m) {
+    return std::format(
+        "markov: markov_transition length {} is not a perfect square "
+        "(expected M*M for M={})",
+        markov.transition.size(),
+        m);
+  }
+  if (markov.state_of_scene.size() != num_scenes) {
+    return std::format(
+        "markov: markov_states has {} entries but the simulation has "
+        "{} scene(s)",
+        markov.state_of_scene.size(),
+        num_scenes);
+  }
+  std::vector<std::size_t> scenes_per_state(m, 0);
+  for (const auto& [si, state] : enumerate(markov.state_of_scene)) {
+    if (state < 0 || std::cmp_greater_equal(state, m)) {
+      return std::format(
+          "markov: markov_states[{}] = {} is out of range [0, {})",
+          si,
+          state,
+          m);
+    }
+    ++scenes_per_state[static_cast<std::size_t>(state)];
+  }
+  for (std::size_t state = 0; state < m; ++state) {
+    if (scenes_per_state[state] == 0) {
+      return std::format(
+          "markov: state {} has no assigned scene — its mass pi is 0 "
+          "and the w = p_s*P/pi pricing divides by it (every state in "
+          "[0, M) must appear in markov_states)",
+          state);
+    }
+  }
+  constexpr double kRowSumTol = 1.0e-6;
+  for (std::size_t row = 0; row < m; ++row) {
+    double row_sum = 0.0;
+    for (std::size_t col = 0; col < m; ++col) {
+      const double v = markov.probability(row, col);
+      if (!std::isfinite(v) || v < 0.0) {
+        return std::format(
+            "markov: markov_transition[{}][{}] = {} must be finite and "
+            ">= 0",
+            row,
+            col,
+            v);
+      }
+      row_sum += v;
+    }
+    if (std::abs(row_sum - 1.0) > kRowSumTol) {
+      return std::format(
+          "markov: markov_transition row {} sums to {} (must be 1 "
+          "within {})",
+          row,
+          row_sum,
+          kRowSumTol);
+    }
+  }
+  return std::nullopt;
+}
+
+std::vector<double> markov_alpha_weights(const SimulationLP& sim,
+                                         const MarkovChainConfig& markov,
+                                         SceneIndex scene_index)
+{
+  // w_{s,m'} = p_s · P[m(s)][m'] / pi_{m'}  (theorem MK1,
+  // docs/formulation/sddp-markov.md §2).  pi_{m'} is the state's total
+  // scene mass; validate_markov_config guarantees every state has an
+  // assigned scene, and `scene_probability_masses` guarantees positive
+  // masses unless individual scenes carry genuinely zero probability.
+  const auto masses = scene_probability_masses(sim);
+  const auto m = markov.num_states;
+
+  std::vector<double> state_mass(m, 0.0);
+  for (const auto& [si, state] : enumerate(markov.state_of_scene)) {
+    if (si < masses.size()) {
+      state_mass[static_cast<std::size_t>(state)] += masses[si];
+    }
+  }
+
+  const auto s = static_cast<std::size_t>(scene_index);
+  const auto from = markov.state_of(scene_index);
+  const double p_s = masses[s];
+
+  std::vector<double> weights(m, 0.0);
+  for (std::size_t to = 0; to < m; ++to) {
+    // A zero-mass state (every assigned scene degenerate) is
+    // unreachable under the folded measure — price its column 0
+    // instead of dividing by 0.
+    weights[to] = state_mass[to] > 0.0
+        ? p_s * markov.probability(from, to) / state_mass[to]
+        : 0.0;
+  }
+  return weights;
 }
 
 // ─── Kappa threshold checking ───────────────────────────────────────────────
@@ -392,32 +656,145 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
 
   SPDLOG_INFO("SDDP: {} scene(s), {} phase(s)", num_scenes, num_phases);
 
-  // Loud warning when cross-scene cut sharing is requested on a
-  // multi-scene run.  gtopt implements multi-cut SDDP (one α per
-  // scene), so cuts from scene S only validly bound α^k_S; the
-  // `accumulate`/`expected`/`max` modes broadcast S's cut onto every
-  // other scene's α, which is mathematically valid only when the
-  // scenes literally share the same sample-path realization (same
-  // inflows, demands, etc. at every (phase, block)).  Production
-  // runs (e.g. juan/gtopt_iplp with 16 distinct hydrology samples)
-  // do not satisfy that condition; the broadcast cuts produce
-  // LB > UB that compounds across iterations.  See
-  // `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
-  // and the regression guard at `test/source/test_sddp_bounds_sanity.cpp`.
-  if (m_options_.cut_sharing != CutSharingMode::none
-      && m_options_.cut_sharing != CutSharingMode::multicut && num_scenes > 1)
+  // Informational note for multicut with non-uniform scene probabilities:
+  // since the M4 pricing fix (2026-07-08, Prop. M4 in
+  // `docs/formulation/sddp-cut-validity.md` §8) every `varphi_r` in
+  // scene-s's LP is priced at `w_r = p_s` (`alpha_unit_cost`), which makes
+  // the recursion the Bellman recursion of the process resampled with
+  // measure q_r = p_r — a certified LB for that process for ANY
+  // probability vector, so the former theorem-M3 WARN is obsolete.  The
+  // INFO reminds operators that the forward UB still simulates PERSISTENT
+  // per-scene paths, so LB and UB refer to different processes on
+  // heterogeneous scenes (Corollary M2 — a transient LB > UB there is a
+  // process mismatch, not a cut bug).
+  if (m_options_.cut_sharing == CutSharingMode::multicut && num_scenes > 1) {
+    double min_prob = std::numeric_limits<double>::infinity();
+    double max_prob = 0.0;
+    for (const auto& scene : sim.scenes()) {
+      double prob = 0.0;
+      for (const auto& sc : scene.scenarios()) {
+        prob += sc.probability_factor();
+      }
+      min_prob = std::min(min_prob, prob);
+      max_prob = std::max(max_prob, prob);
+    }
+    constexpr double kUniformRelTol = 1.0e-9;
+    if (max_prob - min_prob > kUniformRelTol * std::max(1.0, max_prob)) {
+      SPDLOG_INFO(
+          "SDDP: cut_sharing=multicut with non-uniform scene probabilities "
+          "(min={}, max={} over {} scenes) — varphi columns are priced per "
+          "Prop. M4 (w_r = p_s, the owning scene's normalized probability), "
+          "so the LB is certified for the process resampled with measure "
+          "q_r = p_r (docs/formulation/sddp-cut-validity.md §8).  The "
+          "forward UB still simulates persistent per-scene paths; on "
+          "heterogeneous scenes LB and UB refer to different processes "
+          "(Corollary M2).",
+          min_prob,
+          max_prob,
+          num_scenes);
+    }
+  }
+
+  // Markov-chain SDDP (cut_sharing = markov): hard-validate the
+  // configuration, then WARN on multi-scene states — theorem MK1
+  // (`docs/formulation/sddp-markov.md` §3) certifies those as
+  // valid-but-loose ONLY under A2 (non-negative stage costs): all
+  // within-state cuts land on the shared `varphi_{m'}`, whose family
+  // converges to the max of the per-scene folded tails, strictly below
+  // the state sum the pricing targets.  Singleton states are the exact
+  // certified configuration.
+  if (m_options_.cut_sharing == CutSharingMode::markov) {
+    if (auto err = validate_markov_config(m_options_.markov,
+                                          static_cast<std::size_t>(num_scenes)))
+    {
+      SPDLOG_ERROR("SDDP: {}", *err);
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message = std::move(*err),
+      });
+    }
+    std::vector<std::size_t> scenes_per_state(m_options_.markov.num_states, 0);
+    for (const auto state : m_options_.markov.state_of_scene) {
+      ++scenes_per_state[static_cast<std::size_t>(state)];
+    }
+    for (const auto& [state, count] : enumerate(scenes_per_state)) {
+      if (count > 1) {
+        SPDLOG_WARN(
+            "SDDP: cut_sharing=markov state {} has {} scenes sharing "
+            "one varphi column — the cut family converges to the MAX "
+            "of the within-state folded tails, not the within-state "
+            "expectation, so the LB is valid-but-loose and only under "
+            "non-negative stage costs (theorem MK1 §3, "
+            "docs/formulation/sddp-markov.md).  Use one scene per "
+            "state for the exact certified configuration.",
+            state,
+            count);
+      }
+    }
+  }
+
+  // AR(1) inflow models × dual-shared apertures (Lemma AP2's bound-only
+  // premise, docs/formulation/sddp-cut-validity.md §6): the dual-shared
+  // synthesis prices COLUMN-BOUND deltas only, but an AR-mode flow's
+  // aperture hydrology enters through the AR equality-row RHS
+  // (`FlowLP::update_aperture`), so a synthesized intercept would
+  // silently drop the `yᵀΔb` row term — an invalid, possibly over-tight
+  // cut (ledger F12).  The in-chunk row-touch gate
+  // (`solve_apertures_for_phase`) would fall back to exact solves
+  // anyway; downgrade to `warm` up front so the run pays the
+  // exact-solve cost deliberately and the log says why.  The gate stays
+  // as belt-and-braces for AR flows the planning scan cannot see (e.g.
+  // aperture-system elements).
+  if (m_options_.aperture_solve_mode == ApertureSolveMode::dual_shared
+      || m_options_.aperture_solve_mode == ApertureSolveMode::screened)
+  {
+    const bool has_ar_inflow = std::ranges::any_of(
+        planning_lp().planning().system.flow_array,
+        [](const auto& f) { return f.inflow_model.has_value(); });
+    if (has_ar_inflow) {
+      SPDLOG_WARN(
+          "SDDP: aperture_solve_mode={} with an active Flow.inflow_model — "
+          "dual-shared synthesis prices column-bound deltas only and cannot "
+          "price the AR row-RHS hydrology (the y·Δb term of Lemma AP2); "
+          "downgrading to aperture_solve_mode=warm (exact per-aperture "
+          "solves).  See docs/formulation/sddp-cut-validity.md §6.",
+          enum_name(m_options_.aperture_solve_mode));
+      m_options_.aperture_solve_mode = ApertureSolveMode::warm;
+    }
+  }
+
+  // integer_cuts=strengthened is wired into the pure-Benders backward
+  // pass ONLY (sddip doc §6.4); with apertures configured the aperture
+  // path wins and emits LP-relaxation cuts (`relax_integers()` per
+  // clone — valid but convexified, ledger F5), so the option is inert
+  // except on aperture-resolution fallbacks.  Tell the user (soundness
+  // review §3b).
+  if (m_options_.integer_cuts == IntegerCutsMode::strengthened
+      && m_options_.apertures.has_value() && !m_options_.apertures->empty())
+  {
+    spdlog::info(
+        "SDDP: integer_cuts=strengthened applies only to the pure-Benders "
+        "backward path; with apertures configured the backward pass emits "
+        "LP-relaxation aperture cuts instead (sddip doc §6.4) — the "
+        "strengthened intercept fires only on scenes/phases that fall "
+        "back to the pure-Benders path");
+  }
+
+  // markov × resampled forward sampling: `sample_forward_realization`
+  // draws i.i.d. with measure q_r = p_r, NOT Markov transitions — the
+  // forward UB estimates the stagewise-independent process while the
+  // markov LB certifies the Markov-modulated one.  Cut validity is
+  // unaffected; the reported gap compares two different processes
+  // (soundness review §5a; `docs/formulation/sddp-markov.md` §5).
+  if (m_options_.cut_sharing == CutSharingMode::markov
+      && m_options_.forward_sampling == ForwardSamplingMode::resampled)
   {
     SPDLOG_WARN(
-        "SDDP: cut_sharing={} on {} scenes — cross-scene broadcasting onto "
-        "the destination scene's own α is mathematically valid only when "
-        "scenes share IDENTICAL sample-path realizations (same inflows / "
-        "demands / capacities at every phase and block).  Heterogeneous-"
-        "realization runs may produce LB > UB.  Use cut_sharing=none (or the "
-        "PLP-faithful multicut) for production multi-scenario runs.  See "
-        "docs/analysis/investigations/sddp/"
-        "sddp_cut_sharing_fix_plan_2026-04-30.md.",
-        enum_name(m_options_.cut_sharing),
-        num_scenes);
+        "SDDP: cut_sharing=markov with forward_sampling=resampled — the "
+        "forward re-draw is i.i.d. (q_r = p_r), not Markov-modulated, so "
+        "the UB estimates a different process than the markov LB "
+        "certifies; treat the reported gap as indicative only "
+        "(docs/formulation/sddp-markov.md §5)");
   }
 
   m_scene_phase_states_.resize(num_scenes);
@@ -866,15 +1243,22 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     //     user-α backward dispatch puts every scene's cut on the same single
     //     user-α column, so multicut routing has no `varphi_s` to target.
     //     Multicut support over a user α is DEFERRED (increment D).
-    if (m_options_.cut_sharing == CutSharingMode::multicut) {
+    //     `markov` has the same single-vs-many-column incompatibility (its
+    //     M state columns `varphi_m` carry the theorem-MK1 pricing) and is
+    //     rejected for the same reason.
+    if (m_options_.cut_sharing == CutSharingMode::multicut
+        || m_options_.cut_sharing == CutSharingMode::markov)
+    {
       return std::unexpected(Error {
           .code = ErrorCode::InvalidInput,
           .message = std::format(
               "FutureCost '{}': use_user_alpha is incompatible with "
-              "cut_sharing=multicut — the user α is a single column, not N "
-              "per-scene varphi_s columns.  Use cut_sharing=none (multicut "
-              "support over a user α is deferred)",
-              fc->name),
+              "cut_sharing={} — the user α is a single column, not the "
+              "mode's per-scene/per-state varphi columns.  Use "
+              "cut_sharing=none (multicut/markov support over a user α is "
+              "deferred)",
+              fc->name,
+              enum_name(m_options_.cut_sharing)),
       });
     }
 

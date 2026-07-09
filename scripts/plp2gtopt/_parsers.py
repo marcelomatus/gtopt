@@ -397,6 +397,23 @@ def add_scenario_arguments(
         ),
     )
     parser.add_argument(
+        "--inflow-model",
+        dest="inflow_model",
+        choices=["ar1"],
+        default=None,
+        help=(
+            "estimate a per-central autoregressive inflow model from the "
+            "plpaflce.dat hydrology ensemble and emit it as the "
+            "'inflow_model' object on each generated Flow element.  "
+            "'ar1' fits phi as the pooled lag-1 autocorrelation of the "
+            "stage-mean residuals and sigma as the residual std-dev "
+            "(see docs/formulation/sddp-ar-inflows.md).  The discharge "
+            "schedule itself is unchanged; a gtopt build with AR-inflow "
+            "support then prices hydrological memory in the SDDP cuts "
+            "(default: off)"
+        ),
+    )
+    parser.add_argument(
         "-A",
         "--aperture-directory",
         dest="aperture_directory",
@@ -475,10 +492,7 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         choices=[
             "none",
             "multicut",
-            "broadcast_mean",
-            "expected",
-            "accumulate",
-            "max",
+            "markov",
         ],
         help=(
             "SDDP cut sharing mode (default for sddp/cascade: 'multicut'; "
@@ -486,18 +500,67 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
             "'multicut' is the PLP-faithful mechanism — each scene-LP "
             "carries N dedicated future-cost columns (varphi_0..N-1), and "
             "scenario-s's backward cut is broadcast onto varphi_s in every "
-            "scene-LP, priced 1/N (matches `plp-agrespd.f:94` source "
-            "indexing + `defprbpd.f:810` 1/N averaging); "
+            "scene-LP, priced at the M4 weight w_r = p_s (the owning "
+            "scene's normalized probability; = 1/N under uniform "
+            "probabilities, matching `plp-agrespd.f:94` source indexing + "
+            "`defprbpd.f:810` 1/N averaging); "
             "'none' keeps cuts in their originating scene (no sharing); "
-            "'broadcast_mean' (alias 'expected') computes a "
-            "probability-weighted average cut; "
-            "'accumulate' sums all cuts directly; "
-            "'max' shares all cuts from all scenes to all scenes. "
-            "broadcast_mean/accumulate/max broadcast onto the destination's "
-            "OWN shared alpha and are valid only when scenes share IDENTICAL "
-            "sample-path realisations; see "
-            "docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md. "
+            "'markov' (opt-in, EXPERIMENTAL) is Markov-chain SDDP — one "
+            "varphi column per Markov state; it additionally requires "
+            "'markov_states' (scene-to-state array) and "
+            "'markov_transition' (row-stochastic MxM matrix) in the "
+            "planning JSON's sddp_options, which this tool does not "
+            "emit (see docs/formulation/sddp-markov.md). "
+            "The legacy broadcast_mean/expected/accumulate/max modes were "
+            "REMOVED from gtopt on 2026-07-08 (invalid broadcasts; see "
+            "docs/formulation/sddp-cut-validity.md section 7). "
             "(default: multicut for sddp/cascade)"
+        ),
+    )
+    parser.add_argument(
+        "--forward-sampling-mode",
+        dest="forward_sampling_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "persistent",
+            "resampled",
+        ],
+        help=(
+            "SDDP forward-pass sampling mode: "
+            "'persistent' keeps each scene-driver on its own scenario "
+            "path at every phase (the historical behaviour); "
+            "'resampled' re-draws a probability-weighted scene "
+            "realization at every phase boundary (deterministic seed "
+            "per iteration/scene/phase), so the forward UB estimates "
+            "the same stagewise-resampled process the "
+            "cut_sharing_mode=multicut lower bound certifies (see "
+            "docs/formulation/sddp-cut-validity.md section 8). "
+            "(default: not set; gtopt uses persistent)"
+        ),
+    )
+    parser.add_argument(
+        "--integer-cuts-mode",
+        dest="integer_cuts_mode",
+        metavar="MODE",
+        default=None,
+        choices=[
+            "none",
+            "strengthened",
+        ],
+        help=(
+            "SDDP integer-cut mode for backward-pass subproblems that "
+            "carry integer columns (integer expansion modules, "
+            "unit-commitment binaries): "
+            "'none' keeps the legacy behaviour (LP cells certified; "
+            "integer cells convexified/unsound); "
+            "'strengthened' emits strengthened Benders cuts -- the "
+            "LP-relaxation cut whose intercept is tightened by one "
+            "extra MIP solve (Lagrangian at the LP duals; valid by "
+            "weak duality, never looser than the LP cut).  Requires a "
+            "MIP-capable solver.  See docs/analysis/investigations/"
+            "sddp/sddip_integer_expansion_2026-07.md. "
+            "(default: not set; gtopt uses none)"
         ),
     )
     parser.add_argument(

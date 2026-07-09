@@ -2589,8 +2589,10 @@ public:
    *     `scenario_stage_icost_factors() = 1 / cost_factor(s, t)`.
    *
    * Internal SDDP cut math intentionally consumes the LP-folded value
-   * here and relies on the same factor being present in the destination
-   * master LP (cancellation).  See `sddp_cut_sharing.cpp:88-122` and
+   * here: the cut's RHS and coefficients are *uniformly* folded, so the
+   * cut bounds the folded value function of the destination master LP —
+   * no unit cancellation is required
+   * (`docs/formulation/sddp-cut-validity.md` §2).  See
    * `benders_cut.cpp` for the cut convention.
    *
    * Precondition: backend must be live.

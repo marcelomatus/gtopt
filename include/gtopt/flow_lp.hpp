@@ -35,6 +35,18 @@ class FlowLP : public ObjectLP<Flow>
 {
 public:
   static constexpr std::string_view FlowName {"flow"};
+  /// StateVariable column name for the outgoing (lagged) inflow state
+  /// registered on the last block's flow column when
+  /// ``Flow.inflow_model`` is set.  Consumed by the next phase's
+  /// dependent ``inflow_lag`` column via `PendingStateLink` — the
+  /// exact `efin → eini` machinery.  Static storage: referenced by
+  /// `StateVariable::Key::col_name` (a string_view) for the solver
+  /// lifetime.
+  static constexpr std::string_view InflowName {"inflow"};
+  /// Dependent lag column name (cross-phase incoming inflow state).
+  static constexpr std::string_view InflowLagName {"inflow_lag"};
+  /// AR(1) recursion row name:  ``q_b − phi·lag = mu_b − phi·mu_ref``.
+  static constexpr std::string_view ArBalanceName {"ar1"};
 
   explicit FlowLP(const Flow& pflow, const InputContext& ic);
 
@@ -59,7 +71,7 @@ public:
     return flow().is_input();
   }
 
-  [[nodiscard]] bool add_to_lp(const SystemContext& sc,
+  [[nodiscard]] bool add_to_lp(SystemContext& sc,
                                const ScenarioLP& scenario,
                                const StageLP& stage,
                                LinearProblem& lp);
@@ -118,7 +130,42 @@ public:
       const std::function<std::optional<double>(StageUid, BlockUid)>& value_fn,
       const StageLP& stage) const;
 
+  /// True when this flow carries AR(1) recursion rows for the given
+  /// (scenario, stage) — i.e. `update_aperture` rewrites the AR-row
+  /// RHS (a ROW write) instead of pinning column bounds.  Consumed by
+  /// the dual-shared aperture row-touch gate
+  /// (`solve_apertures_for_phase`): Lemma AP2's shared-intercept
+  /// arithmetic prices column-bound deltas only, so an AR-mode flow
+  /// must disable cut synthesis for the chunk
+  /// (docs/formulation/sddp-cut-validity.md §6, "Implementation
+  /// guards").
+  [[nodiscard]] bool has_ar_rows(ScenarioUid scenario_uid,
+                                 StageUid stage_uid) const noexcept
+  {
+    return ar_info.contains(std::tuple {scenario_uid, stage_uid});
+  }
+
 private:
+  /// Per-(scenario, stage) AR(1) bookkeeping, populated only when
+  /// ``Flow.inflow_model`` is set AND the stage has a usable lag (a
+  /// previous stage with a schedule value).  Consumed only by FlowLP's
+  /// own members (`update_aperture` rewrites the AR row RHS instead of
+  /// the flow column bounds — the columns are free under the AR model;
+  /// `has_ar_rows` exposes the presence test), hence private.
+  struct ArStageInfo
+  {
+    BIndexHolder<RowIndex> rows;  ///< Per-block AR recursion rows
+    ColIndex lag_col {unknown_index};  ///< Lag column referenced by the rows
+    double phi {0.0};  ///< AR(1) coefficient
+    double mu_prev_ref {0.0};  ///< Schedule value at the lag reference
+    StageUid prev_stage_uid {};  ///< Lag reference stage (for apertures)
+    BlockUid prev_ref_block_uid {};  ///< Lag reference block (for apertures)
+    /// True when the lag is the cross-phase dependent ``inflow_lag``
+    /// column (pinned by trial propagation); false when it is the
+    /// previous stage's in-LP flow column (same-phase chaining).
+    bool cross_phase {false};
+  };
+
   /// Resolved per-(scene, stage, block) discharge schedule.  Now
   /// optional — when ``Flow.discharge`` is unset and ``fcost`` is
   /// set, the LP column upper bound defaults to ``DblMax``
@@ -133,6 +180,8 @@ private:
   /// pays for the slack only when the junction balance demands it.
   OptTBRealSched fcost;
   STBIndexHolder<ColIndex> flow_cols;
+  /// AR(1) inflow-model state (empty unless ``Flow.inflow_model``).
+  STIndexHolder<ArStageInfo> ar_info;
 };
 
 // Pin the data-struct constant value so an accidental rename of the

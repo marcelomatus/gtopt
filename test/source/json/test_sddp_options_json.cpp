@@ -6,8 +6,10 @@
  */
 
 #include <array>
+#include <format>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 
 #include <doctest/doctest.h>
@@ -19,7 +21,7 @@ using namespace gtopt;
 TEST_CASE("SddpOptions JSON - Full deserialization")
 {
   const std::string_view json_data = R"({
-    "cut_sharing_mode": "expected",
+    "cut_sharing_mode": "multicut",
     "cut_directory": "my_cuts",
     "api_enabled": true,
     "update_lp_skip": 2,
@@ -66,7 +68,7 @@ TEST_CASE("SddpOptions JSON - Full deserialization")
   const auto opts = daw::json::from_json<SddpOptions>(json_data);
 
   REQUIRE(opts.cut_sharing_mode.has_value());
-  CHECK(*opts.cut_sharing_mode == CutSharingMode::broadcast_mean);
+  CHECK(*opts.cut_sharing_mode == CutSharingMode::multicut);
   REQUIRE(opts.cut_directory.has_value());
   CHECK(*opts.cut_directory == "my_cuts");
   REQUIRE(opts.api_enabled.has_value());
@@ -175,7 +177,7 @@ TEST_CASE("SddpOptions JSON - Empty apertures array")
 TEST_CASE("SddpOptions JSON - Round-trip serialization")
 {
   const SddpOptions original {
-      .cut_sharing_mode = CutSharingMode::accumulate,
+      .cut_sharing_mode = CutSharingMode::multicut,
       .max_iterations = 150,
       .convergence_tol = 1e-5,
       .elastic_mode = ElasticFilterMode::multi_cut,
@@ -317,6 +319,21 @@ TEST_CASE(  // NOLINT
     const auto opts = daw::json::from_json<SddpOptions>(json_data);
     REQUIRE(opts.low_memory_mode.has_value());
     CHECK(*opts.low_memory_mode == expected);
+  }
+}
+
+TEST_CASE("SddpOptions JSON - removed cut_sharing_mode names hard-error")
+// NOLINT
+{
+  // The accumulate / broadcast_mean (alias "expected") / max modes were
+  // REMOVED 2026-07-08 (invalid broadcasts — see
+  // docs/formulation/sddp-cut-validity.md §7).  Ingestion must fail
+  // loudly instead of silently degrading to a default.
+  for (const auto* name : {"accumulate", "broadcast_mean", "expected", "max"}) {
+    CAPTURE(name);
+    const auto json_data =
+        std::format(R"({{ "cut_sharing_mode": "{}" }})", name);
+    CHECK_THROWS(std::ignore = daw::json::from_json<SddpOptions>(json_data));
   }
 }
 

@@ -380,14 +380,15 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ tiny scales")  // NOLINT
 }
 
 // Multi-scene + cut_sharing probe.  juan/gtopt_iplp runs with 16
-// scenes (one per scenario family).  cut_sharing modes other than
-// `none` are KNOWN INVALID for heterogeneous scenes (see
-// `feedback_cut_sharing_unsafe.md` and `test_sddp_bounds_sanity.cpp`).
-// This subcase set verifies (a) that the heterogeneous-scene
-// configuration completes at all, and (b) which cut_sharing modes
-// produce LB > UB on a tiny fixture — establishing the smallest
-// reproducer for the cut-sharing pathology distinct from the juan
-// regression.
+// scenes (one per scenario family).  The invalid broadcast modes
+// (accumulate/broadcast_mean/max) were REMOVED 2026-07-08; what
+// remains to probe here is `multicut` under NON-uniform scene
+// probabilities — the theorem-M3 uncertified configuration
+// (`docs/formulation/sddp-cut-validity.md` §8).  This subcase set
+// verifies (a) that the heterogeneous-scene configuration completes
+// at all, and (b) documents the multicut/non-uniform LB behaviour
+// WARN-only (LB > UB there is a process mismatch and/or M3 pricing,
+// not a regression).
 TEST_CASE("SDDPMethod - LB-overshoot probe @ multi-scene")  // NOLINT
 {
   // ── Heterogeneous scenes (each scene = one distinct scenario) ────
@@ -409,46 +410,28 @@ TEST_CASE("SDDPMethod - LB-overshoot probe @ multi-scene")  // NOLINT
                   "non-cut-sharing bug at multi-scene scale");
   }
 
-  // The three "KNOWN INVALID" modes.  Unequal scenario probabilities
-  // (0.7/0.3) are required to make the cut-sharing arithmetic
-  // diverge from `none` — with 0.5/0.5 the modes degenerate to the
-  // same result.  This subcase set is *expected* to reproduce LB > UB
-  // on the synthetic fixture (current observed: ~4-10 % overshoot at
-  // iter 2 with shared-Flow, 0.7/0.3 probabilities).  We document the
-  // overshoot via INFO + a soft `CHECK(worst > 1.0)` so the regression
-  // stays visible in test output and the test PASSES while the bug
-  // is unfixed.  Flip both checks (≤ 1.0 + tol) once the cut_sharing
-  // implementation is corrected for heterogeneous-scene weights.
-  for (const auto mode :
-       {
-           CutSharingMode::broadcast_mean,
-           CutSharingMode::accumulate,
-           CutSharingMode::max,
-       })
+  // multicut × non-uniform probabilities (0.7/0.3): theorem-M3
+  // uncertified — the uniform 1/N varphi pricing is the
+  // resampled-process recursion only for uniform probabilities, so
+  // LB > UB here is possible and NOT a regression (and even at
+  // uniform probabilities the persistent-path UB and the
+  // resampled-process LB are incomparable, Corollary M2).  WARN-only
+  // per `docs/formulation/sddp-cut-validity.md` §8; the strict
+  // certification lives in `test_sddp_cut_oracle.cpp`.
+  SUBCASE("3p × 2sc × 2sn uneq-prob 0.7/0.3 cut_sharing=multicut (M3)")
   {
-    SUBCASE((std::string {"3p × 2sc × 2sn uneq-prob 0.7/0.3 cut_sharing="}
-             + std::string {enum_name(mode)})
-                .c_str())
-    {
-      const auto worst = run_probe(ProbeConfig {
-          .n_phases = 3,
-          .n_scenarios = 2,
-          .n_scenes = 2,
-          .max_iterations = 15,
-          .unequal_probabilities = true,
-          .cut_sharing = mode,
-      });
-      INFO("cut_sharing=" << enum_name(mode) << " worst LB/UB=" << worst);
-      // Document the regression — the WARN-only convention used by
-      // `test_sddp_bounds_sanity.cpp::SDDP bounds sanity — heterogeneous
-      // scenes, non-none cut_sharing is a known LB-overshoot bug
-      // (WARN-only)`.  Switch to `CHECK(worst <= 1.0 + 1e-6)` once
-      // the fix lands.
-      CHECK_MESSAGE(worst > 1.0,
-                    "Probe expected to reproduce the cut_sharing LB > UB "
-                    "regression on the synthetic fixture; if this CHECK "
-                    "starts failing it likely means the bug is fixed and "
-                    "this test should be tightened to LB ≤ UB.");
-    }
+    const auto worst = run_probe(ProbeConfig {
+        .n_phases = 3,
+        .n_scenarios = 2,
+        .n_scenes = 2,
+        .max_iterations = 15,
+        .unequal_probabilities = true,
+        .cut_sharing = CutSharingMode::multicut,
+    });
+    INFO("cut_sharing=multicut worst LB/UB=" << worst);
+    WARN_MESSAGE(worst <= 1.0 + 1e-6,
+                 "multicut LB exceeded the persistent-path UB — expected "
+                 "under non-uniform probabilities (theorem M3) and/or the "
+                 "resampled-vs-persistent process mismatch (Corollary M2)");
   }
 }

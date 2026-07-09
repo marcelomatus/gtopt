@@ -14,7 +14,10 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include <gtopt/enum_option.hpp>
 
@@ -67,7 +70,8 @@ inline constexpr auto boundary_cuts_mode_entries =
  *   otherwise over-tightens the terminal α (same LB > UB failure mode as the
  *   intermediate broadcast modes).
  * - `multicut`: N terminal α columns (one per source scene), scenario-s cut →
- *   terminal `varphi_s`, averaged 1/N.  Full PLP fidelity; pairs with
+ *   terminal `varphi_s`, priced at the M4 weight w_r = p_s (= 1/N under
+ *   uniform probabilities).  Full PLP fidelity; pairs with
  *   `cut_sharing_mode = multicut`.
  *
  * Back-compat: the legacy `boundary_cuts_mode` scope values map here —
@@ -77,7 +81,8 @@ enum class BoundaryCutSharingMode : uint8_t
 {
   per_scene = 0,  ///< Each scene's terminal α bounded only by its own cuts
   shared = 1,  ///< Broadcast each boundary cut onto every scene's terminal α
-  multicut = 2,  ///< N terminal α columns, cut s → varphi_s, averaged 1/N
+  multicut = 2,  ///< N terminal α columns, cut s → varphi_s, priced at the
+                 ///< M4 weight w_r = p_s (= 1/N under uniform probabilities)
 };
 
 inline constexpr auto boundary_cut_sharing_mode_entries =
@@ -140,67 +145,221 @@ inline constexpr auto boundary_cut_soft_cost_entries =
 /**
  * @brief SDDP cut sharing mode across scenes in the backward pass.
  *
- * When a sharing mode other than `none` is selected, the backward pass is
- * synchronized per-phase: all scenes complete a phase before cuts are shared
- * and the next phase is processed.
+ * When `multicut` is selected, the backward pass is synchronized
+ * per-phase: all scenes complete a phase before cuts are broadcast and
+ * the next phase is processed.
  *
- * @warning `none` and `multicut` are mathematically valid; `broadcast_mean`
- * (formerly `expected`), `accumulate`, and `max` are NOT for distinct sample
- * paths.  gtopt's per-scene LP holds, by default, ONE α^k_d column bounded by
- * scene d's own cuts (`none`).  The `broadcast_mean` / `accumulate` / `max`
- * modes broadcast a cut from scene S onto **scene D's own α** — valid only
- * when scenes share the IDENTICAL sample-path realization; distinct-sample-path
- * runs (Monte Carlo SDDP, e.g. juan/gtopt_iplp with 16 hydrology samples)
- * violate that and produce LB > UB that compounds across iterations.
+ * - `none` (default): each scene's single α is bounded only by that
+ *   scene's own cuts.  Every scene optimises against its OWN
+ *   persistent-sample-path cost-to-go, so the LB is the wait-and-see
+ *   bound `Σ_s p_s·C_s^opt` — **unconditionally valid** (theorem N1 in
+ *   `docs/formulation/sddp-cut-validity.md` §7).
  *
- * `multicut` is the PLP-faithful fix: each scene-LP carries N α columns
- * (`varphi_0..N-1`, one per source scene), each bounded ONLY by its own
- * scenario's cuts, priced uniformly 1/N in the objective.  A broadcast cut
- * from scene S targets `varphi_S` in every destination LP — never `varphi_D` —
- * so `Σ_s (1/N)·varphi_s ≥ (1/N)·Σ_s Q_s = E[Q]` stays a valid lower bound.
- * Mirrors PLP `plp-agrespd.f::AgrResPD` (`IColx = NCol-NSimul+ISimul`).
+ * - `multicut` (PLP-faithful): each scene-LP carries N α columns
+ *   (`varphi_0..N-1`, one per source scene), each bounded ONLY by its
+ *   own scenario's cuts and priced at the M4 weight `w_r = p_s` (the
+ *   owning scene's normalized probability, uniform across the N
+ *   columns — `alpha_unit_cost`; = 1/N under uniform probabilities); a
+ *   scene-S cut targets `varphi_S` in every destination LP.  The
+ *   resulting recursion is the Bellman recursion of the
+ *   **stagewise-resampled process** with measure `q_r = p_r` (scene
+ *   data redrawn at every phase boundary), so the LB is a valid lower
+ *   bound *for that process* for any probability vector (theorems
+ *   M1/M4; the pre-M4 uniform 1/N pricing was unsound for non-uniform
+ *   probabilities — theorem M3, fixed 2026-07-08).  Note the
+ *   objective's future term is the expected cost-to-go of the
+ *   resampled process — NOT a general `E[Q]` identity for the
+ *   persistent process.  Mirrors PLP `plp-agrespd.f::AgrResPD`
+ *   (`IColx = NCol-NSimul+ISimul`).  Full statements and proofs:
+ *   `docs/formulation/sddp-cut-validity.md` §8.
  *
- * A runtime WARN is emitted at SDDP setup for the INVALID modes only:
- * `cut_sharing ∉ {none, multicut} && num_scenes > 1`.  See
+ * - `markov` (opt-in, experimental): Markov-chain SDDP — each scene-LP
+ *   carries M future-cost columns `varphi_0..M-1` (one per Markov
+ *   state), scene-S's backward cut lands on `varphi_{m(S)}` in every
+ *   scene-LP, and `varphi_{m'}` is priced
+ *   `w_{s,m'} = p_s·P[m(s)][m'] / pi_{m'}` (theorem MK1).  Requires
+ *   `markov_states` (scene→state assignment) and `markov_transition`
+ *   (row-stochastic M×M matrix) in `sddp_options`.  Generalizes
+ *   `multicut`: M = N singleton states with transition rows equal to
+ *   the normalized scene probabilities reproduce the multicut layout.
+ *   Full derivation and validity conditions:
+ *   `docs/formulation/sddp-markov.md`.
+ *
+ * @note REMOVED 2026-07-08: the legacy `accumulate`, `broadcast_mean`
+ * (alias `expected`), and `max` modes were deleted — all three
+ * broadcast onto the destination scene's own α and are KNOWN INVALID
+ * for distinct sample paths (LB > UB compounding across iterations;
+ * verdicts in `docs/formulation/sddp-cut-validity.md` §7, history in
  * `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`
- * and the regression test `test/source/test_sddp_bounds_sanity.cpp`.
+ * and git).  Their names now fail parsing with a hard error pointing
+ * at `none` / `multicut`.
  */
 enum class CutSharingMode : uint8_t
 {
   none = 0,  ///< No sharing; each scene's single α is bounded only by its own
-             ///< cuts (per-scene anticipative — each scene optimises against
-             ///< its OWN future cost Q_d, not the expectation; valid LB)
-  broadcast_mean = 1,  ///< Average per-scene cuts into one mean cut, broadcast
-                       ///< onto every scene's single α (KNOWN INVALID for
-                       ///< distinct sample paths — see warning; was "expected")
-  accumulate = 2,  ///< Sum all cuts directly (KNOWN INVALID for distinct
-                   ///< sample paths — see warning)
-  max = 3,  ///< All cuts from all scenes added to all scenes (KNOWN INVALID
-            ///< for distinct sample paths — see warning)
-  multicut =
-      4,  ///< PLP-faithful: N α columns per scene-LP (one per source
-          ///< scene), each bounded ONLY by its own scenario's cuts,
-          ///< averaged 1/N in the objective → every scene's LP sees the
-          ///< true expected cost-to-go Σ_s (1/N)·Q_s.  VALID lower bound.
+             ///< cuts (per-scene persistent-path bound; unconditionally
+             ///< valid LB — theorem N1)
+  multicut = 1,  ///< PLP-faithful: N α columns per scene-LP (one per source
+                 ///< scene), each bounded ONLY by its own scenario's cuts,
+                 ///< priced w_r = p_s (M4; = 1/N under uniform
+                 ///< probabilities) → valid LB for the stagewise-RESAMPLED
+                 ///< process with measure q_r = p_r for any probability
+                 ///< vector (theorems M1/M4)
+  markov = 2,  ///< Markov-chain SDDP (opt-in, experimental): M α columns per
+               ///< scene-LP (one per Markov state), cut s → varphi_{m(s)},
+               ///< priced p_s·P[m(s)][m']/pi_{m'} → valid LB for the
+               ///< Markov-modulated resampled process (theorem MK1 in
+               ///< docs/formulation/sddp-markov.md; singleton states exact,
+               ///< multi-scene states valid-but-loose under A2)
 };
 
 inline constexpr auto cut_sharing_mode_entries =
     std::to_array<EnumEntry<CutSharingMode>>({
         {.name = "none", .value = CutSharingMode::none},
-        {.name = "broadcast_mean", .value = CutSharingMode::broadcast_mean},
-        // Back-compat: the mode formerly named "expected" is the same
-        // (invalid) mean-broadcast; keep parsing old configs/CLI strings.
-        {.name = "expected",
-         .value = CutSharingMode::broadcast_mean,
-         .is_alias = true},
-        {.name = "accumulate", .value = CutSharingMode::accumulate},
-        {.name = "max", .value = CutSharingMode::max},
         {.name = "multicut", .value = CutSharingMode::multicut},
+        {.name = "markov", .value = CutSharingMode::markov},
     });
 
 [[nodiscard]] constexpr auto enum_entries(CutSharingMode /*tag*/) noexcept
 {
   return std::span {cut_sharing_mode_entries};
+}
+
+/// True when @p name spells one of the cut-sharing modes REMOVED on
+/// 2026-07-08 (`accumulate`, `broadcast_mean` / `expected`, `max`) —
+/// KNOWN INVALID cross-scene broadcasts; see
+/// `docs/formulation/sddp-cut-validity.md` §7.  Ingestion paths use
+/// this to fail loudly with a removal message instead of the generic
+/// unknown-name error (and instead of silently degrading to a default).
+[[nodiscard]] constexpr auto is_removed_cut_sharing_mode_name(
+    std::string_view name) noexcept -> bool
+{
+  for (const auto* removed :
+       {"accumulate", "broadcast_mean", "expected", "max"})
+  {
+    if (detail::ascii_iequals(name, removed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Error text for a removed cut-sharing mode name — shared by the JSON
+/// ingestion path (`json_sddp_options.hpp`) and
+/// `parse_cut_sharing_mode` so every entry point reports the same
+/// diagnosis.
+[[nodiscard]] inline auto removed_cut_sharing_mode_message(
+    std::string_view name) -> std::string
+{
+  return std::format(
+      "cut_sharing_mode '{}' was REMOVED 2026-07-08: the accumulate / "
+      "broadcast_mean (expected) / max broadcasts are mathematically "
+      "invalid for distinct sample paths (see "
+      "docs/formulation/sddp-cut-validity.md §7).  Use 'none' "
+      "(per-scene, always valid) or 'multicut' (resampled-process LB, "
+      "M4 pricing).",
+      name);
+}
+
+// ─── IntegerCutsMode ───────────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP backward pass builds optimality cuts on cells
+ *        whose LP carries integer columns (integer expansion modules,
+ *        unit-commitment binaries, …).
+ *
+ * - `none` (default): legacy behaviour, byte-identical — the backward
+ *   pass reads whatever the target solve produced.  On pure-LP cells
+ *   this is the certified Theorem-O1 cut; on integer-bearing cells it
+ *   is UNSOUND (a MIP re-solve has no reduced costs; the emitted cut
+ *   degenerates to a flat `α ≥ z_MIP(v̂)` that can overshoot — see
+ *   `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`
+ *   §1).  Kept as the default so pure-LP runs pay nothing and existing
+ *   behaviour is unchanged.
+ *
+ * - `strengthened`: strengthened Benders cuts (Zou, Ahmed & Sun 2019
+ *   §5).  On integer-bearing cells the backward step clones the
+ *   target LP, relaxes integrality, solves the LP relaxation at the
+ *   pinned trial state (duals λ = pinned reduced costs — the sound
+ *   LP-relaxation cut), then re-instates integrality, relaxes the
+ *   state pins to their physical box, charges `−λ` on the state
+ *   columns, and solves ONE MIP: its optimum is the Lagrangian value
+ *   L(λ) − ⟨λ, v̂⟩, which replaces the cut intercept.  Valid by weak
+ *   Lagrangian duality (Theorem SB1 in the investigation doc) and
+ *   never looser than the LP cut (Corollary SB2).  Falls back
+ *   silently to the LP-relaxation cut when the MIP solve fails or
+ *   times out.  Pure-LP cells never enter this path.
+ */
+enum class IntegerCutsMode : uint8_t
+{
+  none = 0,  ///< Legacy behaviour (LP cells certified; MIP cells unsound)
+  strengthened = 1,  ///< LP-relaxation cut + Lagrangian (MIP) intercept
+};
+
+inline constexpr auto integer_cuts_mode_entries =
+    std::to_array<EnumEntry<IntegerCutsMode>>({
+        {.name = "none", .value = IntegerCutsMode::none},
+        {.name = "strengthened", .value = IntegerCutsMode::strengthened},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(IntegerCutsMode /*tag*/) noexcept
+{
+  return std::span {integer_cuts_mode_entries};
+}
+
+// ─── ForwardSamplingMode ───────────────────────────────────────────────────
+
+/**
+ * @brief How the SDDP forward pass samples the stochastic scene data.
+ *
+ * - `persistent` (default): every scene-driver simulates its OWN
+ *   scenario data at every phase — the historical behaviour.  The
+ *   forward UB is then the Monte-Carlo estimate of the PERSISTENT
+ *   per-scene process (each scene rides one frozen sample path end to
+ *   end).  Fully gated: this mode never enters the resampling code and
+ *   is byte-identical to pre-option builds.
+ *
+ * - `resampled`: at every phase boundary (`phase > 0`) the driver
+ *   re-draws a scene realization with probability `p_r` (normalized
+ *   scene `probability_factor`s) and overwrites the phase LP's
+ *   stochastic bounds with the drawn scene's data via the bound-only
+ *   `update_aperture` machinery (flow discharges + profile bounds —
+ *   the same per-element path the aperture backward pass uses; writes
+ *   are replay-recorded so low-memory reconstructs preserve them).
+ *   The forward UB then estimates the **stagewise-resampled** process
+ *   with measure `q_r = p_r` — the SAME process the
+ *   `cut_sharing = multicut` lower bound certifies (theorems M1/M4,
+ *   `docs/formulation/sddp-cut-validity.md` §8), removing the
+ *   Corollary-M2 UB/LB process mismatch by construction.
+ *
+ * v1 semantics (`resampled`): ONE sampled path per scene-driver per
+ * iteration; the draw is a pure deterministic function of
+ * `(iteration, scene, phase)` (`sample_forward_realization` — stable
+ * under forward-pass backtracking and thread scheduling); the drawn id
+ * is cached on `PhaseStateInfo::sampled_scene` so the backward pass
+ * re-solves the SAME realization; the simulation pass restores each
+ * scene's own persistent data so final outputs keep per-scene
+ * semantics.  On heterogeneous dynamics the pure-Benders backward's
+ * cuts are built at the sampled realization (WARN-tier vs the
+ * persistent tails — theorem doc §8 remark); the certified
+ * heterogeneous route remains the aperture backward pass.
+ */
+enum class ForwardSamplingMode : uint8_t
+{
+  persistent = 0,  ///< Each scene-driver on its own path (default; legacy).
+  resampled = 1,  ///< Probability-weighted re-draw at every phase boundary
+                  ///< (deterministic seed; matches the multicut LB process).
+};
+
+inline constexpr auto forward_sampling_mode_entries =
+    std::to_array<EnumEntry<ForwardSamplingMode>>({
+        {.name = "persistent", .value = ForwardSamplingMode::persistent},
+        {.name = "resampled", .value = ForwardSamplingMode::resampled},
+    });
+
+[[nodiscard]] constexpr auto enum_entries(ForwardSamplingMode /*tag*/) noexcept
+{
+  return std::span {forward_sampling_mode_entries};
 }
 
 // ─── CutDrainMode ──────────────────────────────────────────────────────────
@@ -390,24 +549,27 @@ inline constexpr auto aperture_selection_mode_entries =
  * @brief How each backward-pass aperture subproblem is solved and how its
  *        optimality cut's coefficients are recovered.
  *
- * Apertures differ only in column (flow) bounds, so the three modes trade
- * off per-solve cost against the quality / determinism of the reduced costs
- * that become the cut coefficients:
+ * Apertures differ only in column (flow) bounds — or, under
+ * `Flow.inflow_model` / profile elements, in equality-row RHS — so the
+ * modes trade off per-solve cost against the quality / determinism of
+ * the reduced costs that become the cut coefficients:
  *
  * - `cold`: each aperture is an independent **cold barrier solve with
  *   crossover**.  Crossover lands a vertex basis, so the reduced costs
  *   feeding the cut are the exact vertex duals.  Byte-for-byte the legacy
  *   behaviour.
  *
- * - `warm`: only meaningful with `aperture_chunk_size > 1`.  The first
- *   aperture in a chunk seeds a basis (cold barrier + crossover); every
- *   subsequent aperture re-optimizes that resident basis with a **warm
- *   simplex** solve (a few pivots off the previous optimum) instead of a
- *   fresh barrier.  Fastest on small LPs; on large cut-laden LPs the stale
- *   basis after large bound changes makes it net-slower than `cold` (see
- *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`).
+ * - `warm` (**effective default** — an unset option resolves to `warm` in
+ *   `PlanningOptionsLP::sddp_aperture_solve_mode()`, and plp2gtopt emits it
+ *   explicitly): only meaningful with `aperture_chunk_size > 1`.  The first
+ *   aperture in a chunk seeds a basis (cold barrier + crossover, or a dual
+ *   seed from the forward basis under `basis_cross_mode = full_cross`);
+ *   every subsequent aperture re-optimizes that resident basis with a
+ *   **warm dual simplex** solve (a few pivots off the previous optimum,
+ *   presolve off) instead of a fresh barrier.  See
+ *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`.
  *
- * - `reduced_cost` (default): each aperture is a **cold barrier solve
+ * - `reduced_cost`: each aperture is a **cold barrier solve
  *   WITHOUT crossover**.  No vertex basis is formed; the cut coefficients
  *   are taken directly from the interior-point (analytic-center) reduced
  *   costs, whose tolerance-level noise is filtered by `cut_coeff_eps`.
@@ -415,13 +577,41 @@ inline constexpr auto aperture_selection_mode_entries =
  *   the crossover, at the price of approximate (to barrier tolerance)
  *   duals — see the cut-validity caveat in
  *   `docs/analysis/sddp-aperture-warmstart-fullnetwork.md`.
+ *
+ * - `dual_shared` (opt-in, Infanger–Morton dual sharing): only the
+ *   phase's highest-weight ("representative") aperture is solved; every
+ *   other aperture's cut is *synthesized* from the representative's
+ *   vertex duals.  Apertures differ only in flow column bounds, so all
+ *   aperture LPs share one dual feasible set; weak duality gives the
+ *   valid per-aperture bound
+ *   `Q_a(x) ≥ L_a + Σ_i rc_i (x_i − v̂_i)` with
+ *   `L_a = z* + Σ_j max(d_j,0)·Δl_j + Σ_j min(d_j,0)·Δu_j` over the
+ *   changed flow columns — shared slope, per-aperture intercept
+ *   correction (Lemma AP2, `docs/formulation/sddp-cut-validity.md` §6).
+ *   Falls back to an exact solve on non-finite / sentinel bound deltas,
+ *   on row-touching aperture updates (profile elements), and until a
+ *   first feasible representative exists.  Target backend: re-solve-free
+ *   duals for PDLP/cuOpt-style backends with no warm-start path
+ *   (cut-validity ledger F10).
+ *
+ * - `screened` (opt-in): `dual_shared` plus an exactness screen — the
+ *   `aperture_screen_count` synthesized cuts with the largest
+ *   |intercept correction| are re-solved exactly on the resident basis
+ *   (their corrections flag where the shared support is loosest).
  */
 enum class ApertureSolveMode : uint8_t
 {
   cold = 0,  ///< Cold barrier + crossover; cut from vertex reduced costs.
-  warm = 1,  ///< Warm simplex off the resident chunk basis (chunk_size > 1).
+  warm = 1,  ///< Warm dual simplex off the resident chunk basis
+             ///< (chunk_size > 1).  EFFECTIVE DEFAULT (unset resolves to
+             ///< `warm`; see PlanningOptionsLP::sddp_aperture_solve_mode).
   reduced_cost = 2,  ///< Cold barrier, NO crossover; cut from interior-point
-                     ///< reduced costs (filtered by cut_coeff_eps).  Default.
+                     ///< reduced costs (filtered by cut_coeff_eps).
+  dual_shared = 3,  ///< Solve the representative aperture only; synthesize
+                    ///< the rest via Infanger–Morton dual sharing (valid
+                    ///< per-aperture intercept correction, Lemma AP2).
+  screened = 4,  ///< dual_shared + exact re-solve of the top
+                 ///< `aperture_screen_count` cuts by |correction|.
 };
 
 /// Includes "warm_start" / "barrier" as back-compatible aliases.
@@ -440,12 +630,23 @@ inline constexpr auto aperture_solve_mode_entries =
             .value = ApertureSolveMode::reduced_cost,
             .is_alias = true,
         },
+        {.name = "dual_shared", .value = ApertureSolveMode::dual_shared},
+        {.name = "screened", .value = ApertureSolveMode::screened},
     });
 
 [[nodiscard]] constexpr auto enum_entries(ApertureSolveMode /*tag*/) noexcept
 {
   return std::span {aperture_solve_mode_entries};
 }
+
+/// THE single default for the number of dual-shared aperture cuts
+/// re-solved exactly under `aperture_solve_mode = screened` (largest
+/// |intercept correction| first).  Referenced by the
+/// `PlanningOptionsLP::sddp_aperture_screen_count()` accessor, the
+/// runtime `SDDPOptions::aperture_screen_count` field default, and the
+/// `solve_apertures_for_phase` parameter default — one constant, three
+/// consumers.
+inline constexpr int default_sddp_aperture_screen_count = 2;
 
 // ─── BasisCrossMode ────────────────────────────────────────────────────────
 
@@ -465,23 +666,28 @@ inline constexpr auto aperture_solve_mode_entries =
  * forward/backward row structure is not tail-append compatible (e.g.
  * `aperture_drop_fcuts`, `aperture_system_file`).
  *
- * - `off` (default): no basis reuse.
+ * - `off`: no basis reuse.
  * - `warm`: same-direction reuse — each forward solve warm-starts from this
  *   cell's OWN forward basis captured the previous iteration (forward→forward)
  *   and saves its basis for the next one.  No forward<->backward crossing.
  * - `forward_to_backward`: the forward solve's basis seeds the backward
  *   dual/aperture solve of the same (scene, phase).
  * - `backward_to_forward`: the backward basis seeds the next forward solve.
- * - `full_cross`: forward→forward + both cross directions (forward seed prefers
- *   its own forward basis, falling back to the backward basis on iteration 1).
+ * - `full_cross` (**effective default** — an unset option resolves to
+ *   `full_cross` in `PlanningOptionsLP::sddp_basis_cross_mode()`, and
+ *   plp2gtopt emits it explicitly): forward→forward + both cross directions
+ *   (forward seed prefers its own forward basis, falling back to the
+ *   backward basis on iteration 1).
  */
 enum class BasisCrossMode : uint8_t
 {
-  off = 0,  ///< No cross-pass basis reuse (default).
+  off = 0,  ///< No cross-pass basis reuse.
   warm = 1,  ///< Reuse only within the same pass (resident basis chain).
   forward_to_backward = 2,  ///< Forward basis seeds the backward solve.
   backward_to_forward = 3,  ///< Backward basis seeds the next forward solve.
   full_cross = 4,  ///< Bidirectional + per-aperture basis caching.
+                   ///< EFFECTIVE DEFAULT (unset resolves to `full_cross`; see
+                   ///< PlanningOptionsLP::sddp_basis_cross_mode).
 };
 
 /// Includes "fwd2bwd" / "bwd2fwd" / "cross" as convenience aliases.

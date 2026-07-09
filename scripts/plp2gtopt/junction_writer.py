@@ -215,6 +215,8 @@ class _FlowRequired(TypedDict):
 class Flow(_FlowRequired, total=False):
     """Represents a water discharge in the hydro system."""
 
+    inflow_model: Dict[str, Any]
+
 
 class _ReservoirRequired(TypedDict):
     """Required fields for Reservoir (always present)."""
@@ -1768,7 +1770,25 @@ class JunctionWriter(BaseWriter):
             "junction": central_name,
             "discharge": afluent,
         }
+        if model := self._estimate_inflow_model(central_name):
+            flow["inflow_model"] = model
         system["flow_array"].append(flow)
+
+    def _estimate_inflow_model(self, central_name: str) -> Optional[Dict[str, Any]]:
+        """AR(1) inflow model for ``--inflow-model ar1`` (else ``None``).
+
+        Estimated from the central's ``plpaflce.dat`` hydrology ensemble
+        (see :mod:`.inflow_model`); degenerate series yield ``None`` so
+        the Flow is emitted without a model — today's behaviour.
+        """
+        if self.options.get("inflow_model") != "ar1" or not self.aflce_parser:
+            return None
+        item = self.aflce_parser.get_item_by_name(central_name)
+        if item is None:
+            return None
+        from .inflow_model import estimate_ar1_from_aflce  # noqa: PLC0415
+
+        return estimate_ar1_from_aflce(item, self.block_parser)
 
     def _get_central_flow(
         self, central_name: str, central: Dict[str, Any]

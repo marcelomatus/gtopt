@@ -28,6 +28,8 @@ from typing import Any
 SDDP_OPTION_KEYS: frozenset[str] = frozenset(
     {
         "cut_sharing_mode",
+        "markov_states",
+        "markov_transition",
         "cut_directory",
         "api_enabled",
         "production_factor_update_skip",
@@ -53,6 +55,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "aperture_drop_fcuts",
         "aperture_chunk_size",
         "aperture_solve_mode",
+        "aperture_screen_count",
         "aperture_seed_basis",
         "basis_cross_mode",
         "boundary_cuts_file",
@@ -79,6 +82,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "cut_coeff_eps",
         "scale_alpha",
         "update_lp_skip",
+        "forward_sampling_mode",
+        "integer_cuts_mode",
         "forward_solver_options",
         "forward_max_fallbacks",
         "forward_fail_stop",

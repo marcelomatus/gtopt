@@ -998,7 +998,8 @@ public:
 
   /// Whether to seed each iteration's first backward aperture from the
   /// previous iteration's first-aperture basis (dual warm start).  Default
-  /// false — only meaningful with `aperture_solve_mode` cold/warm.
+  /// false — meaningful for every basis-capable (vertex) mode, i.e. all
+  /// `aperture_solve_mode`s except `reduced_cost`.
   [[nodiscard]] constexpr auto sddp_aperture_seed_basis() const
   {
     return m_options_.sddp_options.aperture_seed_basis.value_or(false);
@@ -1018,14 +1019,26 @@ public:
     return m_options_.sddp_options.aperture_chunk_size.value_or(0);
   }
 
-  /// Aperture solve / cut-recovery mode.  Default `reduced_cost`
-  /// (barrier without crossover; cut from interior-point reduced costs —
-  /// ~35% faster per aperture than `cold`).  See
-  /// `SddpOptions::aperture_solve_mode` for documentation.
+  /// Aperture solve / cut-recovery mode.  Default `warm` (within-chunk
+  /// dual-simplex warm chain off the resident basis; combined with the
+  /// default `basis_cross_mode = full_cross` below, the chunk's first
+  /// aperture is dual-seeded from the forward basis).  plp2gtopt also
+  /// emits `warm` explicitly.  See `SddpOptions::aperture_solve_mode`.
   [[nodiscard]] constexpr auto sddp_aperture_solve_mode() const noexcept
   {
     return m_options_.sddp_options.aperture_solve_mode.value_or(
         ApertureSolveMode::warm);
+  }
+
+  /// Number of dual-shared aperture cuts re-solved exactly under
+  /// `aperture_solve_mode = screened` (picked by largest |intercept
+  /// correction|).  Ignored by every other mode.  Default
+  /// `default_sddp_aperture_screen_count` (2, `sddp_enums.hpp` — the
+  /// single source).  See `SddpOptions::aperture_screen_count`.
+  [[nodiscard]] constexpr auto sddp_aperture_screen_count() const noexcept
+  {
+    return m_options_.sddp_options.aperture_screen_count.value_or(
+        default_sddp_aperture_screen_count);
   }
 
   /// Cross-pass simplex-basis warm-start reuse mode.  Default `full_cross`
@@ -1088,6 +1101,17 @@ public:
   /** @brief Default cut sharing mode for SDDP */
   static constexpr CutSharingMode default_sddp_cut_sharing_mode =
       CutSharingMode::none;
+  /** @brief Default forward-pass sampling mode (persistent per-scene
+   * paths — the historical behaviour; `resampled` opts into the
+   * per-phase-boundary probability-weighted re-draw that matches the
+   * multicut LB's stagewise-resampled process) */
+  static constexpr ForwardSamplingMode default_sddp_forward_sampling_mode =
+      ForwardSamplingMode::persistent;
+  /** @brief Default integer-cut mode (legacy: no strengthening; the
+   * `strengthened` mode is the opt-in one-MIP Lagrangian intercept for
+   * integer-bearing backward cells — see `IntegerCutsMode`) */
+  static constexpr IntegerCutsMode default_sddp_integer_cuts_mode =
+      IntegerCutsMode::none;
   /** @brief Default async cut-drain mode (symmetric, deterministic) */
   static constexpr CutDrainMode default_sddp_cut_drain_mode =
       CutDrainMode::iteration;
@@ -1292,6 +1316,47 @@ public:
   {
     return m_options_.sddp_options.cut_sharing_mode.value_or(
         default_sddp_cut_sharing_mode);
+  }
+
+  /// Scene → Markov-state assignment for `cut_sharing_mode = markov`
+  /// (`SddpOptions::markov_states`).  Empty when unset.
+  [[nodiscard]] auto sddp_markov_states() const -> std::vector<int>
+  {
+    return m_options_.sddp_options.markov_states.value_or(Array<int> {});
+  }
+
+  /// Row-major M×M Markov transition matrix for
+  /// `cut_sharing_mode = markov` (`SddpOptions::markov_transition`).
+  /// Empty when unset.
+  [[nodiscard]] auto sddp_markov_transition() const -> std::vector<double>
+  {
+    return m_options_.sddp_options.markov_transition.value_or(Array<double> {});
+  }
+
+  /**
+   * @brief Gets the SDDP integer-cut mode as a typed enum
+   * @return The IntegerCutsMode enum value
+   */
+  [[nodiscard]] constexpr auto sddp_integer_cuts_mode_enum() const
+      -> IntegerCutsMode
+  {
+    return m_options_.sddp_options.integer_cuts_mode.value_or(
+        default_sddp_integer_cuts_mode);
+  }
+
+  // (The string-form `sddp_forward_sampling_mode()` accessor was
+  // removed 2026-07-08 — it had zero callers; use
+  // `enum_name(sddp_forward_sampling_mode_enum())` at a use site.)
+
+  /**
+   * @brief Gets the SDDP forward sampling mode as a typed enum
+   * @return The ForwardSamplingMode enum value
+   */
+  [[nodiscard]] constexpr auto sddp_forward_sampling_mode_enum() const
+      -> ForwardSamplingMode
+  {
+    return m_options_.sddp_options.forward_sampling_mode.value_or(
+        default_sddp_forward_sampling_mode);
   }
 
   /**

@@ -221,36 +221,39 @@ by the `cut_sharing_mode` option:
 
 | Mode | Behaviour |
 |------|----------|
-| `none` (default, **only mathematically valid mode for production runs**) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization |
-| `expected` | Probability-weighted average cut across all scenes is shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
-| `accumulate` | Sum of all scene cuts shared (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
-| `max` | All cuts from all scenes are shared to all scenes (**KNOWN INVALID** for distinct-sample-path runs — see warning below) |
+| `none` (default) | Each scene uses only its own cuts; scenes are solved independently in parallel with no synchronization.  **Unconditionally valid** — each scene's α bounds its own persistent-path cost-to-go |
+| `multicut` | PLP-faithful: every scene-LP carries N future-cost columns `varphi_0..N-1`, each priced at the M4 weight `w_r = p_s` (the owning scene's normalized probability; = 1/N under uniform probabilities); scene S's cuts land on `varphi_S` in every LP.  **Valid for the resampled process**: a true lower bound for the *stagewise-resampled* process with measure `q_r = p_r`, for any probability vector (M4 pricing fix, 2026-07-08).  See `docs/formulation/sddp-cut-validity.md` §8 |
+| `markov` (opt-in, **experimental**) | Markov-chain SDDP: every scene-LP carries M future-cost columns (one per Markov state), priced `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}`; scene S's cuts land on `varphi_{m(S)}` in every LP.  Requires `markov_states` + `markov_transition` in `sddp_options`.  **Conditionally valid** for the *Markov-modulated resampled* process (theorem MK1): singleton states are exact; multi-scene states are valid-but-loose under non-negative stage costs.  Generalizes `multicut` (M = N singleton states, transition rows = normalized scene probabilities).  See `docs/formulation/sddp-markov.md` |
 
-> **⚠️ Cut-sharing validity warning** (audit 2026-04-30)
+> **Removed modes** (2026-07-08): `broadcast_mean` (formerly
+> `expected`), `accumulate`, and `max` were deleted.  All three
+> broadcast a cut from scene S onto every other scene's OWN α, which
+> over-tightens whenever `Q_S ≠ Q_d` and produced `LB > UB` compounding
+> across iterations on distinct-sample-path runs (settled by the
+> 2026-04-30 audit,
+> `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`;
+> verdicts in `docs/formulation/sddp-cut-validity.md` §7).  Their names
+> now hard-error at JSON/CLI ingestion; the implementation survives
+> only in git history.
 >
-> gtopt implements **multi-cut SDDP**: each scene s has its own
-> `α^k_s` column at every phase k, bounding scene s's value
-> function `Q_s(x)` *along scene s's specific sample path*.  The
-> `expected` / `accumulate` / `max` modes broadcast a cut from
-> scene S to every other scene's α LP, which is mathematically
-> valid only when the broadcast cut bounds D's `Q_d` — i.e., when
-> S and D realized the IDENTICAL sample path (same inflows,
-> demands, capacities at every (phase, block)).  This is
-> typically only true for synthetic test fixtures.
->
-> Distinct-sample-path runs (the standard Monte Carlo SDDP setup,
-> e.g. multi-hydrology workflows) violate the precondition.  The
-> broadcast cuts force `α^k_d ≥ prob_S · Q_S*(x_S)`, which over-
-> tightens whenever `Q_S ≠ Q_d`.  The result is `LB > UB`
-> ("negative gap") that compounds across iterations and can
-> grow by orders of magnitude.
->
-> A runtime `WARN` is emitted at SDDP setup
-> (`source/sddp_method.cpp::initialize_solver`) when
-> `cut_sharing != none && num_scenes > 1`.  Use `cut_sharing=none`
-> for production multi-scenario runs.  See
-> `docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md` and the
-> regression test `test/source/test_sddp_bounds_sanity.cpp`.
+> **`multicut` semantics** (2026-07 certification + M4 pricing fix):
+> scene S's cuts bound a *dedicated* column `varphi_S` in every LP, so
+> no cut ever over-tightens another scene's own bound.  Since the M4
+> pricing fix (2026-07-08, `alpha_unit_cost`: every `varphi_r` in
+> scene-s's LP priced at `w_r = p_s`) the resulting LB is provably the
+> lower bound of the *stagewise-resampled* process with measure
+> `q_r = p_r` (scene data redrawn at each phase boundary) for **any**
+> probability vector — the former "unsound for non-uniform
+> probabilities" caveat (theorem M3, pre-M4 uniform 1/N pricing) is
+> retired.  The resampled process is still a different process from
+> the persistent-path forward simulation, so a transient `LB > UB`
+> against the sampled UB is a process mismatch, **not** a cut bug; an
+> `INFO` noting this is emitted at SDDP setup
+> (`source/sddp_method.cpp::initialize_solver`) for
+> `cut_sharing=multicut` with non-uniform scene probabilities.  Full
+> statements and proofs: `docs/formulation/sddp-cut-validity.md`
+> §7–§8; extensive-form certification harness:
+> `test/source/test_sddp_cut_oracle.cpp`.
 
 **Feasibility cuts** are never shared between scenes regardless of the cut
 sharing mode — they remain local to the originating scene.
@@ -259,9 +262,9 @@ When cut sharing is **disabled** (`none`), each scene's backward pass runs
 its full phase sweep independently in parallel, with no waiting or coupling
 between scenes.
 
-When cut sharing is **enabled** (any mode other than `none`), the backward
-pass is **synchronized per-phase**: all scenes complete the backward step
-for a given phase, then optimality cuts are shared across scenes for that
+When cut sharing is **enabled** (`multicut`), the backward pass is
+**synchronized per-phase**: all scenes complete the backward step for a
+given phase, then optimality cuts are broadcast across scenes for that
 phase before proceeding to the previous phase.  This allows shared cuts to
 inform earlier phases within the same iteration.
 
@@ -305,6 +308,27 @@ for phase = 0 to T-1:
     
     opex += objective - α value
 ```
+
+**Forward sampling** (`forward_sampling_mode`, 2026-07-08): by default
+(`persistent`) each scene-driver simulates its OWN scenario data at
+every phase — the historical behaviour, byte-identical.  Under
+`resampled`, at every phase boundary (`phase > 0`) the driver re-draws
+a scene realization with probability `p_r` (deterministic in
+`(iteration, scene, phase)` — stable across backtracking re-entries and
+thread scheduling) and overwrites the phase LP's stochastic bounds with
+the drawn scene's data via the same bound-only `update_aperture`
+machinery the aperture backward pass uses (flow discharges + profile
+bounds; replay-recorded, so low-memory reconstructs preserve it).  The
+forward UB then estimates the **stagewise-resampled** process — the
+same measure `q_r = p_r` the `cut_sharing_mode = multicut` lower bound
+certifies (Theorems M1/M4, `docs/formulation/sddp-cut-validity.md` §8)
+— removing the Corollary-M2 UB/LB process mismatch.  v1 draws ONE
+sampled path per scene-driver per iteration; the drawn id is cached on
+the phase state so the backward pass re-solves the SAME realization,
+and the simulation pass restores each scene's own (persistent) data so
+final outputs keep per-scene semantics.  Warm-start seeding (forward
+basis chain, `basis_cross_mode`) is unaffected — realizations differ
+only in column bounds.
 
 ### 4.3 Backward Pass
 
@@ -390,6 +414,37 @@ with each parquet file containing `stage`, `block`, and `uid:N` columns
 - `num_apertures = -1` — use all available scenarios as apertures
 - `num_apertures = N > 0` — use the first N scenarios (capped at total)
 
+**Aperture solve modes** (`aperture_solve_mode`): how each aperture
+subproblem is solved and how its cut's coefficients are recovered.
+Apertures of one (scene, phase) share the LP matrix and differ only in
+flow column bounds, which is what the warm and dual-shared modes
+exploit.
+
+| Mode | Per-aperture work | Cut source | Notes |
+|------|-------------------|------------|-------|
+| `cold` | cold barrier + crossover solve | vertex reduced costs | legacy byte-for-byte behaviour |
+| `warm` | warm dual simplex off the resident chunk basis | vertex reduced costs | **effective default** (unset resolves to `warm`); needs `aperture_chunk_size > 1` (or `-1`) for the within-chunk chain to engage |
+| `reduced_cost` | cold barrier, no crossover | interior-point reduced costs | ~35% faster on big LPs; ε-optimal duals filtered by `cut_coeff_eps` |
+| `dual_shared` | **no solve** (representative only) | representative's vertex duals + bound-delta intercept correction | opt-in Infanger–Morton sharing (Lemma AP2, [cut-validity §6](../formulation/sddp-cut-validity.md)); forces a single chunk; falls back to exact solves on row-touching profile updates, sentinel deltas, or an infeasible representative |
+| `screened` | `dual_shared` + `aperture_screen_count` exact re-solves | mixed | the synthesized cuts with the largest \|correction\| are re-solved exactly on the resident basis |
+
+The dual-shared modes target backends with **no warm-start path**
+(cuOpt/PDLP: `set_basis` is a no-op and every resolve is a cold run) —
+on CPU simplex backends the warm re-solves they skip are already only a
+few pivots, so expect little wall-clock win there.
+`aperture_screen_count` (default 2) sets the screened re-solve budget;
+per-cascade-level overrides are available via
+`cascade_options.level_array.N.sddp_options.aperture_screen_count`.
+There is deliberately no dedicated `plp2gtopt` CLI flag for it — set it
+via the JSON field or `--set sddp_options.aperture_screen_count=N`.
+
+**AR(1) inflow models** (`Flow.inflow_model`) are incompatible with the
+dual-shared synthesis: the aperture hydrology enters through the AR
+equality-row RHS, which the column-bound intercept correction cannot
+price (Lemma AP2's `yᵀΔb` term — ledger F12).  SDDP setup WARNs and
+downgrades `dual_shared`/`screened` to `warm` (exact per-aperture
+solves) whenever any `Flow.inflow_model` is present.
+
 **PLP correspondence**: In PLP (`CEN65/src/osicallsc.cpp`), apertures are
 called "aberturas hidrologicas" (hydrological openings).  PLP iterates over
 all hydrological realizations for each stage, solves each one, and computes
@@ -409,11 +464,22 @@ training iterations run, so `converged` is always `false`.
 #### Primary criterion
 
 ```
-LB = average of phase-0 objectives across scenes
-UB = average of total forward-pass costs across scenes
+LB = sum of phase-0 objectives across feasible scenes
+UB = sum of total forward-pass costs across feasible scenes
 gap = (UB - LB) / max(1, |UB|)
 converged = (gap < convergence_tol) AND (iter >= min_iterations)
 ```
+
+Both bounds are plain **sums**, not averages: every LP cost
+coefficient already carries its scenario's probability via
+`cost_factor = probability × discount × duration`
+(`CostHelper::block_ecost`), so each per-scene value is
+`≈ p_s × physical_cost(s)` and the sum is the expectation.
+Multiplying by per-scene weights again would double-count
+probability (pre-2026-05-02 bug; see
+`SDDPMethod::compute_iteration_bounds`).  Infeasible scenes
+contribute 0 to both bounds; the missing probability mass is
+reported separately as `scene_probability_lost`.
 
 #### Secondary criterion — stationary gap
 
@@ -469,9 +535,26 @@ This is useful for policy evaluation without modifying any cut state.
 
 ### 4.6 Cut Sharing (Optional)
 
-After the backward pass, cuts from all scenes are optionally shared.  In
-`expected` mode, an average cut is computed and added to all scenes.  In
-`max` mode, every cut from every scene is added to all other scenes.
+After each backward phase step, cuts from all scenes are optionally
+redistributed by `share_cuts_for_phase`
+(`source/sddp_cut_sharing.cpp`), per the `cut_sharing_mode` table in
+§3.3:
+
+- `none` — no redistribution; each scene's cuts stay on its own α.
+- `multicut` — every cut from scene S is added to the dedicated
+  column `varphi_S` in every scene-LP.  Broadcast copies are never
+  persisted — on cut-file reload the broadcast is reconstructed from
+  the origin-only file (`sddp_cut_parquet.cpp`, `multicut_broadcast`).
+
+The legacy `broadcast_mean`/`expected`, `accumulate`, and `max`
+redistribution branches were **REMOVED 2026-07-08** (invalid — see
+§3.3; history in git and the 2026-04-30 plan
+`docs/analysis/investigations/sddp/sddp_cut_sharing_fix_plan_2026-04-30.md`).
+
+Validity of each mode is analyzed in
+`docs/formulation/sddp-cut-validity.md` §7 (mode-by-mode verdicts) and
+§8 (the multicut theorem).  Feasibility cuts are never shared — they
+are scene-local statements.
 
 ### 4.7 LP Coefficient Updates
 
@@ -813,7 +896,7 @@ the JSON planning file.
     "method": "sddp",
     "log_directory": "logs",
     "sddp_options": {
-      "cut_sharing_mode": "expected",
+      "cut_sharing_mode": "multicut",
       "cut_directory": "cuts",
       "max_iterations": 200,
       "convergence_tol": 1e-5,
@@ -844,7 +927,11 @@ prefix, since the section name already provides the namespace).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"expected"`, `"accumulate"`, or `"max"` |
+| `cut_sharing_mode` | string | `"none"` | Cut sharing: `"none"`, `"multicut"`, or `"markov"` (experimental; the removed `"expected"`/`"broadcast_mean"`/`"accumulate"`/`"max"` names hard-error) |
+| `forward_sampling_mode` | string | `"persistent"` | Forward-pass sampling: `"persistent"` (each scene-driver on its own path) or `"resampled"` (per-phase-boundary probability-weighted re-draw, deterministic seed; matches the multicut LB's resampled process — see §4.2) |
+| `integer_cuts_mode` | string | `"none"` | Backward cuts on integer-bearing cells: `"none"` (legacy — LP cells certified, MIP cells convexified/unsound) or `"strengthened"` (LP-relaxation cut + one-MIP Lagrangian intercept, valid by weak duality and never looser; requires a MIP-capable solver — see `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`) |
+| `markov_states` | array of int | unset | `markov` only: scene → Markov-state assignment, one entry per scene, each in `[0, M)` (`docs/formulation/sddp-markov.md`) |
+| `markov_transition` | array of double | unset | `markov` only: row-major M×M row-stochastic transition matrix (rows sum to 1) |
 | `cut_directory` | string | `"cuts"` | Directory for Benders cut files |
 | `max_iterations` | int | 100 | Maximum SDDP iterations |
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
@@ -860,7 +947,8 @@ prefix, since the section name already provides the namespace).
 | `aperture_timeout` | double | 15.0 | Aperture LP solve timeout in seconds (0 = no timeout) |
 | `num_apertures` | int | 0 | Apertures per backward-pass phase (0 = disabled, -1 = all) |
 | `aperture_chunk_size` | int | unset (auto = 1) | Apertures solved serially per pool task on a shared LP clone: `0`/unset = auto, `1` = one task per aperture (legacy), `K > 1` = K per task, `-1` = fully serial per scene (licence/memory-tight runs). CLI: `--aperture-chunk-size` |
-| `aperture_solve_mode` | string | `"reduced_cost"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs) |
+| `aperture_solve_mode` | string | `"warm"` | Per-aperture solve / cut recovery: `"cold"` (barrier + crossover, exact vertex duals), `"warm"` (chunk-resident basis re-optimize; needs `aperture_chunk_size > 1` or `-1`), `"reduced_cost"` (barrier without crossover, ~35% faster per aperture on big LPs), `"dual_shared"` (representative solve + Lemma AP2 synthesis; see §4.4), `"screened"` (`dual_shared` + top-\|corr\| exact re-solves) |
+| `aperture_screen_count` | int | 2 | Synthesized cuts re-solved exactly under `aperture_solve_mode = "screened"` (picked by largest \|intercept correction\|); ignored by every other mode |
 | `aperture_seed_basis` | bool | false | Seed each iteration's first backward aperture from the previous iteration's basis (dual warm start; acts only under `cold`/`warm` modes) |
 | `basis_cross_mode` | string | `"off"` | Cross-pass basis reuse between forward and backward solves of the same (scene, phase); correctness-neutral, CPLEX/HiGHS only |
 | `aperture_directory` | string | `""` | Directory for aperture-specific scenario data |
@@ -1257,10 +1345,8 @@ allow external tools to read it without seeing a partial write.
 | `propagate_trial_values()` | Fix dependent columns to source values |
 | `build_benders_cut()` | Construct optimality cut from reduced costs |
 | `relax_fixed_state_variable()` | Apply elastic relaxation to one column |
-| `average_benders_cut()` | Average multiple cuts (for `expected` sharing) |
-| `accumulate_benders_cuts()` | Sum multiple cuts (for `accumulate` sharing) |
-| `share_cuts_for_phase()` | Share cuts across scenes for a phase (`sddp_cut_sharing.hpp`) |
-| `cut_sharing_mode_from_name()` | Parse string to `CutSharingMode` enum |
+| `share_cuts_for_phase()` | Broadcast multicut rows across scenes for a phase (`sddp_cut_sharing.hpp`) |
+| `parse_cut_sharing_mode()` | Parse `"none"` / `"multicut"` / `"markov"` to `CutSharingMode` (removed/unknown names throw) |
 | `parse_elastic_filter_mode()` | Parse `"single_cut"` / `"multi_cut"` / `"chinneck"` (and aliases) to `ElasticFilterMode` |
 | `weighted_average_benders_cut()` | Probability-weighted average of aperture cuts |
 

@@ -14,7 +14,6 @@
  * - `relax_fixed_state_variable()` – elastic-filter column relaxation
  * - `build_feasibility_cut()`    – clone → relax → solve → extract cut
  * - `build_multi_cuts()`         – per-slack bound-constraint cuts
- * - `average_benders_cut()`      – unweighted average of several cuts
  * - `weighted_average_benders_cut()` – probability-weighted average
  *
  * ## BendersCut class
@@ -62,6 +61,16 @@ namespace gtopt
 {
 
 // ─── State variable linkage ─────────────────────────────────────────────────
+
+/// Raw-bound gap below which a dependent state column counts as PINNED
+/// (`lowb ≈ uppb`, i.e. fixed to a forward trial value).  THE single
+/// pin-detection epsilon shared by `relax_fixed_state_variable`, the
+/// elastic-filter pre-pass (`compute_relaxation_specs`), and the
+/// strengthened-cut box relaxation (`build_strengthened_benders_cut`)
+/// — the strengthened-cut validity argument (theorem SB1's box domain)
+/// requires all three sites to agree on what "pinned" means, so keep
+/// them on this one constant.
+inline constexpr double kStatePinDetectEps = 1e-10;
 
 /**
  * @brief Describes one state-variable linkage between consecutive phases
@@ -335,6 +344,61 @@ void propagate_trial_values(std::span<StateVarLink> links,
     double objective_value_physical,
     double cut_coeff_eps = 0.0) -> SparseRow;
 
+// ─── Strengthened Benders cut (integer_cuts_mode = strengthened) ────────────
+
+/// Result of `build_strengthened_benders_cut`.
+struct StrengthenedCutResult
+{
+  /// The emitted cut `α + Σ(−λ_i)·x_i ≥ rhs` with
+  /// `rhs = max(lp_rhs, mip_rhs)` — the LP-relaxation cut, tightened
+  /// by the Lagrangian intercept when the MIP solve succeeded.
+  SparseRow row {};
+  /// LP-relaxation intercept `b_LP = z*_LP − ⟨λ, v̂⟩` (the certified
+  /// Theorem-O1 baseline).
+  double lp_rhs {};
+  /// Lagrangian intercept `m* = L(λ) − ⟨λ, v̂⟩` from the single MIP
+  /// solve.  Equals `lp_rhs` when the MIP was skipped / failed.
+  double mip_rhs {};
+  /// True when the MIP intercept was applied (`mip_rhs > lp_rhs`).
+  bool tightened {false};
+};
+
+/// Strengthened Benders optimality cut for an integer-bearing target
+/// subproblem (Zou, Ahmed & Sun 2019 §5; Theorem SB1 / Corollary SB2 in
+/// `docs/analysis/investigations/sddp/sddip_integer_expansion_2026-07.md`).
+///
+/// On a CLONE of @p target_li (never mutated; state pins `dep = v̂`
+/// must be in place, i.e. post-`propagate_trial_values`):
+///
+///  1. relax integrality, solve the **LP relaxation** at v̂ →
+///     `z*_LP` and pinned reduced costs λ (the sound LP-relaxation
+///     duals — a MIP re-solve has none);
+///  2. build the Theorem-O1 cut `α + Σ(−λ_i)x_i ≥ z*_LP − ⟨λ, v̂⟩`
+///     (`cut_coeff_eps` filter as usual; dropped links get λ_i = 0);
+///  3. restore integrality, relax every pinned dependent column to its
+///     physical source box `[source_low, source_upp]`, charge `−λ_i`
+///     on each kept dependent column's objective coefficient, and
+///     solve ONE MIP.  Its physical optimum is directly the
+///     strengthened intercept `m* = L(λ) − ⟨λ, v̂⟩`;
+///  4. emit `rhs = max(b_LP, m*)` — valid for every state in the box
+///     by weak Lagrangian duality, and never looser than the LP cut.
+///
+/// The strengthening MIP runs under @p mip_opts — callers should pin a
+/// tight `mip_gap` (the incumbent value over-tightens by up to
+/// gap × |m*|; see the investigation doc §6.3) and a `time_limit`.
+///
+/// @return nullopt when the LP-relaxation solve fails (caller falls
+///         back to its legacy cut path).  Otherwise the cut, with
+///         `tightened == false` when the MIP solve failed / timed out
+///         (the row is then the plain LP-relaxation cut — still valid).
+[[nodiscard]] auto build_strengthened_benders_cut(
+    ColIndex alpha_col,
+    std::span<const StateVarLink> links,
+    const LinearInterface& target_li,
+    double cut_coeff_eps,
+    const SolverOptions& lp_opts,
+    const SolverOptions& mip_opts) -> std::optional<StrengthenedCutResult>;
+
 /// Physical-space *feasibility* cut builder — PLP / classical-Benders
 /// convention (no α term).  Produces a pure state-coupling constraint
 ///   Σ πᵢ · sᵢ ≥ Σ πᵢ · v̂ᵢ + Σ slack_iᵢ
@@ -561,10 +625,11 @@ struct FeasibilityCutResult
                                     int niter) -> std::vector<SparseRow>;
 
 // ─── Cut averaging ──────────────────────────────────────────────────────────
-
-/// Compute an average cut from a collection of cuts (for Expected sharing)
-[[nodiscard]] auto average_benders_cut(const std::vector<SparseRow>& cuts)
-    -> SparseRow;
+//
+// `average_benders_cut` / `accumulate_benders_cuts` were removed
+// 2026-07-08 with the invalid `broadcast_mean` / `accumulate` sharing
+// modes — a plain SUM of valid cuts asserts K·F(x) and is never a valid
+// underestimator for K > 1 (`docs/formulation/sddp-cut-validity.md` §5).
 
 /// Compute a probability-weighted average cut from a collection of cuts.
 ///
@@ -576,22 +641,6 @@ struct FeasibilityCutResult
 /// @param weights Per-cut probability weights (must be same size as cuts)
 [[nodiscard]] auto weighted_average_benders_cut(
     const std::vector<SparseRow>& cuts, const std::vector<double>& weights)
-    -> SparseRow;
-
-/// Accumulate (sum) all cuts into a single combined cut.
-///
-/// When LP subproblem objectives already include probability factors,
-/// the correct "expected cut" is the sum of all individual cuts rather
-/// than a weighted average.  Each cut's coefficients and RHS are assumed
-/// to be pre-weighted by the scenario probability.
-///
-/// The resulting cut has:
-///   lowb = Σ_i cuts[i].lowb
-///   coefficients = Σ_i cuts[i].coefficients  (for each column)
-///   uppb = DblMax (unchanged)
-///
-/// @param cuts  Collection of Benders optimality cuts (SparseRow)
-[[nodiscard]] auto accumulate_benders_cuts(const std::vector<SparseRow>& cuts)
     -> SparseRow;
 
 // ─── BendersCut class ────────────────────────────────────────────────────────

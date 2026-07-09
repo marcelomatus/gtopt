@@ -108,35 +108,6 @@ TEST_CASE("relax_fixed_state_variable skips non-fixed columns")  // NOLINT
   CHECK_FALSE(relax_fixed_state_variable(li, link, PhaseIndex {1}, 1e6));
 }
 
-TEST_CASE("average_benders_cut computes correct average")  // NOLINT
-{
-  const auto alpha = ColIndex {0};
-  const auto src = ColIndex {1};
-
-  SparseRow cut1;
-  // name field removed from SparseRow
-  cut1[alpha] = 1.0;
-  cut1[src] = 10.0;
-  cut1.lowb = 100.0;
-  cut1.uppb = LinearProblem::DblMax;
-
-  SparseRow cut2;
-  // name field removed from SparseRow
-  cut2[alpha] = 1.0;
-  cut2[src] = 20.0;
-  cut2.lowb = 200.0;
-  cut2.uppb = LinearProblem::DblMax;
-
-  auto avg = average_benders_cut({
-      cut1,
-      cut2,
-  });
-
-  CHECK(avg.get_coeff(alpha) == doctest::Approx(1.0));
-  CHECK(avg.get_coeff(src) == doctest::Approx(15.0));
-  CHECK(avg.lowb == doctest::Approx(150.0));
-}
-
 TEST_CASE("relax_fixed_state_variable returns slack column indices")  // NOLINT
 {
   LinearInterface li;
@@ -212,13 +183,14 @@ TEST_CASE(
   cut2.lowb = 200.0;
   cut2.uppb = LinearProblem::DblMax;
 
-  // Equal weights → same as unweighted average
+  // Equal weights → the plain arithmetic mean of the two cuts
+  // (hand-computed; the `average_benders_cut` combinator was removed
+  // 2026-07-08 with the `broadcast_mean` sharing mode).
   const auto wavg = weighted_average_benders_cut({cut1, cut2}, {0.5, 0.5});
-  const auto avg = average_benders_cut({cut1, cut2});
 
-  CHECK(wavg.get_coeff(alpha) == doctest::Approx(avg.get_coeff(alpha)));
-  CHECK(wavg.get_coeff(src) == doctest::Approx(avg.get_coeff(src)));
-  CHECK(wavg.lowb == doctest::Approx(avg.lowb));
+  CHECK(wavg.get_coeff(alpha) == doctest::Approx(1.0));
+  CHECK(wavg.get_coeff(src) == doctest::Approx(15.0));
+  CHECK(wavg.lowb == doctest::Approx(150.0));
 }
 
 TEST_CASE(
