@@ -1962,44 +1962,32 @@ class JunctionWriter(BaseWriter):
             # options section (written by GTOptWriter.process_variable_scales).
             # Do NOT emit energy_scale or energy_scale_mode on the reservoir.
 
-            # Small / independent reservoirs (PLP ``Hid_Indep='T'``)
-            # do not carry state across stages — they are run-of-
-            # river-style devices that PLP buffers within the day.
+            # PLP ``Hid_Indep='T'`` (``EstocFIndep`` in ``leecnfce.f:283``)
+            # is intentionally NOT mapped to any storage field.  Its ONLY
+            # effect in PLP is on the stochastic-class (aperture)
+            # indexing: ``plp-fasedual.f:605-620`` / ``plp-progdin.f``
+            # pick ``ApertInd2(IApert, IEta)`` (simulation-independent)
+            # instead of ``ApertInd(IApert, ISimul, IEta)`` when fixing
+            # the stochastic RHS.  It NEVER changes the storage dynamics:
+            # PLP keeps full inter-stage state rows for these reservoirs
+            # (e.g. CANUTILLAR ``vf64 - ve64 + 2.514 qrb64 = 528.705``,
+            # and ``vf64`` dominates PLP's feasibility cuts).
             #
-            # Two translation regimes:
-            #
-            #   1. ``--plp-legacy``: literal PLP behaviour — drop only
-            #      the inter-stage state link by emitting
-            #      ``use_state_variable = False``.  The per-stage
-            #      energy balance is kept (sini/efin free in
-            #      ``[emin, emax]`` plus a ``efin = sini`` close row)
-            #      and matches PLP's per-stage LP shape.  Useful for
-            #      bit-for-bit PLP comparison work.
-            #
-            #   2. Default (no ``--plp-legacy``): emit
-            #      ``daily_cycle = True``.  The C++ ``StorageLP``
-            #      then applies ``dc_stage_scale = 24/stage_duration``
-            #      to the energy-balance coefficients, scaling the
-            #      per-block accumulation down to a 24 h equivalent.
-            #      For monthly stages that means dividing the
-            #      affluent contribution by ~30, which lets reservoirs
-            #      whose ``Afluen × stage_duration`` would otherwise
-            #      exceed the ``[emin, emax]`` box close cleanly
-            #      within a single stage.  Symptom on juan/gtopt_iplp:
-            #      CANUTILLAR (Afluen=126.3, PotMax/Rendi=85.1,
-            #      VertMax=0, Hid_Indep=T) had no spill or
-            #      accumulation path → p1 LP infeasible.
-            #      ``daily_cycle = True`` makes the per-stage balance
-            #      satisfiable without changing the LP topology.
-            #      ``StorageOptions`` forces
-            #      ``use_state_variable = False`` whenever
-            #      ``daily_cycle`` is true, so callers don't have to
-            #      pin both fields.
-            if central.get("hid_indep", False):
-                if self.options.get("plp_legacy", False):
-                    reservoir["use_state_variable"] = False
-                else:
-                    reservoir["daily_cycle"] = True
+            # A previous translation mapped ``hid_indep=T`` →
+            # ``daily_cycle = True`` (or ``use_state_variable = False``
+            # under ``--plp-legacy``) to work around a p1 infeasibility
+            # on juan/gtopt_iplp (CANUTILLAR: Afluen=126.3 exceeding
+            # PotMax/Rendi=85.1 with VertMax=0 → no escape path).  That
+            # zeroed the reservoirs' net stage storage change, removing
+            # ~1,065 hm³ (CANUTILLAR) + ~290 hm³ (PILMAIQUEN) of
+            # inter-stage flexibility that PLP's trajectories use, and
+            # amputated their state variables from feasibility cuts.
+            # The infeasibility concern is covered structurally now:
+            # every non-sentinel reservoir gets a free storage-drain
+            # spillway (``_spillway_fields``: spillway_cost=0.0, default
+            # capacity 6000 m³/s), and ``VertMax > 0`` reservoirs route
+            # spill through a physical ``_ver`` waterway — excess inflow
+            # always has an escape path, so the state variable stays.
 
             # Soft minimum volume (plpminembh.dat "holgura" / slack)
             self._apply_soft_emin(reservoir, central_name)

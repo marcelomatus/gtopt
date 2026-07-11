@@ -87,3 +87,54 @@ class IdSimParser(BaseParser):
                 if 0 <= simulation < len(entry["indices"]):
                     return entry["indices"][simulation]
         return None
+
+    def get_stage_map(self, simulation: int) -> Dict[int, int]:
+        """Return the full per-stage hydrology row for one simulation.
+
+        PLP advances the hydrology column at every calendar-year (January)
+        boundary — ``SimulInd(ISim, IEta)`` is *per stage*, not a single
+        column per simulation (``plp-leeidsim.f``; consumed per stage by
+        ``plp-fasedual.f:605-620``).
+
+        Parameters
+        ----------
+        simulation : int
+            0-based simulation index.
+
+        Returns
+        -------
+        dict
+            ``{stage_1based: hydro_1based}`` for every parsed stage row
+            covering this simulation.  Empty when the simulation index is
+            out of range or no rows were parsed.
+        """
+        stage_map: Dict[int, int] = {}
+        for entry in self._data:
+            indices = entry["indices"]
+            if 0 <= simulation < len(indices):
+                stage_map[entry["stage"]] = indices[simulation]
+        return stage_map
+
+    def has_rotation(self, num_stages: Optional[int] = None) -> bool:
+        """True when any stage's SimulInd row differs from the stage-1 row.
+
+        A rotating mapping means each simulation advances to the next
+        historical hydrological year at January boundaries, so consumers
+        must select the aflce column **per stage** rather than freezing
+        the stage-1 column.
+
+        Parameters
+        ----------
+        num_stages : int, optional
+            Restrict the check to stages ``1..num_stages``.  ``None``
+            checks every parsed row.
+        """
+        rows = [
+            entry
+            for entry in self._data
+            if num_stages is None or 1 <= entry["stage"] <= num_stages
+        ]
+        if not rows:
+            return False
+        base = min(rows, key=lambda e: e["stage"])["indices"]
+        return any(entry["indices"] != base for entry in rows)

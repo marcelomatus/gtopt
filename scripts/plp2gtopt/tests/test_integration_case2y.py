@@ -456,21 +456,34 @@ def test_plp_case_2y_all_stages_extra_hydros(tmp_path):
         f"wrap-around hydros 1, 2), got {len(aps)}"
     )
 
-    # Extra hydros (Fortran 1-based 1 and 2) need their own Flow files
+    # plpidsim.dat rotates the hydrology column at January boundaries, so
+    # NO aperture may alias a forward scenario (forward Flow data is
+    # stage-rotated while plpidap2 classes reference RAW columns).  Every
+    # aperture is cache-backed under offset UIDs (100 + hydro_1based).
+    forward_uids = {s["uid"] for s in sim["scenario_array"]}
+    source_uids = {a["source_scenario"] for a in aps}
+    assert source_uids.isdisjoint(forward_uids), (
+        "Rotating idsim: apertures must not alias rotated forward scenarios"
+    )
+    assert source_uids == {100 + a["uid"] for a in aps}, (
+        "Aperture source scenarios should be offset (100 + raw hydro index)"
+    )
+
+    # ALL 20 aperture hydros need raw-column Flow files in the cache
     aperture_flow = Path(opts["output_dir"]) / "apertures" / "Flow"
     assert aperture_flow.exists(), "apertures/Flow/ should be created"
 
     pfiles = list(aperture_flow.glob("*.parquet"))
-    assert len(pfiles) > 0, "Extra hydro Flow parquet files should be written"
+    assert len(pfiles) > 0, "Aperture Flow parquet files should be written"
 
-    # Each file must have uid:1 and uid:2 (extra hydro scenario UIDs = 1-based hydro index)
+    # Each file has one uid:<100+h> column per aperture hydro
     df = pd.read_parquet(pfiles[0])
-    assert "uid:1" in df.columns, "Column uid:1 (Fortran hydro 1) missing"
-    assert "uid:2" in df.columns, "Column uid:2 (Fortran hydro 2) missing"
     assert "stage" in df.columns
     assert "block" in df.columns
-    assert np.isfinite(df["uid:1"].values).all()
-    assert np.isfinite(df["uid:2"].values).all()
+    for h in (1, 2, 51, 68):
+        col = f"uid:{100 + h}"
+        assert col in df.columns, f"Column {col} (raw hydro {h}) missing"
+        assert np.isfinite(df[col].values).all()
 
     # num_apertures is NOT emitted — aperture count is determined by aperture_array
     assert "num_apertures" not in data["options"]["sddp_options"]
@@ -595,13 +608,29 @@ def _check_2y_global_indicators(
     # Reservoirs == embalse count
     assert gtopt_counts["reservoirs"] == plp_counts.get("sub_embalse", 0)
 
-    # Stateless reservoirs match (hid_indep=T → use_state_variable=False)
-    assert plp_counts["stateless_reservoirs"] > 0, (
-        "plp_case_2y should have at least one stateless reservoir"
+    # hid_indep (EstocFIndep) centrals keep their inter-stage state:
+    # PLP's flag only switches the backward-pass aperture-class indexing
+    # (plp-fasedual.f:605-620 ApertInd2 vs ApertInd), never the storage
+    # dynamics.  No reservoir may lose its state variable because of it.
+    assert plp_counts["hid_indep_centrals"] > 0, (
+        "plp_case_2y should have at least one hid_indep central"
     )
-    assert plp_counts["stateless_reservoirs"] == gtopt_counts["stateless_reservoirs"], (
-        "Stateless reservoir counts should match between PLP and gtopt"
+    assert gtopt_counts["stateless_reservoirs"] == 0, (
+        "hid_indep must NOT map to daily_cycle/use_state_variable=False "
+        "(EstocFIndep only affects aperture-class indexing in PLP)"
     )
+    # CANUTILLAR (uid 64) and PILMAIQUEN (uid 83) are the hid_indep
+    # reservoirs in this case — both must be plain stateful reservoirs.
+    reservoirs_by_uid = {r["uid"]: r for r in data["system"].get("reservoir_array", [])}
+    for uid in (64, 83):
+        res = reservoirs_by_uid.get(uid)
+        assert res is not None, f"Reservoir uid={uid} missing from reservoir_array"
+        assert "daily_cycle" not in res, (
+            f"Reservoir uid={uid} must not carry daily_cycle (hid_indep fix)"
+        )
+        assert "use_state_variable" not in res, (
+            f"Reservoir uid={uid} must keep its state variable (hid_indep fix)"
+        )
 
     # ReservoirSeepages and reservoir efficiencies should be
     # approximately consistent between PLP and gtopt — but not strictly

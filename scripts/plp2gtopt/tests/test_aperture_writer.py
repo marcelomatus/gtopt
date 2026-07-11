@@ -628,3 +628,64 @@ def test_phase_apertures_omitted_when_match_global_projection(
         block_parser=block_parser,
     )
     assert "apertures" not in phase_array[0]
+
+
+def test_build_aperture_array_decoupled(idap2_parser: IdAp2Parser) -> None:
+    """decouple_forward: no aperture aliases a forward scenario.
+
+    With a rotating plpidsim.dat the forward scenarios' Flow data is
+    stage-rotated, while plpidap2 aperture classes reference RAW aflce
+    columns — so every aperture must be cache-backed under a
+    collision-free offset UID (100 + hydro_1based).
+    """
+    scenario_hydro_map = {50: 51, 51: 52, 52: 53, 53: 54}
+    res = build_aperture_array(
+        idap2_parser,
+        scenario_hydro_map,
+        3,
+        max_scenario_uid=54,
+        aperture_directory="some/path/to/apertures",
+        decouple_forward=True,
+    )
+    result = res.aperture_array
+
+    assert len(result) == 4
+    # Aperture uids keep the raw hydro class; sources are offset uids.
+    assert [a["uid"] for a in result] == [51, 52, 53, 54]
+    assert [a["source_scenario"] for a in result] == [151, 152, 153, 154]
+
+    # EVERY aperture hydro gets a cache scenario entry (raw column).
+    assert [e["uid"] for e in res.extra_scenarios] == [151, 152, 153, 154]
+    assert [e["hydrology"] for e in res.extra_scenarios] == [50, 51, 52, 53]
+    for e in res.extra_scenarios:
+        assert e["input_directory"] == "some/path/to/apertures"
+
+
+def test_build_aperture_array_decoupled_requires_directory(
+    idap2_parser: IdAp2Parser,
+) -> None:
+    """decouple_forward without a directory falls back to aliasing."""
+    scenario_hydro_map = {50: 51, 51: 52, 52: 53, 53: 54}
+    res = build_aperture_array(
+        idap2_parser,
+        scenario_hydro_map,
+        3,
+        max_scenario_uid=54,
+        aperture_directory="",
+        decouple_forward=True,
+    )
+    # Fallback: forward aliasing preserved (legacy behaviour)
+    assert [a["source_scenario"] for a in res.aperture_array] == [51, 52, 53, 54]
+    assert res.extra_scenarios == []
+
+
+def test_aperture_scenario_uid_offset() -> None:
+    """Offset is the smallest power of ten above max_scenario_uid (min 100)."""
+    from plp2gtopt.aperture_writer import aperture_scenario_uid_offset
+
+    assert aperture_scenario_uid_offset(0) == 100
+    assert aperture_scenario_uid_offset(68) == 100
+    assert aperture_scenario_uid_offset(99) == 100
+    assert aperture_scenario_uid_offset(100) == 1000
+    assert aperture_scenario_uid_offset(366) == 1000
+    assert aperture_scenario_uid_offset(1000) == 10000

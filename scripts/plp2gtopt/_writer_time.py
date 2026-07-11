@@ -143,6 +143,21 @@ class TimeMixin:
         scenario's ``"hydrology"`` field so that
         :class:`~.aflce_writer.AflceWriter` can look up the correct column
         from the flow matrix.  The C++ solver does not use this field.
+
+        **Per-stage hydrology rotation (plpidsim.dat)**
+
+        PLP's simulation→hydrology mapping is **per stage**: ``SimulInd``
+        advances one historical hydrological year at every January
+        boundary (``plp-leeidsim.f``; consumed per stage by
+        ``plp-fasedual.f:605-620``).  E.g. Sim 12 reads aflce column 62
+        for stages 1-28, 63 for 29-40 and 64 for 41-52.  The full
+        per-stage row of each selected simulation is therefore stored in
+        the ``options["_hydrology_stage_maps"]`` side channel
+        (``{scenario_uid: {plp_stage_1based: hydro_0based}}``) so
+        :class:`~.aflce_writer.AflceWriter` can select each block's aflce
+        column from *its* stage's idsim entry.  The scenario UID stays
+        the 1-based stage-1 column (PLP convention); only the data column
+        becomes stage-dependent.
         """
         # ---------------------------------------------------------------
         # Resolve the '-y' / 'hydrologies' spec to 1-based hydro indices
@@ -150,6 +165,16 @@ class TimeMixin:
         idsim_parser = self.parser.parsed_data.get("idsim_parser")
         hydro_spec = options.get("hydrologies", "all")
         spec = (hydro_spec or "all").strip().lower()
+
+        # Map: stage-1 hydrology (1-based) → 0-based simulation index.
+        # Used to recover each selected hydrology's full per-stage
+        # SimulInd row (first-appearance simulation wins on duplicates).
+        stage1_to_sim: dict[int, int] = {}
+        if idsim_parser is not None and idsim_parser.num_simulations > 0:
+            for sim_idx in range(idsim_parser.num_simulations):
+                h1 = idsim_parser.get_index(sim_idx, 1)
+                if h1 is not None and h1 not in stage1_to_sim:
+                    stage1_to_sim[h1] = sim_idx
 
         # Helper: collect all available hydrology indices from PLP data
         def _all_hydro_indices() -> list:
@@ -178,7 +203,10 @@ class TimeMixin:
         else:
             # Explicit 1-based raw hydrology column indices (Fortran convention).
             # "-y 55,56" = hydrology classes 55 and 56 from plpaflce.dat.
-            # No idsim remapping: the user specifies the hydrology numbers directly.
+            # The UID is the raw column number; when plpidsim.dat is present
+            # the value selects the SIMULATION whose stage-1 column matches,
+            # and that simulation's full per-stage SimulInd row drives the
+            # data columns (PLP rotates one hydrological year per January).
             hydro_indices_1based = parse_index_range(hydro_spec)
 
             # Validate requested indices against available hydrologies
@@ -204,6 +232,11 @@ class TimeMixin:
             ]
 
         scenarios = []
+        # Per-scenario per-stage hydrology maps (PLP's rotating SimulInd
+        # rows).  Kept OUT of the scenario JSON dicts — the C++ Scenario
+        # contract has no such member; ``"hydrology"`` stays the stage-1
+        # column for provenance.  AflceWriter consumes this side channel.
+        hydrology_stage_maps: dict[int, dict[int, int]] = {}
         for hydro_1based, factor in zip(hydro_indices_1based, probability_factors):
             # Scenario UID = Fortran 1-based hydrology index (PLP convention).
             # This keeps -y values, scenario UIDs, and aperture source_scenario
@@ -216,7 +249,16 @@ class TimeMixin:
                     "hydrology": hydro_0based,
                 }
             )
+            sim_idx = stage1_to_sim.get(hydro_1based)
+            if sim_idx is not None and idsim_parser is not None:
+                stage_row = idsim_parser.get_stage_map(sim_idx)
+                if stage_row:
+                    hydrology_stage_maps[hydro_1based] = {
+                        stage: h - 1 for stage, h in stage_row.items()
+                    }
         self.planning["simulation"]["scenario_array"] = scenarios
+        if options is not None:
+            options["_hydrology_stage_maps"] = hydrology_stage_maps
 
         method = self._normalize_method(options.get("method", "sddp"))
 
@@ -279,6 +321,17 @@ class TimeMixin:
         output_dir = Path(options.get("output_dir", ""))
         aperture_dir = output_dir / "apertures"
 
+        # Rotating plpidsim.dat (January-boundary hydrology advance): the
+        # forward scenarios' Flow data is stage-rotated, but plpidap2.dat
+        # aperture classes reference RAW aflce columns per stage — so no
+        # aperture may alias a forward scenario.  Decouple: every aperture
+        # hydro becomes a cache-backed scenario holding its raw static
+        # column (see build_aperture_array(decouple_forward=...)).
+        idsim_parser = self.parser.parsed_data.get("idsim_parser", None)
+        rotation_active = idsim_parser is not None and idsim_parser.has_rotation(
+            num_stages
+        )
+
         result = build_aperture_array(
             idap2_parser=idap2_parser,
             scenario_hydro_map=scenario_hydro_map,
@@ -287,6 +340,7 @@ class TimeMixin:
             aperture_directory=str(aperture_dir),
             aflce_parser=self.parser.parsed_data.get("aflce_parser", None),
             block_parser=self.parser.parsed_data.get("block_parser", None),
+            decouple_forward=rotation_active,
         )
 
         if not result.aperture_array:
@@ -321,7 +375,10 @@ class TimeMixin:
                 central_parser=central_parser,
                 block_parser=block_parser,
                 aperture_hydros=sorted(extra_hydros),
-                forward_hydros=forward_hydros,
+                # Decoupled mode: forward hydros must ALSO get raw-column
+                # cache files (their forward data is stage-rotated), so
+                # nothing is subtracted from the aperture set.
+                forward_hydros=set() if rotation_active else forward_hydros,
                 output_dir=aperture_dir,
                 options=options,
                 hydro_uid_map=hydro_uid_map,

@@ -124,10 +124,15 @@ def _plp_element_counts(parser: PLPParser) -> dict[str, Any]:
             ralco_parser, "num_reservoir_discharge_limits", 0
         )
 
-    # Stateless reservoirs: embalse centrals with hid_indep=True
+    # Simulation-independent hydrology centrals (PLP ``Hid_Indep=T``,
+    # read as ``EstocFIndep`` in leecnfce.f:283).  ONLY changes which
+    # stochastic class each aperture reads in the backward pass
+    # (plp-fasedual.f:605-620: ApertInd2 instead of ApertInd); it does
+    # NOT remove inter-stage storage — these reservoirs keep full state
+    # in both PLP and gtopt.  Informational count.
     if central_parser:
         embalses = central_parser.centrals_of_type.get("embalse", [])
-        counts["stateless_reservoirs"] = sum(
+        counts["hid_indep_centrals"] = sum(
             1 for c in embalses if c.get("hid_indep", False)
         )
 
@@ -617,13 +622,14 @@ def _gtopt_element_counts(planning: dict[str, Any]) -> dict[str, Any]:
     for gtype, gcount in type_counts.items():
         counts[f"gen_{gtype}"] = gcount
 
-    # Stateless reservoirs: PLP ``hid_indep=T`` is mapped to either
-    # ``use_state_variable=False`` (--plp-legacy mode) or
-    # ``daily_cycle=True`` (default mode — the C++ ``StorageOptions``
-    # forces ``use_state_variable=False`` whenever ``daily_cycle`` is
-    # true, so the two encodings are semantically equivalent).  Count
-    # both forms so the gtopt-vs-PLP comparison stays consistent across
-    # modes.  See junction_writer.py:1219-1223.
+    # Stateless reservoirs: entries without an inter-stage state
+    # variable — either ``use_state_variable=False`` or
+    # ``daily_cycle=True`` (the C++ ``StorageOptions`` forces
+    # ``use_state_variable=False`` whenever ``daily_cycle`` is true).
+    # Since the ``hid_indep`` → ``daily_cycle`` mapping was removed
+    # (PLP's ``EstocFIndep`` never touches storage dynamics), only
+    # deliberate daily-cycle devices remain here (e.g.
+    # ``--ror-as-reservoirs`` promotions).
     reservoirs = psys.get("reservoir_array", [])
     counts["stateless_reservoirs"] = sum(
         1
@@ -905,7 +911,7 @@ def _log_comparison(
     p_seepages = plp_counts.get("seepages", 0)
     p_res_eff = plp_counts.get("reservoir_efficiencies", 0)
     p_discharge_limits = plp_counts.get("discharge_limits", 0)
-    p_stateless_res = plp_counts.get("stateless_reservoirs", 0)
+    p_hid_indep = plp_counts.get("hid_indep_centrals", 0)
 
     # derived
     p_gen_excl = p_centrals - p_falla - p_bateria
@@ -1148,11 +1154,16 @@ def _log_comparison(
             else ""
         ),
     )
+    # hid_indep (EstocFIndep) only switches the backward-pass aperture
+    # class indexing in PLP (plp-fasedual.f:605-620); the reservoirs keep
+    # their inter-stage state on both sides.  gtopt-side stateless
+    # entries are deliberate daily-cycle devices (--ror-as-reservoirs).
     _row(
-        "stateless reservoirs",
-        p_stateless_res,
+        "hid_indep reservoirs",
+        p_hid_indep,
         g_stateless_res,
-        note=f"hid_indep=T {_arrow} use_state_variable=False",
+        note=f"aperture-class indexing only {_arrow} state kept "
+        f"(gtopt column counts daily_cycle devices)",
         indent=1,
     )
     # The PLP column counts only plpcenre.dat (rendimiento) entries, but

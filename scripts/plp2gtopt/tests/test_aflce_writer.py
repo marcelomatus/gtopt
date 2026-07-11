@@ -384,3 +384,111 @@ def test_discharge_parquet_schema_and_values(tmp_path):
     assert float(row["value"].iloc[0]) == pytest.approx(15.0)
     row2 = df[(df["scenario"] == 1) & (df["block"] == 2)]
     assert float(row2["value"].iloc[0]) == pytest.approx(15.0)
+
+
+def _make_two_stage_block_parser(tmp_path, n_blocks=4):
+    """Create a BlockParser with n blocks split evenly over 2 stages."""
+
+    parser = BlockParser.__new__(BlockParser)
+    parser.file_path = tmp_path / "plpblo.dat"
+    half = n_blocks // 2
+    parser._data = [
+        {
+            "number": i + 1,
+            "stage": 1 if i < half else 2,
+            "duration": 7.0,
+            "accumulated_time": (i + 1) * 7.0,
+        }
+        for i in range(n_blocks)
+    ]
+    parser._name_index_map = {}
+    parser._number_index_map = {i + 1: i for i in range(n_blocks)}
+    parser.stage_number_map = {i + 1: (1 if i < half else 2) for i in range(n_blocks)}
+    return parser
+
+
+def test_to_dataframe_per_stage_hydrology_rotation(tmp_path):
+    """Per-stage idsim rotation selects each block's stage column.
+
+    PLP advances the hydrology column at January boundaries
+    (plpidsim.dat / plp-fasedual.f:605-620): a scenario frozen to its
+    stage-1 column would repeat the same historical year.  The
+    ``_hydrology_stage_maps`` side channel must switch the aflce column
+    per stage.
+    """
+    aflce_f = tmp_path / "plpaflce.dat"
+    # 1 central, 3 hydrologies, 4 blocks (stages 1-2, two blocks each).
+    aflce_f.write_text(
+        "# Nro. Cent. c/Caudales Estoc. y Nro. Hidrologias\n"
+        "  1                                         3\n"
+        "# Nombre de la central\n"
+        "'FLOWGEN'\n"
+        "4\n"
+        "   01   001   10.0   20.0   30.0\n"
+        "   01   002   11.0   21.0   31.0\n"
+        "   02   003   12.0   22.0   32.0\n"
+        "   02   004   13.0   23.0   33.0\n"
+    )
+    aflce_parser = AflceParser(aflce_f)
+    aflce_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=0.0)
+    block_parser = _make_two_stage_block_parser(tmp_path, 4)
+    scenarios = [{"uid": 1, "hydrology": 0}, {"uid": 2, "hydrology": 1}]
+    # Scenario 1 rotates col 0 → col 1 at stage 2; scenario 2 rotates 1 → 2.
+    options = {
+        "_hydrology_stage_maps": {
+            1: {1: 0, 2: 1},
+            2: {1: 1, 2: 2},
+        },
+    }
+
+    writer = AflceWriter(
+        aflce_parser,
+        central_parser=central_parser,
+        block_parser=block_parser,
+        scenarios=scenarios,
+        options=options,
+    )
+    df = writer.to_dataframe()
+
+    s1 = df[df["scenario"] == 1].sort_values("block")["uid:5"].tolist()
+    s2 = df[df["scenario"] == 2].sort_values("block")["uid:5"].tolist()
+    # stage-1 blocks from the stage-1 column, stage-2 blocks rotated
+    assert s1 == [10.0, 11.0, 22.0, 23.0]
+    assert s2 == [20.0, 21.0, 32.0, 33.0]
+
+
+def test_to_dataframe_static_map_matches_legacy(tmp_path):
+    """A stage-constant map must reproduce the static column exactly."""
+    aflce_f = tmp_path / "plpaflce.dat"
+    aflce_f.write_text(
+        "# hdr\n"
+        "  1                                         2\n"
+        "# name\n"
+        "'FLOWGEN'\n"
+        "2\n"
+        "   01   001   10.0   20.0\n"
+        "   01   002   11.0   21.0\n"
+    )
+    aflce_parser = AflceParser(aflce_f)
+    aflce_parser.parse()
+
+    central_parser = _make_central_parser(tmp_path, "FLOWGEN", number=5, afluent=0.0)
+    block_parser = _make_block_parser(tmp_path, 2)
+    scenarios = [{"uid": 7, "hydrology": 1}]
+
+    base = AflceWriter(
+        aflce_parser,
+        central_parser=central_parser,
+        block_parser=block_parser,
+        scenarios=scenarios,
+    ).to_dataframe()
+    mapped = AflceWriter(
+        aflce_parser,
+        central_parser=central_parser,
+        block_parser=block_parser,
+        scenarios=scenarios,
+        options={"_hydrology_stage_maps": {7: {1: 1}}},
+    ).to_dataframe()
+    assert base["uid:5"].tolist() == mapped["uid:5"].tolist()
