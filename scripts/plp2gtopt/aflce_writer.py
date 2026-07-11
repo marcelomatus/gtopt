@@ -129,6 +129,52 @@ class AflceWriter(BaseWriter):
 
         return col_names, master_index, fill_values, valid_items
 
+    @staticmethod
+    def _scenario_values(
+        flow_2d: np.ndarray,
+        hydro_idx: int,
+        per_stage: Optional[Dict[int, int]],
+        master_index: np.ndarray,
+        stage_map: Optional[Dict[int, int]],
+    ) -> np.ndarray:
+        """Select one scenario's flow values from the 2-D aflce matrix.
+
+        Static case: slice the single ``hydro_idx`` column.  Rotating
+        case (``per_stage`` from ``plpidsim.dat``): pick, for every block
+        row, the column of *that block's stage* — PLP advances the
+        hydrology column one historical year at each January boundary.
+        Falls back to the static column when the block→stage map is
+        unavailable, the row count does not line up, or a stage has no
+        idsim entry / an out-of-range column.
+        """
+        if flow_2d.ndim != 2:
+            return flow_2d
+
+        rotates = per_stage is not None and any(
+            h != hydro_idx for h in per_stage.values()
+        )
+        if (
+            not rotates
+            or per_stage is None
+            or stage_map is None
+            or flow_2d.shape[0] != len(master_index)
+        ):
+            return flow_2d[:, hydro_idx]
+
+        num_cols = flow_2d.shape[1]
+
+        def _block_column(block: int) -> int:
+            stage = stage_map.get(block, -1)
+            col = per_stage.get(stage, hydro_idx)
+            return col if 0 <= col < num_cols else hydro_idx
+
+        col_idx = np.fromiter(
+            (_block_column(int(b)) for b in master_index),
+            dtype=np.intp,
+            count=len(master_index),
+        )
+        return flow_2d[np.arange(flow_2d.shape[0]), col_idx]
+
     def to_dataframe(
         self, items: Optional[List[Dict[str, Any]]] = None
     ) -> pd.DataFrame:
@@ -137,6 +183,16 @@ class AflceWriter(BaseWriter):
         Builds one DataFrame per scenario by slicing the pre-filtered 2D flow
         arrays at the hydrology column, avoiding repeated ``_create_dataframe``
         calls.
+
+        **Per-stage hydrology rotation**: when the conversion options carry
+        ``"_hydrology_stage_maps"`` (``{scenario_uid: {plp_stage_1based:
+        hydro_0based}}``, built by ``process_scenarios`` from
+        ``plpidsim.dat``), each block's value is taken from the aflce
+        column of *its* stage's SimulInd entry — PLP advances the
+        hydrology column one historical year at every January boundary
+        (``plp-fasedual.f:605-620``).  Without a stage map (or without
+        block→stage data) the scenario's static ``"hydrology"`` column is
+        used for every block, preserving the legacy behaviour.
         """
         if items is None:
             items = self.items
@@ -144,12 +200,17 @@ class AflceWriter(BaseWriter):
         if not items:
             return pd.DataFrame()
 
+        stage_maps: Dict[int, Dict[int, int]] = (
+            self.options.get("_hydrology_stage_maps") or {}
+        )
+
         # Collect valid scenarios
         valid_scenarios = []
         for i, scenario in enumerate(self.scenarios):
             hydro_idx = scenario.get("hydrology", i)
             if hydro_idx >= 0:
-                valid_scenarios.append((scenario.get("uid", -1), hydro_idx))
+                uid = scenario.get("uid", -1)
+                valid_scenarios.append((uid, hydro_idx, stage_maps.get(uid)))
 
         if not valid_scenarios:
             return pd.DataFrame()
@@ -178,23 +239,32 @@ class AflceWriter(BaseWriter):
         # per-scenario) so that every scenario DataFrame has the same
         # columns — otherwise pd.concat introduces NaN, which biases the
         # downstream groupby().mean() in compute_indicators.
-        active_hydro_indices = [h for _, h in valid_scenarios]
+        # Include every per-stage (rotated) column, not only the static
+        # ones, so a central varying only in a rotated year survives.
+        active_hydros: set[int] = set()
+        for _, h, per_stage in valid_scenarios:
+            active_hydros.add(h)
+            if per_stage:
+                active_hydros.update(per_stage.values())
+        active_hydro_indices = sorted(active_hydros)
         filtered_items: list[tuple[str, np.ndarray]] = []
         for col_name, flow_2d in valid_items:
             fv = fill_values.get(col_name)
             if fv is not None and flow_2d.ndim == 2:
-                cols = flow_2d[:, active_hydro_indices]
+                in_range = [h for h in active_hydro_indices if h < flow_2d.shape[1]]
+                cols = flow_2d[:, in_range]
                 if np.allclose(cols, fv, rtol=1e-8, atol=1e-11):
                     continue
             filtered_items.append((col_name, flow_2d))
 
         # Build one DataFrame per scenario by column-slicing the 2D arrays
         dfs: list[pd.DataFrame] = []
-        for uid, hydro_idx in valid_scenarios:
+        for uid, hydro_idx, per_stage in valid_scenarios:
             col_data: dict[str, np.ndarray] = {}
             for col_name, flow_2d in filtered_items:
-                vals = flow_2d[:, hydro_idx] if flow_2d.ndim == 2 else flow_2d
-                col_data[col_name] = vals
+                col_data[col_name] = self._scenario_values(
+                    flow_2d, hydro_idx, per_stage, master_index, stage_map
+                )
 
             if not col_data:
                 continue

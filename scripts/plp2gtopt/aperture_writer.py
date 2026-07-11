@@ -95,6 +95,21 @@ class ApertureResult:
         self.extra_scenarios = extra_scenarios
 
 
+def aperture_scenario_uid_offset(max_scenario_uid: int) -> int:
+    """UID offset for decoupled (cache-backed) aperture scenarios.
+
+    Returns the smallest power of ten strictly greater than
+    ``max_scenario_uid`` (minimum 100), so
+    ``offset + hydro_1based`` never collides with a forward scenario UID
+    and stays human-decodable (e.g. forward uids 51..68 → offset 100 →
+    aperture scenario 151 = raw aflce column 51).
+    """
+    offset = 100
+    while offset <= max_scenario_uid:
+        offset *= 10
+    return offset
+
+
 def build_aperture_array(
     idap2_parser: Any,
     scenario_hydro_map: Dict[int, int],
@@ -103,6 +118,7 @@ def build_aperture_array(
     aperture_directory: str = "",
     aflce_parser: Any = None,
     block_parser: Any = None,
+    decouple_forward: bool = False,
 ) -> ApertureResult:
     """Build the ``aperture_array`` for the simulation JSON block.
 
@@ -146,6 +162,18 @@ def build_aperture_array(
         Parsed ``plpaflce.dat`` / ``plpblo.dat`` data.  Optional — passing
         ``None`` disables the global wetness sort and falls back to
         first-appearance order.
+    decouple_forward : bool
+        When True, NO aperture aliases a forward scenario: every aperture
+        hydro becomes a cache-backed scenario (raw static aflce column
+        written to the ``aperture_directory``) under a collision-free UID
+        (``aperture_scenario_uid_offset(max_scenario_uid) + hydro_1based``).
+        Required when the forward scenarios rotate their hydrology column
+        per stage (``plpidsim.dat`` with January-boundary rotation):
+        ``plpidap2.dat`` aperture classes reference RAW aflce columns per
+        stage, while the C++ backward pass reads a forward
+        ``source_scenario``'s (now rotated) in-memory data — the legacy
+        alias would feed the wrong year from the first rotation boundary
+        on (see ``sddp_aperture.cpp`` ``apply_aperture_update``).
 
     Returns
     -------
@@ -224,20 +252,43 @@ def build_aperture_array(
     # parquet directory), the legacy behaviour is preserved.
     have_aperture_directory = bool(aperture_directory)
 
+    # Decoupled mode is only viable when the aperture directory exists —
+    # without it there is nowhere to serve the raw-column data from.
+    if decouple_forward and not have_aperture_directory:
+        _LOG.warning(
+            "build_aperture_array: decouple_forward requested but no "
+            "aperture_directory configured; falling back to forward-"
+            "scenario aliasing (aperture data may be wrong for rotated "
+            "stages)"
+        )
+        decouple_forward = False
+
+    uid_offset = aperture_scenario_uid_offset(max_scenario_uid)
+
     for hydro_1based in unique_hydros:
         hydro_0based = hydro_1based - 1
-        # Look up the gtopt scenario UID for this hydrology
-        scenario_uid = scenario_hydro_map.get(hydro_0based)
+        # Look up the gtopt scenario UID for this hydrology.  Under
+        # ``decouple_forward`` the forward alias is skipped entirely:
+        # apertures must read the RAW static aflce column, which only
+        # the aperture cache provides once the forward data rotates.
+        scenario_uid = (
+            None if decouple_forward else scenario_hydro_map.get(hydro_0based)
+        )
         if scenario_uid is None:
             if not have_aperture_directory:
                 # Skip entirely: no place to source the affluent data
                 # from, and the runtime would silently drop these
                 # apertures with a confusing source_scenario warning.
                 continue
-            # Not in the forward set → use Fortran 1-based hydro index
-            # as the scenario UID (PLP convention) and create an
-            # aperture-only scenario entry.
-            scenario_uid = hydro_1based
+            # Cache-backed scenario UID.  Legacy (non-decoupled): the
+            # Fortran 1-based hydro index (PLP convention; safe — the
+            # hydro is not in the forward set).  Decoupled: offset the
+            # index so it can never collide with a forward scenario UID
+            # (the C++ resolves source_scenario against the forward set
+            # FIRST and would silently read rotated data on collision).
+            scenario_uid = (
+                uid_offset + hydro_1based if decouple_forward else hydro_1based
+            )
             if hydro_0based not in aperture_hydro_seen:
                 aperture_hydro_seen.add(hydro_0based)
                 extra_scenarios.append(

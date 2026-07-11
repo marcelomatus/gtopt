@@ -612,8 +612,14 @@ class TestPlpElementCounts:
         counts = _plp_element_counts(parser)
         assert counts["reservoir_efficiencies"] == 4
 
-    def test_stateless_reservoirs(self) -> None:
-        """Embalse centrals with hid_indep=True are counted as stateless."""
+    def test_hid_indep_centrals(self) -> None:
+        """Embalse centrals with hid_indep=True are counted (informational).
+
+        PLP's ``Hid_Indep`` (``EstocFIndep``, leecnfce.f:283) only switches
+        the backward-pass aperture-class indexing (plp-fasedual.f:605-620);
+        it does NOT make the reservoir stateless — the count is purely
+        informational and no longer maps to any gtopt storage field.
+        """
         central_p = SimpleNamespace(
             num_centrals=3,
             centrals_of_type={
@@ -627,7 +633,8 @@ class TestPlpElementCounts:
         )
         parser = _make_parser({"central_parser": central_p})
         counts = _plp_element_counts(parser)
-        assert counts["stateless_reservoirs"] == 2
+        assert counts["hid_indep_centrals"] == 2
+        assert "stateless_reservoirs" not in counts
 
     def test_hydrologies_and_affluents(self) -> None:
         """Aflce parser contributes hydrology count and affluent names."""

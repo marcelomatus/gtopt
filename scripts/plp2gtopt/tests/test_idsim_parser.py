@@ -63,3 +63,43 @@ def test_empty_file(tmp_path: Path) -> None:
     parser.parse()
     assert parser.num_simulations == 0
     assert len(parser.items) == 0
+
+
+def test_get_stage_map(idsim_file: Path) -> None:
+    """Full per-stage SimulInd row for one simulation (PLP rotation)."""
+    parser = IdSimParser(idsim_file)
+    parser.parse()
+    # Simulation 0 advances 51 → 51 → 52 → 53 across the January boundary
+    assert parser.get_stage_map(0) == {1: 51, 2: 51, 3: 52, 4: 53}
+    assert parser.get_stage_map(2) == {1: 53, 2: 53, 3: 54, 4: 55}
+    # Out-of-range simulation → empty map
+    assert not parser.get_stage_map(99)
+
+
+def test_has_rotation(idsim_file: Path) -> None:
+    """Rotation is detected when any stage row differs from stage 1."""
+    parser = IdSimParser(idsim_file)
+    parser.parse()
+    assert parser.has_rotation() is True
+    assert parser.has_rotation(num_stages=4) is True
+    # Stages 1-2 share the same row → no rotation inside that window
+    assert parser.has_rotation(num_stages=2) is False
+    assert parser.has_rotation(num_stages=1) is False
+
+
+def test_has_rotation_static(tmp_path: Path) -> None:
+    """A stage-constant mapping reports no rotation."""
+    content = textwrap.dedent("""\
+        # static idsim
+        # NSimul NEtaCau
+              2       3
+        # Mes   Etapa  SimulInd
+           001   001   51   52
+           002   002   51   52
+           003   003   51   52
+    """)
+    p = tmp_path / "plpidsim.dat"
+    p.write_text(content)
+    parser = IdSimParser(p)
+    parser.parse()
+    assert parser.has_rotation() is False
