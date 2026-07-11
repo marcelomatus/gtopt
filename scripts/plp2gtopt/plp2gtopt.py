@@ -45,7 +45,6 @@ from ._comparison import (  # noqa: F401  — re-exported for backward compat
     _vis_len,
     compute_comparison_indicators,
 )
-from .base_writer import convert_tree_to_long
 
 # pylint: enable=unused-import
 
@@ -880,18 +879,17 @@ def convert_plp_case(options: dict[str, Any]) -> int:
                 writer.planning, parser, output_dir=output_dir
             )
 
-        # Final step: re-emit the per-element field tables (incl. apertures
-        # and FlowRights) in long layout — tidy ``[<index cols>, uid,
-        # value]``.  gtopt's input reader is long-ONLY (wide-format input
-        # was removed 2026-06-27); ``layout: "wide"`` remains available for
-        # tooling that inspects the intermediate tables, but such a case
-        # cannot be fed to gtopt.  Deliberately the LAST step so every
-        # in-pipeline reader (stats, PLP-vs-gtopt comparison, post-check
-        # validation) still sees the wide files; structural tables are
-        # skipped automatically.
-        if not excel_output and options.get("layout", "long") == "long":
-            n_long = convert_tree_to_long(output_dir, options)
-            logger.debug("Converted %d field file(s) to long layout", n_long)
+        # Field tables now land in long layout DIRECTLY at write time
+        # (``BaseWriter.write_dataframe`` / the aperture + waterway-fmin
+        # writers reshape via ``to_long_layout``), so the old whole-tree
+        # ``convert_tree_to_long`` post-pass — which re-read and rewrote
+        # every Parquet after the fact — is no longer needed.  gtopt's
+        # input reader is long-ONLY (wide-format input was removed
+        # 2026-06-27); ``layout: "wide"`` / excel output opt every writer
+        # out of the reshape for tooling that inspects the intermediate
+        # wide tables (such a tree cannot be fed to gtopt).  The
+        # ``convert_tree_to_long`` helper is retained for external callers
+        # (``gtopt2pbi``, tests) that post-process a foreign wide tree.
 
     except RuntimeError:
         raise

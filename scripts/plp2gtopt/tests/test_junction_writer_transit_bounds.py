@@ -322,18 +322,21 @@ def test_parquet_output_columns_renamed() -> None:
         tbl_fmin = pq.read_table(fmin_path)
         tbl_fmax = pq.read_table(fmax_path)
 
-        expected_col = f"uid:{ww_uid}"
-        assert expected_col in tbl_fmin.column_names, (
-            f"Expected column '{expected_col}' in fmin, got {tbl_fmin.column_names}"
-        )
-        assert expected_col in tbl_fmax.column_names, (
-            f"Expected column '{expected_col}' in fmax, got {tbl_fmax.column_names}"
-        )
+        # Long layout: [<index cols>, uid, value].  The re-key from the
+        # central's uid to the gen-waterway uid now shows up as the ``uid``
+        # column holding ww_uid (not the central number).
+        assert "uid" in tbl_fmin.column_names and "value" in tbl_fmin.column_names
+        assert "uid" in tbl_fmax.column_names and "value" in tbl_fmax.column_names
 
-        # Original central-id column must NOT appear
-        central_col = f"uid:{_TRANSIT_CENTRAL_SER_HID['number']}"
-        assert central_col not in tbl_fmin.column_names
-        assert central_col not in tbl_fmax.column_names
+        fmin_uids = set(tbl_fmin.column("uid").to_pylist())
+        fmax_uids = set(tbl_fmax.column("uid").to_pylist())
+        assert ww_uid in fmin_uids, f"Expected ww_uid {ww_uid} in fmin, got {fmin_uids}"
+        assert ww_uid in fmax_uids, f"Expected ww_uid {ww_uid} in fmax, got {fmax_uids}"
+
+        # Original central-id must NOT appear as a uid value.
+        central_id = _TRANSIT_CENTRAL_SER_HID["number"]
+        assert central_id not in fmin_uids
+        assert central_id not in fmax_uids
 
 
 # ---------------------------------------------------------------------------

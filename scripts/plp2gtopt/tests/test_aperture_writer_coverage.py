@@ -364,18 +364,21 @@ class TestWriteApertureAfluents:
 
         tbl = pq.read_table(tmp_path / "Flow" / "CENTRAL1.parquet")
         names = tbl.schema.names
+        # Long layout: [stage, block, uid, value]
         assert "stage" in names
         assert "block" in names
-        assert "uid:3" in names, (
-            f"expected 'uid:3' (from hydro_uid_map={{2:3}}); got {names}"
+        assert "uid" in names and "value" in names, (
+            f"expected long layout with uid/value cols; got {names}"
         )
         assert tbl.num_rows == 2
 
         # block_parser items put block 1 and 2 both at stage 1 → stage col = [1,1]
         assert tbl.column("stage").to_pylist() == [1, 1]
         assert tbl.column("block").to_pylist() == [1, 2]
-        # extra hydro is index 2 (0-based) → flow_matrix[:,2] = [30.0, 60.0]
-        assert tbl.column("uid:3").to_pylist() == pytest.approx([30.0, 60.0])
+        # extra hydro is index 2 (0-based) → uid 3 (hydro_uid_map={2:3});
+        # flow_matrix[:,2] = [30.0, 60.0]
+        assert tbl.column("uid").to_pylist() == [3, 3]
+        assert tbl.column("value").to_pylist() == pytest.approx([30.0, 60.0])
 
 
 # ---------------------------------------------------------------------------

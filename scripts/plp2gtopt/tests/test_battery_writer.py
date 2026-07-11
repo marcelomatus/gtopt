@@ -515,19 +515,22 @@ def test_maintenance_parquet_battery(tmp_path):
     emin_path = tmp_path / "Battery" / "emin.parquet"
     assert emin_path.exists(), "Battery/emin.parquet not written"
     df_emin = pd.read_parquet(emin_path)
-    assert "uid:1" in df_emin.columns
+    # Long layout: [stage, uid, value]
+    assert "uid" in df_emin.columns and "value" in df_emin.columns
     assert len(df_emin) == 2
+    emin1 = df_emin[df_emin["uid"] == 1].reset_index(drop=True)
     # emin values are absolute (not normalized by capacity)
-    assert df_emin["uid:1"].iloc[0] == pytest.approx(0.0)
-    assert df_emin["uid:1"].iloc[1] == pytest.approx(10.0)
+    assert emin1["value"].iloc[0] == pytest.approx(0.0)
+    assert emin1["value"].iloc[1] == pytest.approx(10.0)
 
     emax_path = tmp_path / "Battery" / "emax.parquet"
     assert emax_path.exists(), "Battery/emax.parquet not written"
     df_emax = pd.read_parquet(emax_path)
-    assert "uid:1" in df_emax.columns
+    assert "uid" in df_emax.columns and "value" in df_emax.columns
+    emax1 = df_emax[df_emax["uid"] == 1].reset_index(drop=True)
     # emax values are absolute (not normalized by capacity)
-    assert df_emax["uid:1"].iloc[0] == pytest.approx(180.0)
-    assert df_emax["uid:1"].iloc[1] == pytest.approx(150.0)
+    assert emax1["value"].iloc[0] == pytest.approx(180.0)
+    assert emax1["value"].iloc[1] == pytest.approx(150.0)
 
 
 def test_maintenance_parquet_ess(tmp_path):
@@ -553,7 +556,9 @@ def test_maintenance_parquet_ess(tmp_path):
     pmax_path = tmp_path / "Generator" / "pmax.parquet"
     assert pmax_path.exists(), "Generator/pmax.parquet not written"
     df_pmax = pd.read_parquet(pmax_path)
-    assert "uid:0" in df_pmax.columns  # uid=0 because no central_parser
+    # Long layout: [block, uid, value]. uid=0 because no central_parser.
+    assert "uid" in df_pmax.columns and "value" in df_pmax.columns
+    assert 0 in set(df_pmax["uid"])
     assert len(df_pmax) == 2
 
     lmax_path = tmp_path / "Demand" / "lmax.parquet"

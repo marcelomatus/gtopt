@@ -332,18 +332,21 @@ def test_pmin_pmax_parquet_per_block_with_values(tmp_path):
     assert "stage" in df_pmin.columns
     assert "block" in df_pmax.columns
     assert "stage" in df_pmax.columns
+    # Long layout: [block, stage, uid, value] — one row per (block, uid).
+    assert "uid" in df_pmin.columns and "value" in df_pmin.columns
+    assert "uid" in df_pmax.columns and "value" in df_pmax.columns
     assert len(df_pmin) == 2
     assert len(df_pmax) == 2
 
-    data_cols = [c for c in df_pmin.columns if c.startswith("uid:")]
-    assert len(data_cols) == 1
+    # Exactly one distinct uid (the single GENUNIT central).
+    assert df_pmin["uid"].nunique() == 1
 
-    b1 = df_pmin[df_pmin["block"] == 1]
-    assert float(b1[data_cols[0]].iloc[0]) == pytest.approx(5.0)
-    b2 = df_pmin[df_pmin["block"] == 2]
-    assert float(b2[data_cols[0]].iloc[0]) == pytest.approx(5.0)
+    b1 = df_pmin[df_pmin["block"] == 1].reset_index(drop=True)
+    assert float(b1["value"].iloc[0]) == pytest.approx(5.0)
+    b2 = df_pmin[df_pmin["block"] == 2].reset_index(drop=True)
+    assert float(b2["value"].iloc[0]) == pytest.approx(5.0)
 
-    b1m = df_pmax[df_pmax["block"] == 1]
-    assert float(b1m[data_cols[0]].iloc[0]) == pytest.approx(80.0)
-    b2m = df_pmax[df_pmax["block"] == 2]
-    assert float(b2m[data_cols[0]].iloc[0]) == pytest.approx(80.0)
+    b1m = df_pmax[df_pmax["block"] == 1].reset_index(drop=True)
+    assert float(b1m["value"].iloc[0]) == pytest.approx(80.0)
+    b2m = df_pmax[df_pmax["block"] == 2].reset_index(drop=True)
+    assert float(b2m["value"].iloc[0]) == pytest.approx(80.0)

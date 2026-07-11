@@ -39,7 +39,7 @@ import pandas as pd
 
 from gtopt_shared.water_values import WaterValueResolver
 
-from .base_writer import BaseWriter
+from .base_writer import BaseWriter, to_wide_layout
 
 _logger = logging.getLogger(__name__)
 
@@ -435,6 +435,12 @@ class PminFlowRightWriter(BaseWriter):
                 fmin_parquet_path = cand
                 try:
                     fmin_df = pd.read_parquet(cand)
+                    # Writers now emit long ([block, stage, uid, value]);
+                    # this read-modify-write works on the wide shape
+                    # (``uid:N`` columns), so pivot back if needed.
+                    wide = to_wide_layout(fmin_df)
+                    if wide is not None:
+                        fmin_df = wide
                 except (OSError, ValueError) as exc:
                     _logger.warning(
                         "soft_min_flows (waterway): could not read %s (%s); "
@@ -542,7 +548,13 @@ class PminFlowRightWriter(BaseWriter):
                     if not payload_cols:
                         fmin_parquet_path.unlink()
                     else:
-                        survivors.to_parquet(fmin_parquet_path, index=False)
+                        # Re-emit in the case's on-disk layout (long by
+                        # default); ``survivors`` is still wide in memory.
+                        self.write_dataframe(
+                            survivors,
+                            fmin_parquet_path.parent,
+                            fmin_parquet_path.stem,
+                        )
                 except (OSError, ValueError) as exc:
                     _logger.warning(
                         "soft_min_flows (waterway): could not rewrite %s "
