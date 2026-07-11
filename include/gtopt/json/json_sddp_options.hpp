@@ -109,7 +109,8 @@ struct SddpOptionsConstructor
       std::optional<Array<int>> markov_states,
       std::optional<Array<double>> markov_transition,
       OptReal fact_eps,
-      OptInt fact_max_cycles) const
+      OptInt fact_max_cycles,
+      OptBool fcut_log) const
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
@@ -238,6 +239,7 @@ struct SddpOptionsConstructor
     opts.markov_transition = std::move(markov_transition);
     opts.fact_eps = fact_eps;
     opts.fact_max_cycles = fact_max_cycles;
+    opts.fcut_log = fcut_log;
     return opts;
   }
 };
@@ -321,7 +323,8 @@ struct json_data_contract<SddpOptions>
                       std::optional<Array<double>>,
                       json_number_no_name<double>>,
       json_number_null<"fact_eps", OptReal>,
-      json_number_null<"fact_max_cycles", OptInt>>;
+      json_number_null<"fact_max_cycles", OptInt>,
+      json_bool_null<"fcut_log", OptBool>>;
 
   static auto to_json_data(SddpOptions const& opt)
   {
@@ -393,7 +396,8 @@ struct json_data_contract<SddpOptions>
         opt.markov_states,
         opt.markov_transition,
         opt.fact_eps,
-        opt.fact_max_cycles);
+        opt.fact_max_cycles,
+        opt.fcut_log);
   }
 };
 

@@ -666,6 +666,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// per-scene `forward_max_attempts` total-solves cap.
   int fact_max_cycles {500};
 
+  /// Write the PLP-style feasibility-cut debug log `gtopt_fcut.log`
+  /// to `log_directory` (default: false) — gtopt's analogue of PLP's
+  /// `plpfact.log` (gated there by `FactDBL ≥ 1`).  One record per
+  /// forward-pass infeasibility event: the `INFEASIBLE` detection
+  /// line, the emitted cut coefficients + RHS (physical units), the
+  /// `INSTALLED` / `HOLGURAS` / `FAIL` outcome, and `ROLLBACK`
+  /// events from `forward_infeas_rollback`.  Works with every
+  /// `elastic_filter_mode`.  See `FcutLogWriter` (`fcut_log.hpp`) and
+  /// `docs/methods/sddp.md` §5.4.
+  bool fcut_log {false};
+
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.
   /// 0.0 = no filtering (default).

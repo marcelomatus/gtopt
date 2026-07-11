@@ -287,6 +287,15 @@ template<typename T>
        "the same (iter, scene, phase).  Also honoured as the env var "
        "GTOPT_DUMP_BACKWARD_LP.")
       //
+      ("fcut-log",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "write a PLP-style feasibility-cut debug log (gtopt_fcut.log in "
+       "log_directory — the plpfact.log analogue): one record per SDDP "
+       "forward-pass infeasibility event with the emitted cut coefficients, "
+       "RHS, INSTALLED/HOLGURAS/FAIL outcome, and ROLLBACK events; "
+       "shorthand for --set sddp_options.fcut_log=<bool> (default when "
+       "flag is given without value: true)")
+      //
       ("sddp-num-apertures",
        po::value<int>(),
        "SDDP backward-pass aperture count: 0=disabled (default), -1=all, "
@@ -948,6 +957,12 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         *opts.sddp_hot_start ? HotStartMode::replace : HotStartMode::none;
   }
 
+  // `--fcut-log` is a permanent CLI shorthand for
+  // `--set sddp_options.fcut_log=...` — no deprecation warning.
+  if (opts.fcut_log) {
+    planning.options.sddp_options.fcut_log = opts.fcut_log;
+  }
+
   // --recover gates whether recovery happens at all.
   // When not passed (or explicitly false), force recovery_mode to "none"
   // so JSON config alone cannot trigger recovery.
@@ -1216,6 +1231,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
         return get_opt<bool>(vm, "async-logger");
       }(),
       .lp_dump_backward = get_opt<std::string>(vm, "lp-dump-backward"),
+      .fcut_log = get_opt<bool>(vm, "fcut-log"),
       .cut_directory = get_opt<std::string>(vm, "cut-directory"),
       .log_directory = get_opt<std::string>(vm, "log-directory"),
       .sddp_max_iterations = get_opt<int>(vm, "sddp-max-iterations"),
@@ -1373,6 +1389,7 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
   opts.trace_log = get_str("trace-log");
   opts.async_logger = get_bool("async-logger");
   opts.lp_dump_backward = get_str("lp-dump-backward");
+  opts.fcut_log = get_bool("fcut-log");
 
   // SDDP directories
   opts.cut_directory = get_str("cut-directory");
@@ -1541,6 +1558,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.trace_log, defaults.trace_log);
   merge(opts.async_logger, defaults.async_logger);
   merge(opts.lp_dump_backward, defaults.lp_dump_backward);
+  merge(opts.fcut_log, defaults.fcut_log);
   merge(opts.cut_directory, defaults.cut_directory);
   merge(opts.log_directory, defaults.log_directory);
   merge(opts.sddp_max_iterations, defaults.sddp_max_iterations);

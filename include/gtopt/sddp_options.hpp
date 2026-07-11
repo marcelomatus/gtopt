@@ -165,6 +165,16 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    *         forward pass; exceeding it declares the scene infeasible
    *         for the iteration.  Ignored by every other mode. */
   OptInt fact_max_cycles {};
+  /** @brief Write the PLP-style feasibility-cut debug log
+   *         `gtopt_fcut.log` to the resolved `log_directory`
+   *         (default: false).  The gtopt analogue of PLP's
+   *         `plpfact.log` (FactDBL ≥ 1): one record per forward-pass
+   *         infeasibility event with the emitted cut coefficients,
+   *         RHS, and install / HOLGURAS / FAIL outcome, plus rollback
+   *         events — for cross-tool cut comparison and debugging.
+   *         Works with every `elastic_mode`.  CLI shorthand:
+   *         `--fcut-log`.  See `FcutLogWriter` in `fcut_log.hpp`. */
+  OptBool fcut_log {};
   /** @brief Forward-pass infeasibility count threshold for switching
    *         from single_cut to multi_cut.  Default:
    *         `PlanningOptionsLP::default_sddp_multi_cut_threshold`
@@ -854,7 +864,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 68;
+  static constexpr std::size_t json_field_count = 69;
 
   void merge(SddpOptions&& opts)
   {
@@ -880,6 +890,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(elastic_mode, opts.elastic_mode);
     merge_opt(fact_eps, opts.fact_eps);
     merge_opt(fact_max_cycles, opts.fact_max_cycles);
+    merge_opt(fcut_log, opts.fcut_log);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     merge_opt(apertures, std::move(opts.apertures));
     merge_opt(num_apertures, opts.num_apertures);

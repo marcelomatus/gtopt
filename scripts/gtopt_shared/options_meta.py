@@ -45,6 +45,7 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "elastic_mode",
         "fact_eps",
         "fact_max_cycles",
+        "fcut_log",
         "multi_cut_threshold",
         "apertures",
         "num_apertures",

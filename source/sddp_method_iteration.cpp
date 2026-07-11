@@ -1365,6 +1365,16 @@ auto SDDPMethod::run_forward_pass_all_scenes(
         }
         per_scene_breakdown +=
             std::format("s{}={}", uid_of(scene_index), deleted);
+        // fcut debug log — cut-persistence decision: this scene's
+        // accumulated cut rows were deleted (forward_infeas_rollback;
+        // state_repair / farkas_recursive fcuts are exempt, see
+        // `keep_fcuts` above).
+        if (m_fcut_log_.enabled()) {
+          m_fcut_log_.write(std::format("ROLLBACK iter={} scene={} rows={}",
+                                        gtopt::uid_of(iteration_index),
+                                        uid_of(scene_index),
+                                        deleted));
+        }
       }
       // Snapshot the cut count consumable by this scene's master at
       // failure time, so the next iter's restart trigger measures the

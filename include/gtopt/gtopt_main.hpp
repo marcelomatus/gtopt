@@ -151,6 +151,18 @@ struct MainOptions
    */
   std::optional<std::string> lp_dump_backward {};
 
+  /** @brief Write the PLP-style feasibility-cut debug log.
+   *
+   * Bound to the CLI flag `--fcut-log`; shorthand for
+   * `--set sddp_options.fcut_log=true`.  When enabled, the SDDP
+   * forward pass appends one record per infeasibility event
+   * (detection line, emitted cut coefficients + RHS in physical
+   * units, install / HOLGURAS / FAIL outcome, rollback events) to
+   * `gtopt_fcut.log` in the resolved log directory — the gtopt
+   * analogue of PLP's `plpfact.log` (FactDBL ≥ 1), for cross-tool
+   * cut comparison.  See `docs/methods/sddp.md` §5.4. */
+  std::optional<bool> fcut_log {};
+
   // ---- SDDP-specific directories ----
   /** @brief Directory for Benders cut files (default: "cuts") */
   std::optional<std::string> cut_directory {};

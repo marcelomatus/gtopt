@@ -637,6 +637,9 @@ TEST_CASE("SddpOptions JSON - full-population round-trip")  // NOLINT
   opts.backward_resolve_target = false;
   opts.backward_max_fallbacks = 8;
   opts.max_async_spread = 3;
+  opts.fact_eps = 0.0078125;
+  opts.fact_max_cycles = 42;
+  opts.fcut_log = true;
   {
     SolverOptions fso;
     fso.threads = 2;
@@ -712,6 +715,9 @@ TEST_CASE("SddpOptions JSON - full-population round-trip")  // NOLINT
   CHECK(rt.backward_resolve_target == opts.backward_resolve_target);
   CHECK(rt.backward_max_fallbacks == opts.backward_max_fallbacks);
   CHECK(rt.max_async_spread == opts.max_async_spread);
+  CHECK(rt.fact_eps == opts.fact_eps);
+  CHECK(rt.fact_max_cycles == opts.fact_max_cycles);
+  CHECK(rt.fcut_log == opts.fcut_log);
   CHECK((rt.forward_solver_options.has_value()
          && rt.forward_solver_options->threads == 2));
   CHECK((rt.backward_solver_options.has_value()
