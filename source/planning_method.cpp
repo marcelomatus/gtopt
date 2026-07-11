@@ -64,6 +64,7 @@ namespace
   sddp_opts.elastic_filter_mode = options.sddp_elastic_mode_enum();
   sddp_opts.fact_eps = options.sddp_fact_eps();
   sddp_opts.fact_max_cycles = options.sddp_fact_max_cycles();
+  sddp_opts.fcut_log = options.sddp_fcut_log();
   sddp_opts.cut_coeff_eps = options.sddp_cut_coeff_eps();
   sddp_opts.multi_cut_threshold = options.sddp_multi_cut_threshold();
   sddp_opts.apertures = options.sddp_apertures();

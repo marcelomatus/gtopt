@@ -70,6 +70,7 @@
 #include <gtopt/aperture_data_cache.hpp>
 #include <gtopt/enum_option.hpp>
 #include <gtopt/error.hpp>
+#include <gtopt/fcut_log.hpp>
 #include <gtopt/iteration_lp.hpp>
 #include <gtopt/label_maker.hpp>
 #include <gtopt/lp_debug_writer.hpp>
@@ -1291,6 +1292,13 @@ private:
   /// LP debug writer — active when lp_debug is enabled and log_directory is
   /// set.  Initialised at the start of solve() and drained at the end.
   LpDebugWriter m_lp_debug_writer_ {};
+
+  /// PLP-style feasibility-cut debug log (`gtopt_fcut.log`, the
+  /// `plpfact.log` analogue) — armed at the start of solve() when
+  /// `SDDPOptions::fcut_log` is set and `log_directory` is non-empty.
+  /// Mutex-serialised: the forward passes run scene-parallel and each
+  /// event record must land atomically.
+  FcutLogWriter m_fcut_log_ {};
 };
 
 // ─── SDDPPlanningMethod ─────────────────────────────────────────────────────

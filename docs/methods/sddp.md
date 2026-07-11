@@ -940,6 +940,7 @@ prefix, since the section name already provides the namespace).
 | `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), or `"farkas_recursive"` |
 | `fact_eps` | double | 1e-8 | PLP FactEPS tolerance (`state_repair` / `farkas_recursive` only) |
 | `fact_max_cycles` | int | 500 | PLP FactMXC per-phase solve-cycle cap (`state_repair` / `farkas_recursive` only) |
+| `fcut_log` | bool | false | Write the PLP-style feasibility-cut debug log `gtopt_fcut.log` to `log_directory` (`plpfact.log` analogue; every elastic mode). CLI: `--fcut-log` |
 | `multi_cut_threshold` | int | 3 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
 | `alpha_min` | double | 0.0 | Lower bound for future cost variable α |
 | `alpha_max` | double | 1e12 | Upper bound for future cost variable α |
@@ -1028,6 +1029,30 @@ non-reproducible when the backend changes.  This matches PLP itself
 (`osicallsc.cpp` reads `getRowPrice()` off the elastic LP, never the
 ray API).
 
+#### Feasibility-cut debug log (`fcut_log`)
+
+Setting `sddp_options.fcut_log = true` (CLI shorthand `--fcut-log`)
+writes a dedicated feasibility-cut debug file, `gtopt_fcut.log`, to
+the resolved `log_directory` (sibling of `gtopt_<N>.log`) — the gtopt
+analogue of PLP's `plpfact.log` (gated there by `FactDBL ≥ 1`), so
+cuts can be diffed across the two tools line-by-line.  Every mode in
+the taxonomy above is covered: each forward-pass infeasibility event
+appends an `INFEASIBLE iter=… scene=… phase=… cycle=… status=…`
+detection line, then one atomic record with a `mode:` header
+(`aggregated` / `multi_cut` / `state_repair` / `farkas_recursive`),
+one `cut: <Class>:<uid>[:<name>] <var> col=<c> coef=<v>` line per
+coefficient of every emitted row (physical units, printed `{:.17g}` —
+mirroring PLP's `cf:` lines), a `rhs: <sense> <v>` line per row
+(PLP's `rhsi:`), and the `INSTALLED … dest=<p−1> rows=<n>`
+confirmation naming the destination phase.  The no-cut outcomes land
+as `HOLGURAS …` (PLP `IStat = −1`) and `FAIL … reason=…` lines, and
+`forward_infeas_rollback` deletions as `ROLLBACK iter=… scene=…
+rows=…`.  Records are mutex-serialised and flushed per event, so the
+file is safe to `tail -f` under the scene-parallel forward pass and
+survives a killed run; the file is opened in append mode so cascade
+levels extend it rather than truncate.  See `FcutLogWriter` in
+`include/gtopt/fcut_log.hpp`.
+
 #### Mode 1: `"single_cut"` (default, alias `"cut"`)
 
 This is the standard Nested Benders Decomposition approach.  When the
@@ -1087,7 +1112,10 @@ Optimization*, 2008, §3.5; PLP `osi_lp_get_feasible_cut`.
 Exact reproduction of PLP's feasibility-cut formulation
 (`plp-agrespd.f::AgrElastici` + `osicallsc.cpp::
 osi_lp_get_feasible_cut`, default `FOneFeasRay=FALSE`).  The elastic
-Phase-1 clone prices the slack pair at **unit** cost tilted by
+Phase-1 clone prices the slack pair at **unit-per-physical-unit** cost
+(`(1 ± tilt) × col_scale(dep)` — PLP's LP is unscaled, so its flat
+unit costs are physical prices; the `col_scale` fold keeps parity
+under gtopt's auto `scale_reservoir`) tilted by
 `0.01 × rc(source col, previous basis)` toward the cheapest reservoir,
 with slack caps equal to the previous phase's state box — the repaired
 state is therefore bound-consistent BY CONSTRUCTION.  One
@@ -1119,14 +1147,15 @@ verbatim (pinned by `test_plp_feasibility_cuts.cpp`).
 
 The published SDDP-correct RECURSIVE feasibility cut (Füllner &
 Rebennack, *SIAM Review* 2023, §17.2–17.3).  Two pieces on top of the
-standard elastic clone (flat unit slack costs, `eᵀy⁺ + eᵀy⁻`, no rc
-tilt):
+standard elastic clone (flat unit slack costs per PHYSICAL unit —
+`eᵀy⁺ + eᵀy⁻` with the `col_scale(dep)` fold, no rc tilt):
 
 1. **`+ I z` relaxation of installed cuts (§17.2):** every
    feasibility-cut row already installed in the stage LP (any family:
    `fcut` / `mcut` / `plpcut` / `frcut`, enumerated from the cut
    store) receives a slack `z_r ≥ 0` with coefficient +1
-   (`a_rᵀx + z_r ≥ b_r`) and unit cost.  The clone can therefore
+   (`a_rᵀx + z_r ≥ b_r`) and cost = `row_scale(r)` (one raw z unit =
+   `row_scale` physical units of violation).  The clone can therefore
    ALWAYS relax a poisoned cut — the empirically-photographed kill
    chain (2-year case, i1 s10/s12/s13/s17 p51/p52: the fallback fcut
    `sddp_fcut_51_12_52_1_1` sat HARD in the clone with 0 slacks →
@@ -1139,12 +1168,22 @@ tilt):
    Σ_i σ_i·x_i ≥ Σ_i σ_i·v̂_i + V,    σ_i = −dual(fixing_row_i)
    ```
 
-   where `V` is the clone optimum (the minimum total violation).  By
-   strong duality `V = σᵀh_t + ωᵀb + (box folds)`, so the intercept
+   where `V` is the clone optimum (the minimum total PHYSICAL
+   violation) **minus the LP's objective constant** — the
+   Phase-1 reset zeroes both the column costs and the solver-native
+   objective offset (demand-fail Option-A baseline, boundary c̄),
+   which is NOT part of the feasibility gap.  (Pre-2026-07-11 the
+   offset leaked into `V`, inflating every intercept by ~1.7e8/phase
+   on the 2-yr case and compounding through the z-fold into a 6.2e9
+   RHS at p1 — the p52→p0 cascade.)  By strong duality
+   `V = σᵀh_t + ωᵀb + (box folds)`, so the intercept
    folds the relaxed downstream cut intercepts `ω_r·b_r` exactly —
    eq. (17.3)'s `α^f` term — without ever calling a solver ray API.
    The emitted cut is a valid subgradient cut even at degenerate
-   vertices.  If the previous phase cannot satisfy it, the recursion
+   vertices; the `fact_eps` outward margin is clamped at the box-top
+   LHS whenever the unmargined intercept was box-satisfiable, so the
+   margin alone can never make the master presolve-infeasible.  If
+   the previous phase genuinely cannot satisfy it, the recursion
    continues: the new `frcut` row is itself elasticized at the next
    event one phase upstream.
 

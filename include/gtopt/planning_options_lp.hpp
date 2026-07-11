@@ -1598,6 +1598,17 @@ public:
   }
 
   /**
+   * @brief Gets the PLP-style feasibility-cut debug log flag
+   *        (`gtopt_fcut.log` in `log_directory` — the `plpfact.log`
+   *        analogue; CLI shorthand `--fcut-log`)
+   * @return Whether the fcut debug log is written (default: false)
+   */
+  [[nodiscard]] constexpr auto sddp_fcut_log() const -> bool
+  {
+    return m_options_.sddp_options.fcut_log.value_or(false);
+  }
+
+  /**
    * @brief Gets the cut coefficient tolerance for filtering tiny coefficients
    * @return Absolute tolerance (default: 0.0 = no filtering)
    */

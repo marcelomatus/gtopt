@@ -268,6 +268,11 @@ auto SDDPMethod::solve(const SolverOptions& lp_opts)
   m_benders_cut_.set_pool(m_aux_pool_);
   m_lp_debug_writer_ = LpDebugWriter(
       m_options_.log_directory, m_options_.lp_debug_compression, m_aux_pool_);
+  // PLP-style fcut debug log (`gtopt_fcut.log`, plpfact.log analogue).
+  // Armed here — before any pool task runs — so `enabled()` is a const
+  // read for the scene-parallel forward passes.  Opens lazily in append
+  // mode on the first record.
+  m_fcut_log_.configure(m_options_.fcut_log, m_options_.log_directory);
   const auto pool_create_s = std::chrono::duration<double>(
                                  std::chrono::steady_clock::now() - pool_start)
                                  .count();
@@ -2191,7 +2196,7 @@ auto SDDPMethod::solve_async(SDDPWorkPool& pool,
             .scene_iterations = tracker.scene_iterations(),
             .scene_states = std::move(scene_state_labels),
             .converged_scenes = tracker.num_converged(),
-            .spread = (min_ci >= m_iteration_offset_) ? (max_ci - min_ci) : 0,
+            .spread = (min_ci >= m_iteration_offset_) ? max_ci - min_ci : 0,
             .max_async_spread = max_spread,
             .pool_tasks_pending = static_cast<int>(pool_stats.tasks_pending),
             .pool_tasks_active = static_cast<int>(pool_stats.tasks_active),

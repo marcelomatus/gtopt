@@ -19,6 +19,7 @@
 
 #include <gtopt/as_label.hpp>
 #include <gtopt/benders_cut.hpp>
+#include <gtopt/fcut_log.hpp>
 #include <gtopt/future_cost_lp.hpp>
 #include <gtopt/iteration.hpp>
 #include <gtopt/lp_context.hpp>
@@ -510,6 +511,19 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           uid_of(phase_index),
           solve_status);
 
+      // fcut debug log — PLP plpfact.log parity ("Problema Infactible
+      // Ciclo=…, Etapa=…, Simul=…"): the detection record, with the
+      // scene-wide solve-attempt counter as the cycle.
+      if (m_fcut_log_.enabled()) {
+        m_fcut_log_.write(std::format(
+            "INFEASIBLE iter={} scene={} phase={} cycle={} status={}",
+            gtopt::uid_of(iteration_index),
+            uid_of(scene_index),
+            uid_of(phase_index),
+            attempts,
+            solve_status));
+      }
+
       // Optional pre-elastic LP dump — gated on `lp_debug` + the user's
       // `lp_debug_{scene,phase}_{min,max}` window (same convention as
       // aperture_pass.cpp:412-421) so it does NOT fire on every
@@ -610,6 +624,30 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           const auto infeas_count =
               m_infeasibility_counter_[scene_index][phase_index];
 
+          // fcut debug log — one atomic record per cut-emission event
+          // (PLP "Comienzan Cortes" + `cf:`/`rhsi:` + "Se agrego corte"
+          // block): the mode header, one `cut:` line per coefficient,
+          // the `rhs:` line per row (physical units — the emitted rows
+          // are physical-space), and the INSTALLED confirmation naming
+          // the destination phase.  Written as one string so the
+          // scene-parallel forward passes cannot interleave records.
+          const auto fcut_log_record =
+              [&](std::string_view mode, std::span<const SparseRow> cuts)
+          {
+            if (!m_fcut_log_.enabled()) {
+              return;
+            }
+            const auto key = std::format("iter={} scene={} phase={} dest={}",
+                                         gtopt::uid_of(iteration_index),
+                                         uid_of(scene_index),
+                                         uid_of(phase_index),
+                                         uid_of(prev_phase_index));
+            std::string rec = std::format("mode: {} {}\n", mode, key);
+            rec += format_fcut_cut_lines(prev_state.outgoing_links, cuts);
+            rec += std::format("INSTALLED {} rows={}", key, cuts.size());
+            m_fcut_log_.write(rec);
+          };
+
           // D11 — PLP convention: aggregated π-weighted feasibility cut
           // AND per-reservoir Farkas-ray multi-cuts are **mutually
           // exclusive**.  The PLP `FOneFeasRay` boolean in
@@ -681,6 +719,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                       feas_cut,
                       CutType::Feasibility,
                       cut_row);
+            fcut_log_record("aggregated", std::span(&feas_cut, 1));
           }
 
           // state_repair (alias plp): per-link single-variable cuts
@@ -736,6 +775,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                 ++cut_row;
                 ++mc_added;
               }
+              fcut_log_record(enum_name(elastic_mode), plp_cuts.cuts);
             } else {
               // HOLGURAS (PLP IStat = −1): the elastic clone solved
               // to optimality but every ray/σ fell below the FactEPS
@@ -757,6 +797,16 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   m_options_.fact_eps,
                   uid_of(scene_index),
                   iteration_index);
+              if (m_fcut_log_.enabled()) {
+                m_fcut_log_.write(
+                    std::format("HOLGURAS iter={} scene={} phase={} mode={} "
+                                "fact_eps={:.1e}",
+                                gtopt::uid_of(iteration_index),
+                                uid_of(scene_index),
+                                uid_of(phase_index),
+                                enum_name(elastic_mode),
+                                m_options_.fact_eps));
+              }
               return std::unexpected(Error {
                   .code = ErrorCode::SolverError,
                   .message =
@@ -807,6 +857,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                 ++cut_row;
                 ++mc_added;
               }
+              fcut_log_record("multi_cut", mc_cuts);
             }
 
             // P0-B fallback (2026-04-23): if `build_multi_cuts`
@@ -858,6 +909,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                         CutType::Feasibility,
                         cut_row);
               ++mc_added;
+              fcut_log_record("aggregated", std::span(&feas_cut, 1));
             }
           }
 
@@ -1036,6 +1088,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                   wr.error().message);
             }
           }
+        }
+
+        // fcut debug log — the no-cut outcome (PLP's failure branch:
+        // no state cut exists, the scene is declared infeasible).
+        if (m_fcut_log_.enabled()) {
+          m_fcut_log_.write(std::format(
+              "FAIL iter={} scene={} phase={} status={} reason={}",
+              gtopt::uid_of(iteration_index),
+              uid_of(scene_index),
+              uid_of(phase_index),
+              solve_status,
+              !phase_index ? "no-predecessor" : "relaxed-clone-infeasible"));
         }
 
         spdlog::warn(
