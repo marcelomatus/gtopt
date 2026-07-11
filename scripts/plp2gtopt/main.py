@@ -390,15 +390,16 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
         args.pasada_mode = "flow-turbine"
         applied.append("pasada_mode=flow-turbine")
 
-    # PLP itself uses soft volume bounds (per-stage rebalse-cost slack on
-    # vmin / vfin), so --plp-legacy ensures `soft_storage_bounds` is on.
+    # PLP's EmbVMin / EmbVFin are HARD bounds (leemanem.f / volfinem.f,
+    # verified against the PLP-written last-stage LP), so --plp-legacy keeps
+    # `soft_storage_bounds` OFF — hard ``vol_end >= efin`` / ``vol >= emin``.
     explicit_ssb = {
         "--soft-storage-bounds",
         "--no-soft-storage-bounds",
     } & explicit_flags
-    if not explicit_ssb and not args.soft_storage_bounds:
-        args.soft_storage_bounds = True
-        applied.append("soft_storage_bounds=true")
+    if not explicit_ssb and args.soft_storage_bounds:
+        args.soft_storage_bounds = False
+        applied.append("soft_storage_bounds=false")
 
     if applied:
         logging.info("--plp-legacy: applying %s", ", ".join(applied))

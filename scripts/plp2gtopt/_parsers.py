@@ -901,23 +901,23 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
         default=float(conf.get("state_fail_cost", "1000.0")),
         help="penalty for state variable deviations in $/MWh (default: %(default)s)",
     )
-    # PLP-faithful soft volume bounds: when enabled (the default), each
-    # reservoir's hard ``efin >=`` row becomes soft via the C++
-    # ``Reservoir.efin_cost`` slack, AND the reservoir-maintenance per-stage
-    # emin is routed through the soft_emin / soft_emin_cost slack mechanism
-    # instead of a hard variable bound.  The slack costs are inherited from
-    # plpvrebemb.dat (per-reservoir Costo de Rebalse) when the reservoir is
-    # in vrebemb, falling back to plpmat.dat ``CVert`` (global), then a
-    # hard 1000 $/hm³ default.  Disable with ``--no-soft-storage-bounds``
-    # for the legacy hard-constraint behaviour.  ``--plp-legacy`` also
-    # enables this flag (PLP itself uses these as soft).
+    # Hard volume bounds by default (PLP-faithful): PLP's ``EmbVMin`` /
+    # ``EmbVFin`` (leemanem.f / volfinem.f) are HARD lower bounds — verified
+    # empirically against the PLP-written last-stage LP — so plp2gtopt keeps
+    # ``efin`` (and the per-stage maintenance ``emin`` schedule) as hard
+    # variable bounds.  Opt into the soft behaviour with
+    # ``--soft-storage-bounds``: the hard ``efin >=`` row becomes soft via
+    # the C++ ``Reservoir.efin_cost`` slack and the maintenance emin is
+    # routed through the ``soft_emin`` / ``soft_emin_cost`` mechanism, with
+    # slack costs from plpvrebemb.dat (Costo de Rebalse), then plpmat.dat
+    # ``CVert``, then a 1000 $/hm³ fallback.
     _default_ssb = conf.get("soft_storage_bounds")
     add_soft_storage_bounds_argument(
         parser,
         default=(
             _default_ssb.lower() not in ("false", "0", "no")
             if _default_ssb is not None
-            else True
+            else False
         ),
     )
     # Cap on the per-reservoir spillage cost (``Costo de Rebalse`` from
