@@ -2201,9 +2201,7 @@ class JunctionWriter(BaseWriter):
         # default (see ``--soft-storage-bounds`` / ``--no-soft-storage-bounds``
         # in ``_parsers.py``).  Callers opt INTO the soft slack by setting
         # ``soft_storage_bounds=True``.
-        if self.options is None or not self.options.get(
-            "soft_storage_bounds", False
-        ):
+        if self.options is None or not self.options.get("soft_storage_bounds", False):
             return
 
         # Resolve the per-reservoir slack price.  When the auto helper
