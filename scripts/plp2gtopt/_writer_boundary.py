@@ -201,8 +201,17 @@ class BoundaryMixin:
         # purpose is to replicate PLP as closely as possible, and PLP
         # governs CFUE reservoirs by the FCF cuts (not a soft slack).
         # ``--no-cuts-govern-terminal`` restores the legacy behaviour.
-        if options.get("cuts_govern_terminal", True) and bc_mode == "combined":
-            self._apply_cuts_govern_terminal()
+        if options.get("cuts_govern_terminal", True):
+            if bc_mode == "combined":
+                self._apply_cuts_govern_terminal()
+            # PLP's LeeManEmb (leemanem.f) overwrites the last-stage
+            # EmbVMin from plpmanem.dat AFTER volfinem installs the vfin
+            # pin, so a reservoir with a last-stage maintenance entry
+            # loses its hard vol_end>=EmbVFin bound (its terminal floor is
+            # the maintenance emin instead).  Drop efin for those.  This is
+            # independent of the FCF-cut governance (LeeManEmb runs last),
+            # so it applies regardless of the boundary-cut loading mode.
+            self._drop_efin_for_last_stage_maintenance()
 
         # ── Hot-start cuts retired (2026-05) ───────────────────────────────
         # The "hot-start planos" CSV writer was removed; those cuts are
@@ -258,6 +267,66 @@ class BoundaryMixin:
                 govern,
                 pinned,
             )
+
+    def _drop_efin_for_last_stage_maintenance(self) -> int:
+        """Drop ``efin`` from reservoirs whose plpmanem.dat profile covers
+        the last stage — PLP's ``LeeManEmb`` overwrites the vfin bound.
+
+        PLP fixes the terminal reservoir floor in three ordered steps
+        (``plp-main.F``): ``LeeCnfCen`` sets ``EmbVMin = VolMin`` for every
+        stage; ``VolFinEmb`` (``volfinem.f:23``) overwrites the LAST stage
+        with ``EmbVFin`` for the non-CFUE reservoirs (the hard vfin pin);
+        then ``LeeManEmb`` (``leemanem.f:152``, a plain assignment)
+        overwrites ``EmbVMin`` per-stage from ``plpmanem.dat`` — INCLUDING
+        the last stage — for every reservoir that carries a maintenance
+        profile.  So a reservoir listed in ``plpmanem.dat`` with an entry
+        at the last stage LOSES its ``vol_end >= EmbVFin`` pin; its terminal
+        floor becomes the maintenance ``emin`` (already emitted per-stage
+        into ``Reservoir/emin.parquet`` by :class:`ManemWriter`).  Keeping
+        ``efin`` would over-constrain it.
+
+        Empirically verified 2026-07-09 against the PLP-written last-stage
+        LP (``PLP_SCALEVDI_MODE=no``): PEHUENCHE (CFUE=F, NO maintenance)
+        keeps VFin (121615.93 = plpcnfce Final ×1e5); PANGUE (CFUE=F, HAS
+        maintenance) reverts to the maintenance VolMin (57583.4 = plpmanem
+        stage-52 VolMin ×1e5), NOT its EmbVFin (67868).
+
+        Applies regardless of ``EmbCFUE`` (LeeManEmb runs after both
+        volfinem and the cut machinery); CFUE reservoirs already had
+        ``efin`` dropped by :meth:`_apply_cuts_govern_terminal`, so this is
+        idempotent for them and only adds the non-CFUE + maintenance case.
+        """
+        manems = self.parser.parsed_data.get("manem_parser")
+        stages = self.parser.parsed_data.get("stage_parser")
+        if manems is None or stages is None:
+            return 0
+        last_stage = int(getattr(stages, "num_stages", 0))  # PLP 1-based
+        if last_stage <= 0:
+            return 0
+        dropped = 0
+        for r in self.planning["system"].get("reservoir_array", []):
+            if "efin" not in r:
+                continue
+            entry = manems.get_manem_by_name(str(r.get("name", "")))
+            if entry is None:
+                continue
+            stage_arr = entry.get("stage")
+            if stage_arr is None:
+                continue
+            # LeeManEmb only overwrites the stages the profile lists; the
+            # vfin is wiped only when the LAST stage is among them.
+            if last_stage in {int(s) for s in stage_arr}:
+                r.pop("efin", None)
+                r.pop("efin_cost", None)
+                dropped += 1
+        if dropped:
+            _logger.info(
+                "cuts_govern_terminal: %d reservoir(s) with a last-stage "
+                "plpmanem.dat maintenance override had efin dropped — PLP "
+                "LeeManEmb overwrites EmbVFin at the last stage.",
+                dropped,
+            )
+        return dropped
 
     @staticmethod
     def _warn_if_unequal_probabilities(scenario_array: list) -> None:

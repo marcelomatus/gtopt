@@ -562,6 +562,58 @@ class TestProcessBoundaryCuts:
         assert res["PEHUENCHE"]["efin"] == 133.0
         assert "efin_cost" not in res["PEHUENCHE"]
 
+    def test_cuts_govern_terminal_maintenance_override_drops_efin(self, tmp_path):
+        """A CFUE=F reservoir with a plpmanem.dat entry covering the LAST
+        stage loses its efin — PLP's ``LeeManEmb`` (leemanem.f) overwrites
+        ``EmbVFin`` at the last stage, so the maintenance emin governs the
+        terminal.  A CFUE=F reservoir without maintenance keeps its vfin."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [{"stage": 1, "rhs": 100, "scene": 1}]
+        central = MagicMock()
+        central.centrals = [
+            {"name": "PEHUENCHE", "cfue": False},
+            {"name": "PANGUE", "cfue": False},
+        ]
+        # PANGUE's maintenance profile covers the last stage (52);
+        # PEHUENCHE has no plpmanem entry at all.
+        manem = MagicMock()
+        manem.get_manem_by_name = lambda name: (
+            {"name": "PANGUE", "stage": [1, 2, 52]} if name == "PANGUE" else None
+        )
+        stages = MagicMock()
+        stages.num_stages = 52
+        parser = MagicMock()
+        parser.parsed_data = {
+            "planos_parser": mock_planos,
+            "central_parser": central,
+            "manem_parser": manem,
+            "stage_parser": stages,
+        }
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {
+                "reservoir_array": [
+                    {"name": "PEHUENCHE", "efin": 121.6, "efin_cost": 1584.0},
+                    {"name": "PANGUE", "efin": 67.9, "efin_cost": 536.8},
+                ]
+            },
+            "simulation": {"scenario_array": [{"uid": 1}]},
+        }
+        # CFUE=F reservoirs carry no cut coefficients (leeplaem only reads
+        # them for CFUE=T), so they are absent from the cut water values.
+        writer._build_cut_water_values = lambda: {}
+        opts = _make_opts(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        writer.process_boundary_cuts(opts)
+        res = {r["name"]: r for r in writer.planning["system"]["reservoir_array"]}
+        # No maintenance → hard vol_end>=EmbVFin survives.
+        assert res["PEHUENCHE"]["efin"] == 121.6
+        # Last-stage maintenance override → efin dropped (maintenance emin
+        # governs, matching PLP LeeManEmb).
+        assert "efin" not in res["PANGUE"]
+        assert "efin_cost" not in res["PANGUE"]
+
     def test_cuts_govern_terminal_disabled_keeps_efin(self, tmp_path):
         """--no-cuts-govern-terminal (False) restores the legacy soft
         slack: cut-covered reservoirs keep efin/efin_cost."""
