@@ -26,6 +26,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from gtopt_shared.csv_io import write_csv
+from gtopt_shared.dataframe import to_long_layout
 
 from .base_writer import _DEFAULT_COMPRESSION, _probe_parquet_codec
 
@@ -675,6 +676,15 @@ def write_aperture_afluents(
             arrays[f"uid:{scen_uid}"] = pa.array(values, type=pa.float64())
 
         table = pa.table(arrays)
+        # Emit the tidy long layout gtopt's reader expects (default),
+        # matching BaseWriter.write_dataframe.  ``layout: "wide"`` / excel
+        # keep the wide intermediate for tooling.
+        if (options or {}).get("layout", "long") == "long" and not (options or {}).get(
+            "excel_output", False
+        ):
+            long_df = to_long_layout(table.to_pandas())
+            if long_df is not None:
+                table = pa.Table.from_pandas(long_df, preserve_index=False)
         fmt = (options or {}).get("output_format", "parquet")
         if fmt == "csv":
             out_path = flow_dir / f"{central_name}.csv"

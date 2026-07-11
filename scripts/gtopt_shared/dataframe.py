@@ -89,3 +89,30 @@ def to_long_layout(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     for col in id_vars:
         long_df[col] = long_df[col].astype(np.int32)
     return long_df[[*id_vars, "uid", "value"]]
+
+
+def to_wide_layout(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """Pivot a long field table ``[<index cols>, uid, value]`` back into
+    wide ``[<index cols>, uid:N, …]`` form — the inverse of
+    :func:`to_long_layout`.
+
+    Returns ``None`` when *df* is not a recognisable long field table (no
+    ``uid`` / ``value`` pair, or no ``scenario`` / ``stage`` / ``block``
+    index column), so callers can pass the result straight through when it
+    is already wide / structural.  Intended for the few in-pipeline
+    read-modify-write consumers that still operate on the wide shape after
+    the writers switched to emitting long natively.
+    """
+    if df is None or df.empty:
+        return None
+    if "uid" not in df.columns or "value" not in df.columns:
+        return None
+    id_vars = [c for c in df.columns if c in INDEX_COLS]
+    if not id_vars:
+        return None
+    wide = df.pivot_table(
+        index=id_vars, columns="uid", values="value", aggfunc="first"
+    ).reset_index()
+    wide.columns = [c if c in id_vars else f"uid:{int(c)}" for c in wide.columns]
+    wide.columns.name = None
+    return wide

@@ -1310,9 +1310,12 @@ class TestWriteFcostParquet:
         parquet_path = tmp_path / "Demand" / "fcost.parquet"
         assert parquet_path.exists()
         df = pd.read_parquet(parquet_path)
+        # Long layout: [stage, uid, value].
         assert "stage" in df.columns
-        assert "uid:1" in df.columns
-        assert list(df["uid:1"]) == [400.0, 450.0, 500.0]
+        assert "uid" in df.columns and "value" in df.columns
+        assert 1 in set(df["uid"])
+        u1 = df[df["uid"] == 1].reset_index(drop=True)
+        assert list(u1["value"]) == [400.0, 450.0, 500.0]
 
     def test_constant_schedule_stays_scalar(self, tmp_path):
         """Falla whose schedule equals base gcost → no file, stays scalar."""
@@ -1357,8 +1360,11 @@ class TestWriteFcostParquet:
 
         assert 1 in filed
         df = pd.read_parquet(tmp_path / "Demand" / "fcost.parquet")
+        # Long layout: filter to uid==1, read value column.
+        assert 1 in set(df["uid"])
+        u1 = df[df["uid"] == 1].reset_index(drop=True)
         # min(300,500)=300, min(600,400)=400, min(500,450)=450
-        assert list(df["uid:1"]) == [300.0, 400.0, 450.0]
+        assert list(u1["value"]) == [300.0, 400.0, 450.0]
 
     def test_falla_without_schedule_uses_constant(self, tmp_path):
         """Falla with no cost schedule contributes its constant gcost."""
@@ -1383,8 +1389,11 @@ class TestWriteFcostParquet:
 
         assert 1 in filed
         df = pd.read_parquet(tmp_path / "Demand" / "fcost.parquet")
+        # Long layout: filter to uid==1, read value column.
+        assert 1 in set(df["uid"])
+        u1 = df[df["uid"] == 1].reset_index(drop=True)
         # min(300,200)=200, min(300,600)=300, min(300,500)=300
-        assert list(df["uid:1"]) == [200.0, 300.0, 300.0]
+        assert list(u1["value"]) == [200.0, 300.0, 300.0]
 
     def test_no_cost_parser_returns_empty(self, tmp_path):
         """No cost_parser → no file written."""

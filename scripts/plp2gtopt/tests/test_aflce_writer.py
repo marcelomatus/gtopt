@@ -373,13 +373,14 @@ def test_discharge_parquet_schema_and_values(tmp_path):
     assert "scenario" in df.columns
     assert "block" in df.columns
     assert "stage" in df.columns
-    assert len(df) == 2  # 2 blocks x 1 scenario
+    # Long layout: [scenario, stage, block, uid, value] (one row per cell)
+    assert "uid" in df.columns and "value" in df.columns
+    assert len(df) == 2  # 2 blocks x 1 scenario x 1 uid
 
-    # Find the only data column (uid:5 from pcol_name("FLOWGEN", 5))
-    data_cols = [c for c in df.columns if c.startswith("uid:")]
-    assert len(data_cols) == 1
+    # Single reservoir uid:5 from pcol_name("FLOWGEN", 5)
+    assert set(df["uid"].unique()) == {5}
 
     row = df[(df["scenario"] == 1) & (df["block"] == 1)]
-    assert float(row[data_cols[0]].iloc[0]) == pytest.approx(15.0)
+    assert float(row["value"].iloc[0]) == pytest.approx(15.0)
     row2 = df[(df["scenario"] == 1) & (df["block"] == 2)]
-    assert float(row2[data_cols[0]].iloc[0]) == pytest.approx(15.0)
+    assert float(row2["value"].iloc[0]) == pytest.approx(15.0)

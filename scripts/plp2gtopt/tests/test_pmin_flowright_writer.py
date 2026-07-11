@@ -483,9 +483,12 @@ def test_waterway_fmin_scalar_emits_flow_right(tmp_path: Path) -> None:
     parquet_file = tmp_path / "FlowRight" / f"{fr['name']}.parquet"
     assert parquet_file.is_file()
     table = pq.read_table(parquet_file)
-    uid_col = f"uid:{_WATERWAY_FLOW_RIGHT_UID_START}"
-    assert uid_col in table.column_names
-    flows = table.column(uid_col).to_pylist()
+    # Long layout: columns [block, stage, uid, value]; the FlowRight uid
+    # lands in the ``uid`` column and its trajectory in ``value``.
+    assert "uid" in table.column_names and "value" in table.column_names
+    uids = table.column("uid").to_pylist()
+    assert set(uids) == {_WATERWAY_FLOW_RIGHT_UID_START}
+    flows = table.column("value").to_pylist()
     # Scalar broadcast across all blocks
     assert flows == [17.5, 17.5]
 

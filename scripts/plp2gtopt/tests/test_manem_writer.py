@@ -277,17 +277,18 @@ def test_emin_parquet_is_per_stage_only(tmp_path):
     assert len(df_emin) == 2
     assert len(df_emax) == 2
 
+    # Long layout: [stage, uid, value] — one row per (stage, uid).
+    assert "uid" in df_emin.columns and "value" in df_emin.columns
+    assert "uid" in df_emax.columns and "value" in df_emax.columns
     # Spot-check values against the fixture above:
     # stage 1: emin=0.30, emax=1.50 ; stage 2: emin=0.35, emax=1.45
-    data_cols_emin = [c for c in df_emin.columns if c.startswith("uid:")]
-    data_cols_emax = [c for c in df_emax.columns if c.startswith("uid:")]
-    assert len(data_cols_emin) == 1
-    assert len(data_cols_emax) == 1
+    assert df_emin["uid"].nunique() == 1
+    assert df_emax["uid"].nunique() == 1
 
-    s1_emin = df_emin[df_emin["stage"] == 1][data_cols_emin[0]].iloc[0]
-    s2_emin = df_emin[df_emin["stage"] == 2][data_cols_emin[0]].iloc[0]
-    s1_emax = df_emax[df_emax["stage"] == 1][data_cols_emax[0]].iloc[0]
-    s2_emax = df_emax[df_emax["stage"] == 2][data_cols_emax[0]].iloc[0]
+    s1_emin = df_emin[df_emin["stage"] == 1].reset_index(drop=True)["value"].iloc[0]
+    s2_emin = df_emin[df_emin["stage"] == 2].reset_index(drop=True)["value"].iloc[0]
+    s1_emax = df_emax[df_emax["stage"] == 1].reset_index(drop=True)["value"].iloc[0]
+    s2_emax = df_emax[df_emax["stage"] == 2].reset_index(drop=True)["value"].iloc[0]
     assert float(s1_emin) == pytest.approx(0.30)
     assert float(s2_emin) == pytest.approx(0.35)
     assert float(s1_emax) == pytest.approx(1.50)

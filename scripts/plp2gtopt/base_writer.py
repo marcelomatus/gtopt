@@ -274,6 +274,7 @@ class BaseWriter(ABC):
             write_dataframe as _shared_write_dataframe,
         )
 
+        df = self._as_output_layout(df, options)
         kw = self.get_compression_kwargs(options)
         return _shared_write_dataframe(
             df,
@@ -283,6 +284,25 @@ class BaseWriter(ABC):
             compression=kw.get("compression"),
             compression_level=kw.get("compression_level"),
         )
+
+    def _as_output_layout(
+        self, df: pd.DataFrame, options: Optional[Dict[str, Any]] = None
+    ) -> pd.DataFrame:
+        """Reshape *df* to the case's on-disk field layout (default long).
+
+        gtopt's input reader is long-only, so every field table is emitted
+        as tidy ``[<index cols>, uid, value]`` unless the case explicitly
+        requested ``layout: "wide"`` or Excel output (both keep the wide
+        intermediate for tooling).  Structural tables (block/stage maps,
+        anything without ``uid:N`` value columns) are returned unchanged —
+        ``to_long_layout`` yields ``None`` for them.
+        """
+        opts = options if options is not None else self.options
+        opts = opts or {}
+        if opts.get("layout", "long") != "long" or opts.get("excel_output", False):
+            return df
+        long_df = to_long_layout(df)
+        return long_df if long_df is not None else df
 
     def pcol_name(
         self,
@@ -340,24 +360,34 @@ class BaseWriter(ABC):
 
 # ── Wide ⇄ long layout helpers ───────────────────────────────────────────
 #
-# gtopt's input reader auto-detects layout (a bare `uid` + `value` column ⇒
-# long) and pivots long → wide at load, so plp2gtopt can emit either shape.
-# `long` is the default because it is the tidy form Power BI / Power Query
-# expect (no unpivot) and matches gtopt's own solve-output default.  The
-# conversion runs as a single final pass over the finished output tree
-# (`convert_tree_to_long`), so individual writers keep emitting wide and the
-# intermediate read-modify-write cleanups (e.g. pmin→FlowRight) are
-# unaffected.
+# gtopt's input reader is long-ONLY (a bare `uid` + `value` column; the
+# wide-format input path was removed 2026-06-27) and pivots long → wide at
+# load, so every input/output field Parquet/CSV plp2gtopt emits MUST be
+# long.  `long` is also the tidy form Power BI / Power Query expect (no
+# unpivot) and matches gtopt's own solve-output default.
+#
+# Writers build their tables in the natural wide shape
+# (`[<index cols>, uid:1, uid:2, …]`) and :meth:`BaseWriter.write_dataframe`
+# reshapes to long **at write time** via `to_long_layout` (2026-07-10 —
+# replacing the old whole-tree `convert_tree_to_long` post-pass, so files
+# land long directly and no second read/rewrite of every Parquet is
+# needed).  Structural tables (block/stage maps) are returned unchanged by
+# `to_long_layout` and pass through wide.  `layout: "wide"` / excel output
+# opt out of the reshape for tooling that inspects the intermediate tables
+# — such a tree cannot be fed to gtopt.  The few in-pipeline
+# read-modify-write cleanups (e.g. waterway-fmin → FlowRight) pivot back to
+# wide with `to_wide_layout`.
 
-# Re-export wide→long primitives from gtopt_shared.dataframe.  Lifted on
+# Re-export wide⇄long primitives from gtopt_shared.dataframe.  Lifted on
 # 2026-06-06 to break the cross-package import smell where gtopt2pbi was
 # pulling ``to_long_layout`` straight out of ``plp2gtopt.base_writer``.
 # Legacy names preserved (``_INDEX_COLS``, ``_col_to_uid``,
 # ``to_long_layout``) so existing imports continue to work.
-from gtopt_shared.dataframe import (  # noqa: E402,F401  # pylint: disable=wrong-import-position,wrong-import-order
+from gtopt_shared.dataframe import (  # noqa: E402,F401  # pylint: disable=wrong-import-position,wrong-import-order,unused-import
     INDEX_COLS as _INDEX_COLS,
     column_to_uid as _col_to_uid,
     to_long_layout,
+    to_wide_layout,
 )
 
 
