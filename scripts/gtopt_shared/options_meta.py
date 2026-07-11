@@ -43,6 +43,8 @@ SDDP_OPTION_KEYS: frozenset[str] = frozenset(
         "cuts_input_file",
         "sentinel_file",
         "elastic_mode",
+        "fact_eps",
+        "fact_max_cycles",
         "multi_cut_threshold",
         "apertures",
         "num_apertures",
@@ -447,7 +449,8 @@ OPTIONS_FIELDS: list[tuple[str, str, Any]] = [
     ),
     (
         "elastic_mode",
-        "[sddp] Elastic filter mode: 'chinneck' (default), 'single_cut', or 'multi_cut'",
+        "[sddp] Elastic filter mode: 'chinneck' (default), 'single_cut', "
+        "'multi_cut', 'state_repair' (alias 'plp'), or 'farkas_recursive'",
         None,
     ),
     (

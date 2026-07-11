@@ -107,7 +107,9 @@ struct SddpOptionsConstructor
       std::optional<SolverOptions> forward_solver_options,
       std::optional<SolverOptions> backward_solver_options,
       std::optional<Array<int>> markov_states,
-      std::optional<Array<double>> markov_transition) const
+      std::optional<Array<double>> markov_transition,
+      OptReal fact_eps,
+      OptInt fact_max_cycles) const
   {
     SddpOptions opts;
     if (cut_sharing_mode_str) {
@@ -234,6 +236,8 @@ struct SddpOptionsConstructor
     opts.backward_solver_options = backward_solver_options;
     opts.markov_states = std::move(markov_states);
     opts.markov_transition = std::move(markov_transition);
+    opts.fact_eps = fact_eps;
+    opts.fact_max_cycles = fact_max_cycles;
     return opts;
   }
 };
@@ -315,7 +319,9 @@ struct json_data_contract<SddpOptions>
                       json_number_no_name<int>>,
       json_array_null<"markov_transition",
                       std::optional<Array<double>>,
-                      json_number_no_name<double>>>;
+                      json_number_no_name<double>>,
+      json_number_null<"fact_eps", OptReal>,
+      json_number_null<"fact_max_cycles", OptInt>>;
 
   static auto to_json_data(SddpOptions const& opt)
   {
@@ -385,7 +391,9 @@ struct json_data_contract<SddpOptions>
         opt.forward_solver_options,
         opt.backward_solver_options,
         opt.markov_states,
-        opt.markov_transition);
+        opt.markov_transition,
+        opt.fact_eps,
+        opt.fact_max_cycles);
   }
 };
 

@@ -1203,6 +1203,23 @@ public:
    *  and they retain their prior semantics. */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
       ElasticFilterMode::single_cut;
+  /** @brief Default PLP FactEPS tolerance for `elastic_mode =
+   *         state_repair` (alias plp) and `farkas_recursive`.
+   *
+   *  Mirrors PLP's `FactEPS` compiled default (getopts.f:231 = 1e-8;
+   *  the CEN production runs override it to 1e-10 via PLP_FACTEPS).
+   *  Consumed by the PLP-exact feasibility-cut builder
+   *  (`build_plp_feasibility_cuts`) and by the recursive builder
+   *  (`build_farkas_recursive_cut`). */
+  static constexpr Real default_sddp_fact_eps = 1e-8;
+  /** @brief Default PLP FactMXC solve-cycle cap for `elastic_mode =
+   *         state_repair` (alias plp) and `farkas_recursive`.
+   *
+   *  500 matches the CEN production runs' PLP_FACTMXC setting (PLP's
+   *  compiled default is 5000).  Caps solve cycles per (scene, phase)
+   *  LP within one forward pass; exceeding it declares the scene
+   *  infeasible for the iteration. */
+  static constexpr Int default_sddp_fact_max_cycles = 500;
   /** @brief Default multi_cut threshold (auto-switch after this many
    *         cumulative forward-pass infeasibilities at a phase).
    *
@@ -1566,6 +1583,27 @@ public:
   {
     return m_options_.sddp_options.elastic_mode.value_or(
         default_sddp_elastic_mode);
+  }
+
+  /**
+   * @brief Gets the PLP FactEPS tolerance for `elastic_mode =
+   *        state_repair` (alias plp) / `farkas_recursive`
+   * @return fact_eps (default: 1e-8, PLP FactEPS parity)
+   */
+  [[nodiscard]] constexpr auto sddp_fact_eps() const -> double
+  {
+    return m_options_.sddp_options.fact_eps.value_or(default_sddp_fact_eps);
+  }
+
+  /**
+   * @brief Gets the PLP FactMXC solve-cycle cap for `elastic_mode =
+   *        state_repair` (alias plp) / `farkas_recursive`
+   * @return fact_max_cycles (default: 500, PLP FactMXC parity)
+   */
+  [[nodiscard]] constexpr auto sddp_fact_max_cycles() const -> int
+  {
+    return m_options_.sddp_options.fact_max_cycles.value_or(
+        default_sddp_fact_max_cycles);
   }
 
   /**

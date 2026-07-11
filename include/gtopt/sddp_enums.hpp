@@ -444,6 +444,37 @@ inline constexpr auto cut_drain_mode_entries =
  *   `osi_lp_get_feasible_cut`).  Falls back to the full elastic
  *   result when the IIS re-fix step cannot confirm a smaller subset,
  *   so behaviour is no worse than `multi_cut` in the worst case.
+ * - `state_repair` (alias `plp`): exact reproduction of PLP's
+ *   feasibility-cut formulation (`plp-agrespd.f::AgrElastici` +
+ *   `osicallsc.cpp::osi_lp_get_feasible_cut`, default
+ *   `FOneFeasRay=FALSE`).  Elastic Phase-1 clone with **unit** slack
+ *   costs tilted by 0.01× the previous-basis reduced cost of each
+ *   state column; one single-variable cut
+ *   `ray_i · x_i ≥ ray_i · nx_i · (1 + fact_eps)` per link with
+ *   |ray_i| above the PLP emission tolerance.  NO box clamp, NO
+ *   saturation / degenerate-family drops, NO aggregated fallback —
+ *   the RHS is bound-consistent by construction because the elastic
+ *   slack caps equal the previous phase's state box.  Cuts persist
+ *   across iterations (exempt from `forward_infeas_rollback`).
+ *   Tolerances: `sddp_options.fact_eps` (PLP FactEPS); cycle cap:
+ *   `sddp_options.fact_max_cycles` (PLP FactMXC).  See
+ *   `build_plp_feasibility_cuts`.
+ * - `farkas_recursive`: the published SDDP-correct RECURSIVE
+ *   feasibility cut (Füllner & Rebennack, SIAM Review 2023,
+ *   §17.2–17.3).  Elastic Phase-1 clone with flat **unit** slack
+ *   costs (the review's eᵀy⁺ + eᵀy⁻, no rc tilt) that ADDITIONALLY
+ *   relaxes every feasibility-cut row already installed in the
+ *   stage LP with a `+ z_r` slack (the §17.2 `+ I z` term) — so the
+ *   clone always solves even when a previously-installed cut is
+ *   itself unsatisfiable at the trial (the "relaxed clone
+ *   infeasible" kill chain).  Emits ONE aggregated cut per event on
+ *   the previous phase, `Σ σ_i·x_i ≥ Σ σ_i·v̂_i + V`, whose
+ *   intercept folds the downstream cut intercepts ω_rᵀb_r through
+ *   the clone optimum V (strong duality — eq. (17.3)).  Built from
+ *   ordinary optimal duals only, never a solver Farkas/ray API
+ *   (solver-independence directive).  Shares `fact_eps` /
+ *   `fact_max_cycles` and the rollback exemption with
+ *   `state_repair`.  See `build_farkas_recursive_cut`.
  */
 // NOTE: `backpropagate` (numeric value 2) was a historical fourth
 // mode for PLP-style source-bound updates; it was deleted from the
@@ -456,10 +487,17 @@ enum class ElasticFilterMode : uint8_t
   single_cut = 0,  ///< Build a single Benders feasibility cut
   multi_cut = 1,  ///< Build a Benders cut + per-slack bound cuts
   chinneck = 3,  ///< Build cuts only on the Chinneck IIS (default)
+  state_repair = 4,  ///< PLP-exact single-variable cuts (AgrElastici
+                     ///< parity; canonical name for the legacy "plp")
+  farkas_recursive = 5,  ///< Füllner–Rebennack §17.2–17.3 recursive
+                         ///< aggregated cut (installed fcut rows
+                         ///< elasticized with +z; ω·b folded via V)
 };
 
 /// Includes "cut" as a backward-compatible alias for "single_cut",
-/// and "iis" as an alias for "chinneck".
+/// "iis" as an alias for "chinneck", and "plp" as the legacy alias
+/// for "state_repair" (the canonical entry is listed FIRST so
+/// `enum_name` / JSON serialization emit "state_repair").
 inline constexpr auto elastic_filter_mode_entries =
     std::to_array<EnumEntry<ElasticFilterMode>>({
         {.name = "single_cut", .value = ElasticFilterMode::single_cut},
@@ -471,6 +509,16 @@ inline constexpr auto elastic_filter_mode_entries =
         {.name = "multi_cut", .value = ElasticFilterMode::multi_cut},
         {.name = "chinneck", .value = ElasticFilterMode::chinneck},
         {.name = "iis", .value = ElasticFilterMode::chinneck, .is_alias = true},
+        {.name = "state_repair", .value = ElasticFilterMode::state_repair},
+        {
+            .name = "plp",
+            .value = ElasticFilterMode::state_repair,
+            .is_alias = true,
+        },
+        {
+            .name = "farkas_recursive",
+            .value = ElasticFilterMode::farkas_recursive,
+        },
     });
 
 [[nodiscard]] constexpr auto enum_entries(ElasticFilterMode /*tag*/) noexcept

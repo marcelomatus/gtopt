@@ -1044,7 +1044,17 @@ void SDDPMethod::capture_state_variable_values(
   //    `phys / var_scale` — one division on an already-clean number,
   //    so it can't re-introduce the bound violation that clamping at
   //    physical removed.  Uses the post-step-0 sync'd var_scale.
+  //
+  //    Also capture each state variable's OWN reduced cost from THIS
+  //    phase's rc span (`svar.col()` indexes this phase's LP) into
+  //    `source_reduced_cost` — the PLP elastic cost policy
+  //    (`ElasticCostPolicy::Model::plp_unit_rc_tilt`) prices the
+  //    next phase's elastic slack pair with a `0.01 × rc(t−1)` tilt,
+  //    and this is the only point where the source phase's rc is hot
+  //    (before `release_backend`).  Distinct from step 2 below, which
+  //    writes the DEPENDENT column's rc (optimality-cut input).
   const auto ncols = col_index_size(col_sol_phys);
+  const auto nrc = col_index_size(reduced_costs);
   for (const auto& [key, svar] : sim.state_variables(scene_index, phase_index))
   {
     const auto col = svar.col();
@@ -1052,6 +1062,9 @@ void SDDPMethod::capture_state_variable_values(
       const double phys = col_sol_phys[col];
       const double vs = svar.var_scale();
       svar.set_col_sol((vs != 0.0) ? phys / vs : phys);
+    }
+    if (col < nrc) {
+      svar.set_source_reduced_cost(reduced_costs[col]);
     }
   }
 
@@ -1132,10 +1145,45 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   // cloned LP's slack obj equals `phase_discount ≈ 1.0` — exactly
   // PLP's raw unit cost.  `phase_discount` stays as gtopt-local
   // economic weighting so the slack stays commensurate with
-  // dispatch cost at the target phase.  `scale_obj` retained for
-  // signature stability only.
-  (void)scale_obj;
+  // dispatch cost at the target phase.
   const auto scaled_penalty = m_options_.elastic_penalty * phase_discount;
+
+  // PLP-exact (state_repair) mode prices the slack pair
+  // per-direction: unit costs with the `0.01 × rc(source col, prev
+  // basis)` tilt toward the cheapest reservoir (`plp-agrespd.f`
+  // AgrElastici) — NO dep_scale_phys, NO phase_discount,
+  // `scaled_penalty` unused.  `scale_obj` lifts the stored raw rc to
+  // the LP-folded "physical" convention inside the policy.
+  // farkas_recursive prices both directions flat at 1.0 (the review's
+  // eᵀy⁺ + eᵀy⁻ — no tilt).
+  ElasticCostPolicy cost_policy {};
+  if (m_options_.elastic_filter_mode == ElasticFilterMode::state_repair) {
+    cost_policy.model = ElasticCostPolicy::Model::plp_unit_rc_tilt;
+    cost_policy.scale_objective = scale_obj;
+  } else if (m_options_.elastic_filter_mode
+             == ElasticFilterMode::farkas_recursive)
+  {
+    cost_policy.model = ElasticCostPolicy::Model::unit;
+  }
+
+  // farkas_recursive: enumerate the feasibility-cut rows already
+  // installed in THIS phase's LP so `elastic_filter_solve` can relax
+  // each one with a `+z_r` slack in the clone (Füllner–Rebennack
+  // §17.2 `+ I z`).  The cut store is the authoritative registry:
+  // every fcut install path (fcut / mcut / plpcut / frcut + loaded
+  // feasibility cuts) routes through `store_cut(CutType::Feasibility)`
+  // and `StoredCut::row` is kept in sync by the rollback / forget
+  // row-shift bookkeeping.  Feasibility cuts are never cut-shared
+  // (scene-local by design), so the scene's own store is complete.
+  std::vector<RowIndex> fcut_rows;
+  if (m_options_.elastic_filter_mode == ElasticFilterMode::farkas_recursive) {
+    const auto phase_uid = uid_of(phase_index);
+    for (const auto& sc : m_cut_store_.at(scene_index)) {
+      if (sc.type == CutType::Feasibility && sc.phase_uid == phase_uid) {
+        fcut_rows.push_back(sc.row);
+      }
+    }
+  }
 
   // Chinneck IIS mode runs an extra re-solve to filter non-essential
   // relaxed bounds before cut construction.  Other modes use the regular
@@ -1144,8 +1192,12 @@ std::optional<SDDPMethod::ElasticResult> SDDPMethod::elastic_solve(
   auto result = (m_options_.elastic_filter_mode == ElasticFilterMode::chinneck)
       ? chinneck_filter_solve(
             li, prev_state.outgoing_links, scaled_penalty, elastic_opts)
-      : m_benders_cut_.elastic_filter_solve(
-            li, prev_state.outgoing_links, scaled_penalty, elastic_opts);
+      : m_benders_cut_.elastic_filter_solve(li,
+                                            prev_state.outgoing_links,
+                                            scaled_penalty,
+                                            elastic_opts,
+                                            cost_policy,
+                                            fcut_rows);
 
   if (result.has_value()) {
     // The clone's solve activity (resolve, fallbacks, kappa, wall

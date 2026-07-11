@@ -307,6 +307,28 @@ public:
     m_reduced_cost_ = v;
   }
 
+  /// Reduced cost of THIS state variable's own source column in its
+  /// owning phase's last solved basis, in **raw LP** space.  Distinct
+  /// from `reduced_cost()` above, which holds the DEPENDENT column's
+  /// rc in the TARGET phase (the optimality-cut input).  Captured by
+  /// `SDDPMethod::capture_state_variable_values` at every optimal
+  /// forward solve — the only point where the source phase's rc span
+  /// is hot (before `release_backend`).  Consumed by the PLP elastic
+  /// cost policy (`ElasticCostPolicy::Model::plp_unit_rc_tilt`):
+  /// PLP's `AgrElastici` prices each elastic slack pair with a
+  /// `0.01 × rc(vf_i, t−1)` tilt toward the cheapest reservoir.
+  /// Lift to the LP-folded "physical" convention via
+  /// `× scale_objective / var_scale()` (same convention as
+  /// `reduced_cost_physical`).
+  [[nodiscard]] constexpr auto source_reduced_cost() const noexcept
+  {
+    return m_source_reduced_cost_;
+  }
+  constexpr void set_source_reduced_cost(double v) const noexcept
+  {
+    m_source_reduced_cost_ = v;
+  }
+
   /// LP-space reduced cost scaled by `scale_objective / var_scale`:
   ///   `rc_LP × scale_objective / var_scale`.
   ///
@@ -342,6 +364,7 @@ private:
 
   mutable double m_col_sol_ {0.0};
   mutable double m_reduced_cost_ {0.0};
+  mutable double m_source_reduced_cost_ {0.0};
 };
 
 /// Deferred state-variable link record.

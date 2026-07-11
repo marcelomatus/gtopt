@@ -582,7 +582,16 @@ template<typename T>
       ("sddp-elastic-mode",
        po::value<std::string>(),
        "elastic-filter mode: chinneck | iis | single_cut | cut | multi_cut "
-       "(default: chinneck); shorthand for --set "
+       "| state_repair (alias plp) | farkas_recursive (default: chinneck). "
+       "chinneck/iis: IIS-filtered per-bound cuts; single_cut/cut: one "
+       "aggregated Benders fcut from the elastic clone's fixing-row duals; "
+       "multi_cut: one signed bound cut per activated slack; state_repair "
+       "(alias plp): PLP-exact per-reservoir minimal-repair cuts "
+       "(AgrElastici parity); farkas_recursive: Fullner-Rebennack "
+       "SIAM-Rev-2023 recursive aggregated cut that also relaxes installed "
+       "fcut rows (+z) and folds their intercepts.  state_repair/"
+       "farkas_recursive tune via --set sddp_options.fact_eps=<eps> and "
+       "--set sddp_options.fact_max_cycles=<n>; shorthand for --set "
        "sddp_options.elastic_mode=<mode>")  //
       ("constraint-mode",
        po::value<std::string>(),

@@ -251,7 +251,9 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `elastic_penalty` | float | `1e2` | Penalty for elastic slack variables in feasibility |
-| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"` |
+| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), `"farkas_recursive"` (see `docs/methods/sddp.md` §5.4) |
+| `fact_eps` | float | `1e-8` | PLP FactEPS tolerance for `state_repair` / `farkas_recursive` |
+| `fact_max_cycles` | int | `500` | PLP FactMXC per-(scene, phase) solve-cycle cap for `state_repair` / `farkas_recursive` |
 | `multi_cut_threshold` | int | `3` | Persistent cumulative infeasibility count at a (scene, phase) before switching to multi_cut (0 = always; <0 = disabled) |
 
 ### Apertures (Backward-Pass Sampling)

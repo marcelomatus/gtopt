@@ -142,11 +142,29 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
    * after the current iteration (analogous to PLP's userstop) */
   OptName sentinel_file {};
   /** @brief Elastic filter mode: chinneck (default, alias "iis"),
-   *         single_cut (alias "cut"), or multi_cut.
+   *         single_cut (alias "cut"), multi_cut, state_repair
+   *         (alias "plp"), or farkas_recursive.
    *         See ElasticFilterMode in sddp_enums.hpp for semantics.
-   *         The legacy "backpropagate" mode is no longer supported;
-   *         it falls through to the default. */
+   *         Serialization emits the canonical "state_repair"; the
+   *         legacy "plp" spelling still parses.  The legacy
+   *         "backpropagate" mode is no longer supported; it falls
+   *         through to the default. */
   std::optional<ElasticFilterMode> elastic_mode {};
+  /** @brief PLP FactEPS tolerance for `elastic_mode = state_repair`
+   *         (alias plp) and `farkas_recursive` (default:
+   *         `PlanningOptionsLP::default_sddp_fact_eps` = 1e-8).
+   *         Single knob behind the ray-zero / dx-activation /
+   *         emission-skip / RHS-margin tolerances of the PLP-exact
+   *         builder, and the σ/ω zero-guard + RHS margin of the
+   *         farkas_recursive builder.  Ignored by every other mode. */
+  OptReal fact_eps {};
+  /** @brief PLP FactMXC cycle cap for `elastic_mode = state_repair`
+   *         (alias plp) and `farkas_recursive` (default:
+   *         `PlanningOptionsLP::default_sddp_fact_max_cycles` = 500).
+   *         Maximum solve cycles per (scene, phase) LP within one
+   *         forward pass; exceeding it declares the scene infeasible
+   *         for the iteration.  Ignored by every other mode. */
+  OptInt fact_max_cycles {};
   /** @brief Forward-pass infeasibility count threshold for switching
    *         from single_cut to multi_cut.  Default:
    *         `PlanningOptionsLP::default_sddp_multi_cut_threshold`
@@ -836,7 +854,7 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// and `SDDP_OPTION_KEYS` in `scripts/gtopt_shared/options_meta.py`
   /// (a schema-parity pytest enforces the Python side; a `static_assert`
   /// in `json_sddp_options.hpp` enforces the tuple against this count).
-  static constexpr std::size_t json_field_count = 66;
+  static constexpr std::size_t json_field_count = 68;
 
   void merge(SddpOptions&& opts)
   {
@@ -860,6 +878,8 @@ struct SddpOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
     merge_opt(cuts_input_file, std::move(opts.cuts_input_file));
     merge_opt(sentinel_file, std::move(opts.sentinel_file));
     merge_opt(elastic_mode, opts.elastic_mode);
+    merge_opt(fact_eps, opts.fact_eps);
+    merge_opt(fact_max_cycles, opts.fact_max_cycles);
     merge_opt(multi_cut_threshold, opts.multi_cut_threshold);
     merge_opt(apertures, std::move(opts.apertures));
     merge_opt(num_apertures, opts.num_apertures);

@@ -234,7 +234,18 @@ public:
   /// `PlanningLP::system(s, p)` cells own the rows (cuts in this
   /// store live on `(scene_index, *)` cells by ownership invariant).
   /// The caller already has it in scope.
-  std::ptrdiff_t clear_with_lp(PlanningLP& planning_lp, SceneIndex scene_index);
+  ///
+  /// @param keep_feasibility When true (`elastic_filter_mode =
+  ///   state_repair` / `farkas_recursive`),
+  ///   `CutType::Feasibility` rows are EXEMPT from the rollback: PLP's
+  ///   feasibility cuts are bound-consistent state-space constraints
+  ///   valid independently of the iteration that produced them, and
+  ///   PLP keeps them for the whole run.  Only optimality rows are
+  ///   deleted; kept cuts get their LP row indices shifted down by
+  ///   the number of deleted rows below them.
+  std::ptrdiff_t clear_with_lp(PlanningLP& planning_lp,
+                               SceneIndex scene_index,
+                               bool keep_feasibility = false);
 
   // ── Direct access to the underlying vector ──────────────────────────
   /// Mutable view; used by call sites that need
@@ -360,8 +371,13 @@ public:
   /// so they survive this rollback — exactly the invariant that lets
   /// the next iteration's stall check distinguish "made no progress"
   /// from "received peer cuts and can retry".
+  ///
+  /// @param keep_feasibility Exempt `CutType::Feasibility` rows from
+  ///   the rollback (PLP elastic mode) — see
+  ///   `SceneCutStore::clear_with_lp`.
   std::ptrdiff_t clear_scene_cuts(SceneIndex scene_index,
-                                  PlanningLP& planning_lp);
+                                  PlanningLP& planning_lp,
+                                  bool keep_feasibility = false);
 
   /// Prune inactive cuts from all (scene, phase) LPs.
   void prune_inactive_cuts(
