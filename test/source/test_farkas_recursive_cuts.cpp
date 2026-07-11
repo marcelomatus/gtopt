@@ -385,6 +385,176 @@ TEST_CASE(
   CHECK(cut.lowb == doctest::Approx(70.0 * (1.0 + kFrkFactEps)).epsilon(1e-9));
 }
 
+TEST_CASE(
+    "farkas_recursive: mixed col_scale and obj constant stay physical")  // NOLINT
+{
+  // Two reservoirs feed one PHYSICAL demand `x_a + x_b ≥ 700` (hm3).
+  // A's dependent column carries col_scale = 10 (the auto
+  // scale_reservoir per-element factor: raw box [0, 100] ⇔ physical
+  // [0, 1000]); B is unscaled.  Trials: 300 phys each — 100 short.
+  // The LP also carries an objective CONSTANT of 12345 (the
+  // demand-fail Option-A baseline pattern) which must NEVER reach the
+  // §17.3 intercept.
+  //
+  // Pre-fix failure modes this test pins down:
+  //   * per-RAW slack pricing made A 10× cheaper to repair, so
+  //     σ_phys came out at 0.1/0.1 instead of 1.0/1.0 (the col_scale
+  //     leaking into the stored cut coefficients — the 2-yr-case
+  //     0.1-vs-1.0 parquet pattern);
+  //   * `V = get_obj_value()` included the 12345 constant, inflating
+  //     the RHS from 700 to 13045 — a cut that slices off every
+  //     feasible master state and seeds the p52→p0 RHS runaway.
+  LinearInterface li;
+  const auto dep_a = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 100.0,  // raw — physical [0, 1000] at col_scale 10
+      .scale = 10.0,
+      .class_name = "Reservoir",
+      .variable_name = "eini",
+      .variable_uid = 1,
+  });
+  const auto dep_b = li.add_col(SparseCol {
+      .lowb = 0.0,
+      .uppb = 1000.0,
+      .class_name = "Reservoir",
+      .variable_name = "eini",
+      .variable_uid = 2,
+  });
+  // Raw-space demand row: 10·dep_a_raw + dep_b_raw ≥ 700 — the
+  // uniform PHYSICAL requirement x_a_phys + x_b_phys ≥ 700.
+  SparseRow demand {
+      .lowb = 700.0,
+      .uppb = LinearProblem::DblMax,
+      .class_name = "Demand",
+      .constraint_name = "min",
+      .variable_uid = 1,
+  };
+  demand[dep_a] = 10.0;
+  demand[dep_b] = 1.0;
+  std::ignore = li.add_row(demand);
+
+  std::ignore = li.initial_solve();
+  REQUIRE(li.is_optimal());
+  li.add_obj_constant(12345.0);  // must never reach V / the cut RHS
+  // `set_col` pins PHYSICAL values (descaled by col_scale internally).
+  li.set_col(dep_a, 300.0);
+  li.set_col(dep_b, 300.0);
+
+  const StateVariable sv_a {LPKey {}, dep_a, 0.0, 10.0, LpContext {}};
+  sv_a.set_col_sol(30.0);  // col_sol_physical() = 300
+  const StateVariable sv_b {LPKey {}, dep_b, 0.0, 1.0, LpContext {}};
+  sv_b.set_col_sol(300.0);
+
+  const ColIndex src_a {20};
+  const ColIndex src_b {21};
+  const std::vector<StateVarLink> links = {
+      {
+          .source_col = src_a,
+          .dependent_col = dep_a,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 30.0,  // dep-LP-raw
+          .source_low = 0.0,
+          .source_upp = 1000.0,  // physical
+          .var_scale = 10.0,
+          .state_var = &sv_a,
+          .uid = Uid {1},
+      },
+      {
+          .source_col = src_b,
+          .dependent_col = dep_b,
+          .target_phase_index = PhaseIndex {1},
+          .trial_value = 300.0,
+          .source_low = 0.0,
+          .source_upp = 1000.0,
+          .var_scale = 1.0,
+          .state_var = &sv_b,
+          .uid = Uid {2},
+      },
+  };
+
+  auto elastic =
+      elastic_filter_solve(li, links, 1.0, SolverOptions {}, kFrkUnitPolicy);
+  REQUIRE(elastic.has_value());
+  REQUIRE(elastic->solved);
+
+  // The Phase-1 clone: unit-per-PHYSICAL slack pricing (cost = 10 per
+  // raw unit on the scaled column, 1 on the unscaled one) and a
+  // zeroed objective constant.
+  const auto& info_a = elastic->link_infos.at(0);
+  REQUIRE(info_a.relaxed);
+  CHECK(elastic->clone.get_obj_coeff()[info_a.sdn_col]
+        == doctest::Approx(10.0));
+  CHECK(elastic->clone.get_obj_constant() == doctest::Approx(0.0));
+  // V = minimum PHYSICAL repair (100 hm3), constant excluded.
+  CHECK(elastic->clone.get_obj_value() == doctest::Approx(100.0));
+
+  auto res = build_farkas_recursive_cut(
+      elastic.value(), links, LpContext {}, kFrkFactEps);
+  REQUIRE(res.status == PlpCutStatus::cuts_added);
+  REQUIRE(res.cuts.size() == 1);
+  const auto& cut = res.cuts.front();
+  REQUIRE(cut.cmap.contains(src_a));
+  REQUIRE(cut.cmap.contains(src_b));
+  const double ca = cut.cmap.at(src_a);
+  const double cb = cut.cmap.at(src_b);
+
+  // Physical coefficients: σ_phys = σ_view / col_scale(dep) = 1.0 on
+  // BOTH links — the per-element scale must NOT leak a 10× ratio into
+  // the emitted coefficients.
+  CHECK(ca == doctest::Approx(1.0).epsilon(1e-6));
+  CHECK(cb == doctest::Approx(1.0).epsilon(1e-6));
+
+  // Intercept sandwich in PHYSICAL units:
+  //   LHS(box_top) ≥ RHS ≥ LHS(trial) — and RHS equals the exact
+  //   joint requirement σᵀv̂ + V = 600 + 100 = 700 (+ FactEPS margin),
+  //   with NO 12345 constant folded in.
+  CHECK(cut.lowb == doctest::Approx(700.0 * (1.0 + kFrkFactEps)).epsilon(1e-9));
+  const double lhs_trial = (ca * 300.0) + (cb * 300.0);
+  const double lhs_repaired = (ca * 300.0) + (cb * 400.0);
+  const double lhs_box_top = (ca * 1000.0) + (cb * 1000.0);
+  CHECK(lhs_trial < cut.lowb - 1e-6);  // trial is cut off
+  CHECK(lhs_repaired >= cut.lowb - 1e-4);  // repaired point kept
+  CHECK(lhs_box_top >= cut.lowb);  // satisfiable at the box top
+}
+
+TEST_CASE(
+    "farkas_recursive: V-fold is exact — no obj-constant runaway")  // NOLINT
+{
+  // The 2-yr-case runaway mechanism, in miniature: an installed
+  // (poisoned) fcut row is z-relaxed and its residual violation folds
+  // into V — but the LP's objective CONSTANT must NOT ride along.
+  // Pre-fix, `V = get_obj_value()` picked up the constant on top of
+  // ω·z*, so every cascade level re-folded the previous RHS PLUS the
+  // next phase's constant (1.71e8 → 3.31e8 → … → 6.2e9 at p1 on the
+  // 2-yr case).  Post-fix the new RHS folds the old cut's violation
+  // exactly ONCE (ω·z* = 400) and nothing else.
+  FrkKillChainFixture fx;
+  fx.li.add_obj_constant(5000.0);
+
+  const std::vector<RowIndex> fcut_rows {
+      fx.poisoned_row,
+  };
+  auto elastic = elastic_filter_solve(
+      fx.li, fx.links, 1.0, SolverOptions {}, kFrkUnitPolicy, fcut_rows);
+  REQUIRE(elastic.has_value());
+  REQUIRE(elastic->solved);
+
+  // The clone's objective constant is zeroed; V = σ-part + ω·z* only.
+  CHECK(elastic->clone.get_obj_constant() == doctest::Approx(0.0));
+  CHECK(elastic->clone.get_obj_value() == doctest::Approx(400.0));
+
+  auto res = build_farkas_recursive_cut(
+      elastic.value(), fx.links, LpContext {}, kFrkFactEps);
+  REQUIRE(res.status == PlpCutStatus::cuts_added);
+  REQUIRE(res.cuts.size() == 1);
+  const auto& cut = res.cuts.front();
+
+  // rhs = σ·v̂ + ω·z* = 250 + 400 = 650 (+ margin): the old cut's
+  // violation enters at exactly 1×, the 5000 constant not at all.
+  CHECK(cut.lowb == doctest::Approx(650.0 * (1.0 + kFrkFactEps)).epsilon(1e-9));
+  CHECK(cut.lowb < FrkKillChainFixture::kPoisonedRhs);
+}
+
 TEST_CASE("farkas_recursive: holguras and fail paths")  // NOLINT
 {
   SUBCASE("holguras: repair has no state sensitivity")
