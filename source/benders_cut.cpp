@@ -1002,8 +1002,26 @@ struct RelaxationSpec
     // sign mapping — gtopt sdn ≡ PLP sp raises the state and carries
     // `1 + max(tilt, 0)`; gtopt sup ≡ PLP sn lowers it and carries
     // `1 − min(tilt, 0)`; both are ≥ 1 by construction).
+    //
+    // ALL policies price per PHYSICAL unit (`× dep_scale_phys`).  One
+    // raw slack unit moves `dep` by one LP-raw unit = `col_scale(dep)`
+    // physical units, so a flat per-RAW price under-charges scaled
+    // state columns by exactly `col_scale`.  PLP's LP is UNSCALED —
+    // its flat unit costs ARE per-physical-unit prices — so the
+    // `× dep_scale_phys` fold is what preserves PLP parity under
+    // gtopt's auto scale_reservoir.  Without it (pre-2026-07-11) the
+    // per-element energy scales (×10 on LMAULE/ELTORO/RALCO in the
+    // 2-yr case) made scaled reservoirs 10× cheaper to repair: the
+    // elastic optimum routed the whole repair through them, the
+    // fixing-row duals came out at ±1 per RAW unit (⇒ σ_phys = 0.1
+    // vs 1.0 across elements — the col_scale leaking into the cut
+    // coefficients), and the Phase-1 objective V summed raw units of
+    // mixed physical meaning (hm3/10 + hm3).
     double sup_cost = penalty * dep_scale_phys;
     double sdn_cost = sup_cost;
+    // Guard degenerate fixtures that explicitly zero var_scale — the
+    // two unit-based policies must never emit a zero (free) slack.
+    const double phys_per_raw = dep_scale_phys > 0.0 ? dep_scale_phys : 1.0;
     if (cost_policy.model == ElasticCostPolicy::Model::plp_unit_rc_tilt) {
       double tilt = 0.0;
       if (link.state_var != nullptr) {
@@ -1012,13 +1030,17 @@ struct RelaxationSpec
             * link.state_var->source_reduced_cost()
             * cost_policy.scale_objective / (vs != 0.0 ? vs : 1.0);
       }
-      sdn_cost = 1.0 + std::max(tilt, 0.0);
-      sup_cost = 1.0 - std::min(tilt, 0.0);
+      sdn_cost = (1.0 + std::max(tilt, 0.0)) * phys_per_raw;
+      sup_cost = (1.0 - std::min(tilt, 0.0)) * phys_per_raw;
     } else if (cost_policy.model == ElasticCostPolicy::Model::unit) {
       // Füllner–Rebennack §17.2 Phase-1 objective eᵀy⁺ + eᵀy⁻: flat
-      // unit costs, no rc tilt, no dep_scale / penalty folding.
-      sup_cost = 1.0;
-      sdn_cost = 1.0;
+      // unit costs per PHYSICAL unit, no rc tilt, no penalty folding.
+      // The physical pricing makes V (the §17.3 intercept) measure
+      // physical repair and lands σ_phys = σ_view / col_scale(dep)
+      // back at ±1 for every active link regardless of per-element
+      // scaling.
+      sup_cost = phys_per_raw;
+      sdn_cost = phys_per_raw;
     }
 
     const bool have_finite_box =
@@ -1168,8 +1190,17 @@ struct RelaxationSpec
       continue;
     }
     valid_rows.push_back(row);
+    // z is priced per PHYSICAL unit of cut violation: the installed
+    // cut row was composed by `add_row` (col_scale × row-max ×
+    // scale_objective), so one raw z unit relaxes the PHYSICAL cut
+    // LHS by `row_scale` (the stored composite).  Pricing z at
+    // `row_scale` keeps the ω·z* part of the clone objective — the
+    // §17.3 fold the farkas intercept reads through V — in the same
+    // physical units as the state-slack costs (which are priced at
+    // `col_scale(dep)` per raw unit).  Unit-scale rows (row_scale = 1,
+    // every fixture) are unchanged.
     z_cols.push_back(SparseCol {
-        .cost = 1.0,
+        .cost = li.get_row_scale(row),
         .class_name = sddp_alpha_class_name,
         .variable_name = sddp_elastic_zfc_col_name,
         .variable_uid = Uid {row},
@@ -1266,6 +1297,24 @@ auto elastic_filter_solve(const LinearInterface& li,
   const auto ncols = static_cast<size_t>(cloned.get_numcols());
   const std::vector<double> zeros(ncols, 0.0);
   cloned.set_obj_coeffs_raw(zeros);
+
+  // The Phase-1 reset must ALSO clear the LP's objective CONSTANT —
+  // the solver-native offset accumulated by `add_obj_constant` (the
+  // demand-failure Option-A baseline `+fail_cost·ecost·lmax`, the
+  // boundary-cut α-rebase c̄, DecisionVariable obj_constant, …).
+  // `set_obj_coeffs_raw(zeros)` only touches column coefficients; the
+  // offset would otherwise leak verbatim into the clone's
+  // `get_obj_value()`, which every feasibility-gap consumer reads
+  // (the farkas_recursive intercept V, the α-bearing fcut RHS).
+  // Observed on the 2-yr case (farkas_recursive, i1): each phase's
+  // ~1.7e8 demand-fail baseline inflated the frcut RHS, and the §17.2
+  // z-fold then re-folded the poisoned RHS plus the NEXT phase's
+  // constant at every backtrack — an additive runaway to a 6.2e9 RHS
+  // at p1 (unsatisfiable-by-construction cuts that turned one
+  // recoverable p52 event into a full p52→p0 cascade).
+  if (const double obj_c = cloned.get_obj_constant(); obj_c != 0.0) {
+    cloned.add_obj_constant(-obj_c);
+  }
 
   // α is intentionally NOT pinned / modified in the clone: leave it in
   // whatever bound state the original LP has (bootstrap `lowb=uppb=0`
@@ -2102,12 +2151,23 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
   const auto sol_raw = elastic.clone.get_col_sol_raw();
   const auto& link_infos = elastic.link_infos;
 
-  // V(v̂): the Phase-1 optimum (original objective zeroed; unit
-  // sup/sdn/z costs) — the minimum total violation needed to restore
-  // feasibility at the trial.  `get_obj_value()` returns the same
-  // scale_objective-folded convention as the `get_row_dual()` view,
-  // so σ·v̂ and V compose consistently.
-  const double v_gap = elastic.clone.get_obj_value();
+  // V(v̂): the Phase-1 optimum (original objective zeroed; physical
+  // sup/sdn/z costs) — the minimum total PHYSICAL violation needed to
+  // restore feasibility at the trial.  `get_obj_value()` returns the
+  // same scale_objective-folded convention as the `get_row_dual()`
+  // view, so σ·v̂ and V compose consistently.
+  //
+  // `− get_obj_constant()`: defense-in-depth against the objective
+  // CONSTANT leaking into the intercept.  `elastic_filter_solve`
+  // already zeroes the clone's offset alongside the column
+  // coefficients (so this subtraction is a no-op on every production
+  // path), but the intercept formula is only correct for the
+  // pure-slack objective — a clone handed in with a live offset
+  // (demand-fail Option-A baseline ~1.7e8/phase on the 2-yr case)
+  // previously inflated every frcut RHS by that constant and drove
+  // the additive p52→p0 RHS runaway (6.2e9 at p1).
+  const double v_gap =
+      elastic.clone.get_obj_value() - elastic.clone.get_obj_constant();
 
   auto cut = SparseRow {
       .lowb = 0.0,
@@ -2119,6 +2179,14 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
 
   double rhs = v_gap;
   int n_coeffs = 0;
+  // Maximum achievable LHS of the emitted cut over the previous
+  // phase's PHYSICAL state box — accumulated per emitted link for the
+  // post-margin satisfiability clamp below.  A link unbounded in the
+  // cut's tightening direction disables the clamp (the box max is
+  // +inf, so any finite RHS is satisfiable).
+  double box_top_lhs = 0.0;
+  bool box_top_bounded = true;
+  constexpr double kInfThreshold = 0.5 * LinearProblem::DblMax;
   const std::size_t n_links = std::min(link_infos.size(), links.size());
   for (std::size_t idx = 0; idx < n_links; ++idx) {
     const auto& info = link_infos[idx];
@@ -2161,6 +2229,16 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
     cut[link.source_col] = sigma_phys;
     rhs += sigma_phys * v_hat_phys;
     ++n_coeffs;
+
+    // Track the box-top LHS of the growing cut (physical units): for
+    // σ > 0 the maximising state sits at source_upp, for σ < 0 at
+    // source_low.
+    const double edge = sigma_phys > 0.0 ? link.source_upp : link.source_low;
+    if (std::abs(edge) >= kInfThreshold) {
+      box_top_bounded = false;
+    } else {
+      box_top_lhs += sigma_phys * edge;
+    }
   }
 
   // ω_r diagnostics on the elasticized cut rows.  The ω_r·b_r fold is
@@ -2201,8 +2279,35 @@ auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
   }
 
   // Outward FactEPS-relative margin — same convention as the
-  // state_repair builder (plp-agrespd.f:791).
-  rhs += fact_eps * std::abs(rhs);
+  // state_repair builder (plp-agrespd.f:791) — followed by the
+  // aggregated mirror of state_repair's `bound_limit` min(): when the
+  // UNmargined intercept was satisfiable at the box top, the margin
+  // must not push it past the edge (presolve would then declare the
+  // master row bound-infeasible and force a guaranteed deeper
+  // backtrack).  The clamp deliberately does NOT touch an intercept
+  // that already exceeds the box-top LHS BEFORE the margin — that is
+  // the exact §17.3 unreachability proof (e.g. a folded downstream
+  // cut whose requirement no box state can meet; see the kill-chain
+  // pin in test_farkas_recursive_cuts.cpp) and weakening it would
+  // discard the recursion's information.  Diagnosed as a WARN so
+  // operators can see genuinely box-unreachable events.
+  const double rhs_margin = rhs + (fact_eps * std::abs(rhs));
+  if (box_top_bounded && rhs <= box_top_lhs) {
+    rhs = std::min(rhs_margin, box_top_lhs);
+  } else {
+    if (box_top_bounded) {
+      spdlog::warn(
+          "build_farkas_recursive_cut: intercept {:.6e} exceeds the "
+          "box-top LHS {:.6e} ({} coeff(s), V={:.6e}) — downstream "
+          "unreachable from every previous-phase state; the master "
+          "re-solve will backtrack another level",
+          rhs,
+          box_top_lhs,
+          n_coeffs,
+          v_gap);
+    }
+    rhs = rhs_margin;
+  }
   cut.lowb = rhs;
 
   out.cuts.push_back(std::move(cut));
@@ -2349,6 +2454,16 @@ auto BendersCut::elastic_filter_solve(
   const auto ncols = static_cast<size_t>(cloned.get_numcols());
   const std::vector<double> zeros(ncols, 0.0);
   cloned.set_obj_coeffs_raw(zeros);
+
+  // Clear the objective CONSTANT too — mirrors the free
+  // `elastic_filter_solve` (see the long rationale there): the
+  // solver-native offset (demand-fail Option-A baseline, boundary-cut
+  // c̄, …) is part of the original objective and would otherwise leak
+  // into `get_obj_value()`, inflating the farkas_recursive intercept V
+  // by ~1.7e8/phase on the 2-yr case (the p52→p0 RHS runaway).
+  if (const double obj_c = cloned.get_obj_constant(); obj_c != 0.0) {
+    cloned.add_obj_constant(-obj_c);
+  }
 
   ElasticSolveResult result;
 

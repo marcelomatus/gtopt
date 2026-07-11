@@ -55,7 +55,7 @@
 namespace gtopt
 {
 class AdaptiveWorkPool;
-}
+}  // namespace gtopt
 
 namespace gtopt
 {
@@ -463,15 +463,26 @@ struct ElasticCostPolicy
     /// cost in the PREVIOUS phase's last solved basis, lifted to the
     /// LP-folded "physical" convention (cost_factor stays folded,
     /// same as every other rc consumer).  Ignores the `penalty`
-    /// argument, `dep_scale_phys`, and the phase discount — PLP
-    /// prices slacks flat at ~1.  Links with a null `state_var`
-    /// (test fixtures) get tilt = 0, i.e. cost exactly 1.0 — PLP's
-    /// value when rc = 0.
+    /// argument and the phase discount.  The `(1 ± tilt)` price is
+    /// per PHYSICAL unit — multiplied by `dep_scale_phys`
+    /// (= `col_scale(dep)`) at spec time, because PLP's LP is
+    /// UNSCALED so its flat unit costs ARE physical prices; a per-RAW
+    /// price would under-charge auto-scaled state columns by exactly
+    /// `col_scale` and skew the repair toward them (the 2-yr-case
+    /// 0.1-vs-1.0 cut-coefficient leak).  Links with a null
+    /// `state_var` (test fixtures) get tilt = 0, i.e. cost exactly
+    /// `1.0 × col_scale(dep)` — PLP's value when rc = 0 on an
+    /// unscaled column.
     plp_unit_rc_tilt = 1,
     /// Flat unit costs, NO rc tilt: both slack directions cost
-    /// exactly 1.0 — the Füllner–Rebennack §17.2 Phase-1 objective
-    /// `eᵀy⁺ + eᵀy⁻` (`elastic_filter_mode = farkas_recursive`).
-    /// Ignores `penalty`, `dep_scale_phys`, and the phase discount.
+    /// exactly 1.0 per PHYSICAL unit (`× dep_scale_phys`, same
+    /// rationale as `plp_unit_rc_tilt`) — the Füllner–Rebennack
+    /// §17.2 Phase-1 objective `eᵀy⁺ + eᵀy⁻`
+    /// (`elastic_filter_mode = farkas_recursive`).  Physical pricing
+    /// makes the clone optimum V measure physical repair, so the
+    /// §17.3 intercept `σᵀv̂ + V` composes in one unit system and
+    /// `σ_phys = σ_view / col_scale(dep)` lands at ±1 on every
+    /// active link.  Ignores `penalty` and the phase discount.
     unit = 2,
   };
   Model model {Model::penalty_scaled};
@@ -496,9 +507,12 @@ struct ElasticCostPolicy
 /// One elasticized feasibility-cut row in the clone
 /// (`elastic_filter_mode = farkas_recursive` only): the installed cut
 /// row `a_rᵀx ≥ b_r` received a slack `z_r ≥ 0` with raw coefficient
-/// +1 (`a_rᵀx + z_r ≥ b_r`) and unit cost — the Füllner–Rebennack
-/// §17.2 `+ I z` term that keeps the Phase-1 clone solvable when a
-/// previously-installed cut is itself unsatisfiable at the trial.
+/// +1 (`a_rᵀx + z_r ≥ b_r`) and cost = `row_scale(r)` — one raw z
+/// unit relaxes the PHYSICAL cut LHS by the row's composite scale, so
+/// this prices z per physical unit of violation, consistent with the
+/// state-slack pricing.  The Füllner–Rebennack §17.2 `+ I z` term
+/// keeps the Phase-1 clone solvable when a previously-installed cut
+/// is itself unsatisfiable at the trial.
 struct FcutSlackInfo
 {
   RowIndex row {unknown_index};  ///< Cut row index (clone == source LP)
@@ -532,8 +546,11 @@ struct ElasticSolveResult
 /// operates on: callers (via `collect_state_variable_links`) already
 /// exclude α from @p links, so α never receives slack variables and
 /// its bounds are left untouched in the clone.  The Chinneck Phase-1
-/// objective zeroing applies to every column including α, but with α
-/// kept at whatever bounds the source LP has (pinned at 0 by
+/// objective zeroing applies to every column including α AND to the
+/// LP's objective CONSTANT (the solver-native offset from
+/// `add_obj_constant` — demand-fail Option-A baseline, boundary-cut
+/// c̄, …), so `clone.get_obj_value()` is the pure slack activation.
+/// With α kept at whatever bounds the source LP has (pinned at 0 by
 /// bootstrap or freed by a prior optimality cut), the clone's solve
 /// measures the true feasibility gap on the forward state variables
 /// without α absorbing it.
@@ -736,9 +753,9 @@ struct PlpFeasibilityCuts
 /// osi_lp_get_feasible_cut` under the default `FOneFeasRay = FALSE`
 /// (the only branch PLP production runs exercise).
 ///
-/// From the solved elastic Phase-1 clone (unit slack costs — pair with
-/// `ElasticCostPolicy::Model::plp_unit_rc_tilt`), per link i with
-/// `eps = fact_eps + 2⁻³⁶`:
+/// From the solved elastic Phase-1 clone (per-physical-unit slack
+/// costs — pair with `ElasticCostPolicy::Model::plp_unit_rc_tilt`),
+/// per link i with `eps = fact_eps + 2⁻³⁶`:
 ///
 ///   ray_i  = −dual(fixing_row_i);            |ray_i| < eps  → 0
 ///   dx_i   = sdn_i − sup_i  (LP-raw; = PLP's sp − sn);
@@ -790,7 +807,8 @@ struct PlpFeasibilityCuts
 /// `ElasticCostPolicy::Model::unit` (the review's `eᵀy⁺ + eᵀy⁻`
 /// objective) and with every INSTALLED feasibility-cut row passed as
 /// `elastic_fcut_rows` (the §17.2 `+ I z` term: `a_rᵀx + z_r ≥ b_r`,
-/// z_r ≥ 0, cost 1) — that is what makes the clone ALWAYS solvable
+/// z_r ≥ 0, cost = row_scale(r), i.e. 1 per physical unit of
+/// violation) — that is what makes the clone ALWAYS solvable
 /// when a previously-installed cut is itself the unsatisfiable row.
 ///
 /// **Mapping to the review's eq. (17.3)** `(σᵀT)x ≥ σᵀh_t + ωᵀα^f`:
@@ -809,7 +827,22 @@ struct PlpFeasibilityCuts
 ///     Σ_i σ_i·x_i  ≥  Σ_i σ_i·v̂_i + V(v̂),
 ///
 /// which is what this builder emits (with the `fact_eps` relative
-/// outward margin `rhs += fact_eps·|rhs|`, like state_repair).  The
+/// outward margin `rhs += fact_eps·|rhs|`, like state_repair).
+/// V is read as `get_obj_value() − get_obj_constant()`: the LP's
+/// objective CONSTANT (solver-native offset — demand-fail baseline,
+/// boundary c̄) is NOT part of the feasibility gap.  The clone from
+/// `elastic_filter_solve` already has the offset zeroed, so the
+/// subtraction is normally a no-op; leaking it (pre-2026-07-11)
+/// inflated every intercept by ~1.7e8/phase on the 2-yr case and
+/// drove an additive p52→p0 RHS runaway through the z-fold.
+/// When the unmargined intercept is satisfiable at the box top
+/// (`Σ σ_i·edge_i`, edge = source_upp for σ>0 / source_low for σ<0),
+/// the margined RHS is clamped to that box-top LHS so the outward
+/// epsilon can never make an exactly-edge cut presolve-infeasible —
+/// the aggregated mirror of state_repair's `bound_limit`.  An
+/// intercept already above the box top BEFORE the margin is kept
+/// verbatim (it is the exact unreachability proof; the master then
+/// correctly backtracks another level) and WARN-logged.  The
 /// downstream cut intercepts ω_r·b_r are FOLDED through V — the
 /// poisoned rows' residual violation Σ ω_r·z*_r is exactly the
 /// z-part of the unit-cost objective.  Note this deliberately does
