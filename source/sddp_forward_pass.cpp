@@ -135,10 +135,47 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
   const auto max_attempts =
       (m_options_.forward_max_attempts > 0 ? m_options_.forward_max_attempts
                                            : 100);
+  // PLP FactMXC parity (`elastic_filter_mode = state_repair` /
+  // `farkas_recursive` only): per-(scene, phase) solve-cycle counter,
+  // reset every forward pass — matching PLP's per-iteration cycle
+  // counter in `plp-faseprim.f`.  A phase re-entered more than
+  // `fact_max_cycles` times within this pass (cut-install → backtrack
+  // → re-solve loops) declares the scene infeasible for the iteration
+  // instead of spinning until `forward_max_attempts` exhausts the
+  // scene-wide budget.
+  const auto elastic_mode = m_options_.elastic_filter_mode;
+  const bool plp_family_mode = elastic_mode == ElasticFilterMode::state_repair
+      || elastic_mode == ElasticFilterMode::farkas_recursive;
+  std::vector<int> plp_solve_cycles(
+      plp_family_mode ? static_cast<std::size_t>(num_phases) : 0, 0);
   Index phase_idx = 0;
   int attempts = 0;
   while (phase_idx < num_phases) {
     ++attempts;
+    if (plp_family_mode
+        && ++plp_solve_cycles[static_cast<std::size_t>(phase_idx)]
+            > m_options_.fact_max_cycles)
+    {
+      const auto cur_phase = PhaseIndex {phase_idx};
+      SPDLOG_WARN(
+          "SDDP Forward [i{} s{}]: exceeded fact_max_cycles={} at phase "
+          "p{} (PLP FactMXC); declaring scene infeasible for this "
+          "iteration",
+          gtopt::uid_of(iteration_index),
+          uid_of(scene_index),
+          m_options_.fact_max_cycles,
+          uid_of(cur_phase));
+      return std::unexpected(Error {
+          .code = ErrorCode::SolverError,
+          .message = std::format(
+              "{}: forward pass exceeded fact_max_cycles={} (phase p{})",
+              sddp_log("Forward",
+                       gtopt::uid_of(iteration_index),
+                       uid_of(scene_index)),
+              m_options_.fact_max_cycles,
+              uid_of(cur_phase)),
+      });
+    }
     if (attempts > max_attempts) {
       const auto cur_phase = PhaseIndex {phase_idx};
       SPDLOG_WARN(
@@ -591,18 +628,25 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // `infeas_count ≥ threshold` cumulative events at this
           // (scene, phase) before switching.  The counter is
           // persistent (does not reset on successful solves).
-          const bool use_multi_cut =
-              (m_options_.elastic_filter_mode == ElasticFilterMode::multi_cut)
-              || (m_options_.multi_cut_threshold == 0)
-              || (m_options_.multi_cut_threshold > 0
-                  && infeas_count >= m_options_.multi_cut_threshold);
+          //
+          // The `state_repair` / `farkas_recursive` family is fully
+          // self-contained (D4 in the plp-mode design log): it never
+          // enters the aggregated OR multi-cut branches, and the
+          // multi_cut_threshold auto-switch does not apply.
+          const bool use_multi_cut = !plp_family_mode
+              && ((m_options_.elastic_filter_mode
+                   == ElasticFilterMode::multi_cut)
+                  || (m_options_.multi_cut_threshold == 0)
+                  || (m_options_.multi_cut_threshold > 0
+                      && infeas_count >= m_options_.multi_cut_threshold));
+          const bool use_aggregated_cut = !plp_family_mode && !use_multi_cut;
 
           // Aggregated feasibility cut — emitted ONLY when we are
           // NOT in multi-cut mode (D11 exclusivity).  Uses the α-free
           // Birge-Louveaux π-weighted builder from commit ae4ba13d,
           // which reads row duals of the fixing equations (not
           // reduced costs) from the elastic clone.
-          auto feas_cut = !use_multi_cut
+          auto feas_cut = use_aggregated_cut
               ? build_feasibility_cut_physical(prev_state.outgoing_links,
                                                elastic_result->link_infos,
                                                elastic_result->clone,
@@ -610,7 +654,7 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                                                infeas_count)
               : SparseRow {};
 
-          if (!use_multi_cut) {
+          if (use_aggregated_cut) {
             sddp_fcut_tag.apply_to(feas_cut);
             // variable_uid = prev phase UID from master (#426) — without
             // this the row carries unknown_uid=-1 which serialises as
@@ -637,6 +681,95 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
                       feas_cut,
                       CutType::Feasibility,
                       cut_row);
+          }
+
+          // state_repair (alias plp): per-link single-variable cuts
+          // from the unit-cost elastic clone
+          // (`build_plp_feasibility_cuts` — AgrElastici parity,
+          // FOneFeasRay=FALSE).  farkas_recursive: ONE aggregated
+          // Füllner–Rebennack §17.3 cut whose intercept folds the
+          // installed cut rows' contribution through the clone
+          // optimum (`build_farkas_recursive_cut`).  Install plumbing
+          // mirrors multi_cut (add_rows + record_cut_row + store_cut);
+          // eps = 0.0 keeps every emitted coefficient verbatim (the
+          // builders' own tolerances already filtered them).  There is
+          // deliberately NO fallback to the aggregated fcut builder
+          // and NO degenerate-family drop.
+          if (plp_family_mode) {
+            const auto family_ctx =
+                make_iteration_context(uid_of(scene_index),
+                                       uid_of(phase_index),
+                                       gtopt::uid_of(iteration_index),
+                                       infeas_count);
+            auto plp_cuts = (elastic_mode == ElasticFilterMode::state_repair)
+                ? build_plp_feasibility_cuts(*elastic_result,
+                                             prev_state.outgoing_links,
+                                             family_ctx,
+                                             m_options_.fact_eps)
+                : build_farkas_recursive_cut(*elastic_result,
+                                             prev_state.outgoing_links,
+                                             family_ctx,
+                                             m_options_.fact_eps);
+            // Aggregated frcut rows carry the prev-phase uid — same
+            // invariant as the aggregated fcut (master #426): an
+            // unknown_uid serialises as `sddp_frcut_-1_…`, rejected by
+            // CoinLpIO's row-name validator.
+            if (elastic_mode == ElasticFilterMode::farkas_recursive) {
+              for (auto& pc : plp_cuts.cuts) {
+                pc.variable_uid = uid_of(prev_phase_index);
+              }
+            }
+
+            if (plp_cuts.status == PlpCutStatus::cuts_added) {
+              auto& prev_li = planning_lp()
+                                  .system(scene_index, prev_phase_index)
+                                  .linear_interface();
+              auto cut_row = prev_li.numrows_as_index();
+              prev_li.add_rows(plp_cuts.cuts, 0.0);
+              for (const auto& pc : plp_cuts.cuts) {
+                prev_li.record_cut_row(pc);
+                store_cut(scene_index,
+                          prev_phase_index,
+                          pc,
+                          CutType::Feasibility,
+                          cut_row);
+                ++cut_row;
+                ++mc_added;
+              }
+            } else {
+              // HOLGURAS (PLP IStat = −1): the elastic clone solved
+              // to optimality but every ray/σ fell below the FactEPS
+              // tolerances — the elastic repaired feasibility without
+              // implicating any state, so no valid state cut exists.
+              // PLP tolerates this only in the dual (backward) phase;
+              // the forward (primal) pass declares the scene
+              // infeasible for the iteration.  (`fail` cannot reach
+              // here — a non-optimal clone has `solved == false` and
+              // takes the "relaxed clone infeasible" branch below.)
+              spdlog::warn(
+                  "SDDP Forward [i{} s{} p{}]: {} elastic returned "
+                  "HOLGURAS (all rays/duals below fact_eps={:.1e}) — "
+                  "declaring scene s{} infeasible for iter i{}",
+                  gtopt::uid_of(iteration_index),
+                  uid_of(scene_index),
+                  uid_of(phase_index),
+                  enum_name(elastic_mode),
+                  m_options_.fact_eps,
+                  uid_of(scene_index),
+                  iteration_index);
+              return std::unexpected(Error {
+                  .code = ErrorCode::SolverError,
+                  .message =
+                      std::format("{}: {} elastic returned HOLGURAS (no state "
+                                  "movement; status {})",
+                                  sddp_log("Forward",
+                                           gtopt::uid_of(iteration_index),
+                                           uid_of(scene_index),
+                                           uid_of(phase_index)),
+                                  enum_name(elastic_mode),
+                                  solve_status),
+              });
+            }
           }
 
           if (use_multi_cut) {
@@ -734,11 +867,21 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
           // cell (it's just `prev_state.outgoing_links` filtered by the
           // cut), so we no longer print them on every fcut line — the
           // count alone is enough for at-a-glance health monitoring.
-          for (const auto& link : prev_state.outgoing_links) {
-            if (!use_multi_cut && !feas_cut.cmap.contains(link.source_col)) {
-              continue;
+          // Under state_repair every installed row is a
+          // single-variable cut, so the element count IS the row
+          // count; under farkas_recursive the single aggregated row
+          // stands for the event.
+          if (plp_family_mode) {
+            state_elem_count = mc_added;
+          } else {
+            for (const auto& link : prev_state.outgoing_links) {
+              if (use_aggregated_cut
+                  && !feas_cut.cmap.contains(link.source_col))
+              {
+                continue;
+              }
+              ++state_elem_count;
             }
-            ++state_elem_count;
           }
 
           // One-line per infeasible LP, emitted *after* the fcut (and any

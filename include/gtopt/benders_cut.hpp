@@ -438,6 +438,51 @@ struct StrengthenedCutResult
 
 // ─── Elastic filter ─────────────────────────────────────────────────────────
 
+/// Slack-pricing policy for the elastic Phase-1 clone.
+///
+/// Selects how `elastic_filter_solve` prices the per-link slack pair
+/// (`sup` pulls the state down, `sdn` lifts it up) on the clone's
+/// zeroed objective.  Default-constructed instances reproduce the
+/// legacy behaviour byte-for-byte, so every existing call site
+/// compiles and behaves unchanged.
+struct ElasticCostPolicy
+{
+  enum class Model : uint8_t
+  {
+    /// Legacy gtopt pricing: both slack directions cost
+    /// `penalty × dep_scale_phys` (see `compute_relaxation_specs`).
+    penalty_scaled = 0,
+    /// PLP `AgrElastici` pricing (plp-agrespd.f:496-815 +
+    /// osicallsc.cpp:611-768): unit costs with a reduced-cost tilt
+    /// toward the cheapest reservoir —
+    ///   sdn (raises the state; PLP "sp"): `1 + max(tilt, 0)`
+    ///   sup (lowers the state; PLP "sn"): `1 − min(tilt, 0)`
+    /// with `tilt = rc_tilt_factor × rc_prev_phys` and
+    /// `rc_prev_phys = StateVariable::source_reduced_cost() ×
+    /// scale_objective / var_scale` — the source column's reduced
+    /// cost in the PREVIOUS phase's last solved basis, lifted to the
+    /// LP-folded "physical" convention (cost_factor stays folded,
+    /// same as every other rc consumer).  Ignores the `penalty`
+    /// argument, `dep_scale_phys`, and the phase discount — PLP
+    /// prices slacks flat at ~1.  Links with a null `state_var`
+    /// (test fixtures) get tilt = 0, i.e. cost exactly 1.0 — PLP's
+    /// value when rc = 0.
+    plp_unit_rc_tilt = 1,
+    /// Flat unit costs, NO rc tilt: both slack directions cost
+    /// exactly 1.0 — the Füllner–Rebennack §17.2 Phase-1 objective
+    /// `eᵀy⁺ + eᵀy⁻` (`elastic_filter_mode = farkas_recursive`).
+    /// Ignores `penalty`, `dep_scale_phys`, and the phase discount.
+    unit = 2,
+  };
+  Model model {Model::penalty_scaled};
+  /// PLP's 0.01 multiplier on the previous-basis reduced cost.
+  double rc_tilt_factor {0.01};
+  /// Global objective scale used to lift the stored raw rc to the
+  /// physical convention (`rc_phys = rc_raw × scale_objective /
+  /// var_scale`).  Callers pass `li.scale_objective()`.
+  double scale_objective {1.0};
+};
+
 /// Relax a single fixed state-variable column to its physical source bounds,
 /// adding penalised slack variables.
 /// Returns a RelaxedVarInfo with the relaxation status and slack column
@@ -448,6 +493,18 @@ struct StrengthenedCutResult
     PhaseIndex phase_index,
     double penalty);
 
+/// One elasticized feasibility-cut row in the clone
+/// (`elastic_filter_mode = farkas_recursive` only): the installed cut
+/// row `a_rᵀx ≥ b_r` received a slack `z_r ≥ 0` with raw coefficient
+/// +1 (`a_rᵀx + z_r ≥ b_r`) and unit cost — the Füllner–Rebennack
+/// §17.2 `+ I z` term that keeps the Phase-1 clone solvable when a
+/// previously-installed cut is itself unsatisfiable at the trial.
+struct FcutSlackInfo
+{
+  RowIndex row {unknown_index};  ///< Cut row index (clone == source LP)
+  ColIndex z_col {unknown_index};  ///< The added z_r slack column
+};
+
 /// Result of the elastic-filter clone–solve step.
 /// Contains the solved LP clone and per-link slack column information.
 struct ElasticSolveResult
@@ -455,6 +512,9 @@ struct ElasticSolveResult
   LinearInterface clone;  ///< Elastic clone (solved when `solved == true`)
   /// One RelaxedVarInfo per outgoing link (same order as @p links)
   std::vector<RelaxedVarInfo> link_infos {};
+  /// One entry per elasticized feasibility-cut row (empty unless the
+  /// caller passed `elastic_fcut_rows` — farkas_recursive mode).
+  std::vector<FcutSlackInfo> fcut_infos {};
   /// True when the clone reached an optimal solution and its duals /
   /// primal values are usable for cut construction.  False when the
   /// clone itself came back non-optimal (i.e. state-variable
@@ -484,12 +544,28 @@ struct ElasticSolveResult
 /// skips α by class name.
 /// @param penalty           Elastic penalty coefficient for slack variables
 /// @param opts              Solver options for the clone solve
+/// @param cost_policy       Slack pricing model (default: legacy
+///                          `penalty × dep_scale_phys`; the
+///                          state_repair mode passes
+///                          `plp_unit_rc_tilt`, farkas_recursive
+///                          passes `unit`).
+/// @param elastic_fcut_rows Feasibility-cut rows already installed in
+///                          @p li to relax with a `+z_r` slack in the
+///                          clone (`a_rᵀx + z_r ≥ b_r`, unit cost —
+///                          the §17.2 `+ I z` term).  Default empty:
+///                          no cut row is touched (legacy behaviour,
+///                          byte-identical for every existing mode).
+///                          The added slacks are reported in
+///                          `ElasticSolveResult::fcut_infos`.
 /// @return Solved elastic clone and per-link slack info, or nullopt if
 ///         no columns were fixed or the clone solve failed.
-[[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
-                                        std::span<const StateVarLink> links,
-                                        double penalty,
-                                        const SolverOptions& opts)
+[[nodiscard]] auto elastic_filter_solve(
+    const LinearInterface& li,
+    std::span<const StateVarLink> links,
+    double penalty,
+    const SolverOptions& opts,
+    const ElasticCostPolicy& cost_policy = {},
+    std::span<const RowIndex> elastic_fcut_rows = {})
     -> std::optional<ElasticSolveResult>;
 
 /// Chinneck-style elastic IIS filter.
@@ -624,6 +700,151 @@ struct FeasibilityCutResult
                                     double cut_coeff_eps,
                                     int niter) -> std::vector<SparseRow>;
 
+// ─── PLP-exact feasibility cuts (`elastic_filter_mode = state_repair`) ──────
+
+/// Return status of `build_plp_feasibility_cuts` — mirrors PLP's
+/// `AgrElastici` outcome codes.
+enum class PlpCutStatus : uint8_t
+{
+  /// ≥ 1 single-variable rows emitted (PLP: cut installed on t−1,
+  /// caller backtracks and re-solves).
+  cuts_added = 0,
+  /// The elastic clone solved to optimality but EVERY ray/dx was
+  /// zeroed by the FactEPS tolerances — the elastic repaired
+  /// feasibility without moving any state (PLP `IStat = −1`
+  /// "holguras").  PLP tolerates this in the dual (backward) phase
+  /// only; the forward pass declares the scene infeasible.
+  holguras = 1,
+  /// The elastic clone itself was not proven optimal — the
+  /// infeasibility is rooted in rows the elastic filter cannot relax.
+  /// No cut exists; the caller declares infeasibility.
+  fail = 2,
+};
+
+/// Result bundle of `build_plp_feasibility_cuts`.
+struct PlpFeasibilityCuts
+{
+  PlpCutStatus status {PlpCutStatus::fail};
+  /// One single-variable row per emitted link:
+  /// `ray_i · x_src_i ≥ rhsi_i + fact_eps·|rhsi_i|` (physical space,
+  /// ready for `LinearInterface::add_rows` on the previous phase LP).
+  std::vector<SparseRow> cuts {};
+};
+
+/// PLP-exact per-link feasibility-cut builder — reproduces
+/// `plp-agrespd.f::AgrElastici` + `osicallsc.cpp::
+/// osi_lp_get_feasible_cut` under the default `FOneFeasRay = FALSE`
+/// (the only branch PLP production runs exercise).
+///
+/// From the solved elastic Phase-1 clone (unit slack costs — pair with
+/// `ElasticCostPolicy::Model::plp_unit_rc_tilt`), per link i with
+/// `eps = fact_eps + 2⁻³⁶`:
+///
+///   ray_i  = −dual(fixing_row_i);            |ray_i| < eps  → 0
+///   dx_i   = sdn_i − sup_i  (LP-raw; = PLP's sp − sn);
+///            |dx_i| < fact_eps·(|trial_i| + 1e-8) → dx_i = 0 ∧ ray_i = 0
+///   nx_i   = v̂_phys_i + dx_i·dep_scale_i    (the minimally repaired
+///            initial state — the `dep_clone_phys` convention)
+///   rhsi_i = ray_i · nx_i
+///
+/// Emission: `deps = 1e-3·fact_eps·|Σ rhsi| + 2⁻³⁶`; every link with
+/// `|ray_i| > deps` yields ONE single-variable row
+/// `ray_i · x_i ≥ rhsi_i + fact_eps·|rhsi_i|`.
+///
+/// Deliberately ABSENT (PLP guarantees bound-consistency BY
+/// CONSTRUCTION — the slack caps equal the previous phase's state
+/// box, so `nx_i ∈ [source_low, source_upp]` always):
+///   * no clamping of the RHS to the state box,
+///   * no top-10 % saturation drop,
+///   * no all-upper degenerate-family drop,
+///   * no fallback aggregated cut.
+///
+/// @param elastic   Solved elastic clone + per-link slack info
+///                  (non-const: reading duals may trigger
+///                  `ensure_duals()`).  `elastic.solved == false`
+///                  short-circuits to `PlpCutStatus::fail`.
+/// @param links     Outgoing state-variable links (same order as
+///                  `elastic.link_infos`).
+/// @param context   LP context stamped on each emitted row; when it
+///                  carries an `IterationContext` the 4th slot is
+///                  made per-sibling-unique (same scheme as
+///                  `build_multi_cuts`) so the StoredCut `CutKey`
+///                  dedup keeps every sibling.
+/// @param fact_eps  PLP FactEPS (`SDDPOptions::fact_eps`, default 1e-8).
+[[nodiscard]] auto build_plp_feasibility_cuts(
+    ElasticSolveResult& elastic,
+    std::span<const StateVarLink> links,
+    const LpContext& context,
+    double fact_eps) -> PlpFeasibilityCuts;
+
+// ─── Recursive feasibility cut (`elastic_filter_mode = farkas_recursive`) ───
+
+/// Füllner–Rebennack recursive feasibility cut (SIAM Review 2023,
+/// §17.2–17.3) — ONE aggregated cut per infeasibility event, built
+/// from ORDINARY optimal duals of the elastic Phase-1 clone.  Never
+/// touches a solver Farkas/ray API (CPXdualfarkas, GRB FarkasDual, …)
+/// so the construction is identical across backends
+/// (solver-independence directive, 2026-07-11).
+///
+/// The clone must come from `elastic_filter_solve` with
+/// `ElasticCostPolicy::Model::unit` (the review's `eᵀy⁺ + eᵀy⁻`
+/// objective) and with every INSTALLED feasibility-cut row passed as
+/// `elastic_fcut_rows` (the §17.2 `+ I z` term: `a_rᵀx + z_r ≥ b_r`,
+/// z_r ≥ 0, cost 1) — that is what makes the clone ALWAYS solvable
+/// when a previously-installed cut is itself the unsatisfiable row.
+///
+/// **Mapping to the review's eq. (17.3)** `(σᵀT)x ≥ σᵀh_t + ωᵀα^f`:
+///   * `h_t` ↔ the trial RHS of the state-fixing rows
+///     `dep_i + sup_i − sdn_i = trial_i` (the only x-dependent RHS
+///     entries in gtopt's bound-pin formulation; σ_i = −dual_i is the
+///     `σᵀT` coefficient on the source column, same sign convention
+///     as `build_feasibility_cut_physical`),
+///   * `α^f_r` ↔ `b_r`, the installed cut row's lower bound, with
+///     dual ω_r = dual(fcut_row_r) ≥ 0 at the min-slack optimum.
+///
+/// The intercept `σᵀh_t + ωᵀα^f` (plus gtopt's extra column-box dual
+/// folds, absent from the review's y ≥ 0 canonical form) equals — by
+/// STRONG DUALITY — the clone optimum V(v̂) rebased at the trial:
+///
+///     Σ_i σ_i·x_i  ≥  Σ_i σ_i·v̂_i + V(v̂),
+///
+/// which is what this builder emits (with the `fact_eps` relative
+/// outward margin `rhs += fact_eps·|rhs|`, like state_repair).  The
+/// downstream cut intercepts ω_r·b_r are FOLDED through V — the
+/// poisoned rows' residual violation Σ ω_r·z*_r is exactly the
+/// z-part of the unit-cost objective.  Note this deliberately does
+/// NOT add ω_r·b_r on top of the σ·nx form: with unit costs
+/// `Σ σ_i·nx_i = σᵀv̂ + V_slack`, so the literal sum would
+/// double-count by `Σ ω_r·(a_rᵀx*) ≥ 0` and cut off feasible master
+/// states.  Validity: V is convex in the fixing-row RHS and any
+/// optimal dual is a subgradient — `V(x) ≥ V(v̂) + σ̃ᵀ(x − v̂)` with
+/// `σ̃ = −σ`, and feasibility requires `V(x) ≤ 0` — so the cut is
+/// valid even at degenerate vertices.
+///
+/// σ zero-guard: `|σ| < fact_eps + 2⁻³⁶ → 0`; non-finite duals are
+/// zeroed with a WARN.  Coefficients are emitted per-physical-unit
+/// (`σ_view / col_scale(dep)`), exact under ruiz/var_scale scaling.
+///
+/// Status semantics mirror `build_plp_feasibility_cuts`:
+///   * `cuts_added` — one aggregated row in `cuts`;
+///   * `holguras`   — clone optimal but every σ zeroed (no state
+///     sensitivity; no valid state cut exists);
+///   * `fail`       — clone not proven optimal (infeasibility rooted
+///     in rows the filter cannot relax).
+///
+/// @param elastic   Solved elastic clone + slack info (non-const:
+///                  reading duals may trigger `ensure_duals()`).
+/// @param links     Outgoing state-variable links (same order as
+///                  `elastic.link_infos`).
+/// @param context   LP context stamped on the emitted row.
+/// @param fact_eps  Zero-guard + outward-margin tolerance
+///                  (`SDDPOptions::fact_eps`, default 1e-8).
+[[nodiscard]] auto build_farkas_recursive_cut(
+    ElasticSolveResult& elastic,
+    std::span<const StateVarLink> links,
+    const LpContext& context,
+    double fact_eps) -> PlpFeasibilityCuts;
+
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 //
 // `average_benders_cut` / `accumulate_benders_cuts` were removed
@@ -723,12 +944,18 @@ public:
   ///
   /// Increments the infeasible-cut counter on each successful solve.
   ///
+  /// @param cost_policy Slack pricing model — see the free function.
+  /// @param elastic_fcut_rows Installed feasibility-cut rows to relax
+  ///        with a `+z_r` slack in the clone — see the free function.
   /// @return Solved elastic clone and per-link slack info, or nullopt if no
   ///         columns were fixed or the clone solve failed.
-  [[nodiscard]] auto elastic_filter_solve(const LinearInterface& li,
-                                          std::span<const StateVarLink> links,
-                                          double penalty,
-                                          const SolverOptions& opts)
+  [[nodiscard]] auto elastic_filter_solve(
+      const LinearInterface& li,
+      std::span<const StateVarLink> links,
+      double penalty,
+      const SolverOptions& opts,
+      const ElasticCostPolicy& cost_policy = {},
+      std::span<const RowIndex> elastic_fcut_rows = {})
       -> std::optional<ElasticSolveResult>;
 
   /// Build a Benders feasibility cut using this object's elastic_filter_solve.

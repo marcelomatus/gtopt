@@ -944,7 +944,13 @@ struct RelaxationSpec
   std::size_t link_idx {};  ///< Position in the original links span.
   ColIndex dep {};  ///< Dependent column (already re-bounded).
   Uid slack_uid {};  ///< Per-link unique id for slack metadata.
-  double slack_cost {};  ///< penalty × dep_scale_phys.
+  /// Objective cost on the down-pull slack (sup).  Under the legacy
+  /// `penalty_scaled` policy both directions carry
+  /// `penalty × dep_scale_phys`; the PLP policy prices them
+  /// per-direction (`1 − min(tilt, 0)` here).
+  double sup_cost {};
+  /// Objective cost on the up-lift slack (sdn) — PLP: `1 + max(tilt, 0)`.
+  double sdn_cost {};
   double sup_uppb {};  ///< Upper bound on the down-pull slack.
   double sdn_uppb {};  ///< Upper bound on the up-lift slack.
   double trial_value {};  ///< LP-raw RHS for the fixing row.
@@ -961,7 +967,10 @@ struct RelaxationSpec
 // are silently skipped (the caller knows their link_idx because the
 // spec carries it).
 [[nodiscard]] std::vector<RelaxationSpec> compute_relaxation_specs(
-    LinearInterface& li, std::span<const StateVarLink> links, double penalty)
+    LinearInterface& li,
+    std::span<const StateVarLink> links,
+    double penalty,
+    const ElasticCostPolicy& cost_policy)
 {
   std::vector<RelaxationSpec> specs;
   specs.reserve(links.size());
@@ -986,7 +995,31 @@ struct RelaxationSpec
         (dep_scale_phys_raw > 0.0 && dep_scale_phys_raw != 1.0)
         ? dep_scale_phys_raw
         : link.var_scale;
-    const double slack_cost = penalty * dep_scale_phys;
+
+    // Per-direction slack costs.  Legacy policy: symmetric
+    // `penalty × dep_scale_phys`.  PLP policy: unit costs with the
+    // `0.01 × rc_prev` tilt (see `ElasticCostPolicy` docstring for the
+    // sign mapping — gtopt sdn ≡ PLP sp raises the state and carries
+    // `1 + max(tilt, 0)`; gtopt sup ≡ PLP sn lowers it and carries
+    // `1 − min(tilt, 0)`; both are ≥ 1 by construction).
+    double sup_cost = penalty * dep_scale_phys;
+    double sdn_cost = sup_cost;
+    if (cost_policy.model == ElasticCostPolicy::Model::plp_unit_rc_tilt) {
+      double tilt = 0.0;
+      if (link.state_var != nullptr) {
+        const double vs = link.state_var->var_scale();
+        tilt = cost_policy.rc_tilt_factor
+            * link.state_var->source_reduced_cost()
+            * cost_policy.scale_objective / (vs != 0.0 ? vs : 1.0);
+      }
+      sdn_cost = 1.0 + std::max(tilt, 0.0);
+      sup_cost = 1.0 - std::min(tilt, 0.0);
+    } else if (cost_policy.model == ElasticCostPolicy::Model::unit) {
+      // Füllner–Rebennack §17.2 Phase-1 objective eᵀy⁺ + eᵀy⁻: flat
+      // unit costs, no rc tilt, no dep_scale / penalty folding.
+      sup_cost = 1.0;
+      sdn_cost = 1.0;
+    }
 
     const bool have_finite_box =
         (dep_scale_phys > 0.0) && (link.source_upp > link.source_low);
@@ -1006,7 +1039,8 @@ struct RelaxationSpec
         .link_idx = static_cast<std::size_t>(i),
         .dep = dep,
         .slack_uid = Uid {dep},
-        .slack_cost = slack_cost,
+        .sup_cost = sup_cost,
+        .sdn_cost = sdn_cost,
         .sup_uppb = sup_uppb,
         .sdn_uppb = sdn_uppb,
         .trial_value = link.trial_value,
@@ -1027,11 +1061,14 @@ struct RelaxationSpec
 // relaxable links get a default-constructed (`relaxed = false`)
 // entry so callers can index by link position.
 [[nodiscard]] std::vector<RelaxedVarInfo> apply_relaxations_bulk(
-    LinearInterface& li, std::span<const StateVarLink> links, double penalty)
+    LinearInterface& li,
+    std::span<const StateVarLink> links,
+    double penalty,
+    const ElasticCostPolicy& cost_policy = {})
 {
   std::vector<RelaxedVarInfo> infos(links.size());
 
-  const auto specs = compute_relaxation_specs(li, links, penalty);
+  const auto specs = compute_relaxation_specs(li, links, penalty, cost_policy);
   if (specs.empty()) {
     return infos;
   }
@@ -1045,14 +1082,14 @@ struct RelaxationSpec
   for (const auto& s : specs) {
     slack_cols.push_back(SparseCol {
         .uppb = s.sup_uppb,
-        .cost = s.slack_cost,
+        .cost = s.sup_cost,
         .class_name = sddp_alpha_class_name,
         .variable_name = "elastic_sup",
         .variable_uid = s.slack_uid,
     });
     slack_cols.push_back(SparseCol {
         .uppb = s.sdn_uppb,
-        .cost = s.slack_cost,
+        .cost = s.sdn_cost,
         .class_name = sddp_alpha_class_name,
         .variable_name = "elastic_sdn",
         .variable_uid = s.slack_uid,
@@ -1092,12 +1129,76 @@ struct RelaxationSpec
   }
   return infos;
 }
+
+// Elasticize the installed feasibility-cut rows of the clone
+// (`elastic_filter_mode = farkas_recursive`): for each row r with
+// sense `a_rᵀx ≥ b_r`, add one slack column z_r ≥ 0 (unbounded above,
+// unit cost — same physical-cost convention as the sup/sdn pair: the
+// cost passes through `add_cols_disposable` which divides by
+// `scale_objective`, and `get_row_dual()` multiplies it back) and
+// insert the raw coefficient +1 into the existing row via
+// `set_coeff_raw` — CLP's `modifyCoefficient` and CPLEX's `CPXchgcoef`
+// both INSERT a new nonzero when the element is absent.  This is the
+// Füllner–Rebennack §17.2 `+ I z` term: the relaxed clone can always
+// satisfy a poisoned cut row by paying z_r, so "relaxed clone
+// infeasible" can no longer be caused by an installed cut.
+//
+// Rows outside the clone's current row range are skipped with a WARN —
+// a desynced StoredCut::row would otherwise corrupt an unrelated row.
+[[nodiscard]] std::vector<FcutSlackInfo> apply_fcut_relaxations(
+    LinearInterface& li, std::span<const RowIndex> rows)
+{
+  std::vector<FcutSlackInfo> infos;
+  if (rows.empty()) {
+    return infos;
+  }
+
+  const auto numrows = li.numrows_as_index();
+  std::vector<RowIndex> valid_rows;
+  valid_rows.reserve(rows.size());
+  std::vector<SparseCol> z_cols;
+  z_cols.reserve(rows.size());
+  for (const auto row : rows) {
+    if (row == RowIndex {unknown_index} || row >= numrows) {
+      SPDLOG_WARN(
+          "apply_fcut_relaxations: fcut row {} outside clone row range "
+          "[0, {}) — skipped (stale cut-store row index?)",
+          static_cast<int>(row),
+          static_cast<int>(numrows));
+      continue;
+    }
+    valid_rows.push_back(row);
+    z_cols.push_back(SparseCol {
+        .cost = 1.0,
+        .class_name = sddp_alpha_class_name,
+        .variable_name = sddp_elastic_zfc_col_name,
+        .variable_uid = Uid {row},
+    });
+  }
+  if (valid_rows.empty()) {
+    return infos;
+  }
+
+  const auto z_indices = li.add_cols_disposable(z_cols);
+  infos.reserve(valid_rows.size());
+  for (const auto& [k, row] : enumerate(valid_rows)) {
+    const auto z_col = z_indices[static_cast<std::size_t>(k)];
+    li.set_coeff_raw(row, z_col, 1.0);
+    infos.push_back(FcutSlackInfo {
+        .row = row,
+        .z_col = z_col,
+    });
+  }
+  return infos;
+}
 }  // namespace
 
 auto elastic_filter_solve(const LinearInterface& li,
                           std::span<const StateVarLink> links,
                           double penalty,
-                          const SolverOptions& opts)
+                          const SolverOptions& opts,
+                          const ElasticCostPolicy& cost_policy,
+                          std::span<const RowIndex> elastic_fcut_rows)
     -> std::optional<ElasticSolveResult>
 {
   // Shallow clone: the elastic path adds slacks and a fixing row via
@@ -1182,13 +1283,19 @@ auto elastic_filter_solve(const LinearInterface& li,
 
   // One bulk pass: slack cols + fixing rows are inserted in two
   // backend calls total, instead of `2N + N` per-link calls.
-  result.link_infos = apply_relaxations_bulk(cloned, links, penalty);
+  result.link_infos =
+      apply_relaxations_bulk(cloned, links, penalty, cost_policy);
 
   const bool modified = std::ranges::any_of(
       result.link_infos, [](const auto& info) { return info.relaxed; });
   if (!modified) {
     return std::nullopt;
   }
+
+  // §17.2 `+ I z` term (farkas_recursive only; default empty span is
+  // a no-op): relax every installed feasibility-cut row with a z
+  // slack so a poisoned cut can never wedge the clone.
+  result.fcut_infos = apply_fcut_relaxations(cloned, elastic_fcut_rows);
 
   // Solve the clone with elastic slack variables
   auto r = cloned.resolve(opts);
@@ -1766,6 +1873,358 @@ auto build_multi_cuts(ElasticSolveResult& elastic,
   return cuts;
 }
 
+// ─── PLP-exact feasibility cuts (`elastic_filter_mode = state_repair`) ──────
+
+auto build_plp_feasibility_cuts(ElasticSolveResult& elastic,
+                                std::span<const StateVarLink> links,
+                                const LpContext& context,
+                                double fact_eps) -> PlpFeasibilityCuts
+{
+  // PLP `plp-agrespd.f::AgrElastici` (FOneFeasRay = FALSE branch, the
+  // production default) reproduced step-for-step.  See the header
+  // docstring for the formula; the numbered comments below cite the
+  // matching PLP source lines.
+  PlpFeasibilityCuts out;
+
+  // (0) plp-fasedual.f:698-780 / plp-faseprim.f:656-714: a clone not
+  // proven optimal (infeasible / unbounded / limit) means the
+  // infeasibility is rooted in rows the elastic filter cannot relax —
+  // no cut exists, the caller declares infeasibility.
+  if (!elastic.solved) {
+    out.status = PlpCutStatus::fail;
+    return out;
+  }
+
+  // PLP's absolute floor 2^-36 added to every FactEPS-derived
+  // tolerance (plp-agrespd.f: `eps = FactEPS + 2.0**(-36)`).
+  constexpr double kTwoPowM36 = 0x1p-36;
+  const double ray_eps = fact_eps + kTwoPowM36;
+
+  auto duals = elastic.clone.get_row_dual();
+  const auto sol_raw = elastic.clone.get_col_sol_raw();
+  const auto& link_infos = elastic.link_infos;
+
+  // (1) Extraction pass — one (ray, rhsi) pair per relaxed link.
+  struct PlpExtract
+  {
+    std::size_t link_idx {};
+    double ray {};
+    double rhsi {};
+  };
+  std::vector<PlpExtract> extracts;
+  extracts.reserve(links.size());
+  double rhs_total = 0.0;
+
+  const std::size_t n_links = std::min(link_infos.size(), links.size());
+  for (std::size_t idx = 0; idx < n_links; ++idx) {
+    const auto& info = link_infos[idx];
+    const auto& link = links[idx];
+    if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
+      continue;
+    }
+
+    // ray_i = −dual(fixing_row_i).  PLP never sees NaN (its LP is
+    // always solved to a simplex vertex); gtopt guards anyway — a NaN
+    // dual would poison the emitted row (same rationale as the
+    // build_multi_cuts guard).  Treated as ray = 0 (link dropped).
+    double ray = -duals[info.fixing_row];
+    if (!std::isfinite(ray)) {
+      spdlog::warn(
+          "build_plp_feasibility_cuts: non-finite dual {} at fixing "
+          "row {} — ray zeroed",
+          ray,
+          static_cast<int>(info.fixing_row));
+      ray = 0.0;
+    }
+    // Ray-zero threshold (osicallsc.cpp:723): |ray| < FactEPS + 2^-36.
+    if (std::abs(ray) < ray_eps) {
+      ray = 0.0;
+    }
+
+    // dx = sdn − sup: the minimal RHS repair in dep-LP-raw units
+    // (gtopt fixing row `dep + sup − sdn = trial` ⇒ dep_clone =
+    // trial + dx; equals PLP's `sp − sn` under its row
+    // `dep − sp + sn = vini` — see the sign-mapping note in the
+    // ElasticCostPolicy docstring).
+    const double sup_val =
+        info.sup_col != ColIndex {unknown_index} ? sol_raw[info.sup_col] : 0.0;
+    const double sdn_val =
+        info.sdn_col != ColIndex {unknown_index} ? sol_raw[info.sdn_col] : 0.0;
+    double dx = sdn_val - sup_val;
+
+    // dx activation filter (osicallsc.cpp:727-730): a sub-tolerance
+    // slack activation zeroes BOTH dx and ray — a fixing-row dual can
+    // be nonzero at a degenerate vertex even when the elastic did not
+    // move this state at all (the demand-row dual leaks through the
+    // basic dep column), so the dx filter is what keeps untouched
+    // links out of the cut set.
+    if (std::abs(dx) < fact_eps * (std::abs(link.trial_value) + 1e-8)) {
+      dx = 0.0;
+      ray = 0.0;
+    }
+    if (ray == 0.0) {
+      continue;
+    }
+
+    // nx_i = the minimally repaired initial state, physical space —
+    // the `dep_clone_phys` convention shared with build_multi_cuts.
+    // dep_scale lifts the LP-raw dx through any ruiz factor on top of
+    // var_scale.  Fixture fallback (null state_var): the trial value
+    // itself lifted to physical — exact for the fixtures' unit-scale
+    // LPs (production always carries state_var).
+    const double dep_scale = elastic.clone.get_col_scale(link.dependent_col);
+    const double v_hat_phys = (link.state_var != nullptr)
+        ? link.state_var->col_sol_physical()
+        : link.trial_value * dep_scale;
+    const double nx = v_hat_phys + (dx * dep_scale);
+    const double rhsi = ray * nx;
+    rhs_total += rhsi;
+
+    extracts.push_back(PlpExtract {
+        .link_idx = idx,
+        .ray = ray,
+        .rhsi = rhsi,
+    });
+  }
+
+  // (2) Emission pass (plp-agrespd.f:770-815, FOneFeasRay = FALSE):
+  // one single-variable row per link whose ray survives the
+  // rhs_total-relative skip.  NO clamping to the state box, NO
+  // saturation / degenerate-family drops, NO aggregated fallback —
+  // the RHS is bound-consistent BY CONSTRUCTION (slack caps = the
+  // previous phase's state box, so nx ∈ [source_low, source_upp]).
+  const double deps = (1e-3 * fact_eps * std::abs(rhs_total)) + kTwoPowM36;
+
+  // Per-sibling `extra` stamping — same CutKey-dedup scheme as
+  // build_multi_cuts (all siblings share (scene, phase, iter); the
+  // 4th IterationContext slot disambiguates them).
+  const bool has_iter_ctx = std::holds_alternative<IterationContext>(context);
+  const int base_extra =
+      has_iter_ctx ? std::get<3>(std::get<IterationContext>(context)) : 0;
+  constexpr int kExtraStride = 4096;  // > max plausible links per cell
+  int sibling_idx = 0;
+
+  for (const auto& ex : extracts) {
+    if (std::abs(ex.ray) <= deps) {
+      continue;
+    }
+    const auto& link = links[ex.link_idx];
+
+    // Outward FactEPS margin (plp-agrespd.f:791): rhs += FactEPS·|rhs|
+    // — unconditional (not signed by ray), exactly as PLP applies it.
+    // Then clamp to the bound-level satisfiability limit: PLP's cut is
+    // satisfiable at bound level BY CONSTRUCTION (slack caps = the
+    // previous phase's state box ⇒ nx ∈ [source_low, source_upp]), but
+    // when the repair lands exactly ON the box edge the margin would
+    // push the RHS an epsilon PAST it (ray>0: above ray·source_upp;
+    // ray<0: above ray·source_low) — presolve then declares the row
+    // bound-infeasible (observed on the 2y case: repaired state at the
+    // box top). min() restores the invariant without weakening any
+    // interior cut.
+    const double bound_limit =
+        ex.ray > 0.0 ? ex.ray * link.source_upp : ex.ray * link.source_low;
+    const double rhs =
+        std::min(ex.rhsi + (fact_eps * std::abs(ex.rhsi)), bound_limit);
+
+    auto sibling_context = context;
+    if (has_iter_ctx) {
+      auto& it_ctx = std::get<IterationContext>(sibling_context);
+      std::get<3>(it_ctx) = (base_extra * kExtraStride) + sibling_idx;
+    }
+
+    auto cut = SparseRow {
+        .lowb = rhs,
+        .uppb = LinearProblem::DblMax,
+        .class_name = link.class_name,
+        .constraint_name = sddp_plpcut_constraint_name,
+        .variable_uid = link.uid,
+        .context = sibling_context,
+    };
+    cut[link.source_col] = ex.ray;
+    out.cuts.push_back(std::move(cut));
+    ++sibling_idx;
+  }
+
+  // (3) Status: clone optimal + zero rows ⇒ HOLGURAS (PLP IStat = −1
+  // — the elastic repaired feasibility without moving any state).
+  out.status =
+      out.cuts.empty() ? PlpCutStatus::holguras : PlpCutStatus::cuts_added;
+
+  SPDLOG_DEBUG(
+      "build_plp_feasibility_cuts: {} link(s) extracted, {} cut(s) "
+      "emitted (rhs_total={:.6e}, deps={:.3e}, fact_eps={:.1e}) — {}",
+      extracts.size(),
+      out.cuts.size(),
+      rhs_total,
+      deps,
+      fact_eps,
+      out.status == PlpCutStatus::cuts_added ? "CUTS_ADDED" : "HOLGURAS");
+
+  return out;
+}
+
+// ─── Recursive feasibility cut (`elastic_filter_mode = farkas_recursive`) ───
+
+auto build_farkas_recursive_cut(ElasticSolveResult& elastic,
+                                std::span<const StateVarLink> links,
+                                const LpContext& context,
+                                double fact_eps) -> PlpFeasibilityCuts
+{
+  // Füllner & Rebennack (SIAM Review 2023) §17.2–17.3 — see the
+  // header docstring for the full mapping (h_t ↔ trial RHS of the
+  // fixing rows, α^f_r ↔ b_r of the elasticized cut rows) and the
+  // strong-duality argument that the eq. (17.3) intercept
+  // `σᵀh_t + ωᵀα^f` (+ gtopt's column-box folds) equals the clone
+  // optimum V(v̂) rebased at the trial:
+  //
+  //     Σ_i σ_i·x_i ≥ Σ_i σ_i·v̂_i + V(v̂)
+  //
+  // Solver-independent by construction: ordinary optimal duals +
+  // objective value only, never a Farkas/ray API.
+  PlpFeasibilityCuts out;
+
+  // (0) Clone not proven optimal ⇒ the infeasibility is rooted in
+  // rows the filter cannot relax (a HARD non-cut row) — no cut
+  // exists; the caller declares the scene infeasible.  With the
+  // §17.2 `+ I z` term in place this can no longer be caused by an
+  // installed feasibility-cut row.
+  if (!elastic.solved) {
+    out.status = PlpCutStatus::fail;
+    return out;
+  }
+
+  // Same absolute floor as the PLP-exact builder: 2⁻³⁶ added to the
+  // FactEPS-derived zero-guard.
+  constexpr double kTwoPowM36 = 0x1p-36;
+  const double dual_eps = fact_eps + kTwoPowM36;
+
+  auto duals = elastic.clone.get_row_dual();
+  const auto sol_raw = elastic.clone.get_col_sol_raw();
+  const auto& link_infos = elastic.link_infos;
+
+  // V(v̂): the Phase-1 optimum (original objective zeroed; unit
+  // sup/sdn/z costs) — the minimum total violation needed to restore
+  // feasibility at the trial.  `get_obj_value()` returns the same
+  // scale_objective-folded convention as the `get_row_dual()` view,
+  // so σ·v̂ and V compose consistently.
+  const double v_gap = elastic.clone.get_obj_value();
+
+  auto cut = SparseRow {
+      .lowb = 0.0,
+      .uppb = LinearProblem::DblMax,
+      .class_name = sddp_alpha_class_name,
+      .constraint_name = sddp_frcut_constraint_name,
+      .context = context,
+  };
+
+  double rhs = v_gap;
+  int n_coeffs = 0;
+  const std::size_t n_links = std::min(link_infos.size(), links.size());
+  for (std::size_t idx = 0; idx < n_links; ++idx) {
+    const auto& info = link_infos[idx];
+    const auto& link = links[idx];
+    if (!info.relaxed || info.fixing_row == RowIndex {unknown_index}) {
+      continue;
+    }
+
+    // σ_i = −dual(fixing_row_i) — same sign convention as
+    // `build_feasibility_cut_physical` (σ > 0 ⇔ the clone wants the
+    // state to INCREASE).  NaN guard mirrors the other builders: a
+    // degenerate re-solve can report optimal with NaN duals, and
+    // `abs(NaN) < eps` is false.
+    const double sigma_view = -duals[info.fixing_row];
+    if (!std::isfinite(sigma_view)) {
+      spdlog::warn(
+          "build_farkas_recursive_cut: non-finite dual {} at fixing "
+          "row {} — link skipped",
+          sigma_view,
+          static_cast<int>(info.fixing_row));
+      continue;
+    }
+    if (std::abs(sigma_view) < dual_eps) {
+      continue;
+    }
+
+    // σ_view is ∂obj/∂trial_LP (the fixing row is LP-raw).  Emit the
+    // per-PHYSICAL-unit coefficient σ_view / col_scale(dep) so that
+    // `σ_phys·x_phys` chains exactly (σ_view·Δtrial_LP ≡
+    // σ_phys·Δtrial_phys); the paired RHS term uses
+    // σ_phys·v̂_phys = σ_view·trial_LP.  Under unit scale (every
+    // fixture) this equals the incumbent view-dual convention.
+    const double dep_scale = elastic.clone.get_col_scale(link.dependent_col);
+    const double sigma_phys =
+        (dep_scale != 0.0) ? sigma_view / dep_scale : sigma_view;
+    const double v_hat_phys = (link.state_var != nullptr)
+        ? link.state_var->col_sol_physical()
+        : link.trial_value * dep_scale;
+
+    cut[link.source_col] = sigma_phys;
+    rhs += sigma_phys * v_hat_phys;
+    ++n_coeffs;
+  }
+
+  // ω_r diagnostics on the elasticized cut rows.  The ω_r·b_r fold is
+  // already CONTAINED in V (strong duality — the poisoned rows'
+  // residual violation Σ ω_r·z*_r is the z-part of the objective), so
+  // ω is NOT added to the RHS again; it is surfaced here so operators
+  // can see how much of the gap came from relaxing installed cuts.
+  double omega_fold = 0.0;
+  int n_omega = 0;
+  for (const auto& fi : elastic.fcut_infos) {
+    if (fi.row == RowIndex {unknown_index}
+        || fi.z_col == ColIndex {unknown_index})
+    {
+      continue;
+    }
+    const double omega = duals[fi.row];
+    if (!std::isfinite(omega)) {
+      spdlog::warn(
+          "build_farkas_recursive_cut: non-finite dual {} at "
+          "elasticized fcut row {} — ignored (fold is carried by V)",
+          omega,
+          static_cast<int>(fi.row));
+      continue;
+    }
+    const double z_val = sol_raw[fi.z_col];
+    if (std::abs(omega) >= dual_eps && z_val > 0.0) {
+      omega_fold += omega * z_val;
+      ++n_omega;
+    }
+  }
+
+  // Clone optimal but no state sensitivity survives the zero-guard ⇒
+  // no valid state cut exists (PLP "holguras" semantics — the elastic
+  // repaired feasibility without implicating any state variable).
+  if (n_coeffs == 0) {
+    out.status = PlpCutStatus::holguras;
+    return out;
+  }
+
+  // Outward FactEPS-relative margin — same convention as the
+  // state_repair builder (plp-agrespd.f:791).
+  rhs += fact_eps * std::abs(rhs);
+  cut.lowb = rhs;
+
+  out.cuts.push_back(std::move(cut));
+  out.status = PlpCutStatus::cuts_added;
+
+  // Function-form spdlog: the SPDLOG_DEBUG macro is compiled out under
+  // the INFO-baked PCH (see the file-top caveat), and the ω-fold
+  // diagnostic must stay observable at --log-level=debug.
+  spdlog::debug(
+      "build_farkas_recursive_cut: 1 aggregated cut ({} sigma coeff(s), "
+      "rhs={:.6e}, V={:.6e}, omega-fold={:.6e} over {} active z row(s), "
+      "fact_eps={:.1e})",
+      n_coeffs,
+      rhs,
+      v_gap,
+      omega_fold,
+      n_omega,
+      fact_eps);
+
+  return out;
+}
+
 // ─── Cut averaging ──────────────────────────────────────────────────────────
 //
 // `average_benders_cut` and `accumulate_benders_cuts` were removed
@@ -1831,15 +2290,19 @@ auto weighted_average_benders_cut(const std::vector<SparseRow>& cuts,
 
 // ─── BendersCut class ────────────────────────────────────────────────────────
 
-auto BendersCut::elastic_filter_solve(const LinearInterface& li,
-                                      std::span<const StateVarLink> links,
-                                      double penalty,
-                                      const SolverOptions& opts)
+auto BendersCut::elastic_filter_solve(
+    const LinearInterface& li,
+    std::span<const StateVarLink> links,
+    double penalty,
+    const SolverOptions& opts,
+    const ElasticCostPolicy& cost_policy,
+    std::span<const RowIndex> elastic_fcut_rows)
     -> std::optional<ElasticSolveResult>
 {
   if (m_pool_ == nullptr) {
     // No pool available: delegate directly to the free function.
-    auto result = gtopt::elastic_filter_solve(li, links, penalty, opts);
+    auto result = gtopt::elastic_filter_solve(
+        li, links, penalty, opts, cost_policy, elastic_fcut_rows);
     if (result.has_value()) {
       m_infeasible_cut_count_.fetch_add(1, std::memory_order_relaxed);
     }
@@ -1873,17 +2336,36 @@ auto BendersCut::elastic_filter_solve(const LinearInterface& li,
       ? li.clone_from_flat(LinearInterface::CloneKind::shallow)
       : li.clone(LinearInterface::CloneKind::shallow);
 
+  // Chinneck Phase-1 feasibility LP — zero every original objective
+  // coefficient, exactly like the free `elastic_filter_solve` (see the
+  // long rationale there).  This pooled path historically SKIPPED the
+  // zeroing, silently leaking dispatch opex into the clone objective
+  // and the fixing-row duals whenever a work pool was set (production
+  // SDDP always sets one) — divergent from both the free function and
+  // every consumer's documented contract ("the clone carries a
+  // Chinneck Phase-1 objective", sddp_forward_pass.cpp).  The
+  // farkas_recursive intercept additionally reads the clone OPTIMUM as
+  // the feasibility gap V, which requires the pure-slack objective.
+  const auto ncols = static_cast<size_t>(cloned.get_numcols());
+  const std::vector<double> zeros(ncols, 0.0);
+  cloned.set_obj_coeffs_raw(zeros);
+
   ElasticSolveResult result;
 
   // One bulk pass: see the free `elastic_filter_solve` for the
   // backend-call-count rationale.
-  result.link_infos = apply_relaxations_bulk(cloned, links, penalty);
+  result.link_infos =
+      apply_relaxations_bulk(cloned, links, penalty, cost_policy);
 
   const bool modified = std::ranges::any_of(
       result.link_infos, [](const auto& info) { return info.relaxed; });
   if (!modified) {
     return std::nullopt;
   }
+
+  // §17.2 `+ I z` term — mirrors the free function (no-op on the
+  // default empty span).
+  result.fcut_infos = apply_fcut_relaxations(cloned, elastic_fcut_rows);
 
   // Resolve the clone IN-THREAD — this method is itself called from a
   // forward-pass pool task (`sddp_forward_pass.cpp` → `elastic_solve` →

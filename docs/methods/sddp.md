@@ -937,7 +937,9 @@ prefix, since the section name already provides the namespace).
 | `min_iterations` | int | 2 | Minimum iterations before declaring convergence |
 | `convergence_tol` | double | 1e-4 | Relative gap convergence tolerance |
 | `elastic_penalty` | double | 1e6 | Penalty for elastic slack variables |
-| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), or `"multi_cut"` |
+| `elastic_mode` | string | `"chinneck"` | Elastic filter mode: `"chinneck"` (alias `"iis"`), `"single_cut"` (alias `"cut"`), `"multi_cut"`, `"state_repair"` (alias `"plp"`), or `"farkas_recursive"` |
+| `fact_eps` | double | 1e-8 | PLP FactEPS tolerance (`state_repair` / `farkas_recursive` only) |
+| `fact_max_cycles` | int | 500 | PLP FactMXC per-phase solve-cycle cap (`state_repair` / `farkas_recursive` only) |
 | `multi_cut_threshold` | int | 3 | Auto-switch to multi_cut after N cumulative infeasibilities at a (scene, phase) (counter is persistent) |
 | `alpha_min` | double | 0.0 | Lower bound for future cost variable α |
 | `alpha_max` | double | 1e12 | Upper bound for future cost variable α |
@@ -989,7 +991,7 @@ gtopt my_case.json \
 | `--set sddp_options.max_iterations=<n>` | Maximum SDDP iterations (default: 100) |
 | `--set sddp_options.convergence_tol=<tol>` | Relative gap convergence tolerance (default: 1e-4) |
 | `--set sddp_options.elastic_penalty=<p>` | Elastic slack penalty coefficient (default: 1e2) |
-| `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `chinneck` (default), `single_cut`, `multi_cut` |
+| `--set sddp_options.elastic_mode=<mode>` | Elastic filter mode: `chinneck` (default), `single_cut`, `multi_cut`, `state_repair` (alias `plp`), `farkas_recursive` |
 
 The `--trace-log` option captures all `SPDLOG_TRACE` messages to a file,
 providing detailed iteration-by-iteration data including:
@@ -1003,7 +1005,28 @@ providing detailed iteration-by-iteration data including:
 When a backward-pass phase is infeasible due to the fixed trial values of
 state variables from the forward pass, the elastic filter handles the
 infeasibility by temporarily relaxing the state-variable bounds using
-penalised slack variables.  Three modes are available:
+penalised slack variables.  Five modes are available:
+
+#### Mode taxonomy
+
+| Mode | Origin | Cut shape | When to use |
+|------|--------|-----------|-------------|
+| `single_cut` (alias `cut`) | classical NBD / Birge–Louveaux | 1 aggregated π-weighted fcut | small problems, classical behaviour |
+| `multi_cut` | gtopt (PLP-inspired) | 1 signed bound cut per activated slack | persistent per-reservoir infeasibility |
+| `chinneck` (alias `iis`) | Chinneck 1991/2008 §3.5 | multi_cut restricted to the IIS | general default; never worse than multi_cut |
+| `state_repair` (alias `plp`) | PLP-CEN (`plp-agrespd.f::AgrElastici`) | N single-variable minimal-repair cuts | PLP parity runs; bound-consistent by construction |
+| `farkas_recursive` | Füllner & Rebennack, SIAM Review 2023, §17.2–17.3 | 1 aggregated recursive cut (installed fcut rows relaxed with `+z`) | runs where installed fcuts themselves become infeasible (the "relaxed clone infeasible" kill chain) |
+
+**Solver-independence principle** (design directive, 2026-07-11):
+every feasibility-cut mode derives its cut from the ORDINARY optimal
+duals of the elastic Phase-1 clone — σ on the state-fixing rows, ω on
+elasticized cut rows — which every LP backend exposes portably.  No
+mode may consume a solver-specific Farkas/ray certificate API
+(`CPXdualfarkas`, Gurobi `FarkasDual`, …): those are
+backend-dependent, non-comparable across solvers, and would make runs
+non-reproducible when the backend changes.  This matches PLP itself
+(`osicallsc.cpp` reads `getRowPrice()` off the elastic LP, never the
+ray API).
 
 #### Mode 1: `"single_cut"` (default, alias `"cut"`)
 
@@ -1059,8 +1082,78 @@ produces fewer per-bound cuts → smaller LP basis growth, fewer
 **Reference:** Chinneck, *Feasibility and Infeasibility in
 Optimization*, 2008, §3.5; PLP `osi_lp_get_feasible_cut`.
 
+#### Mode 4: `"state_repair"` (alias `"plp"`)
+
+Exact reproduction of PLP's feasibility-cut formulation
+(`plp-agrespd.f::AgrElastici` + `osicallsc.cpp::
+osi_lp_get_feasible_cut`, default `FOneFeasRay=FALSE`).  The elastic
+Phase-1 clone prices the slack pair at **unit** cost tilted by
+`0.01 × rc(source col, previous basis)` toward the cheapest reservoir,
+with slack caps equal to the previous phase's state box — the repaired
+state is therefore bound-consistent BY CONSTRUCTION.  One
+single-variable cut
+
+```text
+ray_i · x_i ≥ ray_i · nx_i · (1 + fact_eps),   nx_i = v̂_i + dx_i
+```
+
+is emitted per link whose `|ray|` survives the PLP emission tolerance.
+NO box clamp, NO saturation / degenerate-family drops, NO aggregated
+fallback.  Cuts persist across iterations (exempt from
+`forward_infeas_rollback`).  Tolerances: `fact_eps` (PLP FactEPS);
+cycle cap: `fact_max_cycles` (PLP FactMXC).
+
+**CANUTILLAR case study (CEN65, 2-year case, stage 25, sim 16):** the
+maintenance floor `emin = 596.152` (‰, = 635.13 hm³) was unreachable
+from the trial `vini = 528.705` (‰).  PLP's elastic clone found the
+minimal repair `+3.842` and emitted the mid-box single-variable cut
+`vf64(t−1) ≥ 532.547` — NOT a clamp to the box top (sim 17's
+coefficient 1.292 shows the `0.01·rc` tilt).  gtopt's legacy
+`multi_cut` path on the same family of events instead produced
+all-at-`source_upp` degenerate families that the drop guard cleared,
+then the aggregated fallback re-installed the degenerate cut — the
+`state_repair` mode reproduces PLP's per-reservoir mid-box cuts
+verbatim (pinned by `test_plp_feasibility_cuts.cpp`).
+
+#### Mode 5: `"farkas_recursive"` (Füllner–Rebennack §17.2–17.3)
+
+The published SDDP-correct RECURSIVE feasibility cut (Füllner &
+Rebennack, *SIAM Review* 2023, §17.2–17.3).  Two pieces on top of the
+standard elastic clone (flat unit slack costs, `eᵀy⁺ + eᵀy⁻`, no rc
+tilt):
+
+1. **`+ I z` relaxation of installed cuts (§17.2):** every
+   feasibility-cut row already installed in the stage LP (any family:
+   `fcut` / `mcut` / `plpcut` / `frcut`, enumerated from the cut
+   store) receives a slack `z_r ≥ 0` with coefficient +1
+   (`a_rᵀx + z_r ≥ b_r`) and unit cost.  The clone can therefore
+   ALWAYS relax a poisoned cut — the empirically-photographed kill
+   chain (2-year case, i1 s10/s12/s13/s17 p51/p52: the fallback fcut
+   `sddp_fcut_51_12_52_1_1` sat HARD in the clone with 0 slacks →
+   "relaxed clone infeasible" → scene declared infeasible every
+   iteration) is structurally impossible.
+2. **Recursive aggregated cut (§17.3):** from the clone's ordinary
+   optimal duals, one cut on the previous phase per event:
+
+   ```text
+   Σ_i σ_i·x_i ≥ Σ_i σ_i·v̂_i + V,    σ_i = −dual(fixing_row_i)
+   ```
+
+   where `V` is the clone optimum (the minimum total violation).  By
+   strong duality `V = σᵀh_t + ωᵀb + (box folds)`, so the intercept
+   folds the relaxed downstream cut intercepts `ω_r·b_r` exactly —
+   eq. (17.3)'s `α^f` term — without ever calling a solver ray API.
+   The emitted cut is a valid subgradient cut even at degenerate
+   vertices.  If the previous phase cannot satisfy it, the recursion
+   continues: the new `frcut` row is itself elasticized at the next
+   event one phase upstream.
+
+Shares `fact_eps` (σ/ω zero-guard + outward RHS margin),
+`fact_max_cycles`, and the rollback exemption with `state_repair`.
+See `build_farkas_recursive_cut` in `benders_cut.cpp`.
+
 **Note on the retired `"backpropagate"` mode:** an earlier version of
-this file documented a fourth mode that updated source state-variable
+this file documented a mode that updated source state-variable
 bounds directly instead of installing cuts (PLP-style).  The
 implementation was deleted during the forward-pass-installs-fcuts
 refactor and the enum value removed.  Legacy `elastic_mode:
@@ -1069,12 +1162,13 @@ default mode (chinneck).
 
 **Comparison:**
 
-| Aspect | `single_cut` | `multi_cut` | `chinneck` |
-|--------|-------------|-------------|-----------|
-| Adds cut rows | 1 | 1 + per-slack | 1 + per-IIS-slack (≤ multi_cut) |
-| Extra LP solves per fcut | 0 | 0 | 1 (IIS re-fix) |
-| Convergence guarantee | Standard NBD | Standard NBD | Standard NBD (cut-based) |
-| Best for | Small problems | Persistent infeasibility | General use (default) |
+| Aspect | `single_cut` | `multi_cut` | `chinneck` | `state_repair` | `farkas_recursive` |
+|--------|-------------|-------------|-----------|----------------|--------------------|
+| Adds cut rows | 1 | 1 + per-slack | 1 + per-IIS-slack | 1 per moved reservoir | 1 aggregated |
+| Extra LP solves per fcut | 0 | 0 | 1 (IIS re-fix) | 0 | 0 |
+| Relaxes installed fcut rows | no | no | no | no | **yes** (`+z`) |
+| Convergence guarantee | Standard NBD | Standard NBD | Standard NBD (cut-based) | PLP empirical | §17.3 exact recursive |
+| Best for | Small problems | Persistent infeasibility | General use (default) | PLP parity | poisoned-fcut kill chains |
 
 ### 5.5 Cut CSV Format
 

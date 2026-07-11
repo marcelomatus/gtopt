@@ -231,7 +231,8 @@ void SDDPCutManager::forget_first_cuts(std::ptrdiff_t count,
 // is migrated to `at(s).clear_with_lp(...)`.
 
 std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
-                                            SceneIndex scene_index)
+                                            SceneIndex scene_index,
+                                            bool keep_feasibility)
 {
   if (m_cuts_.empty()) {
     return 0;
@@ -240,6 +241,14 @@ std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
   const auto phase_map = build_phase_uid_map(planning_lp);
   std::map<PhaseIndex, std::vector<int>> rows_to_delete;
   for (const auto& cut : m_cuts_) {
+    // PLP elastic mode (`keep_feasibility = true`): feasibility cuts
+    // are bound-consistent state-space constraints, valid
+    // independently of the iteration that produced them (PLP keeps
+    // them for the whole run) — exempt them from the rollback and
+    // delete only the optimality rows of the distrusted trajectory.
+    if (keep_feasibility && cut.type == CutType::Feasibility) {
+      continue;
+    }
     const auto pit = phase_map.find(cut.phase_uid);
     if (pit == phase_map.end()) {
       continue;
@@ -257,12 +266,38 @@ std::ptrdiff_t SceneCutStore::clear_with_lp(PlanningLP& planning_lp,
     total_deleted += std::ssize(rows);
   }
 
-  m_cuts_.clear();
+  if (!keep_feasibility) {
+    m_cuts_.clear();
+    return total_deleted;
+  }
+
+  // Selective erase: drop the deleted (non-Feasibility) entries, then
+  // shift each kept cut's LP row index down by the number of deleted
+  // rows below it on the same phase cell — same shift bookkeeping as
+  // `forget_first_cuts`.
+  std::erase_if(m_cuts_,
+                [](const StoredCut& c)
+                { return c.type != CutType::Feasibility; });
+  for (auto& cut : m_cuts_) {
+    const auto pit = phase_map.find(cut.phase_uid);
+    if (pit == phase_map.end()) {
+      continue;
+    }
+    const auto rit = rows_to_delete.find(pit->second);
+    if (rit == rows_to_delete.end()) {
+      continue;
+    }
+    const auto& rows = rit->second;  // sorted above
+    const auto shift = std::ranges::lower_bound(rows, static_cast<int>(cut.row))
+        - rows.begin();
+    cut.row -= RowIndex {static_cast<Index>(shift)};
+  }
   return total_deleted;
 }
 
 std::ptrdiff_t SDDPCutManager::clear_scene_cuts(SceneIndex scene_index,
-                                                PlanningLP& planning_lp)
+                                                PlanningLP& planning_lp,
+                                                bool keep_feasibility)
 {
   // Forwarder — see `SceneCutStore::clear_with_lp` above for the
   // implementation.  Bounds-check kept here because the forwarder must
@@ -270,7 +305,8 @@ std::ptrdiff_t SDDPCutManager::clear_scene_cuts(SceneIndex scene_index,
   if (scene_index >= std::ssize(m_scene_cuts_)) {
     return 0;
   }
-  return m_scene_cuts_[scene_index].clear_with_lp(planning_lp, scene_index);
+  return m_scene_cuts_[scene_index].clear_with_lp(
+      planning_lp, scene_index, keep_feasibility);
 }
 
 // ── prune_inactive_cuts ────────────────────────────────────────────────────

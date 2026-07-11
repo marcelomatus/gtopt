@@ -1343,8 +1343,20 @@ auto SDDPMethod::run_forward_pass_all_scenes(
       if (out.scene_feasible[scene_index] != 0) {
         continue;
       }
+      // state_repair (alias plp): feasibility cuts are
+      // bound-consistent state-space constraints (slack caps = prev
+      // state box), valid independently of the failed trajectory —
+      // PLP keeps them for the whole run.  farkas_recursive: the
+      // aggregated cuts are exact Benders feasibility cuts, likewise
+      // valid regardless of the trajectory that produced them.
+      // Exempt both from the rollback; only the trajectory's
+      // optimality cuts are dropped.
+      const bool keep_fcuts =
+          m_options_.elastic_filter_mode == ElasticFilterMode::state_repair
+          || m_options_.elastic_filter_mode
+              == ElasticFilterMode::farkas_recursive;
       const auto deleted =
-          m_cut_store_.clear_scene_cuts(scene_index, planning_lp());
+          m_cut_store_.clear_scene_cuts(scene_index, planning_lp(), keep_fcuts);
       if (deleted > 0) {
         ++n_rolled_back;
         total_rollback_rows += deleted;

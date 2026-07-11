@@ -135,8 +135,6 @@ def test_inflow_peaks_by_uid_overrides_file_read() -> None:
     *.dat, e.g. plpaflce) is used for string-ref discharge instead of
     re-reading the emitted output — so the estimate needs no input_dir
     (no read of plp2gtopt's own output = gtopt's input)."""
-    from gtopt_shared.reservoir_flow import resolve_inflow_peaks
-
     system = {
         "junction_array": [{"uid": 1, "name": "J1"}],
         "flow_array": [

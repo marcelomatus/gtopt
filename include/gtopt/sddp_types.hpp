@@ -166,6 +166,12 @@ constexpr std::string_view sddp_alpha_col_name = "alpha";
 /// defaults when it encounters even one unnamed column.
 constexpr std::string_view sddp_elastic_sup_col_name = "elastic_sup";
 constexpr std::string_view sddp_elastic_sdn_col_name = "elastic_sdn";
+/// Slack column added by `apply_fcut_relaxations` on every installed
+/// feasibility-cut row of the elastic clone under
+/// `elastic_filter_mode = farkas_recursive` (`a_rᵀx + z_r ≥ b_r`, the
+/// Füllner–Rebennack §17.2 `+ I z` term).  Distinct from the sup/sdn
+/// names so the disposable label dedup never collides.
+constexpr std::string_view sddp_elastic_zfc_col_name = "elastic_zfc";
 
 /// Constraint-name tags carried on LP row metadata for each kind
 /// of Benders cut emitted by SDDP.  Paired with
@@ -183,6 +189,17 @@ constexpr std::string_view sddp_share_cut_constraint_name = "share_cut";
 constexpr std::string_view sddp_bcut_constraint_name = "bcut";
 constexpr std::string_view sddp_fcut_constraint_name = "fcut";
 constexpr std::string_view sddp_mcut_constraint_name = "mcut";
+/// PLP-exact per-link feasibility cut (`elastic_filter_mode =
+/// state_repair`, alias `plp`).  Like `mcut`, each row is a
+/// single-variable bound constraint on one state variable, so the row
+/// is tagged with the *source state variable's* class name rather
+/// than `sddp_alpha_class_name`.
+constexpr std::string_view sddp_plpcut_constraint_name = "plpcut";
+/// Füllner–Rebennack recursive feasibility cut (`elastic_filter_mode
+/// = farkas_recursive`).  One aggregated multi-variable row per
+/// event, tagged with `sddp_alpha_class_name` like the aggregated
+/// `fcut`.
+constexpr std::string_view sddp_frcut_constraint_name = "frcut";
 
 /// Class tags for cuts brought in by the loaders.  Each loader path
 /// sets a distinct class_name so mixing loader sources never produces
@@ -251,6 +268,10 @@ inline constexpr CutTag sddp_aperture_cut_tag {
 inline constexpr CutTag sddp_share_cut_tag {
     .class_name = sddp_alpha_class_name,
     .constraint_name = sddp_share_cut_constraint_name,
+};
+inline constexpr CutTag sddp_frcut_tag {
+    .class_name = sddp_alpha_class_name,
+    .constraint_name = sddp_frcut_constraint_name,
 };
 
 /// Loader-class cut tags: cuts loaded from disk use a distinct
@@ -606,7 +627,44 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   ///                 infeasible subset of relaxed bounds.  Not
   ///                 re-validated against the row-dual fcut builder
   ///                 introduced in commit 0307c58e.
+  ///   `state_repair` (alias `plp`): PLP-exact single-variable cuts
+  ///                 from the unit-cost (+0.01·rc tilt) elastic
+  ///                 clone — see `ElasticFilterMode::state_repair`
+  ///                 in sddp_enums.hpp and
+  ///                 `build_plp_feasibility_cuts`.
+  ///   `farkas_recursive`: Füllner–Rebennack §17.2–17.3 recursive
+  ///                 aggregated cut — installed feasibility-cut rows
+  ///                 are elasticized with a `+z` slack in the clone
+  ///                 and their intercepts folded into the emitted
+  ///                 cut's RHS via the clone optimum V — see
+  ///                 `build_farkas_recursive_cut`.
   ElasticFilterMode elastic_filter_mode {ElasticFilterMode::single_cut};
+
+  /// PLP `FactEPS` parity tolerance, consumed ONLY under
+  /// `elastic_filter_mode = state_repair` (alias `plp`) or
+  /// `farkas_recursive` (mirrors PLP `getopts.f` FactEPS, default
+  /// 1e-8).  Under `state_repair` it drives all four PLP tolerances
+  /// in `build_plp_feasibility_cuts`:
+  ///  * ray-zero threshold:   |ray| < fact_eps + 2⁻³⁶  →  ray = 0
+  ///  * dx activation filter: |dx| < fact_eps·(|trial| + 1e-8)
+  ///                          →  dx = 0 AND ray = 0
+  ///  * emission skip:        |ray| ≤ 1e-3·fact_eps·|Σ rhsi| + 2⁻³⁶
+  ///  * outward RHS margin:   rhs += fact_eps·|rhs|
+  /// Under `farkas_recursive` it drives the σ/ω zero-guard
+  /// (|dual| < fact_eps + 2⁻³⁶) and the same outward RHS margin.
+  double fact_eps {1e-8};
+
+  /// PLP `FactMXC` parity, consumed ONLY under
+  /// `elastic_filter_mode = state_repair` (alias `plp`) or
+  /// `farkas_recursive` (default 500 — the CEN production
+  /// runs' setting; PLP's own compiled default is 5000): maximum
+  /// solve cycles per (scene, phase) LP within ONE forward pass.
+  /// Exceeding it declares the scene infeasible for the iteration,
+  /// preventing an infinite cut-retry loop.  The counter resets at
+  /// every forward pass, matching PLP's per-iteration cycle counter
+  /// (`plp-faseprim.f`).  Complements (does not replace) the
+  /// per-scene `forward_max_attempts` total-solves cap.
+  int fact_max_cycles {500};
 
   /// Absolute tolerance for filtering tiny Benders cut coefficients.
   /// Coefficients with |value| < cut_coeff_eps are dropped from the cut.

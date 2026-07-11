@@ -45,7 +45,16 @@ _VALID_APERTURE_SOLVE_MODES = {
     "dual_shared",
     "screened",
 }
-_VALID_ELASTIC_MODES = {"single_cut", "multi_cut", "chinneck", "cut", "iis"}
+_VALID_ELASTIC_MODES = {
+    "single_cut",
+    "multi_cut",
+    "chinneck",
+    "cut",
+    "iis",
+    "state_repair",
+    "plp",  # legacy alias for state_repair
+    "farkas_recursive",
+}
 _VALID_BOUNDARY_MODES = {"noload", "separated", "combined"}
 
 
