@@ -296,22 +296,24 @@ def add_demand_fail_cost_argument(
 def add_soft_storage_bounds_argument(
     parser: argparse.ArgumentParser,
     *,
-    default: bool = True,
+    default: bool = False,
 ) -> None:
     """Register ``--soft-storage-bounds`` / ``--no-soft-storage-bounds``.
 
     Global toggle shared by plp2gtopt and plexos2gtopt that selects whether
     reservoir end-of-horizon / maintenance floors are SOFT or HARD:
 
-    * SOFT (the default): the ``efin`` (and, in plp2gtopt, the per-stage
-      ``emin``) floor is emitted with a priced slack column
+    * HARD (the default): the floor stays (``efin`` and, in plp2gtopt, the
+      per-stage ``emin`` schedule) but NO slack cost is set, so gtopt
+      enforces a hard ``vol_end >= efin`` / ``vol >= emin`` constraint —
+      matching PLP, whose ``EmbVMin`` / ``EmbVFin`` (leemanem.f /
+      volfinem.f) are hard bounds, and plexos' hard trajectories.
+
+    * SOFT (``--soft-storage-bounds``): the ``efin`` (and, in plp2gtopt,
+      the per-stage ``emin``) floor is emitted with a priced slack column
       (``efin_cost`` / ``soft_emin_cost``) so ``vol_end + slack >= efin``.
       The LP can buy out of the floor at the slack cost, which keeps an
       unreachable floor feasible.
-
-    * HARD (``--no-soft-storage-bounds``): the floor stays (``efin`` is
-      still emitted) but NO slack cost is set, so gtopt enforces a hard
-      ``vol_end >= efin`` constraint.
 
     Emitted as ``options.soft_storage_bounds`` (``BooleanOptionalAction``,
     ``dest="soft_storage_bounds"``).

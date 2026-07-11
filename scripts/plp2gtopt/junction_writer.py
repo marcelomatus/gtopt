@@ -2180,8 +2180,9 @@ class JunctionWriter(BaseWriter):
     ) -> None:
         """Relax per-reservoir efin and maintenance-emin to soft slacks.
 
-        Gated by ``options["soft_storage_bounds"]`` (default true; also
-        forced on by ``--plp-legacy``).  When enabled:
+        Gated by ``options["soft_storage_bounds"]`` (default FALSE — hard
+        bounds; ``--plp-legacy`` keeps it off too).  When explicitly enabled
+        via ``--soft-storage-bounds``:
 
         - If the reservoir has a non-trivial ``efin``, set
           ``efin_cost`` so the hard ``vol_end >= efin`` row becomes
@@ -2196,12 +2197,12 @@ class JunctionWriter(BaseWriter):
         Both costs share ``_resolve_storage_bound_cost`` (vrebemb →
         CVert → CLI → fallback).
         """
-        # Default ON when the key is absent — matches the CLI default
-        # (see ``--soft-storage-bounds`` / ``--no-soft-storage-bounds`` in
-        # ``_parsers.py``).  Programmatic callers (``convert_plp_case``)
-        # opt out by setting ``soft_storage_bounds=False``.
-        if self.options is not None and not self.options.get(
-            "soft_storage_bounds", True
+        # Default OFF (hard bounds) when the key is absent — matches the CLI
+        # default (see ``--soft-storage-bounds`` / ``--no-soft-storage-bounds``
+        # in ``_parsers.py``).  Callers opt INTO the soft slack by setting
+        # ``soft_storage_bounds=True``.
+        if self.options is None or not self.options.get(
+            "soft_storage_bounds", False
         ):
             return
 
