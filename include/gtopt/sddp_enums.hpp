@@ -902,6 +902,19 @@ inline constexpr auto low_memory_mode_entries =
     std::to_array<EnumEntry<LowMemoryMode>>({
         {.name = "off", .value = LowMemoryMode::off},
         {.name = "compress", .value = LowMemoryMode::compress},
+        // Readable aliases for `off`: the backend stays resident and the
+        // flat LP is kept UNCOMPRESSED — memory is still used, just not
+        // compressed.  `normal`/`uncompress` say that better than "off".
+        {
+            .name = "normal",
+            .value = LowMemoryMode::off,
+            .is_alias = true,
+        },
+        {
+            .name = "uncompress",
+            .value = LowMemoryMode::off,
+            .is_alias = true,
+        },
         // Back-compat alias: "snapshot" parses to `compress`.  Callers
         // that want the old snapshot semantics (uncompressed flat LP)
         // set `memory_codec = uncompressed` explicitly.

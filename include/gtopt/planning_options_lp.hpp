@@ -13,7 +13,6 @@
 
 #pragma once
 
-#include <cstdlib>
 #include <filesystem>
 #include <numbers>
 #include <optional>
@@ -1706,22 +1705,17 @@ public:
   /// off`) to keep the solver backend resident — typically only needed for
   /// debugging the backend across solves.
   ///
-  /// Environment override: `GTOPT_MEMORY_MODE=off|compress` (aliases
-  /// `snapshot`/`rebuild` → `compress`) forces the mode GLOBALLY, taking
-  /// precedence over the per-run option.  Useful for test sweeps and
-  /// benchmarking the whole suite under one memory mode.  Parsed once
-  /// (thread-safe static init); an unset or unrecognised value falls back
-  /// to the per-run option / default.
-  [[nodiscard]] auto sddp_low_memory() const -> LowMemoryMode
-  {
-    if (const char* const v = std::getenv("GTOPT_MEMORY_MODE"); v != nullptr) {
-      if (const auto forced = enum_from_name<LowMemoryMode>(v)) {
-        return *forced;
-      }
-    }
-    return m_options_.sddp_options.low_memory_mode.value_or(
-        LowMemoryMode::compress);
-  }
+  /// Environment override: `GTOPT_MEMORY_MODE=normal|compress` forces the
+  /// mode GLOBALLY, taking precedence over the per-run option.  `normal`
+  /// (aliases `off`/`uncompress`) keeps the backend resident with an
+  /// uncompressed flat LP; `compress` (aliases `snapshot`/`rebuild`)
+  /// releases the backend and keeps a compressed flat-LP snapshot between
+  /// solves.  Useful for test sweeps / benchmarking the whole suite under
+  /// one memory mode.  An unset or unrecognised value falls back to the
+  /// per-run option / default.  Defined out-of-line in
+  /// `source/planning_options_lp.cpp` (keeps `<cstdlib>` / the env read out
+  /// of this header).
+  [[nodiscard]] auto sddp_low_memory() const -> LowMemoryMode;
 
   /// In-memory compression codec for low_memory level 2.
   [[nodiscard]] constexpr auto sddp_memory_codec() const

@@ -88,6 +88,20 @@ TEST_CASE("GTOPT_MEMORY_MODE env override of sddp_low_memory")  // NOLINT
           == LowMemoryMode::off);
   }
 
+  SUBCASE("alias normal/uncompress → off (memory used, uncompressed)")
+  {
+    {
+      const ScopedMemoryModeEnv env {"normal"};
+      CHECK(opts_with_low_memory(LowMemoryMode::compress).sddp_low_memory()
+            == LowMemoryMode::off);
+    }
+    {
+      const ScopedMemoryModeEnv env {"uncompress"};
+      CHECK(opts_with_low_memory(LowMemoryMode::compress).sddp_low_memory()
+            == LowMemoryMode::off);
+    }
+  }
+
   SUBCASE("alias snapshot/rebuild → compress")
   {
     {
