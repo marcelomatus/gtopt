@@ -13,8 +13,10 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <filesystem>
 #include <numbers>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -1703,8 +1705,20 @@ public:
   /// snapshot.  Set explicitly to `LowMemoryMode::off` (or `--memory-saving
   /// off`) to keep the solver backend resident — typically only needed for
   /// debugging the backend across solves.
-  [[nodiscard]] constexpr auto sddp_low_memory() const
+  ///
+  /// Environment override: `GTOPT_MEMORY_MODE=off|compress` (aliases
+  /// `snapshot`/`rebuild` → `compress`) forces the mode GLOBALLY, taking
+  /// precedence over the per-run option.  Useful for test sweeps and
+  /// benchmarking the whole suite under one memory mode.  Parsed once
+  /// (thread-safe static init); an unset or unrecognised value falls back
+  /// to the per-run option / default.
+  [[nodiscard]] auto sddp_low_memory() const -> LowMemoryMode
   {
+    if (const char* const v = std::getenv("GTOPT_MEMORY_MODE"); v != nullptr) {
+      if (const auto forced = enum_from_name<LowMemoryMode>(v)) {
+        return *forced;
+      }
+    }
     return m_options_.sddp_options.low_memory_mode.value_or(
         LowMemoryMode::compress);
   }
