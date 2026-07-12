@@ -9,6 +9,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from ._loss_arbitrage import (
+    LossArbitrageReport,
+    detect_loss_arbitrage,
+    format_table_lines,
+)
 from ._reader import (
     dataset_layout,
     dataset_uid_cols,
@@ -971,12 +976,59 @@ def check_renewable_curtailment(
     return findings, curtailment_data
 
 
+def check_loss_arbitrage(
+    results_dir: Path,
+    planning: dict,
+    *,
+    tol: float = 1e-3,
+    circulation_factor: float = 3.0,
+) -> tuple[list[Finding], LossArbitrageReport]:
+    """Flag loss-arbitrage symptoms per line (phantom circulation, loss
+    inflation, idle-line loss) and report the worst bus-dual pair-sum
+    per flagged line — the sizing input for ``loss_cost_eps``.
+
+    See :mod:`._loss_arbitrage` for the channel taxonomy and the
+    override sizing rule.  The full diagnosis (incl. the override
+    snippet builder) rides on the returned report object, which
+    ``run_all_checks`` stores under ``indicators["loss_arbitrage"]``.
+    """
+    findings: list[Finding] = []
+    la_report = detect_loss_arbitrage(
+        results_dir, planning, tol=tol, circulation_factor=circulation_factor
+    )
+    if la_report.diagnoses:
+        findings.append(
+            Finding(
+                "loss_arbitrage",
+                "WARNING",
+                f"{len(la_report.diagnoses)} line(s) show loss-arbitrage "
+                f"symptoms (tol={tol:g}, k={circulation_factor:g})",
+            )
+        )
+        for line in format_table_lines(la_report):
+            findings.append(Finding("loss_arbitrage", "INFO", f"  {line}"))
+    else:
+        findings.append(
+            Finding("loss_arbitrage", "INFO", "no loss-arbitrage symptoms detected")
+        )
+    for note in la_report.notes:
+        severity = "WARNING" if note.startswith("the fictitious-loss") else "INFO"
+        findings.append(Finding("loss_arbitrage", severity, note))
+    return findings, la_report
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
 
 
-def run_all_checks(results_dir: Path, planning: dict) -> OutputReport:
+def run_all_checks(
+    results_dir: Path,
+    planning: dict,
+    *,
+    loss_arbitrage_tol: float = 1e-3,
+    circulation_factor: float = 3.0,
+) -> OutputReport:
     """Run all output checks and return an aggregated report."""
     report = OutputReport()
 
@@ -1005,5 +1057,14 @@ def run_all_checks(results_dir: Path, planning: dict) -> OutputReport:
     )
     report.findings.extend(losses_findings)
     report.indicators["losses"] = losses_indicators.get("losses", {})
+
+    la_findings, la_report = check_loss_arbitrage(
+        results_dir,
+        planning,
+        tol=loss_arbitrage_tol,
+        circulation_factor=circulation_factor,
+    )
+    report.findings.extend(la_findings)
+    report.indicators["loss_arbitrage"] = la_report
 
     return report

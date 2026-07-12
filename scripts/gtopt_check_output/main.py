@@ -12,6 +12,7 @@ from pathlib import Path
 from gtopt_config import get_version
 
 from ._checks import Finding, run_all_checks
+from ._loss_arbitrage import MIGRATION_NOTE, build_overrides
 from ._reader import load_planning
 
 log = logging.getLogger(__name__)
@@ -22,12 +23,15 @@ _DESCRIPTION = """\
 Validate and analyze gtopt solver output.
 
 Checks output completeness, load shedding, generation/demand balance,
-line congestion ranking, LMP statistics, cost breakdown, and more.
+line congestion ranking, LMP statistics, cost breakdown, transmission
+losses, loss-arbitrage symptoms (phantom circulation, loss inflation,
+idle-line loss), and more.
 
 Examples:
   gtopt_check_output gtopt_case_2y             # auto-find results + JSON
   gtopt_check_output -r results/ -j plan.json  # explicit paths
   gtopt_check_output gtopt_case_2y --quiet      # minimal output
+  gtopt_check_output case --emit-overrides eps.json  # loss_cost_eps snippet
 """
 
 _SEVERITY_COLORS = {
@@ -107,6 +111,39 @@ def make_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         metavar="LEVEL",
         help="logging verbosity (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--emit-overrides",
+        nargs="?",
+        const="-",
+        default=None,
+        metavar="FILE",
+        help=(
+            "emit a loss_cost_eps override JSON snippet for the lines "
+            "flagged by the loss-arbitrage check, sized from the worst "
+            "bus-dual pair-sum (ceil(|pi_a+pi_b|/2 x 1.3)).  Writes to "
+            "FILE, or stdout when FILE is omitted.  NOTE: the sink "
+            "migrates — merge, re-solve, and re-run until clean"
+        ),
+    )
+    parser.add_argument(
+        "--loss-tol",
+        type=float,
+        default=1e-3,
+        metavar="TOL",
+        help=(
+            "loss-arbitrage detection tolerance in MW per block (default: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--circulation-factor",
+        type=float,
+        default=3.0,
+        metavar="K",
+        help=(
+            "phantom-circulation trigger: flow_p + flow_n > K x |net flow| "
+            "(default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--config",
@@ -225,7 +262,12 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  JSON    : {json_path}")
         print()
 
-    report = run_all_checks(results_dir, planning)
+    report = run_all_checks(
+        results_dir,
+        planning,
+        loss_arbitrage_tol=args.loss_tol,
+        circulation_factor=args.circulation_factor,
+    )
 
     # Group findings by check
     checks_seen: list[str] = []
@@ -241,6 +283,25 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  --- {check_id} ---")
         for f in group:
             _print_finding(f, use_color, args.quiet)
+
+    # loss_cost_eps override snippet (loss-arbitrage counter-measure)
+    if args.emit_overrides is not None:
+        la_report = report.indicators.get("loss_arbitrage")
+        overrides = (
+            build_overrides(la_report) if la_report is not None else {"line_array": []}
+        )
+        text = json.dumps(overrides, indent=2)
+        if args.emit_overrides == "-":
+            print(text)
+        else:
+            Path(args.emit_overrides).write_text(text + "\n", encoding="utf-8")
+            print(
+                f"wrote {len(overrides['line_array'])} loss_cost_eps "
+                f"override(s) to {args.emit_overrides}",
+                file=sys.stderr,
+            )
+        if overrides["line_array"]:
+            print(f"note: {MIGRATION_NOTE}", file=sys.stderr)
 
     # Summary
     n_critical = sum(1 for f in report.findings if f.severity == "CRITICAL")
