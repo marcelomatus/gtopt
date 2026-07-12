@@ -500,3 +500,57 @@ TEST_CASE("Gurobi backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() == num_threads);
   CHECK(bad.load() == 0);
 }
+
+TEST_CASE("Gurobi get_basis/set_basis round-trip warm-starts")  // NOLINT
+{
+  auto backend = make_gurobi_or_skip();
+  if (!backend) {
+    return;
+  }
+
+  // Cold solve, then capture the optimal simplex basis (VBasis/CBasis).
+  const GurobiTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+
+  const auto captured = backend->get_basis();
+  if (!captured.has_value()) {
+    // Gurobi's default Method may be barrier without crossover → no basis.
+    MESSAGE("Gurobi left no resident simplex basis; round-trip skipped");
+    return;
+  }
+  CHECK(captured->num_cols()
+        == static_cast<std::size_t>(backend->get_num_cols()));
+  CHECK(captured->num_rows()
+        == static_cast<std::size_t>(backend->get_num_rows()));
+
+  SUBCASE("install the captured basis into a fresh backend + warm-solve")
+  {
+    auto warm = make_gurobi_or_skip();
+    REQUIRE(warm);
+    const GurobiTrivialLP2 warm_lp {warm->infinity()};
+    warm_lp.load_into(*warm);
+
+    REQUIRE(warm->set_basis(*captured));
+
+    SolverOptions opts;
+    opts.advanced_basis = true;  // force a simplex (warm) resolve, not barrier.
+    opts.algorithm = LPAlgo::dual;
+    warm->apply_options(opts);
+
+    warm->initial_solve();
+    REQUIRE(warm->is_proven_optimal());
+    CHECK(warm->obj_value() == doctest::Approx(2.0));
+  }
+
+  SUBCASE("dimension mismatch is rejected")
+  {
+    auto other = make_gurobi_or_skip();
+    REQUIRE(other);
+    const GurobiTrivialLP3 lp3 {other->infinity()};
+    lp3.load_into(*other);
+    CHECK_FALSE(other->set_basis(*captured));
+  }
+}

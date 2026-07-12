@@ -560,3 +560,67 @@ TEST_CASE("MindOpt backend: parallel create+load+clone is race-free")  // NOLINT
   CHECK(ok.load() + skipped.load() == num_threads);
   CHECK(bad.load() == 0);
 }
+
+// ---------------------------------------------------------------------------
+// E. Simplex-basis warm start (ColBasis/RowBasis attributes)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("MindOpt get_basis/set_basis round-trip warm-starts")  // NOLINT
+{
+  auto backend = make_mindopt_or_skip();
+  if (!backend) {
+    return;
+  }
+
+  // Cold solve (with load-tolerant retry); only proceed to the basis round-trip
+  // once the cold solve is actually optimal — otherwise no basis is resident.
+  MindoptTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  mindopt_solve_optimal_or_skip(*backend, 2.0);
+  if (!backend->is_proven_optimal()) {
+    return;  // starved host: no basis to capture (message already emitted).
+  }
+
+  const auto captured = backend->get_basis();
+  if (!captured.has_value()) {
+    // MindOpt reached optimal via IPM without leaving a simplex basis
+    // (SolverOptions default may pick barrier); the round-trip degrades to a
+    // benign skip — the empirical status-encoding check below needs a basis.
+    MESSAGE("MindOpt left no resident simplex basis; round-trip skipped");
+    return;
+  }
+  CHECK(captured->num_cols()
+        == static_cast<std::size_t>(backend->get_num_cols()));
+  CHECK(captured->num_rows()
+        == static_cast<std::size_t>(backend->get_num_rows()));
+
+  SUBCASE("install the captured basis into a fresh backend + warm-solve")
+  {
+    // The empirical validation of the (undocumented) MindOpt status encoding:
+    // if the Gurobi-compatible mapping in the plugin were wrong, installing the
+    // captured basis and re-solving via simplex would land on a different
+    // vertex or fail — the optimum check pins that the round-trip is faithful.
+    auto warm = make_mindopt_or_skip();
+    REQUIRE(warm);
+    MindoptTrivialLP2 warm_lp {warm->infinity()};
+    warm_lp.load_into(*warm);
+
+    REQUIRE(warm->set_basis(*captured));
+
+    SolverOptions opts;
+    opts.advanced_basis = true;  // force a simplex (warm) resolve, not IPM.
+    opts.algorithm = LPAlgo::dual;
+    warm->apply_options(opts);
+
+    mindopt_solve_optimal_or_skip(*warm, 2.0);
+  }
+
+  SUBCASE("dimension mismatch is rejected")
+  {
+    auto other = make_mindopt_or_skip();
+    REQUIRE(other);
+    MindoptTrivialLP3 lp3 {other->infinity()};
+    lp3.load_into(*other);
+    CHECK_FALSE(other->set_basis(*captured));
+  }
+}

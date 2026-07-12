@@ -33,6 +33,53 @@ namespace gtopt
 namespace
 {
 
+/// MindOpt ColBasis/RowBasis status codes.  The SDK headers (MindoptType.h)
+/// name the attributes ("ColBasis"/"RowBasis") but do NOT publish symbolic
+/// status constants.  Determined empirically against MindOpt 2.3.0 (see the
+/// round-trip doctest): MindOpt uses the COIN `CoinWarmStartBasis::Status`
+/// convention, NOT the Gurobi one —
+///   0 = free/superbasic, 1 = basic, 2 = nonbasic at upper,
+///   3 = nonbasic at lower.
+/// (A basic var reads 1; a var at its upper bound reads 2; a var/slack at its
+/// lower bound reads 3; a free superbasic reads 0.  Writing a Gurobi-style
+/// negative code is rejected with MDO_INVALID_BASIS_STATUS = -3003.)
+inline constexpr int k_mdo_free = 0;
+inline constexpr int k_mdo_basic = 1;
+inline constexpr int k_mdo_at_upper = 2;
+inline constexpr int k_mdo_at_lower = 3;
+
+/// Map a MindOpt ColBasis/RowBasis status code to the agnostic BasisStatus.
+[[nodiscard]] BasisStatus from_mindopt_status(int st) noexcept
+{
+  switch (st) {
+    case k_mdo_basic:
+      return BasisStatus::basic;
+    case k_mdo_at_upper:
+      return BasisStatus::at_upper;
+    case k_mdo_free:
+      return BasisStatus::free;
+    case k_mdo_at_lower:
+    default:
+      return BasisStatus::at_lower;
+  }
+}
+
+/// Map an agnostic BasisStatus to a MindOpt ColBasis/RowBasis status code.
+[[nodiscard]] int to_mindopt_status(BasisStatus st) noexcept
+{
+  switch (st) {
+    case BasisStatus::basic:
+      return k_mdo_basic;
+    case BasisStatus::at_upper:
+      return k_mdo_at_upper;
+    case BasisStatus::free:
+      return k_mdo_free;
+    case BasisStatus::at_lower:
+      return k_mdo_at_lower;
+  }
+  return k_mdo_at_lower;
+}
+
 /// Make MIP solves work without user environment setup.
 ///
 /// MindOpt's MILP engine (``libmindoptmilp.so``) is dlopen'ed lazily at
@@ -945,6 +992,75 @@ bool MindOptSolverBackend::set_mip_start(
                      static_cast<int>(ncols),
                      const_cast<double*>(col_values.data()));  // NOLINT
   return true;
+}
+
+std::optional<Basis> MindOptSolverBackend::get_basis() const
+{
+  const int ncols = get_num_cols();
+  const int nrows = get_num_rows();
+  if (ncols <= 0) {
+    return std::nullopt;
+  }
+  std::vector<int> col_basis(static_cast<std::size_t>(ncols));
+  std::vector<int> row_basis(static_cast<std::size_t>(nrows));
+  // A non-MDO_OKAY return means no basis is resident (IPM without crossover,
+  // or never solved by simplex) — report "none" so callers cold-start.
+  if (MDOgetintattrarray(
+          m_model_, MDO_INT_ATTR_COL_BASIS, 0, ncols, col_basis.data())
+      != MDO_OKAY)
+  {
+    return std::nullopt;
+  }
+  if (nrows > 0
+      && MDOgetintattrarray(
+             m_model_, MDO_INT_ATTR_ROW_BASIS, 0, nrows, row_basis.data())
+          != MDO_OKAY)
+  {
+    return std::nullopt;
+  }
+  Basis basis;
+  basis.col_status.resize(static_cast<std::size_t>(ncols));
+  basis.row_status.resize(static_cast<std::size_t>(nrows));
+  for (std::size_t i = 0; i < basis.col_status.size(); ++i) {
+    basis.col_status[i] = from_mindopt_status(col_basis[i]);
+  }
+  for (std::size_t i = 0; i < basis.row_status.size(); ++i) {
+    basis.row_status[i] = from_mindopt_status(row_basis[i]);
+  }
+  return basis;
+}
+
+bool MindOptSolverBackend::set_basis(const Basis& basis)
+{
+  const auto ncols = static_cast<std::size_t>(get_num_cols());
+  const auto nrows = static_cast<std::size_t>(get_num_rows());
+  // The LinearInterface reconciles dimensions before calling; a mismatch here
+  // means a raw-backend misuse — reject rather than guess.
+  if (basis.col_status.size() != ncols || basis.row_status.size() != nrows) {
+    return false;
+  }
+  std::vector<int> col_basis(ncols);
+  std::vector<int> row_basis(nrows);
+  for (std::size_t i = 0; i < ncols; ++i) {
+    col_basis[i] = to_mindopt_status(basis.col_status[i]);
+  }
+  for (std::size_t i = 0; i < nrows; ++i) {
+    row_basis[i] = to_mindopt_status(basis.row_status[i]);
+  }
+  const bool ok_c = MDOsetintattrarray(m_model_,
+                                       MDO_INT_ATTR_COL_BASIS,
+                                       0,
+                                       static_cast<int>(ncols),
+                                       col_basis.data())
+      == MDO_OKAY;
+  const bool ok_r = nrows == 0
+      || MDOsetintattrarray(m_model_,
+                            MDO_INT_ATTR_ROW_BASIS,
+                            0,
+                            static_cast<int>(nrows),
+                            row_basis.data())
+          == MDO_OKAY;
+  return ok_c && ok_r;
 }
 
 void MindOptSolverBackend::set_row_price(const double* price)

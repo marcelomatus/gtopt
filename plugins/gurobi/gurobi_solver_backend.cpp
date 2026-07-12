@@ -29,6 +29,40 @@ namespace gtopt
 namespace
 {
 
+/// Map a Gurobi VBasis/CBasis status code to the solver-agnostic BasisStatus.
+/// Gurobi codes: GRB_BASIC (0), GRB_NONBASIC_LOWER (-1),
+/// GRB_NONBASIC_UPPER (-2), GRB_SUPERBASIC (-3).
+[[nodiscard]] BasisStatus from_gurobi_status(int st) noexcept
+{
+  switch (st) {
+    case GRB_BASIC:
+      return BasisStatus::basic;
+    case GRB_NONBASIC_UPPER:
+      return BasisStatus::at_upper;
+    case GRB_SUPERBASIC:
+      return BasisStatus::free;
+    case GRB_NONBASIC_LOWER:
+    default:
+      return BasisStatus::at_lower;
+  }
+}
+
+/// Map a solver-agnostic BasisStatus to a Gurobi VBasis/CBasis status code.
+[[nodiscard]] int to_gurobi_status(BasisStatus st) noexcept
+{
+  switch (st) {
+    case BasisStatus::basic:
+      return GRB_BASIC;
+    case BasisStatus::at_upper:
+      return GRB_NONBASIC_UPPER;
+    case BasisStatus::free:
+      return GRB_SUPERBASIC;
+    case BasisStatus::at_lower:
+      return GRB_NONBASIC_LOWER;
+  }
+  return GRB_NONBASIC_LOWER;
+}
+
 /// Apply every SolverOptions field onto a *fresh* Gurobi env.
 ///
 /// Pure helper: mutates `env` only, touches no backend members.  Shared
@@ -1008,6 +1042,79 @@ bool GurobiSolverBackend::set_mip_start(
                      const_cast<double*>(col_values.data()));  // NOLINT
   m_dirty_ = true;
   return true;
+}
+
+std::optional<Basis> GurobiSolverBackend::get_basis() const
+{
+  ensure_updated_();
+  const int ncols = get_num_cols();
+  const int nrows = get_num_rows();
+  if (ncols <= 0) {
+    return std::nullopt;
+  }
+  std::vector<int> vbasis(static_cast<std::size_t>(ncols));
+  std::vector<int> cbasis(static_cast<std::size_t>(nrows));
+  // A nonzero return (e.g. GRB_ERROR_DATA_NOT_AVAILABLE) means no basis is
+  // resident — the model was solved by barrier without crossover, or not yet
+  // solved by simplex.  Report "none" so callers cold-start.
+  if (GRBgetintattrarray(m_model_, GRB_INT_ATTR_VBASIS, 0, ncols, vbasis.data())
+      != 0)
+  {
+    return std::nullopt;
+  }
+  if (nrows > 0
+      && GRBgetintattrarray(
+             m_model_, GRB_INT_ATTR_CBASIS, 0, nrows, cbasis.data())
+          != 0)
+  {
+    return std::nullopt;
+  }
+  Basis basis;
+  basis.col_status.resize(static_cast<std::size_t>(ncols));
+  basis.row_status.resize(static_cast<std::size_t>(nrows));
+  for (std::size_t i = 0; i < basis.col_status.size(); ++i) {
+    basis.col_status[i] = from_gurobi_status(vbasis[i]);
+  }
+  for (std::size_t i = 0; i < basis.row_status.size(); ++i) {
+    basis.row_status[i] = from_gurobi_status(cbasis[i]);
+  }
+  return basis;
+}
+
+bool GurobiSolverBackend::set_basis(const Basis& basis)
+{
+  ensure_updated_();
+  const auto ncols = static_cast<std::size_t>(get_num_cols());
+  const auto nrows = static_cast<std::size_t>(get_num_rows());
+  // The LinearInterface reconciles dimensions before calling; a mismatch here
+  // means a raw-backend misuse — reject rather than guess.
+  if (basis.col_status.size() != ncols || basis.row_status.size() != nrows) {
+    return false;
+  }
+  std::vector<int> vbasis(ncols);
+  std::vector<int> cbasis(nrows);
+  for (std::size_t i = 0; i < ncols; ++i) {
+    vbasis[i] = to_gurobi_status(basis.col_status[i]);
+  }
+  for (std::size_t i = 0; i < nrows; ++i) {
+    cbasis[i] = to_gurobi_status(basis.row_status[i]);
+  }
+  const bool ok_v = GRBsetintattrarray(m_model_,
+                                       GRB_INT_ATTR_VBASIS,
+                                       0,
+                                       static_cast<int>(ncols),
+                                       vbasis.data())
+      == 0;
+  const bool ok_c = nrows == 0
+      || GRBsetintattrarray(m_model_,
+                            GRB_INT_ATTR_CBASIS,
+                            0,
+                            static_cast<int>(nrows),
+                            cbasis.data())
+          == 0;
+  // Flush the attribute writes before the next solve reads them.
+  m_dirty_ = true;
+  return ok_v && ok_c;
 }
 
 void GurobiSolverBackend::set_row_price(const double* price)

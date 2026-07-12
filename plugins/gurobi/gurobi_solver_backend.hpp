@@ -157,6 +157,19 @@ public:
   bool set_mip_start(std::span<const double> col_values,
                      MipStartEffort effort) override;
 
+  // ---- simplex basis (advanced warm start) ----
+  /// Capture the resident Gurobi simplex basis via the `VBasis`/`CBasis`
+  /// integer attribute arrays (`GRBgetintattrarray`), mapping each native
+  /// status code to the solver-agnostic `Basis`.  Returns `nullopt` when no
+  /// basis is resident (barrier without crossover, or never solved by simplex).
+  [[nodiscard]] std::optional<Basis> get_basis() const override;
+
+  /// Install a `Basis` as an advanced warm start by writing the `VBasis`/
+  /// `CBasis` attributes (`GRBsetintattrarray`).  Gurobi warm-starts the next
+  /// simplex solve from the resident basis automatically; pair with
+  /// `SolverOptions::advanced_basis` so a simplex method — not barrier — runs.
+  bool set_basis(const Basis& basis) override;
+
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;

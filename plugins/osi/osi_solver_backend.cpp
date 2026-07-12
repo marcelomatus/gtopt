@@ -17,6 +17,7 @@
 #include <coin/CoinMessageHandler.hpp>
 #include <coin/CoinPackedMatrix.hpp>
 #include <coin/CoinPackedVector.hpp>
+#include <coin/CoinWarmStartBasis.hpp>
 #include <coin/OsiClpSolverInterface.hpp>
 #include <coin/OsiSolverInterface.hpp>
 #include <gtopt/log_and_throw.hpp>
@@ -213,6 +214,40 @@ void apply_options_to_solver(OsiSolverInterface* solver,
     const bool dual_in_resolve = (opts.algorithm == LPAlgo::dual);
     solver->setHintParam(OsiDoDualInResolve, dual_in_resolve, OsiHintDo);
   }
+}
+
+/// Map a COIN `CoinWarmStartBasis::Status` to the solver-agnostic BasisStatus.
+[[nodiscard]] BasisStatus from_coin_status(
+    CoinWarmStartBasis::Status st) noexcept
+{
+  switch (st) {
+    case CoinWarmStartBasis::basic:
+      return BasisStatus::basic;
+    case CoinWarmStartBasis::atUpperBound:
+      return BasisStatus::at_upper;
+    case CoinWarmStartBasis::isFree:
+    case CoinWarmStartBasis::superBasic:
+      return BasisStatus::free;
+    case CoinWarmStartBasis::atLowerBound:
+    default:
+      return BasisStatus::at_lower;
+  }
+}
+
+/// Map a solver-agnostic BasisStatus to a COIN `CoinWarmStartBasis::Status`.
+[[nodiscard]] CoinWarmStartBasis::Status to_coin_status(BasisStatus st) noexcept
+{
+  switch (st) {
+    case BasisStatus::basic:
+      return CoinWarmStartBasis::basic;
+    case BasisStatus::at_upper:
+      return CoinWarmStartBasis::atUpperBound;
+    case BasisStatus::free:
+      return CoinWarmStartBasis::isFree;
+    case BasisStatus::at_lower:
+      return CoinWarmStartBasis::atLowerBound;
+  }
+  return CoinWarmStartBasis::atLowerBound;
 }
 
 }  // namespace
@@ -701,6 +736,61 @@ bool OsiSolverBackend::set_mip_start(const std::span<const double> col_values,
   (void)col_values;
   (void)effort;
   return false;
+}
+
+std::optional<Basis> OsiSolverBackend::get_basis() const
+{
+  // OSI returns a heap-owned generic CoinWarmStart; for CLP/CBC it is a
+  // CoinWarmStartBasis.  Own it via unique_ptr so it is freed on every path.
+  const std::unique_ptr<CoinWarmStart> ws {m_solver_->getWarmStart()};
+  const auto* wsb = dynamic_cast<const CoinWarmStartBasis*>(ws.get());
+  if (wsb == nullptr) {
+    return std::nullopt;
+  }
+  const int ncols = wsb->getNumStructural();
+  const int nrows = wsb->getNumArtificial();
+  // A never-solved solver hands back an empty (0×0) basis — report "none" so
+  // callers treat it as a cold start rather than an all-at-lower seed.
+  if (ncols <= 0) {
+    return std::nullopt;
+  }
+  Basis basis;
+  basis.col_status.resize(static_cast<std::size_t>(ncols));
+  basis.row_status.resize(static_cast<std::size_t>(nrows));
+  for (int i = 0; i < ncols; ++i) {
+    basis.col_status[static_cast<std::size_t>(i)] =
+        from_coin_status(wsb->getStructStatus(i));
+  }
+  for (int i = 0; i < nrows; ++i) {
+    basis.row_status[static_cast<std::size_t>(i)] =
+        from_coin_status(wsb->getArtifStatus(i));
+  }
+  return basis;
+}
+
+bool OsiSolverBackend::set_basis(const Basis& basis)
+{
+  const auto ncols = static_cast<std::size_t>(m_solver_->getNumCols());
+  const auto nrows = static_cast<std::size_t>(m_solver_->getNumRows());
+  // The LinearInterface reconciles dimensions before calling; a mismatch here
+  // means a raw-backend misuse — reject rather than guess.
+  if (basis.col_status.size() != ncols || basis.row_status.size() != nrows) {
+    return false;
+  }
+  CoinWarmStartBasis wsb;
+  wsb.setSize(static_cast<int>(ncols), static_cast<int>(nrows));
+  for (std::size_t i = 0; i < ncols; ++i) {
+    wsb.setStructStatus(static_cast<int>(i),
+                        to_coin_status(basis.col_status[i]));
+  }
+  for (std::size_t i = 0; i < nrows; ++i) {
+    wsb.setArtifStatus(static_cast<int>(i),
+                       to_coin_status(basis.row_status[i]));
+  }
+  // Installs the advanced start; the next resolve() (which OSI/CLP warm-starts
+  // from the resident basis) honours it when a simplex method runs — pair with
+  // SolverOptions::advanced_basis so resolve() forces simplex, not barrier.
+  return m_solver_->setWarmStart(&wsb);
 }
 
 void OsiSolverBackend::initial_solve()

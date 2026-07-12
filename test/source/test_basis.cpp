@@ -9,7 +9,8 @@
  * Covers the solver-agnostic `Basis` / `reconcile_basis` helper (no solver
  * needed) and a backend round-trip through `LinearInterface::get_basis` /
  * `set_basis`, gated on the active backend actually supporting a basis
- * (CPLEX / HiGHS do; OSI / cuOpt return nullopt — the round-trip self-skips).
+ * (CPLEX / HiGHS / OSI-CLP / Gurobi / MindOpt do; cuOpt PDLP and SCIP return
+ * nullopt — the round-trip self-skips there).
  */
 
 #include <doctest/doctest.h>
@@ -107,8 +108,9 @@ TEST_CASE("Basis - backend get/set round-trip")  // NOLINT
 
   const auto captured = lp.get_basis();
   if (!captured.has_value()) {
-    // OSI / cuOpt etc. — basis not exposed; the primitive degrades to a
-    // benign skip.  Nothing more to assert on this backend.
+    // cuOpt (PDLP, no basis) / SCIP, or a barrier-without-crossover solve —
+    // basis not exposed; the primitive degrades to a benign skip.  Nothing
+    // more to assert on this backend.
     WARN_MESSAGE(captured.has_value(),
                  "active backend exposes no basis; round-trip skipped");
     return;

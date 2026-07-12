@@ -642,3 +642,58 @@ TEST_CASE(  // NOLINT
   backend->disengage_robust_solve();
   CHECK(true);
 }
+
+TEST_CASE("OSI/CLP get_basis/set_basis round-trip warm-starts")  // NOLINT
+{
+  auto backend = make_osi_clp_or_skip();
+  if (!backend) {
+    return;
+  }
+
+  // Cold solve, then capture the optimal simplex basis via getWarmStart().
+  OsiTrivialLP2 lp {backend->infinity()};
+  lp.load_into(*backend);
+  backend->initial_solve();
+  REQUIRE(backend->is_proven_optimal());
+  CHECK(backend->obj_value() == doctest::Approx(2.0));
+
+  const auto captured = backend->get_basis();
+  // OSI/CLP always leaves a resident simplex basis after a solve.
+  REQUIRE(captured.has_value());
+  CHECK(captured->num_cols()
+        == static_cast<std::size_t>(backend->get_num_cols()));
+  CHECK(captured->num_rows()
+        == static_cast<std::size_t>(backend->get_num_rows()));
+
+  SUBCASE("install the captured basis into a fresh backend + warm-solve")
+  {
+    auto warm = make_osi_clp_or_skip();
+    REQUIRE(warm);
+    OsiTrivialLP2 warm_lp {warm->infinity()};
+    warm_lp.load_into(*warm);
+
+    // Dimensions match, so set_basis installs verbatim.
+    REQUIRE(warm->set_basis(*captured));
+
+    SolverOptions opts;
+    opts.advanced_basis = true;  // force a simplex (warm) resolve, not barrier.
+    opts.algorithm = LPAlgo::dual;
+    warm->apply_options(opts);
+
+    warm->initial_solve();
+    REQUIRE(warm->is_proven_optimal());
+    CHECK(warm->obj_value() == doctest::Approx(2.0));
+  }
+
+  SUBCASE("dimension mismatch is rejected")
+  {
+    // A 3-col LP cannot accept a 2-col basis: set_basis must return false
+    // rather than corrupt the solver (the LinearInterface reconciles before
+    // calling; a raw-backend caller with wrong dims is rejected here).
+    auto other = make_osi_clp_or_skip();
+    REQUIRE(other);
+    OsiTrivialLP3 lp3 {other->infinity()};
+    lp3.load_into(*other);
+    CHECK_FALSE(other->set_basis(*captured));
+  }
+}

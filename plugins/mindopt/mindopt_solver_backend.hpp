@@ -159,6 +159,23 @@ public:
   bool set_mip_start(std::span<const double> col_values,
                      MipStartEffort effort) override;
 
+  // ---- simplex basis (advanced warm start) ----
+  /// Capture the resident MindOpt simplex basis via the `ColBasis`/`RowBasis`
+  /// integer attribute arrays (`MDOgetintattrarray`), mapping each native
+  /// status code to the solver-agnostic `Basis`.  Returns `nullopt` when no
+  /// basis is resident (barrier/IPM without crossover, or never solved by
+  /// simplex).  The status encoding (undocumented in the SDK) was determined
+  /// empirically to follow the COIN convention (0 = free, 1 = basic,
+  /// 2 = at upper, 3 = at lower) — NOT the Gurobi negative-code one; see the
+  /// mapper in the .cpp and the round-trip doctest.
+  [[nodiscard]] std::optional<Basis> get_basis() const override;
+
+  /// Install a `Basis` as an advanced warm start by writing the `ColBasis`/
+  /// `RowBasis` attributes (`MDOsetintattrarray`).  MindOpt's simplex
+  /// warm-starts from the resident basis automatically; pair with
+  /// `SolverOptions::advanced_basis` so a simplex method — not IPM — runs.
+  bool set_basis(const Basis& basis) override;
+
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;

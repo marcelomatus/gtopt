@@ -155,6 +155,20 @@ public:
   bool set_mip_start(std::span<const double> col_values,
                      MipStartEffort effort) override;
 
+  // ---- simplex basis (advanced warm start) ----
+  /// Capture the resident CLP simplex basis via
+  /// `OsiSolverInterface::getWarmStart()` (a `CoinWarmStartBasis`), mapping its
+  /// structural/artificial statuses to the solver-agnostic `Basis`.  Returns
+  /// `nullopt` when no basis is resident (the LP was never solved by simplex).
+  [[nodiscard]] std::optional<Basis> get_basis() const override;
+
+  /// Install a `Basis` as an advanced warm start via
+  /// `OsiSolverInterface::setWarmStart(CoinWarmStartBasis*)`.  The next
+  /// `resolve()` (which OSI/CLP always warm-starts from the resident basis)
+  /// picks it up; pair with `SolverOptions::advanced_basis` so a simplex
+  /// method — not barrier — runs the re-solve.
+  bool set_basis(const Basis& basis) override;
+
   // ---- solve ----
   void initial_solve() override;
   void resolve() override;
