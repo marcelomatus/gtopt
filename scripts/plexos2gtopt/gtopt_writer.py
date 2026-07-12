@@ -138,6 +138,7 @@ def build_options(
     use_single_bus: bool = False,
     demand_fail_cost: float = 1000.0,
     loss_cost_eps: float = 0.0,
+    loss_secant_segments: int | None = None,
     line_losses_mode: str | None = None,
     write_out: str | None = None,
 ) -> dict[str, Any]:
@@ -222,6 +223,17 @@ def build_options(
             # inherits this ε to break LP-relax bidirectional-flow
             # degeneracy.
             **({"loss_cost_eps": loss_cost_eps} if loss_cost_eps > 0.0 else {}),
+            # ``loss_secant_segments`` (default 4 from the plexos2gtopt
+            # CLI) — global L-secant chord count for the
+            # tangent_signed_flow |f|-aux upper bracket; also the SOS2
+            # lambda-form resolution on lines with ``loss_use_sos2``.
+            # Emitted whenever set (mirrors ``loss_cost_eps`` above);
+            # ``None`` keeps gtopt's built-in single-chord default.
+            **(
+                {"loss_secant_segments": int(loss_secant_segments)}
+                if loss_secant_segments is not None
+                else {}
+            ),
             # ``line_losses_mode`` (default ``tangent_signed_flow`` on
             # plexos2gtopt — Coffrin outer-approximation) is emitted
             # only when explicitly set.  ``None`` lets gtopt fall back
@@ -1085,7 +1097,7 @@ def _resolve_loss_layout(line: Any) -> tuple[str, int]:
       1. ``line.loss_segments`` if set (> 0) by ``extract_lines`` via the
          cube-root adaptive rule (``--loss-error-pct``).  Per-line K, the
          normal path on bundles converted post-2026-05-29.
-      2. ``GTOPT_NSEG_LOSSES`` env var (``--nseg-losses``, default 6)
+      2. ``GTOPT_NSEG_LOSSES`` env var (``--nseg-losses``, default 10)
          applied uniformly when the adaptive rule was disabled
          (``--loss-error-pct 0``) or the LineSpec carries no override
          (older JSON pre-dating the field).
@@ -1418,7 +1430,7 @@ def build_line_array(
                     entry["line_losses_mode"] = "tangent_signed_flow"
                     entry["loss_secant_segments"] = secant_L
                     entry["loss_use_sos2"] = True
-                    entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 6)
+                    entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 10)
                 else:
                     # Honor the model-level loss mode (``--line-losses-mode``,
                     # default ``tangent_signed_flow`` = Coffrin
@@ -1426,12 +1438,12 @@ def build_line_array(
                     # model — K tangent inequalities forming a LOWER outer
                     # envelope of ``(R/V²)·f²``, exact at the tangent points
                     # so it never over-states loss — and carries NO PWL
-                    # layout; K defaults to ``--nseg-losses`` (6).  Only the
+                    # layout; K defaults to ``--nseg-losses`` (10).  Only the
                     # piecewise modes use a per-line PWL layout + adaptive K.
                     mode = line_losses_mode or "tangent_signed_flow"
                     entry["line_losses_mode"] = mode
                     if mode == "tangent_signed_flow":
-                        entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 6)
+                        entry["loss_segments"] = _int_loss_env("GTOPT_NSEG_LOSSES", 10)
                     else:
                         layout, nseg = _resolve_loss_layout(line)
                         entry["loss_segments"] = nseg
@@ -3746,6 +3758,7 @@ def build_planning(  # pylint: disable=too-many-arguments
     fcf_scale_alpha: float | None = None,
     fcf_coeff_divisor: float = 1.0,
     loss_cost_eps: float = 0.0,
+    loss_secant_segments: int | None = None,
     line_losses_mode: str | None = None,
     write_out: str | None = None,
     cogen_must_run: frozenset[str] = frozenset(),
@@ -4003,6 +4016,7 @@ def build_planning(  # pylint: disable=too-many-arguments
             use_single_bus=use_single_bus,
             demand_fail_cost=case.bundle.demand_fail_cost,
             loss_cost_eps=loss_cost_eps,
+            loss_secant_segments=loss_secant_segments,
             line_losses_mode=line_losses_mode,
             write_out=write_out,
         ),

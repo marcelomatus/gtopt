@@ -69,14 +69,16 @@ def test_aperture_chunk_size_defaults_to_none() -> None:
     assert args.aperture_chunk_size is None
 
 
-def test_loss_cost_eps_defaults_to_zero_point_one() -> None:
-    # plp2gtopt now ships ``loss_cost_eps = 0.1 $/MWh`` by default —
+def test_loss_cost_eps_defaults_to_one() -> None:
+    # plp2gtopt now ships ``loss_cost_eps = 1.0 $/MWh`` by default —
     # strictly breaks the bidirectional-flow degeneracy even under
-    # aggressive presolve / Ruiz scaling.  Pass ``--loss-cost-eps 0``
+    # aggressive presolve / Ruiz scaling, and doubles as the v-pin the
+    # tangent_signed_flow L-secant bracket needs when
+    # loss_secant_segments > 1 without SOS2.  Pass ``--loss-cost-eps 0``
     # to opt out.
     p = make_parser()
     args = p.parse_args(["/tmp/x"])
-    assert args.loss_cost_eps == 0.1
+    assert args.loss_cost_eps == 1.0
 
 
 def test_lift_line_caps_defaults_to_none() -> None:
@@ -119,12 +121,21 @@ def test_build_options_emits_loss_cost_eps() -> None:
 
 
 def test_build_options_emits_default_loss_cost_eps() -> None:
-    # The plp2gtopt default ``--loss-cost-eps 0.1`` is forwarded as
+    # The plp2gtopt default ``--loss-cost-eps 1.0`` is forwarded as
     # ``options.model_options.loss_cost_eps`` so the gtopt LP receives
     # the strict degeneracy-breaker out of the box (no opt-in needed).
     args = _parse()
     opts = build_options(args)
-    assert opts["model_options"]["loss_cost_eps"] == 0.1
+    assert opts["model_options"]["loss_cost_eps"] == 1.0
+
+
+def test_build_options_emits_default_loss_secant_segments() -> None:
+    # The plp2gtopt default ``--loss-secant-segments 2`` is forwarded as
+    # ``options.model_options.loss_secant_segments`` — the 2-chord
+    # L-secant upper bracket for the default tangent_signed_flow mode.
+    args = _parse()
+    opts = build_options(args)
+    assert opts["model_options"]["loss_secant_segments"] == 2
 
 
 def test_build_options_emits_explicit_zero_loss_cost_eps() -> None:

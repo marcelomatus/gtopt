@@ -386,7 +386,7 @@ class LineSpec:
     # (the default) means "no per-line override — let the writer pull
     # the uniform ``GTOPT_NSEG_LOSSES`` env var" (legacy behaviour).
     # When non-zero, the writer emits exactly this many segments on the
-    # line, bounded by ``[floor=2, ceiling=--nseg-losses (default 6)]``.
+    # line, bounded by ``[floor=2, ceiling=--nseg-losses (default 10)]``.
     loss_segments: int = 0
     # Per-line override for the piecewise-linear loss SEGMENT LAYOUT.
     # Set by ``_apply_dynamic_loss_layout`` when ``--loss-pwl-layout dynamic``

@@ -35,6 +35,7 @@ __all__ = [
     "add_lift_line_caps_argument",
     "add_line_losses_mode_argument",
     "add_loss_cost_eps_argument",
+    "add_loss_secant_segments_argument",
     "add_scale_objective_argument",
     "add_soft_storage_bounds_argument",
     "add_use_kirchhoff_argument",
@@ -498,6 +499,38 @@ def add_loss_cost_eps_argument(
             f"add_loss_cost_eps_argument: unknown dialect {dialect!r}; "
             "expected 'plp' or 'plexos'"
         )
+
+
+def add_loss_secant_segments_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    default: int | None = None,
+) -> None:
+    """Register ``--loss-secant-segments`` (L-secant chord count).
+
+    Global default for the number of secant chord segments the
+    ``tangent_signed_flow`` loss model uses for its ``|f|``-aux upper
+    bracket.  Emitted as ``options.model_options.loss_secant_segments``;
+    ``default=None`` leaves the field unset so gtopt picks its built-in
+    default (1 — the single-chord legacy bracket).
+    """
+    parser.add_argument(
+        "--loss-secant-segments",
+        dest="loss_secant_segments",
+        type=int,
+        default=default,
+        metavar="S",
+        help=(
+            "L-secant chord segments for the tangent_signed_flow loss "
+            "upper bracket (the |f|-aux chord that caps the tangent "
+            "lower approximation from above). S>1 tightens the bracket "
+            "but, without SOS2, relies on loss_cost_eps > 0 (the "
+            "internal v-pin) to keep the segment fill-order honest in "
+            "a pure LP. S also sets the SOS2 lambda-form resolution "
+            "when loss_use_sos2 is enabled per line. Emitted as "
+            "options.model_options.loss_secant_segments."
+        ),
+    )
 
 
 #: Default ``--lift-line-caps`` set for the plexos dialect.  Under the

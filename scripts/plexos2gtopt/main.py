@@ -18,6 +18,7 @@ from gtopt_shared.cli_flags import (
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
+    add_loss_secant_segments_argument,
     add_no_lift_lines_argument,
     add_soft_storage_bounds_argument,
     add_use_single_bus_argument,
@@ -422,17 +423,25 @@ def make_parser() -> argparse.ArgumentParser:
             "line_losses.cpp seg_geom docstring)."
         ),
     )
-    # plexos2gtopt default = 0.1 ($/MWh) — strictly breaks PWL-loss
-    # bidirectional-flow degeneracy AND removes the lossp/lossn duals
-    # that, under the legacy 0.0, were exhibiting kappa contributions
-    # from the per-direction columns (ratio 5.77e+05 on jan18 LP-relax).
-    add_loss_cost_eps_argument(parser, dialect="plexos", default=0.1)
+    # plexos2gtopt default = 1.0 ($/MWh) — strictly breaks PWL-loss
+    # bidirectional-flow degeneracy AND acts as the internal v-pin the
+    # tangent_signed_flow L-secant bracket needs when
+    # loss_secant_segments > 1 without SOS2.  (The former 0.1 already
+    # removed the lossp/lossn kappa contributions — ratio 5.77e+05 on
+    # jan18 LP-relax — vs the legacy 0.0.)
+    add_loss_cost_eps_argument(parser, dialect="plexos", default=1.0)
+    # plexos2gtopt default = 4 secant chords for the tangent_signed_flow
+    # |f|-aux upper bracket, kept honest in the pure LP by the
+    # loss_cost_eps v-pin above; doubles as the SOS2 lambda-form
+    # resolution on lines with loss_use_sos2.
+    add_loss_secant_segments_argument(parser, default=4)
     # plexos2gtopt default = "tangent_signed_flow" (Coffrin outer
-    # approximation): one signed flow column + K=6 tangents + 1 chord
+    # approximation): one signed flow column + K tangents + 1 chord
     # upper bound per (line, block); 56 % fewer LP nonzeros than the
     # legacy `bidirectional` (`fp/fn/lossp/lossn`) model AND no
-    # phantom-flow degeneracy by construction.  K=6 is the default
-    # tangent count (driven by `--nseg-losses=6` below).
+    # phantom-flow degeneracy by construction.  The tangent count K is
+    # sized per line by the adaptive cube-root rule, capped by
+    # `--nseg-losses=10` below.
     add_line_losses_mode_argument(parser, default="tangent_signed_flow")
     parser.add_argument(
         "--emin-eod-day1",
@@ -533,15 +542,17 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--nseg-losses",
         type=int,
-        default=6,
+        default=10,
         help=(
-            "Piecewise-linear loss-segment / tangent count.  Default = **6** "
+            "Piecewise-linear loss-segment / tangent count.  Default = **10** "
             "(the K parameter for the Coffrin ``tangent_signed_flow`` model, "
             "and the per-direction PWL-segment count under legacy modes).  "
             "Interpretation depends on ``--loss-error-pct``:\n"
             "  * Adaptive mode (default, ``--loss-error-pct > 0``): "
             "``--nseg-losses`` is the CEILING on the per-line K computed "
-            "by the cube-root rule (``K_i ∝ L_max,i^(1/3)``).\n"
+            "by the cube-root rule (``K_i ∝ L_max,i^(1/3)``), rounded UP "
+            "to the next EVEN integer (an odd K wastes the zero-slope "
+            "middle tangent under ``tangent_signed_flow``).\n"
             "  * Uniform mode (``--loss-error-pct 0``): every lossy line "
             "gets exactly ``--nseg-losses`` segments.\n"
             "Floor is always 2 (a single secant is degenerate).  "
@@ -1125,6 +1136,7 @@ def main(argv: list[str] | None = None) -> None:
         "loss_extend_overload": args.loss_extend_overload,
         "loss_pwl_layout": args.loss_pwl_layout,
         "loss_cost_eps": args.loss_cost_eps,
+        "loss_secant_segments": args.loss_secant_segments,
         "line_losses_mode": args.line_losses_mode,
         # Forwarded to ``options.write_out`` (see
         # ``gtopt_writer.build_options``).  ``getattr`` with the canonical

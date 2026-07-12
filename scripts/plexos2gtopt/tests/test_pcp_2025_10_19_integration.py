@@ -6,14 +6,16 @@ PLEXOS archives being present and a MIP-capable ``gtopt`` binary, and marked
 pipeline:
 
   1. ``plexos2gtopt`` converts ``support/plexos/pcp_2025-10-19`` (the
-     ``DATOS``/``RES`` archives) into a gtopt bundle, emitting the MIP warm-start (relax→round→domain_rules→inject)
-     MIP-start by default (the converter default), then
+     ``DATOS``/``RES`` archives) into a gtopt bundle, emitting the
+     MIP warm-start (relax→round→domain_rules→inject) MIP-start by
+     default (the converter default), then
   2. ``gtopt`` solves the converted case to proven optimality using that
      MIP-start (bypassing the "incumbent cliff").
 
 Run it explicitly with::
 
-    cd scripts && python -m pytest plexos2gtopt/tests/test_pcp_2025_10_19_integration.py -m integration -s
+    cd scripts && python -m pytest \
+        plexos2gtopt/tests/test_pcp_2025_10_19_integration.py -m integration -s
 """
 
 from __future__ import annotations

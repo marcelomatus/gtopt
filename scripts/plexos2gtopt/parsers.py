@@ -2931,7 +2931,15 @@ def _apply_adaptive_loss_segments(
     new_lines = list(lines)
     for i, ln, L in lossy:
         k_raw = c * (L ** (1.0 / 3.0))
-        k = max(floor, min(ceiling, int(math.ceil(k_raw))))
+        # Round the computed K UP to the next EVEN integer:
+        # tangent_signed_flow lays its K tangents symmetrically about
+        # f = 0, so an odd K spends one tangent at the zero-slope
+        # midpoint — a row that never binds (wasted LP nonzeros).
+        # Floor 2 is even by construction; the --nseg-losses ceiling
+        # still clamps afterwards (verbatim, per the CLI contract).
+        k = int(math.ceil(k_raw))
+        k += k % 2
+        k = max(floor, min(ceiling, k))
         new_lines[i] = dataclasses.replace(ln, loss_segments=k)
     # Lossless lines: keep loss_segments=0 (writer omits the curve)
 
@@ -3022,7 +3030,12 @@ def _apply_dynamic_loss_layout(
         if L <= 0.0:
             continue
         k_raw = c_dyn * (L ** (1.0 / 3.0))
-        k = max(floor, min(ceiling, int(math.ceil(k_raw))))
+        # Even-K rounding — same rationale as in
+        # ``_apply_adaptive_loss_segments``: an odd K wastes the
+        # zero-slope middle tangent under tangent_signed_flow.
+        k = int(math.ceil(k_raw))
+        k += k % 2
+        k = max(floor, min(ceiling, k))
         new_lines[i] = dataclasses.replace(new_lines[i], loss_segments=k)
         enriched.append((i, ln, L, k))
 
@@ -3167,7 +3180,14 @@ def _apply_dynamic_loss_layout(
             # Phase 1.5 never reduces K below 2.
             if k <= 2:
                 continue
-            new_k = k - 1
+            # Reduce in steps of 2 so K stays EVEN (Phase 1' rounds up
+            # to even; an odd K would waste the zero-slope middle
+            # tangent under tangent_signed_flow).  Guard against odd
+            # inputs (e.g. an odd --nseg-losses ceiling clamp) dropping
+            # below the floor.
+            new_k = k - 2
+            if new_k < 2:
+                continue
             delta_worst = L / (4.0 * new_k * new_k) - L / (4.0 * k * k)
             # Per-side worst-case check: only the side this line lives
             # on grows; the other side is unchanged.

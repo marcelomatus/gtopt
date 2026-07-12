@@ -1233,6 +1233,15 @@ class GTOptWriter(
             model_opts["use_line_losses"] = src_model["use_line_losses"]
         if "line_losses_mode" in src_model:
             model_opts["line_losses_mode"] = src_model["line_losses_mode"]
+        # ``loss_cost_eps`` / ``loss_secant_segments`` ride the same
+        # allowlist: ``model_opts`` is rebuilt from scratch here, so any
+        # key not copied explicitly is silently DROPPED even when
+        # ``main.build_options`` set it (the loss-model CLI defaults —
+        # tangent_signed_flow + eps=1.0 + S=2 — depend on these).
+        if "loss_cost_eps" in src_model:
+            model_opts["loss_cost_eps"] = src_model["loss_cost_eps"]
+        if "loss_secant_segments" in src_model:
+            model_opts["loss_secant_segments"] = src_model["loss_secant_segments"]
         if "kirchhoff_mode" in src_model:
             model_opts["kirchhoff_mode"] = src_model["kirchhoff_mode"]
 

@@ -4,7 +4,7 @@
     "bus_b": "B",
     "line_losses_mode": "tangent_signed_flow",
     "loss_envelope": 350.0,
-    "loss_segments": 6,
+    "loss_segments": 10,
     "name": "L_AB",
     "resistance": 0.012,
     "tmax_ab": 350.0,

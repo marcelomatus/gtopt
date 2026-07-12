@@ -339,7 +339,7 @@ def _apply_plp_legacy_bundle(args: argparse.Namespace) -> None:
       | Option           | Default (normal)       | --plp-legacy       |
       |------------------|------------------------|--------------------|
       | method           | sddp                   | sddp (=)           |
-      | line_losses_mode | unset (→adaptive)      | piecewise_direct   |
+      | line_losses_mode | tangent_signed_flow    | piecewise_direct   |
       | use_line_losses  | unset (→gtopt true)    | true (explicit)    |
       | pasada_mode      | auto                   | flow-turbine       |
       | use_kirchhoff    | true                   | true (=)           |
@@ -571,6 +571,8 @@ def build_options(args: argparse.Namespace) -> dict:
         model_opts["line_losses_mode"] = args.line_losses_mode
     if getattr(args, "loss_cost_eps", None) is not None:
         model_opts["loss_cost_eps"] = args.loss_cost_eps
+    if getattr(args, "loss_secant_segments", None) is not None:
+        model_opts["loss_secant_segments"] = args.loss_secant_segments
     opts["model_options"] = model_opts
 
     if getattr(args, "aperture_chunk_size", None) is not None:
@@ -582,8 +584,8 @@ def build_options(args: argparse.Namespace) -> dict:
     # (``lp_reduction``, ~-19% wall) + dual aperture warm-start
     # (``aperture_solve_mode = warm`` with ``aperture_chunk_size = 0`` — auto,
     # parallel per-aperture chunks) + dual simplex on the forward/backward
-    # passes with an advanced (warm) basis.  The ``piecewise_direct`` loss
-    # model is the default already (see ``line_losses_mode`` above).  All are
+    # passes with an advanced (warm) basis.  The ``tangent_signed_flow``
+    # loss model is the default (see ``line_losses_mode`` above).  All are
     # overridable.  Applied to BOTH ``sddp`` and ``cascade``: these top-level
     # ``sddp_options`` become the cascade base options (``m_base_opts_`` in
     # cascade_method.cpp), which every cascade level copies wholesale via

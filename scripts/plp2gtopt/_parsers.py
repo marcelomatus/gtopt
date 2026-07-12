@@ -23,6 +23,7 @@ from gtopt_shared.cli_flags import (
     add_lift_line_caps_argument,
     add_line_losses_mode_argument,
     add_loss_cost_eps_argument,
+    add_loss_secant_segments_argument,
     add_scale_objective_argument,
     add_soft_storage_bounds_argument,
     add_use_kirchhoff_argument,
@@ -1085,20 +1086,26 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "explicitly disable (omit to inherit the gtopt default: true)"
         ),
     )
-    # plp2gtopt defaults to ``piecewise_direct`` — the PLP-faithful loss model
-    # (PLP ``genpdlin.f``): per-segment bus stamps, no loss-tracking rows, the
-    # most compact LP and a row count matching PLP.  PLP cases operate in PLP's
-    # historical regime (no negative receiver LMPs), where piecewise_direct's
-    # phantom-flow caveat does not bite.  Override with --line-losses-mode for
-    # the safer bidirectional/adaptive model on cases that can see negative LMPs.
-    add_line_losses_mode_argument(parser, default="piecewise_direct")
-    # ``loss_cost_eps`` defaults to 0.1 $/MWh for plp2gtopt — well below
-    # any thermal SRMC so dispatch is unchanged, but large enough (vs the
-    # historical 1e-6 LP-tolerance-level value) that the bidirectional-
-    # flow degeneracy is strictly broken even under aggressive presolve
-    # / Ruiz scaling, eliminating phantom A→B + B→A flow on every
-    # PWL/bidirectional line.  Pass ``--loss-cost-eps 0`` to disable.
-    add_loss_cost_eps_argument(parser, dialect="plp", default=0.1)
+    # plp2gtopt defaults to ``tangent_signed_flow`` (Coffrin-Van Hentenryck
+    # outer approximation): one signed-flow column + K tangents + an |f|-aux
+    # chord upper bracket — the strongest LP relaxation with no
+    # bidirectional-flow degeneracy by construction.  The PLP-faithful
+    # ``piecewise_direct`` (PLP ``genpdlin.f``) remains available via
+    # --line-losses-mode (and is bundled by --plp-legacy) for PLP LP-diff
+    # parity runs.
+    add_line_losses_mode_argument(parser, default="tangent_signed_flow")
+    # ``loss_cost_eps`` defaults to 1.0 $/MWh for plp2gtopt — below any
+    # thermal SRMC so dispatch is unchanged, but strong enough that the
+    # tangent_signed_flow |f|-aux v-pin (required when
+    # loss_secant_segments > 1 without SOS2) and the legacy PWL
+    # bidirectional-flow degeneracy are strictly broken even under
+    # aggressive presolve / Ruiz scaling.  Pass ``--loss-cost-eps 0``
+    # to disable.
+    add_loss_cost_eps_argument(parser, dialect="plp", default=1.0)
+    # ``loss_secant_segments`` defaults to 2 for plp2gtopt: a 2-chord
+    # L-secant upper bracket on the tangent_signed_flow |f|-aux, kept
+    # honest in the pure LP by the loss_cost_eps v-pin above.
+    add_loss_secant_segments_argument(parser, default=2)
     add_lift_line_caps_argument(parser, dialect="plp")
     parser.add_argument(
         "--plp-legacy",

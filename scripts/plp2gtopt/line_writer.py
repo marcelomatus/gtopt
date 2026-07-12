@@ -56,6 +56,14 @@ class LineWriter(BaseWriter):
 
         pcols = self._write_parquet_files()
 
+        # Effective global loss mode: LineWriter receives the full CLI
+        # options dict (``main.build_options`` output, threaded through
+        # ``GTOptWriter.process_lines``), so the mode set by
+        # ``--line-losses-mode`` lives under ``model_options``.
+        losses_mode = (
+            (self.options or {}).get("model_options", {}).get("line_losses_mode")
+        )
+
         json_lines: List[Line] = []
         for line in items:
             line_name = line["name"]
@@ -96,9 +104,20 @@ class LineWriter(BaseWriter):
             if reactance != 0.0 and not is_hvdc:
                 json_line["reactance"] = reactance
 
-            # Only include loss_segments when > 1 (piecewise-linear model)
+            # Only include loss_segments when > 1 (piecewise-linear model).
+            # PLP's ``num_sections`` (Num.Tramos) counts segments PER
+            # DIRECTION, while tangent_signed_flow's K spans the SIGNED
+            # flow range [-tmax_ba, +tmax_ab] — so matching PLP's
+            # resolution needs K = 2 × num_sections.  2×n is automatically
+            # even, which matters: an odd K wastes the zero-slope middle
+            # tangent.  Every OTHER mode (piecewise_direct parity runs,
+            # piecewise, bidirectional, adaptive, …) keeps PLP's
+            # per-direction count verbatim.
             if num_sections > 1:
-                json_line["loss_segments"] = num_sections
+                if losses_mode == "tangent_signed_flow":
+                    json_line["loss_segments"] = 2 * num_sections
+                else:
+                    json_line["loss_segments"] = num_sections
 
             # Include use_line_losses when explicitly set per-line
             if mod_perdidas:
