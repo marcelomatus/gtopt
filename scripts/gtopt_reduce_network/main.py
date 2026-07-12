@@ -115,8 +115,44 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
         "-K",
         "--target-buses",
         type=int,
-        required=True,
-        help="target bus count after reduction",
+        default=None,
+        help="target bus count after reduction (or use --bus-ratio)",
+    )
+    p.add_argument(
+        "--bus-ratio",
+        type=float,
+        default=None,
+        metavar="R",
+        help=(
+            "target bus count as a fraction of the original bus count "
+            "(0 < R <= 1); mutually exclusive with -K/--target-buses"
+        ),
+    )
+    p.add_argument(
+        "--partition",
+        choices=["hac", "louvain-mincut"],
+        default="hac",
+        help=(
+            "partition backend: 'hac' (electrical-distance hierarchical "
+            "clustering) or 'louvain-mincut' (NetworkX Louvain communities "
+            "iteratively split at internal capacity min-cuts / merged by "
+            "strongest coupling until exactly K clusters)"
+        ),
+    )
+    p.add_argument(
+        "--nx-weight",
+        choices=["capacity", "susceptance"],
+        default="capacity",
+        help=(
+            "edge weight for --partition=louvain-mincut: mean directional "
+            "capacity (congestion-oriented, default) or 1/X"
+        ),
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="random seed for the Louvain community pass (default: 0)",
     )
     p.add_argument(
         "--distance",
@@ -220,8 +256,9 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
 
 def _cmd_reduce(args: argparse.Namespace) -> None:
     case = load_case(args.input)
+    target_buses = _resolve_target_buses(args, case)
     config = ReduceConfig(
-        target_buses=args.target_buses,
+        target_buses=target_buses,
         distance=args.distance,
         reactance_rule=args.reactance_rule,
         user_anchor_uids=tuple(args.anchor_uid),
@@ -230,6 +267,9 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
         include_reservoir_hosts=not args.no_reservoir_anchors,
         skip_local_simplify=args.skip_local_simplify,
         drop_lines_below_mw=args.drop_lines_below_mw,
+        partition=args.partition,
+        nx_weight=args.nx_weight,
+        seed=args.seed,
         transport_only=args.transport_only,
         loss_mode=args.loss_mode,
         loss_uplift_pct=args.loss_uplift_pct,
@@ -239,7 +279,7 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
     result = reduce_case(case, config)
 
     out_path: Path = args.output or args.input.with_suffix(
-        f".reduced.K{args.target_buses}.json"
+        f".reduced.K{target_buses}.json"
     )
     base = out_path.with_suffix("")
     save_case(result.case, out_path)
@@ -262,6 +302,19 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
             file=sys.stderr,
         )
     print(str(out_path))
+
+
+def _resolve_target_buses(args: argparse.Namespace, case: Any) -> int:
+    """Resolve -K/--target-buses vs --bus-ratio (exactly one required)."""
+    if (args.target_buses is None) == (args.bus_ratio is None):
+        raise ValueError("pass exactly one of -K/--target-buses or --bus-ratio")
+    if args.target_buses is not None:
+        return int(args.target_buses)
+    ratio = float(args.bus_ratio)
+    if not 0.0 < ratio <= 1.0:
+        raise ValueError(f"--bus-ratio must be in (0, 1], got {ratio}")
+    n_buses = len(case.array("bus_array"))
+    return max(1, round(ratio * n_buses))
 
 
 # ---------------------------------------------------------------------------

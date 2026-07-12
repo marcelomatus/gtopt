@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -93,17 +93,77 @@ def select_anchors(
             if cap >= min_gen_capacity_mw:
                 _add(uid, "min-gen")
 
-    # Reservoir hosts.
+    # Reservoir hosts.  The C++ Turbine schema has no ``bus`` field — the
+    # host bus is reached through the turbine's ``generator`` reference
+    # (turbine.hpp: waterway/flow/junctions/generator).  Accept a direct
+    # ``bus`` field anyway for hand-written cases.
     if include_reservoir_hosts:
+        gen_bus_by_uid, gen_bus_by_name = _generator_bus_maps(case)
         for turb in case.array("turbine_array"):
+            bus_uid: int | None = None
             try:
                 bus_uid = resolve_bus_ref(case, turb.get("bus"))
             except (KeyError, TypeError):
-                continue
+                bus_uid = None
+            if bus_uid is None:
+                bus_uid = _turbine_host_bus(turb, gen_bus_by_uid, gen_bus_by_name)
             if bus_uid is not None:
                 _add(bus_uid, "reservoir-host")
 
+    # Never exceed K anchors (build_busmap requires anchors ≤ K).  Keep the
+    # user list untouched; trim the rule-derived rest by injection size.
+    anchors = sorted(by_rule)
+    if len(anchors) > target_buses:
+        user = [u for u in anchors if "user-list" in by_rule[u]]
+        if len(user) > target_buses:
+            raise ValueError(
+                f"{len(user)} user anchors exceed target_buses={target_buses}"
+            )
+        rest = [u for u in anchors if "user-list" not in by_rule[u]]
+        inj = _injection_magnitudes(case, rest)
+        rest.sort(key=lambda u: (-inj.get(u, 0.0), u))
+        keep = set(user) | set(rest[: target_buses - len(user)])
+        logger.warning(
+            "anchor count %d exceeds target K=%d; keeping the %d largest by injection",
+            len(anchors),
+            target_buses,
+            len(keep),
+        )
+        by_rule = {u: rules for u, rules in by_rule.items() if u in keep}
+
     return AnchorSelection(bus_uids=sorted(by_rule), by_rule=by_rule)
+
+
+def _generator_bus_maps(case: Case) -> tuple[dict[int, int], dict[str, int]]:
+    """Map generator uid/name → host bus uid (skips unresolvable refs)."""
+    by_uid: dict[int, int] = {}
+    by_name: dict[str, int] = {}
+    for gen in case.array("generator_array"):
+        try:
+            bus_uid = resolve_bus_ref(case, gen.get("bus"))
+        except (KeyError, TypeError):
+            continue
+        if bus_uid is None:
+            continue
+        if "uid" in gen:
+            by_uid[int(gen["uid"])] = bus_uid
+        if "name" in gen:
+            by_name[str(gen["name"])] = bus_uid
+    return by_uid, by_name
+
+
+def _turbine_host_bus(
+    turb: dict[str, Any], by_uid: dict[int, int], by_name: dict[str, int]
+) -> int | None:
+    """Resolve a turbine's host bus through its ``generator`` reference."""
+    ref = turb.get("generator")
+    if ref is None or isinstance(ref, bool):
+        return None
+    if isinstance(ref, int):
+        return by_uid.get(ref)
+    if isinstance(ref, str):
+        return by_name.get(ref)
+    return None
 
 
 def build_busmap(

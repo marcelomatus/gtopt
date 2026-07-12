@@ -30,6 +30,7 @@ from gtopt_reduce_network._distance import (
 )
 from gtopt_reduce_network._io import Case, resolve_bus_ref
 from gtopt_reduce_network._local_simplify import simplify_local
+from gtopt_reduce_network._partition_nx import build_busmap_nx
 from gtopt_reduce_network._line_schedules import aggregate_line_schedules
 from gtopt_reduce_network._simplify import apply_loss_mode, apply_transport_only
 from gtopt_reduce_network._topology import LineGraph, build_line_graph
@@ -39,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 _LOSS_MODES = ("keep", "linear", "off", "uplift")
 _COLLISION_MODES = ("replace", "add", "compound")
+_PARTITIONS = ("hac", "louvain-mincut")
+_NX_WEIGHTS = ("capacity", "susceptance")
 
 
 @dataclass(slots=True)
@@ -53,6 +56,10 @@ class ReduceConfig:
     skip_local_simplify: bool = False
     drop_lines_below_mw: float | None = None
     integer_uid_offset: int = 1_000_000  # synth bus uid = offset + cluster idx
+    # --- Partition backend -------------------------------------------------
+    partition: str = "hac"  # hac | louvain-mincut
+    nx_weight: str = "capacity"  # capacity | susceptance (louvain-mincut only)
+    seed: int = 0  # louvain community seed (louvain-mincut only)
     # --- Transport / loss simplifications ---------------------------------
     transport_only: bool = False  # set options.use_kirchhoff=false
     loss_mode: str = "keep"  # keep | linear | off | uplift
@@ -77,6 +84,14 @@ class ReduceConfig:
                 f"loss_uplift_collision must be one of {_COLLISION_MODES}, "
                 f"got {self.loss_uplift_collision!r}"
             )
+        if self.partition not in _PARTITIONS:
+            raise ValueError(
+                f"partition must be one of {_PARTITIONS}, got {self.partition!r}"
+            )
+        if self.nx_weight not in _NX_WEIGHTS:
+            raise ValueError(
+                f"nx_weight must be one of {_NX_WEIGHTS}, got {self.nx_weight!r}"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -90,6 +105,9 @@ class ReduceConfig:
             "skip_local_simplify": self.skip_local_simplify,
             "drop_lines_below_mw": self.drop_lines_below_mw,
             "integer_uid_offset": self.integer_uid_offset,
+            "partition": self.partition,
+            "nx_weight": self.nx_weight,
+            "seed": self.seed,
             "transport_only": self.transport_only,
             "loss_mode": self.loss_mode,
             "loss_uplift_pct": self.loss_uplift_pct,
@@ -116,13 +134,16 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     work = case.deepcopy()
     graph = build_line_graph(work)
     logger.info(
-        "loaded %d buses, %d lines (%d skipped no-X)",
+        "loaded %d buses, %d lines (%d skipped, %d DC)",
         graph.n_buses,
         graph.n_lines,
         len(graph.skipped_line_uids),
+        len(graph.dc_line_uids),
     )
 
     # 1. Local simplify ----------------------------------------------------
+    dc_mask = graph.line_is_dc
+    assert dc_mask is not None
     simplified_buses = list(graph.bus_uids)
     surviving_uids = list(graph.line_uids)
     surviving_a_uids = [
@@ -135,13 +156,17 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     surviving_r = list(map(float, graph.line_r))
     surviving_fab = list(map(float, graph.line_fab))
     surviving_fba = list(map(float, graph.line_fba))
+    surviving_dc = [bool(v) for v in dc_mask]
     local_linemap: list[LinemapRow] = []
     eliminated_buses: list[int] = []
     parent_of_eliminated: dict[int, int] = {}
 
     if not config.skip_local_simplify:
-        injection_set = _injection_bus_set(work)
-        sr = simplify_local(graph, injection_bus_uids=injection_set)
+        # DC lines are controllable devices, not impedances: exclude them
+        # from the (exact-for-DC-OPF) X-based merges and pin their endpoint
+        # buses so degree-2 elimination cannot swallow a converter station.
+        injection_set = _injection_bus_set(work) | _dc_endpoint_bus_uids(graph)
+        sr = simplify_local(_ac_only_graph(graph), injection_bus_uids=injection_set)
         # Track parent-of-eliminated for busmap expansion below.
         # The simplest assignment: each eliminated bus points to whichever
         # surviving bus appears first in its outgoing series-merged lines.
@@ -154,6 +179,18 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         surviving_r = list(sr.surviving_r)
         surviving_fab = list(sr.surviving_fab)
         surviving_fba = list(sr.surviving_fba)
+        surviving_dc = [False] * len(surviving_uids)
+        for pos in range(graph.n_lines):  # re-append the untouched DC lines
+            if not dc_mask[pos]:
+                continue
+            surviving_uids.append(graph.line_uids[pos])
+            surviving_a_uids.append(graph.bus_uids[int(graph.line_a[pos])])
+            surviving_b_uids.append(graph.bus_uids[int(graph.line_b[pos])])
+            surviving_x.append(float("inf"))
+            surviving_r.append(float(graph.line_r[pos]))
+            surviving_fab.append(float(graph.line_fab[pos]))
+            surviving_fba.append(float(graph.line_fba[pos]))
+            surviving_dc.append(True)
         local_linemap = list(sr.linemap)
         eliminated_buses = list(sr.eliminated_buses)
         logger.info(
@@ -164,7 +201,7 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
             len(surviving_uids),
         )
 
-    # 2. Distance ----------------------------------------------------------
+    # 2. Sub-graph over surviving buses/lines ------------------------------
     sub_graph = LineGraph(
         bus_uids=simplified_buses,
         bus_index={u: i for i, u in enumerate(simplified_buses)},
@@ -179,8 +216,8 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         line_r=np.asarray(surviving_r, dtype=float),
         line_fab=np.asarray(surviving_fab, dtype=float),
         line_fba=np.asarray(surviving_fba, dtype=float),
+        line_is_dc=np.asarray(surviving_dc, dtype=bool),
     )
-    distance = _distance_matrix(sub_graph, config.distance)
 
     # 3. Anchors + cluster -------------------------------------------------
     anchor_sel = select_anchors(
@@ -192,12 +229,24 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         min_gen_capacity_mw=config.min_gen_capacity_mw,
         include_reservoir_hosts=config.include_reservoir_hosts,
     )
-    busmap = build_busmap(
-        simplified_buses,
-        distance,
-        target_buses=config.target_buses,
-        anchors=anchor_sel.bus_uids,
-    )
+    if config.partition == "louvain-mincut":
+        busmap = build_busmap_nx(
+            sub_graph,
+            target_buses=config.target_buses,
+            anchors=anchor_sel.bus_uids,
+            weight_mode=config.nx_weight,
+            seed=config.seed,
+        )
+    else:
+        # The distance matrix is only needed by the HAC path (the ptdf
+        # metric in particular is dense and expensive — skip when unused).
+        distance = _distance_matrix(sub_graph, config.distance)
+        busmap = build_busmap(
+            simplified_buses,
+            distance,
+            target_buses=config.target_buses,
+            anchors=anchor_sel.bus_uids,
+        )
     cluster_of_bus_simplified = {
         row.original_bus_uid: row.cluster_bus_uid for row in busmap
     }
@@ -225,6 +274,7 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         cluster_of_bus_simplified,
         rule=config.reactance_rule,
         next_line_uid=next_uid,
+        surviving_is_dc=surviving_dc,
     )
 
     # Optional cap pruning.
@@ -273,17 +323,27 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     # 9. Optional per-line parquet schedule aggregation -------------------
     if config.reduced_tag and config.parquet_case_dir:
         input_directory = work.options.get("input_directory", ".") or "."
+        ac_agg_lines = [ln for ln in agg_lines if not ln.is_dc]
+        if len(ac_agg_lines) != len(agg_lines):
+            logger.info(
+                "line-schedule: %d DC equivalent lines keep their scalar "
+                "fields (schedule aggregation covers AC corridors only)",
+                len(agg_lines) - len(ac_agg_lines),
+            )
         field_to_stem = aggregate_line_schedules(
             case_dir=Path(config.parquet_case_dir),
             input_directory=str(input_directory),
             reduced_tag=config.reduced_tag,
-            aggregated_lines=agg_lines,
+            aggregated_lines=ac_agg_lines,
             original_line_array=original_line_array,
         )
         # Rewrite each reduced line's JSON entry: replace the scalar value
-        # of any aggregated field with the new parquet stem.
+        # of any aggregated field with the new parquet stem.  DC equivalent
+        # lines keep their scalar fields (no X schedules to point at).
         if field_to_stem:
             for ln in work.array("line_array"):
+                if ln.get("type") == "dc":
+                    continue
                 for field, new_stem in field_to_stem.items():
                     ln[field] = new_stem
             logger.info(
@@ -319,6 +379,36 @@ def _distance_matrix(graph: LineGraph, kind: str) -> np.ndarray:
         f"unknown distance metric {kind!r}; "
         "supported: reactance-shortest-path | zbus | ptdf"
     )
+
+
+def _ac_only_graph(graph: LineGraph) -> LineGraph:
+    """Copy of ``graph`` with the DC lines removed (all buses kept)."""
+    mask = graph.line_is_dc
+    assert mask is not None
+    keep = [p for p in range(graph.n_lines) if not mask[p]]
+    return LineGraph(
+        bus_uids=list(graph.bus_uids),
+        bus_index=dict(graph.bus_index),
+        line_uids=[graph.line_uids[p] for p in keep],
+        line_a=graph.line_a[keep],
+        line_b=graph.line_b[keep],
+        line_x=graph.line_x[keep],
+        line_r=graph.line_r[keep],
+        line_fab=graph.line_fab[keep],
+        line_fba=graph.line_fba[keep],
+    )
+
+
+def _dc_endpoint_bus_uids(graph: LineGraph) -> set[int]:
+    """Bus uids hosting a DC-line terminal (converter stations)."""
+    mask = graph.line_is_dc
+    assert mask is not None
+    out: set[int] = set()
+    for pos in range(graph.n_lines):
+        if mask[pos]:
+            out.add(graph.bus_uids[int(graph.line_a[pos])])
+            out.add(graph.bus_uids[int(graph.line_b[pos])])
+    return out
 
 
 def _injection_bus_set(case: Case) -> set[int]:
@@ -379,16 +469,22 @@ def _build_line_array(
 ) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for ln in agg_lines:
-        out.append(
-            {
-                "uid": ln.uid,
-                "name": ln.name,
-                "bus_a": name_by_uid.get(ln.bus_a_uid, ln.bus_a_uid),
-                "bus_b": name_by_uid.get(ln.bus_b_uid, ln.bus_b_uid),
-                "reactance": ln.reactance,
-                "resistance": ln.resistance,
-                "tmax_ab": ln.tmax_ab,
-                "tmax_ba": ln.tmax_ba,
-            }
-        )
+        entry: dict[str, Any] = {
+            "uid": ln.uid,
+            "name": ln.name,
+            "bus_a": name_by_uid.get(ln.bus_a_uid, ln.bus_a_uid),
+            "bus_b": name_by_uid.get(ln.bus_b_uid, ln.bus_b_uid),
+            "tmax_ab": ln.tmax_ab,
+            "tmax_ba": ln.tmax_ba,
+        }
+        if ln.is_dc:
+            # DC equivalent: no reactance — gtopt's KVL emitter skips the
+            # line, leaving pure transport capacity (kirchhoff_node_angle).
+            entry["type"] = "dc"
+            if ln.resistance > 0.0:
+                entry["resistance"] = ln.resistance
+        else:
+            entry["reactance"] = ln.reactance
+            entry["resistance"] = ln.resistance
+        out.append(entry)
     return out

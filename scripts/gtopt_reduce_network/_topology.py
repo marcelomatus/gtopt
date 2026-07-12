@@ -2,10 +2,15 @@
 """Topology helpers: admittance matrix, line graph, parallel-line dedup.
 
 Operates on numpy arrays / dicts derived from a Case to keep the topology
-math independent of the JSON serialisation. Lines with missing or
-non-positive reactance are skipped with a warning rather than silently
-producing a singular matrix (matches ``gtopt_marginal_units/_zones.py``
-validation policy).
+math independent of the JSON serialisation.
+
+DC lines: gtopt models an HVDC line as a line without reactance (or
+X = 0) — the KVL emitter skips it (``kirchhoff_node_angle.cpp``) and only
+its capacity bounds apply — optionally tagged ``type: "dc"``.  The line
+graph mirrors that: such lines are KEPT, flagged in ``line_is_dc``, carry
+``line_x = inf`` internally (so ``1/x`` contributes 0 susceptance), and
+are excluded from every reactance-based computation while keeping their
+transfer capability for clustering and corridor aggregation.
 """
 
 from __future__ import annotations
@@ -27,8 +32,9 @@ class LineGraph:
     """Sparse representation of the line graph derived from a Case.
 
     All buses appear in ``bus_uids`` even if they have no incident line.
-    Lines with missing/non-positive reactance are *excluded* and reported
-    via ``skipped_line_uids``.
+    DC lines (``type: "dc"`` or missing/non-positive reactance) are kept
+    with ``line_is_dc`` set and ``line_x = inf``; lines with unresolvable
+    bus endpoints are *excluded* and reported via ``skipped_line_uids``.
     """
 
     bus_uids: list[int]
@@ -36,11 +42,16 @@ class LineGraph:
     line_uids: list[int]
     line_a: np.ndarray  # shape (n_lines,), local bus index of endpoint A
     line_b: np.ndarray
-    line_x: np.ndarray  # reactance (p.u. or Ω; whatever the case uses)
+    line_x: np.ndarray  # reactance (p.u. or Ω); inf on DC lines
     line_r: np.ndarray  # resistance, 0 when absent
     line_fab: np.ndarray  # tmax_ab (MW)
     line_fba: np.ndarray  # tmax_ba (MW)
     skipped_line_uids: list[int] = field(default_factory=list)
+    line_is_dc: np.ndarray | None = None  # bool mask; None → all AC
+
+    def __post_init__(self) -> None:
+        if self.line_is_dc is None:
+            self.line_is_dc = np.zeros(len(self.line_uids), dtype=bool)
 
     @property
     def n_buses(self) -> int:
@@ -50,9 +61,22 @@ class LineGraph:
     def n_lines(self) -> int:
         return len(self.line_uids)
 
+    @property
+    def dc_line_uids(self) -> list[int]:
+        mask = self.line_is_dc
+        assert mask is not None
+        return [u for u, dc in zip(self.line_uids, mask) if dc]
+
 
 def build_line_graph(case: Case) -> LineGraph:
-    """Extract the line-graph view from a Case."""
+    """Extract the line-graph view from a Case.
+
+    A line is classified DC when it carries ``type: "dc"`` or when its
+    ``reactance`` is missing, non-positive, or non-scalar — mirroring
+    gtopt's own KVL emitter, which skips exactly those lines
+    (``kirchhoff_node_angle.cpp``).  DC lines keep their capacity for
+    clustering/aggregation but contribute no susceptance.
+    """
     bus_uids = sorted(case.bus_name_by_uid)
     bus_index = {u: i for i, u in enumerate(bus_uids)}
 
@@ -63,6 +87,7 @@ def build_line_graph(case: Case) -> LineGraph:
     rs: list[float] = []
     fabs: list[float] = []
     fbas: list[float] = []
+    dcs: list[bool] = []
     skipped: list[int] = []
 
     for line in case.array("line_array"):
@@ -70,14 +95,7 @@ def build_line_graph(case: Case) -> LineGraph:
             continue
         uid = int(line["uid"])
         x = _scalar_or_none(line.get("reactance"))
-        if x is None or x <= 0.0:
-            logger.warning(
-                "skip line uid=%s: missing/non-positive reactance %r",
-                uid,
-                line.get("reactance"),
-            )
-            skipped.append(uid)
-            continue
+        is_dc = _line_type_is_dc(line) or x is None or x <= 0.0
         try:
             ua = resolve_bus_ref(case, line.get("bus_a"))
             ub = resolve_bus_ref(case, line.get("bus_b"))
@@ -91,10 +109,19 @@ def build_line_graph(case: Case) -> LineGraph:
         line_uids.append(uid)
         a_idx.append(bus_index[ua])
         b_idx.append(bus_index[ub])
-        xs.append(float(x))
+        xs.append(np.inf if is_dc else float(x))  # type: ignore[arg-type]
         rs.append(float(_scalar_or_none(line.get("resistance")) or 0.0))
         fabs.append(float(_scalar_or_none(line.get("tmax_ab")) or 0.0))
         fbas.append(float(_scalar_or_none(line.get("tmax_ba")) or 0.0))
+        dcs.append(is_dc)
+
+    n_dc = sum(dcs)
+    if n_dc:
+        logger.info(
+            "modelled %d DC lines (type 'dc' or no/zero reactance): uids %s",
+            n_dc,
+            [u for u, dc in zip(line_uids, dcs) if dc][:20],
+        )
 
     return LineGraph(
         bus_uids=bus_uids,
@@ -107,7 +134,14 @@ def build_line_graph(case: Case) -> LineGraph:
         line_fab=np.asarray(fabs, dtype=float),
         line_fba=np.asarray(fbas, dtype=float),
         skipped_line_uids=skipped,
+        line_is_dc=np.asarray(dcs, dtype=bool),
     )
+
+
+def _line_type_is_dc(line: dict[str, Any]) -> bool:
+    """True when the line's optional ``type`` tag marks it as DC."""
+    t = line.get("type")
+    return isinstance(t, str) and t.strip().lower() == "dc"
 
 
 def build_admittance(graph: LineGraph) -> csr_matrix:
@@ -145,6 +179,8 @@ def build_undirected_adjacency(graph: LineGraph) -> csr_matrix:
     cols: list[int] = []
     data: list[float] = []
     for (a_i, b_i), inv_x in pair_inv.items():
+        if inv_x <= 0.0:
+            continue  # pure-DC pair: no susceptance coupling
         x_eq = 1.0 / inv_x
         rows.extend((a_i, b_i))
         cols.extend((b_i, a_i))
