@@ -651,6 +651,51 @@ and a single secant chord bounds the loss column
 
 $$ \ell_{l,s,t,b} \;\leq\; (c_l \, \overline{F}_l) \cdot v_{l,s,t,b}. $$
 
+#### Loss Pricing $\varepsilon$ and the Negative-LMP Arbitrage Guard
+
+The chord above only *upper*-bounds $\ell$; it does not stop the LP
+from parking value in the loss column when the receiving/sending bus
+duals make loss-dumping profitable.  Whenever the bus-dual pair-sum
+goes negative — KVL congestion or curtailment can produce this even
+with all-positive generation costs — an idle line can ride $\ell$ up
+its chord to $c_l \overline{F}_l^2$, a fictitious energy sink.  The
+sole monetisation of that channel is the loss column itself, so a
+per-MWh loss price $\varepsilon_l$ (JSON `loss_cost_eps`, per line or
+via the `model_options` default) is stamped **on the loss column
+only**:
+
+$$ \Delta\,\text{OPEX}_{l,s,t,b}
+   \;=\; \varepsilon_l \cdot \omega_{s,t,b} \cdot \ell_{l,s,t,b}. $$
+
+Because $v_l$ never enters a bus balance, pricing the loss column
+alone closes both the idle-line sink and the chord residual.  Loss
+dumping earns $|\pi_a + \pi_b| / 2$ per MWh, so the guard is sized
+
+$$ \varepsilon_l \;\geq\; \tfrac{1}{2}\,
+   \bigl| \text{worst credible } (\pi_a + \pi_b) \bigr|
+   \quad (+\,\text{margin}), $$
+
+after which the arbitrage is blocked.  Its incidence on legitimate
+operation is *loss*-scaled (overhead $\approx 2\lambda_l\,\varepsilon_l$
+per marginal MWh, $\lambda_l = R_l \overline{F}_l / V_l^2$ — a few
+percent), **not** a per-MWh toll on flow.  Set $\varepsilon_l$ on
+flagged corridors and re-run: the sink migrates to the next unguarded
+lossy line, so iterate until no new flags.
+
+> **Internal $v$-pin.**  When $\varepsilon_l > 0$ the abs-flow proxy
+> columns $v_l$ additionally carry an *internal* degeneracy pin of
+> $\varepsilon^{\text{pin}} = 10^{-6}$ \$/MWh (constant
+> `kFlowAbsPinEps`, well below LP optimality tolerance).  It forces
+> $\sum_\ell v_{l,\ell} = |f_l|$ at the optimum so the chord stays
+> anchored to the piecewise secant; it never moves a dispatch
+> decision.  The user $\varepsilon_l$ is **not** charged on $v_l$ —
+> doing so would turn $\varepsilon_l$ into a transport toll on all
+> legitimate flow.  The pin is gated on $\varepsilon_l > 0$, so
+> unset-$\varepsilon$ cases stay byte-identical to the legacy pure-LP
+> behaviour.  `linear` and `piecewise_direct` have no loss column and
+> cannot be $\varepsilon$-guarded; the exact fix there is the SOS2
+> $\lambda$-form below.
+
 #### L-Secant Chord with SOS2 Fill-Order (issue #504)
 
 When `loss_secant_segments = L > 1` AND `loss_use_sos2 = true` the
@@ -825,6 +870,37 @@ $$
 
 so $u_{l,s,t,b} = 0$ forces $f_{l,s,t,b} = 0$ — the line carries
 no flow.
+
+**Loss-column gating (channel E).**  The capacity rows above gate
+only the *flow* columns; a loss column (§5.5) is bounded solely by
+its own physical cap, so an OFFLINE line under a negative bus-dual
+pair-sum could still book loss up to that cap and act as a full-size
+energy sink.  Each loss column is therefore gated with the same
+capacity pattern:
+
+$$
+\ell_{l,s,t,b} \;-\; \overline{\ell}_l \, u_{l,s,t,b} \;\leq\; 0
+\qquad \forall \; s, t, b,
+$$
+
+named `loss_gate_p` / `loss_gate_n` for the per-direction (or
+shared/tangent) loss columns, where $\overline{\ell}_l$ is the loss
+column's own finite physical upper bound.  At $u_{l,s,t,b} = 1$ the
+row duplicates the column bound (non-binding); at $u_{l,s,t,b} = 0$
+it pins $\ell_{l,s,t,b} = 0$.  With $\ell$ pinned the
+`tangent_signed_flow` abs-flow proxy $v_l$ needs no gate of its own:
+it feeds only the (now slack) chord row, never a bus balance, so any
+residual value is cost-free degenerate freedom.  Modes whose loss
+columns are already zeroed transitively (`bidirectional` / uniform
+equality chains) get a redundant but harmless row; columns that are
+vestigial (lossless) or unbounded are skipped.
+
+> **`piecewise_direct` caveat.**  This mode carries flow only in
+> per-direction segment columns (no $f^+ / f^-$ aggregator), so
+> `LineCommitment` cannot yet gate it — the breaker instruction would
+> be silently ignored.  `LineCommitmentLP` emits a one-shot warning
+> naming the gateable alternatives (`piecewise` / `bidirectional` /
+> `tangent_signed_flow`); segment-column gating is a follow-up.
 
 **Kirchhoff KVL big-M disjunction** (v0.5; emitted only in
 `KirchhoffMode::node_angle`).  The existing equality KVL row
