@@ -124,12 +124,36 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
     const auto ctx = make_block_context(scenario.uid(), stage.uid(), buid);
 
     // Locate the flow column(s) owned by the linked LineLP for this
-    // (scenario, stage, block).  When LineLP elided the block entirely
-    // (``in_service = 0`` / inactive stage), there is no flow column to
-    // gate — skip silently; the line is already a true open circuit
-    // and the commitment binary has no role.
+    // (scenario, stage, block).  Two very different cases have no
+    // aggregated flow column:
+    //   * LineLP elided the block entirely (``in_service = 0`` /
+    //     inactive stage): no columns at all — the line is a true open
+    //     circuit and the commitment binary has no role.  Skip.
+    //   * ``piecewise_direct``: flow lives ONLY in per-direction
+    //     segment columns (no fp/fn aggregator).  Gating those is not
+    //     implemented, so the commitment would be silently IGNORED —
+    //     the "open" line keeps carrying full segment flow (channel E,
+    //     ``test_line_losses_commitment_leak.cpp``).  Warn loudly
+    //     instead of silently discarding the operator's breaker
+    //     instruction.
     const auto flow = resolve_flow_cols(line_lp, scenario, stage, buid);
     if (!flow.fp && !flow.fn && !flow.fs) {
+      const auto& segp = line_lp.flowp_seg_cols_at(scenario, stage);
+      const auto& segn = line_lp.flown_seg_cols_at(scenario, stage);
+      if (segp.contains(buid) || segn.contains(buid)) {
+        static bool warned_direct_ungated = false;
+        if (!warned_direct_ungated) {
+          spdlog::warn(
+              "LineCommitment on a piecewise_direct line has NO effect: "
+              "the mode has no flow aggregator to gate, so the "
+              "commitment (breaker) status is ignored and the line "
+              "keeps carrying segment flow while 'open'.  Use "
+              "'piecewise'/'bidirectional'/'tangent_signed_flow' for "
+              "committed lines.  See "
+              "test_line_losses_commitment_leak.cpp.");
+          warned_direct_ungated = true;
+        }
+      }
       continue;
     }
 

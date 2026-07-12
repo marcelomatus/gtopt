@@ -81,7 +81,13 @@ namespace
   const auto first_buid = blocks.empty() ? BlockUid {} : blocks.front().uid();
   const auto lf = self.param_lossfactor(stage.uid(), first_buid).value_or(0.0);
   const auto R = self.param_resistance(stage.uid()).value_or(0.0);
-  const auto V = self.param_voltage(stage.uid()).value_or(0.0);
+  // ``voltage`` omitted means per-unit mode (V = 1.0) — per the
+  // ``Line.voltage`` doc and matching both Kirchhoff emitters
+  // (`kirchhoff_node_angle.cpp`, `kirchhoff_cycle_basis.cpp`).  The
+  // previous ``value_or(0.0)`` made ``V² = 0`` and silently disabled
+  // the loss model for any line carrying resistance but no explicit
+  // voltage.
+  const auto V = self.param_voltage(stage.uid()).value_or(1.0);
   // Pass ``loss_segments`` through verbatim (no ``max(1, …)`` clamp).
   // ``nseg = 0`` is a legitimate "no PWL" input; ``line_losses::
   // make_config`` rewrites the mode to ``none`` so the dispatch

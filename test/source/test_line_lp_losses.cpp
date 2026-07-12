@@ -197,6 +197,119 @@ TEST_CASE("LineLP - quadratic losses (piecewise-linear with resistance)")
   CHECK(obj < 1.01);
 }
 
+TEST_CASE("LineLP - resistance without voltage defaults to per-unit (V=1)")
+{
+  // Regression guard for the voltage-default fix.  `Line.voltage` doc
+  // says "Omit or set to 1.0 for per-unit mode" (line.hpp) and both
+  // Kirchhoff emitters default omitted voltage to 1.0 — but the
+  // loss-config sampling in line_lp.cpp used `value_or(0.0)`, so
+  // V² = 0 silently DISABLED the loss model for any R-only (p.u.)
+  // line.  Same fixture as the quadratic-losses case above minus
+  // `voltage`, with R in p.u.: loss(100 MW) = R·f²/V² =
+  // 1e-4·10000/1 = 1 MW.  Under the old default the objective
+  // collapsed to the lossless 1.0.
+  const Array<Bus> bus_array = {
+      {
+          .uid = Uid {1},
+          .name = "b1",
+      },
+      {
+          .uid = Uid {2},
+          .name = "b2",
+      },
+  };
+
+  const Array<Generator> generator_array = {
+      {
+          .uid = Uid {1},
+          .name = "g1",
+          .bus = Uid {1},
+          .gcost = 10.0,
+          .capacity = 500.0,
+      },
+  };
+
+  const Array<Demand> demand_array = {
+      {
+          .uid = Uid {1},
+          .name = "d1",
+          .bus = Uid {2},
+          .capacity = 100.0,
+      },
+  };
+
+  const Array<Line> line_array = {
+      {
+          .uid = Uid {1},
+          .name = "l1",
+          .bus_a = Uid {1},
+          .bus_b = Uid {2},
+          // NO .voltage — per-unit mode per the schema doc.
+          .resistance = 1e-4,  // p.u. → 1 MW loss at f = 100 MW
+          .loss_segments = 3,
+          .tmax_ba = 200.0,
+          .tmax_ab = 200.0,
+          .capacity = 200.0,
+      },
+  };
+
+  const Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.use_line_losses = true;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+
+  const System system = {
+      .name = "PerUnitLossTest",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .line_array = line_array,
+  };
+
+  const PlanningOptionsLP options_pu(opts);
+  SimulationLP simulation_lp(simulation, options_pu);
+  SystemLP system_lp(system, simulation_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  auto result = lp.resolve();
+  REQUIRE(result.has_value());
+  CHECK(result.value() == 0);
+
+  // Lossless baseline is exactly 1.0 (100 MW · 10 $/MWh / 1000).
+  // With losses active the LP serves 100 + ~1 MW: obj ≈ 1.010 with
+  // the 3-segment PWL overestimate on top.  obj > 1.005 is the
+  // regression signal — the old V=0 default returned exactly 1.0.
+  const auto obj = lp.get_obj_value_raw();
+  CHECK(obj > 1.005);
+  CHECK(obj < 1.03);
+}
+
 // ── kLossCoeffTolerance dropout ─────────────────────────────────────
 //
 // Per-segment loss coefficient is
