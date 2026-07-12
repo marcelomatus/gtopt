@@ -79,6 +79,12 @@ public:
   static constexpr std::string_view StatusName {"status"};
   static constexpr std::string_view CapacityPName {"capacity_p"};
   static constexpr std::string_view CapacityNName {"capacity_n"};
+  /// Channel-E loss gating rows: ``ℓ − cap·u ≤ 0`` on the per-direction
+  /// (or shared / tangent) loss columns, so an OFFLINE line cannot keep
+  /// booking loss up to its column cap under a negative bus-dual
+  /// pair-sum (see ``test_line_losses_commitment_leak.cpp``).
+  static constexpr std::string_view LossGatePName {"loss_gate_p"};
+  static constexpr std::string_view LossGateNName {"loss_gate_n"};
   /// Lower-side KVL big-M row label (Kirchhoff node_angle mode only).
   /// The upper-side ``≤`` half is the same row label the existing
   /// LineLP KVL emission uses (``LineLP::ThetaName``) since we

@@ -2,38 +2,37 @@
 //
 // test_line_losses_commitment_leak.cpp — channel (E): commitment leak.
 //
-// `LineCommitmentLP::add_to_lp` gates ONLY the aggregate flow columns
-// (line_commitment_lp.cpp:255-296: `f − F·u ≤ 0` on fp/fn/fs).  The
-// loss apparatus — per-direction loss columns, the |f|-aux `v`
-// column, PWL segment columns — is never multiplied by `u`.  Whether
-// an OFFLINE line (u = 0) can still book losses therefore depends
-// entirely on how each loss mode ties its loss column to the (now
-// zero) flow:
+// `LineCommitmentLP::add_to_lp` gates the aggregate flow columns
+// (`f − F·u ≤ 0` on fp/fn/fs) AND — since the channel-E fix — the
+// loss columns (`ℓ − cap·u ≤ 0`, LossGatePName/LossGateNName rows).
+// The |f|-aux `v` column needs no gate: with ℓ pinned it feeds only
+// the slack chord row, never a bus balance.  Per-mode status:
 //
 //   * linear                — no loss column at all (factors baked
 //                             into the fp/fn bus stamps).  IMMUNE.
 //   * bidirectional/uniform — link row `f − Σseg = 0` (equality) +
 //                             loss row `ℓ − Σ loss_k·seg_k = 0`
 //                             (equality): u=0 ⇒ f=0 ⇒ seg=0 ⇒ ℓ=0.
-//                             IMMUNE (transitively gated).
+//                             IMMUNE (transitively gated; the gate
+//                             row is redundant here).
 //   * piecewise + midpoint  — the loss row is `≥` only
 //                             (line_losses.cpp:1420-1434); ℓ's only
-//                             upper bound is its column cap c·tmax².
-//                             u=0 leaves a FULL-SIZE free sink at the
-//                             receiver bus.  EXPOSED.
+//                             OTHER upper bound is its column cap
+//                             c·tmax², so before the gate row u=0
+//                             left a FULL-SIZE free sink at the
+//                             receiver bus.  GATED now.
 //   * piecewise + tangent   — legacy shared-loss path: K tangent
 //                             LOWER bounds only (line_losses.cpp:
 //                             665-684); shared ℓ capped at c·env².
-//                             EXPOSED.
+//                             Was the same sink.  GATED now.
 //   * tangent_signed_flow   — v is bounded by `v ≥ ±f` only; at
 //                             f = 0 every tangent row is slack, v
-//                             inflates to the envelope and drags ℓ up
-//                             the chord to c·env² (line_losses.cpp:
-//                             1984-2054).  EXPOSED at ε = 0; FULLY
-//                             closed by ε > ε* ≈ |πa+πb|/2·c·env/
-//                             (1+c·env) because the chord residual
-//                             vanishes at f = 0 (unlike the ONLINE
-//                             channel D, where it persists).
+//                             inflates and drags ℓ up the chord to
+//                             c·env² (line_losses.cpp:1984-2054).
+//                             GATED now (ℓ pinned at u=0 for ANY ε;
+//                             the loss-priced ε sizing rule
+//                             ε > |πa+πb|/2 still governs the ONLINE
+//                             channel D).
 //   * tangent_signed_flow
 //     + SOS2                — λ-adjacency + flow row pin the ladder
 //                             at the b=0 breakpoint when f = 0, so
@@ -44,14 +43,16 @@
 //                             which piecewise_direct never populates
 //                             (line_losses.cpp:2378-2379, empty
 //                             fp_col/fn_col/flow_col).  The block is
-//                             skipped at line_commitment_lp.cpp:131-
-//                             133: NO status column, NO gating rows,
-//                             no warning.  The "offline" line keeps
-//                             carrying flow.  Contrast: the KVL
-//                             emitters DO consult the segment maps
-//                             (kirchhoff_node_angle.cpp:92-94), so
-//                             segment-only lines are known to the
-//                             rest of the code base.
+//                             skipped: NO status column, NO gating
+//                             rows — a one-shot spdlog::warn now
+//                             flags the combination, but the
+//                             "offline" line STILL keeps carrying
+//                             flow.  Actually gating the segment
+//                             columns (plus the KVL disjunction they
+//                             stamp into) remains a follow-up.
+//                             Contrast: the KVL emitters DO consult
+//                             the segment maps
+//                             (kirchhoff_node_angle.cpp:92-94).
 //
 // Fixture: the M2 4-bus ring of
 // test_line_losses_negative_lmp_kvl.cpp (binding l43 limit flips
@@ -515,30 +516,25 @@ TEST_CASE(
 // ── Channel E defects: the loss apparatus survives u = 0 ─────────────
 
 TEST_CASE(
-    "commitment leak E piecewise+midpoint: offline line books the full "
-    "c·tmax² loss sink (DEFECT)")  // NOLINT
+    "commitment leak E piecewise+midpoint: loss-gate rows close the "
+    "offline c·tmax² sink (GUARD)")  // NOLINT
 {
-  // DEFECT-DOCUMENTING TEST — channel (E) via the midpoint free sink
-  // (channel C at f = 0).
+  // REGRESSION GUARD — channel (E) via the midpoint free sink, CLOSED
+  // by the loss-gate rows (`ℓ − cap·u ≤ 0`, line_commitment_lp.cpp
+  // LossGatePName/LossGateNName).
   //
   // The midpoint loss row is `s·ℓ − Σ s·loss_k·seg_k ≥ −s·offset`
-  // (line_losses.cpp:1420-1434) — a LOWER bound only.  The gating
-  // rows zero fp/fn, the link equality zeroes the segments, and ℓ is
-  // then a free variable in [0, c·tmax²] whose only bus-balance role
-  // is CONSUMING power at the receiver (apply_loss_allocation,
-  // :395-413, default `receiver`).  With π4 = −35 at the positive
-  // direction's receiver, the LP pins ℓ_p at its 50 MW column cap on
-  // a line that is FORCED OPEN by its own commitment binary.
-  // Activation: π_recv < −ε (ε = 0 here).
-  // Fix path: gate the loss columns by u (ℓ ≤ c·tmax²·u), or use
-  // uniform layout (equality row) / tangent_signed_flow + SOS2.
+  // (line_losses.cpp:1420-1434) — a LOWER bound only, so before the
+  // gate the offline line's ℓ_p sat at its 50 MW column cap under
+  // π4 = −35 (measured by the DEFECT version of this test).  The gate
+  // pins ℓ = 0 at u = 0 and duplicates the column bound at u = 1.
   RingFixture fix(LeakKnobs {.mode = "piecewise", .layout = "midpoint"});
   auto& li = fix.lp();
   auto result = li.resolve();
   REQUIRE(result.has_value());
   REQUIRE(result.value() == 0);
 
-  // The gate exists and works on the FLOW columns…
+  // The gate works on the FLOW columns…
   CHECK(count_cols(li, "status") == 1);
   const auto sol = li.get_col_sol_raw();
   CHECK(col_val(li, sol, "line_flowp_5_") <= 1e-6);
@@ -546,37 +542,34 @@ TEST_CASE(
   CHECK(sum_cols(li, sol, "line_flowp_seg_5_") <= 1e-6);
   CHECK(sum_cols(li, sol, "line_flown_seg_5_") <= 1e-6);
 
-  // …but the loss column of the offline line hosts a full-size sink.
+  // …and now on the LOSS columns too: no fictitious loss on a
+  // breaker-open line, despite the standing negative pair-sum.
   const double lossp5 = col_val(li, sol, "line_lossp_5_");
   const double lossn5 = col_val(li, sol, "line_lossn_5_");
   CAPTURE(lossp5);
   CAPTURE(lossn5);
-  // Arbitrage volume: ~50 MWh of fictitious loss per hour on a line
-  // carrying ZERO flow (physical loss = 0).
-  CHECK(lossp5 > 10.0);
-  CHECK(lossp5 <= kSinkCap + 0.01);
-  // Channel signature: only the negative-π receiver (bus4, positive
-  // direction) hosts the sink; ℓ_n's receiver is bus1 (π = +10).
-  CHECK(lossn5 <= 1e-6);
+  CHECK(lossp5 <= 1e-4);
+  CHECK(lossn5 <= 1e-4);
 
-  // The pressure that funds the sink is still on.
+  // The pressure the gate defeats is still on.
   const auto pi = read_duals(li);
   REQUIRE(std::abs(pi.pi1) > 0.0);
   CHECK(pi.pi4 / pi.pi1 < 0.0);
 }
 
 TEST_CASE(
-    "commitment leak E piecewise+tangent layout: offline line books "
-    "loss at the shared column cap (DEFECT)")  // NOLINT
+    "commitment leak E piecewise+tangent layout: loss-gate row closes "
+    "the shared-column sink (GUARD)")  // NOLINT
 {
-  // DEFECT-DOCUMENTING TEST — channel (E) via the legacy shared-loss
-  // path (`add_piecewise_shared`, tangent layout only post-2026-05-31).
+  // REGRESSION GUARD — channel (E) via the legacy shared-loss path
+  // (`add_piecewise_shared`, tangent layout only post-2026-05-31),
+  // CLOSED by the loss-gate row.
   //
   // The K tangent rows are LOWER bounds `ℓ ≥ 2·c·t_k·(fp+fn) − c·t_k²`
   // (line_losses.cpp:665-684); at fp = fn = 0 (gated) they are all
-  // slack, leaving the shared ℓ free in [0, c·env²]
-  // (loss_ub, :1179-1191).  Receiver allocation dumps it at bus_b =
-  // bus4 (π = −35) ⇒ the LP books the cap on the open line.
+  // slack, so before the gate the shared ℓ sat at its c·env² cap on
+  // the open line, dumped at bus4 (π = −35).  The gate row pins it
+  // to 0 at u = 0.
   RingFixture fix(LeakKnobs {.mode = "piecewise", .layout = "tangent"});
   auto& li = fix.lp();
   auto result = li.resolve();
@@ -590,8 +583,7 @@ TEST_CASE(
 
   const double lossp5 = col_val(li, sol, "line_lossp_5_");
   CAPTURE(lossp5);
-  CHECK(lossp5 > 10.0);
-  CHECK(lossp5 <= kSinkCap + 0.01);
+  CHECK(lossp5 <= 1e-4);
 
   const auto pi = read_duals(li);
   REQUIRE(std::abs(pi.pi1) > 0.0);
@@ -599,22 +591,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "commitment leak E tangent_signed_flow eps=0: offline line "
-    "v-inflates to the envelope and books c·env² (DEFECT)")  // NOLINT
+    "commitment leak E tangent_signed_flow eps=0: loss-gate row closes "
+    "the offline chord sink (GUARD)")  // NOLINT
 {
-  // DEFECT-DOCUMENTING TEST — channel (E) via v-inflation (channel D
-  // at f = 0, made PERMANENT by the commitment: the gate pins f = 0,
-  // which is exactly the point where every tangent row is slack).
+  // REGRESSION GUARD — channel (E) via v-inflation (channel D at
+  // f = 0), CLOSED by the loss-gate row even at ε = 0.
   //
-  // The gate stamps only the signed flow column
-  // (line_commitment_lp.cpp:265-296); v is tied to f by `Σv ≥ ±f`
-  // LOWER bounds only (line_losses.cpp:2004-2026), so at f = 0 the v
-  // ladder inflates to the envelope and the chord row `ℓ ≤ Σ slope·v`
-  // (:2036-2054) lets ℓ ride to c·env² = 50 MW.  Split allocation
-  // dumps 25 MW at each of bus1 (π = 10) and bus4 (π = −35): profit
-  // 12.5 $/MWh per booked MW.  A breaker-open line is a 50 MW energy
-  // sink.
-  // Activation: π_a + π_b < −2ε_v/(c·env) − 2ε_ℓ (ε = 0 here).
+  // The capacity rows pin only the signed flow column
+  // (line_commitment_lp.cpp); v is tied to f by `Σv ≥ ±f` LOWER
+  // bounds only (line_losses.cpp:2004-2026), so before the gate the
+  // v ladder inflated to the envelope and the chord row let ℓ ride
+  // to c·env² = 50 MW on the breaker-open line.  The gate row
+  // `ℓ − cap·u ≤ 0` pins ℓ = 0 at u = 0; v needs no gate of its own —
+  // with ℓ pinned it feeds only the slack chord row, never a bus
+  // balance, so any residual v value is cost-free degenerate freedom
+  // (at ε = 0 the internal pin is off too — do NOT assert on v here).
   RingFixture fix(LeakKnobs {.mode = "tangent_signed_flow"});
   auto& li = fix.lp();
   auto result = li.resolve();
@@ -624,19 +615,15 @@ TEST_CASE(
   CHECK(count_cols(li, "status") == 1);
   const auto sol = li.get_col_sol_raw();
 
-  // The gate DID pin the flow…
+  // The gate pins the flow…
   const double f5 = col_val(li, sol, "line_flows_5_");
   CHECK(std::abs(f5) <= 1e-6);
 
-  // …but v and ℓ are ungated: idle-line purity (|f| = 0 ⇒ ℓ = 0)
-  // measurably breaks.
-  const double v5 = col_val(li, sol, "line_flow_abs_5_");
+  // …and the loss: idle-line purity (|f| = 0 ⇒ ℓ = 0) holds on the
+  // offline line despite the standing negative pair-sum.
   const double loss5 = col_val(li, sol, "line_lossp_5_");
-  CAPTURE(v5);
   CAPTURE(loss5);
-  CHECK(v5 > 500.0);  // inflates toward the 1000 MW envelope
-  CHECK(loss5 > 10.0);  // books toward the 50 MW cap
-  CHECK(loss5 <= kSinkCap + 0.01);
+  CHECK(loss5 <= 1e-4);
 
   const auto pi = read_duals(li);
   REQUIRE(std::abs(pi.pi1) > 0.0);
@@ -644,20 +631,18 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "commitment leak E tangent_signed_flow eps=1.0 (loss-priced): the "
-    "offline sink stays OPEN below the pair-sum threshold (DEFECT)")  // NOLINT
+    "commitment leak E tangent_signed_flow eps=1.0: the loss-gate row "
+    "closes the offline sink independent of eps (GUARD)")  // NOLINT
 {
-  // DEFECT-DOCUMENTING TEST — channel (E), loss-priced ε semantics.
+  // REGRESSION GUARD — channel (E) is now STRUCTURALLY closed by the
+  // loss-gate row, independent of ε.
   //
-  // Since the 2026-07 re-point ε lands on the LOSS column only (v
-  // carries the internal 1e-6 pin), so ONLINE and OFFLINE share the
-  // single closure condition ε > |π1+π4|/2 = 12.5.  At ε = 1.0 the
-  // ℓ-dump nets 11.5 $/MWh: the breaker-open line still v-inflates
-  // to the envelope and books the full c·env² sink.
-  //
-  // (Pre-re-point, ε = 1.0 > ε* ≈ 0.595 closed the offline sink via
-  // the v flow-toll — partial protection paid for with an ε $/MWh
-  // toll on every legitimate flow system-wide.)
+  // History of this cell: pre-re-point, ε = 1.0 > ε* ≈ 0.595 closed
+  // the offline sink via the v flow-toll; after the re-point (ε on
+  // the loss column only) 1.0 < 12.5 = |π1+π4|/2 left it OPEN; with
+  // the gate row `ℓ − cap·u ≤ 0` it is closed for ANY ε.  The ε
+  // sizing rule now matters only for the ONLINE channel D
+  // (test_line_losses_negative_lmp_kvl.cpp).
   RingFixture fix(
       LeakKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 1.0});
   auto& li = fix.lp();
@@ -667,11 +652,12 @@ TEST_CASE(
 
   const auto sol = li.get_col_sol_raw();
   CHECK(std::abs(col_val(li, sol, "line_flows_5_")) <= 1e-6);
-  // DEFECT: the offline line's v and ℓ host the full-size sink.
-  CHECK(col_val(li, sol, "line_flow_abs_5_") > 100.0);
-  CHECK(col_val(li, sol, "line_lossp_5_") > 10.0);
+  // With ε > 0 the internal pin also drives v to |f| = 0, so both
+  // halves of the old sink are asserted here.
+  CHECK(col_val(li, sol, "line_flow_abs_5_") <= 1e-4);
+  CHECK(col_val(li, sol, "line_lossp_5_") <= 1e-4);
 
-  // Pressure present — the exposure is dual-driven.
+  // Pressure present — the guard is doing real work.
   const auto pi = read_duals(li);
   REQUIRE(std::abs(pi.pi1) > 0.0);
   CHECK(pi.pi4 / pi.pi1 < 0.0);
@@ -686,9 +672,10 @@ TEST_CASE(
   // ε = 15 > |π1+π4|/2 = 12.5: dumping ℓ on the offline line has
   // strictly positive net cost, so ℓ collapses to 0 and the internal
   // pin drops v to |f| = 0.  Same sizing rule as the online channel D
-  // (test_line_losses_negative_lmp_kvl.cpp, eps=20 case) — since the
-  // re-point the ε palliative closes ONLINE and OFFLINE alike, at
-  // loss-scaled incidence.
+  // (test_line_losses_negative_lmp_kvl.cpp, eps=20 case).  The
+  // loss-gate row now closes the OFFLINE sink regardless of ε; this
+  // case additionally pins that a threshold-sized ε does not disturb
+  // the gated optimum.
   RingFixture fix(
       LeakKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 15.0});
   auto& li = fix.lp();

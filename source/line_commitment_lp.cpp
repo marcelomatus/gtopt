@@ -319,6 +319,58 @@ bool LineCommitmentLP::add_to_lp(SystemContext& sc,
       cnrows[buid] = lp.add_row(std::move(row));
     }
 
+    // ── Loss-apparatus gating (channel E) ──────────────────────────
+    //
+    // The capacity rows above gate only the FLOW columns.  The loss
+    // columns are bounded only by their physical column caps, so an
+    // OFFLINE line under a negative bus-dual pair-sum remained a
+    // full-size energy sink: midpoint / tangent-layout lines booked
+    // the entire ``c·tmax²`` cap at ``u = 0``, and tangent_signed_flow
+    // rode its chord to ``c·env²``
+    // (``test_line_losses_commitment_leak.cpp``).  Gate each loss
+    // column with the same pattern as the flow:
+    //
+    //     ℓ − cap·u ≤ 0
+    //
+    // where ``cap`` is the column's own finite physical upper bound —
+    // at ``u = 1`` the row duplicates the column bound (non-binding),
+    // at ``u = 0`` it pins ``ℓ = 0``.  With ``ℓ`` pinned, the
+    // tangent_signed_flow abs proxy ``v`` needs no gate of its own:
+    // it feeds ONLY the (now slack) chord row, never a bus balance,
+    // so any residual value is cost-free degenerate freedom.  Modes
+    // whose loss columns are already zeroed transitively
+    // (bidirectional / uniform equality chains) get a redundant but
+    // harmless row.
+    const auto gate_loss_col =
+        [&](ColIndex loss_col, std::string_view gate_name)
+    {
+      const double cap = lp.get_col_uppb(loss_col);
+      if (!(cap > 0.0) || cap >= LinearProblem::DblMax) {
+        return;  // vestigial (lossless) or unbounded column: no gate
+      }
+      auto row =
+          SparseRow {
+              .class_name = cname,
+              .constraint_name = gate_name,
+              .variable_uid = cuid,
+              .context = ctx,
+          }
+              .less_equal(0.0);
+      row[loss_col] = 1.0;
+      row[ucol] = -cap;
+      [[maybe_unused]] const auto gate_idx = lp.add_row(std::move(row));
+    };
+    {
+      const auto& lossp = line_lp.lossp_cols_at(scenario, stage);
+      if (const auto it = lossp.find(buid); it != lossp.end()) {
+        gate_loss_col(it->second, LossGatePName);
+      }
+      const auto& lossn = line_lp.lossn_cols_at(scenario, stage);
+      if (const auto it = lossn.find(buid); it != lossn.end()) {
+        gate_loss_col(it->second, LossGateNName);
+      }
+    }
+
     // ── KVL big-M disjunction (Kirchhoff node_angle mode) ──────────
     //
     // The existing equality row stamped by ``LineLP::add_to_lp`` is
