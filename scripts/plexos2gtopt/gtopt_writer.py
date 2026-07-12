@@ -22,6 +22,7 @@ from pathlib import Path
 from collections.abc import Iterable, Iterator
 from typing import Any
 
+from gtopt_shared.bus_kv import parse_bus_kv
 from gtopt_shared.cli_flags import DEFAULT_WRITE_OUT as _DEFAULT_WRITE_OUT_FALLBACK
 from gtopt_shared.csv_io import write_csv
 from gtopt_shared.pampl_ident import (
@@ -341,10 +342,21 @@ def build_simulation(
 
 
 def build_bus_array(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
-    """One bus entry per :class:`NodeSpec` — just ``uid`` and ``name``."""
+    """One bus entry per :class:`NodeSpec` — ``uid``, ``name``, ``voltage``.
+
+    ``voltage`` is the nominal kV (``Bus.voltage`` in the gtopt schema):
+    the native PLEXOS ``Voltage`` node property when the bundle ships it,
+    else parsed from the bus NAME (CEN convention, ``Salar110`` → 110).
+    Omitted when neither source resolves — never fabricated.  NOT to be
+    confused with ``line.voltage`` (the √S_base per-unit loss constant).
+    """
     out: list[dict[str, Any]] = []
     for i, node in enumerate(nodes):
-        out.append({"uid": i + 1, "name": node.name})
+        entry: dict[str, Any] = {"uid": i + 1, "name": node.name}
+        kv = node.voltage if node.voltage else parse_bus_kv(node.name)
+        if kv is not None and kv > 0.0:
+            entry["voltage"] = kv
+        out.append(entry)
     return out
 
 

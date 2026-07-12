@@ -63,6 +63,34 @@ def test_to_json_array(sample_bus_writer):  # pylint: disable=redefined-outer-na
         assert "reference_theta" not in bus
 
 
+def test_to_json_array_voltage_values(
+    sample_bus_writer,
+):  # pylint: disable=redefined-outer-name
+    """The name-encoded nominal kV must land in the emitted bus_array.
+
+    BusParser extracts the voltage from the PLP bus NAME
+    (``AltoNorte110`` → 110, ``Andes345`` → 345); BusWriter must pass
+    it through as the gtopt ``Bus.voltage`` field [kV].
+    """
+    by_name = {b["name"]: b for b in sample_bus_writer.to_json_array()}
+    assert by_name["AltoNorte110"]["voltage"] == 110.0
+    assert by_name["Andes220"]["voltage"] == 220.0
+    assert by_name["Andes345"]["voltage"] == 345.0
+
+
+def test_to_json_array_voltage_default_when_name_has_no_kv(tmp_path):
+    """A bus name with no kV suffix keeps the parser's 1.0 default."""
+    dat = tmp_path / "plpbar.dat"
+    dat.write_text(
+        "# Archivo de Barras\n# Numero de Barras\n1\n# Numero Nombre\n1 'SinTension'\n",
+        encoding="utf-8",
+    )
+    parser = BusParser(dat)
+    parser.parse()
+    buses = BusWriter(parser).to_json_array()
+    assert buses[0]["voltage"] == 1.0
+
+
 def test_write_to_file(sample_bus_writer):  # pylint: disable=redefined-outer-name
     """Test writing bus data to JSON file."""
     with tempfile.NamedTemporaryFile(suffix=".json") as tmp_file:

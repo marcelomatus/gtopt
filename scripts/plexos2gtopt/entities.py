@@ -65,12 +65,20 @@ class BundleSpec:
 
 @dataclass(frozen=True)
 class NodeSpec:
-    """A bus / node (``t_class[Node]``, class_id=22)."""
+    """A bus / node (``t_class[Node]``, class_id=22).
+
+    ``voltage`` is the nominal kV from the PLEXOS ``Voltage`` node
+    property when the bundle ships it (118-Bus does; the CEN PCP daily
+    bundle does not — there the kV lives in the bus NAME and the writer
+    falls back to :func:`gtopt_shared.parse_bus_kv`).  ``None`` when
+    the property is absent or zero.
+    """
 
     object_id: int
     name: str
     region: str | None = None
     zone: str | None = None
+    voltage: float | None = None
 
 
 @dataclass(frozen=True)

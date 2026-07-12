@@ -21,6 +21,10 @@ from gtopt_shared.cli_flags import (
     add_use_kirchhoff_argument,
     add_use_single_bus_argument,
 )
+from gtopt_shared.bus_kv import (
+    SEN_KV_LEVELS,
+    parse_bus_kv,
+)
 from gtopt_shared.emissions import (
     DEFAULT_EMISSIONS_FILE,
     EmissionDefaults,
@@ -50,6 +54,7 @@ __all__ = [
     "EmissionFactor",
     "EmissionReport",
     "PENALTY_TIER_NAMES",
+    "SEN_KV_LEVELS",
     "add_aperture_chunk_size_argument",
     "add_common_arguments",
     "add_demand_fail_cost_argument",
@@ -66,6 +71,7 @@ __all__ = [
     "load_emission_defaults",
     "pampl_ident",
     "pampl_rhs_vector",
+    "parse_bus_kv",
     "penalty_param_name",
     "sanitize_inf",
     "strip_internal_keys",

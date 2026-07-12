@@ -140,6 +140,10 @@ def test_118_bus_full_convert(tmp_path: Path) -> None:
     planning = json.loads(out_file.read_text())
     system = planning["system"]
     assert len(system["bus_array"]) == 118
+    # 118-Bus ships the native PLEXOS ``Voltage`` node property on
+    # every bus (106×138 kV, 11×345 kV, 1×161 kV) — the names are pure
+    # bus numbers, so only the property path can populate ``voltage``.
+    assert {b["voltage"] for b in system["bus_array"]} == {138.0, 345.0, 161.0}
     assert len(system["generator_array"]) == 54
     assert len(system["line_array"]) == 186
     assert len(system["demand_array"]) >= 50, (

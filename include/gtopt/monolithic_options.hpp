@@ -218,6 +218,33 @@ struct MipStartOptions
    * run-lengths.  The generic loader — any strategy (previous-day PLEXOS /
    * gtopt, nearest-historical, ML predictor) simply produces this CSV. */
   OptName seed_solution_file {};
+  /** @brief Skip the Stage-0 LP relaxation solve when a `seed_solution_file`
+   * fully specifies the integer commitment.  The relaxation exists only to
+   * fill the rounded candidate; for a backend that injects the seed sparsely
+   * over the integer columns (CPLEX), its continuous output is discarded, so
+   * the relaxation is a throwaway LP solve that the MIP's own root then
+   * repeats.  With this set, the seed is built directly (zero base + domain
+   * rules) and injected; the backend completes the continuous dispatch as the
+   * single warm root LP (effort defaults to `solve_fixed` → dual simplex off
+   * the fixed integers, no crossover). Default false. */
+  OptBool skip_relaxation {};
+  /** @brief Optional path to a cached ROOT LP basis (Experiment A).
+   *
+   * The full-model root LP relaxation is IDENTICAL across warm-start runs (the
+   * integer MIP-start only feeds the incumbent heuristic, not the relaxation),
+   * yet CPLEX recomputes a cold barrier+crossover on every run.  When set:
+   *   - file MISSING → solve cold as usual, then capture the root LP basis
+   *     (`get_basis`) and `save_basis` it here for later runs.
+   *   - file PRESENT → `load_basis` and install it (`set_basis`, reconciled to
+   *     current dims) before the MIP solve, switching the MIP root LP to primal
+   *     simplex + Advance so CPLEX enters at the optimal vertex (≈0 simplex
+   *     iterations), skipping the barrier.  Barrier (`LPMethod=4`) IGNORES an
+   *     installed basis, so a loaded basis MUST force the root to primal
+   *     simplex — done via `SolverOptions::advanced_basis` (which the CPLEX
+   *     backend maps to `ADVIND=1` + primal `LPMethod`/`StartAlgorithm`).
+   * Only honored by the CPLEX backend; other backends ignore it (no basis I/O
+   * path).  Default unset (no caching; legacy behaviour). */
+  OptName root_basis_cache_file {};
 
   void merge(MipStartOptions&& opts)
   {
@@ -230,6 +257,8 @@ struct MipStartOptions
     merge_opt(from_file, std::move(opts.from_file));
     merge_opt(dump_file, std::move(opts.dump_file));
     merge_opt(seed_solution_file, std::move(opts.seed_solution_file));
+    merge_opt(skip_relaxation, opts.skip_relaxation);
+    merge_opt(root_basis_cache_file, std::move(opts.root_basis_cache_file));
 
     auto _ = std::move(opts);
   }

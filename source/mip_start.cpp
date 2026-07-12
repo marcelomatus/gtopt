@@ -45,30 +45,15 @@ namespace detail
 /// domain_rules.hpp) over the result; continuous columns keep their
 /// relaxation value.  @return the dense raw candidate start (empty iff the
 /// relaxation produced no primal — the caller skips).
-[[nodiscard]] std::vector<double> rounded_start_with_rules(
-    MipStartContext& ctx, std::string_view generator_name)
+/// Stage 2 — apply the seed + domain-rule pipeline in place on `start`.
+/// Loads the optional external commitment seed (registered FIRST so it is the
+/// base the remaining rules repair) and runs the default `DomainRulePipeline`
+/// (min-up/down, commitment-logic v/w, …).  Shared by the round-from-relaxation
+/// generator and the seed-only (no-relaxation) path.
+void apply_seed_and_domain_rules(MipStartContext& ctx,
+                                 std::vector<double>& start,
+                                 std::string_view generator_name)
 {
-  auto& li = ctx.li;
-  const auto sol = li.get_col_sol_raw();
-  std::vector<double> start(sol.begin(), sol.end());
-  if (sol.empty()) {
-    return start;
-  }
-  // Stage 1 — generic rounding of the integer columns.
-  const auto lb = li.get_col_low_raw();
-  const auto ub = li.get_col_upp_raw();
-  const double threshold = ctx.opts.round.threshold.value_or(0.5);
-  for (const int i : ctx.int_cols) {
-    const auto u = static_cast<std::size_t>(i);
-    const double l = (u < lb.size()) ? lb[u] : 0.0;
-    const double h = (u < ub.size()) ? ub[u] : 1.0;
-    start[u] = round_with_threshold(sol[u], threshold, l, h);
-  }
-  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).  Built
-  // per call from the per-stage toggles in `ctx.opts.domain_rules`; the rules
-  // themselves are stateless and `const`-applied.  An optional external
-  // commitment seed (any strategy's CSV) is loaded here and registered as the
-  // FIRST rule, so the seed is the base the remaining rules repair.
   SeedCommitmentMap seed;
   if (const auto& sf = ctx.opts.seed_solution_file;
       sf.has_value() && !sf->empty())
@@ -94,6 +79,42 @@ namespace detail
                  generator_name,
                  flipped);
   }
+}
+
+[[nodiscard]] std::vector<double> rounded_start_with_rules(
+    MipStartContext& ctx, std::string_view generator_name)
+{
+  auto& li = ctx.li;
+  const auto sol = li.get_col_sol_raw();
+  std::vector<double> start(sol.begin(), sol.end());
+  if (sol.empty()) {
+    return start;
+  }
+  // Stage 1 — generic rounding of the integer columns.
+  const auto lb = li.get_col_low_raw();
+  const auto ub = li.get_col_upp_raw();
+  const double threshold = ctx.opts.round.threshold.value_or(0.5);
+  for (const int i : ctx.int_cols) {
+    const auto u = static_cast<std::size_t>(i);
+    const double l = (u < lb.size()) ? lb[u] : 0.0;
+    const double h = (u < ub.size()) ? ub[u] : 1.0;
+    start[u] = round_with_threshold(sol[u], threshold, l, h);
+  }
+  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).
+  apply_seed_and_domain_rules(ctx, start, generator_name);
+  return start;
+}
+
+/// Seed-only start: no LP relaxation.  Builds a zero base of width `ncols` and
+/// lets the seed + commitment-logic domain rules set every integer commitment
+/// column directly.  Continuous columns stay at 0 (a sparse-injecting backend
+/// like CPLEX drops them and completes the dispatch as its warm root LP).
+[[nodiscard]] std::vector<double> seed_only_start(
+    MipStartContext& ctx, std::string_view generator_name)
+{
+  const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
+  std::vector<double> start(ncols, 0.0);
+  apply_seed_and_domain_rules(ctx, start, generator_name);
   return start;
 }
 
@@ -479,6 +500,41 @@ std::expected<MipStartReport, Error> apply_mip_start(
   // the full monolithic LP per scene would re-trigger the known CPXcloneprob
   // global-side-effect crash.
   const auto restore_integrality = [&] { li.restore_integers(int_cols); };
+
+  // ── Fast path: seed-only, no throwaway relaxation ───────────────────────
+  // When `skip_relaxation` is set and a seed CSV fully specifies the integer
+  // commitment, skip Stage 0 entirely: the relaxation's only surviving output
+  // for a sparse-injecting backend (CPLEX) is the rounded integers, which the
+  // seed overrides anyway — so solving it is a throwaway LP the MIP root then
+  // repeats.  Build the seed start directly and inject; the backend completes
+  // the continuous dispatch as its single warm root LP (effort defaults to
+  // `solve_fixed` → dual simplex off the fixed integers, no crossover).
+  if (enabled && opts.skip_relaxation.value_or(false)
+      && opts.seed_solution_file.has_value()
+      && !opts.seed_solution_file->empty())
+  {
+    MipStartContext ctx {
+        .li = li,
+        .relax_opts = base_opts,
+        .int_cols = int_cols,
+        .opts = opts,
+        .commitments = commitments,
+        .injections = injections,
+        .flat_lp = flat_lp,
+    };
+    auto start = detail::seed_only_start(ctx, "seed");
+    const auto effort =
+        opts.inject.effort.value_or(MipStartEffort::solve_fixed);
+    report.injected = li.set_mip_start(start, effort);
+    report.source = "seed";
+    spdlog::info(
+        "MIP-start[seed]: {} ({} integer cols, effort={}, skip_relaxation — "
+        "no relaxation solve)",
+        report.injected ? "injected" : "backend declined",
+        int_cols.size(),
+        enum_name(effort));
+    return report;
+  }
 
   // Relaxation solve options: base overlaid with the relax-specific overrides
   // so the relaxation can use a different algorithm / params than the MIP.

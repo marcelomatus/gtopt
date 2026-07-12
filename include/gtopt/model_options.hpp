@@ -292,6 +292,25 @@ struct ModelOptions
   /// switch lives ONLY at the source.
   OptBool lp_reduction {};
 
+  /// Relax the per-bus power-balance equality (`Σ generation·(1−lf) ±
+  /// flows = Σ demand·(1+lf)`) to a `≥` inequality (`generation ≥
+  /// demand`), i.e. free disposal of surplus: over-generation is allowed
+  /// and the excess is discarded at zero cost.  Default `false` (strict
+  /// balance).
+  ///
+  /// Reserve and inertia PRODUCTION are already `≥ requirement`
+  /// (`reserve_zone_lp` / `inertia_zone_lp` emit `greater_equal` rows), so
+  /// this flag only affects the bus balance.  Water balances, KVL, and
+  /// commitment-logic equalities are NOT relaxed (they are physical /
+  /// structural, not supply-demand balances).
+  ///
+  /// Marginal-theory note: with `≥`, a bus dual is `≥ 0` (over-supplied
+  /// buses price at 0), removing the negative-LMP artefacts that a strict
+  /// `=` balance produces under must-run/ancillary over-production.  Use
+  /// with care — it changes the reported LMPs and lets the model spill
+  /// generation for free.  `--set model_options.allow_oversupply=true`.
+  OptBool allow_oversupply {};
+
   void merge(const ModelOptions& opts)
   {
     merge_opt(use_single_bus, opts.use_single_bus);
@@ -322,6 +341,7 @@ struct ModelOptions
     merge_opt(objective_mode, opts.objective_mode);
     merge_opt(strict_storage_emin, opts.strict_storage_emin);
     merge_opt(lp_reduction, opts.lp_reduction);
+    merge_opt(allow_oversupply, opts.allow_oversupply);
   }
 
   /// True if any field is set.
@@ -340,7 +360,8 @@ struct ModelOptions
         || hydro_use_value.has_value() || state_violation_cost.has_value()
         || demand_fail_rhs_shift.has_value() || continuous_phases.has_value()
         || naming_dialect.has_value() || objective_mode.has_value()
-        || strict_storage_emin.has_value() || lp_reduction.has_value();
+        || strict_storage_emin.has_value() || lp_reduction.has_value()
+        || allow_oversupply.has_value();
   }
 
   /// True iff every field set in `other` has an equal value in `*this`.
@@ -378,7 +399,8 @@ struct ModelOptions
         && covers_opt(naming_dialect, other.naming_dialect)
         && covers_opt(objective_mode, other.objective_mode)
         && covers_opt(strict_storage_emin, other.strict_storage_emin)
-        && covers_opt(lp_reduction, other.lp_reduction);
+        && covers_opt(lp_reduction, other.lp_reduction)
+        && covers_opt(allow_oversupply, other.allow_oversupply);
   }
 };
 

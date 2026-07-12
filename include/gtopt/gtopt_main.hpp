@@ -329,6 +329,12 @@ struct MainOptions
    * file that sets `lp_reduction=true`. */
   std::optional<bool> no_lp_reduction {};
 
+  /** @brief Relax the per-bus power balance from `=` to `≥`
+   * (`generation ≥ demand`, free disposal of surplus).  Bound to
+   * `--allow-oversupply`; shorthand for
+   * `--set model_options.allow_oversupply=true`. */
+  std::optional<bool> allow_oversupply {};
+
   /** @brief LP-relax every phase (`continuous_phases = "all"`).
    *
    * Bound to the CLI flag `--no-mip`.  When set, every integer / binary
@@ -367,6 +373,16 @@ struct MainOptions
    * inject.effort, from_file, dump_file) are set via
    * `--set monolithic_options.mip_start.<stage>.<field>=<value>`. */
   std::optional<bool> mip_start_enable {};
+
+  /** @brief Cache/reuse the root LP basis across warm-start runs (CLI flag).
+   *
+   * Bound to `--root-basis-cache <path>`.  Forwards to
+   * `monolithic_options.mip_start.root_basis_cache_file`.  On the FIRST run the
+   * file is absent → solve cold, then persist the root LP basis; on LATER runs
+   * the file is loaded and installed before the MIP solve so CPLEX enters the
+   * root at the optimal vertex (primal simplex, ≈0 iterations), skipping the
+   * cold barrier+crossover. */
+  std::optional<std::string> root_basis_cache_file {};
 
   // ---- generic option overrides ----
   /** @brief Repeatable ``--set key=value`` overrides.

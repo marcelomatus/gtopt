@@ -413,6 +413,14 @@ public:
     return m_options_.model_options.lp_reduction.value_or(false);
   }
 
+  /// @brief Whether the per-bus power balance is relaxed from `=` to `≥`
+  /// (`generation ≥ demand`, free disposal of surplus).  Default `false`
+  /// (strict balance).  See `ModelOptions::allow_oversupply`.
+  [[nodiscard]] constexpr bool allow_oversupply() const
+  {
+    return m_options_.model_options.allow_oversupply.value_or(false);
+  }
+
   /// @brief Gets the objective function scaling factor.
   ///
   /// Default depends on planning method:

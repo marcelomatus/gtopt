@@ -132,16 +132,26 @@ bool BusLP::add_to_lp(const SystemContext& sc,
   BIndexHolder<RowIndex> brows;
   map_reserve(brows, blocks.size());
 
+  // `allow_oversupply` relaxes the balance from `=` to `≥`: the row starts
+  // with an unbounded upper (`greater_equal(0)`) so the demand's RHS shift
+  // only raises the lower bound (`generation ≥ demand`).  DemandLP guards
+  // its `uppb +=` against an already-unbounded upper, so the row stays `≥`.
+  const bool oversupply = sc.options().allow_oversupply();
+
   std::ranges::for_each(blocks,
                         [&](const BlockLP& block)
                         {
-                          brows[block.uid()] = lp.add_row({
+                          SparseRow brow {
                               .class_name = Element::class_name.full_name(),
                               .constraint_name = BalanceName,
                               .variable_uid = uid(),
                               .context = make_block_context(
                                   scenario.uid(), stage.uid(), block.uid()),
-                          });
+                          };
+                          if (oversupply) {
+                            brow.greater_equal(0.0);
+                          }
+                          brows[block.uid()] = lp.add_row(std::move(brow));
                         });
 
   const auto st_key = std::tuple {scenario.uid(), stage.uid()};

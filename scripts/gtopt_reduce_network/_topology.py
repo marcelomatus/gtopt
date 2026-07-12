@@ -10,12 +10,16 @@ its capacity bounds apply — optionally tagged ``type: "dc"``.  The line
 graph mirrors that: such lines are KEPT, flagged in ``line_is_dc``, carry
 ``line_x = inf`` internally (so ``1/x`` contributes 0 susceptance), and
 are excluded from every reactance-based computation while keeping their
-transfer capability for clustering and corridor aggregation.
+transfer capability for clustering and corridor aggregation.  Lines with
+``X <= dc_reactance_threshold`` (near-jumpers whose huge ``1/X`` would
+wreck KVL conditioning) are treated the same way — the Python analogue of
+gtopt's ``model_options.dc_line_reactance_threshold``.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -32,9 +36,10 @@ class LineGraph:
     """Sparse representation of the line graph derived from a Case.
 
     All buses appear in ``bus_uids`` even if they have no incident line.
-    DC lines (``type: "dc"`` or missing/non-positive reactance) are kept
-    with ``line_is_dc`` set and ``line_x = inf``; lines with unresolvable
-    bus endpoints are *excluded* and reported via ``skipped_line_uids``.
+    DC lines (``type: "dc"`` or missing/below-threshold reactance) are
+    kept with ``line_is_dc`` set and ``line_x = inf``; lines with
+    unresolvable bus endpoints are *excluded* and reported via
+    ``skipped_line_uids``.
     """
 
     bus_uids: list[int]
@@ -68,15 +73,51 @@ class LineGraph:
         return [u for u, dc in zip(self.line_uids, mask) if dc]
 
 
-def build_line_graph(case: Case) -> LineGraph:
+def build_line_graph(
+    case: Case,
+    *,
+    dc_reactance_threshold: float = 1e-4,
+    dc_voltage_threshold: float = 0.0,
+    dc_power_threshold: float = 0.0,
+) -> LineGraph:
     """Extract the line-graph view from a Case.
 
-    A line is classified DC when it carries ``type: "dc"`` or when its
-    ``reactance`` is missing, non-positive, or non-scalar — mirroring
-    gtopt's own KVL emitter, which skips exactly those lines
-    (``kirchhoff_node_angle.cpp``).  DC lines keep their capacity for
-    clustering/aggregation but contribute no susceptance.
+    A line is classified DC when ANY of:
+
+    * it carries ``type: "dc"``;
+    * its ``reactance`` is missing / non-scalar / ``X <=
+      dc_reactance_threshold`` (per-unit) — mirroring gtopt's own KVL
+      emitter, which skips those lines (``kirchhoff_node_angle.cpp``; C++
+      analogue ``model_options.dc_line_reactance_threshold``).  With the
+      threshold at ``0.0`` only ``X <= 0`` lines qualify; the default
+      ``1e-4`` is the PSS/E ``THRSHZ`` closed-switch standard, capturing
+      near-jumper lines whose huge ``1/X`` susceptance would wreck KVL
+      conditioning without pulling real backbone segments out of KVL;
+    * its VOLTAGE LEVEL ``min(kV(bus_a), kV(bus_b)) <=
+      dc_voltage_threshold`` [kV] — the small / low-voltage
+      (sub-transmission) lines that should not carry the transmission KVL
+      network.  The kV is derived from the endpoint BUS NAMES (e.g.
+      ``Salar110`` → 110), NOT the ``line.voltage`` field (which is the
+      √S_base loss constant in PLEXOS-CEN cases, not physical kV).  ``0.0``
+      (default) disables the rule; ≤ 66 recommended for the SEN.  A line
+      whose kV cannot be parsed never triggers the rule;
+    * its capacity ``max(tmax_ab, tmax_ba) <= dc_power_threshold`` [MW],
+      schedule-flattened — small / low-capacity lines that only add KVL
+      rows.  ``0.0`` (default) disables the rule.
+
+    DC lines keep their capacity for clustering/aggregation but contribute
+    no susceptance (``line_x = inf``).
     """
+    if dc_reactance_threshold < 0.0:
+        raise ValueError(
+            f"dc_reactance_threshold must be >= 0, got {dc_reactance_threshold}"
+        )
+    if dc_voltage_threshold < 0.0:
+        raise ValueError(
+            f"dc_voltage_threshold must be >= 0, got {dc_voltage_threshold}"
+        )
+    if dc_power_threshold < 0.0:
+        raise ValueError(f"dc_power_threshold must be >= 0, got {dc_power_threshold}")
     bus_uids = sorted(case.bus_name_by_uid)
     bus_index = {u: i for i, u in enumerate(bus_uids)}
 
@@ -94,8 +135,6 @@ def build_line_graph(case: Case) -> LineGraph:
         if not _line_active(line):
             continue
         uid = int(line["uid"])
-        x = _scalar_or_none(line.get("reactance"))
-        is_dc = _line_type_is_dc(line) or x is None or x <= 0.0
         try:
             ua = resolve_bus_ref(case, line.get("bus_a"))
             ub = resolve_bus_ref(case, line.get("bus_b"))
@@ -106,20 +145,43 @@ def build_line_graph(case: Case) -> LineGraph:
         if ua is None or ub is None or ua == ub:
             skipped.append(uid)
             continue
+        x = _scalar_or_none(line.get("reactance"))
+        fab = _max_scalar(line.get("tmax_ab")) or 0.0
+        fba = _max_scalar(line.get("tmax_ba")) or 0.0
+        # Voltage level from endpoint bus names (see docstring).
+        kv_a = _bus_kv(case.bus_name_by_uid.get(ua))
+        kv_b = _bus_kv(case.bus_name_by_uid.get(ub))
+        kvs = [k for k in (kv_a, kv_b) if k is not None]
+        line_kv = min(kvs) if kvs else None
+        is_dc = (
+            _line_type_is_dc(line)
+            or x is None
+            or x <= dc_reactance_threshold
+            or (
+                dc_voltage_threshold > 0.0
+                and line_kv is not None
+                and line_kv <= dc_voltage_threshold
+            )
+            or (dc_power_threshold > 0.0 and max(fab, fba) <= dc_power_threshold)
+        )
         line_uids.append(uid)
         a_idx.append(bus_index[ua])
         b_idx.append(bus_index[ub])
         xs.append(np.inf if is_dc else float(x))  # type: ignore[arg-type]
         rs.append(float(_scalar_or_none(line.get("resistance")) or 0.0))
-        fabs.append(float(_scalar_or_none(line.get("tmax_ab")) or 0.0))
-        fbas.append(float(_scalar_or_none(line.get("tmax_ba")) or 0.0))
+        fabs.append(fab)
+        fbas.append(fba)
         dcs.append(is_dc)
 
     n_dc = sum(dcs)
     if n_dc:
         logger.info(
-            "modelled %d DC lines (type 'dc' or no/zero reactance): uids %s",
+            "modelled %d DC lines (type 'dc', X <= %.3g, V <= %.3g, or "
+            "tmax <= %.3g): uids %s",
             n_dc,
+            dc_reactance_threshold,
+            dc_voltage_threshold,
+            dc_power_threshold,
             [u for u, dc in zip(line_uids, dcs) if dc][:20],
         )
 
@@ -215,3 +277,50 @@ def _scalar_or_none(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _max_scalar(value: Any) -> float | None:
+    """Flatten a scalar or (nested) schedule list to its max; None if empty.
+
+    ``tmax_ab``/``tmax_ba`` may be schedule-valued (nested lists) — a plain
+    scalar coercion returns None and mis-reads the capacity as 0, which
+    would wrongly DC-classify a big backbone line under a power threshold.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, list):
+        flat: list[float] = []
+        stack: list[Any] = list(value)
+        while stack:
+            x = stack.pop()
+            if isinstance(x, list):
+                stack.extend(x)
+            elif isinstance(x, (int, float)) and not isinstance(x, bool):
+                flat.append(float(x))
+        return max(flat) if flat else None
+    return None
+
+
+# Chilean SEN nominal voltage levels (kV) for bus-name parsing.
+_SEN_KV_LEVELS = frozenset({23, 33, 66, 100, 110, 154, 220, 345, 500})
+_KV_NUM = re.compile(r"\d+")
+
+
+def _bus_kv(name: str | None) -> float | None:
+    """Recover a bus's kV level from its name (e.g. ``Salar110`` → 110).
+
+    PLEXOS-CEN encodes the real voltage in the bus name, not the line
+    ``voltage`` field (which is the √S_base loss constant).  Prefers a
+    trailing digit group matching a known SEN level; falls back to any
+    matching embedded level, then to a trailing 2–3-digit group.
+    """
+    if not name:
+        return None
+    nums = [int(g) for g in _KV_NUM.findall(name)]
+    for n in reversed(nums):  # trailing first
+        if n in _SEN_KV_LEVELS:
+            return float(n)
+    m = re.search(r"(\d{2,3})\D*$", name)
+    return float(m.group(1)) if m else None

@@ -135,6 +135,15 @@ void apply_cplex_warmstart(cpxenv* env, const SolverOptions& opts)
   const int warm_method =
       (opts.algorithm == LPAlgo::dual) ? CPX_ALG_DUAL : CPX_ALG_PRIMAL;
   CPXsetintparam(env, CPX_PARAM_LPMETHOD, warm_method);
+  // CRITICAL for the MIP root-basis cache: `CPX_PARAM_LPMETHOD` steers the
+  // *continuous* solve (`CPXlpopt`), but under `CPXmipopt` the ROOT node LP
+  // algorithm is governed by `CPX_PARAM_STARTALG` (StartAlgorithm) — with the
+  // bundled cplex.prm pinning barrier there, an installed basis would be
+  // IGNORED (barrier starts from the analytic center, never a basis).  Force
+  // the MIP root onto the same warm simplex method so `CPXcopybase` is
+  // honored and the root enters at the cached optimal vertex.  Harmless for
+  // pure-LP solves (StartAlg is a MIP-only parameter that CPXlpopt ignores).
+  CPXsetintparam(env, CPX_PARAM_STARTALG, warm_method);
 
   // Optional user override: the case's `cplex_warmstart.prm` sibling (next
   // to its main `cplex.prm`) — the single shared warm-start param file
@@ -1207,6 +1216,11 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   CPXgetintparam(env, CPX_PARAM_LPMETHOD, &saved_lpmethod);
   int saved_advance = 1;
   CPXgetintparam(env, CPX_PARAM_ADVIND, &saved_advance);
+  // `apply_cplex_warmstart` now also sets CPX_PARAM_STARTALG (MIP root LP
+  // method); save/restore it too so a reused env keeps its cold MIP-root
+  // barrier StartAlg for subsequent solves.
+  int saved_startalg = CPX_ALG_AUTOMATIC;
+  CPXgetintparam(env, CPX_PARAM_STARTALG, &saved_startalg);
 
   apply_options(fixed_opts);
 
@@ -1235,6 +1249,7 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   //    keep barrier / their prior advanced-start behaviour.
   CPXsetintparam(env, CPX_PARAM_LPMETHOD, saved_lpmethod);
   CPXsetintparam(env, CPX_PARAM_ADVIND, saved_advance);
+  CPXsetintparam(env, CPX_PARAM_STARTALG, saved_startalg);
 
   // 8. Report the fixed count, or -1 if the fixed-LP solve still failed.
   if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {

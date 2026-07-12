@@ -1,0 +1,144 @@
+{
+  "options": {
+    "annual_discount_rate": 0.0,
+    "output_format": "csv",
+    "output_compression": "uncompressed",
+    "model_options": {
+      "use_single_bus": true,
+      "scale_objective": 1000,
+      "demand_fail_cost": 1000
+    }
+  },
+  "simulation": {
+    "block_array": [
+      {
+        "uid": 1,
+        "duration": 1
+      },
+      {
+        "uid": 2,
+        "duration": 1
+      },
+      {
+        "uid": 3,
+        "duration": 1
+      },
+      {
+        "uid": 4,
+        "duration": 1
+      },
+      {
+        "uid": 5,
+        "duration": 1
+      },
+      {
+        "uid": 6,
+        "duration": 1
+      }
+    ],
+    "stage_array": [
+      {
+        "uid": 1,
+        "first_block": 0,
+        "count_block": 6,
+        "active": 1,
+        "chronological": true
+      }
+    ],
+    "scenario_array": [
+      {
+        "uid": 1,
+        "probability_factor": 1
+      }
+    ]
+  },
+  "system": {
+    "name": "uc_small",
+    "bus_array": [
+      {
+        "uid": 1,
+        "name": "b1"
+      }
+    ],
+    "generator_array": [
+      {
+        "uid": 1,
+        "name": "g_base",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 60,
+        "gcost": 20,
+        "capacity": 60
+      },
+      {
+        "uid": 2,
+        "name": "g_mid",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 80,
+        "gcost": 40,
+        "capacity": 80
+      },
+      {
+        "uid": 3,
+        "name": "g_peak",
+        "bus": "b1",
+        "pmin": 0,
+        "pmax": 60,
+        "gcost": 80,
+        "capacity": 60
+      }
+    ],
+    "demand_array": [
+      {
+        "uid": 1,
+        "name": "d1",
+        "bus": "b1",
+        "lmax": [
+          [
+            20.0,
+            60.0,
+            120.0,
+            120.0,
+            60.0,
+            20.0
+          ]
+        ]
+      }
+    ],
+    "commitment_array": [
+      {
+        "uid": 1,
+        "name": "g_base_uc",
+        "generator": "g_base",
+        "pmin": 20,
+        "noload_cost": 30,
+        "startup_cost": 200,
+        "initial_status": 1,
+        "initial_hours": 8
+      },
+      {
+        "uid": 2,
+        "name": "g_mid_uc",
+        "generator": "g_mid",
+        "pmin": 30,
+        "noload_cost": 40,
+        "startup_cost": 400,
+        "min_up_time": 2,
+        "min_down_time": 2,
+        "initial_status": 0,
+        "initial_hours": 8
+      },
+      {
+        "uid": 3,
+        "name": "g_peak_uc",
+        "generator": "g_peak",
+        "pmin": 15,
+        "noload_cost": 20,
+        "startup_cost": 150,
+        "initial_status": 0,
+        "initial_hours": 8
+      }
+    ]
+  }
+}

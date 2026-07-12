@@ -375,6 +375,14 @@ template<typename T>
        "already-OFF behaviour) — useful to override a JSON file that sets "
        "`model_options.lp_reduction=true`.  Shorthand for "
        "`--set model_options.lp_reduction=false`.")  //
+      ("allow-oversupply",
+       po::value<bool>().implicit_value(/*v=*/true),
+       "relax the per-bus power balance from `=` to `≥` (generation ≥ "
+       "demand): over-generation is allowed and the surplus is discarded "
+       "at zero cost (free disposal).  Reserve/inertia production is "
+       "already `≥ requirement`.  Shorthand for "
+       "`--set model_options.allow_oversupply=true`.  Note: changes the "
+       "reported LMPs (over-supplied buses price at 0).")  //
       // `--no-presolve` and `--no-crossover` removed (2026-05-21):
       // too solver-specific for the top-level CLI surface.  The
       // generic `--set solver_options.presolve=false` and
@@ -442,6 +450,18 @@ template<typename T>
        "scip_repair.enabled, inject.effort, from_file=<path> to replay a "
        "dumped start, dump_file=<path> to persist this solve's integers for a "
        "later cross-solver replay.")
+      //
+      ("root-basis-cache",
+       po::value<std::string>(),
+       "cache/reuse the ROOT LP basis across runs (CPLEX only).  On the FIRST "
+       "run the file is absent → the MIP is solved cold and the root LP basis "
+       "is written to <path>; on LATER runs the basis is loaded and installed "
+       "before the MIP solve, so CPLEX enters the root at the optimal vertex "
+       "via primal simplex (≈0 simplex iterations), skipping the cold "
+       "barrier+crossover.  The root LP relaxation is identical across "
+       "warm-start runs (the integer MIP-start only feeds the incumbent "
+       "heuristic), so the cached basis is exact.  Shorthand for --set "
+       "monolithic_options.mip_start.root_basis_cache_file=<path>.")
       //
       // ---- deprecated options (hidden from `--help`, still parsed) ----
       //
@@ -964,6 +984,19 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     mip_start->enabled = *opts.mip_start_enable;
   }
 
+  if (opts.root_basis_cache_file.has_value()
+      && !opts.root_basis_cache_file->empty())
+  {
+    // CLI flag → monolithic_options.mip_start.root_basis_cache_file.  Does NOT
+    // toggle `mip_start.enabled`: caching the root LP basis is independent of
+    // the integer-seed pipeline (the relaxation is identical either way).
+    auto& mip_start = planning.options.monolithic_options.mip_start;
+    if (!mip_start.has_value()) {
+      mip_start.emplace();
+    }
+    mip_start->root_basis_cache_file = *opts.root_basis_cache_file;
+  }
+
   if (opts.no_scale.value_or(false)) {
     // `--no-scale` disables every auto-scaling / equilibration
     // mechanism for debug / physical-unit validation, and
@@ -999,6 +1032,11 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
     // JSON `model_options.lp_reduction=true`.  Applied last so it wins if
     // both flags are passed.
     planning.options.model_options.lp_reduction = false;
+  }
+  if (opts.allow_oversupply.value_or(false)) {
+    // `--allow-oversupply` relaxes the bus balance to `generation ≥
+    // demand` (free disposal of surplus).
+    planning.options.model_options.allow_oversupply = true;
   }
 
   if (opts.memory_saving) {
@@ -1208,11 +1246,13 @@ inline void apply_cli_options(Planning& planning, const MainOptions& opts)
       .no_scale = get_opt<bool>(vm, "no-scale"),
       .lp_reduction = get_opt<bool>(vm, "lp-reduction"),
       .no_lp_reduction = get_opt<bool>(vm, "no-lp-reduction"),
+      .allow_oversupply = get_opt<bool>(vm, "allow-oversupply"),
       .no_mip = get_opt<bool>(vm, "no-mip"),
       .naming_dialect = get_opt<std::string>(vm, "naming-dialect"),
       .mip_gap = get_opt<double>(vm, "mip-gap"),
       .time_limit = get_opt<double>(vm, "time-limit"),
       .mip_start_enable = get_opt<bool>(vm, "mip-start"),
+      .root_basis_cache_file = get_opt<std::string>(vm, "root-basis-cache"),
       .set_options = vm.contains("set")
           ? vm["set"].as<std::vector<std::string>>()
           : std::vector<std::string> {},
@@ -1506,6 +1546,7 @@ inline void merge_config_defaults(MainOptions& opts,
   merge(opts.no_scale, defaults.no_scale);
   merge(opts.lp_reduction, defaults.lp_reduction);
   merge(opts.no_lp_reduction, defaults.no_lp_reduction);
+  merge(opts.allow_oversupply, defaults.allow_oversupply);
   merge(opts.no_mip, defaults.no_mip);
   merge(opts.naming_dialect, defaults.naming_dialect);
   merge(opts.mip_gap, defaults.mip_gap);

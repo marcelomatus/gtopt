@@ -101,6 +101,105 @@ def test_admittance_excludes_dc(hvdc_tie_case: Case) -> None:
     assert bmat[0, 1] == pytest.approx(-1.0 / 0.1)
 
 
+def test_dc_reactance_threshold(hvdc_tie_case: Case) -> None:
+    # Line 1 gets a tiny reactance below the threshold → DC; line 3 stays AC.
+    hvdc_tie_case.array("line_array")[0]["reactance"] = 5e-4
+    graph = build_line_graph(hvdc_tie_case, dc_reactance_threshold=1e-3)
+    assert set(graph.dc_line_uids) == {1, 2}  # 1 (tiny X) + 2 (no X)
+    # threshold=0 restores the old behaviour: only the X-less line 2 is DC.
+    g0 = build_line_graph(hvdc_tie_case, dc_reactance_threshold=0.0)
+    assert g0.dc_line_uids == [2]
+
+
+def test_bus_kv_parser() -> None:
+    from gtopt_reduce_network._topology import _bus_kv
+
+    assert _bus_kv("Salar110") == 110.0
+    assert _bus_kv("Tamaya033") == 33.0  # leading zero
+    assert _bus_kv("CNavia220_Aux_D") == 220.0  # embedded SEN level
+    assert _bus_kv("b1") is None  # no kV
+    assert _bus_kv(None) is None
+
+
+def test_dc_voltage_threshold_from_bus_names() -> None:
+    # kV is derived from the endpoint BUS NAMES, not the line.voltage field.
+    case = _make_case(
+        {
+            "options": {},
+            "simulation": {},
+            "system": {
+                "bus_array": [
+                    {"uid": 1, "name": "Sub066"},  # 66 kV
+                    {"uid": 2, "name": "Sub066b"},
+                    {"uid": 3, "name": "Grid220"},  # 220 kV
+                    {"uid": 4, "name": "Grid220b"},
+                ],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "L1",
+                        "bus_a": "Sub066",
+                        "bus_b": "Sub066b",
+                        "reactance": 0.2,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                    {
+                        "uid": 2,
+                        "name": "L2",
+                        "bus_a": "Grid220",
+                        "bus_b": "Grid220b",
+                        "reactance": 0.2,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                ],
+            },
+        }
+    )
+    # rule off by default: both AC (X=0.2 > 1e-4, no power hit at tmax 100).
+    assert build_line_graph(case, dc_power_threshold=0.0).dc_line_uids == []
+    # <=66 kV → the 66 kV line 1 is DC; the 220 kV line 2 stays AC.
+    g = build_line_graph(case, dc_voltage_threshold=66.0, dc_power_threshold=0.0)
+    assert g.dc_line_uids == [1]
+
+
+def test_dc_power_threshold_flattens_schedule() -> None:
+    # Schedule-valued (nested-list) tmax must flatten to its max, not read 0.
+    case = _make_case(
+        {
+            "options": {},
+            "simulation": {},
+            "system": {
+                "bus_array": [{"uid": i, "name": f"b{i}"} for i in range(1, 4)],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "Big",
+                        "bus_a": "b1",
+                        "bus_b": "b2",
+                        "reactance": 0.2,
+                        "tmax_ab": [[300, 500, 400]],
+                        "tmax_ba": 500,
+                    },
+                    {
+                        "uid": 2,
+                        "name": "Small",
+                        "bus_a": "b2",
+                        "bus_b": "b3",
+                        "reactance": 0.2,
+                        "tmax_ab": 15,
+                        "tmax_ba": 15,
+                    },
+                ],
+            },
+        }
+    )
+    g = build_line_graph(case, dc_power_threshold=30.0)
+    # Big (schedule max 500) stays AC; Small (15 MW) is DC.
+    assert g.dc_line_uids == [2]
+
+
 def test_reduce_keeps_hvdc_corridor_as_dc_line(hvdc_tie_case: Case) -> None:
     config = ReduceConfig(
         target_buses=2, skip_local_simplify=True, partition="louvain-mincut"
@@ -292,6 +391,93 @@ def test_filter_pampl_drops_line_constraints() -> None:
     assert "TxFoo" not in filtered
     assert "slack_TxFoo" not in filtered
     assert 'generator("G1")' in filtered
+
+
+def test_protected_lines_survive_with_constraint() -> None:
+    from gtopt_reduce_network._protected_lines import collect_protected_lines
+
+    case = _make_case(
+        {
+            "options": {},
+            "simulation": {},
+            "system": {
+                "bus_array": [{"uid": i, "name": f"b{i}"} for i in range(1, 7)],
+                "line_array": [
+                    {
+                        "uid": 1,
+                        "name": "L12",
+                        "bus_a": "b1",
+                        "bus_b": "b2",
+                        "reactance": 0.1,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                    {
+                        "uid": 2,
+                        "name": "L23",
+                        "bus_a": "b2",
+                        "bus_b": "b3",
+                        "reactance": 0.1,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                    {
+                        "uid": 3,
+                        "name": "L45",
+                        "bus_a": "b4",
+                        "bus_b": "b5",
+                        "reactance": 0.1,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                    {
+                        "uid": 4,
+                        "name": "L56",
+                        "bus_a": "b5",
+                        "bus_b": "b6",
+                        "reactance": 0.1,
+                        "tmax_ab": 100,
+                        "tmax_ba": 100,
+                    },
+                    {
+                        "uid": 5,
+                        "name": "TIE",
+                        "bus_a": "b3",
+                        "bus_b": "b4",
+                        "reactance": 5.0,
+                        "tmax_ab": 50,
+                        "tmax_ba": 50,
+                    },
+                ],
+                "generator_array": [
+                    {"uid": 1, "bus": "b1", "pmax": 500, "capacity": 500},
+                    {"uid": 2, "bus": "b6", "pmax": 500, "capacity": 500},
+                ],
+                "demand_array": [{"uid": 1, "bus": "b4", "lmax": 100}],
+                # a Tx constraint referencing the weak tie line
+                "user_constraint_array": [
+                    {
+                        "uid": 1,
+                        "name": "TxTie",
+                        "expression": '1 * line("TIE").flow <= 40',
+                    },
+                ],
+            },
+        }
+    )
+    puids, pbuses = collect_protected_lines(case)
+    assert 5 in puids  # TIE line protected
+    assert {case.bus_uid_by_name["b3"], case.bus_uid_by_name["b4"]} <= pbuses
+
+    cfg = ReduceConfig(
+        target_buses=3, partition="louvain-mincut", protect_constraint_lines=True
+    )
+    result = reduce_case(case, cfg)
+    red_lines = {ln.get("name") for ln in result.case.array("line_array")}
+    assert "TIE" in red_lines  # kept with original identity, not agg_*
+    # its endpoints survive as buses
+    red_buses = {b.get("name") for b in result.case.array("bus_array")}
+    assert {"b3", "b4"} <= red_buses
 
 
 def test_bus_ratio_cli(tmp_path: Path, two_clusters_case: Case) -> None:

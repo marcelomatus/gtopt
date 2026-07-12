@@ -127,6 +127,9 @@ def test_build_planning_multibus() -> None:
     assert mo["use_kirchhoff"] is True and mo["use_single_bus"] is False
     system = planning["system"]
     assert {b["name"] for b in system["bus_array"]} == {"b1", "b2"}
+    # Nominal kV from the PSR source (Volt.dat / dbus name suffix /
+    # neighbour inference) is emitted as ``Bus.voltage``.
+    assert [b["voltage"] for b in system["bus_array"]] == [230.0, 230.0]
     line = system["line_array"][0]
     assert line["bus_a"] == "b1" and line["bus_b"] == "b2"
     assert line["reactance"] == pytest.approx(0.05)
@@ -134,6 +137,38 @@ def test_build_planning_multibus() -> None:
     assert gen["bus"] == "b1" and gen["gcost"] == pytest.approx(30.0)
     dem = system["demand_array"][0]
     assert dem["bus"] == "b2" and dem["lmax"] == [[120.0, 80.0]]
+
+
+def test_multibus_bus_voltage_omitted_when_unknown() -> None:
+    """``base_kv == 0`` (no Volt.dat entry, no name suffix, no neighbour)
+    means the kV is genuinely unknown — the ``voltage`` field must be
+    OMITTED from the bus entry, never fabricated."""
+    from sddp2gtopt.entities import StudySpec  # local import keeps top tidy
+
+    study = StudySpec(stage_type=1, num_stages=1, num_blocks=1, deficit_cost=500.0)
+    buses = [
+        BusSpec(number=1, name="A-230", base_kv=230.0),
+        BusSpec(number=2, name="GENBUS", base_kv=0.0),
+    ]
+    circuits = [
+        CircuitSpec(from_bus=1, to_bus=2, name="L12", reactance_pu=0.05, rating=300.0)
+    ]
+    demands = [
+        DemandSpec(code=1, name="d1", reference_id=1, bus_number=1, block_values=[50.0])
+    ]
+    planning = build_planning(
+        study=study,
+        systems=[],
+        thermals=[],
+        hydros=[],
+        demands=demands,
+        name="mb",
+        buses=buses,
+        circuits=circuits,
+    )
+    by_uid = {b["uid"]: b for b in planning["system"]["bus_array"]}
+    assert by_uid[1]["voltage"] == 230.0
+    assert "voltage" not in by_uid[2]
 
 
 def _write_mini_multibus_case(root: Path) -> Path:

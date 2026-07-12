@@ -88,6 +88,8 @@ def _solve(
         "--no-scale",
         "--set",
         "solver_options.crossover=none",
+        "--set",
+        f"output_directory=output_{tag}",
     ]
     if time_limit and time_limit > 0:
         cmd += ["--set", f"solver_options.time_limit={time_limit:g}"]
@@ -97,9 +99,24 @@ def _solve(
     return {
         "solve_rc": rc,
         "solve_secs": round(time.time() - t0, 1),
-        "objective": _grep_objective(log),
+        "objective": _csv_objective(outdir / f"output_{tag}" / "solution.csv")
+        or _grep_objective(log),
+        "output_dir": str(outdir / f"output_{tag}"),
         "log": str(log),
     }
+
+
+def _csv_objective(solution_csv: Path) -> float | None:
+    """Authoritative objective: sum of obj_value over (scene, phase) rows."""
+    if not solution_csv.exists():
+        return None
+    try:
+        lines = solution_csv.read_text().strip().splitlines()
+        hdr = lines[0].split(",")
+        idx = hdr.index("obj_value")
+        return sum(float(ln.split(",")[idx]) for ln in lines[1:])
+    except (ValueError, IndexError):
+        return None
 
 
 def _counts(json_path: Path) -> tuple[int, int]:
@@ -127,7 +144,7 @@ def main() -> int:
         "--ratios",
         nargs="*",
         type=float,
-        default=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+        default=[0.0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
         help="bus-count fractions; 0 = uninodal (K=1 copper plate)",
     )
     ap.add_argument("--uplift-pct", type=float, default=2.0)

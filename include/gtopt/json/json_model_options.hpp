@@ -48,7 +48,8 @@ struct json_data_contract<ModelOptions>
       json_string_null<"naming_dialect", OptName>,
       json_string_null<"objective_mode", OptName>,
       json_bool_null<"strict_storage_emin", OptBool>,
-      json_bool_null<"lp_reduction", OptBool>>;
+      json_bool_null<"lp_reduction", OptBool>,
+      json_bool_null<"allow_oversupply", OptBool>>;
 
   constexpr static auto to_json_data(ModelOptions const& opt)
   {
@@ -79,7 +80,8 @@ struct json_data_contract<ModelOptions>
                                  opt.naming_dialect,
                                  opt.objective_mode,
                                  opt.strict_storage_emin,
-                                 opt.lp_reduction);
+                                 opt.lp_reduction,
+                                 opt.allow_oversupply);
   }
 };
 

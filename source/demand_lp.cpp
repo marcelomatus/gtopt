@@ -343,11 +343,16 @@ bool DemandLP::add_to_lp(SystemContext& sc,
         // user constraints (see ResolvedCol::offset).
         block_offsets[buid] = block_lmax;
         // Bus balance RHS shift: +(1+loss)·lmax per elastic-demand
-        // block.  Bus balance is an equality row (default
-        // lowb == uppb == 0), so we shift both bounds equally.
+        // block.  A strict balance is an equality row (default
+        // lowb == uppb == 0), so we shift both bounds equally.  Under
+        // `model_options.allow_oversupply` BusLP built the row as `≥`
+        // (uppb already unbounded); shifting only the lower bound keeps
+        // it `generation ≥ demand`, so guard the upper shift.
         const double bus_rhs_shift = (1.0 + block_lossfactor) * block_lmax;
         bus_brow.lowb += bus_rhs_shift;
-        bus_brow.uppb += bus_rhs_shift;
+        if (bus_brow.uppb < LinearProblem::DblMax) {
+          bus_brow.uppb += bus_rhs_shift;
+        }
       }
 
       // adding the capacity constraint

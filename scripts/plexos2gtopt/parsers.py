@@ -721,12 +721,18 @@ def extract_nodes(db: PlexosDb) -> tuple[NodeSpec, ...]:
 
     out: list[NodeSpec] = []
     for node in db.objects_of_class("Node"):
+        # Native nominal kV: the PLEXOS ``Voltage`` node property
+        # (System→Nodes collection).  118-Bus ships it (138 kV); the
+        # CEN PCP daily bundle leaves it empty and encodes the kV in
+        # the bus name instead (writer-side name-parse fallback).
+        kv = db.static_property("Node", node.object_id, "Voltage", default=0.0)
         out.append(
             NodeSpec(
                 object_id=node.object_id,
                 name=node.name,
                 region=region_map.get(node.object_id),
                 zone=zone_map.get(node.object_id),
+                voltage=kv if kv > 0.0 else None,
             )
         )
     return tuple(out)

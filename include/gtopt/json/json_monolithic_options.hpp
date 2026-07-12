@@ -255,7 +255,9 @@ struct MipStartOptionsConstructor
       std::optional<MipStartInject> inject,
       OptName from_file,
       OptName dump_file,
-      OptName seed_solution_file) const
+      OptName seed_solution_file,
+      OptBool skip_relaxation,
+      OptName root_basis_cache_file) const
   {
     return MipStartOptions {
         .enabled = enabled,
@@ -267,6 +269,8 @@ struct MipStartOptionsConstructor
         .from_file = std::move(from_file),
         .dump_file = std::move(dump_file),
         .seed_solution_file = std::move(seed_solution_file),
+        .skip_relaxation = skip_relaxation,
+        .root_basis_cache_file = std::move(root_basis_cache_file),
     };
   }
 };
@@ -285,7 +289,9 @@ struct json_data_contract<MipStartOptions>
                        json_class_null<"inject", MipStartInject>,
                        json_string_null<"from_file", OptName>,
                        json_string_null<"dump_file", OptName>,
-                       json_string_null<"seed_solution_file", OptName>>;
+                       json_string_null<"seed_solution_file", OptName>,
+                       json_bool_null<"skip_relaxation", OptBool>,
+                       json_string_null<"root_basis_cache_file", OptName>>;
 
   static auto to_json_data(MipStartOptions const& opt)
   {
@@ -298,7 +304,9 @@ struct json_data_contract<MipStartOptions>
         std::optional<MipStartInject> {opt.inject},
         opt.from_file,
         opt.dump_file,
-        opt.seed_solution_file);
+        opt.seed_solution_file,
+        opt.skip_relaxation,
+        opt.root_basis_cache_file);
   }
 };
 

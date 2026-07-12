@@ -631,7 +631,16 @@ def _build_multibus_planning(
 ) -> dict[str, Any]:
     """Assemble a multi-bus DC OPF planning from the PSR network entities."""
     live = {b.number for b in buses}
-    bus_array = [{"uid": b.number, "name": _net_bus_ref(b.number)} for b in buses]
+    # ``voltage`` = nominal kV from the PSR source data (Volt.dat is
+    # authoritative; dbus.dat name suffix and highest-voltage-neighbour
+    # inference fill the gaps — see dat_loader).  base_kv == 0 means
+    # genuinely unknown, so the field is omitted rather than fabricated.
+    bus_array: list[dict[str, Any]] = []
+    for b in buses:
+        bus_entry: dict[str, Any] = {"uid": b.number, "name": _net_bus_ref(b.number)}
+        if b.base_kv > 0.0:
+            bus_entry["voltage"] = b.base_kv
+        bus_array.append(bus_entry)
 
     line_array: list[dict[str, Any]] = []
     uid = 1
@@ -854,6 +863,9 @@ def build_planning(
     bus_by_ref, fallback_bus = _build_system_bus_map(systems)
     use_single_bus = len(systems) == 1
 
+    # One aggregate bus per PSR System — a fictitious trade hub, not a
+    # physical substation, so there is no nominal kV to emit here (the
+    # multi-bus dbus.dat path above carries the real per-bus voltage).
     bus_array: list[dict[str, Any]] = [
         {"uid": i + 1, "name": _bus_name(s)} for i, s in enumerate(systems)
     ]

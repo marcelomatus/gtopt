@@ -34,6 +34,7 @@ from gtopt_reduce_network._project_investment import (
     write_audit_csv,
     write_patch_json,
 )
+from gtopt_reduce_network._protected_lines import collect_protected_lines
 from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
 from gtopt_reduce_network._user_constraints import filter_line_user_constraints
 
@@ -168,6 +169,57 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
         help="equivalent-reactance rule for aggregated lines",
     )
     p.add_argument(
+        "--dc-reactance-threshold",
+        type=float,
+        default=1e-4,
+        metavar="X",
+        help=(
+            "lines with per-unit reactance <= X are treated as DC (no KVL, "
+            "transport capacity only): near-jumper lines whose huge 1/X "
+            "susceptance would wreck KVL conditioning.  Default 1e-4 = "
+            "PSS/E THRSHZ closed-switch standard.  gtopt analogue: "
+            "model_options.dc_line_reactance_threshold"
+        ),
+    )
+    p.add_argument(
+        "--dc-voltage-threshold",
+        type=float,
+        default=0.0,
+        metavar="KV",
+        help=(
+            "lines whose voltage level min(kV(bus_a), kV(bus_b)) <= KV are "
+            "treated as DC: the sub-transmission lines that should not carry "
+            "the transmission KVL network.  kV is derived from the endpoint "
+            "BUS NAMES (Salar110 -> 110), not line.voltage.  0 = disabled "
+            "(default); <=66 recommended for the SEN"
+        ),
+    )
+    p.add_argument(
+        "--dc-power-threshold",
+        type=float,
+        default=0.0,
+        metavar="MW",
+        help=(
+            "lines with capacity max(tmax_ab, tmax_ba) <= MW (schedule-"
+            "flattened) are treated as DC: the small / low-capacity lines "
+            "whose flow barely matters and only add KVL rows.  0 = disabled "
+            "(default); ~30 MW recommended for the SEN (expert memo)"
+        ),
+    )
+    p.add_argument(
+        "--protect-constraint-lines",
+        action="store_true",
+        help=(
+            "keep every line referenced by a full-model constraint (user "
+            "constraints, uc_*.pampl, line commitment) INTACT — original "
+            "uid/name/params, endpoints pinned as anchors — so its "
+            "transmission-security / comparison constraint stays valid in "
+            "the reduced case.  Essential when the reduced commitment is a "
+            "MIP warm-start seed for the full model.  With --bus-ratio the "
+            "ratio then applies to the REDUCIBLE (non-protected) buses only"
+        ),
+    )
+    p.add_argument(
         "--anchor-uid",
         type=int,
         action="append",
@@ -262,7 +314,15 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
 
 def _cmd_reduce(args: argparse.Namespace) -> None:
     case = load_case(args.input)
-    target_buses = _resolve_target_buses(args, case)
+    # Count protected buses first: under --protect-constraint-lines the
+    # bus-ratio is applied to the REDUCIBLE (non-protected) part only.
+    n_protected_buses = 0
+    if args.protect_constraint_lines:
+        _, protected_buses = collect_protected_lines(
+            case, input_dir=args.input.resolve().parent
+        )
+        n_protected_buses = len(protected_buses)
+    target_buses = _resolve_target_buses(args, case, n_protected_buses)
     config = ReduceConfig(
         target_buses=target_buses,
         distance=args.distance,
@@ -273,6 +333,10 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
         include_reservoir_hosts=not args.no_reservoir_anchors,
         skip_local_simplify=args.skip_local_simplify,
         drop_lines_below_mw=args.drop_lines_below_mw,
+        dc_reactance_threshold=args.dc_reactance_threshold,
+        dc_voltage_threshold=args.dc_voltage_threshold,
+        dc_power_threshold=args.dc_power_threshold,
+        protect_constraint_lines=args.protect_constraint_lines,
         partition=args.partition,
         nx_weight=args.nx_weight,
         seed=args.seed,
@@ -280,7 +344,7 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
         loss_mode=args.loss_mode,
         loss_uplift_pct=args.loss_uplift_pct,
         reduced_tag=args.reduced_tag,
-        parquet_case_dir=str(args.input.resolve().parent) if args.reduced_tag else None,
+        parquet_case_dir=str(args.input.resolve().parent),
     )
     result = reduce_case(case, config)
 
@@ -288,11 +352,17 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
         f".reduced.K{target_buses}.json"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Lines kept intact (protected) still resolve their constraints, so
+    # those constraints are NOT dropped.
+    surviving_lines = frozenset(
+        str(ln.get("name")) for ln in result.case.array("line_array") if ln.get("name")
+    )
     n_uc_dropped = filter_line_user_constraints(
         result.case,
         input_dir=args.input.resolve().parent,
         out_dir=out_path.resolve().parent,
         tag=out_path.stem,
+        surviving_lines=surviving_lines,
     )
     if n_uc_dropped:
         logging.getLogger(__name__).warning(
@@ -323,8 +393,17 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
     print(str(out_path))
 
 
-def _resolve_target_buses(args: argparse.Namespace, case: Any) -> int:
-    """Resolve -K/--target-buses vs --bus-ratio (exactly one required)."""
+def _resolve_target_buses(
+    args: argparse.Namespace, case: Any, n_protected_buses: int = 0
+) -> int:
+    """Resolve -K/--target-buses vs --bus-ratio (exactly one required).
+
+    Under ``--protect-constraint-lines`` the ratio is applied to the
+    REDUCIBLE part only: the protected buses are always kept, and the
+    non-protected ones are reduced to ``ratio``.  So the target is
+    ``n_protected + round(ratio · (n_total − n_protected))`` — "30% of the
+    network" means 30% of what remains after discounting protected buses.
+    """
     if (args.target_buses is None) == (args.bus_ratio is None):
         raise ValueError("pass exactly one of -K/--target-buses or --bus-ratio")
     if args.target_buses is not None:
@@ -332,8 +411,9 @@ def _resolve_target_buses(args: argparse.Namespace, case: Any) -> int:
     ratio = float(args.bus_ratio)
     if not 0.0 < ratio <= 1.0:
         raise ValueError(f"--bus-ratio must be in (0, 1], got {ratio}")
-    n_buses = len(case.array("bus_array"))
-    return max(1, round(ratio * n_buses))
+    n_total = len(case.array("bus_array"))
+    n_reducible = max(0, n_total - n_protected_buses)
+    return n_protected_buses + max(1, round(ratio * n_reducible))
 
 
 # ---------------------------------------------------------------------------

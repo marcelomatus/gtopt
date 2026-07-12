@@ -26,6 +26,7 @@
 #include <unordered_set>
 
 #include <gtopt/ampl_dispatch_registry.hpp>
+#include <gtopt/basis_io.hpp>
 #include <gtopt/bus_island.hpp>
 #include <gtopt/constraint_names.hpp>
 #include <gtopt/gtopt_main.hpp>
@@ -1993,9 +1994,100 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     }
   }
 
-  auto result = li.resolve(solver_options);
+  // ── Root LP basis cache (Experiment A) ────────────────────────────────
+  //
+  // The full-model root LP relaxation is IDENTICAL across warm-start runs (the
+  // integer MIP-start only feeds the incumbent heuristic, not the relaxation),
+  // yet CPLEX recomputes a cold barrier+crossover on every run.  When a cache
+  // path is configured:
+  //   - file PRESENT → load the cached basis and install it before the MIP
+  //     solve; switch the MIP root LP to primal simplex + Advance (via
+  //     `advanced_basis`) so CPLEX enters at the optimal vertex (≈0 simplex
+  //     iterations).  CRITICAL: barrier (`LPMethod=4`, as the bundled
+  //     cplex.prm pins) IGNORES an installed basis, so the basis MUST force
+  //     the root to primal simplex — that is exactly what `advanced_basis`
+  //     does in the CPLEX backend (`ADVIND=1` + primal `LPMethod`/StartAlg).
+  //   - file MISSING → solve cold, then capture and save the root LP basis
+  //     for later runs.
+  // Only the CPLEX backend implements basis I/O; other backends return nullopt
+  // from get_basis / false from set_basis and this degrades cleanly to a
+  // normal cold solve.  Failures here NEVER fail the solve (warn + continue).
+  const auto rb_opts = options().mip_start_options();
+  const bool rb_enabled = rb_opts.root_basis_cache_file.has_value()
+      && !rb_opts.root_basis_cache_file->empty();
+  bool rb_loaded = false;
+  auto effective_opts = solver_options;
+  if (rb_enabled) {
+    const std::filesystem::path rb_path {*rb_opts.root_basis_cache_file};
+    std::error_code ec;
+    if (std::filesystem::exists(rb_path, ec) && !ec) {
+      if (auto basis = load_basis(rb_path); basis) {
+        if (li.set_basis(std::move(*basis))) {
+          // Honor the installed basis: force the (MIP root or LP) solve onto
+          // primal simplex with Advance=1 so the barrier is skipped.
+          effective_opts.advanced_basis = true;
+          effective_opts.algorithm = LPAlgo::primal;
+          rb_loaded = true;
+          spdlog::info(
+              "root-basis [scene={} phase={}]: loaded from {} ({} cols, {} "
+              "rows) — root enters at cached vertex (primal simplex)",
+              scene().uid(),
+              phase().uid(),
+              rb_path.string(),
+              li.get_numcols(),
+              li.get_numrows());
+        } else {
+          spdlog::warn(
+              "root-basis [scene={} phase={}]: set_basis rejected the cached "
+              "basis from {} (dimension mismatch or backend without basis "
+              "support) — solving cold",
+              scene().uid(),
+              phase().uid(),
+              rb_path.string());
+        }
+      } else {
+        spdlog::warn("root-basis [scene={} phase={}]: {} — solving cold",
+                     scene().uid(),
+                     phase().uid(),
+                     basis.error().message);
+      }
+    }
+  }
+
+  auto result = li.resolve(rb_loaded ? effective_opts : solver_options);
   if (!result) {
     return result;
+  }
+
+  // Cold path: no cache file yet → capture the root LP basis and persist it so
+  // the next run loads it and skips the barrier.  Done after a successful solve
+  // (the LP carries an optimal basis) and before the dump / dual-recovery
+  // passes relax integrality.
+  if (rb_enabled && !rb_loaded) {
+    const std::filesystem::path rb_path {*rb_opts.root_basis_cache_file};
+    if (auto basis = li.get_basis(); basis.has_value()) {
+      if (auto saved = save_basis(rb_path, *basis); saved) {
+        spdlog::info(
+            "root-basis [scene={} phase={}]: cached to {} ({} cols, {} rows)",
+            scene().uid(),
+            phase().uid(),
+            rb_path.string(),
+            basis->num_cols(),
+            basis->num_rows());
+      } else {
+        spdlog::warn("root-basis [scene={} phase={}]: {}",
+                     scene().uid(),
+                     phase().uid(),
+                     saved.error().message);
+      }
+    } else {
+      spdlog::warn(
+          "root-basis [scene={} phase={}]: backend produced no basis to cache "
+          "(interior-point without crossover, or backend without basis "
+          "support)",
+          scene().uid(),
+          phase().uid());
+    }
   }
 
   // ── Optional: dump the solved integer solution for cross-run reuse ─────

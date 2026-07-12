@@ -747,7 +747,6 @@ def parse_gen_constraints(
     """
     import csv  # pylint: disable=import-outside-toplevel
     import io  # pylint: disable=import-outside-toplevel
-    import re  # pylint: disable=import-outside-toplevel
 
     from gtopt_shared.compressed_open import (  # pylint: disable=import-outside-toplevel
         read_text,

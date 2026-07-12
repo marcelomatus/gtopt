@@ -30,6 +30,7 @@ from gtopt_reduce_network._distance import (
 )
 from gtopt_reduce_network._io import Case, resolve_bus_ref
 from gtopt_reduce_network._local_simplify import simplify_local
+from gtopt_reduce_network._protected_lines import collect_protected_lines
 from gtopt_reduce_network._partition_nx import build_busmap_nx
 from gtopt_reduce_network._line_schedules import aggregate_line_schedules
 from gtopt_reduce_network._simplify import apply_loss_mode, apply_transport_only
@@ -56,6 +57,23 @@ class ReduceConfig:
     skip_local_simplify: bool = False
     drop_lines_below_mw: float | None = None
     integer_uid_offset: int = 1_000_000  # synth bus uid = offset + cluster idx
+    # --- DC-line classification thresholds --------------------------------
+    # A line is treated as DC (no KVL, transport capacity only) when its
+    # reactance X <= dc_reactance_threshold (near-jumper, pu; default 1e-4
+    # = PSS/E THRSHZ closed-switch standard), its voltage level (from bus
+    # names) <= dc_voltage_threshold [kV] (sub-transmission), or its
+    # capacity max(tmax_ab, tmax_ba) <= dc_power_threshold [MW].  The
+    # voltage and power rules are disabled at 0.
+    dc_reactance_threshold: float = 1e-4
+    dc_voltage_threshold: float = 0.0
+    dc_power_threshold: float = 0.0  # off by default; ≤30 MW recommended
+    # --- Constraint-referenced line protection ----------------------------
+    # Keep every line referenced by a full-model constraint (user
+    # constraints, pampl files, line commitment) INTACT (original
+    # uid/name/params, endpoints pinned as anchors) so its constraint stays
+    # valid in the reduced case — essential when the reduced commitment is
+    # used as a MIP warm-start seed for the full model.
+    protect_constraint_lines: bool = False
     # --- Partition backend -------------------------------------------------
     partition: str = "hac"  # hac | louvain-mincut
     nx_weight: str = "capacity"  # capacity | susceptance (louvain-mincut only)
@@ -92,6 +110,19 @@ class ReduceConfig:
             raise ValueError(
                 f"nx_weight must be one of {_NX_WEIGHTS}, got {self.nx_weight!r}"
             )
+        if self.dc_reactance_threshold < 0.0:
+            raise ValueError(
+                "dc_reactance_threshold must be >= 0, got "
+                f"{self.dc_reactance_threshold}"
+            )
+        if self.dc_voltage_threshold < 0.0:
+            raise ValueError(
+                f"dc_voltage_threshold must be >= 0, got {self.dc_voltage_threshold}"
+            )
+        if self.dc_power_threshold < 0.0:
+            raise ValueError(
+                f"dc_power_threshold must be >= 0, got {self.dc_power_threshold}"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -105,6 +136,10 @@ class ReduceConfig:
             "skip_local_simplify": self.skip_local_simplify,
             "drop_lines_below_mw": self.drop_lines_below_mw,
             "integer_uid_offset": self.integer_uid_offset,
+            "dc_reactance_threshold": self.dc_reactance_threshold,
+            "dc_voltage_threshold": self.dc_voltage_threshold,
+            "dc_power_threshold": self.dc_power_threshold,
+            "protect_constraint_lines": self.protect_constraint_lines,
             "partition": self.partition,
             "nx_weight": self.nx_weight,
             "seed": self.seed,
@@ -132,7 +167,12 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     """Run the full reduction pipeline against ``case`` (not mutated)."""
     # Operate on a deep copy so the caller's Case is untouched.
     work = case.deepcopy()
-    graph = build_line_graph(work)
+    graph = build_line_graph(
+        work,
+        dc_reactance_threshold=config.dc_reactance_threshold,
+        dc_voltage_threshold=config.dc_voltage_threshold,
+        dc_power_threshold=config.dc_power_threshold,
+    )
     logger.info(
         "loaded %d buses, %d lines (%d skipped, %d DC)",
         graph.n_buses,
@@ -140,6 +180,15 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         len(graph.skipped_line_uids),
         len(graph.dc_line_uids),
     )
+
+    # 0. Constraint-referenced lines to keep intact ------------------------
+    protected_line_uids: set[int] = set()
+    protected_bus_uids: set[int] = set()
+    if config.protect_constraint_lines:
+        input_dir = Path(config.parquet_case_dir) if config.parquet_case_dir else None
+        protected_line_uids, protected_bus_uids = collect_protected_lines(
+            work, input_dir=input_dir
+        )
 
     # 1. Local simplify ----------------------------------------------------
     dc_mask = graph.line_is_dc
@@ -165,8 +214,13 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
         # DC lines are controllable devices, not impedances: exclude them
         # from the (exact-for-DC-OPF) X-based merges and pin their endpoint
         # buses so degree-2 elimination cannot swallow a converter station.
-        injection_set = _injection_bus_set(work) | _dc_endpoint_bus_uids(graph)
-        sr = simplify_local(_ac_only_graph(graph), injection_bus_uids=injection_set)
+        injection_set = (
+            _injection_bus_set(work) | _dc_endpoint_bus_uids(graph) | protected_bus_uids
+        )
+        sr = simplify_local(
+            _ac_only_graph(graph, frozenset(protected_line_uids)),
+            injection_bus_uids=injection_set,
+        )
         # Track parent-of-eliminated for busmap expansion below.
         # The simplest assignment: each eliminated bus points to whichever
         # surviving bus appears first in its outgoing series-merged lines.
@@ -220,11 +274,17 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     )
 
     # 3. Anchors + cluster -------------------------------------------------
+    # Pin the endpoints of protected lines so both survive in DISTINCT
+    # clusters → the protected line stays an inter-cluster edge (kept
+    # below with its original identity).
+    anchor_uids = tuple(config.user_anchor_uids) + tuple(
+        b for b in protected_bus_uids if b in set(simplified_buses)
+    )
     anchor_sel = select_anchors(
         work,
         target_buses=config.target_buses,
         surviving_bus_uids=simplified_buses,
-        user_anchor_uids=config.user_anchor_uids,
+        user_anchor_uids=anchor_uids,
         min_load_mw=config.min_load_mw,
         min_gen_capacity_mw=config.min_gen_capacity_mw,
         include_reservoir_hosts=config.include_reservoir_hosts,
@@ -262,6 +322,21 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     }
 
     # 5. Aggregate inter-cluster lines ------------------------------------
+    # Protected (constraint-referenced) lines bypass aggregation: they are
+    # re-emitted UNCHANGED below (original uid/name/params) so their
+    # constraint stays valid.  Filter them out of the aggregation input so
+    # their capacity is not also folded into a corridor (double count).
+    if protected_line_uids:
+        keep = [i for i, u in enumerate(surviving_uids) if u not in protected_line_uids]
+        surviving_uids = [surviving_uids[i] for i in keep]
+        surviving_a_uids = [surviving_a_uids[i] for i in keep]
+        surviving_b_uids = [surviving_b_uids[i] for i in keep]
+        surviving_x = [surviving_x[i] for i in keep]
+        surviving_r = [surviving_r[i] for i in keep]
+        surviving_fab = [surviving_fab[i] for i in keep]
+        surviving_fba = [surviving_fba[i] for i in keep]
+        surviving_dc = [surviving_dc[i] for i in keep]
+
     next_uid = (max(graph.line_uids) if graph.line_uids else 0) + 100_001
     agg_lines, agg_linemap = aggregate_lines(
         surviving_uids,
@@ -290,7 +365,33 @@ def reduce_case(case: Case, config: ReduceConfig) -> ReduceResult:
     work.system["bus_array"] = _build_bus_array(
         work, cluster_bus_uids, work.bus_name_by_uid
     )
-    work.system["line_array"] = _build_line_array(agg_lines, work.bus_name_by_uid)
+    reduced_lines = _build_line_array(agg_lines, work.bus_name_by_uid)
+    # Re-emit protected lines UNCHANGED (original uid/name/reactance/tmax/
+    # voltage/lossfactor/type): their endpoints are anchors so they survive
+    # in their own clusters, keeping each line's identity — and its
+    # constraint — valid.  Bus refs are remapped to the endpoint's cluster
+    # representative (itself, for an anchor) for robustness.
+    if protected_line_uids:
+        by_uid = {int(ln["uid"]): ln for ln in original_line_array}
+        for u in sorted(protected_line_uids):
+            src = by_uid.get(u)
+            if src is None:
+                continue
+            entry = dict(src)
+            for end in ("bus_a", "bus_b"):
+                try:
+                    b = resolve_bus_ref(work, src.get(end))
+                except (KeyError, TypeError):
+                    b = None
+                if b is not None:
+                    rep = cluster_of_bus_full.get(b, b)
+                    entry[end] = work.bus_name_by_uid.get(rep, rep)
+            reduced_lines.append(entry)
+        logger.info(
+            "re-emitted %d protected lines with original identity",
+            len(protected_line_uids),
+        )
+    work.system["line_array"] = reduced_lines
 
     # 7. Rewrite component bus refs ---------------------------------------
     aggregator = rewrite_component_buses(
@@ -381,11 +482,22 @@ def _distance_matrix(graph: LineGraph, kind: str) -> np.ndarray:
     )
 
 
-def _ac_only_graph(graph: LineGraph) -> LineGraph:
-    """Copy of ``graph`` with the DC lines removed (all buses kept)."""
+def _ac_only_graph(
+    graph: LineGraph, exclude_uids: frozenset[int] = frozenset()
+) -> LineGraph:
+    """Copy of ``graph`` with DC and ``exclude_uids`` lines removed.
+
+    ``exclude_uids`` holds protected (constraint-referenced) lines that
+    must not be parallel-merged by local-simplify — they are re-emitted
+    with their original identity later.  All buses are kept.
+    """
     mask = graph.line_is_dc
     assert mask is not None
-    keep = [p for p in range(graph.n_lines) if not mask[p]]
+    keep = [
+        p
+        for p in range(graph.n_lines)
+        if not mask[p] and graph.line_uids[p] not in exclude_uids
+    ]
     return LineGraph(
         bus_uids=list(graph.bus_uids),
         bus_index=dict(graph.bus_index),

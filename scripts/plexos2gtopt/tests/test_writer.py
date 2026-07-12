@@ -15,11 +15,13 @@ from plexos2gtopt.entities import (
     FuelSpec,
     GeneratorSpec,
     LineSpec,
+    NodeSpec,
 )
 from plexos2gtopt.gtopt_writer import (
     _compute_default_slack_cost,
     augment_el1_with_soft_caps,
     build_battery_array,
+    build_bus_array,
     build_demand_array,
     build_emission_array,
     build_fuel_array,
@@ -27,6 +29,38 @@ from plexos2gtopt.gtopt_writer import (
     build_line_array,
     soft_penalty_cost,
 )
+
+
+def test_bus_array_voltage_from_native_property() -> None:
+    """A NodeSpec with a native PLEXOS ``Voltage`` property wins over
+    any kV encoded in the name (118-Bus convention: names are pure bus
+    numbers, voltage lives in the property)."""
+    nodes = (NodeSpec(object_id=1, name="001", voltage=138.0),)
+    out = build_bus_array(nodes)
+    assert out == [{"uid": 1, "name": "001", "voltage": 138.0}]
+
+
+def test_bus_array_voltage_parsed_from_name() -> None:
+    """CEN convention: no ``Voltage`` property, kV encoded in the NAME."""
+    nodes = (
+        NodeSpec(object_id=1, name="Salar110"),
+        NodeSpec(object_id=2, name="Tamaya033"),  # leading zeros → 33
+        NodeSpec(object_id=3, name="CNavia220_Aux_D"),  # embedded level
+    )
+    out = build_bus_array(nodes)
+    assert [b["voltage"] for b in out] == [110.0, 33.0, 220.0]
+
+
+def test_bus_array_voltage_omitted_when_unresolvable() -> None:
+    """No native property AND no kV in the name → the field is OMITTED
+    (never fabricated) so downstream tooling can tell 'unknown' apart."""
+    nodes = (
+        NodeSpec(object_id=1, name="NORTE"),
+        NodeSpec(object_id=2, name="101"),  # RTS-96 bus number, not a kV
+    )
+    out = build_bus_array(nodes)
+    assert all("voltage" not in b for b in out)
+    assert out[0] == {"uid": 1, "name": "NORTE"}
 
 
 def test_generator_gcost_thermal() -> None:
