@@ -57,14 +57,25 @@ using namespace gtopt::detail;
   }
 
   const bool separated = (mode == BoundaryCutsMode::separated);
+  // PLP-literal φ-expectation: the CSV `scene` column is a PLANE
+  // HYDROLOGY index j (PLP `ISimul`, `leeplaem.f`) — NOT a gtopt scene
+  // UID.  Each cut is broadcast onto `varphi_{rank(j)}` in EVERY
+  // scene's terminal LP at FULL magnitude (the CSV must be RAW — the
+  // converter's `1/NVarPhi` pre-division only applies to the
+  // separated/combined emission; see `planos_writer.py`).  Requires
+  // `register_alpha_variables` to have laid down NVarPhi terminal φ
+  // columns, which `SDDPMethod::initialize_solver` arranges via the
+  // `boundary_cut_scene_count` pre-scan of the SAME file.
+  const bool phi = (mode == BoundaryCutsMode::phi_expectation);
   // Terminal-phase multicut: the boundary cut for source scenario
   // `rc.scene_uid` is broadcast onto `varphi_{source}` in EVERY scene's
   // terminal LP — the horizon analogue of the intermediate-phase multicut
   // routing in share_cuts_for_phase.  Requires register_alpha_variables to
   // have laid down N terminal α columns, which it does iff
-  // boundary_cut_sharing == multicut.
-  const bool multicut =
-      (options.boundary_cut_sharing == BoundaryCutSharingMode::multicut);
+  // boundary_cut_sharing == multicut.  (Rejected up front under
+  // `phi_expectation` — the terminal layout is the φ one.)
+  const bool multicut = !phi
+      && (options.boundary_cut_sharing == BoundaryCutSharingMode::multicut);
 
   try {
     // ── Read the CSV with the Arrow CSV reader ───────────────────
@@ -424,6 +435,33 @@ using namespace gtopt::detail;
     }
     (void)row_global;
 
+    // ── φ-expectation: plane-hydrology → column-rank map ──────────
+    // Built from the FULL row set (before the max_iterations filter
+    // below) so it matches the `boundary_cut_scene_count` pre-scan
+    // that sized the terminal φ layout in `register_alpha_variables`:
+    // both read the same file, and the rank is the plane uid's position
+    // in the sorted distinct `scene` values.  A plane whose cuts are
+    // all filtered out keeps its (cut-less) φ_j column pinned at 0 —
+    // its cost-to-go contribution degrades to 0 rather than shifting
+    // every other plane's column index.
+    std::unordered_map<SceneUid, std::size_t, std::hash<SceneUid>> plane_rank;
+    if (phi) {
+      std::set<SceneUid> plane_uids;
+      for (const auto& rc : raw_cuts) {
+        plane_uids.insert(rc.scene_uid);
+      }
+      map_reserve(plane_rank, plane_uids.size());
+      std::size_t rank = 0;
+      for (const auto uid : plane_uids) {
+        plane_rank.emplace(uid, rank++);
+      }
+      SPDLOG_INFO(
+          "SDDP boundary cuts (phi_expectation): {} plane hydrologies "
+          "(NVarPhi), {} raw cuts, each varphi_j priced p_s/NVarPhi",
+          plane_rank.size(),
+          raw_cuts.size());
+    }
+
     // ── Filter by max_iterations ────────────────────────────────
     const auto max_iters = options.boundary_max_iterations;
     if (max_iters > 0 && has_iteration_col) {
@@ -538,10 +576,27 @@ using namespace gtopt::detail;
       //     but target `varphi_{source}` (the α dedicated to the cut's source
       //     scenario), never the destination's own α — keeping each
       //     scenario's terminal cuts on a dedicated column.
+      //   * phi_expectation:        broadcast onto EVERY scene's terminal LP,
+      //     targeting `varphi_{rank(plane)}` — the φ column dedicated to the
+      //     cut's PLANE HYDROLOGY (the CSV `scene` value is PLP's ISimul,
+      //     not a gtopt scene uid), at full magnitude.
       SceneIndex scene_start {0};
       SceneIndex scene_end {num_scenes};
       std::optional<SceneIndex> source_scene;
-      if (separated || multicut) {
+      if (phi) {
+        const auto it = plane_rank.find(rc.scene_uid);
+        if (it == plane_rank.end()) {
+          // Unreachable by construction (the map covers every raw cut's
+          // plane uid) — defensive skip rather than a misrouted column.
+          SPDLOG_WARN(
+              "Boundary cut (iter={}, plane={}) missing from the "
+              "plane-rank map -- skipping",
+              uid_of(rc.iteration_index),
+              rc.scene_uid);
+          continue;
+        }
+        source_scene = SceneIndex {static_cast<Index>(it->second)};
+      } else if (separated || multicut) {
         auto it = scene_uid_to_index.find(rc.scene_uid);
         if (it == scene_uid_to_index.end()) {
           // Spdlog formats the structured cut-identity tuple
@@ -703,6 +758,22 @@ using namespace gtopt::detail;
     //   * Loaded cut files round-trip correctly: c̄ is recomputed
     //     from the on-disk RHSs each time, and the recomputed value
     //     matches the original because the load is deterministic.
+    // `phi_expectation` KEEPS the mean shift for NUMERICAL STABILITY: the
+    // raw per-hydrology intercepts (PLP `LDPhiPrv`) are O(1e9), so an
+    // un-centred α' leaves every terminal φ_j column O(1e9) even after
+    // `scale_alpha` equilibration — a poorly-conditioned variation band
+    // riding on a huge baseline.  The shift centres each φ_j near zero,
+    // exactly as in the single-α path.  The ONLY phi-specific difference
+    // is the RESTITUTION factor, and it lives in the caller, not here:
+    // with the N φ_j columns each priced `p_s/NVarPhi`, shifting every
+    // cut by c̄ drops the future term by `Σ_j (p_s/NVarPhi)·c̄ = p_s·c̄`,
+    // NOT the full c̄.  So `sddp_method.cpp` folds back `p_s·c̄` (not c̄)
+    // under phi_expectation — this closes Lemma B1 (§9) for the
+    // multi-column layout (the §9 "M4 caveat": restitution =
+    // (Σ col weights)·c̄; here Σ = p_s).  The physical c̄ stored in
+    // `scene_c_bar` remains the SHIFT magnitude (unscaled), so
+    // `scene_alpha_offset()` keeps exposing the raw c̄ for output/tests;
+    // the p_s scaling is applied solely at the restitution site.
     const bool mean_shift = options.boundary_cuts_mean_shift;
     StrongIndexVector<SceneIndex, double> scene_c_bar(num_scenes, 0.0);
     if (mean_shift) {
@@ -909,7 +980,12 @@ using namespace gtopt::detail;
       // MT water value.  With MANY cuts (a piecewise-linear future cost)
       // we keep the ``≥`` Benders form (the value function is the max of
       // its supporting cuts) regardless of single_cut_equality.
-      const bool as_equality = (cuts.size() == 1) && single_cut_equality_opt;
+      // `phi_expectation` never converts: each φ_j is defined as the MAX
+      // over its plane's cuts (PLP leaves φ free with ``≥`` rows;
+      // `leeplaem.f`), so even a degenerate one-cut file keeps the
+      // Benders form.
+      const bool as_equality =
+          (cuts.size() == 1) && single_cut_equality_opt && !phi;
       for (auto& cut : cuts) {
         if (as_equality) {
           cut.uppb = cut.lowb;  // ``≥``  →  ``=``

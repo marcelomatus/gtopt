@@ -1188,21 +1188,27 @@ public:
   static constexpr Real default_sddp_cut_coeff_eps = 1e-8;
   /** @brief Default elastic filter mode.
    *
-   *  Set to `single_cut` — the classical PLP/Birge-Louveaux Benders
-   *  feasibility cut.  A single cut is built from the row duals of
-   *  the state-fixing equations at the elastic clone's Phase-1
-   *  optimum (see `build_feasibility_cut_physical` in
-   *  `benders_cut.cpp` and the matching `plp-agrespd.f::AgrElastici`
-   *  reference implementation).  Validated end-to-end by the
-   *  PLP-style backtracking unit tests in `test_sddp_method.cpp`
-   *  — `single_cut` is the mode that makes the cascade converge.
+   *  Set to `farkas_recursive` — the canonical SDDP feasibility cut
+   *  (Van Slyke & Wets 1969 L-shaped; Füllner & Rebennack 2023 §17
+   *  recursive multistage extension).  Built from this LP's OWN
+   *  elastic Phase-1 dual rays (Farkas certificates) — no solver
+   *  Farkas API — so the cut is a provably valid supporting hyperplane
+   *  of the feasibility region (removes only infeasible states, never
+   *  a feasible one), which is the property that guarantees SDDP
+   *  convergence.  On the 2-yr Maule/Laja parity case it is the
+   *  fastest of the working modes by deterministic ticks (8.44M vs
+   *  chinneck/iis 12.5M, −32%) at equal solution quality
+   *  (see `test_farkas_recursive_cuts.cpp`).
    *
-   *  `chinneck` (IIS-based) and `multi_cut` remain available as
-   *  explicit modes when per-bound cuts or IIS filtering are wanted;
-   *  neither has been re-validated against the row-dual fcut builder
-   *  and they retain their prior semantics. */
+   *  Other modes remain available explicitly:
+   *  `state_repair` (alias `plp`) — PLP AgrElastici single-variable
+   *  cuts, for bit-faithful PLP replication; `chinneck` (alias `iis`)
+   *  — Chinneck IIS elastic filter, marginally tighter cuts at higher
+   *  cost.  `single_cut` / `multi_cut` are the legacy row-dual modes
+   *  and are NOT recommended (they did not converge on the parity
+   *  cascade). */
   static constexpr ElasticFilterMode default_sddp_elastic_mode =
-      ElasticFilterMode::single_cut;
+      ElasticFilterMode::farkas_recursive;
   /** @brief Default PLP FactEPS tolerance for `elastic_mode =
    *         state_repair` (alias plp) and `farkas_recursive`.
    *

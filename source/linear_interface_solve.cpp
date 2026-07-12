@@ -29,16 +29,20 @@ namespace gtopt
 
 namespace
 {
-/// Accumulate one solve's effort into the process-global SolveEffortTotals.
-/// Generic across all backends: prefer the backend's native solver time +
-/// ticks (`last_solve_effort`); fall back to the measured @p wall seconds
-/// when the backend reports none, and to seconds when it reports no ticks.
-void accumulate_solve_effort(const SolverBackend& backend, double wall)
+/// Accumulate one solve's effort into the process-global SolveEffortTotals
+/// and return this solve's deterministic tick count so the caller can also
+/// fold it into the per-LP `SolverStats::total_solve_ticks`.  Generic across
+/// all backends: prefer the backend's native solver time + ticks
+/// (`last_solve_effort`); fall back to the measured @p wall seconds when the
+/// backend reports none, and to seconds when it reports no ticks.
+[[nodiscard]] double accumulate_solve_effort(const SolverBackend& backend,
+                                             double wall)
 {
   const auto eff = backend.last_solve_effort();
   const double seconds = eff.seconds > 0.0 ? eff.seconds : wall;
   const double ticks = eff.ticks > 0.0 ? eff.ticks : seconds;
   SolveEffortTotals::instance().add(seconds, ticks);
+  return ticks;
 }
 
 /// Fold @p scale_objective into the solver's reduced-cost optimality
@@ -136,7 +140,8 @@ std::expected<int, Error> LinearInterface::initial_solve(
       const double wall =
           std::chrono::duration<double>(Clock::now() - t0).count();
       m_solver_stats_.total_solve_time_s += wall;
-      accumulate_solve_effort(*m_backend_, wall);
+      m_solver_stats_.total_solve_ticks +=
+          accumulate_solve_effort(*m_backend_, wall);
     };
 
     timed_solve();
@@ -265,7 +270,8 @@ std::expected<int, Error> LinearInterface::resolve(
       const double wall =
           std::chrono::duration<double>(Clock::now() - t0).count();
       m_solver_stats_.total_solve_time_s += wall;
-      accumulate_solve_effort(*m_backend_, wall);
+      m_solver_stats_.total_solve_ticks +=
+          accumulate_solve_effort(*m_backend_, wall);
     };
 
     timed_solve();
@@ -394,8 +400,11 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   const auto t0 = Clock::now();
   const int fixed =
       m_backend_->fix_mip_and_resolve_duals(effective, sos2_member_cols());
-  m_solver_stats_.total_solve_time_s +=
+  const double fix_wall =
       std::chrono::duration<double>(Clock::now() - t0).count();
+  m_solver_stats_.total_solve_time_s += fix_wall;
+  m_solver_stats_.total_solve_ticks +=
+      accumulate_solve_effort(*m_backend_, fix_wall);
 
   if (fixed < 0) {
     // The backend BAILED (no incumbent, fixed-LP solve failure, or the

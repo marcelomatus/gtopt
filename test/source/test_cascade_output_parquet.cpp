@@ -61,7 +61,9 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <map>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -415,6 +417,50 @@ auto run_cascade_and_check_outputs(LowMemoryMode memory_mode, int max_iters)
   // mark a few basic-row duals as null even with crossover); ask
   // for at least half.
   CHECK(total_finite_duals >= expected_balanced_cells / 2);
+
+  // ── 4. solution.csv: 13-column header + row width via the extracted
+  //       solution_csv.hpp formatter, exercised on the real write_out() path.
+  const auto sol_csv = std::filesystem::path(tmpdir) / "solution.csv";
+  REQUIRE(std::filesystem::exists(sol_csv));
+  {
+    const auto split = [](const std::string& line)
+    {
+      std::vector<std::string> out;
+      std::size_t start = 0;
+      for (;;) {
+        const auto pos = line.find(',', start);
+        out.push_back(line.substr(start, pos - start));
+        if (pos == std::string::npos) {
+          break;
+        }
+        start = pos + 1;
+      }
+      return out;
+    };
+
+    std::ifstream in(sol_csv);
+    REQUIRE(in.is_open());
+
+    std::string header;
+    REQUIRE(std::getline(in, header));
+    const auto hcols = split(header);
+    REQUIRE(hcols.size() == 13);
+    CHECK(hcols[9] == "solve_ticks");
+    CHECK(hcols[10] == "solve_time_s");
+    CHECK(hcols[11] == "solve_calls");
+    CHECK(hcols[12] == "infeasible_count");
+
+    std::string data_row;
+    REQUIRE(std::getline(in, data_row));
+    const auto rcols = split(data_row);
+    REQUIRE(rcols.size() == hcols.size());  // header/row widths stay in sync
+    // status (col 2) and status_name (col 3) agree; feasible fixture → optimal.
+    if (rcols[2] == "0") {
+      CHECK(rcols[3] == "optimal");
+    }
+    CHECK(std::stod(rcols[10]) >= 0.0);  // solve_time_s parses, non-negative
+    CHECK(std::stoul(rcols[12]) == 0);  // infeasible_count: feasible fixture
+  }
 
   std::filesystem::remove_all(tmpdir);
 }

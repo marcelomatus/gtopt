@@ -52,6 +52,16 @@ struct SolverStats
   /// `resolve()` (accumulated across every attempt, including fallbacks
   /// and crossover).  Excludes LP build and output time.
   double total_solve_time_s {0.0};
+  /// Deterministic solver work (backend `SolveEffort::ticks`, e.g. CPLEX
+  /// deterministic ticks) accumulated across every `initial_solve()` /
+  /// `resolve()` on this LP.  When the backend reports native ticks this is
+  /// load-independent — unlike `total_solve_time_s` it does not vary with
+  /// machine contention — so it is the right measure for comparing
+  /// algorithmic effort (e.g. feasibility-cut modes).  IMPORTANT: backends
+  /// without a native tick count (CLP/CBC) fall back to wall seconds here,
+  /// which are NOT load-independent; interpret this as deterministic ticks
+  /// only when the active backend is known to report them (CPLEX/HiGHS).
+  double total_solve_ticks {0.0};
   /// Largest kappa observed across every solve on this LP.  Stays at
   /// `-1.0` when the backend never reports a valid condition number.
   double max_kappa {-1.0};
@@ -155,6 +165,7 @@ struct SolverStats
     primal_infeasible += rhs.primal_infeasible;
     dual_infeasible += rhs.dual_infeasible;
     total_solve_time_s += rhs.total_solve_time_s;
+    total_solve_ticks += rhs.total_solve_ticks;
     max_kappa = std::max(max_kappa, rhs.max_kappa);
     total_ncols += rhs.total_ncols;
     total_nrows += rhs.total_nrows;
@@ -188,6 +199,7 @@ struct SolverStats
     primal_infeasible -= rhs.primal_infeasible;
     dual_infeasible -= rhs.dual_infeasible;
     total_solve_time_s -= rhs.total_solve_time_s;
+    total_solve_ticks -= rhs.total_solve_ticks;
     // max_kappa deliberately not subtracted (see above).
     total_ncols -= rhs.total_ncols;
     total_nrows -= rhs.total_nrows;

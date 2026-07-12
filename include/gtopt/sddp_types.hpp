@@ -1097,6 +1097,17 @@ struct SDDPOptions  // NOLINT(clang-analyzer-optin.performance.Padding)
   /// - "separated" -- assign each cut to the scene matching its `scene`
   ///                 column (scene UID); unmatched UIDs are skipped
   /// - "combined"  -- broadcast all cuts to all scenes
+  /// - "phi_expectation" -- PLP-literal: the CSV `scene` column is a
+  ///                 plane-hydrology index (PLP `ISimul`); every
+  ///                 scene's terminal LP carries NVarPhi φ_j columns
+  ///                 priced `p_s/NVarPhi`, each bounded by
+  ///                 hydrology-j's cuts at FULL magnitude (RAW CSV, no
+  ///                 pre-division).  The forward UB carries the
+  ///                 terminal `E_j[FCF_j]` at realized volumes (PLP
+  ///                 `ZSPFAdd`).  Requires
+  ///                 `boundary_cut_sharing != multicut`; forces
+  ///                 `boundary_cuts_mean_shift` off at load.  See
+  ///                 `BoundaryCutsMode::phi_expectation`.
   /// Default: "separated".
   BoundaryCutsMode boundary_cuts_mode {BoundaryCutsMode::separated};
 
@@ -1442,7 +1453,11 @@ struct SDDPIterationResult
 /// `(col, uid)` pairs.  Single-α modes yield exactly one entry (uid
 /// `sddp_alpha_uid`, offset 0); `CutSharingMode::multicut` (or terminal
 /// `BoundaryCutSharingMode::multicut`) yields N entries
-/// `varphi_0..N-1` (uid = `sddp_alpha_uid + source_scene`).  α uids are
+/// `varphi_0..N-1` (uid = `sddp_alpha_uid + source_scene`).  The
+/// terminal phase under `BoundaryCutsMode::phi_expectation` yields
+/// NVarPhi entries (uid = `sddp_alpha_uid + plane_rank` — the plane
+/// hydrology's rank in the boundary CSV's sorted distinct `scene`
+/// values; NVarPhi may exceed the scene count).  α uids are
 /// contiguous from `sddp_alpha_uid`, so enumeration stops at the first
 /// registry gap.  Shared by `apply_alpha_floor` and `bound_alpha_for_cut`
 /// so the per-`varphi_s` iteration lives in one place.
@@ -1480,16 +1495,34 @@ struct SDDPIterationResult
 ///    the historical `1/N` pricing exactly.  Masses come from
 ///    `scene_probability_masses`; a zero-mass OWNING scene (folded
 ///    objective 0 anyway) falls back to the uniform `1/n_alpha`.
+///  * TERMINAL phase under `BoundaryCutsMode::phi_expectation`
+///    (`terminal_phi_count > 0`): the PLP-literal weight
+///    `w_j = p_s / NVarPhi` replicated across the NVarPhi φ_j columns.
+///    The boundary cuts on each φ_j are RAW (unfolded — no `1/NVarPhi`
+///    pre-division, no `p_s` folding), so the WHOLE probability
+///    composition rides on the column price: the folded future term is
+///    `Σ_j (p_s/NVarPhi)·Φ_j = p_s · E_j[Φ_j]` — the scene's
+///    probability weighting composes exactly once, mirroring how the
+///    M4 pricing composes `w_r = p_s` with `p_r`-folded backward cuts
+///    (Prop. M4 §8; §9 "phi_expectation" in
+///    `docs/formulation/sddp-cut-validity.md`).  This is PLP's
+///    stage-52 LP verbatim: NVarPhi φ columns each priced `1/NVarPhi`
+///    (`PlaCFFO`, `defprbpd.f`), lifted into gtopt's `p_s`-folded
+///    per-scene LP.
 ///
 /// Always returns exactly `n_alpha` entries.  @p markov may be null
-/// (treated as empty — non-markov pricing).
+/// (treated as empty — non-markov pricing).  @p terminal_phi_count is
+/// the boundary CSV's NVarPhi (0 = not `phi_expectation`); it is only
+/// consulted when `terminal_phase` is true, where it must equal
+/// `n_alpha`.
 [[nodiscard]] std::vector<double> alpha_col_weights(
     const SimulationLP& sim,
     CutSharingMode cut_sharing,
     const MarkovChainConfig* markov,
     SceneIndex scene_index,
     std::size_t n_alpha,
-    bool terminal_phase);
+    bool terminal_phase,
+    std::size_t terminal_phi_count = 0);
 
 /// Deterministic probability-weighted index draw for the forward-pass
 /// resampling (`ForwardSamplingMode::resampled`).
@@ -1634,6 +1667,15 @@ void record_col_bounds_dynamic(PlanningLP& planning_lp,
 ///        `markov_alpha_weights` (theorem MK1,
 ///        `docs/formulation/sddp-markov.md`).  `nullptr` / empty keeps
 ///        the mode-independent legacy layout.
+/// @param terminal_phi_count  NVarPhi for
+///        `BoundaryCutsMode::phi_expectation` (0 = mode inactive,
+///        byte-identical legacy layout).  When > 0, the TERMINAL phase
+///        carries `terminal_phi_count` φ_j columns
+///        (uid = `sddp_alpha_uid + j`), each priced `p_s / NVarPhi`
+///        via `alpha_col_weights`, overriding the
+///        `boundary_cut_sharing` terminal layout.  Callers derive it
+///        from `boundary_cut_scene_count(boundary_cuts_file)` — the
+///        count of distinct plane hydrologies in the boundary CSV.
 void register_alpha_variables(PlanningLP& planning_lp,
                               SceneIndex scene_index,
                               double scale_alpha,
@@ -1641,7 +1683,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               BoundaryCutSharingMode boundary_cut_sharing =
                                   BoundaryCutSharingMode::per_scene,
                               bool register_as_state_variable = true,
-                              const MarkovChainConfig* markov = nullptr);
+                              const MarkovChainConfig* markov = nullptr,
+                              std::size_t terminal_phi_count = 0);
 
 /// Apply a derived lower-bound floor on α_T at the last phase by
 /// projecting every installed boundary cut onto the worst-case

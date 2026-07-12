@@ -87,17 +87,35 @@ using holder_index_value_t = typename holder_index_value<IndexHolder>::type;
 class OutputContext
 {
 public:
-  using ArrowFields = std::vector<ArrowField>;
-  using ArrowArrays = std::vector<ArrowArray>;
-  using ArrowFieldArrays = std::pair<ArrowFields, ArrowArrays>;
+  /// Row-label lookup for the long-form output emission: the grid-slot
+  /// index of a sparse field entry indexes these vectors to recover the
+  /// row's (scenario, stage, block) uids.  One instance per holder
+  /// layout (STB / ST / T) is built at construction from the FlatHelper
+  /// uid grids; ST leaves `block_uids` empty and T leaves
+  /// `scenario_uids` + `block_uids` empty — absent axes emit 0 in the
+  /// long table, matching the historical writer.
+  struct PreludeUids
+  {
+    std::vector<Uid> scenario_uids;
+    std::vector<Uid> stage_uids;  ///< always populated; defines row count
+    std::vector<Uid> block_uids;
+  };
 
-  using ValidVector = std::vector<bool>;
-  template<typename Type = double>
-  using FieldType =
-      std::tuple<Name, std::vector<Type>, ValidVector, const ArrowFieldArrays*>;
+  /// One element's output stream under a `(class, field, suffix)` key:
+  /// sparse `(grid-slot, value)` entries ascending by slot — exactly
+  /// the holder's own samples, no dense-grid intermediate (the former
+  /// wide layout scanned scenarios × blocks slots per stream at write
+  /// time).  Explicit zero values are kept here and dropped at write
+  /// time (the long form omits zero rows), which preserves the
+  /// post-collection integer-snapping hook (`add_col_sol_integer`).
+  struct FieldEntry
+  {
+    Name name;  ///< per-element field label (`uid:42` / `<name>:42`)
+    SparseEntries entries;
+    const PreludeUids* prelude;
+  };
 
-  template<typename Type = double>
-  using FieldVector = std::vector<FieldType<Type>>;
+  using FieldVector = std::vector<FieldEntry>;
 
   /// Map key for `field_vector_map`: (cname, fname, sname).
   /// All three are static `string_view` literals (class_name / field-name
@@ -122,9 +140,8 @@ public:
       return static_cast<std::size_t>(h);
     }
   };
-  template<typename Type = double>
   using FieldVectorMap =
-      std::unordered_map<ClassFieldName, FieldVector<Type>, ClassFieldNameHash>;
+      std::unordered_map<ClassFieldName, FieldVector, ClassFieldNameHash>;
 
   explicit OutputContext(const SystemContext& psc,
                          LinearInterface& linear_interface,
@@ -292,11 +309,13 @@ public:
                      sc.get().block_icost_factors());
   }
 
-  /// Read-only view of the accumulated Parquet field map, keyed by
-  /// `(class_name, field_name, suffix)`.  Exposed for regression tests
-  /// that need to assert on the schema (column presence, naming) without
-  /// going end-to-end through the Parquet writer.  Not part of the
-  /// production code path — `write` consumes the map directly.
+  /// Read-only view of the accumulated field map, keyed by
+  /// `(class_name, field_name, suffix)`.  Each entry is a `FieldVector`
+  /// of sparse `FieldEntry` streams (see above).  Exposed for regression
+  /// tests that need to assert on the schema (column presence, naming)
+  /// or the collected values without going end-to-end through the
+  /// Parquet writer.  Not part of the production code path — `write`
+  /// consumes the map directly.
   [[nodiscard]] constexpr const auto& fields() const noexcept
   {
     return field_vector_map;
@@ -383,16 +402,17 @@ public:
     // Post-process: snap the just-appended entry's values to the
     // nearest integer.  ``add_field`` returns early on empty
     // holder / span, in which case ``field_vector_map`` may be
-    // unchanged — guard via ``find`` + ``back()`` existence.
+    // unchanged — guard via ``find`` + ``back()`` existence.  Values
+    // snapped to exactly 0 are dropped by the long-form writer at
+    // emission time, same as any other explicit zero.
     const ClassFieldName key {cname, col_name, "sol"};
     auto it = field_vector_map.find(key);
     if (it == field_vector_map.end() || it->second.empty()) {
       return;
     }
-    auto& entry = it->second.back();
-    auto& values = std::get<1>(entry);
-    for (auto& v : values) {
-      v = std::round(v);
+    auto& field = it->second.back();
+    for (auto& entry : field.entries) {
+      entry.second = std::round(entry.second);
     }
   }
 
@@ -830,11 +850,11 @@ private:
   std::span<const ConstraintScaleType> col_cost_scale_types;
   std::span<const ConstraintScaleType> row_cost_scale_types;
 
-  ArrowFieldArrays stb_prelude;
-  ArrowFieldArrays st_prelude;
-  ArrowFieldArrays t_prelude;
+  PreludeUids stb_prelude;
+  PreludeUids st_prelude;
+  PreludeUids t_prelude;
 
-  FieldVectorMap<double> field_vector_map;
+  FieldVectorMap field_vector_map;
 
   // ── cost-factor selection by per-element time-basis ──────────────
   //
@@ -967,9 +987,14 @@ private:
                                      : as_label<':'>(get_name(id), get_uid(id));
   }
 
+  /// Collects one element's field stream as sparse long-form entries.
+  /// `FlatHelper::flat_sparse` visits only the holder's own samples and
+  /// returns `(grid-slot, value)` pairs in the dense scan's slot order,
+  /// so the written long tables are bit-identical to the former
+  /// dense-intermediate pipeline while skipping the O(active grid)
+  /// fill + rescan per stream (the per-cell write-out hot path).
   template<typename IndexHolder,
            typename Span,
-           typename Prelude,
            typename Factor = std::span<double>>
   void add_field(std::string_view cname,
                  std::string_view fname,
@@ -977,22 +1002,22 @@ private:
                  const Id& id,
                  const IndexHolder& holder,
                  const Span& value_span,
-                 const Prelude* prelude,
+                 const PreludeUids* prelude,
                  const Factor& factor)
   {
     if (holder.empty() || value_span.empty()) {
       return;
     }
 
-    auto&& [values, valid] =
-        sc.get().flat(holder, [&](auto i) { return value_span[i]; }, factor);
+    auto entries = sc.get().flat_sparse(
+        holder, [&](auto i) { return value_span[i]; }, factor);
 
-    if (values.empty()) {
+    if (entries.empty()) {
       return;
     }
 
     field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
-        field_name(id), std::move(values), std::move(valid), prelude);
+        field_name(id), std::move(entries), prelude);
   }
 
   /// add_field variant that **emits precomputed values directly** —
@@ -1006,13 +1031,13 @@ private:
   /// / `add_row_dual_values` public overloads, used by model rewrites
   /// that fold an LP variable away via algebraic substitution (e.g.
   /// the planned P0 demand-failure `fail = lmax − load`).
-  template<typename Prelude, typename Factor = std::span<double>>
+  template<typename Factor = std::span<double>>
   void add_field_values(std::string_view cname,
                         std::string_view fname,
                         std::string_view sname,
                         const Id& id,
                         const STBIndexHolder<double>& holder,
-                        const Prelude* prelude,
+                        const PreludeUids* prelude,
                         const Factor& factor)
   {
     if (holder.empty()) {
@@ -1020,18 +1045,18 @@ private:
     }
 
     // Identity projection: the holder already carries doubles, so
-    // pass each one through unchanged into the standard flat()
+    // pass each one through unchanged into the standard sparse
     // pipeline.  `factor` still applies post-projection — matching
     // the index-based `add_field` so block scaling stays uniform.
-    auto&& [values, valid] =
-        sc.get().flat(holder, [](double v) { return v; }, factor);
+    auto entries =
+        sc.get().flat_sparse(holder, [](double v) { return v; }, factor);
 
-    if (values.empty()) {
+    if (entries.empty()) {
       return;
     }
 
     field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
-        field_name(id), std::move(values), std::move(valid), prelude);
+        field_name(id), std::move(entries), prelude);
   }
 
   /// add_field variant for **sum-of-cols** holders.  `IndexHolder` is
@@ -1044,7 +1069,6 @@ private:
   /// exists.
   template<typename IndexHolder,
            typename Span,
-           typename Prelude,
            typename Factor = std::span<double>>
   void add_field_sum(std::string_view cname,
                      std::string_view fname,
@@ -1052,7 +1076,7 @@ private:
                      const Id& id,
                      const IndexHolder& holder,
                      const Span& value_span,
-                     const Prelude* prelude,
+                     const PreludeUids* prelude,
                      const Factor& factor)
   {
     if (holder.empty() || value_span.empty()) {
@@ -1067,14 +1091,14 @@ private:
       }
       return s;
     };
-    auto&& [values, valid] = sc.get().flat(holder, std::move(sum_proj), factor);
+    auto entries = sc.get().flat_sparse(holder, std::move(sum_proj), factor);
 
-    if (values.empty()) {
+    if (entries.empty()) {
       return;
     }
 
     field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
-        field_name(id), std::move(values), std::move(valid), prelude);
+        field_name(id), std::move(entries), prelude);
   }
 
   /// add_field variant with additional per-(scenario,stage) back-scale.
@@ -1095,15 +1119,15 @@ private:
       return;
     }
 
-    auto&& [values, valid] = sc.get().flat(
+    auto entries = sc.get().flat_sparse(
         holder, [&](auto i) { return value_span[i]; }, factor, st_scale);
 
-    if (values.empty()) {
+    if (entries.empty()) {
       return;
     }
 
     field_vector_map[ClassFieldName {cname, fname, sname}].emplace_back(
-        field_name(id), std::move(values), std::move(valid), &stb_prelude);
+        field_name(id), std::move(entries), &stb_prelude);
   }
 };
 

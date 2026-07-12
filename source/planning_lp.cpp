@@ -35,6 +35,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_method.hpp>
 #include <gtopt/reservoir.hpp>
+#include <gtopt/solution_csv.hpp>
 #include <gtopt/solver_monitor.hpp>
 #include <gtopt/solver_options.hpp>
 #include <gtopt/solver_registry.hpp>
@@ -2207,19 +2208,10 @@ void PlanningLP::write_out()
   // order.  This avoids any concurrent file access and guarantees a
   // deterministic, sorted output regardless of task completion order.
 
-  struct SolutionRow
-  {
-    SceneUid scene_uid;
-    PhaseUid phase_uid;
-    int status;
-    double obj_value;
-    double kappa;
-    double max_kappa;
-    double gap;  ///< Final SDDP gap (0.0 for monolithic)
-    double
-        gap_change;  ///< Final SDDP stationary gap-change (1.0 for monolithic)
-  };
-
+  // SolutionRow + solution_csv_header()/solution_csv_line() live in
+  // <gtopt/solution_csv.hpp> so the column layout is defined once (header and
+  // per-row field lists cannot drift) and can be unit-tested without a full
+  // PlanningLP — see test/source/test_solution_csv.cpp.
   std::vector<SolutionRow> rows;
   rows.reserve(static_cast<std::size_t>(num_scenes)
                * static_cast<std::size_t>(num_phases));
@@ -2251,6 +2243,10 @@ void PlanningLP::write_out()
           .max_kappa = sddp.max_kappa,
           .gap = sddp.gap,
           .gap_change = sddp.gap_change,
+          .solve_ticks = li.solver_stats().total_solve_ticks,
+          .solve_time_s = li.solver_stats().total_solve_time_s,
+          .solve_calls = li.solver_stats().total_solve_calls(),
+          .infeasible_count = li.solver_stats().infeasible_count,
       });
     }
   }
@@ -2275,39 +2271,9 @@ void PlanningLP::write_out()
     return;
   }
 
-  // Status names: CLP convention (0=optimal, 1=primal infeasible,
-  // 2=dual infeasible/unbounded, 3=iteration limit, 4=error, 5=not solved)
-  static constexpr auto status_name = [](int s) constexpr -> std::string_view
-  {
-    switch (s) {
-      case 0:
-        return "optimal";
-      case 1:
-        return "infeasible";
-      case 2:
-        return "unbounded";
-      case 3:
-        return "iteration_limit";
-      case 4:
-        return "error";
-      default:
-        return "unknown";
-    }
-  };
-
-  sol_file << "scene,phase,status,status_name,obj_value,kappa,max_kappa,"
-              "gap,gap_change\n";
+  sol_file << solution_csv_header();
   for (const auto& row : rows) {
-    sol_file << std::format("{},{},{},{},{},{},{},{},{}\n",
-                            row.scene_uid,
-                            row.phase_uid,
-                            row.status,
-                            status_name(row.status),
-                            row.obj_value,
-                            row.kappa,
-                            row.max_kappa,
-                            row.gap,
-                            row.gap_change);
+    sol_file << solution_csv_line(row);
     SPDLOG_DEBUG(
         "  solution.csv: scene={} phase={} status={} obj_value={} "
         "kappa={} max_kappa={} gap={} gap_change={}",

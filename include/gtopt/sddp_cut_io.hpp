@@ -118,6 +118,18 @@ struct BoundaryCutCoeffStats
 [[nodiscard]] auto boundary_cut_max_avg_coeff(const std::string& filepath)
     -> double;
 
+/// Count the DISTINCT values of the boundary-cut CSV's ``scene`` column —
+/// the NVarPhi of `BoundaryCutsMode::phi_expectation` (the number of PLP
+/// plane hydrologies whose per-hydrology FCFs the file carries; PLP
+/// ``ISimul`` / ``leeplaem.f``).  Read through the same Arrow CSV path as
+/// ``load_boundary_cuts_csv`` so layout / type handling stays identical.
+/// Returns 0 when the file is missing, malformed, or has no ``scene``
+/// column — callers treat 0 as "phi layout unavailable".  Deterministic on
+/// the same file, so the α-registration pre-scan and the loader's
+/// plane-rank mapping (sorted distinct ``scene`` values) always agree.
+[[nodiscard]] auto boundary_cut_scene_count(const std::string& filepath)
+    -> std::size_t;
+
 /// Compute the effective scale_alpha: if the option is > 0 use it,
 /// otherwise auto-compute as ``max(scale_objective,
 /// 10^ceil(log10(cut_max_coeff)))`` — the log10 round-up SDDP uses for its

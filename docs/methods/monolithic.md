@@ -121,7 +121,7 @@ and cuts are not shared across scenes.
 |--------|------|---------|-------------|
 | `solve_mode` | string | `"monolithic"` | `"monolithic"` or `"sequential"` |
 | `solve_timeout` | double | 18000.0 | LP solve timeout in seconds (0 = no timeout) |
-| `boundary_cuts_mode` | string | `"separated"` | `"noload"`, `"separated"`, or `"combined"` |
+| `boundary_cuts_mode` | string | `"separated"` | `"noload"`, `"separated"`, `"combined"`, or `"phi_expectation"` (NVarPhi plane-hydrology φ columns priced `p_s/NVarPhi`; raw CSV) |
 | `boundary_cut_sharing_mode` | string | `"per_scene"` | Terminal-α sharing: `"per_scene"`, `"shared"`, or `"multicut"` (N `varphi_s` columns, one per scenario) |
 | `boundary_max_iterations` | int | `0` (all) | Max iterations to load from boundary file |
 | `solver_options` | object | — | Per-method LP solver overrides (merged over the global `solver_options`) |

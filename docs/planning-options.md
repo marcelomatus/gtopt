@@ -180,7 +180,7 @@ configures the LP backend.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `solve_mode` | string | `"monolithic"` | Solve mode: `"monolithic"` or `"sequential"` |
-| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"` |
+| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` (PLP-literal: NVarPhi per-plane-hydrology terminal φ columns priced `p_s/NVarPhi`, raw cuts) |
 | `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `solver_options` | `SolverOptions` | -- | Per-method LP solver configuration |
 
@@ -242,7 +242,7 @@ See [SDDP Method](methods/sddp.md) for full documentation with examples.
 | `recovery_mode` | string | `"none"` | Recovery from previous run: `"none"`, `"cuts"`, `"full"` |
 | `cuts_input_file` | string | -- | CSV file for hot-start cuts |
 | `named_cuts_file` | string | -- | CSV file with named-variable cuts spanning all phases |
-| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"` |
+| `boundary_cuts_mode` | string | `"separated"` | How to load boundary cuts: `"noload"`, `"separated"`, `"combined"`, `"phi_expectation"` (PLP-literal: NVarPhi per-plane-hydrology terminal φ columns priced `p_s/NVarPhi`, raw cuts) |
 | `boundary_max_iterations` | int | `0` | Max iterations to load from boundary cuts (0 = all) |
 | `missing_cut_var_mode` | string | `"skip_coeff"` | Action when cut references unknown state variable: `"skip_coeff"` or `"skip_cut"` |
 

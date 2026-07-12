@@ -1127,6 +1127,15 @@ private:
   /// install loop in `source/sddp_boundary_cuts.cpp` for details.
   StrongIndexVector<SceneIndex, double> m_scene_alpha_offsets_;
 
+  /// NVarPhi of `BoundaryCutsMode::phi_expectation` — the number of
+  /// distinct plane hydrologies in the boundary-cut CSV, resolved by
+  /// `initialize_solver`'s pre-scan (`boundary_cut_scene_count`) BEFORE
+  /// α registration so `register_alpha_variables` can lay down the
+  /// NVarPhi terminal φ_j columns.  0 = mode inactive (every other
+  /// `boundary_cuts_mode`, or a missing/unreadable CSV) — the terminal
+  /// layout then follows `boundary_cut_sharing` unchanged.
+  std::size_t m_boundary_phi_count_ {0};
+
   /// Per-(scene, phase) count of consecutive forward-pass infeasibilities.
   /// Incremented when the elastic filter is used in forward_pass at (scene,
   /// phase).  Reset to 0 when the phase is solved normally (no elastic).

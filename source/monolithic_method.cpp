@@ -84,16 +84,45 @@ auto MonolithicMethod::solve(PlanningLP& planning_lp, const SolverOptions& opts)
                                  planning_lp.options().sddp_scale_alpha());
     bc_opts.scale_alpha = scale_alpha;
     SPDLOG_INFO("MonolithicMethod: boundary-cut scale_alpha {}", scale_alpha);
+    // `phi_expectation` pre-scan (mirrors `SDDPMethod::initialize_solver`):
+    // NVarPhi terminal φ_j columns, one per plane hydrology in the CSV,
+    // priced `p_s/NVarPhi`, carrying the RAW per-hydrology cuts.  The
+    // monolithic objective includes the priced φ term natively (no
+    // forward-pass strip exists here), so the reported objective carries
+    // the terminal `E_j[FCF_j]` at the optimum's volumes automatically.
+    std::size_t terminal_phi_count = 0;
+    if (boundary_cuts_mode == BoundaryCutsMode::phi_expectation) {
+      if (boundary_cut_sharing == BoundaryCutSharingMode::multicut) {
+        return std::unexpected(Error {
+            .code = ErrorCode::InvalidInput,
+            .message =
+                "boundary_cuts_mode=phi_expectation is incompatible with "
+                "boundary_cut_sharing_mode=multicut (the terminal layout "
+                "is the NVarPhi plane-hydrology varphi_j columns)",
+        });
+      }
+      terminal_phi_count = boundary_cut_scene_count(boundary_cuts_file);
+      SPDLOG_INFO(
+          "MonolithicMethod: phi_expectation — NVarPhi={} plane "
+          "hydrologies in '{}'",
+          terminal_phi_count,
+          boundary_cuts_file);
+    }
     for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
       // cut_sharing stays `none` (monolithic does no intermediate-phase
       // sharing — it is one big LP); `boundary_cut_sharing` controls only
       // the TERMINAL α layout, so multicut lays down N terminal varphi_s
       // for the boundary-cut loader to route per source scenario.
+      // Under `phi_expectation`, `terminal_phi_count` overrides the
+      // terminal layout with the NVarPhi φ_j columns.
       register_alpha_variables(planning_lp,
                                scene_index,
                                scale_alpha,
                                CutSharingMode::none,
-                               boundary_cut_sharing);
+                               boundary_cut_sharing,
+                               /*register_as_state_variable=*/true,
+                               /*markov=*/nullptr,
+                               terminal_phi_count);
     }
 
     // Build per-scene phase state info (alpha columns + outgoing links)

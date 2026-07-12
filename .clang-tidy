@@ -44,6 +44,14 @@
 #     security.ArrayBound,
 #     core.uninitialized.UndefReturn,
 #     unix.Stream}
+#   clang-analyzer-core.uninitialized.Assign   – false positive tracing the
+#                                  std::expected error-path move of the Error
+#                                  struct through libstdc++ 15 internals (e.g.
+#                                  planning_lp.cpp .transform_error()).
+#   clang-analyzer-optin.core.EnumCastOutOfRange – false positive on bitmask /
+#                                  flag enums (OutputFlags): combined values
+#                                  such as 1|2=3 and 1|2|4=7 are valid bit
+#                                  unions, not named enumerators.
 #   clang-diagnostic-{c2y-extensions,          – compiler-version noise; not actionable
 #     constexpr-local-var-non-literal-type,
 #     template-param-default-arg-redefinition}
@@ -84,8 +92,10 @@ Checks: "*,\
   -bugprone-easily-swappable-parameters,\
   -bugprone-empty-catch,\
   -bugprone-lambda-function-name,\
+  -clang-analyzer-core.uninitialized.Assign,\
   -clang-analyzer-core.uninitialized.UndefReturn,\
   -clang-analyzer-cplusplus.NewDeleteLeaks,\
+  -clang-analyzer-optin.core.EnumCastOutOfRange,\
   -clang-analyzer-security.ArrayBound,\
   -clang-analyzer-unix.Stream,\
   -clang-diagnostic-c2y-extensions,\

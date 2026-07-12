@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 #include <string>
 
 #include <arrow/api.h>
@@ -165,6 +166,62 @@ namespace gtopt
     max_coeff = std::max(max_coeff, std::abs(s.avg));
   }
   return max_coeff;
+}
+
+[[nodiscard]] auto boundary_cut_scene_count(const std::string& filepath)
+    -> std::size_t
+{
+  // Pre-scan for `BoundaryCutsMode::phi_expectation`: NVarPhi = number
+  // of distinct `scene` values (plane hydrologies) in the boundary-cut
+  // CSV.  Same Arrow read configuration as `load_boundary_cuts_csv`, so
+  // both derive the identical plane set from the identical rows.
+  auto maybe_infile = arrow::io::ReadableFile::Open(filepath);
+  if (!maybe_infile.ok()) {
+    return 0;
+  }
+
+  auto read_options = arrow::csv::ReadOptions::Defaults();
+  auto parse_options = arrow::csv::ParseOptions::Defaults();
+  auto convert_options = arrow::csv::ConvertOptions::Defaults();
+  convert_options.column_types["iteration"] = arrow::int32();
+  convert_options.column_types["scene"] = arrow::int32();
+  convert_options.column_types["rhs"] = arrow::float64();
+  convert_options.include_missing_columns = false;
+
+  auto maybe_reader =
+      arrow::csv::TableReader::Make(arrow::io::default_io_context(),
+                                    *maybe_infile,
+                                    read_options,
+                                    parse_options,
+                                    convert_options);
+  if (!maybe_reader.ok()) {
+    return 0;
+  }
+  const auto& reader = *maybe_reader;
+  auto maybe_table = reader->Read();
+  if (!maybe_table.ok()) {
+    return 0;
+  }
+  const auto& table = *maybe_table;
+  const auto scene_col = table->GetColumnByName("scene");
+  if (!scene_col) {
+    return 0;
+  }
+
+  std::set<int32_t> distinct;
+  for (int ci = 0; ci < scene_col->num_chunks(); ++ci) {
+    const auto arr =
+        std::dynamic_pointer_cast<arrow::Int32Array>(scene_col->chunk(ci));
+    if (!arr) {
+      continue;
+    }
+    for (int64_t i = 0; i < arr->length(); ++i) {
+      if (arr->IsValid(i)) {
+        distinct.insert(arr->Value(i));
+      }
+    }
+  }
+  return distinct.size();
 }
 
 [[nodiscard]] auto effective_scale_alpha(const PlanningLP& planning_lp,

@@ -775,6 +775,7 @@ itself is now specified via `boundary_cuts_file` in `simulation`):
 | `"noload"` | Skip loading even if a file is specified |
 | `"separated"` (default) | Each cut is assigned to the scene matching its `scene` UID |
 | `"combined"` | All cuts are broadcast to all scenes |
+| `"phi_expectation"` | PLP-literal terminal FCF: the `scene` column is read as PLP's `ISimul` **plane hydrology**; every scene's terminal LP carries NVarPhi φ_j columns priced `p_s/NVarPhi`, each bounded by its hydrology's cuts at FULL magnitude (raw CSV — no `1/NVarPhi` pre-division).  The forward UB carries the terminal `E_j[FCF_j]` at realized volumes (PLP `ZSPFAdd`).  See `docs/formulation/sddp-cut-validity.md` §9 |
 
 **Iteration filtering** (`boundary_max_iterations` in `sddp_options`):
 

@@ -17,7 +17,6 @@ using namespace gtopt;
  */
 TEST_CASE("Active Elements Accessors")
 {
-  using namespace gtopt;
   const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array = {{.uid = Uid {0}}, {.uid = Uid {1}}},
@@ -278,8 +277,6 @@ TEST_CASE("Flat Helper - Edge Cases")
 // outer-key-missing case.
 TEST_CASE("Flat Helper - STBIndexHolder tolerates partial-block elision")
 {
-  using namespace gtopt;
-
   const PlanningOptionsLP options;
   const Simulation psimulation = {
       .block_array =
@@ -447,12 +444,6 @@ TEST_CASE("FlatHelper Template Constraints")
   {
     CHECK_NOTHROW(auto&& _ =
                       helper.flat(holder, [](double v) { return v * 2; }));
-  }
-
-  SUBCASE("Invalid Projection")
-  {
-    // Should fail to compile - uncomment to verify
-    // CHECK_THROWS(helper.flat(holder, [](std::string s) { return s; }));
   }
 }
 
@@ -784,6 +775,347 @@ TEST_CASE("FlatHelper - GSTB flat with non-zero UIDs and factors")  // NOLINT
   }
 }
 
+// ---------------------------------------------------------------------------
+// Indexed-sparse-fill ⇔ brute-force-dense-scan equivalence pins
+// ---------------------------------------------------------------------------
+//
+// flat() was rewritten (2026-07) to fill only the holder's own slots via
+// precomputed uid→position maps instead of scanning the whole
+// scenario × block grid per element-field stream (the per-cell write-out
+// hot path).  These reference implementations replicate the historical
+// dense triple loop verbatim; the test pins the new indexed fill to be
+// bit-identical to it — same vector sizes, same slot positions, same
+// defaults for non-owned slots, same empty-vector elisions.
+
+namespace
+{
+
+template<typename Value, typename Proj>
+auto dense_ref_gstb(const FlatHelper& h,
+                    const GSTBIndexHolder<Value>& hstb,
+                    Proj proj,
+                    const block_factor_matrix_t& factor = {})
+{
+  if (hstb.empty()) {
+    return std::pair {std::vector<double> {}, std::vector<bool> {}};
+  }
+  const auto size = h.active_scenario_count() * h.active_block_count();
+  std::vector<double> values(size);
+  std::vector<bool> valid(size, false);
+  bool need_values = false;
+  bool need_valids = false;
+  size_t idx = 0;
+  size_t count = 0;
+  for (size_t si = 0; si < h.active_scenarios().size(); ++si) {
+    for (size_t ti = 0; ti < h.active_stages().size(); ++ti) {
+      const auto& blocks = h.active_stage_blocks()[ti];
+      for (size_t bi = 0; bi < blocks.size(); ++bi) {
+        const auto it = hstb.find(
+            {h.active_scenarios()[si], h.active_stages()[ti], blocks[bi]});
+        if (it != hstb.end()) {
+          const auto value = proj(it->second);
+          values[idx] = factor.empty() ? value : value * factor[si][ti][bi];
+          valid[idx] = true;
+          ++count;
+          need_values = true;
+        }
+        need_valids |= count != ++idx;
+      }
+    }
+  }
+  return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                    need_valids ? std::move(valid) : std::vector<bool> {}};
+}
+
+template<typename Value, typename Proj>
+auto dense_ref_stb(const FlatHelper& h,
+                   const STBIndexHolder<Value>& hstb,
+                   Proj proj,
+                   const block_factor_matrix_t& factor = {},
+                   const STIndexHolder<double>& st_scale = {})
+{
+  if (hstb.empty()) {
+    return std::pair {std::vector<double> {}, std::vector<bool> {}};
+  }
+  const auto size = h.active_scenario_count() * h.active_block_count();
+  std::vector<double> values(size);
+  std::vector<bool> valid(size, false);
+  bool need_values = false;
+  bool need_valids = false;
+  size_t idx = 0;
+  size_t count = 0;
+  for (size_t si = 0; si < h.active_scenarios().size(); ++si) {
+    for (size_t ti = 0; ti < h.active_stages().size(); ++ti) {
+      const auto stiter =
+          hstb.find({h.active_scenarios()[si], h.active_stages()[ti]});
+      const auto has_stuid = stiter != hstb.end() && !stiter->second.empty();
+      const auto ss_iter =
+          st_scale.find({h.active_scenarios()[si], h.active_stages()[ti]});
+      const double ss = (ss_iter != st_scale.end()) ? ss_iter->second : 1.0;
+      const auto& blocks = h.active_stage_blocks()[ti];
+      for (size_t bi = 0; bi < blocks.size(); ++bi) {
+        if (has_stuid) {
+          if (auto it = stiter->second.find(blocks[bi]);
+              it != stiter->second.end())
+          {
+            const auto value = proj(it->second);
+            values[idx] =
+                factor.empty() ? value * ss : value * ss * factor[si][ti][bi];
+            valid[idx] = true;
+            ++count;
+            need_values = true;
+          }
+        }
+        need_valids |= count != ++idx;
+      }
+    }
+  }
+  return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                    need_valids ? std::move(valid) : std::vector<bool> {}};
+}
+
+template<typename Value, typename Proj>
+auto dense_ref_st(const FlatHelper& h,
+                  const STIndexHolder<Value>& hst,
+                  Proj proj,
+                  const scenario_stage_factor_matrix_t& factor = {})
+{
+  if (hst.empty()) {
+    return std::pair {std::vector<double> {}, std::vector<bool> {}};
+  }
+  const auto size = h.active_scenario_count() * h.active_stage_count();
+  std::vector<double> values(size);
+  std::vector<bool> valid(size, false);
+  bool need_values = false;
+  bool need_valids = false;
+  size_t idx = 0;
+  size_t count = 0;
+  for (size_t si = 0; si < h.active_scenarios().size(); ++si) {
+    for (size_t ti = 0; ti < h.active_stages().size(); ++ti) {
+      const auto it =
+          hst.find({h.active_scenarios()[si], h.active_stages()[ti]});
+      if (it != hst.end()) {
+        const auto value = proj(it->second);
+        values[idx] = factor.empty() ? value : value * factor[si][ti];
+        valid[idx] = true;
+        ++count;
+        need_values = true;
+      }
+      need_valids |= count != ++idx;
+    }
+  }
+  return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                    need_valids ? std::move(valid) : std::vector<bool> {}};
+}
+
+template<typename Value, typename Proj>
+auto dense_ref_t(const FlatHelper& h,
+                 const TIndexHolder<Value>& ht,
+                 Proj proj,
+                 const stage_factor_matrix_t& factor = {})
+{
+  if (ht.empty()) {
+    return std::pair {std::vector<double> {}, std::vector<bool> {}};
+  }
+  const auto size = h.active_stage_count();
+  std::vector<double> values(size);
+  std::vector<bool> valid(size, false);
+  bool need_values = false;
+  bool need_valids = false;
+  size_t idx = 0;
+  size_t count = 0;
+  for (size_t ti = 0; ti < h.active_stages().size(); ++ti) {
+    const auto it = ht.find(h.active_stages()[ti]);
+    if (it != ht.end()) {
+      const auto value = proj(it->second);
+      values[idx] = factor.empty() ? value : value * factor[ti];
+      valid[idx] = true;
+      ++count;
+      need_values = true;
+    }
+    need_valids |= count != ++idx;
+  }
+  return std::pair {need_values ? std::move(values) : std::vector<double> {},
+                    need_valids ? std::move(valid) : std::vector<bool> {}};
+}
+
+// Structural equality: same sizes, same valid mask, same values slot by
+// slot (values produced by identical arithmetic on both paths).
+void check_flat_equal(
+    const std::pair<std::vector<double>, std::vector<bool>>& got,
+    const std::pair<std::vector<double>, std::vector<bool>>& expected)
+{
+  const auto& [gv, gm] = got;
+  const auto& [ev, em] = expected;
+  REQUIRE(gv.size() == ev.size());
+  REQUIRE(gm.size() == em.size());
+  CHECK(gm == em);
+  for (size_t i = 0; i < gv.size(); ++i) {
+    CHECK(gv[i] == doctest::Approx(ev[i]));
+  }
+}
+
+}  // namespace
+
+TEST_CASE("FlatHelper - indexed sparse fill matches dense reference")  // NOLINT
+{
+  const PlanningOptionsLP options;
+  // 2 scenarios (non-contiguous uids), 2 active stages + 1 inactive stage,
+  // uneven block counts — the layout the slot index maps must reproduce.
+  const Simulation psimulation = {
+      .block_array =
+          {
+              {.uid = Uid {10}, .duration = 1},
+              {.uid = Uid {20}, .duration = 2},
+              {.uid = Uid {30}, .duration = 3},
+              {.uid = Uid {40}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {5}, .first_block = 0, .count_block = 2},
+              {.uid = Uid {7}, .first_block = 2, .count_block = 1},
+              {
+                  .uid = Uid {9},
+                  .active = 0,
+                  .first_block = 3,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {3}},
+              {.uid = Uid {8}},
+          },
+  };
+  const SimulationLP simulation {psimulation, options};
+  const FlatHelper helper(simulation);
+  const auto id = [](auto v) { return static_cast<double>(v); };
+
+  block_factor_matrix_t bfactor(2, 2);
+  bfactor[0][0] = {2.0, 3.0};
+  bfactor[0][1] = {4.0};
+  bfactor[1][0] = {0.5, 0.25};
+  bfactor[1][1] = {10.0};
+
+  SUBCASE("GSTB - stray keys, partial blocks, with and without factor")
+  {
+    GSTBIndexHolder holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5), make_uid<Block>(10)}] =
+        100;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(30)}] =
+        300;
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(5), make_uid<Block>(20)}] =
+        500;
+    // Stray keys that the dense scan never visits: inactive stage 9,
+    // unknown scenario 99, block 30 filed under the wrong stage 5.
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(9), make_uid<Block>(40)}] =
+        901;
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5), make_uid<Block>(10)}] =
+        902;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5), make_uid<Block>(30)}] =
+        903;
+
+    check_flat_equal(helper.flat(holder, id),
+                     dense_ref_gstb(helper, holder, id));
+    check_flat_equal(helper.flat(holder, id, bfactor),
+                     dense_ref_gstb(helper, holder, id, bfactor));
+  }
+
+  SUBCASE("GSTB - full grid coverage elides the valid vector")
+  {
+    GSTBIndexHolder holder;
+    Index v = 0;
+    for (auto suid : {3, 8}) {
+      for (const auto& [tuid, buids] :
+           {
+               std::pair {5, std::vector {10, 20}},
+               std::pair {7, std::vector {30}},
+           })
+      {
+        for (auto buid : buids) {
+          holder[{make_uid<Scenario>(suid),
+                  make_uid<Stage>(tuid),
+                  make_uid<Block>(buid)}] = ++v;
+        }
+      }
+    }
+    auto got = helper.flat(holder, id);
+    check_flat_equal(got, dense_ref_gstb(helper, holder, id));
+    CHECK(got.second.empty());  // all slots hit → no valid mask
+  }
+
+  SUBCASE("GSTB - only stray keys: empty values, full all-false valid")
+  {
+    GSTBIndexHolder holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(9), make_uid<Block>(40)}] =
+        901;
+    auto got = helper.flat(holder, id);
+    check_flat_equal(got, dense_ref_gstb(helper, holder, id));
+    CHECK(got.first.empty());  // no hit → values elided
+    CHECK(got.second.size() == 6);  // but mask spans the grid, all false
+  }
+
+  SUBCASE("STB - partial inner maps, stray keys, factor and st_scale")
+  {
+    STBIndexHolder<Index> holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5)}] = {
+        {make_uid<Block>(10), 100},
+        {make_uid<Block>(30), 903},  // wrong-stage block, skipped
+    };
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(7)}] = {
+        {make_uid<Block>(30), 600},
+    };
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(9)}] = {
+        {make_uid<Block>(40), 904},  // inactive stage, skipped
+    };
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5)}] = {
+        {make_uid<Block>(10), 905},  // unknown scenario, skipped
+    };
+
+    check_flat_equal(helper.flat(holder, id),
+                     dense_ref_stb(helper, holder, id));
+    check_flat_equal(helper.flat(holder, id, bfactor),
+                     dense_ref_stb(helper, holder, id, bfactor));
+
+    STIndexHolder<double> st_scale;
+    st_scale[{make_uid<Scenario>(3), make_uid<Stage>(5)}] = 2.5;
+    check_flat_equal(helper.flat(holder, id, bfactor, st_scale),
+                     dense_ref_stb(helper, holder, id, bfactor, st_scale));
+  }
+
+  SUBCASE("ST - stray keys and factor")
+  {
+    STIndexHolder<Index> holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(7)}] = 200;
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(5)}] = 300;
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(9)}] = 906;  // inactive
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5)}] = 907;  // unknown
+
+    scenario_stage_factor_matrix_t factor(2, 2);
+    factor[0][0] = 2.0;
+    factor[0][1] = 3.0;
+    factor[1][0] = 0.5;
+    factor[1][1] = 0.25;
+
+    check_flat_equal(helper.flat(holder, id), dense_ref_st(helper, holder, id));
+    check_flat_equal(helper.flat(holder, id, factor),
+                     dense_ref_st(helper, holder, id, factor));
+  }
+
+  SUBCASE("T - stray keys and factor")
+  {
+    TIndexHolder holder;
+    holder[make_uid<Stage>(7)] = 200;
+    holder[make_uid<Stage>(9)] = 908;  // inactive stage, skipped
+
+    const stage_factor_matrix_t factor = {2.0, 3.0};
+
+    check_flat_equal(helper.flat(holder, id), dense_ref_t(helper, holder, id));
+    check_flat_equal(helper.flat(holder, id, factor),
+                     dense_ref_t(helper, holder, id, factor));
+  }
+}
+
 TEST_CASE("FlatHelper - GSTB flat sparse with non-zero UIDs")  // NOLINT
 {
   const PlanningOptionsLP options;
@@ -823,4 +1155,231 @@ TEST_CASE("FlatHelper - GSTB flat sparse with non-zero UIDs")  // NOLINT
   CHECK(valid[0] == true);
   CHECK(values[1] == doctest::Approx(0.0));  // missing
   CHECK(valid[1] == false);
+}
+
+// ---------------------------------------------------------------------------
+// flat_sparse ⇔ dense flat long-form emission equivalence pins (P1)
+// ---------------------------------------------------------------------------
+//
+// The write-out path no longer materialises the dense flat() vectors:
+// OutputContext::add_field* collects flat_sparse() (grid-slot, value)
+// entries directly and the long-form writer labels each sample via the
+// slot index.  These pins fix the sparse contract against the dense
+// flat() reference: the entries are exactly the dense vector's hit
+// slots, in ascending slot order (the dense scan's row order), with
+// identical values — for every holder kind, with and without factors,
+// including explicit zero values (kept by flat_sparse, dropped later by
+// the writer after any integer snapping) and regardless of the holder's
+// key order relative to the active slot order.
+
+namespace
+{
+
+// Project the dense flat() result back to (slot, value) pairs over the
+// hit slots — the exact row set + order the historical wide→long
+// conversion iterated (its zero-value drop applies identically to both
+// representations at write time).
+auto dense_to_entries(
+    const std::pair<std::vector<double>, std::vector<bool>>& dense)
+    -> SparseEntries
+{
+  const auto& [values, valid] = dense;
+  SparseEntries out;
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (valid.empty() || valid[i]) {
+      out.emplace_back(static_cast<uint32_t>(i), values[i]);
+    }
+  }
+  return out;
+}
+
+void check_entries_equal(const SparseEntries& got,
+                         const SparseEntries& expected)
+{
+  REQUIRE(got.size() == expected.size());
+  CHECK(std::ranges::is_sorted(got, {}, &SparseEntry::first));
+  for (size_t i = 0; i < got.size(); ++i) {
+    CHECK(got[i].first == expected[i].first);
+    CHECK(got[i].second == doctest::Approx(expected[i].second));
+  }
+}
+
+}  // namespace
+
+TEST_CASE("FlatHelper - flat_sparse matches dense flat reference")  // NOLINT
+{
+  const PlanningOptionsLP options;
+
+  // Same layout as the dense-reference pin above: 2 scenarios, 2 active
+  // stages + 1 inactive, uneven block counts.  The scenario_array order
+  // is reversed in the second subcase so the ACTIVE scenario order
+  // differs from the holder's uid-sorted key order — pinning that
+  // flat_sparse orders entries by grid slot, not by holder key.
+  bool reversed_scenarios = false;
+  SUBCASE("active scenario order == uid order")
+  {
+    reversed_scenarios = false;
+  }
+  SUBCASE("active scenario order reversed vs uid order")
+  {
+    reversed_scenarios = true;
+  }
+
+  Simulation psimulation = {
+      .block_array =
+          {
+              {.uid = Uid {10}, .duration = 1},
+              {.uid = Uid {20}, .duration = 2},
+              {.uid = Uid {30}, .duration = 3},
+              {.uid = Uid {40}, .duration = 1},
+          },
+      .stage_array =
+          {
+              {.uid = Uid {5}, .first_block = 0, .count_block = 2},
+              {.uid = Uid {7}, .first_block = 2, .count_block = 1},
+              {
+                  .uid = Uid {9},
+                  .active = 0,
+                  .first_block = 3,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {.uid = Uid {3}},
+              {.uid = Uid {8}},
+          },
+  };
+  if (reversed_scenarios) {
+    std::ranges::reverse(psimulation.scenario_array);
+  }
+
+  const SimulationLP simulation {psimulation, options};
+  const FlatHelper helper(simulation);
+  const auto id = [](auto v) { return static_cast<double>(v); };
+
+  block_factor_matrix_t bfactor(2, 2);
+  bfactor[0][0] = {2.0, 3.0};
+  bfactor[0][1] = {4.0};
+  bfactor[1][0] = {0.5, 0.25};
+  bfactor[1][1] = {10.0};
+
+  // GSTB: stray keys, partial grid, and an explicit ZERO value (kept as
+  // an entry — the long-form writer drops zeros at emission time).
+  {
+    GSTBIndexHolder holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5), make_uid<Block>(10)}] =
+        100;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(7), make_uid<Block>(30)}] =
+        0;  // explicit zero
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(5), make_uid<Block>(20)}] =
+        500;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(9), make_uid<Block>(40)}] =
+        901;  // inactive stage
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5), make_uid<Block>(10)}] =
+        902;  // unknown scenario
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5), make_uid<Block>(30)}] =
+        903;  // block filed under the wrong stage
+
+    check_entries_equal(helper.flat_sparse(holder, id),
+                        dense_to_entries(helper.flat(holder, id)));
+    check_entries_equal(helper.flat_sparse(holder, id, bfactor),
+                        dense_to_entries(helper.flat(holder, id, bfactor)));
+  }
+
+  // GSTB: full grid coverage (dense elides the valid mask → every slot
+  // is a row; the sparse form must carry all of them, slot-ascending).
+  {
+    GSTBIndexHolder holder;
+    Index v = 0;
+    for (auto suid : {3, 8}) {
+      for (const auto& [tuid, buids] :
+           {
+               std::pair {5, std::vector {10, 20}},
+               std::pair {7, std::vector {30}},
+           })
+      {
+        for (auto buid : buids) {
+          holder[{make_uid<Scenario>(suid),
+                  make_uid<Stage>(tuid),
+                  make_uid<Block>(buid)}] = ++v;
+        }
+      }
+    }
+    const auto sparse = helper.flat_sparse(holder, id);
+    CHECK(sparse.size() == 6);
+    check_entries_equal(sparse, dense_to_entries(helper.flat(holder, id)));
+  }
+
+  // GSTB: only stray keys → no entries at all (dense: elided values +
+  // all-false mask; long form: zero rows).
+  {
+    GSTBIndexHolder holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(9), make_uid<Block>(40)}] =
+        901;
+    CHECK(helper.flat_sparse(holder, id).empty());
+  }
+
+  // STB: partial inner maps, stray keys, factor and st_scale variants.
+  {
+    STBIndexHolder<Index> holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(5)}] = {
+        {make_uid<Block>(10), 100},
+        {make_uid<Block>(30), 903},  // wrong-stage block, skipped
+    };
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(7)}] = {
+        {make_uid<Block>(30), 600},
+    };
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(9)}] = {
+        {make_uid<Block>(40), 904},  // inactive stage, skipped
+    };
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5)}] = {
+        {make_uid<Block>(10), 905},  // unknown scenario, skipped
+    };
+
+    check_entries_equal(helper.flat_sparse(holder, id),
+                        dense_to_entries(helper.flat(holder, id)));
+    check_entries_equal(helper.flat_sparse(holder, id, bfactor),
+                        dense_to_entries(helper.flat(holder, id, bfactor)));
+
+    STIndexHolder<double> st_scale;
+    st_scale[{make_uid<Scenario>(3), make_uid<Stage>(5)}] = 2.5;
+    check_entries_equal(
+        helper.flat_sparse(holder, id, bfactor, st_scale),
+        dense_to_entries(helper.flat(holder, id, bfactor, st_scale)));
+  }
+
+  // ST: stray keys and factor.
+  {
+    STIndexHolder<Index> holder;
+    holder[{make_uid<Scenario>(3), make_uid<Stage>(7)}] = 200;
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(5)}] = 300;
+    holder[{make_uid<Scenario>(8), make_uid<Stage>(9)}] = 906;  // inactive
+    holder[{make_uid<Scenario>(99), make_uid<Stage>(5)}] = 907;  // unknown
+
+    scenario_stage_factor_matrix_t factor(2, 2);
+    factor[0][0] = 2.0;
+    factor[0][1] = 3.0;
+    factor[1][0] = 0.5;
+    factor[1][1] = 0.25;
+
+    check_entries_equal(helper.flat_sparse(holder, id),
+                        dense_to_entries(helper.flat(holder, id)));
+    check_entries_equal(helper.flat_sparse(holder, id, factor),
+                        dense_to_entries(helper.flat(holder, id, factor)));
+  }
+
+  // T: stray keys and factor.
+  {
+    TIndexHolder holder;
+    holder[make_uid<Stage>(7)] = 200;
+    holder[make_uid<Stage>(9)] = 908;  // inactive stage, skipped
+
+    const stage_factor_matrix_t factor = {2.0, 3.0};
+
+    check_entries_equal(helper.flat_sparse(holder, id),
+                        dense_to_entries(helper.flat(holder, id)));
+    check_entries_equal(helper.flat_sparse(holder, id, factor),
+                        dense_to_entries(helper.flat(holder, id, factor)));
+  }
 }

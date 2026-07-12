@@ -104,6 +104,20 @@ TEST_CASE("SolverStats operator+= sums counters and takes max_kappa")  // NOLINT
   CHECK(a.total_nrows == 220);
 }
 
+TEST_CASE("SolverStats accumulates total_solve_ticks in +=/-=")  // NOLINT
+{
+  SolverStats a;
+  a.total_solve_ticks = 3.0;
+  SolverStats b;
+  b.total_solve_ticks = 5.0;
+
+  a += b;
+  CHECK(a.total_solve_ticks == doctest::Approx(8.0));
+
+  a -= b;  // snapshot diff — ticks is one of the differenced fields
+  CHECK(a.total_solve_ticks == doctest::Approx(3.0));
+}
+
 TEST_CASE(
     "SolverStats operator+= promotes max_kappa from rhs when larger")  // NOLINT
 {
@@ -314,6 +328,12 @@ TEST_CASE("SolverStats initial_solve wires counters")  // NOLINT
   CHECK(s.avg_ncols() == doctest::Approx(static_cast<double>(ncols)));
   CHECK(s.avg_nrows() == doctest::Approx(static_cast<double>(nrows)));
   CHECK(s.total_solve_time_s >= 0.0);
+  // total_solve_ticks is populated through accumulate_solve_effort.  Under a
+  // backend with native deterministic ticks (CPLEX/HiGHS) it holds those;
+  // under CLP/CBC it falls back to the backend's internal solve seconds
+  // (which differ from the measured wall accumulated in total_solve_time_s).
+  // Either way, a real solve leaves it strictly positive.
+  CHECK(s.total_solve_ticks > 0.0);
 }
 
 TEST_CASE("SolverStats resolve increments resolve_calls")  // NOLINT

@@ -244,15 +244,24 @@ std::vector<std::pair<ColIndex, Uid>> alpha_cols_on_cell(
     PhaseIndex phase_index,
     SystemKind kind)
 {
+  // Walk until the first uid gap — deliberately NOT capped at
+  // `scene_count()`: the terminal φ-expectation layout
+  // (`BoundaryCutsMode::phi_expectation`) registers NVarPhi columns,
+  // and NVarPhi (the boundary CSV's plane-hydrology count, e.g. 28)
+  // may exceed the run's scene count (e.g. 18).  A scene-count cap
+  // would hide the tail columns from `apply_alpha_floor` /
+  // `bound_alpha_for_cut`, leaving their bootstrap pins `[0,0]`
+  // permanently in place.  Every layout keeps its α uids contiguous
+  // from `sddp_alpha_uid`, so the first-gap stop is exact.
   std::vector<std::pair<ColIndex, Uid>> cols;
-  for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
+  for (std::size_t off = 0;; ++off) {
+    const auto src = SceneIndex {static_cast<Index>(off)};
     const auto* svar =
         find_alpha_state_var(sim, scene_index, phase_index, src, kind);
     if (svar == nullptr) {
       break;  // contiguous α uids from sddp_alpha_uid — first gap ends it
     }
-    const auto alpha_uid = static_cast<Uid>(
-        sddp_alpha_uid + static_cast<Uid>(static_cast<std::size_t>(src)));
+    const Uid alpha_uid = sddp_alpha_uid + static_cast<Uid>(off);
     cols.emplace_back(svar->col(), alpha_uid);
   }
   return cols;
@@ -275,8 +284,16 @@ CutSharingMode parse_cut_sharing_mode(std::string_view name)
 
 ElasticFilterMode parse_elastic_filter_mode(std::string_view name)
 {
+  // Unrecognised name falls back to the engine default (farkas_recursive,
+  // the canonical SDDP feasibility cut).  The static_assert keeps this
+  // fallback in lockstep with the option default: if the default ever
+  // changes, this line must change with it (compile error otherwise).
+  static_assert(PlanningOptionsLP::default_sddp_elastic_mode
+                    == ElasticFilterMode::farkas_recursive,
+                "parse_elastic_filter_mode fallback must match "
+                "PlanningOptionsLP::default_sddp_elastic_mode");
   return enum_from_name<ElasticFilterMode>(name).value_or(
-      ElasticFilterMode::chinneck);
+      ElasticFilterMode::farkas_recursive);
 }
 
 // ─── Free utility functions ──────────────────────────────────────────────────
@@ -959,6 +976,56 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
     }
   }
 
+  // ── phi_expectation pre-scan (PLP-literal terminal FCF) ────────────────
+  // Resolve NVarPhi BEFORE the α-registration pass below: under
+  // `BoundaryCutsMode::phi_expectation` the terminal phase carries
+  // NVarPhi φ_j columns (one per plane hydrology in the boundary CSV,
+  // priced `p_s/NVarPhi`), and `register_alpha_variables` needs the
+  // count up front.  The loader later derives the plane→column-rank
+  // mapping from the SAME file's sorted distinct `scene` values, so the
+  // two sides agree by construction.  Runs AFTER the FutureCost-element
+  // consolidation above (the element may author `mode` / `cuts_file`).
+  m_boundary_phi_count_ = 0;
+  if (m_options_.boundary_cuts_mode == BoundaryCutsMode::phi_expectation
+      && !m_options_.boundary_cuts_file.empty())
+  {
+    // The φ layout replaces the terminal `boundary_cut_sharing` layout;
+    // terminal multicut (N scene-keyed varphi columns) is structurally
+    // incompatible with the NVarPhi plane-keyed columns — reject rather
+    // than silently pick one.
+    if (m_options_.boundary_cut_sharing == BoundaryCutSharingMode::multicut) {
+      return std::unexpected(Error {
+          .code = ErrorCode::InvalidInput,
+          .message =
+              "boundary_cuts_mode=phi_expectation is incompatible with "
+              "boundary_cut_sharing_mode=multicut: the terminal layout is "
+              "the NVarPhi plane-hydrology varphi_j columns, not per-scene "
+              "varphi_s.  Use per_scene (default) sharing with "
+              "phi_expectation.",
+      });
+    }
+    const auto bc_path = resolve_input(m_options_.boundary_cuts_file);
+    if (std::filesystem::exists(bc_path)) {
+      m_boundary_phi_count_ = boundary_cut_scene_count(bc_path);
+    }
+    if (m_boundary_phi_count_ > 0) {
+      SPDLOG_INFO(
+          "SDDP: boundary_cuts_mode=phi_expectation — NVarPhi={} plane "
+          "hydrologies in {}; terminal LPs carry {} varphi_j columns "
+          "each priced p_s/NVarPhi (raw per-hydrology cuts)",
+          m_boundary_phi_count_,
+          bc_path,
+          m_boundary_phi_count_);
+    } else {
+      SPDLOG_WARN(
+          "SDDP: boundary_cuts_mode=phi_expectation but no plane "
+          "hydrologies could be read from '{}' (missing file or no "
+          "`scene` column) — terminal α falls back to the single-column "
+          "layout with no boundary cuts",
+          bc_path);
+    }
+  }
+
   // Auto-scale alpha: tie scale_alpha to the expected α magnitude at
   // master optimum so that the LP-space α coefficient lands O(1)
   // after the cut row's α-pivot equilibration (see
@@ -1317,14 +1384,46 @@ auto SDDPMethod::initialize_solver() -> std::expected<void, Error>
         // values / convergence stay byte-identical — only the reported
         // objective now carries c̄.
         const auto master_phase = first_phase_index();
+        // Restitution factor = Σ (terminal α column weights) — the actual
+        // objective drop caused by shifting every terminal cut by c̄:
+        //   * single-α / multicut (non-phi): Σ = 1.0 → fold back c̄.
+        //   * phi_expectation: NVarPhi φ_j columns priced `p_s/NVarPhi`,
+        //     so Σ = p_s → fold back `p_s·c̄`.  Folding the full c̄ here
+        //     would overshoot by (1−p_s)·c̄ per scene (large: 17/18·c̄ at
+        //     18 uniform scenes) and desync the LB/UB from the true
+        //     `p_s·Φ̂`.  See terminal_fcf_math.md §Q4 and the mean-shift
+        //     comment in `load_boundary_cuts_csv`.
+        const bool phi_terminal =
+            m_options_.boundary_cuts_mode == BoundaryCutsMode::phi_expectation
+            && m_boundary_phi_count_ > 0;
+        const auto scene_masses = phi_terminal
+            ? scene_probability_masses(planning_lp().simulation())
+            : std::vector<double> {};
+        double mass_total = 0.0;
+        for (const double m : scene_masses) {
+          mass_total += m;
+        }
         for (const auto scene_index : iota_range<SceneIndex>(0, num_scenes)) {
           const double c_bar = scene_alpha_offset(scene_index);
-          if (c_bar != 0.0) {
-            planning_lp()
-                .system(scene_index, master_phase)
-                .linear_interface()
-                .add_obj_constant(c_bar);
+          if (c_bar == 0.0) {
+            continue;
           }
+          double restitution = c_bar;
+          if (phi_terminal && mass_total > 0.0) {
+            const auto si = static_cast<std::size_t>(scene_index);
+            const double own =
+                si < scene_masses.size() ? scene_masses[si] : 0.0;
+            // p_s = own / mass_total.  A zero-probability scene (own == 0)
+            // carries no terminal α weight, so the mean-shift never moved its
+            // objective and its restitution is exactly 0 — which own/mass_total
+            // yields directly.  The outer `mass_total > 0.0` guard keeps the
+            // division safe.
+            restitution = (own / mass_total) * c_bar;
+          }
+          planning_lp()
+              .system(scene_index, master_phase)
+              .linear_interface()
+              .add_obj_constant(restitution);
         }
 
         SPDLOG_DEBUG(

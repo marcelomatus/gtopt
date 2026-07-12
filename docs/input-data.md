@@ -279,7 +279,7 @@ For full algorithmic details, see [SDDP Solver](methods/sddp.md).
 
 | Field                      | Type    | Default       | Description |
 |----------------------------|---------|---------------|-------------|
-| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
+| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), `"combined"` (broadcast), or `"phi_expectation"` (PLP-literal NVarPhi plane-hydrology φ columns; raw CSV) |
 | `boundary_max_iterations`  | integer | `0`           | Max SDDP iterations to load from boundary file (0 = all) |
 
 #### Apertures
@@ -505,7 +505,7 @@ For full details, see [Monolithic Solver](methods/monolithic.md).
 | Field                      | Type    | Default       | Description |
 |----------------------------|---------|---------------|-------------|
 | `solve_mode`               | string  | `"monolithic"`| Solve mode: `"monolithic"` (all phases in one LP) or `"sequential"` (phase-by-phase) |
-| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), or `"combined"` (broadcast) |
+| `boundary_cuts_mode`       | string  | `"separated"` | Load mode: `"noload"`, `"separated"` (per-scene), `"combined"` (broadcast), or `"phi_expectation"` (PLP-literal NVarPhi plane-hydrology φ columns; raw CSV) |
 | `boundary_max_iterations`  | integer | `0`           | Max iterations to load from boundary file (0 = all) |
 | `solve_timeout`            | number  | `18000.0`     | LP solve timeout in seconds (0 = no timeout) |
 

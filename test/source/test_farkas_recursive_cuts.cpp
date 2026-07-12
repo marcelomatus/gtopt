@@ -691,6 +691,16 @@ TEST_CASE("elastic mode rename: plp == state_repair; JSON canonical")  // NOLINT
     CHECK(enum_name(ElasticFilterMode::farkas_recursive) == "farkas_recursive");
   }
 
+  SUBCASE("unrecognised name falls back to the farkas_recursive default")
+  {
+    // Fallback must match PlanningOptionsLP::default_sddp_elastic_mode — a
+    // static_assert inside parse_elastic_filter_mode enforces the same thing
+    // at compile time; this pins the runtime behaviour.
+    CHECK(parse_elastic_filter_mode("totally_unknown")
+          == ElasticFilterMode::farkas_recursive);
+    CHECK(parse_elastic_filter_mode("") == ElasticFilterMode::farkas_recursive);
+  }
+
   SUBCASE("JSON round-trip emits state_repair, accepts plp")
   {
     SddpOptions opts;

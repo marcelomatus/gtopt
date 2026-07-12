@@ -2254,7 +2254,11 @@ TEST_CASE(  // NOLINT
   run_once(std::nullopt, off_dir);
   run_once(LowMemoryMode::compress, cmp_dir);
 
-  // solution.csv must match byte-for-byte.
+  // solution.csv must match across low_memory modes on the deterministic
+  // solution+convergence columns.  The trailing solver-effort telemetry —
+  // solve_ticks/solve_time_s/solve_calls/infeasible_count, the last 4
+  // columns — is wall-time / backend-rebuild dependent, so it legitimately
+  // differs between modes and is stripped before the comparison.
   const auto off_sol = off_dir / "solution.csv";
   const auto cmp_sol = cmp_dir / "solution.csv";
   REQUIRE(fs::exists(off_sol));
@@ -2267,9 +2271,39 @@ TEST_CASE(  // NOLINT
             std::istreambuf_iterator<char>()};
   };
 
+  // Keep each line's deterministic prefix by dropping its last 4
+  // comma-separated fields (the solver-effort telemetry columns).
+  const auto strip_effort_cols = [](const std::string& txt)
+  {
+    std::string out;
+    std::size_t pos = 0;
+    while (pos < txt.size()) {
+      const auto eol = txt.find('\n', pos);
+      const auto line_end = (eol == std::string::npos) ? txt.size() : eol;
+      const std::string_view line(txt.data() + pos, line_end - pos);
+      std::size_t cut = line.size();
+      for (int i = 0; i < 4; ++i) {
+        if (cut == 0) {
+          cut = std::string_view::npos;
+          break;
+        }
+        const auto c = line.rfind(',', cut - 1);
+        if (c == std::string_view::npos) {
+          cut = std::string_view::npos;
+          break;
+        }
+        cut = c;
+      }
+      out.append(cut == std::string_view::npos ? line : line.substr(0, cut));
+      out.push_back('\n');
+      pos = (eol == std::string::npos) ? txt.size() : eol + 1;
+    }
+    return out;
+  };
+
   const auto off_txt = read_file(off_sol);
   const auto cmp_txt = read_file(cmp_sol);
-  CHECK(off_txt == cmp_txt);
+  CHECK(strip_effort_cols(off_txt) == strip_effort_cols(cmp_txt));
 
   // Parity on file-set: the two runs must emit the same set of output
   // files (the sim-pass writes every (scene, phase) cell whose solve
@@ -5442,9 +5476,11 @@ TEST_CASE("parse_elastic_filter_mode — known + unknown strings")  // NOLINT
   CHECK(parse_elastic_filter_mode("chinneck") == ElasticFilterMode::chinneck);
   // ``iis`` is a documented alias for chinneck.
   CHECK(parse_elastic_filter_mode("iis") == ElasticFilterMode::chinneck);
-  // Fallback contract — unknown spelling resolves to ``chinneck``.
-  CHECK(parse_elastic_filter_mode("garbage") == ElasticFilterMode::chinneck);
-  CHECK(parse_elastic_filter_mode("") == ElasticFilterMode::chinneck);
+  // Fallback contract — unknown spelling resolves to the default
+  // ``farkas_recursive`` (the canonical SDDP feasibility cut).
+  CHECK(parse_elastic_filter_mode("garbage")
+        == ElasticFilterMode::farkas_recursive);
+  CHECK(parse_elastic_filter_mode("") == ElasticFilterMode::farkas_recursive);
 }
 
 TEST_CASE("compute_scene_weights — runtime rescale to sum 1.0")  // NOLINT

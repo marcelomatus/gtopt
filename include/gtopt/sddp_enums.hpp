@@ -32,12 +32,26 @@ namespace gtopt
  * - `noload`:    Do not load boundary cuts even if a file is given.
  * - `separated`: Load cuts per scene (scene UID matching; default).
  * - `combined`:  Broadcast all cuts into all scenes.
+ * - `phi_expectation`: PLP-literal terminal FCF.  The CSV's `scene`
+ *   column is read as a PLANE-HYDROLOGY index j (PLP `ISimul`, NOT a
+ *   gtopt scene UID).  Every scene's terminal LP carries
+ *   NVarPhi = |distinct j| φ_j columns, each priced `p_s / NVarPhi`
+ *   (the folded form of PLP's `1/NVarPhi` — `defprbpd.f:812-818`),
+ *   each bounded below by hydrology-j's cuts at FULL magnitude (the
+ *   CSV must be RAW — no `1/NVarPhi` pre-division).  Terminal FCF
+ *   `= (1/NVarPhi) Σ_j max_cuts_j(V_end) = E_j[FCF_j(V_end)]`, an
+ *   expectation over the plane hydrologies, independent of the run's
+ *   scene count.  The forward UB carries this term at the realized
+ *   terminal volumes (PLP `ZSPFAdd` semantics) — see
+ *   `docs/formulation/sddp-cut-validity.md` §9.
  */
 enum class BoundaryCutsMode : uint8_t
 {
   noload = 0,  ///< Skip loading boundary cuts
   separated = 1,  ///< Per-scene cut assignment (default)
   combined = 2,  ///< Broadcast all cuts to all scenes
+  phi_expectation = 3,  ///< PLP-literal: NVarPhi φ_j columns per LP,
+                        ///< priced p_s/NVarPhi, raw per-hydrology cuts
 };
 
 inline constexpr auto boundary_cuts_mode_entries =
@@ -45,6 +59,7 @@ inline constexpr auto boundary_cuts_mode_entries =
         {.name = "noload", .value = BoundaryCutsMode::noload},
         {.name = "separated", .value = BoundaryCutsMode::separated},
         {.name = "combined", .value = BoundaryCutsMode::combined},
+        {.name = "phi_expectation", .value = BoundaryCutsMode::phi_expectation},
     });
 
 [[nodiscard]] constexpr auto enum_entries(BoundaryCutsMode /*tag*/) noexcept

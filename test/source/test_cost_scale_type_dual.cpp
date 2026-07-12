@@ -212,8 +212,10 @@ inline Inputs make_inputs()
 }
 
 /// Fetch the per-block value vector for a `(cname, fname, sname)` output
-/// field from a solved `OutputContext`.  With one scenario / one stage,
-/// the flattened vector holds one entry per block in block order.
+/// field from a solved `OutputContext`.  The field map stores sparse
+/// `(grid-slot, value)` entries in ascending slot order; with one
+/// scenario / one stage the grid slot IS the block position, so scatter
+/// the entries into a dense per-block vector for the assertions below.
 inline std::vector<double> field_values(const OutputContext& oc,
                                         std::string_view cname,
                                         std::string_view fname,
@@ -225,7 +227,15 @@ inline std::vector<double> field_values(const OutputContext& oc,
   if (it == fields.end() || it->second.empty()) {
     return {};
   }
-  return std::get<1>(it->second.front());
+  const auto& entries = it->second.front().entries;
+  if (entries.empty()) {
+    return {};
+  }
+  std::vector<double> values(entries.back().first + 1, 0.0);
+  for (const auto& [slot, value] : entries) {
+    values[slot] = value;
+  }
+  return values;
 }
 
 }  // namespace cost_scale_type_dual_test

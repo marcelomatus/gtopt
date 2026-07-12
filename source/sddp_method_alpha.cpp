@@ -70,7 +70,9 @@ void SDDPMethod::initialize_alpha_variables(SceneIndex scene_index)
                                   m_options_.cut_sharing,
                                   m_options_.boundary_cut_sharing,
                                   /*register_as_state_variable=*/!suppress,
-                                  &m_options_.markov);
+                                  &m_options_.markov,
+                                  /*terminal_phi_count=*/
+                                  m_boundary_phi_count_);
 
   // Bootstrap pin for the USER α (dynamic AmplFutureCost, piece 5 step 2c).
   // The built-in α is pinned `lowb = uppb = 0` until a cut frees it (see
@@ -171,7 +173,8 @@ std::vector<double> alpha_col_weights(const SimulationLP& sim,
                                       const MarkovChainConfig* markov,
                                       SceneIndex scene_index,
                                       std::size_t n_alpha,
-                                      bool terminal_phase)
+                                      bool terminal_phase,
+                                      std::size_t terminal_phi_count)
 {
   // Markov-chain SDDP prices only NON-terminal phases with the MK1
   // per-state weights `w_{s,m'} = p_s·P[m(s)][m']/pi_{m'}` — the
@@ -184,6 +187,50 @@ std::vector<double> alpha_col_weights(const SimulationLP& sim,
       && markov->num_states == n_alpha)
   {
     return markov_alpha_weights(sim, *markov, scene_index);
+  }
+  // Terminal φ-expectation layout (`BoundaryCutsMode::phi_expectation`):
+  // the NVarPhi φ_j columns carry RAW (unfolded) per-hydrology boundary
+  // cuts, so the whole probability composition rides on the column
+  // price: `w_j = p_s / NVarPhi`, making the folded future term
+  // `p_s · (1/NVarPhi) Σ_j Φ_j = p_s · E_j[Φ_j]` — the scene's
+  // probability weighting composes exactly once (PLP prices each φ_j at
+  // `1/NVarPhi` in its unfolded per-sim LP, `PlaCFFO = 1/NVarPhi` in
+  // `defprbpd.f`; gtopt's per-scene LP is p_s-folded, hence the extra
+  // p_s).  Same mass derivation as the M4 weight (`alpha_unit_cost`),
+  // including its zero-mass / degenerate-total uniform fallback — the
+  // fallback is over SCENES (1/scene_count), not over the φ columns.
+  if (terminal_phase && terminal_phi_count > 0) {
+    // The φ-expectation pricing requires the registered terminal layout
+    // (`n_alpha`) to match the boundary CSV's NVarPhi (`terminal_phi_count`)
+    // exactly — `register_alpha_variables` lays down `terminal_phi_count`
+    // columns and the loader's `plane_rank` map keys cuts by rank in the same
+    // sorted distinct-scene set (`boundary_cut_scene_count` pre-scan).  A
+    // mismatch means the pre-scan and registration diverged — WARN rather than
+    // silently fall through to the M4 pricing (which would misprice every
+    // terminal φ_j at `p_s` instead of `p_s/NVarPhi`, inflating the terminal
+    // FCF by NVarPhi and breaking the LB≤UB parity).
+    if (terminal_phi_count != n_alpha) {
+      SPDLOG_WARN(
+          "phi_expectation terminal pricing: NVarPhi ({}) != registered α "
+          "columns ({}) on scene {} — falling back to M4 pricing (terminal "
+          "FCF will be mispriced; check the boundary_cut_scene_count pre-scan "
+          "vs register_alpha_variables)",
+          terminal_phi_count,
+          n_alpha,
+          static_cast<std::size_t>(scene_index));
+    } else {
+      const auto masses = scene_probability_masses(sim);
+      double total = 0.0;
+      for (const double p : masses) {
+        total += p;
+      }
+      const double own = masses[static_cast<std::size_t>(scene_index)];
+      const double p_s = (total > 0.0 && own > 0.0)
+          ? own / total
+          : 1.0 / static_cast<double>(std::max<std::size_t>(masses.size(), 1));
+      return std::vector<double>(n_alpha,
+                                 p_s / static_cast<double>(terminal_phi_count));
+    }
   }
   return std::vector<double>(n_alpha,
                              alpha_unit_cost(sim, scene_index, n_alpha));
@@ -203,7 +250,8 @@ void register_alpha_variables(PlanningLP& planning_lp,
                               CutSharingMode cut_sharing,
                               BoundaryCutSharingMode boundary_cut_sharing,
                               bool register_as_state_variable,
-                              const MarkovChainConfig* markov)
+                              const MarkovChainConfig* markov,
+                              std::size_t terminal_phi_count)
 {
   auto& sim = planning_lp.simulation();
   const auto& phases = sim.phases();
@@ -320,11 +368,27 @@ void register_alpha_variables(PlanningLP& planning_lp,
     if (!is_last && intermediate_markov) {
       n_alpha = markov->num_states;
     }
+    // `BoundaryCutsMode::phi_expectation`: the TERMINAL phase carries
+    // NVarPhi φ_j columns — one per plane hydrology in the boundary
+    // CSV (uid = sddp_alpha_uid + plane rank; NVarPhi is independent
+    // of the run's scene count and MAY exceed it).  Overrides the
+    // `boundary_cut_sharing` terminal layout (`initialize_solver`
+    // rejects the multicut+phi combination up front).  Pricing:
+    // `w_j = p_s / NVarPhi` via the shared accessor below.
+    if (is_last && terminal_phi_count > 0) {
+      n_alpha = terminal_phi_count;
+    }
     // ONE accessor for the per-column objective weights — the same
     // `alpha_col_weights` the forward-pass UB strip reads, so pricing
-    // and strip cannot diverge (M4 / MK1 selection lives inside it).
-    const auto col_weights = alpha_col_weights(
-        sim, cut_sharing, markov, scene_index, n_alpha, is_last);
+    // and strip cannot diverge (M4 / MK1 / φ-expectation selection
+    // lives inside it).
+    const auto col_weights = alpha_col_weights(sim,
+                                               cut_sharing,
+                                               markov,
+                                               scene_index,
+                                               n_alpha,
+                                               is_last,
+                                               terminal_phi_count);
 
     // Mirror α onto the aperture system (if any) so the backward-pass
     // aperture clones carry α and the cuts installed on it.  Independent

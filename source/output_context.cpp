@@ -9,7 +9,7 @@
  * solution results to Parquet and CSV files using Arrow builders.
  */
 
-#include <algorithm>  // For std::find
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <filesystem>
@@ -67,60 +67,37 @@ auto make_array(Values&& values, Valids&& valids = {})
   return array;
 }
 
-using str = std::string;
+// Slot → (scenario, stage, block) uid row labels for the long-form
+// writer, built once per OutputContext from the FlatHelper uid grids.
+// Absent axes stay empty and emit 0 in the long table (ST has no block
+// column; T has neither scenario nor block), matching the historical
+// Arrow-prelude-based writer.
 
-template<typename Type = Uid, typename STBUids>
-  requires std::same_as<std::remove_cvref_t<STBUids>, gtopt::STBUids>
-[[nodiscard]] auto make_stb_prelude(STBUids&& stb_uids)
+[[nodiscard]] auto make_prelude(STBUids stb_uids) -> OutputContext::PreludeUids
 {
-  std::vector<ArrowField> fields = {
-      arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Block::class_name}, ArrowTraits<Type>::type()),
+  return {
+      .scenario_uids = std::move(stb_uids.scenario_uids),
+      .stage_uids = std::move(stb_uids.stage_uids),
+      .block_uids = std::move(stb_uids.block_uids),
   };
-
-  // Capture fields before moving stb_uids
-  auto&& f_uids = std::forward<STBUids>(stb_uids);
-  std::vector<ArrowArray> arrays = {
-      make_array<Type>(f_uids.scenario_uids),
-      make_array<Type>(f_uids.stage_uids),
-      make_array<Type>(f_uids.block_uids),
-  };
-
-  return std::pair {std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = Uid, typename STUids>
-  requires std::same_as<std::remove_cvref_t<STUids>, gtopt::STUids>
-[[nodiscard]] auto make_st_prelude(STUids&& st_uids)
+[[nodiscard]] auto make_prelude(STUids st_uids) -> OutputContext::PreludeUids
 {
-  std::vector<ArrowField> fields = {
-      arrow::field(str {Scenario::class_name}, ArrowTraits<Type>::type()),
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
+  return {
+      .scenario_uids = std::move(st_uids.scenario_uids),
+      .stage_uids = std::move(st_uids.stage_uids),
+      .block_uids = {},
   };
-
-  auto&& f_uids = std::forward<STUids>(st_uids);
-  std::vector<ArrowArray> arrays = {
-      make_array<Type>(f_uids.scenario_uids),
-      make_array<Type>(f_uids.stage_uids),
-  };
-
-  return std::pair {std::move(fields), std::move(arrays)};
 }
 
-template<typename Type = Uid, typename TUids>
-  requires std::same_as<std::remove_cvref_t<TUids>, gtopt::TUids>
-[[nodiscard]] auto make_t_prelude(TUids&& t_uids)
+[[nodiscard]] auto make_prelude(TUids t_uids) -> OutputContext::PreludeUids
 {
-  std::vector<ArrowField> fields = {
-      arrow::field(str {Stage::class_name}, ArrowTraits<Type>::type()),
+  return {
+      .scenario_uids = {},
+      .stage_uids = std::move(t_uids.stage_uids),
+      .block_uids = {},
   };
-
-  std::vector<ArrowArray> arrays = {
-      make_array<Type>(std::forward<TUids>(t_uids).stage_uids),
-  };
-
-  return std::pair {std::move(fields), std::move(arrays)};
 }
 
 // Round `v` to `digits` decimal places.  Inline / branch-free hot path
@@ -177,12 +154,21 @@ template<typename Type = Uid, typename TUids>
   return out;
 }
 
-// The (only) solution-table writer.  Produces a 6-column long table:
-//   `(scenario, stage, block, uid, value, valid)`
-// with one row per *non-zero* cell across every uid column in the field
-// vector.  POC measurements on `support/plp/2_years` showed 5-7× smaller
-// per-partition files on the heavy Generator streams (0.1 % cell density)
-// and 2-3× on the LMP / line-flow streams.
+// The (only) solution-table writer.  Produces a 5-column long table:
+//   `(scenario, stage, block, uid, value)`
+// with one row per *non-zero* holder sample across every element field
+// under the (class, field, suffix) key.  POC measurements on
+// `support/plp/2_years` showed 5-7× smaller per-partition files on the
+// heavy Generator streams (0.1 % cell density) and 2-3× on the LMP /
+// line-flow streams.
+//
+// The field entries arrive SPARSE — `(grid-slot, value)` pairs ascending
+// by slot, collected by `FlatHelper::flat_sparse` — so this pass just
+// labels each sample with the slot's (scenario, stage, block) uids from
+// the prelude and appends it.  There is no dense-grid intermediate and
+// no full-grid rescan (the former wide→long conversion walked
+// scenarios × blocks slots per element-field stream, i.e.
+// O(cells × whole grid) per write-out flush).
 //
 // Sign convention: an exact zero is dropped.  Absence of a row means "no
 // contribution from this uid in this cell", which is the natural reader
@@ -190,11 +176,9 @@ template<typename Type = Uid, typename TUids>
 // zeros).  Wide output was removed — convert long files externally if a real
 // zero must be materialised per cell.
 template<typename Type = double, typename FieldVector>
-auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
+auto make_field_arrays_long(const FieldVector& field_vector,
+                            int round_digits = 0)
 {
-  // Pre-pass: extract the prelude's (scenario, stage, block) arrays once;
-  // we'll index them per-row to build the long output.
-  //
   // Identifier columns use `uint16_t` (0-65535).  gtopt's per-class uid
   // namespace caps far below 64K — typical 2-year case has ~2000
   // generators, ~330 lines, ~10 reservoirs — and the per-cell axes
@@ -235,97 +219,32 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
   std::vector<uint16_t> long_uid;
   std::vector<Type> long_value;
   std::vector<float> long_value_f32;
-  // Optional null mask — only populated if any field carried valids.
-  const std::vector<bool> long_valid;
-  const bool any_invalid = false;
 
-  // Cache the prelude row vectors as plain ints so the per-row indexing
-  // below avoids re-walking the Arrow arrays.  Falls back to empty
-  // vectors when no field provides a prelude (degenerate case).
-  std::vector<int32_t> prelude_scenario;
-  std::vector<int32_t> prelude_stage;
-  std::vector<int32_t> prelude_block;
-  bool prelude_loaded = false;
-
-  const auto load_prelude = [&](const auto& parrays)
-  {
-    // parrays is std::vector<ArrowArray>, ordering matches make_*_prelude.
-    if (parrays.empty()) {
-      return;
-    }
-    auto extract_int = [](const ArrowArray& arr) -> std::vector<int32_t>
-    {
-      std::vector<int32_t> out;
-      const auto len = arr->length();
-      out.reserve(static_cast<std::size_t>(len));
-      // Dispatch on the actual array type — most preludes use int32
-      // (matching `Uid` size on this build), but `make_stb_prelude` may
-      // emit int64; cover both.
-      if (auto* a32 = dynamic_cast<arrow::Int32Array*>(arr.get())) {
-        for (int64_t i = 0; i < len; ++i) {
-          out.push_back(a32->IsNull(i) ? 0 : a32->Value(i));
-        }
-      } else if (auto* a64 = dynamic_cast<arrow::Int64Array*>(arr.get())) {
-        for (int64_t i = 0; i < len; ++i) {
-          out.push_back(a64->IsNull(i) ? 0
-                                       : static_cast<int32_t>(a64->Value(i)));
-        }
-      } else {
-        // Unknown integer type — leave a zero-filled vector so the long
-        // output still has the right row count.
-        out.assign(static_cast<std::size_t>(len), 0);
-      }
-      return out;
-    };
-
-    // make_stb_prelude order: scenario, stage, block.
-    // make_st_prelude order:  scenario, stage.
-    // make_t_prelude order:   stage.
-    if (parrays.size() >= 3) {
-      prelude_scenario = extract_int(parrays[0]);
-      prelude_stage = extract_int(parrays[1]);
-      prelude_block = extract_int(parrays[2]);
-    } else if (parrays.size() == 2) {
-      prelude_scenario = extract_int(parrays[0]);
-      prelude_stage = extract_int(parrays[1]);
-      prelude_block.assign(prelude_stage.size(), 0);
-    } else if (parrays.size() == 1) {
-      prelude_stage = extract_int(parrays[0]);
-      prelude_scenario.assign(prelude_stage.size(), 0);
-      prelude_block.assign(prelude_stage.size(), 0);
-    }
-    prelude_loaded = true;
-  };
-
-  for (auto&& field_data : std::forward<FieldVector>(field_vector)) {
-    auto&& [fname, fvalues, fvalids, prelude] =
-        std::forward<decltype(field_data)>(field_data);
-
-    if (fvalues.empty()) [[unlikely]] {
+  for (const auto& field : field_vector) {
+    if (field.entries.empty() || field.prelude == nullptr) [[unlikely]] {
       continue;
     }
 
-    if (!prelude_loaded && prelude) [[likely]] {
-      const auto& [pfields, parrays] = *prelude;
-      load_prelude(parrays);
-    }
+    const int64_t uid_val = parse_uid_suffix(field.name);
 
-    const int64_t uid_val = parse_uid_suffix(fname);
+    const auto& scenario_uids = field.prelude->scenario_uids;
+    const auto& stage_uids = field.prelude->stage_uids;
+    const auto& block_uids = field.prelude->block_uids;
+    const auto n_rows = stage_uids.size();
 
-    const auto n_rows = std::min(fvalues.size(), prelude_stage.size());
-    const bool has_valids = !fvalids.empty();
-
-    for (std::size_t i = 0; i < n_rows; ++i) {
-      const bool is_valid = !has_valids || fvalids[i];
-      if (!is_valid) {
-        // Drop invalid cells entirely — the long form omits the row and
-        // downstream sums treat absence as zero.
+    for (const auto& [slot, sample] : field.entries) {
+      if (slot >= n_rows) [[unlikely]] {
+        // Slot beyond the prelude's row span — mirrors the historical
+        // `min(values.size(), prelude rows)` truncation of the dense
+        // writer.
         continue;
       }
-      const Type v = static_cast<Type>(fvalues[i]);
+      const Type v = static_cast<Type>(sample);
       // Drop exact zeros to keep the file small on the typical 0.1 %
       // dense gtopt output.  See function docstring above for the
-      // semantic implications.
+      // semantic implications.  Invalid grid slots never reach this
+      // loop at all: the sparse entries carry only the holder's own
+      // samples (that sparsity IS the long form's `valid` semantic).
       if (v == Type {0}) {
         continue;
       }
@@ -335,11 +254,10 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
       // check above the loop (and on `parse_uid_suffix` returning
       // -1 → 65535 sentinel) for correctness.
       long_scenario.push_back(static_cast<uint16_t>(
-          prelude_scenario.empty() ? 0 : prelude_scenario[i]));
-      long_stage.push_back(
-          static_cast<uint16_t>(prelude_stage.empty() ? 0 : prelude_stage[i]));
-      long_block.push_back(
-          static_cast<uint16_t>(prelude_block.empty() ? 0 : prelude_block[i]));
+          scenario_uids.empty() ? Uid {0} : scenario_uids[slot]));
+      long_stage.push_back(static_cast<uint16_t>(stage_uids[slot]));
+      long_block.push_back(static_cast<uint16_t>(
+          block_uids.empty() ? Uid {0} : block_uids[slot]));
       long_uid.push_back(static_cast<uint16_t>(uid_val));
       // Round in double-precision first, *then* narrow.  Float32 has
       // ~7 *binary*-significant digits; that is not the same as a
@@ -361,9 +279,6 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
       }
     }
   }
-
-  (void)any_invalid;
-  (void)long_valid;
 
   // Note for future readers: we deliberately do NOT sort the
   // accumulated rows.  The natural insertion order is already
@@ -403,14 +318,14 @@ auto make_field_arrays_long(FieldVector&& field_vector, int round_digits = 0)
 }
 
 template<typename Type = double, typename FieldVector>
-auto make_table(FieldVector&& field_vector, int round_digits = 0)
+auto make_table(const FieldVector& field_vector, int round_digits = 0)
     -> arrow::Result<std::shared_ptr<arrow::Table>>
 {
   // Output is long-only: one row per non-zero (scenario, stage, block, uid)
   // cell.  Wide output is no longer supported — convert long files externally
   // if a wide shape is needed.
-  auto [fields, arrays] = make_field_arrays_long<Type>(
-      std::forward<FieldVector>(field_vector), round_digits);
+  auto [fields, arrays] =
+      make_field_arrays_long<Type>(field_vector, round_digits);
 
   return arrow::Table::Make(arrow::schema(std::move(fields)),
                             std::move(arrays));
@@ -688,7 +603,7 @@ std::string probe_parquet_codec(std::string_view requested)
   }
 
   // Map known codec names to Arrow compression types.
-  using Compression = arrow::Compression;
+  using arrow::Compression;
   static const std::unordered_map<std::string_view, Compression::type>
       codec_map {
           {"gzip", Compression::GZIP},
@@ -827,9 +742,9 @@ OutputContext::OutputContext(const SystemContext& psc,
     , row_dual_span(linear_interface.get_row_dual())
     , col_cost_scale_types(linear_interface.col_cost_scale_types())
     , row_cost_scale_types(linear_interface.row_cost_scale_types())
-    , stb_prelude(make_stb_prelude(psc.stb_uids()))
-    , st_prelude(make_st_prelude(psc.st_uids()))
-    , t_prelude(make_t_prelude(psc.t_uids()))
+    , stb_prelude(make_prelude(psc.stb_uids()))
+    , st_prelude(make_prelude(psc.st_uids()))
+    , t_prelude(make_prelude(psc.t_uids()))
 {
   // Pre-reserve buckets for field_vector_map: a typical cell emits
   // ~150 unique (class, fname, sname) keys on juan/iplp (20+ element

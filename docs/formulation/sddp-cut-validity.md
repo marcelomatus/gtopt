@@ -716,13 +716,68 @@ supports of a convex terminal value function (they originate from
 PLP's `planos` data, which is such an FCF by construction).  Scaling
 both $\rho$ and $\gamma$ by $d$ encodes the discounted FCF $d \cdot
 \Phi(x)$ — consistent as long as the same discounting convention is
-used in the UB accounting (it is: the UB never adds a terminal term;
-the LB carries it through α).
+used in the UB accounting (it is: under every mode except
+`phi_expectation` below, the UB never adds a terminal term and the LB
+carries it through α; under `phi_expectation` **both** bounds carry
+the same discounted term).
 
 Terminal α under `boundary_cut_sharing = multicut` routes each
 scenario's cuts to its own terminal $\varphi_s$
 (`sddp_boundary_cuts.cpp:540-575`) — same semantics as §8 at the
 horizon.
+
+**`boundary_cuts_mode = phi_expectation` (PLP-literal terminal FCF,
+2026-07-12).**  PLP's last-stage LP carries `NVarPhi` φ columns — one
+per *plane hydrology* $j$ of `plpplem2.dat` (`leeplaem.f`), each priced
+$1/\text{NVarPhi}$ (`PlaCFFO`, `defprbpd.f`), each bounded below by the
+cuts of ITS hydrology only.  The terminal FCF is therefore the
+**expectation over plane hydrologies of per-hydrology maxima**,
+$\Phi(x) = \frac{1}{\text{NVarPhi}} \sum_j \max_{c \in j}
+(\rho_c + \langle \gamma_c, x\rangle)$ — independent of the run's
+scene count.  gtopt replicates this verbatim:
+
+- the CSV `scene` column is read as the plane index $j$ (NOT a gtopt
+  scene UID); `register_alpha_variables` lays down NVarPhi terminal
+  $\varphi_j$ columns in EVERY scene-LP
+  (uid $= \texttt{sddp\_alpha\_uid} + \text{rank}(j)$, ranks from the
+  sorted distinct `scene` values — `boundary_cut_scene_count` pre-scan
+  and the loader's `plane_rank` map read the same file);
+- each $\varphi_j$ is priced $w_j = p_s/\text{NVarPhi}$ through the
+  same `alpha_col_weights` accessor as the M4 pricing.  The cuts are
+  installed at **full magnitude** (RAW CSV, no $1/\text{NVarPhi}$
+  pre-division, no $p_s$ folding), so the probability composition rides
+  entirely on the column price and composes exactly once: the folded
+  future term is $\sum_j w_j \varphi_j = p_s\, \mathbb E_j[\Phi_j(x)]$
+  — the M4 discipline (§8) with the cut-side folding moved to the
+  column side;
+- **UB contract change**: the forward pass does NOT strip the terminal
+  $\varphi$ term (`sddp_forward_pass.cpp`, `phi_terminal` branch), so
+  the scene UB carries $p_s\,\mathbb E_j[\Phi_j(V_{\text{end}})]$ at
+  the *realized* terminal volumes — exactly PLP's `ZSPF` accounting
+  (`getprim.f`: `ZSPFAdd` keeps the full last-stage $Z$, terminal
+  $\Phi$ included).  The LB carries the same term through the α
+  recursion, so UB and LB refer to the same objective and the gap is
+  meaningful.  Intermediate phases strip normally;
+- the α-rebase is force-disabled (Lemma B1's restitution closes only
+  for a single column priced $1.0$: with $N$ columns priced
+  $p_s/N$ a uniform shift $\bar c$ drops the future term by
+  $p_s \bar c \ne \bar c$ — the same failure family as the M4 caveat
+  below), `single_cut_equality` never fires (each $\varphi_j$ is the
+  max of its plane's `≥` supports, PLP leaves φ free), and
+  `boundary_cut_sharing = multicut` is rejected up front (the terminal
+  layout is the plane-keyed one).
+
+Validity: each $\varphi_j$'s cuts are supports of hydrology-$j$'s
+convex FCF (A5), and the $w_j$-priced sum is a convex combination of
+those value functions — Theorem O2's induction goes through with
+$\Phi = \mathbb E_j[\Phi_j]$ as the terminal condition.  The
+`combined` broadcast, by contrast, bounds ONE α by the max over ALL
+hydrologies' (pre-divided) supports — the *upper envelope of scaled
+supports* instead of the *mean of per-hydrology maxima* — which
+under-represents the terminal value by up to
+$\approx \text{NVarPhi}\times$ when the per-hydrology FCFs are
+comparable in size (the 2026-07 cost-gap audit measured 0.94e9 vs
+PLP's 2.02e9 on the 2-year parity case).
 
 **Terminal α ≥ 0 floor** (`sddp_method_alpha.cpp:277-297`): valid iff
 stage costs are non-negative (assumption A2).  Deliberately violated

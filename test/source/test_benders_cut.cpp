@@ -1561,10 +1561,11 @@ TEST_CASE(  // NOLINT
         == ElasticFilterMode::chinneck);
 
   // Unknown name (including the retired "backpropagate" mode) falls back
-  // to the default mode (chinneck — IIS-based).
+  // to the default mode (farkas_recursive — the canonical SDDP cut).
   CHECK(parse_elastic_filter_mode("backpropagate")
-        == ElasticFilterMode::chinneck);
-  CHECK(parse_elastic_filter_mode("nonsense") == ElasticFilterMode::chinneck);
+        == ElasticFilterMode::farkas_recursive);
+  CHECK(parse_elastic_filter_mode("nonsense")
+        == ElasticFilterMode::farkas_recursive);
 }
 
 TEST_CASE(  // NOLINT

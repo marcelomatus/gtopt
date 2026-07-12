@@ -1220,10 +1220,24 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       // directly — its `var_scale = 1` so the raw LP value is already
       // physical, with NO `× scale_alpha`.  Compress-safe element read.
       double alpha_val = 0.0;
+      const bool phi_terminal =
+          m_options_.boundary_cuts_mode == BoundaryCutsMode::phi_expectation
+          && phase_index == planning_lp().simulation().last_phase_index();
       if (const auto ua_uid = gtopt::active_user_alpha_uid(planning_lp())) {
         const auto* ua_svar = find_user_alpha_state_var(
             planning_lp().simulation(), scene_index, phase_index, *ua_uid);
         alpha_val = (ua_svar != nullptr) ? ua_svar->col_sol() : 0.0;
+      } else if (phi_terminal) {
+        // `BoundaryCutsMode::phi_expectation`: do NOT strip the terminal
+        // future term.  PLP's per-sim UB (`ZSPF`, `getprim.f`) keeps the
+        // full Z at the LAST stage (`ZSPFAdd`), i.e. the terminal
+        // Φ = (1/NVarPhi) Σ_j φ_j evaluated at the REALIZED terminal
+        // volumes rides in the UB.  Leaving `alpha_val = 0` here makes
+        // `forward_objective` = full terminal objective
+        // = p_s·(stage cost) + (p_s/NVarPhi)·Σ_j φ_j(V_end), so the
+        // scene UB — and the reported gap — carry the same terminal FCF
+        // the LB carries through α (theorem doc §9 "phi_expectation").
+        // Intermediate phases strip normally (branch below).
       } else {
         const auto sa = m_options_.scale_alpha;
         const auto& sim = planning_lp().simulation();
@@ -1232,11 +1246,18 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
         // the shared accessor (uniform M4 for none/multicut and for
         // the terminal phase, MK1 per-state weights for non-terminal
         // markov phases) — the strip and the registration pricing read
-        // the identical weights by construction.
+        // the identical weights by construction.  The walk stops at the
+        // first uid gap and is NOT capped at `scene_count()` (the
+        // φ-expectation terminal layout — not stripped, see above — has
+        // NVarPhi > scene_count columns; keep the walk shape identical
+        // to `alpha_cols_on_cell`).
         std::vector<double> alpha_sols;
-        for (const auto src : iota_range<SceneIndex>(0, sim.scene_count())) {
+        for (std::size_t off = 0;; ++off) {
           const auto* alpha_svar =
-              find_alpha_state_var(sim, scene_index, phase_index, src);
+              find_alpha_state_var(sim,
+                                   scene_index,
+                                   phase_index,
+                                   SceneIndex {static_cast<Index>(off)});
           if (alpha_svar == nullptr) {
             break;  // α uids are contiguous — first gap ends the layout
           }
