@@ -65,6 +65,17 @@ namespace gtopt::line_losses
 namespace
 {
 
+/// Internal degeneracy pin on the tangent_signed_flow abs-flow proxy
+/// columns (``v``): forces ``Σ v_l = |f|`` at the LP optimum so the
+/// chord row stays anchored to the piecewise secant.  Deliberately NOT
+/// the user ``loss_cost_eps`` (which lands on the loss column only —
+/// the arbitrage guard): pricing ``v`` with the user ε makes ε a
+/// transport toll on all legitimate flow.  1e-6 $/MWh is well below
+/// LP optimality tolerance, so it never moves a dispatch decision.
+/// Activated only when ``loss_cost_eps > 0`` so unset-ε cases remain
+/// byte-identical to legacy behaviour.
+constexpr double kFlowAbsPinEps = 1e-6;
+
 /// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
 /// demote `piecewise_direct` → `piecewise` if expansion is active.
 ///
@@ -310,8 +321,9 @@ LossConfig make_config(LineLossesMode mode,
   // inflates ``Σ v_l`` past ``|f|`` — collapsing the L-secant chord to
   // a loose constant ceiling — is killed by EITHER ``loss_use_sos2 =
   // true``  (lambda-form MIP, full envelope, no ε needed) OR
-  // ``loss_cost_eps > 0``  (ε on Σ v_l makes ``Σ v_l = |f|``  at the
-  // LP optimum; the v distribution is then LP-indifferent because
+  // ``loss_cost_eps > 0``  (which activates the INTERNAL
+  // ``kFlowAbsPinEps`` pin on ``Σ v_l``, making ``Σ v_l = |f|`` at
+  // the LP optimum; the v distribution is then LP-indifferent because
   // the chord row is INACTIVE at optimum — the K-tangent lower bound
   // on ℓ binds first — but ``Σ v_l = |f|``  alone is enough to keep
   // the chord ≤ ``c · fmax²``  rather than ``c · fmax² · (2L−1)``
@@ -320,10 +332,13 @@ LossConfig make_config(LineLossesMode mode,
   // achieve a piecewise-linear chord ≥ true loss; lambda-form's is
   // exactly the secant at every distribution, ε-rely's is the secant
   // when bottom-up filled and looser otherwise (the LP can pick any
-  // feasible distribution with no obj impact).  The warning fires
-  // only when BOTH are off (the genuinely-broken config).  One-shot
-  // so the misconfig surfaces during the first ``make_config`` call
-  // without flooding the log on every (line, stage) pass.
+  // feasible distribution with no obj impact).  The USER ε itself
+  // lands on the LOSS column (arbitrage guard, sized against
+  // ½·|worst pair-sum|); the pin is what keeps the chord anchored.
+  // The warning fires only when BOTH are off (the genuinely-broken
+  // config).  One-shot so the misconfig surfaces during the first
+  // ``make_config`` call without flooding the log on every
+  // (line, stage) pass.
   if (mode == LineLossesMode::tangent_signed_flow && nseg_secant_eff > 1
       && !use_sos2 && loss_cost_eps <= 0.0)
   {
@@ -333,10 +348,11 @@ LossConfig make_config(LineLossesMode mode,
           "line_losses: tangent_signed_flow with "
           "loss_secant_segments={} requires EITHER loss_use_sos2=true "
           "(lambda-form MIP, full envelope) OR loss_cost_eps > 0 "
-          "(ε-rely: ε on Σv_l forces Σv_l=|f| at LP optimum, keeps "
-          "the chord bounded; pure LP).  With both off the LP "
-          "inflates Σ v_l and the chord collapses to a constant "
-          "ceiling — STRICTLY WORSE than loss_secant_segments=1.  "
+          "(activates the internal v-pin forcing Σv_l=|f| at LP "
+          "optimum, keeps the chord bounded; the ε itself prices the "
+          "loss column; pure LP).  With both off the LP inflates "
+          "Σ v_l and the chord collapses to a constant ceiling — "
+          "STRICTLY WORSE than loss_secant_segments=1.  "
           "See issue #504.",
           nseg_secant_eff);
       warned_l_no_sos2 = true;
@@ -1680,15 +1696,18 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   //
   // The chord anchors ``ℓ`` to ``v``, NOT to ``|f|`` — and ``v`` is
   // only LOWER-bounded by ``±f``, so under a negative bus-dual
-  // pair-sum (π_a + π_b < −2ε_v/(c·env) − 2ε_ℓ) the LP inflates ``v``
-  // past ``|f|`` and rides ``ℓ`` up the chord: an idle line becomes a
-  // sink of up to ``c·env²`` MW.  Two distinct ε thresholds close the
-  // channel progressively (see `test_line_losses_negative_lmp_kvl.cpp`):
-  //   - ε > ε* ≈ ½·|π_sum|·c·env/(1+c·env) pins ``v = |f|`` (kills the
-  //     idle-line sink), but ``ℓ`` still rides the chord to
-  //     ``c·env·|f|`` — env/|f|× the physical loss;
-  //   - only ε > |π_sum|/2 also kills the chord residual — VoLL-scale,
-  //     impractical.
+  // pair-sum the LP inflates ``v`` past ``|f|`` and rides ``ℓ`` up the
+  // chord: an idle line becomes a sink of up to ``c·env²`` MW.  The
+  // ONLY monetization of this channel is ``ℓ`` itself (``v`` never
+  // touches a bus balance), so the guard is the user ε on the LOSS
+  // column below: ``ℓ``-dumping earns |π_a + π_b|/2 per MWh, hence
+  //   ε > ½·|worst credible pair-sum|  closes the channel COMPLETELY
+  // (v-sink and chord residual alike) — and its incidence on
+  // legitimate operation is loss-scaled (ε·dℓ/df ≈ 2λ·ε per marginal
+  // MWh, centavos), NOT a flow toll.  ``v`` itself is kept at
+  // ``Σ v = |f|`` by the internal ``kFlowAbsPinEps`` degeneracy pin.
+  // Demonstrated in `test_line_losses_negative_lmp_kvl.cpp` and
+  // `test_line_losses_commitment_leak.cpp`.
   // The exact fix is the SOS2 λ-form (``loss_use_sos2`` +
   // ``loss_secant_segments ≥ 2``), which brackets ``ℓ`` to the
   // per-segment secant of ``|f|`` for ANY price signs.  With
@@ -1703,11 +1722,12 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   // (lives in the unreachable half-space for the smaller direction) but
   // never violates feasibility.
 
-  // Optional per-MWh ε on the loss column.  Inert for this mode under
-  // ordinary conditions (the LP already drives ``ℓ`` to its tangent
-  // envelope, which is the unique minimiser at any chosen ``f``) but
-  // preserved so the wiring stays consistent with the other PWL paths
-  // — a future contract that needs ε > 0 here works identically.
+  // Per-MWh ε on the loss column — THE arbitrage guard for this mode
+  // (see the chord comment above): under ordinary (non-negative
+  // pair-sum) conditions the LP already drives ``ℓ`` to its tangent
+  // envelope and ε only adds the loss-scaled overhead ε·ℓ; under a
+  // negative pair-sum it blocks ℓ-dumping once
+  // ε > ½·|worst credible pair-sum|.
   const double loss_block_cost = config.loss_cost_eps > 0.0
       ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
       : 0.0;
@@ -1965,23 +1985,28 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
     // the two abs rows ``Σ v_l ≥ ±f``.  Chord ``ℓ ≤ Σ chord_slope_l ·
     // v_l`` with ``chord_slope_l = c·w·(2l−1)``.
     //
-    // ε (``loss_cost_eps > 0``) on Σ v_l is REQUIRED for L > 1 to
-    // close the inflate-v arbitrage by forcing ``Σ v_l = |f|``  at
-    // LP optimum.  The v distribution is then LP-indifferent (the
-    // chord row is INACTIVE at the LP optimum — the K-tangent lower
-    // bound binds first), but ``Σ v_l = |f|``  alone is enough to
-    // keep the chord bounded by the piecewise secant rather than
-    // the loose constant ceiling.  See the (B) doc block above for
-    // the full explanation.  L=1 also benefits from ε but works
-    // (loosely) without it because there's only one segment to
-    // inflate.
-
-    // ε contributes a tiny per-MWh cost on Σ v_l.  ``make_config``
-    // already converted nothing → ``loss_cost_eps`` is the raw user
-    // value (0 if unset).  The foot-gun warning fires on
-    // ``L > 1 && ε == 0`` to surface the misconfig.
+    // A tiny cost on Σ v_l is REQUIRED for L > 1 to pin
+    // ``Σ v_l = |f|`` at the LP optimum (the v distribution is then
+    // LP-indifferent — the chord row is INACTIVE at the optimum, the
+    // K-tangent lower bound binds first — but ``Σ v_l = |f|`` alone
+    // keeps the chord bounded by the piecewise secant rather than
+    // the loose constant ceiling).  L=1 also benefits but works
+    // (loosely) without it.
+    //
+    // The pin is the INTERNAL ``kFlowAbsPinEps`` (1e-6 $/MWh), NOT
+    // the user ε — the user ``loss_cost_eps`` lands on the LOSS
+    // column only (the arbitrage guard; see the chord comment).
+    // Charging the user ε here (pre-2026-07 behaviour) turned it
+    // into a transport toll of ε $/MWh per lossy line on ALL
+    // legitimate flow — measured ≈0.8ε per lossy line crossed on
+    // ieee_14b LMPs, +33% physical OPEX at ε=20 — while STILL not
+    // closing the chord residual (that needs the loss-side
+    // ε ≥ ½|π_sum|, cheap precisely because its incidence is
+    // loss-scaled).  Gated on ε > 0 so unset-ε cases stay
+    // byte-identical to legacy; the L>1 foot-gun warning in
+    // ``make_config`` keeps firing on ``L > 1 && ε == 0``.
     const double v_cost = config.loss_cost_eps > 0.0
-        ? CostHelper::block_ecost(scenario, stage, block, config.loss_cost_eps)
+        ? CostHelper::block_ecost(scenario, stage, block, kFlowAbsPinEps)
         : 0.0;
 
     // Helper: build the context for v_col[l].  L = 1 uses the legacy

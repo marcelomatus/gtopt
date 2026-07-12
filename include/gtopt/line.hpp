@@ -235,18 +235,23 @@ struct Line
   /// ``model_options.loss_cost_eps`` default.  Inert for ``none``,
   /// ``linear`` and ``piecewise_direct`` — those have no loss column.
   ///
-  /// CAUTION — ε cures DEGENERACY, never true arbitrage.  Whenever the
-  /// bus-dual pair-sum goes negative (π_a + π_b < −2ε; KVL congestion
-  /// or curtailment can do this with all-positive costs) every
-  /// pure-LP loss mode re-opens unless ε is sized against the worst
-  /// credible pair-sum.  For ``tangent_signed_flow`` there are TWO
-  /// thresholds (see ``test_line_losses_negative_lmp_kvl.cpp``):
-  /// ε > ε* ≈ ½·|π_sum|·c·env/(1+c·env) pins the abs proxy ``v = |f|``
-  /// (kills the idle-line sink); only ε > |π_sum|/2 also kills the
-  /// chord residual (ℓ riding to ``c·env·|f|``) — VoLL-scale, and it
-  /// taxes legitimate flow by ε $/MWh per lossy line crossed.  The
-  /// robust fix for negative-price exposure is the SOS2 λ-form
-  /// (``loss_use_sos2`` + ``loss_secant_segments ≥ 2``).
+  /// SIZING for negative-price exposure: ε lands on the LOSS columns
+  /// in every mode — in ``tangent_signed_flow`` the abs-flow proxy
+  /// ``v`` carries only an internal 1e-6 degeneracy pin (activated
+  /// when ε > 0) — so its incidence is loss-scaled: overhead
+  /// ≈ ε·2λ per marginal MWh (λ = R·fmax/V², a few %), NOT a flow
+  /// toll.  Loss dumping earns |π_a + π_b|/2 per MWh whenever the
+  /// bus-dual pair-sum goes negative (KVL congestion or curtailment
+  /// produce this with all-positive costs), hence
+  ///   ε ≥ ½·|worst credible pair-sum| (+ margin)
+  /// closes the arbitrage on the guarded line — typical per-line
+  /// values 1–20 $/MWh cost only centavos of LMP distortion.  Set it
+  /// per line on flagged corridors and RE-RUN: the sink migrates to
+  /// the next unguarded lossy line, iterate until no new flags.
+  /// ``linear`` / ``piecewise_direct`` cannot be ε-guarded (no loss
+  /// column).  The exact fix remains the SOS2 λ-form
+  /// (``loss_use_sos2`` + ``loss_secant_segments ≥ 2``).  See
+  /// ``test_line_losses_negative_lmp_kvl.cpp``.
   OptReal loss_cost_eps {};
 
   /// Soft (normal) flow threshold in the B→A direction [MW].  When set

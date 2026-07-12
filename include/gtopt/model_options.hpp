@@ -98,12 +98,13 @@ struct ModelOptions
   /// unchanged.  Default ``0.0`` (unset) preserves legacy behaviour.
   /// Per-line ``Line.loss_cost_eps`` overrides this global default.
   /// Inert for ``none``, ``linear`` and ``piecewise_direct`` (no loss
-  /// column).  In ``tangent_signed_flow`` it prices the abs-flow proxy
-  /// ``v`` and the loss column, and is REQUIRED (> 0) when
-  /// ``loss_secant_segments > 1`` without SOS2.  NOTE: ε cures
-  /// degeneracy, not arbitrage — under negative bus-dual pair-sums it
-  /// guards only up to a threshold; see the sizing guidance at
-  /// ``Line.loss_cost_eps`` (line.hpp).
+  /// column).  In ``tangent_signed_flow`` ε prices the LOSS column
+  /// (the abs-flow proxy ``v`` gets an internal 1e-6 degeneracy pin
+  /// when ε > 0), and ε > 0 is REQUIRED when
+  /// ``loss_secant_segments > 1`` without SOS2.  Sized
+  /// ≥ ½·|worst credible bus-dual pair-sum| it is the pure-LP
+  /// arbitrage guard, at loss-scaled (≈2λ·ε) incidence; see the
+  /// sizing guidance at ``Line.loss_cost_eps`` (line.hpp).
   OptReal loss_cost_eps {};
   /// Global default for ``Line.loss_secant_segments`` (issue #504).
   /// When ``> 1`` and ``loss_use_sos2`` is enabled, the

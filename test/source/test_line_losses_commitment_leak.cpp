@@ -644,23 +644,53 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "commitment leak E tangent_signed_flow eps=1.0: the offline sink is "
-    "FULLY closed by the v-tax (EPS-GUARD)")  // NOLINT
+    "commitment leak E tangent_signed_flow eps=1.0 (loss-priced): the "
+    "offline sink stays OPEN below the pair-sum threshold (DEFECT)")  // NOLINT
 {
-  // REGRESSION GUARD — ε-closure of channel (E) for this mode.
+  // DEFECT-DOCUMENTING TEST — channel (E), loss-priced ε semantics.
   //
-  // Sink profit per unit v is |π1+π4|/2 · c·env = 12.5 · 0.05 =
-  // 0.625 $/MWh; the ε tax on (v + ℓ) costs ε·(1 + c·env) = 1.05·ε.
-  // ε = 1.0 > ε* ≈ 0.595 ⇒ v collapses to |f| = 0 and ℓ to 0.
+  // Since the 2026-07 re-point ε lands on the LOSS column only (v
+  // carries the internal 1e-6 pin), so ONLINE and OFFLINE share the
+  // single closure condition ε > |π1+π4|/2 = 12.5.  At ε = 1.0 the
+  // ℓ-dump nets 11.5 $/MWh: the breaker-open line still v-inflates
+  // to the envelope and books the full c·env² sink.
   //
-  // NOTE the contrast with the ONLINE channel D at the same ε
-  // (test_line_losses_negative_lmp_kvl.cpp, eps=1.0 case): online,
-  // the chord residual ℓ = c·env·|f| survives any practical ε.  For
-  // the OFFLINE line the gate pins |f| = 0, the chord residual
-  // vanishes with it, and ε > ε* is a COMPLETE guard.  Channel E is
-  // therefore the one place where the ε palliative is exact.
+  // (Pre-re-point, ε = 1.0 > ε* ≈ 0.595 closed the offline sink via
+  // the v flow-toll — partial protection paid for with an ε $/MWh
+  // toll on every legitimate flow system-wide.)
   RingFixture fix(
       LeakKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 1.0});
+  auto& li = fix.lp();
+  auto result = li.resolve();
+  REQUIRE(result.has_value());
+  REQUIRE(result.value() == 0);
+
+  const auto sol = li.get_col_sol_raw();
+  CHECK(std::abs(col_val(li, sol, "line_flows_5_")) <= 1e-6);
+  // DEFECT: the offline line's v and ℓ host the full-size sink.
+  CHECK(col_val(li, sol, "line_flow_abs_5_") > 100.0);
+  CHECK(col_val(li, sol, "line_lossp_5_") > 10.0);
+
+  // Pressure present — the exposure is dual-driven.
+  const auto pi = read_duals(li);
+  REQUIRE(std::abs(pi.pi1) > 0.0);
+  CHECK(pi.pi4 / pi.pi1 < 0.0);
+}
+
+TEST_CASE(
+    "commitment leak E tangent_signed_flow eps=15 > |pair-sum|/2: the "
+    "offline sink is fully closed (EPS-GUARD)")  // NOLINT
+{
+  // REGRESSION GUARD — loss-priced ε-closure of channel (E).
+  //
+  // ε = 15 > |π1+π4|/2 = 12.5: dumping ℓ on the offline line has
+  // strictly positive net cost, so ℓ collapses to 0 and the internal
+  // pin drops v to |f| = 0.  Same sizing rule as the online channel D
+  // (test_line_losses_negative_lmp_kvl.cpp, eps=20 case) — since the
+  // re-point the ε palliative closes ONLINE and OFFLINE alike, at
+  // loss-scaled incidence.
+  RingFixture fix(
+      LeakKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 15.0});
   auto& li = fix.lp();
   auto result = li.resolve();
   REQUIRE(result.has_value());

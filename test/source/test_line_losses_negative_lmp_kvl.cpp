@@ -506,12 +506,13 @@ TEST_CASE(
 {
   // DEFECT-DOCUMENTING TEST — channel (D) threshold.
   //
-  // With ε on BOTH the v column and the ℓ column, the sink is
-  // profitable iff |pi_a + pi_b|/2 > ε·(1 + 1/(c·env)).  Here
-  // c·env = 5e-5 · 1000 = 0.05 → threshold ε* = 12.5/21 ≈ 0.6 $/MWh.
-  // The plexos2gtopt production default ε = 0.1 protects only up to a
-  // pair-sum of ≈ −4.2 $/MWh — a −25 $/MWh congestion corridor blows
-  // straight through it.
+  // ε is loss-priced (the v columns carry only the internal 1e-6
+  // degeneracy pin), so the sink is profitable iff
+  // |pi_a + pi_b|/2 > ε.  The plexos2gtopt production default
+  // ε = 0.1 protects only up to a pair-sum of −0.2 $/MWh — a
+  // −25 $/MWh congestion corridor blows straight through it: v
+  // inflates to the envelope (the pin is no deterrent when ℓ-dumping
+  // pays 12.5 $/MWh) and ℓ rides the chord to its c·env² cap.
   RingFixture fix(
       LossKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 0.1});
   auto& li = fix.lp();
@@ -535,22 +536,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "negative-LMP M2 tangent_signed_flow eps=1.0: v-sink closed but the "
-    "chord residual persists (PARTIAL GUARD + DEFECT)")  // NOLINT
+    "negative-LMP M2 tangent_signed_flow eps=1.0 (loss-priced): below the "
+    "pair-sum threshold, still exposed (DEFECT)")  // NOLINT
 {
-  // Two-part verdict — channel (D) ε-palliative at ε = 1.0 > ε* ≈ 0.6.
+  // DEFECT-DOCUMENTING TEST — channel (D), loss-priced ε semantics.
   //
-  // GUARDED half: the v tax beats the sink revenue, so v = |f| exactly
-  // and the idle-line c·env² dump (50 MW) is closed.
+  // Since the 2026-07 re-point, ε lands on the LOSS column only (the
+  // v columns carry the internal 1e-6 pin).  The single closure
+  // condition is ε > |pi_a + pi_b|/2 = 12.5 here; ε = 1.0 is far
+  // below it, so ℓ-dumping nets 11.5 $/MWh and the LP inflates v to
+  // the envelope and ℓ to the c·env² cap — same exposure as ε = 0.1.
   //
-  // DEFECT half (empirically discovered by this test): closing v does
-  // NOT restore loss physics.  With v pinned at |f| the chord row
-  // still ALLOWS ℓ up to c·env·|f| (the secant ceiling), and inflating
-  // ℓ there costs only ε_ℓ per MWh against the 12.5 $/MWh corridor —
-  // so ℓ rides the chord: ℓ = c·env·|f| ≈ 1.54 MW vs physical
-  // c·f² ≈ 0.047 MW (≈ 32×).  Full closure needs ε_ℓ > |pi_a+pi_b|/2
-  // (= 12.5 here) — VoLL-scale corridors make that impractical.  The
-  // ε-sizing rule guards the SINK, not the chord residual.
+  // (Pre-re-point, ε = 1.0 > ε* ≈ 0.6 used to close the v-sink via
+  // the flow toll while the chord residual ℓ = c·env·|f| ≈ 32×
+  // physics survived — the toll bought only partial protection at
+  // ~ε $/MWh per lossy line of LMP distortion.)
   RingFixture fix(
       LossKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 1.0});
   auto& li = fix.lp();
@@ -571,25 +571,25 @@ TEST_CASE(
 
   // The corridor still carries real flow…
   CHECK(std::abs(f14) > 10.0);
-  // GUARD: v is pinned to |f| — the c·env² idle-line sink is closed.
-  CHECK(v14 <= std::abs(f14) + 0.01);
-  CHECK(loss14 <= (kCLoss * kTmax * std::abs(f14)) + 1e-3);
-  // DEFECT: ℓ sits on the chord ceiling, far above physics.
-  CHECK(loss14 > 10.0 * kCLoss * f14 * f14);
+  // DEFECT: v inflates past |f| (the 1e-6 pin is no deterrent)…
+  CHECK(v14 > std::abs(f14) + 100.0);
+  // …and ℓ sits at the cap, far above physics.
+  CHECK(loss14 > 5.0);
 }
 
 TEST_CASE(
     "negative-LMP M2 tangent_signed_flow eps=20 > |pair-sum|/2: chord "
     "residual also closed (GUARD)")  // NOLINT
 {
-  // REGRESSION GUARD — full ε closure of channel (D).
+  // REGRESSION GUARD — full ε closure of channel (D), loss-priced.
   //
-  // ε_ℓ = 20 > |pi1 + pi4|/2 = 12.5: inflating ℓ anywhere above the
-  // tangent lower envelope now has strictly positive net cost, so the
-  // LP minimises ℓ down to max_k tangent_k(f) ≤ c·f².  This pins the
-  // FULL-closure sizing rule ε > ½·|worst pair-sum| — and shows why ε
-  // is a palliative: the same 20 $/MWh also taxes every legitimate
-  // MWh of loss in the system.
+  // ε = 20 > |pi1 + pi4|/2 = 12.5: inflating ℓ anywhere above the
+  // tangent lower envelope has strictly positive net cost, so the LP
+  // minimises ℓ down to max_k tangent_k(f) ≤ c·f², and the internal
+  // pin drops v to |f|.  This pins the single sizing rule
+  // ε > ½·|worst pair-sum| — affordable since the re-point, because
+  // the incidence is loss-scaled (ε·2λ per marginal MWh), not a
+  // flow toll.
   RingFixture fix(
       LossKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 20.0});
   auto& li = fix.lp();
@@ -612,6 +612,39 @@ TEST_CASE(
   CHECK(v14 <= std::abs(f14) + 0.01);
   // ℓ collapses to the tangent lower envelope: within c·f² from above.
   CHECK(loss14 <= (kCLoss * f14 * f14) + 1e-4);
+}
+
+TEST_CASE(
+    "negative-LMP M2 tangent_signed_flow: the eps increment prices "
+    "losses, not flow (re-point GUARD)")  // NOLINT
+{
+  // REGRESSION GUARD for the 2026-07 ε re-point itself.
+  //
+  // Both ε = 15 and ε = 20 exceed the 12.5 $/MWh closure threshold,
+  // so both dispatches are clean and identical; the objective delta
+  // is therefore Δε · Σℓ_phys (a few MW of quadratic loss ⇒ tens of
+  // $).  Under the pre-re-point flow-toll semantics the same delta
+  // was Δε · (Σ|f| + Σℓ) ≈ 5 · 360 ≈ 1800 $ on this fixture — a
+  // regression to v-pricing trips the bound immediately.
+  RingFixture fix15(
+      LossKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 15.0});
+  auto& li15 = fix15.lp();
+  REQUIRE(li15.resolve().value_or(-1) == 0);
+  const double obj15 = li15.get_obj_value();
+
+  RingFixture fix20(
+      LossKnobs {.mode = "tangent_signed_flow", .loss_cost_eps = 20.0});
+  auto& li20 = fix20.lp();
+  REQUIRE(li20.resolve().value_or(-1) == 0);
+  const double obj20 = li20.get_obj_value();
+
+  CAPTURE(obj15);
+  CAPTURE(obj20);
+  // Some loss exists, so the increment is strictly positive…
+  CHECK(obj20 > obj15);
+  // …but it prices only the physical losses (≈ Δε·Σc·f² ≈ 15 $),
+  // nowhere near the old Δε·Σ|f| ≈ 1800 $ flow toll.
+  CHECK(obj20 - obj15 < 100.0);
 }
 
 TEST_CASE(

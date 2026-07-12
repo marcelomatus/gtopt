@@ -186,8 +186,9 @@ inline constexpr auto loss_allocation_mode_entries =
  *   pair-sum: the abs-flow proxy `v` is only lower-bounded by `±f`,
  *   so the LP can inflate `v` past `|f|` and ride the loss up the
  *   chord row (idle line → sink of `c·env²` MW).  `loss_cost_eps`
- *   guards it only up to a threshold (see `line.hpp`); the exact fix
- *   is the SOS2 λ-form.  Demonstrated in
+ *   (on the loss column, ≥ ½·|worst pair-sum|) closes it at
+ *   loss-scaled cost (see `line.hpp`); the exact fix is the SOS2
+ *   λ-form.  Demonstrated in
  *   `test_line_losses_negative_lmp_kvl.cpp`.
  *
  *   LP size (per line per block): **(2+L) cols + (K+3) rows**
