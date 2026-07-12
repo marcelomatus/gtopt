@@ -70,8 +70,12 @@ namespace
 ///
 /// `adaptive` now always picks `piecewise` (which itself wraps
 /// `bidirectional` for every non-`tangent` layout — see `add_piecewise`
-/// in this file).  Both KVL formulations get the same arbitrage-free
-/// LP shape: 2K+4 cols and 4 rows per (line, block, scenario, stage):
+/// in this file).  Both KVL formulations get the same self-penalizing
+/// LP shape — NOT arbitrage-free: circulation is still profitable
+/// whenever the bus-dual PAIR-SUM goes negative (π_a + π_b < −2ε; one
+/// strongly negative bus suffices, e.g. under KVL congestion — see
+/// `test_line_losses_negative_lmp_kvl.cpp`) — 2K+4 cols and 4 rows per
+/// (line, block, scenario, stage):
 ///   - has expansion              → `bidirectional` (2K+4 cols, 4 rows)
 ///   - no expansion + cycle_basis → `piecewise`    (2K+4 cols, 4 rows)
 ///   - no expansion + node_angle  → `piecewise`    (2K+4 cols, 4 rows)
@@ -974,11 +978,16 @@ BlockResult add_linear(const LossConfig& config,
 ///
 /// The bidirectional formulation (per-direction segments + per-
 /// direction loss column consumed at each direction's own receiver)
-/// breaks this arbitrage: setting fp = fn = X pays loss on BOTH
-/// receivers (cancelling any negative-LMP gain unless BOTH buses are
-/// negative, which is rare), instead of being a single-bus free dump.
-/// Verified empirically on the same case: bidirectional held the dual-
-/// direction rate to 1.5 % of blocks.
+/// weakens this arbitrage: setting fp = fn = X pays loss on BOTH
+/// receivers, instead of being a single-bus free dump.  Verified
+/// empirically on the same case: bidirectional held the dual-direction
+/// rate to 1.5 % of blocks.  CAUTION — this is self-penalization, not
+/// immunity: circulation turns profitable again whenever the bus-dual
+/// PAIR-SUM goes negative (π_a + π_b < −2ε).  One strongly negative
+/// bus suffices — "both buses negative" is NOT required — and KVL
+/// congestion with all-positive costs produces exactly that
+/// (demonstrated in `test_line_losses_negative_lmp_kvl.cpp`, where
+/// bidirectional and piecewise_direct circulate equally).
 ///
 /// We therefore implement `piecewise` as a thin wrapper around
 /// `bidirectional`.  This roughly doubles the per-line PWL row /
@@ -1669,10 +1678,23 @@ BlockResult add_tangent_signed_flow(const LossConfig& config,
   // previously free to inflate ``ℓ`` up to ``R·fmax²/V²`` regardless of
   // how small ``|f|`` was.
   //
-  // Arbitrage immunity still holds: with the chord row, ``ℓ`` cannot
-  // exceed ``(R·fmax/V²) · |f|`` at the optimum, so a negative-LMP
-  // receiver cannot draw "free" power by inflating ``ℓ`` past the
-  // physical loss.  The K tangent LOWER bounds remain unchanged.
+  // The chord anchors ``ℓ`` to ``v``, NOT to ``|f|`` — and ``v`` is
+  // only LOWER-bounded by ``±f``, so under a negative bus-dual
+  // pair-sum (π_a + π_b < −2ε_v/(c·env) − 2ε_ℓ) the LP inflates ``v``
+  // past ``|f|`` and rides ``ℓ`` up the chord: an idle line becomes a
+  // sink of up to ``c·env²`` MW.  Two distinct ε thresholds close the
+  // channel progressively (see `test_line_losses_negative_lmp_kvl.cpp`):
+  //   - ε > ε* ≈ ½·|π_sum|·c·env/(1+c·env) pins ``v = |f|`` (kills the
+  //     idle-line sink), but ``ℓ`` still rides the chord to
+  //     ``c·env·|f|`` — env/|f|× the physical loss;
+  //   - only ε > |π_sum|/2 also kills the chord residual — VoLL-scale,
+  //     impractical.
+  // The exact fix is the SOS2 λ-form (``loss_use_sos2`` +
+  // ``loss_secant_segments ≥ 2``), which brackets ``ℓ`` to the
+  // per-segment secant of ``|f|`` for ANY price signs.  With
+  // non-negative pair-sums the chord row is benign: ``ℓ`` cannot
+  // exceed ``(R·fmax/V²) · |f|`` at the optimum.  The K tangent LOWER
+  // bounds remain unchanged.
   //
   // Asymmetric ratings (``tmax_ab ≠ tmax_ba``): we anchor the chord at
   // ``fmax = max(tmax_ab, tmax_ba)`` (via ``fmax_phys`` above), so the

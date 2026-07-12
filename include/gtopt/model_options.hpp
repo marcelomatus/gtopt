@@ -97,8 +97,13 @@ struct ModelOptions
   /// below LP optimality tolerance so the objective is essentially
   /// unchanged.  Default ``0.0`` (unset) preserves legacy behaviour.
   /// Per-line ``Line.loss_cost_eps`` overrides this global default.
-  /// Inert for ``none``, ``linear``, ``piecewise_direct``, and
-  /// ``tangent`` layouts.
+  /// Inert for ``none``, ``linear`` and ``piecewise_direct`` (no loss
+  /// column).  In ``tangent_signed_flow`` it prices the abs-flow proxy
+  /// ``v`` and the loss column, and is REQUIRED (> 0) when
+  /// ``loss_secant_segments > 1`` without SOS2.  NOTE: ε cures
+  /// degeneracy, not arbitrage — under negative bus-dual pair-sums it
+  /// guards only up to a threshold; see the sizing guidance at
+  /// ``Line.loss_cost_eps`` (line.hpp).
   OptReal loss_cost_eps {};
   /// Global default for ``Line.loss_secant_segments`` (issue #504).
   /// When ``> 1`` and ``loss_use_sos2`` is enabled, the

@@ -14,25 +14,35 @@
  * Counts are PER LOSSY LINE, PER BLOCK — a mode's LP footprint is
  * `count × n_lossy_lines × n_blocks`.  (`K` = number of segments / tangents.)
  *
- * | Mode                  | Extra rows/block            | Extra cols/block |
- * |-----------------------|-----------------------------|---------------------------|
- * | `none`                | 0                           | 1 (bidirectional
- * flow)    | | `linear`              | 0                           | 1–2 (flow
- * per dir)        | | `piecewise`           | 2                           | K+3
- * (segs + loss + fp+fn) | | `bidirectional`       | 4 | 2(K+2) (per-dir segs) |
- * | `piecewise_direct`    | 0                           | 2K  (per-dir segs
- * only)   | | `tangent_signed_flow` | K+1 (K tangents + 1 loss-upper envelope)
- * | 2 (signed flow + loss) | | `adaptive`            | resolved at config time
- * (piecewise/bidirectional) | | `dynamic`             | placeholder → piecewise
- * |
+ * (`K` = segments/tangents, `L` = `loss_secant_segments`, default 1.)
+ *
+ *   - `none`                 — 0 rows, 1 col  (signed flow)
+ *   - `linear`               — 0 rows, 2 cols (flow per dir)
+ *   - `piecewise` (≠tangent) — wraps `bidirectional`: 4 rows, 2K+4 cols
+ *   - `piecewise` (tangent layout, legacy shared) — K rows, 3 cols
+ *   - `bidirectional`        — 4 rows, 2K+4 cols (per-dir segs)
+ *   - `piecewise_direct`     — 0 rows, 2K cols (per-dir segs only)
+ *   - `tangent_signed_flow`  — K+3 rows (K tangents, one dropped when K
+ *     is odd — prefer EVEN K — + 2 abs rows + 1 chord), 2+L cols
+ *     (signed flow, loss, L abs-flow `v` cols)
+ *   - `tangent_signed_flow` + SOS2 λ-form — K+3 rows + 1 SOS2 set,
+ *     2L+3 cols
+ *   - `adaptive` / `dynamic` — resolved at config time (piecewise /
+ *     bidirectional)
  *
  * `tangent_signed_flow` (Coffrin outer-approximation; `LinePwlLayout::tangent`)
- * is the plexos2gtopt DEFAULT (eps=0.1, K=6) and is BOTH the most compact (2
- * cols) AND the most accurate: its K tangent inequalities form a LOWER outer
- * envelope of `(R/V²)·f²`, exact at every tangent point, so it never
- * over-states loss.  Example footprint (10-05, 278 lossy lines × 168 blocks):
- * `tangent K=6` → 93,408 cols / 326,928 rows, vs the regressed
- * `piecewise uniform/midpoint K=2–5` mix → 284,088 cols / 93,408 rows.
+ * is the plexos2gtopt DEFAULT (eps=0.1, K=6) and is BOTH the most compact
+ * (2+L cols) AND the most accurate: its K tangent inequalities form a LOWER
+ * outer envelope of `(R/V²)·f²`, exact at every tangent point.  CAVEAT — it
+ * never over-states loss ONLY while the bus-dual pair-sum stays
+ * non-negative: under a negative pair-sum the LP inflates the abs-flow
+ * proxy `v` past `|f|` and rides the loss up the chord (see
+ * `test_line_losses_negative_lmp_kvl.cpp` and the ε-threshold notes in
+ * `line.hpp::loss_cost_eps`); the exact fix is the SOS2 λ-form
+ * (`loss_use_sos2` + `loss_secant_segments ≥ 2`).  Example footprint
+ * (10-05, 278 lossy lines × 168 blocks): `tangent K=6` → 93,408 cols /
+ * 326,928 rows, vs the regressed `piecewise uniform/midpoint K=2–5` mix
+ * → 284,088 cols / 93,408 rows.
  *
  * ### Mathematical background
  *

@@ -25,6 +25,9 @@
 #   readability-identifier-naming  – project has its own naming conventions
 #   readability-function-cognitive-complexity – subjective; not enforced
 #   readability-redundant-member-init – project uses explicit {} init for clarity
+#   readability-trailing-comma  – (clang-tidy ≥ 23) suggests REMOVING trailing
+#                                 commas; CLAUDE.md mandates them on every
+#                                 brace-initializer list
 #   bugprone-easily-swappable-parameters – too noisy in LP/math API functions
 #   bugprone-lambda-function-name – __func__ in lambdas; harmless pattern
 #   cppcoreguidelines-pro-bounds-avoid-unchecked-container-access – []  preferred
@@ -123,7 +126,8 @@ Checks: "*,\
   -readability-identifier-length,\
   -readability-identifier-naming,\
   -readability-magic-numbers,\
-  -readability-redundant-member-init\
+  -readability-redundant-member-init,\
+  -readability-trailing-comma\
   "
 
 HeaderFilterRegex: '.*'

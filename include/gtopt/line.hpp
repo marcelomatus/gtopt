@@ -233,9 +233,20 @@ struct Line
   /// strictly breaks the degeneracy.  Default ``0.0`` (unset)
   /// preserves legacy behaviour.  Per-line override beats the global
   /// ``model_options.loss_cost_eps`` default.  Inert for ``none``,
-  /// ``linear``, ``piecewise_direct``, and ``tangent`` layouts — those
-  /// either have no loss column (``none`` / ``linear`` / ``direct``) or
-  /// the loss column is already implicitly minimised by tangent rows.
+  /// ``linear`` and ``piecewise_direct`` — those have no loss column.
+  ///
+  /// CAUTION — ε cures DEGENERACY, never true arbitrage.  Whenever the
+  /// bus-dual pair-sum goes negative (π_a + π_b < −2ε; KVL congestion
+  /// or curtailment can do this with all-positive costs) every
+  /// pure-LP loss mode re-opens unless ε is sized against the worst
+  /// credible pair-sum.  For ``tangent_signed_flow`` there are TWO
+  /// thresholds (see ``test_line_losses_negative_lmp_kvl.cpp``):
+  /// ε > ε* ≈ ½·|π_sum|·c·env/(1+c·env) pins the abs proxy ``v = |f|``
+  /// (kills the idle-line sink); only ε > |π_sum|/2 also kills the
+  /// chord residual (ℓ riding to ``c·env·|f|``) — VoLL-scale, and it
+  /// taxes legitimate flow by ε $/MWh per lossy line crossed.  The
+  /// robust fix for negative-price exposure is the SOS2 λ-form
+  /// (``loss_use_sos2`` + ``loss_secant_segments ≥ 2``).
   OptReal loss_cost_eps {};
 
   /// Soft (normal) flow threshold in the B→A direction [MW].  When set

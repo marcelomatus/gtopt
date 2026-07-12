@@ -182,12 +182,20 @@ inline constexpr auto loss_allocation_mode_entries =
  *   `fp`/`fn` decomposition, so the LP has no way to express
  *   simultaneous bidirectional flow on a line.  KVL stamps the single
  *   signed `f` column with its natural `±x_τ` coefficient.
+ *   ⚠ Loss-side arbitrage is still OPEN under a negative bus-dual
+ *   pair-sum: the abs-flow proxy `v` is only lower-bounded by `±f`,
+ *   so the LP can inflate `v` past `|f|` and ride the loss up the
+ *   chord row (idle line → sink of `c·env²` MW).  `loss_cost_eps`
+ *   guards it only up to a threshold (see `line.hpp`); the exact fix
+ *   is the SOS2 λ-form.  Demonstrated in
+ *   `test_line_losses_negative_lmp_kvl.cpp`.
  *
- *   LP size (per line per block): **2 cols + (K+1) rows**
- *   (signed flow, loss column, K tangent rows, 1 implicit loss upper
- *   bound via the col bound).  At K=5 that's `2 + 6 = 8` non-zeros
- *   vs `bidirectional` at K=5 (`14 + 4 = 18`) — roughly 56 % fewer LP
- *   elements while preserving the convex-quadratic shape.
+ *   LP size (per line per block): **(2+L) cols + (K+3) rows**
+ *   (signed flow, loss column, L abs-flow `v` cols; K tangent rows —
+ *   the zero-slope middle tangent is DROPPED when K is odd, so prefer
+ *   EVEN K — plus 2 abs rows and 1 chord row).  At K=5, L=1 that's
+ *   `3 + 7 = 10` elements vs `bidirectional` at K=5 (`14 + 4 = 18`)
+ *   — roughly 44 % fewer while preserving the convex-quadratic shape.
  *
  *   Works with BOTH `node_angle` and `cycle_basis` Kirchhoff modes
  *   (the signed `f` column drops directly into the KVL row with
