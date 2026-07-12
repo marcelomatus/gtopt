@@ -16,8 +16,23 @@ from gtopt_reduce_network._io import Case
 
 logger = logging.getLogger(__name__)
 
-_LOSS_MODES = ("keep", "linear", "off", "uplift")
+_LOSS_MODES = ("keep", "linear", "off", "uplift", "gen-lossfactor")
 _COLLISION_MODES = ("replace", "add", "compound")
+
+
+def _model_options(case: Case) -> dict:
+    """Return the dict that holds model-formulation keys.
+
+    gtopt's strict JSON parser accepts ``use_kirchhoff`` /
+    ``use_line_losses`` / ``loss_segments`` inside the nested
+    ``options.model_options`` block; cases written with the nested layout
+    (e.g. plexos2gtopt) reject those keys at the top level.  Write into
+    the nested block when it exists, else keep the legacy flat layout.
+    """
+    block = case.options.get("model_options")
+    if isinstance(block, dict):
+        return block
+    return case.options
 
 
 def apply_transport_only(case: Case) -> None:
@@ -31,8 +46,8 @@ def apply_transport_only(case: Case) -> None:
     when ``use_kirchhoff=false`` and keeping them lets the case fall back
     cleanly if the flag is later toggled off.
     """
-    case.options["use_kirchhoff"] = False
-    logger.info("transport-only: set options.use_kirchhoff = false")
+    _model_options(case)["use_kirchhoff"] = False
+    logger.info("transport-only: set model use_kirchhoff = false")
 
 
 def apply_loss_mode(
@@ -47,16 +62,25 @@ def apply_loss_mode(
     Modes:
 
     * ``keep``   — leave the loss formulation untouched.
-    * ``linear`` — set ``options.loss_segments = 1`` so each line has a
-      single PWL segment (a linear loss curve).
-    * ``off``    — set ``options.use_line_losses = false``; no loss
-      variables / rows are emitted.
+    * ``linear`` — set ``loss_segments = 1`` so each line has a single
+      PWL segment (a linear loss curve).  Note this keeps TWO directional
+      flow variables per line (f⁺/f⁻) and the phantom-circulation
+      arbitrage channel under negative prices.
+    * ``off``    — set ``use_line_losses = false``; no loss variables /
+      rows are emitted and each line keeps ONE signed flow variable.
     * ``uplift`` — disable line losses and write a per-demand
       ``lossfactor = uplift_pct / 100`` so the bus-balance LP coefficient
       becomes ``-(1 + lossfactor)`` on every served load (see
       ``source/demand_lp.cpp:188``).  Schedule files referenced by
       ``lmax`` are NEVER touched — the uplift is purely a per-demand
       scalar field.
+    * ``gen-lossfactor`` — disable line losses and write a per-generator
+      ``lossfactor = uplift_pct / 100``: the bus-balance coefficient on
+      generation becomes ``(1 - lossfactor)`` (``generator_lp.cpp``), the
+      classic injection penalty-factor of uninodal economic dispatch
+      (PLP factores de penalización / PLEXOS marginal loss factors).
+      Keeps demand truthful (no inflated VoLL / reserve exposure) and
+      admits per-generator differentiation later.
 
     ``collision`` controls how to combine the uplift with a demand's
     pre-existing ``lossfactor`` (only meaningful for ``mode="uplift"``):
@@ -76,40 +100,44 @@ def apply_loss_mode(
         )
     if mode == "keep":
         return
+    model = _model_options(case)
     if mode == "linear":
-        case.options["loss_segments"] = 1
-        logger.info("loss-mode=linear: set options.loss_segments = 1")
+        model["loss_segments"] = 1
+        logger.info("loss-mode=linear: set model loss_segments = 1")
         return
+    model["use_line_losses"] = False
+    model["loss_segments"] = 0
     if mode == "off":
-        case.options["use_line_losses"] = False
-        case.options["loss_segments"] = 0
-        logger.info("loss-mode=off: set options.use_line_losses=false, loss_segments=0")
+        logger.info("loss-mode=off: set model use_line_losses=false, loss_segments=0")
         return
-    # mode == "uplift"
-    case.options["use_line_losses"] = False
-    case.options["loss_segments"] = 0
+    # mode == "uplift" (demand side) or "gen-lossfactor" (generation side)
+    array = "demand_array" if mode == "uplift" else "generator_array"
     lf_new = float(uplift_pct) / 100.0
-    n_set, n_skipped = _write_lossfactor(case, lf_new, collision=collision)
+    n_set, n_skipped = _write_lossfactor(case, array, lf_new, collision=collision)
     logger.info(
-        "loss-mode=uplift: lossfactor=%.4f on %d demands "
+        "loss-mode=%s: lossfactor=%.4f on %d %s "
         "(collision=%s; %d skipped — non-scalar pre-existing lossfactor)",
+        mode,
         lf_new,
         n_set,
+        "demands" if mode == "uplift" else "generators",
         collision,
         n_skipped,
     )
 
 
-def _write_lossfactor(case: Case, lf_new: float, *, collision: str) -> tuple[int, int]:
-    """Write the uplift value into every demand's ``lossfactor`` field.
+def _write_lossfactor(
+    case: Case, array: str, lf_new: float, *, collision: str
+) -> tuple[int, int]:
+    """Write the uplift value into every element's ``lossfactor`` field.
 
-    Returns ``(n_set, n_skipped)`` — counts of demands that received the
+    Returns ``(n_set, n_skipped)`` — counts of elements that received the
     new value vs. those skipped because their existing ``lossfactor`` is
     non-scalar (list or filename).
     """
     n_set = 0
     n_skipped = 0
-    for d in case.array("demand_array"):
+    for d in case.array(array):
         lf_old = d.get("lossfactor")
         if lf_old is None or collision == "replace":
             d["lossfactor"] = lf_new
@@ -119,7 +147,7 @@ def _write_lossfactor(case: Case, lf_new: float, *, collision: str) -> tuple[int
             # array or filename — skip with warning
             n_skipped += 1
             logger.warning(
-                "demand uid=%s has non-scalar lossfactor %r; "
+                "element uid=%s has non-scalar lossfactor %r; "
                 "skipped uplift collision=%s",
                 d.get("uid"),
                 lf_old,

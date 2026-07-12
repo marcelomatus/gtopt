@@ -35,6 +35,7 @@ from gtopt_reduce_network._project_investment import (
     write_patch_json,
 )
 from gtopt_reduce_network._reduce import ReduceConfig, reduce_case
+from gtopt_reduce_network._user_constraints import filter_line_user_constraints
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -213,15 +214,20 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--loss-mode",
-        choices=["keep", "linear", "off", "uplift"],
+        choices=["keep", "linear", "off", "uplift", "gen-lossfactor"],
         default="keep",
         help=(
             "loss formulation in the reduced case: "
             "'keep' (no change), "
-            "'linear' (options.loss_segments=1, one PWL segment per line), "
-            "'off' (use_line_losses=false, no loss vars/rows), "
-            "'uplift' (use_line_losses=false and scale every demand's lmax by "
-            "1+loss_uplift_pct/100 to represent losses as extra load)"
+            "'linear' (loss_segments=1, one PWL segment per line; keeps two "
+            "directional flow variables per line), "
+            "'off' (use_line_losses=false, no loss vars/rows, one signed "
+            "flow variable per line), "
+            "'uplift' (losses off + per-demand lossfactor = pct/100: load "
+            "coefficient becomes -(1+lf)), "
+            "'gen-lossfactor' (losses off + per-generator lossfactor = "
+            "pct/100: injection coefficient becomes (1-lf) — the classic "
+            "uninodal penalty factor; keeps demand/VoLL/reserves truthful)"
         ),
     )
     p.add_argument(
@@ -229,8 +235,8 @@ def _add_reduce_parser(p: argparse.ArgumentParser) -> None:
         type=float,
         default=3.0,
         help=(
-            "percent uplift applied to every demand's lmax when "
-            "--loss-mode=uplift (default: 3.0%%)"
+            "percent loss factor for --loss-mode=uplift (demands) or "
+            "gen-lossfactor (generators) (default: 3.0%%)"
         ),
     )
     p.add_argument(
@@ -281,6 +287,19 @@ def _cmd_reduce(args: argparse.Namespace) -> None:
     out_path: Path = args.output or args.input.with_suffix(
         f".reduced.K{target_buses}.json"
     )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    n_uc_dropped = filter_line_user_constraints(
+        result.case,
+        input_dir=args.input.resolve().parent,
+        out_dir=out_path.resolve().parent,
+        tag=out_path.stem,
+    )
+    if n_uc_dropped:
+        logging.getLogger(__name__).warning(
+            "dropped %d user constraint(s) referencing original lines "
+            "(per-line Tx rows are not representable after aggregation)",
+            n_uc_dropped,
+        )
     base = out_path.with_suffix("")
     save_case(result.case, out_path)
     save_busmap(result.busmap, base.with_name(base.name + ".busmap.csv"))

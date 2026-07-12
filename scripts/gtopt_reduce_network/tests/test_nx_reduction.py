@@ -236,6 +236,64 @@ def test_mincut_split_picks_internal_bottleneck() -> None:
     assert {10, 11} in split
 
 
+def test_simplify_writes_nested_model_options(two_clusters_case: Case) -> None:
+    from gtopt_reduce_network._simplify import apply_loss_mode, apply_transport_only
+
+    case = two_clusters_case.deepcopy()
+    case.options["model_options"] = {"use_kirchhoff": True}
+    apply_transport_only(case)
+    apply_loss_mode(case, "gen-lossfactor", 2.0)
+    model = case.options["model_options"]
+    # Keys land inside the nested block (gtopt's strict parser rejects
+    # them at the top level when model_options exists), never flat.
+    assert model["use_kirchhoff"] is False
+    assert model["use_line_losses"] is False
+    assert model["loss_segments"] == 0
+    assert "use_kirchhoff" not in set(case.options) - {"model_options"} or (
+        case.options.get("use_kirchhoff") is None
+    )
+    for gen in case.array("generator_array"):
+        assert gen["lossfactor"] == pytest.approx(0.02)
+    # Demands untouched under gen-lossfactor.
+    assert all("lossfactor" not in d for d in case.array("demand_array"))
+
+
+def test_simplify_flat_options_fallback(two_clusters_case: Case) -> None:
+    from gtopt_reduce_network._simplify import apply_loss_mode, apply_transport_only
+
+    case = two_clusters_case.deepcopy()  # no model_options block
+    apply_transport_only(case)
+    apply_loss_mode(case, "uplift", 3.0)
+    assert case.options["use_kirchhoff"] is False
+    assert case.options["use_line_losses"] is False
+    for d in case.array("demand_array"):
+        assert d["lossfactor"] == pytest.approx(0.03)
+
+
+def test_filter_pampl_drops_line_constraints() -> None:
+    from gtopt_reduce_network._user_constraints import _filter_pampl_text
+
+    text = (
+        "# header\n"
+        "var slack_TxFoo;\n"
+        "\n"
+        "# PLEXOS Constraint 'GenBudget'\n"
+        "constraint GenBudget:\n"
+        '  1 * generator("G1").generation <= 10;\n'
+        "\n"
+        "# PLEXOS Constraint 'TxFoo'\n"
+        "#   soft: slack column 'slack_TxFoo'\n"
+        "constraint TxFoo penalty soft_floor_penalty:\n"
+        '  1 * line("A->B").flow >= 0;\n'
+    )
+    filtered, dropped = _filter_pampl_text(text)
+    assert dropped == ["TxFoo"]
+    assert "GenBudget" in filtered
+    assert "TxFoo" not in filtered
+    assert "slack_TxFoo" not in filtered
+    assert 'generator("G1")' in filtered
+
+
 def test_bus_ratio_cli(tmp_path: Path, two_clusters_case: Case) -> None:
     case_path = tmp_path / "two_clusters.json"
     case_path.write_text(json.dumps(two_clusters_case.raw))

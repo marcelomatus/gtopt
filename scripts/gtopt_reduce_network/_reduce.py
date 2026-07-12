@@ -38,7 +38,7 @@ from gtopt_reduce_network._topology import LineGraph, build_line_graph
 logger = logging.getLogger(__name__)
 
 
-_LOSS_MODES = ("keep", "linear", "off", "uplift")
+_LOSS_MODES = ("keep", "linear", "off", "uplift", "gen-lossfactor")
 _COLLISION_MODES = ("replace", "add", "compound")
 _PARTITIONS = ("hac", "louvain-mincut")
 _NX_WEIGHTS = ("capacity", "susceptance")

@@ -194,7 +194,9 @@ def test_reduce_with_transport_only(ieee14_path: Path) -> None:
     case = load_case(ieee14_path)
     cfg = ReduceConfig(target_buses=7, transport_only=True)
     result = reduce_case(case, cfg)
-    assert result.case.options["use_kirchhoff"] is False
+    opts = result.case.options
+    model = opts.get("model_options", opts)
+    assert model["use_kirchhoff"] is False
 
 
 def test_reduce_with_loss_uplift_writes_lossfactor(ieee14_path: Path) -> None:
@@ -211,7 +213,9 @@ def test_reduce_with_loss_uplift_writes_lossfactor(ieee14_path: Path) -> None:
     # Every demand carries lossfactor = 0.05.
     for d in result.case.array("demand_array"):
         assert d["lossfactor"] == pytest.approx(0.05)
-    assert result.case.options["use_line_losses"] is False
+    opts = result.case.options
+    model = opts.get("model_options", opts)
+    assert model["use_line_losses"] is False
 
 
 def test_reduce_config_as_dict_contains_simplify_fields() -> None:
