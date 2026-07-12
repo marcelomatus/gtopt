@@ -506,6 +506,12 @@ def build_options(args: argparse.Namespace) -> dict:
         # plpvrebemb.dat, route ``_ver`` to a synthetic ocean drain and drop
         # ``fmax``/``fcost``.  See JunctionWriter._process_central.
         "vrebemb_as_sink": args.vrebemb_as_sink,
+        # ``--plp-spill-costs`` (default False, opt-in): price the reservoir
+        # storage-drain column at the raw plpvrebemb ``Costo de Rebalse``
+        # (fallback plpmat CVert) for PLP-parity studies.  See
+        # JunctionWriter._spillway_fields.  ``getattr`` keeps minimal-
+        # Namespace test fixtures working.
+        "plp_spill_costs": getattr(args, "plp_spill_costs", False),
         # ``--reservoir-flow-estimate`` (default True): topology-driven
         # per-reservoir extraction-flow bounds (gtopt_shared.reservoir_flow).
         # ``getattr`` keeps minimal-Namespace test fixtures working.

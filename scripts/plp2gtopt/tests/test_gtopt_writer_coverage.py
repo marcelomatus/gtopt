@@ -1,5 +1,6 @@
 """Tests for gtopt_writer.py — uncovered lines and edge cases."""
 
+import csv
 import json
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -466,6 +467,71 @@ class TestProcessBoundaryCuts:
         writer.process_boundary_cuts(opts)
         sddp = writer.planning["options"].get("sddp_options", {})
         assert "boundary_cuts_file" not in sddp
+
+    @staticmethod
+    def _make_planos_writer(tmp_path):
+        """Writer with a 2-plane planos fixture (NVarPhi = 2)."""
+        mock_planos = MagicMock()
+        mock_planos.cuts = [
+            {"iteration": 1, "scene": 1, "rhs": 100.0, "coefficients": {"R1": -4.0}},
+            {"iteration": 1, "scene": 2, "rhs": 200.0, "coefficients": {"R1": -8.0}},
+        ]
+        mock_planos.reservoir_names = ["R1"]
+        mock_planos.reservoir_fescala = {}
+        parser = MagicMock()
+        parser.parsed_data = {"planos_parser": mock_planos}
+        writer = GTOptWriter(parser)
+        writer.planning = {
+            "options": {},
+            "system": {"reservoir_array": []},
+            "simulation": {"scenario_array": [{"uid": 1}, {"uid": 2}]},
+        }
+        writer._build_cut_water_values = lambda: {}
+        opts = _make_opts(tmp_path)
+        return writer, opts
+
+    @staticmethod
+    def _read_rhs(csv_path):
+        with open(csv_path, encoding="utf-8") as fh:
+            return [float(row["rhs"]) for row in csv.DictReader(fh)]
+
+    def test_default_mode_is_phi_expectation_with_raw_csv(self, tmp_path):
+        """Without --boundary-cuts-mode the writer defaults to
+        phi_expectation and emits the CSV RAW (no 1/NVarPhi
+        pre-division) — gtopt's p_s/NVarPhi column pricing carries the
+        probability composition instead."""
+        writer, opts = self._make_planos_writer(tmp_path)
+        writer.process_boundary_cuts(opts)
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["boundary_cuts_mode"] == "phi_expectation"
+        assert sddp["boundary_cuts_file"] == "boundary_cuts.csv"
+        rhs = self._read_rhs(Path(opts["output_dir"]) / "boundary_cuts.csv")
+        assert rhs == [100.0, 200.0]  # raw — NOT divided by NVarPhi=2
+
+    def test_explicit_combined_keeps_nvarphi_predivision(self, tmp_path):
+        """--boundary-cuts-mode combined keeps the legacy 1/NVarPhi
+        pre-division — existing combined-mode cases stay numerically
+        unchanged."""
+        writer, opts = self._make_planos_writer(tmp_path)
+        opts["boundary_cuts_mode"] = "combined"
+        writer.process_boundary_cuts(opts)
+        sddp = writer.planning["options"]["sddp_options"]
+        assert sddp["boundary_cuts_mode"] == "combined"
+        rhs = self._read_rhs(Path(opts["output_dir"]) / "boundary_cuts.csv")
+        assert rhs == [50.0, 100.0]  # divided by NVarPhi = max(scene) = 2
+
+    def test_phi_expectation_governs_terminal(self, tmp_path):
+        """cuts_govern_terminal applies under phi_expectation exactly as
+        under combined — the loaded FCF cuts are the sole terminal-value
+        mechanism (PLP CFUE behaviour)."""
+        writer, opts = self._make_planos_writer(tmp_path)
+        writer.planning["system"]["reservoir_array"] = [
+            {"name": "R1", "efin": 10.0, "efin_cost": 5.0},
+        ]
+        writer._build_cut_water_values = lambda: {"R1": 4.0}
+        writer.process_boundary_cuts(opts)
+        res = writer.planning["system"]["reservoir_array"][0]
+        assert "efin" not in res and "efin_cost" not in res
 
     def test_cuts_govern_terminal_strips_efin(self, tmp_path):
         """--cuts-govern-terminal drops efin/efin_cost from cut-covered

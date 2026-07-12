@@ -55,6 +55,24 @@ scenario probabilities.  ``plp2gtopt`` builds ``scenario_array`` with
 ``_writer_time.py::process_scenarios``), so this matches PLP's convention.
 If a future caller overrides ``--probability-factors`` to unequal values,
 this fix becomes approximate — flagged as a follow-up.
+
+Mode-aware emission (``phi_expectation``, 2026-07)
+--------------------------------------------------
+
+The above ``1/NVarPhi`` pre-division applies ONLY to the legacy
+``combined`` / ``separated`` load modes.  Under
+``boundary_cuts_mode = phi_expectation`` (the plp2gtopt default) the
+caller passes ``num_scenarios=None`` and the CSV is written **RAW**:
+gtopt registers NVarPhi per-plane-hydrology ``φ_j`` terminal columns
+priced ``p_s/NVarPhi`` and keys each cut by the ``scene`` column as
+PLP's ``ISimul`` plane index, so the probability composition lives in
+the LP column price, not in the file.  The C++ loader reads every
+mode's CSV verbatim — the emission carries the normalization — which
+keeps existing combined-mode files and results byte-identical.  The
+uniform ``grad_scale`` gradient unit conversion (``$/dam³ → $/hm³``,
+×1000 for PLP planos input — see the parameter docstring for the
+2026-07-12 FEscala correction) applies in every mode (it is a
+physical-unit conversion, not a probability weight).
 """
 
 import logging
@@ -94,7 +112,7 @@ def write_boundary_cuts_csv(
     output_path: Path | str,
     name_alias: Optional[Dict[str, str]] = None,
     num_scenarios: Optional[int] = None,
-    fescala_map: Optional[Dict[str, int]] = None,
+    grad_scale: float = 1.0,
 ) -> Path:
     """Write boundary cuts to a CSV file in gtopt format.
 
@@ -120,7 +138,31 @@ def write_boundary_cuts_csv(
         divided by this count so the cut sits in gtopt's per-scene α-space
         instead of PLP's shared-α-column space.  See the module docstring.
         Pass ``len(scenario_array)`` from the caller.  ``None`` or ``1``
-        disables scaling (back-compat).
+        disables scaling (back-compat).  Not used under
+        ``boundary_cuts_mode = phi_expectation`` (raw emission).
+    grad_scale
+        UNIFORM physical-unit conversion applied to every gradient
+        coefficient (never to ``rhs``).  For PLP planos input pass
+        ``1000.0``: ``plpplem2.dat`` gradients are ``$/(10³ m³)``
+        (= $/dam³, PLP's native "miles de m³" volume unit) for EVERY
+        reservoir, and gtopt volumes are hm³.
+
+        History (2026-07-12): this replaces the former per-reservoir
+        ``fescala_map`` scaling ``10^(FEscala-6)``, which mis-read
+        plem1's ``FEscala`` as a per-file unit exponent.  ``FEscala``
+        is a pure LP-numerics column scale that CANCELS in the planos
+        round trip — PLP's writer divides the internal gradient by
+        ``ScaleVol`` (``plp-gdbdple.f:45``) and its reader multiplies
+        it back at LP assembly (``defprbpd.f:775``,
+        ``coef = PlaCFRho*(ScaleVol/ScalePhi)``) — so the on-disk
+        gradient is $/dam³ regardless of FEscala.  Pinned empirically:
+        the uniform-$/dam³ plane evaluation at plpemb.csv terminal
+        volumes reproduces PLP's pdlin UB terminal component
+        (2.0210e9 on the 2-year no-convenios case, per-sim range
+        1.87–2.10e9) exactly, while the FEscala-scaled evaluation
+        leaves a 0.3e9 hole; plem1's own VolMax column (dam³ for all
+        FEscala values: ELTORO 5585888 dam³ = 5586 hm³ = Lago Laja)
+        confirms the file-unit reading.
 
     Returns
     -------
@@ -137,23 +179,6 @@ def write_boundary_cuts_csv(
 
     scale = _scale_factor(num_scenarios)
 
-    # Per-reservoir FEscala scaling.  PLP's plpplem2.dat stores gradients in
-    # `$/(raw volume unit)`, where the unit depends on the reservoir's
-    # `FEscala` column from plpplem1.dat — `raw_unit = hm³ / 10^(FEscala-6)`.
-    # gtopt's reservoir volumes are in physical hm³, so to convert the cut
-    # gradient to `$/hm³` we multiply by `10^(FEscala-6)` per reservoir.
-    # Without this, LMAULE (FEscala=9) cuts are 1000× too weak; CIPRESES
-    # (FEscala=8) is 100× too weak; ELTORO (FEscala=10) is 10000× too weak.
-    # The RHS (LDPhiPrv) is in raw `$` (no per-reservoir scale), so it
-    # gets only the `1/N` divisor.  Default `None` is a no-op (back-compat).
-    def _vol_scale(rname: str) -> float:
-        if fescala_map is None:
-            return 1.0
-        f = fescala_map.get(rname)
-        if f is None:
-            return 1.0
-        return 10.0 ** (f - 6)
-
     # Build column-major Python lists once, then hand them to PyArrow.
     # This mirrors the typed Arrow schema the gtopt-side loader expects
     # (``arrow::csv::TableReader`` with explicit int32 / float64 column
@@ -167,11 +192,16 @@ def write_boundary_cuts_csv(
     for cut in cuts:
         iterations.append(int(cut.get("iteration", 0)))
         scenes.append(int(cut["scene"]))
+        # rhs gets the per-scene `scale` (1/NVarPhi) ONLY — never `grad_scale`.
+        # grad_scale is a unit conversion for the gradient coefficients (∂/∂vol);
+        # the rhs is already in objective units, so applying grad_scale here
+        # would double-convert it.  See the `grad_scale` docstring.
         rhs_values.append(float(cut["rhs"]) * scale)
         coeffs = cut.get("coefficients", {})
         for rname, aliased in zip(reservoir_names, aliased_names):
+            # coefficients get both: per-scene `scale` AND the unit `grad_scale`.
             state_columns[aliased].append(
-                float(coeffs.get(rname, 0.0)) * scale * _vol_scale(rname)
+                float(coeffs.get(rname, 0.0)) * scale * grad_scale
             )
 
     fields = [

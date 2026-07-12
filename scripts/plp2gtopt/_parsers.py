@@ -569,14 +569,18 @@ def add_solver_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) 
         dest="boundary_cuts_mode",
         metavar="MODE",
         default=None,
-        choices=["noload", "separated", "combined"],
+        choices=["noload", "separated", "combined", "phi_expectation"],
         help=(
             "Controls how PLP boundary cuts (plpplaem/plpplem files) are "
             "loaded into the SDDP solver. "
             "'noload' disables boundary-cut loading; "
             "'separated' loads each cut into the scene matching its ISimul; "
-            "'combined' broadcasts all cuts to every scene. "
-            "(default: separated)"
+            "'combined' broadcasts all cuts to every scene (CSV is "
+            "pre-divided by NVarPhi); "
+            "'phi_expectation' is PLP-literal: NVarPhi per-plane-hydrology "
+            "phi_j terminal columns priced p_s/NVarPhi, cuts emitted RAW, "
+            "and the terminal E_j[FCF_j] carried in both bounds. "
+            "(default when planos cuts exist: phi_expectation)"
         ),
     )
     parser.add_argument(
@@ -1007,6 +1011,36 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
             "Restores PLP qrb-to-sink semantics; eliminates cap-arbitrage "
             "fictitious-water generation through the spillway arc. "
             "(default: %(default)s)"
+        ),
+    )
+    # ``--plp-spill-costs`` (default False, opt-in): price the reservoir
+    # storage-drain (spillway) column at the RAW plpvrebemb.dat ``Costo de
+    # Rebalse`` (fallback plpmat.dat ``CVert``) instead of the free
+    # ``spillway_cost = 0`` default.  Unit-identical mapping: PLP's
+    # ``FO(qrb) = CostoReb·edur/(ScaleObj·FactTasa)`` (genpdreb.f /
+    # pdmatvar.f) equals gtopt's ``drain_cost·duration·discount /
+    # scale_objective`` when ``spillway_cost = CostoReb`` — both are
+    # $/(m³/s·h).  NO ``--spillway-cost-cap`` clamp is applied: parity
+    # studies need the raw PLP prices (e.g. LMAULE 5000).  Default OFF
+    # because pricing physical spill inflates the reservoir energy-balance
+    # duals (marginal water values) wherever spill is active — this flag
+    # exists ONLY for PLP-parity experiments.
+    _default_psc = conf.get("plp_spill_costs")
+    parser.add_argument(
+        "--plp-spill-costs",
+        dest="plp_spill_costs",
+        action=argparse.BooleanOptionalAction,
+        default=(
+            _default_psc.lower() not in ("false", "0", "no")
+            if _default_psc is not None
+            else False
+        ),
+        help=(
+            "emit plpvrebemb ``Costo de Rebalse`` (fallback plpmat CVert) as "
+            "the reservoir spillway/drain cost for PLP-parity studies "
+            "(raw prices, no --spillway-cost-cap clamp; default: %(default)s "
+            "— off because pricing physical spill inflates marginal water "
+            "values)"
         ),
     )
     parser.add_argument(

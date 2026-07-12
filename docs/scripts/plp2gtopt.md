@@ -347,6 +347,14 @@ that auto-detection (see `_parsers.py`).
 | `plpvrebemb.dat`           | spillage cost feeding `Reservoir.efin_cost`      |
 | `plpminembh.dat`           | per-stage `Reservoir.emin` minimum               |
 
+`--plp-spill-costs` (opt-in, default **off**) additionally prices the
+reservoir storage-drain column at the raw `plpvrebemb.dat` `Costo de
+Rebalse` (fallback `plpmat.dat` `CVert`), reproducing PLP's `qrb`
+objective term `CostoReb·edur/(ScaleObj·FactTasa)` unit-for-unit
+($/(m³/s·h), no `--spillway-cost-cap` clamp).  Keep it off outside
+PLP-parity studies: pricing physical spill inflates the reservoir
+energy-balance duals (marginal water values) wherever spill is active.
+
 `reservoir_energy_scale` is auto-derived from `emax` so SDDP
 state-variable scaling stays well-conditioned; override with
 `--reservoir-energy-scale`.

@@ -516,6 +516,17 @@ class JunctionWriter(BaseWriter):
         # untouched.  ``--drop-spillway-waterway`` still wins (early
         # return), see ``_process_central``.
         self._vrebemb_as_sink = bool(self.options.get("vrebemb_as_sink", False))
+        # ``--plp-spill-costs`` (default False, opt-in): price the reservoir
+        # storage-drain column at the RAW plpvrebemb ``Costo de Rebalse``
+        # (fallback plpmat ``CVert``) instead of 0.  PLP-parity only: PLP's
+        # ``FO(qrb) = CostoReb·edur/(ScaleObj·FactTasa)`` (genpdreb.f) is
+        # unit-identical to gtopt's ``spillway_cost·duration·discount /
+        # scale_objective`` — both $/(m³/s·h) — so the price passes through
+        # unscaled and WITHOUT the ``--spillway-cost-cap`` clamp.  Default
+        # OFF because a priced drain inflates the reservoir energy-balance
+        # duals (marginal water values) wherever spill is active.  See
+        # ``_spillway_fields`` / ``_plp_spill_cost``.
+        self._plp_spill_costs = bool(self.options.get("plp_spill_costs", False))
         # Centrals whose gen Waterway is needed downstream by
         # ``pmin_flowright_writer`` (FlowRight attached to waterway uid)
         # or by ``_ror_reservoir_spec`` (reservoir at gen_waterway's
@@ -2063,7 +2074,36 @@ class JunctionWriter(BaseWriter):
           drain column.  Its spill must instead leave through the modelled
           topology (turbine / ``_ver`` arc / ocean route), which is kept
           intact by ``_process_central``.  This makes ELTORO a
-          double-escape / mass-leak correctness sentinel.
+          double-escape / mass-leak correctness sentinel.  Note this means
+          ``--plp-spill-costs`` does NOT reach ELTORO either: its PLP qrb
+          price (5000) is not ported onto the ``_ver``/seepage arcs — the
+          suppression logic in ``_process_central`` keys off "arc carries
+          no fcost", and pricing that parallel path would change topology.
+
+        Under ``--plp-spill-costs`` (opt-in, PLP-parity studies only) the
+        activated drain is priced at the raw PLP cascade resolved by
+        :meth:`_plp_spill_cost` instead of 0.  The mapping is
+        unit-identical (both $/(m³/s·h)):
+
+        - PLP: ``FO(qrb) = CostoReb·edur/(ScaleObj·FactTasa)``
+          (``genpdreb.f::GenPDRebFO`` with ``SFPhi = ScaleObj·FPhi`` from
+          ``pdmatvar.f`` and ``FPhi = FactTasa`` from ``leeeta.f``).
+        - gtopt: drain-column objective = ``spillway_cost · block-duration
+          · stage-discount / scale_objective`` (``storage_lp.hpp``
+          ``CostHelper::block_ecost`` + ``flatten()``); plp2gtopt maps
+          plpeta ``FactTasa`` → stage discount and ``--scale-objective
+          1000`` matches PLP's ``ScaleObj = 1000`` runs.
+
+        Verified on the CEN65 2-year case: LMAULE (price 5000, stage 25,
+        744 h, FactTasa 1.057172) → PLP LP coefficient 3518.82 = gtopt
+        drain coefficients summed over the stage's blocks.
+
+        The ``VertMax > 0`` / ``drain_disabled`` reservoirs are already
+        consistent under the flag: their spill rides the physical ``_ver``
+        waterway whose ``fcost`` carries PLP's per-block ``qv`` price
+        (``CVert``, see ``genpdver.f`` and ``_process_central``'s
+        ``cvert_spill`` branch) — PLP prices ``qv`` at ``CVert``, not at
+        the vrebemb ``Costo de Rebalse``, so no change is needed there.
         """
         if central_name.upper() in self._DRAIN_KILLED_RESERVOIRS or drain_disabled:
             # Never-drain sentinel (ELTORO), or a VertMax>0 reservoir whose
@@ -2072,12 +2112,43 @@ class JunctionWriter(BaseWriter):
             # ``_process_central`` so the water still has somewhere to go.
             return {}
 
+        if self._plp_spill_costs:
+            # PLP-parity mode: raw vrebemb / CVert price on the drain
+            # (no --spillway-cost-cap clamp).  See class docstring above.
+            return {"spillway_cost": self._plp_spill_cost(central_name)}
+
         # Every other reservoir → activate the storage-drain at zero cost.
         # ``spillway_capacity`` is intentionally omitted so the C++
         # ReservoirLP applies its finite +6000 m³/s default (drain
         # enabled, no 1e30 sentinel).  Cost is 0 (free): a non-zero drain
         # cost produces spurious negative marginal prices.
         return {"spillway_cost": 0.0}
+
+    def _plp_spill_cost(self, central_name: str) -> float:
+        """Raw PLP rebalse price for ``--plp-spill-costs`` drain pricing.
+
+        Mirrors :meth:`_resolve_storage_bound_cost`'s source cascade but
+        WITHOUT the ``vert_cost_cap`` clamp and WITHOUT the CLI /
+        hard-coded fallbacks — parity studies need the exact PLP prices:
+
+        1. ``plpvrebemb.dat`` — per-reservoir ``Costo de Rebalse``.
+        2. ``plpmat.dat`` — global ``CVert`` (when > 0).  PLP has no qrb
+           for non-vrebemb reservoirs (their ``qv`` is VertMax-bounded),
+           so CVert is the closest per-flow spill price analogue for the
+           storage-drain those reservoirs get in gtopt.
+        3. ``0.0`` — free drain (identical to the flag-off behaviour).
+        """
+        if self.vrebemb_parser is not None:
+            cost = self.vrebemb_parser.get_cost(central_name)
+            if cost is not None and cost > 0:
+                return float(cost)
+
+        if self.plpmat_parser is not None:
+            cvert = getattr(self.plpmat_parser, "vert_cost", 0.0) or 0.0
+            if cvert > 0:
+                return float(cvert)
+
+        return 0.0
 
     def _apply_soft_emin(self, reservoir: Reservoir, central_name: str) -> None:
         """Add soft_emin and soft_emin_cost from plpminembh.dat if available.

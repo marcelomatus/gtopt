@@ -64,17 +64,31 @@ class BoundaryMixin:
         loads them.  CLI options control mode, iteration filtering, and
         whether to export hot-start cuts for intermediate stages.
 
-        Probability-factor scaling (``NVarPhi``): PLP cut values are divided
-        by the scenario count so that each per-scene LP in gtopt loads its
-        OWN share of the expected future cost (PLP's α-column carries
-        ``1/NVarPhi`` internally; gtopt's per-scene α-column carries ``1.0``,
-        so the scaling must happen at export).  See the docstring of
-        :mod:`plp2gtopt.planos_writer` for the full derivation.  This
-        function assumes equal scenario probabilities (the default
-        ``probability_factor = 1/NVarPhi`` that
-        :meth:`process_scenarios` sets); if the caller overrides
-        ``--probability-factors`` with unequal values a warning is logged
-        and the export is approximate.
+        CSV magnitudes are MODE-AWARE (the loader reads every mode's CSV
+        verbatim, so the emission carries the normalization):
+
+        * ``phi_expectation`` (the default — plp2gtopt's purpose is PLP
+          replication): the CSV is written **RAW** (no ``1/NVarPhi``
+          pre-division).  gtopt lays down NVarPhi per-plane-hydrology
+          ``φ_j`` terminal columns priced ``p_s/NVarPhi`` and keys each
+          cut by the CSV ``scene`` column as PLP's ``ISimul`` plane
+          index, reproducing PLP's terminal FCF
+          ``(1/NVarPhi)·Σ_j max_j`` exactly (``leeplaem.f`` /
+          ``defprbpd.f``; ``docs/formulation/sddp-cut-validity.md`` §9).
+        * ``combined`` / ``separated`` (legacy): PLP cut values are
+          divided by NVarPhi so that each per-scene LP loads its OWN
+          share of the expected future cost (PLP's α-column carries
+          ``1/NVarPhi`` internally; gtopt's per-scene α-column carries
+          ``1.0``, so the scaling must happen at export) — existing
+          combined-mode cases stay numerically unchanged.  See the
+          docstring of :mod:`plp2gtopt.planos_writer` for the full
+          derivation.  These modes assume equal scenario probabilities
+          (the default ``probability_factor = 1/NVarPhi`` that
+          :meth:`process_scenarios` sets); if the caller overrides
+          ``--probability-factors`` with unequal values a warning is
+          logged and the export is approximate.  (``phi_expectation``
+          handles unequal probabilities natively via its ``p_s/NVarPhi``
+          column pricing.)
         """
         planos = self.parser.parsed_data.get("planos_parser")
         if planos is None:
@@ -88,14 +102,28 @@ class BoundaryMixin:
         sddp_opts = self.planning["options"].setdefault("sddp_options", {})
         name_alias = self._load_alias_file(options.get("alias_file"))
 
-        # NVarPhi divisor for the cut RHS and gradients.
+        # Resolve the boundary-cut load mode FIRST — the CSV magnitudes
+        # depend on it (mode-aware emission; the C++ loader reads the
+        # file verbatim in every mode).  Default `phi_expectation`: the
+        # PLP-literal terminal FCF (NVarPhi per-hydrology φ_j columns,
+        # raw cuts) — the mode that reproduces PLP's measured terminal
+        # value (the 2026-07 cost-gap audit: `combined` recovered only
+        # 0.94e9 of PLP's 2.02e9 on the 2-year parity case).  Explicit
+        # `--boundary-cuts-mode` still wins.
+        bc_mode = options.get("boundary_cuts_mode")
+        if bc_mode is None and planos.cuts:
+            bc_mode = "phi_expectation"
+
+        # NVarPhi divisor for the cut RHS and gradients — LEGACY
+        # `combined`/`separated` modes only (`phi_expectation` emits
+        # raw).
         #
         # PLP applies its α-column with objective coefficient
         # `1/NVarPhi`, where `NVarPhi` is the **original PLP hydrology
-        # count** (28 on juan/iplp).  gtopt's α-column instead uses
-        # coefficient 1.0 and aggregates per-scene contributions via
-        # `prob_s × α_s`.  For the gtopt expected α to match PLP, the
-        # cut gradients/RHS must be pre-divided by NVarPhi, so that:
+        # count** (28 on juan/iplp).  gtopt's α-column under those modes
+        # uses coefficient 1.0 and aggregates per-scene contributions
+        # via `prob_s × α_s`.  For the gtopt expected α to match PLP,
+        # the cut gradients/RHS must be pre-divided by NVarPhi, so that:
         #
         #     Σ_s prob_s × α_s        = (1/N) × N × (rhs/NVarPhi)
         #                             = rhs/NVarPhi                 ✓
@@ -107,10 +135,7 @@ class BoundaryMixin:
         # +75 % LB overshoot vs UB (LB ≈ 4.6 G vs UB ≈ 2.9 G).
         #
         # `max(scene)` over the parsed cuts recovers PLP's NVarPhi
-        # exactly (ISimul is 1-based and dense up to NVarPhi).  Pair
-        # with `boundary_cuts_mode = combined` so gtopt's loader feeds
-        # every cut into every scene (PLP behaviour), which is the
-        # other half of the math being correct.
+        # exactly (ISimul is 1-based and dense up to NVarPhi).
         scenario_array: list = (
             self.planning.get("simulation", {}).get("scenario_array") or []
         )
@@ -121,22 +146,33 @@ class BoundaryMixin:
         plp_nvarphi = 0
         if planos.cuts:
             plp_nvarphi = max(int(cut.get("scene", 0) or 0) for cut in planos.cuts)
-        num_scenarios: int = plp_nvarphi if plp_nvarphi > 0 else len(scenario_array)
-        self._warn_if_unequal_probabilities(scenario_array)
+        # phi_expectation: RAW emission (num_scenarios=None disables the
+        # 1/NVarPhi divisor); gtopt's p_s/NVarPhi column pricing carries
+        # the whole probability composition instead.
+        num_scenarios: int | None
+        if bc_mode == "phi_expectation":
+            num_scenarios = None
+        else:
+            num_scenarios = plp_nvarphi if plp_nvarphi > 0 else len(scenario_array)
+            self._warn_if_unequal_probabilities(scenario_array)
 
         # ── Boundary cuts (last stage) ─────────────────────────────────────
         if planos.cuts:
             csv_path = output_dir / "boundary_cuts.csv"
-            # Per-reservoir FEscala for gradient-coefficient rescaling
-            # (PLP stores GradX in `$/raw_volume_unit`; gtopt expects
-            # `$/hm³`).  See planos_writer's _vol_scale block.
+            # Uniform gradient unit conversion `$/dam³ → $/hm³` (×1000):
+            # plpplem2 gradients are in PLP's native `$/(10³ m³)` for
+            # EVERY reservoir — the plem1 FEscala column is an LP-
+            # numerics scale that cancels in PLP's own planos round
+            # trip (see the `grad_scale` docstring in planos_writer).
+            # Applies in EVERY mode (it is a physical-unit fix, not a
+            # probability weight).
             write_boundary_cuts_csv(
                 planos.cuts,
                 planos.reservoir_names,
                 csv_path,
                 name_alias=name_alias,
                 num_scenarios=num_scenarios,
-                fescala_map=planos.reservoir_fescala,
+                grad_scale=1000.0,
             )
             self.planning["_boundary_cuts_count"] = len(planos.cuts)
             self.planning["_boundary_state_variables"] = len(planos.reservoir_names)
@@ -151,29 +187,33 @@ class BoundaryMixin:
             # shifted down by the missing future-cost envelope).
             sddp_opts["boundary_cuts_file"] = "boundary_cuts.csv"
 
-        # Wire mode and max-iterations options through to the JSON.
-        # Default to `combined` so gtopt's loader feeds every cut into
-        # every scene (mirrors PLP's single-master semantics — see
-        # `plp_storage/CEN65/src/leeplaem.f::LeePlaEmb`, every cut at
-        # the boundary stage installed into one master with `1/NSimul`
-        # per-α weighting).  The cut RHS / gradients are pre-divided by
-        # NVarPhi in the CSV, so combined + `prob_s × α_s` aggregation
-        # reproduces PLP's expected α exactly.  Explicit user setting
-        # via `--boundary-cuts-mode` still wins.
+        # Wire mode and max-iterations options through to the JSON
+        # (`bc_mode` was resolved above, BEFORE the CSV write, because
+        # the emission magnitudes are mode-aware).
         #
-        # NOTE: we deliberately do NOT switch boundary loading to the
-        # newer `boundary_cut_sharing_mode=multicut` (N terminal varphi
-        # columns).  multicut is only LB-correct when the gtopt scene
-        # count equals PLP's NVarPhi; under `--hydrologies` filtering
-        # (N_scenes < NVarPhi) it silently drops the cuts whose source
-        # scenario is outside the gtopt scene set, biasing the terminal
-        # value downward.  `combined` + NVarPhi pre-division keeps all
-        # cuts as competing lower bounds and is robust to subsets — so it
-        # stays the PLP-faithful default for boundary LOADING (the
-        # intermediate-phase cut SHARING is multicut; see build_options).
-        bc_mode = options.get("boundary_cuts_mode")
-        if bc_mode is None and planos.cuts:
-            bc_mode = "combined"
+        # Default `phi_expectation` (2026-07): PLP-literal.  gtopt keys
+        # each cut by the CSV `scene` (= PLP `ISimul` plane hydrology),
+        # lays down NVarPhi terminal `varphi_j` columns priced
+        # `p_s/NVarPhi`, and carries the terminal
+        # `E_j[FCF_j]`-at-realized-volumes in BOTH bounds — matching
+        # PLP's stage-52 LP (`leeplaem.f`, `PlaCFFO=1/NVarPhi`) and its
+        # pdlin UB (`ZSPFAdd`).  Robust to `--hydrologies` subsets: the
+        # φ layout is keyed by the PLANE set, never the scene set, so no
+        # cut is ever dropped.
+        #
+        # The legacy `combined` (broadcast onto one α per scene, cuts
+        # pre-divided by NVarPhi) remains available via
+        # `--boundary-cuts-mode combined` — but note its terminal α is
+        # the MAX over all hydrologies' scaled supports, not the
+        # per-hydrology-max expectation, which the 2026-07 cost-gap
+        # audit measured at only ~64 %·(18/28-scaled) of PLP's terminal
+        # value on the 2-year parity case.
+        #
+        # NOTE: `boundary_cut_sharing_mode=multicut` (N terminal varphi
+        # columns keyed by SCENE uid) is still not emitted: it drops
+        # cuts whose source scenario is outside the gtopt scene set
+        # under `--hydrologies` filtering.  `phi_expectation` subsumes
+        # its purpose with plane-keyed columns.
         if bc_mode is not None:
             sddp_opts["boundary_cuts_mode"] = bc_mode
 
@@ -182,7 +222,8 @@ class BoundaryMixin:
             sddp_opts["boundary_max_iterations"] = bc_max_iter
 
         # CFUE terminal policy: when the boundary cuts are loaded
-        # (combined mode) they ALREADY price the end-of-horizon volume
+        # (combined / phi_expectation mode) they ALREADY price the
+        # end-of-horizon volume
         # of every cut-covered reservoir — PLP's ``EmbCFUE`` (Costo
         # Futuro Uso Embalse) reservoirs are governed by the FCF cuts,
         # and ``VolFinEmb`` applies its hard ``vol_end >= EmbVFin``
@@ -202,7 +243,7 @@ class BoundaryMixin:
         # governs CFUE reservoirs by the FCF cuts (not a soft slack).
         # ``--no-cuts-govern-terminal`` restores the legacy behaviour.
         if options.get("cuts_govern_terminal", True):
-            if bc_mode == "combined":
+            if bc_mode in ("combined", "phi_expectation"):
                 self._apply_cuts_govern_terminal()
             # PLP's LeeManEmb (leemanem.f) overwrites the last-stage
             # EmbVMin from plpmanem.dat AFTER volfinem installs the vfin

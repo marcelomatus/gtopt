@@ -391,6 +391,55 @@ class TestProbabilityScaling:
         assert float(row["R1"]) == pytest.approx(0.125)
         assert float(row["R2"]) == pytest.approx(0.0625)
 
+    def test_grad_scale_uniform_dam3_to_hm3(self, tmp_path):
+        """``grad_scale=1000`` scales every gradient (never the rhs).
+
+        PLP plpplem2 gradients are ``$/dam³`` for EVERY reservoir — the
+        plem1 FEscala column is an LP-numerics scale that cancels in
+        PLP's own planos round trip (``plp-gdbdple.f`` ÷ScaleVol,
+        ``defprbpd.f:775`` ×ScaleVol) — so the CSV conversion to
+        gtopt's ``$/hm³`` is a UNIFORM ×1000, replacing the former
+        per-reservoir ``10^(FEscala-6)`` mis-scaling (2026-07-12).
+        """
+        cuts = [
+            {
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 2.0e9,
+                "coefficients": {"R1": -97.8, "R2": -54.2},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts, ["R1", "R2"], tmp_path / "gs.csv", grad_scale=1000.0
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(2.0e9)  # rhs untouched
+        assert float(row["R1"]) == pytest.approx(-97800.0)
+        assert float(row["R2"]) == pytest.approx(-54200.0)
+
+    def test_grad_scale_composes_with_num_scenarios(self, tmp_path):
+        """The unit conversion and the 1/NVarPhi divisor compose."""
+        cuts = [
+            {
+                "iteration": 1,
+                "scene": 1,
+                "rhs": 4.0,
+                "coefficients": {"R1": -2.0},
+            }
+        ]
+        csv_path = write_boundary_cuts_csv(
+            cuts,
+            ["R1"],
+            tmp_path / "gs2.csv",
+            num_scenarios=4,
+            grad_scale=1000.0,
+        )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            row = next(csv.DictReader(f))
+        assert float(row["rhs"]) == pytest.approx(1.0)  # /4 only
+        assert float(row["R1"]) == pytest.approx(-500.0)  # /4 × 1000
+
     def test_num_scenarios_one_no_op(self, tmp_path):
         """``num_scenarios=1`` is a no-op (single-scene case)."""
         cuts = [
