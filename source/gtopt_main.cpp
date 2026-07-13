@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
@@ -50,11 +51,45 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/stopwatch.h>
 
+// jemalloc's runtime-config entry point, declared weak so this TU links with
+// or without jemalloc: it binds to jemalloc's mallctl in binaries that link
+// jemalloc (the standalone gtopt) and to nullptr otherwise (e.g. the test
+// binary under glibc), where enable_jemalloc_background_thread() skips the
+// call.  Avoids a hard dependency on the jemalloc -dev header.
+extern "C" [[gnu::weak]] int mallctl(const char* name,
+                                     void* oldp,
+                                     std::size_t* oldlenp,
+                                     void* newp,
+                                     std::size_t newlen);
+
 namespace gtopt
 {
 
 namespace
 {
+
+/// Enable jemalloc's background purge thread once per process.
+///
+/// By default (background_thread:false) jemalloc purges freed pages inline on
+/// the allocating thread, inflating peak RSS.  A dedicated background thread
+/// returns pages to the OS off the hot path — measured -28% peak RSS
+/// (35.6 -> 25.5 GB) and -15% wall on the SDDP parity case. `background_thread`
+/// is one of jemalloc's few runtime-writable options, so we flip it from plain
+/// C++ via mallctl.  No-op when jemalloc isn't linked (the weak `mallctl` is
+/// nullptr, e.g. glibc builds / the test binary).  Complements the compile-time
+/// `malloc_conf` symbol baked into the standalone main.cpp, which additionally
+/// covers allocations made before main() runs.
+bool enable_jemalloc_background_thread() noexcept
+{
+  bool on = true;
+  if (&::mallctl != nullptr
+      && ::mallctl("background_thread", nullptr, nullptr, &on, sizeof(on)) == 0)
+  {
+    spdlog::info("jemalloc: background_thread purge enabled");
+    return true;
+  }
+  return false;
+}
 
 /// Resolve the directory used for log/trace files.
 ///
@@ -477,6 +512,13 @@ void setup_file_logging(const MainOptions& opts, bool suppress_stdout)
   // (including the stdout colour sink) dispatch via the background
   // thread pool, so SDDP workers don't block on the sink mutex.
   ensure_default_logger_async();
+
+  // Enable jemalloc's background purge thread once per process (no-op under
+  // glibc / when jemalloc isn't linked).  The function-local static runs the
+  // helper exactly once even if gtopt_main() is invoked multiple times in one
+  // process; placed after the logger upgrade so its confirmation line is async.
+  [[maybe_unused]] static const bool jemalloc_bg_enabled =
+      enable_jemalloc_background_thread();
 
   // Two cases force the default logger back to synchronous:
   //   1. The user explicitly disabled async via `--no-async-logger` /
