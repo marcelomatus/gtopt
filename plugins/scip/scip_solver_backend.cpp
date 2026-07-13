@@ -197,9 +197,28 @@ SCIP_RETCODE scip_build_problem(SCIP* scip,
   return SCIP_OKAY;
 }
 
-/// Install a buffered MIP start as a SCIP partial solution over the integer
-/// columns, tuning the completesol heuristic under `effort == repair` so SCIP
-/// completes/repairs it into a feasible incumbent.
+/// Install a buffered MIP start, shaping it by what the effort level
+/// PROMISES the solver (the same contract the CPLEX backend encodes):
+///
+///  - `check_feasibility` / `no_check` trust the caller's values verbatim —
+///    the caller contract is a COMPLETE, consistent solution (e.g. a
+///    `FileMipStart` replay of a dumped optimum).  SCIP's analog of CPLEX's
+///    dense CHECKFEAS start is `SCIPtrySol` on the FULL assignment: transform
+///    the problem and try the complete solution, so an accepted start becomes
+///    the incumbent BEFORE presolve.  A partial (integers-only) start here
+///    would discard the caller's consistent continuous dispatch and rely on
+///    the completesol heuristic, which may never run (tiny models are solved
+///    outright by presolve first) — the start would contribute nothing.
+///    Acceptance is surfaced in SCIP's native log via `SCIPverbMessage`
+///    ("gtopt MIP start accepted/rejected"), the sharp signal the round-trip
+///    test asserts on (mirrors CPLEX's "1 of 1 MIP starts provided
+///    solutions." line).
+///
+///  - `solve_fixed` / `solve_mip` / `repair` recompute the continuous
+///    dispatch, so they seed a PARTIAL solution over the INTEGER columns only
+///    and let SCIP's completesol heuristic complete/repair it into a feasible
+///    incumbent (`repair` additionally raises the feasibility emphasis and
+///    lifts the completesol unknown-rate cap).
 SCIP_RETCODE scip_install_mip_start(SCIP* scip,
                                     const ScipModel& model,
                                     const std::vector<double>& start,
@@ -218,6 +237,52 @@ SCIP_RETCODE scip_install_mip_start(SCIP* scip,
   }
   if (!any_integer) {
     return SCIP_OKAY;  // pure LP — no integer start to repair
+  }
+
+  const bool trust_values = effort == MipStartEffort::check_feasibility
+      || effort == MipStartEffort::no_check;
+  if (trust_values) {
+    SCIP_CALL(SCIPtransformProb(scip));
+    SCIP_SOL* sol = nullptr;
+    SCIP_CALL(SCIPcreateSol(scip, &sol, nullptr));
+    for (int j = 0; j < model.num_cols; ++j) {
+      const auto u = static_cast<std::size_t>(j);
+      const double val =
+          model.col_type[u] == 'I' ? std::round(start[u]) : start[u];
+      SCIP_CALL(SCIPsetSolVal(scip, sol, vars[u], val));
+    }
+    SCIP_Bool stored = FALSE;
+    SCIP_CALL(SCIPtrySolFree(scip,
+                             &sol,
+                             FALSE,  // printreason
+                             TRUE,  // completely
+                             TRUE,  // checkbounds
+                             TRUE,  // checkintegrality
+                             TRUE,  // checklprows
+                             &stored));
+    // SCIPverbMessage is SCIP's printf-style (vararg) log entry point — the
+    // only way to surface the acceptance outcome in SCIP's native log file,
+    // where the round-trip test asserts on it.
+    if (stored == TRUE) {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+      SCIPverbMessage(scip,
+                      SCIP_VERBLEVEL_NORMAL,
+                      nullptr,
+                      "gtopt MIP start accepted (complete start stored as "
+                      "incumbent by SCIPtrySol)\n");
+    } else {
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+      SCIPverbMessage(scip,
+                      SCIP_VERBLEVEL_NORMAL,
+                      nullptr,
+                      "gtopt MIP start rejected (SCIPtrySol did not store "
+                      "the complete start)\n");
+      spdlog::warn(
+          "gtopt[scip]: complete MIP start rejected by SCIPtrySol "
+          "(effort={}) — solving cold",
+          static_cast<int>(effort));
+    }
+    return SCIP_OKAY;
   }
 
   if (effort == MipStartEffort::repair) {

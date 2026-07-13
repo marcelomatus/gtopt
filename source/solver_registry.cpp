@@ -9,9 +9,11 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <exception>
 #include <format>
 #include <numeric>
 #include <stdexcept>
+#include <string_view>
 
 #include <dlfcn.h>
 #include <gtopt/solver_registry.hpp>
@@ -444,6 +446,13 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
       }
       delete backend;  // NOLINT(cppcoreguidelines-owning-memory)
       ::_exit(0);
+    } catch (const std::exception& e) {
+      // Licensed backends (gurobi, mindopt) throw from their constructor
+      // when no license is reachable (message contains "license") — report
+      // that with a distinct exit code so the parent logs an honest
+      // "license unavailable" skip instead of the ABI-mismatch diagnostic.
+      const std::string_view what {e.what()};
+      ::_exit(what.contains("icense") ? 3 : 1);
     } catch (...) {
       ::_exit(1);
     }
@@ -456,6 +465,20 @@ bool SolverRegistry::validate_solver_subprocess(const PluginHandle& plugin,
   //  - POSIX macros use bitwise ops
   if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
     return true;
+  }
+
+  // License-gated backend (child exit code 3): the plugin is healthy but the
+  // solver cannot start without a license (e.g. gurobi with no gurobi.lic,
+  // mindopt MDOstartenv rc=-10).  Removing it from the registry is the clean
+  // gate — `available_solvers()` / `exact_mip_solvers()` never list it, so
+  // every per-solver test sweep skips it instead of failing.
+  if (WIFEXITED(status) && WEXITSTATUS(status) == 3) {
+    SPDLOG_WARN(
+        "Solver '{}' from plugin '{}' is unavailable: license not found or "
+        "invalid — skipping it (install a valid license to enable it).",
+        solver_name,
+        plugin.plugin_name);
+    return false;
   }
 
   // Build a diagnostic message.

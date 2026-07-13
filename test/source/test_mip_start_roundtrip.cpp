@@ -189,6 +189,13 @@ std::string slurp(const std::filesystem::path& path)
 constexpr std::string_view kCplexAccepted = "MIP starts provided solutions";
 constexpr std::string_view kCplexRejected = "No solution found from";
 
+/// SCIP prints the trusted-start `SCIPtrySol` outcome into its native log
+/// (emitted by the scip plugin's `scip_install_mip_start`): the analog of the
+/// CPLEX acceptance line, and just as sharp — a rejected start still solves
+/// cold to the same optimum, so only the log discriminates.
+constexpr std::string_view kScipAccepted = "gtopt MIP start accepted";
+constexpr std::string_view kScipRejected = "gtopt MIP start rejected";
+
 /// RAII: route the backend's native log to `<base>.log`, removing a stale
 /// file first (the backend appends).
 struct NativeLog
@@ -221,6 +228,25 @@ struct NativeLog
   opts.log_level = 1;
   opts.log_mode = SolverLogMode::detailed;
   return opts;
+}
+
+/// Sharp per-backend acceptance check on the captured native log, for the
+/// backends whose log carries an explicit MIP-start processing outcome
+/// (cplex, scip).  Other backends expose no such log line — for them the
+/// objective + optimality assertions in the caller remain the check.
+void check_native_log_accepted(const std::string& name, const NativeLog& log)
+{
+  if (name == "cplex") {
+    const auto text = log.text();
+    CAPTURE(text);
+    CHECK(text.contains(kCplexAccepted));
+    CHECK_FALSE(text.contains(kCplexRejected));
+  } else if (name == "scip") {
+    const auto text = log.text();
+    CAPTURE(text);
+    CHECK(text.contains(kScipAccepted));
+    CHECK_FALSE(text.contains(kScipRejected));
+  }
 }
 
 }  // namespace
@@ -301,16 +327,11 @@ TEST_CASE(  // NOLINT
     CHECK(warm.get_obj_value() == doctest::Approx(obj_cold).epsilon(1e-6));
     check_is_mip_optimum(m, warm.get_col_sol_raw());
 
-    // 3. Sharp acceptance assertion on CPLEX: the native log carries the
-    //    official MIP-start processing outcome.  Rejection ("No solution
-    //    found from 1 MIP starts") re-solves cold to the same objective, so
-    //    only the log discriminates — this is the CEN failure signature.
-    if (name == "cplex") {
-      const auto text = log.text();
-      CAPTURE(text);
-      CHECK(text.contains(kCplexAccepted));
-      CHECK_FALSE(text.contains(kCplexRejected));
-    }
+    // 3. Sharp acceptance assertion on the backends whose native log carries
+    //    the official MIP-start processing outcome (cplex, scip).  Rejection
+    //    re-solves cold to the same objective, so only the log discriminates
+    //    — this is the CEN failure signature.
+    check_native_log_accepted(name, log);
   }
 }
 
@@ -410,12 +431,7 @@ TEST_CASE(  // NOLINT
       REQUIRE(dst.is_optimal());
       CHECK(dst.get_obj_value() == doctest::Approx(kOptObj).epsilon(1e-6));
       check_is_mip_optimum(m, dst.get_col_sol_raw());
-      if (name == "cplex") {
-        const auto text = log.text();
-        CAPTURE(text);
-        CHECK(text.contains(kCplexAccepted));
-        CHECK_FALSE(text.contains(kCplexRejected));
-      }
+      check_native_log_accepted(name, log);
     }
 
     SUBCASE("skip_relaxation fast path (no throwaway relaxation solve)")
@@ -439,12 +455,7 @@ TEST_CASE(  // NOLINT
       REQUIRE(dst.is_optimal());
       CHECK(dst.get_obj_value() == doctest::Approx(kOptObj).epsilon(1e-6));
       check_is_mip_optimum(m, dst.get_col_sol_raw());
-      if (name == "cplex") {
-        const auto text = log.text();
-        CAPTURE(text);
-        CHECK(text.contains(kCplexAccepted));
-        CHECK_FALSE(text.contains(kCplexRejected));
-      }
+      check_native_log_accepted(name, log);
     }
 
     SUBCASE("file generator reconstructs the dump without a relaxation")

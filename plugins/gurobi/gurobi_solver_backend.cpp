@@ -1022,9 +1022,25 @@ bool GurobiSolverBackend::set_mip_start(
 {
   // Gurobi's Start attribute IS the MIP start: it seeds the initial incumbent
   // and auto-completes/repairs partial or slightly-infeasible assignments.
-  // Its repair analog (effort=repair) is to let it spend branch-and-bound
-  // nodes completing/repairing the start (StartNodeLimit) and run more primal
-  // heuristics (Heuristics) — closest to CPLEX's MIP-start REPAIR.
+  // Start shape follows what the effort level PROMISES the solver (the same
+  // contract the CPLEX backend encodes):
+  //
+  //  - check_feasibility / no_check trust the caller's values verbatim, so
+  //    they get the COMPLETE dense start (all columns) — the caller contract
+  //    is a complete, consistent solution (e.g. a `FileMipStart` replay of a
+  //    dumped optimum), which Gurobi's start processing verifies and installs
+  //    as the initial incumbent.
+  //
+  //  - solve_fixed / solve_mip / repair recompute the continuous dispatch:
+  //    only the INTEGER columns are seeded and every continuous entry is set
+  //    to GRB_UNDEFINED, which is Gurobi's native "complete it yourself"
+  //    marker — start processing fixes the integers and solves the residual
+  //    continuous problem (its SOLVEFIXED analog).  Passing the dense
+  //    vector's continuous entries here would feed the LP-relaxation dispatch
+  //    (round+rules candidate), inconsistent with the rounded integers.
+  //    `repair` additionally lets Gurobi spend branch-and-bound nodes
+  //    completing/repairing the start (StartNodeLimit) and runs more primal
+  //    heuristics (Heuristics) — closest to CPLEX's MIP-start REPAIR.
   ensure_updated_();
   const auto ncols = static_cast<std::size_t>(get_num_cols());
   if (col_values.size() != ncols) {
@@ -1035,11 +1051,25 @@ bool GurobiSolverBackend::set_mip_start(
     GRBsetintparam(menv, GRB_INT_PAR_STARTNODELIMIT, 2000);
     GRBsetdblparam(menv, GRB_DBL_PAR_HEURISTICS, 0.2);
   }
-  GRBsetdblattrarray(m_model_,
-                     GRB_DBL_ATTR_START,
-                     0,
-                     static_cast<int>(ncols),
-                     const_cast<double*>(col_values.data()));  // NOLINT
+
+  const bool trust_values = effort == MipStartEffort::check_feasibility
+      || effort == MipStartEffort::no_check;
+  std::vector<double> start(col_values.begin(), col_values.end());
+  if (!trust_values && ncols > 0) {
+    std::vector<char> vtypes(ncols, GRB_CONTINUOUS);
+    GRBgetcharattrarray(m_model_,
+                        GRB_CHAR_ATTR_VTYPE,
+                        0,
+                        static_cast<int>(ncols),
+                        vtypes.data());
+    for (std::size_t j = 0; j < ncols; ++j) {
+      if (vtypes[j] == GRB_CONTINUOUS) {
+        start[j] = GRB_UNDEFINED;
+      }
+    }
+  }
+  GRBsetdblattrarray(
+      m_model_, GRB_DBL_ATTR_START, 0, static_cast<int>(ncols), start.data());
   m_dirty_ = true;
   return true;
 }
