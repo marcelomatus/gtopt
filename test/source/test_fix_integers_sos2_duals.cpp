@@ -606,3 +606,205 @@ TEST_CASE(
   REQUIRE(std::abs(pi1) > 1e-6);
   CHECK(pi4 * pi1 < 0.0);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 4. Bail path: a failed fixed LP must NOT leak — published primal is the
+//    MIP incumbent, duals explicitly unavailable, state restored
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace test_fix_integers_sos2_duals_ns
+{
+namespace
+{
+
+/// Tiny MIP whose LP relaxation is already integral:
+///   min  x + 2u   s.t.  r0: x + 5u ≥ 5,  x ∈ [0,10],  u ∈ {0,1}
+///   ⇒ (x, u) = (0, 1), obj = 2.
+/// Bail trigger (real, no mocks): AFTER the solve, tightening r0 to
+/// `x + 5u ≤ 4` makes the incumbent-pinned fixed LP INFEASIBLE, so the
+/// dual-recovery pass must bail.  The production leak this pins: the
+/// bail used to leave the live backend holding the failed/corrupted
+/// fixed LP, which off-mode reads (I6: live backend = source of truth)
+/// then published.
+struct BailFixture
+{
+  LinearProblem lp {"fix_duals_bail"};
+  ColIndex x;
+  ColIndex u;
+  RowIndex r0;
+  FlatLinearProblem flat;
+
+  BailFixture()
+      : x(lp.add_col(SparseCol {
+            .lowb = 0.0,
+            .uppb = 10.0,
+            .cost = 1.0,
+        }))
+      , u(lp.add_col(SparseCol {
+            .lowb = 0.0,
+            .uppb = 1.0,
+            .cost = 2.0,
+            .is_integer = true,
+        }))
+      , r0(
+            [this]
+            {
+              auto row = SparseRow {};
+              row[x] = 1.0;
+              row[u] = 5.0;
+              row.greater_equal(5.0);
+              return lp.add_row(std::move(row));
+            }())
+      , flat(lp.flatten({
+            .equilibration_method = LpEquilibrationMethod::none,
+        }))
+  {
+  }
+};
+
+[[nodiscard]] double col_at(std::span<const double> sol, ColIndex c)
+{
+  return sol[static_cast<std::size_t>(value_of(c))];
+}
+
+}  // namespace
+}  // namespace test_fix_integers_sos2_duals_ns
+
+using test_fix_integers_sos2_duals_ns::BailFixture;
+using test_fix_integers_sos2_duals_ns::col_at;
+
+TEST_CASE(
+    "fix_integers_and_resolve bail (portable path): infeasible fixed LP "
+    "returns bailed, publishes the MIP incumbent, and restores state")  // NOLINT
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("cbc") || !reg.supports_mip("cbc")) {
+    MESSAGE("cbc plugin not available — skipping portable bail test");
+    return;
+  }
+
+  BailFixture f;
+  LinearInterface li("cbc", f.flat);
+
+  // The LP relaxation of this MIP is integral, so a single
+  // initial_solve yields the (integer) incumbent on every backend —
+  // including CBC, whose initial_solve is LP-relaxation-only.
+  REQUIRE(li.initial_solve({}).has_value());
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.has_integer_cols());
+  {
+    const auto sol = li.get_col_sol_raw();
+    REQUIRE(col_at(sol, f.u) == doctest::Approx(1.0).epsilon(1e-6));
+    REQUIRE(col_at(sol, f.x) == doctest::Approx(0.0).epsilon(1e-6));
+  }
+
+  // Make the incumbent-pinned fixed LP infeasible: u pinned to 1 forces
+  // x + 5 ≤ 4 ⇒ x ≤ −1 < 0.  (OSI/CLP keeps the solved primal readable
+  // across a row-bound change, so the pass still sees the incumbent —
+  // matching the production shape, where nothing mutates between the
+  // MIP solve and the recovery pass.)
+  li.set_row_bounds_raw(f.r0, 0.0, 4.0);
+
+  auto fix = li.fix_integers_and_resolve({});
+  REQUIRE(fix.has_value());
+
+  // (b) The bail is DISTINCT from the benign pure-LP no-op.
+  CHECK(fix->bailed);
+  CHECK(fix->fixed_columns == 0);
+  CHECK(!fix->status.has_value());
+
+  // Published primal after the bail is the MIP incumbent — not the
+  // failed fixed LP's vertex, not zeros.
+  {
+    const auto sol = li.get_col_sol_raw();
+    CHECK(col_at(sol, f.u) == doctest::Approx(1.0).epsilon(1e-6));
+    CHECK(col_at(sol, f.x) == doctest::Approx(0.0).epsilon(1e-6));
+  }
+
+  // Duals are EXPLICITLY unavailable: empty views, not MIP dual scratch.
+  CHECK(li.duals_unavailable());
+  CHECK(li.get_row_dual_raw().empty());
+  CHECK(li.get_col_cost_raw().empty());
+
+  // The portable bail restored the backend state: integrality back on,
+  // pinned bounds back to the originals.
+  CHECK(li.has_integer_cols());
+  CHECK(li.get_col_low_raw()[static_cast<std::size_t>(value_of(f.u))]
+        == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[static_cast<std::size_t>(value_of(f.u))]
+        == doctest::Approx(1.0));
+
+  // Lifecycle: relax the row again and re-run the pass — it must
+  // succeed, clear the duals-unavailable latch, and produce duals.
+  li.set_row_bounds_raw(f.r0, 5.0, 1e30);
+  auto fix2 = li.fix_integers_and_resolve({});
+  REQUIRE(fix2.has_value());
+  CHECK(!fix2->bailed);
+  CHECK(fix2->fixed_columns == 1);
+  CHECK(!li.duals_unavailable());
+  CHECK(!li.get_row_dual_raw().empty());
+  {
+    const auto sol = li.get_col_sol_raw();
+    CHECK(col_at(sol, f.u) == doctest::Approx(1.0).epsilon(1e-6));
+  }
+}
+
+TEST_CASE(
+    "fix_integers_and_resolve bail (CPLEX): post-solve model change makes "
+    "the pass bail — MIP incumbent published, duals unavailable")  // NOLINT
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("cplex")) {
+    MESSAGE("cplex plugin not available — skipping CPLEX bail test");
+    return;
+  }
+
+  BailFixture f;
+  LinearInterface li("cplex", f.flat);
+
+  REQUIRE(li.initial_solve({}).has_value());
+  REQUIRE(li.is_optimal());
+  REQUIRE(li.has_integer_cols());
+  {
+    const auto sol = li.get_col_sol_raw();
+    REQUIRE(col_at(sol, f.u) == doctest::Approx(1.0).epsilon(1e-6));
+    REQUIRE(col_at(sol, f.x) == doctest::Approx(0.0).epsilon(1e-6));
+  }
+
+  // Tighten r0 so the incumbent-pinned fixed LP is infeasible.  CPLEX
+  // takes one of two bail routes here, both of which this test accepts:
+  //   * the model edit discards the MIP solution ⇒ no incumbent ⇒
+  //     pre-flip bail (no FIXEDMILP flip ever happens), or
+  //   * the incumbent survives ⇒ the FIXEDMILP fixed LP is infeasible ⇒
+  //     warm + (bounded) barrier attempts fail ⇒ post-flip bail, which
+  //     must restore the problem type back to MILP (the defect-a fix).
+  li.set_row_bounds_raw(f.r0, 0.0, 4.0);
+
+  auto fix = li.fix_integers_and_resolve({});
+  REQUIRE(fix.has_value());
+  CHECK(fix->bailed);
+  CHECK(fix->fixed_columns == 0);
+  CHECK(!fix->status.has_value());
+
+  // Published primal after the bail is the MIP incumbent (republished
+  // by the LinearInterface bail path from its pre-fix snapshot).
+  {
+    const auto sol = li.get_col_sol_raw();
+    CHECK(col_at(sol, f.u) == doctest::Approx(1.0).epsilon(1e-6));
+    CHECK(col_at(sol, f.x) == doctest::Approx(0.0).epsilon(1e-6));
+  }
+
+  // Duals explicitly unavailable; discrete structure intact on the live
+  // problem (post-flip route: FIXEDMILP → MILP restore; pre-flip route:
+  // never flipped) — both leave u binary with its original bounds.
+  CHECK(li.duals_unavailable());
+  CHECK(li.get_row_dual_raw().empty());
+  CHECK(li.get_col_cost_raw().empty());
+  CHECK(li.has_integer_cols());
+  CHECK(li.get_col_low_raw()[static_cast<std::size_t>(value_of(f.u))]
+        == doctest::Approx(0.0));
+  CHECK(li.get_col_upp_raw()[static_cast<std::size_t>(value_of(f.u))]
+        == doctest::Approx(1.0));
+}

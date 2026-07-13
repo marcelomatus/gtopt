@@ -2153,6 +2153,24 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
           fix.error().message);
       return result;  // original MIP status
     }
+    if (fix->bailed) {
+      // The backend attempted the fixed-LP pass and bailed (no
+      // incumbent, fixed-LP failure, or the CPLEX SOS-support
+      // verification fired).  The MIP primal is preserved — the
+      // backend restored its live state and LinearInterface
+      // republished the incumbent — but no duals exist for it:
+      // `duals_unavailable()` is latched, so the dual / reduced-cost
+      // getters return empty views and the dual-dependent outputs for
+      // this cell skip gracefully at write-out.
+      spdlog::warn(
+          "SystemLP::resolve [scene={} phase={}]: fix-integers dual "
+          "recovery bailed — MIP primal preserved; duals / reduced "
+          "costs unavailable for this cell (dual-dependent outputs "
+          "skipped)",
+          scene().uid(),
+          phase().uid());
+      return result;  // original MIP status, incumbent primal intact
+    }
     if (fix->fixed_columns > 0) {
       SPDLOG_DEBUG(
           "SystemLP::resolve [scene={} phase={}]: fixed {} integer "

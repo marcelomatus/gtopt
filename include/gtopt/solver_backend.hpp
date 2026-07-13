@@ -434,6 +434,18 @@ public:
   /// incumbent-node basis, then a warm dual-simplex re-solve — no
   /// barrier, no crossover).
   ///
+  /// **Bail contract (`return -1`)**: the implementation must leave the
+  /// live problem holding the MIP incumbent — original bounds and
+  /// integrality restored, `col_solution()` returning the incumbent
+  /// primal — because under `LowMemoryMode::off` the live backend is the
+  /// single source of truth for every downstream read (invariant I6).
+  /// Duals are UNAVAILABLE after a bail; the caller must not publish
+  /// them.  The portable path below implements this by restoring the
+  /// pinned bounds + integrality and re-installing the incumbent via
+  /// `set_col_solution`; the CPLEX override flips the problem type back
+  /// from `CPXPROB_FIXEDMILP` (which restores bounds, ctypes AND the
+  /// retained incumbent natively).
+  ///
   /// @param opts Solver options for the follow-up LP solve (the caller
   ///             typically enables `crossover` so a barrier backend
   ///             produces clean vertex duals).
@@ -446,60 +458,84 @@ public:
   ///         pure LP / nothing to do (caller's existing duals already
   ///         valid); `> 0` = fixed and re-solved (caller must refresh its
   ///         solution cache from the backend); `< 0` = no incumbent /
-  ///         failure (caller keeps the MIP result untouched).
+  ///         failed fixed-LP solve (state restored per the bail
+  ///         contract: MIP primal preserved, duals unavailable).
   virtual int fix_mip_and_resolve_duals(const SolverOptions& opts,
                                         std::span<const int> sos_member_cols)
   {
     const int n = get_num_cols();
     // Read the current (MIP-optimal) primal BEFORE any bound mutation —
     // the first `set_col_lower/upper` may invalidate the solution view.
-    const double* sol = col_solution();
-    if (sol == nullptr) {
+    // Copy it: the returned pointer typically aliases backend scratch
+    // that the pin loop / re-solve below overwrites, and the bail path
+    // needs the pristine incumbent to restore.
+    const double* sol_ptr = col_solution();
+    if (sol_ptr == nullptr) {
       return -1;  // no incumbent solution available
     }
+    const std::vector<double> sol(sol_ptr, sol_ptr + n);
 
-    // Snapshot the SOS-member incumbent values up-front for the same
-    // reason — their pins land after the integer loop below has already
-    // mutated bounds.
-    std::vector<double> sos_incumbent;
-    sos_incumbent.reserve(sos_member_cols.size());
-    for (const int c : sos_member_cols) {
-      sos_incumbent.push_back((c >= 0 && c < n) ? sol[c] : 0.0);
-    }
+    // Snapshot the original bounds of every column BEFORE any pin — the
+    // bail path restores exactly these.  (`col_lower()`/`col_upper()`
+    // may alias live backend storage, so the copy must precede the
+    // first mutation.)
+    const double* lb_ptr = col_lower();
+    const double* ub_ptr = col_upper();
+    const std::vector<double> lb0(lb_ptr, lb_ptr + n);
+    const std::vector<double> ub0(ub_ptr, ub_ptr + n);
 
-    int fixed = 0;
+    std::vector<int> pinned_cols;  // bound-restore list (integers + SOS)
+    std::vector<int> integer_cols;  // integrality-restore list
+
     for (int i = 0; i < n; ++i) {
       if (is_integer(i)) {
         // Round to the nearest integer: an integer column may report a
         // value a hair off the lattice (e.g. 0.9999997) under tolerance.
-        const double pinned = std::round(sol[i]);
+        const double pinned = std::round(sol[static_cast<std::size_t>(i)]);
         set_col_lower(i, pinned);
         set_col_upper(i, pinned);
-        ++fixed;
+        pinned_cols.push_back(i);
+        integer_cols.push_back(i);
       }
     }
 
     // Pin the SOS-member columns to the incumbent (see the contract
     // above).  Continuous values — no rounding.  A column that is both
     // integer and SOS member is already pinned by the loop above.
-    for (std::size_t k = 0; k < sos_member_cols.size(); ++k) {
-      const int c = sos_member_cols[k];
+    for (const int c : sos_member_cols) {
       if (c < 0 || c >= n || is_integer(c)) {
         continue;
       }
-      set_col_lower(c, sos_incumbent[k]);
-      set_col_upper(c, sos_incumbent[k]);
-      ++fixed;
+      set_col_lower(c, sol[static_cast<std::size_t>(c)]);
+      set_col_upper(c, sol[static_cast<std::size_t>(c)]);
+      pinned_cols.push_back(c);
     }
 
-    if (fixed == 0) {
+    if (pinned_cols.empty()) {
       return 0;  // pure LP — caller's duals are already valid
     }
 
     relax_all_integers();
     apply_options(opts);
     resolve();
-    return fixed;
+
+    if (!is_proven_optimal()) {
+      // The fixed LP did not solve — its primal/duals are garbage, and
+      // the live problem currently holds them.  Honour the bail
+      // contract: un-pin the mutated bounds, restore integrality, and
+      // re-install the incumbent primal so downstream live-backend
+      // reads see the MIP result.  Duals stay unavailable — correct:
+      // there is no LP dual solution conditional on the incumbent.
+      for (const int c : pinned_cols) {
+        set_col_lower(c, lb0[static_cast<std::size_t>(c)]);
+        set_col_upper(c, ub0[static_cast<std::size_t>(c)]);
+      }
+      restore_integers(integer_cols);
+      set_col_solution(sol.data());
+      return -1;
+    }
+
+    return static_cast<int>(pinned_cols.size());
   }
 
   // ---- SOS (special-ordered set) constraints ----

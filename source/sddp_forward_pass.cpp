@@ -428,6 +428,19 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
               uid_of(scene_index),
               uid_of(phase_index),
               fix.error().message);
+        } else if (fix->bailed) {
+          // Distinct from the benign no-integer case: the backend
+          // attempted the fixed-LP pass and bailed.  MIP primal
+          // preserved; `duals_unavailable()` is latched so this
+          // cell's dual-dependent outputs skip gracefully.
+          SPDLOG_WARN(
+              "SDDP Forward [i{} s{} p{}]: fix-integers dual recovery "
+              "bailed — MIP primal preserved; duals / reduced costs "
+              "unavailable for this cell (dual-dependent outputs "
+              "skipped)",
+              gtopt::uid_of(iteration_index),
+              uid_of(scene_index),
+              uid_of(phase_index));
         } else if (fix->fixed_columns > 0) {
           SPDLOG_DEBUG(
               "SDDP Forward [i{} s{} p{}]: fixed {} integer column(s) and "

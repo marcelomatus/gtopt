@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -1232,9 +1233,46 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   //    warm simplex off that basis is a handful of pivots — no barrier, no
   //    crossover.  If the conversion fails, no state changed: bail out and
   //    let the caller keep the MIP result.
+  const int saved_solve_status = m_solve_status_;
   if (CPXchgprobtype(env, lp, CPXPROB_FIXEDMILP) != 0) {
     return -1;
   }
+
+  // Every bail-out AFTER the (in-place) FIXEDMILP flip must NOT leave the
+  // live problem as the solved fixed LP: the flip mutates the one live
+  // CPLEX object, and under `LowMemoryMode::off` (invariant I6) that live
+  // object is the single source of truth for every downstream read
+  // (`populate_solution_cache_post_solve`, `get_col_sol_raw`, write-out).
+  // Returning -1 without restoring would therefore PUBLISH the corrupted
+  // fixed-LP vertex — exactly the leak observed in production when the
+  // 8b verification fired.  Flip the problem type back to the original
+  // MILP: CPLEX restores integrality and the original bounds of every
+  // discrete + SOS-member column and re-exposes the retained MIP
+  // incumbent (`CPXgetstat`/`CPXgetx` return the MIP solution again).
+  // Duals remain UNAVAILABLE on the restored MILP — `CPXgetpi` fails on
+  // a MIP by design; that is the correct, explicit contract of a bail
+  // (the caller reports "MIP primal preserved; duals unavailable").
+  const auto bail_restore_mip = [&]() -> int
+  {
+    if (const int rc = CPXchgprobtype(env, lp, cplex_type); rc != 0) {
+      // Should be impossible (FIXEDMILP -> MILP is always legal); log
+      // loudly because the live problem would stay a fixed LP.
+      SPDLOG_ERROR(
+          "CplexSolverBackend::fix_mip_and_resolve_duals: could not "
+          "restore problem type {} after fixed-LP bail (CPXchgprobtype "
+          "rc={}) — live problem left as the fixed LP",
+          cplex_type,
+          rc);
+    }
+    // The restore rewrote bounds/ctypes back to the MIP's — drop the
+    // per-call problem-data caches (again) so later readers see the
+    // restored MILP, not the fixed LP.
+    invalidate_problem_data();
+    // The fixed-LP attempt overwrote the solve rc; restore the MIP's so
+    // status readers reflect the (still valid) MIP solve.
+    m_solve_status_ = saved_solve_status;
+    return -1;
+  };
 
   // The type flip rewrote column bounds (discrete + zero-SOS-member
   // columns are now fixed) and ctypes — drop the per-call bound/obj
@@ -1276,12 +1314,65 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   apply_cplex_warmstart(env, opts);
 
   // 6. Warm primal-simplex solve of the fixed LP off the incumbent basis.
-  //    If it does not reach optimality, retry once with barrier on the
-  //    still-fixed problem as a safety net.
+  //    If it does not reach a usable status, retry once with barrier on
+  //    the still-fixed problem as a safety net — TIME-BOUNDED (see below).
+  //
+  //    Acceptable statuses for dual extraction:
+  //      * CPX_STAT_OPTIMAL        — the normal case.
+  //      * CPX_STAT_OPTIMAL_INFEAS — optimal, but with residual
+  //        infeasibilities after unscaling.  The primal AND dual solution
+  //        vectors are available and satisfy the tolerances in the scaled
+  //        space; for marginal-price extraction on an already-committed
+  //        incumbent this is as good as OPTIMAL.  Rejecting it (the old
+  //        behaviour) sent tight-tolerance runs (e.g. a 1e-9 `.prm`) into
+  //        an unbounded no-presolve barrier retry — 32 min of silence on
+  //        the production pcp SOS2 case.
+  const auto usable_stat = [](int s) noexcept
+  { return s == CPX_STAT_OPTIMAL || s == CPX_STAT_OPTIMAL_INFEAS; };
+
+  using Clock = std::chrono::steady_clock;
+  const auto t0 = Clock::now();
   m_solve_status_ = CPXlpopt(env, lp);
-  if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
+  int fixed_stat = CPXgetstat(env, lp);
+  const double warm_secs =
+      std::chrono::duration<double>(Clock::now() - t0).count();
+
+  if (!usable_stat(fixed_stat)) {
+    // Safety-net barrier retry, bounded by the remaining time budget so
+    // a pathological fixed LP cannot silently eat the run: cap at the
+    // caller's own time limit when one is set, and at a fixed ceiling
+    // otherwise (the fixed LP is supposed to be a handful of warm
+    // pivots — if barrier cannot finish it in this budget, bailing to
+    // the MIP result is the better trade).
+    constexpr double fixed_retry_cap_s = 300.0;
+    double saved_tilim = 0.0;
+    CPXgetdblparam(env, CPX_PARAM_TILIM, &saved_tilim);
+    const double retry_limit = std::min(
+        opts.time_limit.value_or(fixed_retry_cap_s), fixed_retry_cap_s);
+    SPDLOG_INFO(
+        "CplexSolverBackend::fix_mip_and_resolve_duals: warm fixed-LP "
+        "solve unusable (status {}, {:.1f}s) — barrier safety-net retry "
+        "(time limit {:.0f}s)",
+        fixed_stat,
+        warm_secs,
+        retry_limit);
     CPXsetintparam(env, CPX_PARAM_LPMETHOD, CPX_ALG_BARRIER);
+    CPXsetdblparam(env, CPX_PARAM_TILIM, retry_limit);
+    const auto t1 = Clock::now();
     m_solve_status_ = CPXlpopt(env, lp);
+    fixed_stat = CPXgetstat(env, lp);
+    CPXsetdblparam(env, CPX_PARAM_TILIM, saved_tilim);
+    SPDLOG_INFO(
+        "CplexSolverBackend::fix_mip_and_resolve_duals: barrier retry "
+        "finished (status {}, {:.1f}s)",
+        fixed_stat,
+        std::chrono::duration<double>(Clock::now() - t1).count());
+  } else if (fixed_stat == CPX_STAT_OPTIMAL_INFEAS) {
+    SPDLOG_INFO(
+        "CplexSolverBackend::fix_mip_and_resolve_duals: fixed-LP status "
+        "CPX_STAT_OPTIMAL_INFEAS ({:.1f}s) — accepted for dual "
+        "extraction (primal/dual available within scaled tolerances)",
+        warm_secs);
   }
 
   // 7. Restore the saved LP method + advance flag so subsequent cold solves
@@ -1290,9 +1381,15 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   CPXsetintparam(env, CPX_PARAM_ADVIND, saved_advance);
   CPXsetintparam(env, CPX_PARAM_STARTALG, saved_startalg);
 
-  // 8. Report the fixed count, or -1 if the fixed-LP solve still failed.
-  if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
-    return -1;
+  // 8. Bail (restoring the live MILP + incumbent) if the fixed-LP solve
+  //    still produced no usable dual solution.
+  if (!usable_stat(fixed_stat)) {
+    SPDLOG_WARN(
+        "CplexSolverBackend::fix_mip_and_resolve_duals: fixed-LP solve "
+        "failed (status {}) — restoring the MIP incumbent; duals "
+        "unavailable",
+        fixed_stat);
+    return bail_restore_mip();
   }
 
   // 8b. Verify the incumbent's SOS support survived the fixed pass:
@@ -1305,7 +1402,7 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   if (!sos_incumbent.empty()) {
     std::vector<double> x(static_cast<std::size_t>(ncols));
     if (CPXgetx(env, lp, x.data(), 0, ncols - 1) != 0) {
-      return -1;
+      return bail_restore_mip();
     }
     constexpr double support_tol = 1e-6;
     for (std::size_t k = 0; k < sos_member_cols.size(); ++k) {
@@ -1320,11 +1417,12 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
             "CplexSolverBackend::fix_mip_and_resolve_duals: fixed-LP "
             "solve moved SOS-member column {} off the incumbent support "
             "({} -> {}) — FIXEDMILP did not pin the SOS support on this "
-            "CPLEX version; keeping the MIP result (duals unavailable)",
+            "CPLEX version; restoring the MIP incumbent (duals "
+            "unavailable)",
             c,
             sos_incumbent[k],
             x[static_cast<std::size_t>(c)]);
-        return -1;
+        return bail_restore_mip();
       }
     }
   }

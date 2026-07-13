@@ -17,6 +17,7 @@
 #include <chrono>
 #include <expected>
 #include <format>
+#include <vector>
 
 #include <gtopt/error.hpp>
 #include <gtopt/linear_interface.hpp>
@@ -90,6 +91,10 @@ std::expected<int, Error> LinearInterface::initial_solve(
   // backend (CLP/CBC null-deref in ClpPresolve → SIGSEGV; HiGHS/MindOpt error;
   // CPLEX silently "solves" nothing).  No-op when not released (compress off).
   ensure_backend();
+
+  // A new solve supersedes any bailed dual-recovery state (the latch
+  // and the incumbent republished through the LI cache).
+  clear_dual_recovery_bail_state();
 
   ++m_solver_stats_.initial_solve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -213,6 +218,10 @@ std::expected<int, Error> LinearInterface::resolve(
   using Clock = std::chrono::steady_clock;
 
   ensure_backend();
+
+  // A new solve supersedes any bailed dual-recovery state (the latch
+  // and the incumbent republished through the LI cache).
+  clear_dual_recovery_bail_state();
 
   ++m_solver_stats_.resolve_calls;
   m_solver_stats_.total_ncols += get_numcols();
@@ -342,6 +351,9 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
 
   ensure_backend();
 
+  // A repeated fix pass supersedes any prior bailed state.
+  clear_dual_recovery_bail_state();
+
   // Build the effective options the backend's internal re-solve runs
   // under: backend-optimal defaults, user settings overlaid on top, then
   // the scale-objective optimality-tolerance correction — exactly what
@@ -353,6 +365,16 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   effective.overlay(opts);
   scale_optimality_tol_for_objective(effective, m_scale_objective_);
   m_last_solver_options_ = effective;
+
+  // Snapshot the MIP incumbent primal BEFORE the backend mutates
+  // anything.  If the pass BAILS the incumbent is republished through
+  // the LI cache below — the uniform, backend-independent guarantee
+  // that cache-first readers (`get_col_sol{,_raw}`, the OutputContext
+  // solution span) publish the MIP primal after a bail, whatever state
+  // the backend's own restore achieved.  One vector copy, paid only on
+  // LPs with discrete structure.
+  const auto pre_fix_sol = get_col_sol_raw();
+  const std::vector<double> incumbent(pre_fix_sol.begin(), pre_fix_sol.end());
 
   // Delegate the fix + re-solve to the one common backend virtual.  Each
   // plugin implements it with its native mechanism (CPLEX: single-call
@@ -375,11 +397,32 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   m_solver_stats_.total_solve_time_s +=
       std::chrono::duration<double>(Clock::now() - t0).count();
 
-  if (fixed <= 0) {
-    // fixed < 0: no incumbent / fixed-LP solve failed — preserve the
-    //   historical early-return contract so the cell does not fail (the
-    //   caller already warns and keeps the MIP primal).
-    // fixed == 0: pure LP — caller's existing duals are already valid.
+  if (fixed < 0) {
+    // The backend BAILED (no incumbent, fixed-LP solve failure, or the
+    // CPLEX SOS-support verification fired) and — per the
+    // `fix_mip_and_resolve_duals` bail contract — restored its live
+    // problem to the MIP incumbent.  Belt-and-braces: republish the
+    // pre-fix incumbent through the LI cache so cache-first readers
+    // publish the MIP primal even if a backend's restore is imperfect,
+    // and latch `duals_unavailable` so the dual / reduced-cost getters
+    // return empty views instead of MIP dual scratch.  The distinct
+    // `bailed` outcome lets callers warn ("MIP primal preserved; duals
+    // unavailable") instead of confusing this with the benign pure-LP
+    // no-op below.
+    if (!incumbent.empty()) {
+      const auto buf = m_cache_.col_sol_buffer(incumbent.size());
+      std::ranges::copy(incumbent, buf.begin());
+    }
+    m_duals_unavailable_ = true;
+    return FixIntegersOutcome {
+        .fixed_columns = 0,
+        .status = std::nullopt,
+        .bailed = true,
+    };
+  }
+  if (fixed == 0) {
+    // Pure LP — nothing was pinned and no re-solve ran; the caller's
+    // existing duals are already valid.
     return FixIntegersOutcome {.fixed_columns = 0, .status = std::nullopt};
   }
 

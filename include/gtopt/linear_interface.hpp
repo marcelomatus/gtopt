@@ -1933,11 +1933,23 @@ public:
    * `status` carries the solver status of the follow-up LP solve when
    * `fixed_columns > 0` (0 = optimal); it is `std::nullopt` when no
    * re-solve ran.
+   *
+   * `bailed` distinguishes the DEGRADED outcome from the benign
+   * `fixed_columns == 0` pure-LP case: the backend attempted the
+   * fixed-LP dual-recovery pass and had to abandon it (no incumbent,
+   * fixed-LP solve failure, or the CPLEX SOS-support verification
+   * fired).  The MIP primal is preserved (the backend restored its
+   * live state and this interface republished the pre-fix incumbent
+   * through its cache), but duals / reduced costs are UNAVAILABLE —
+   * `duals_unavailable()` is latched and the dual/rc getters return
+   * empty until the next successful solve.  Callers must warn and skip
+   * dual-dependent outputs for the cell instead of publishing garbage.
    */
   struct FixIntegersOutcome
   {
     Index fixed_columns {0};
     std::optional<int> status {};
+    bool bailed {false};
   };
 
   /**
@@ -1984,11 +1996,19 @@ public:
    * returns `{.fixed_columns = 0}` without touching bounds or
    * re-solving, so a pure-LP solve keeps its native duals untouched.
    *
+   * When the backend cannot complete the pass (no incumbent, fixed-LP
+   * solve failure, or the CPLEX SOS-support verification fires) it
+   * BAILS: the live problem is restored to the MIP incumbent, this
+   * interface republishes the pre-fix primal through its cache, and
+   * the outcome carries `bailed = true` with `duals_unavailable()`
+   * latched — see `FixIntegersOutcome`.
+   *
    * @param opts Solver options for the follow-up LP solve (the caller
    *             typically enables `crossover` so vertex duals are
    *             produced).
-   * @return Outcome with the fixed-column count and the re-solve status
-   *         (status absent when no integers were found).
+   * @return Outcome with the fixed-column count, the re-solve status
+   *         (status absent when no integers were found), and the
+   *         `bailed` degraded-outcome flag.
    */
   [[nodiscard]] std::expected<FixIntegersOutcome, Error>
   fix_integers_and_resolve(const SolverOptions& opts = {});
@@ -2023,6 +2043,20 @@ public:
   [[nodiscard]] std::span<const int> sos2_member_cols() const noexcept
   {
     return m_sos2_member_cols_;
+  }
+
+  /// True while the last `fix_integers_and_resolve` BAILED (see
+  /// `FixIntegersOutcome::bailed`): the published primal is the MIP
+  /// incumbent but no LP duals / reduced costs exist for it.  While
+  /// latched, `get_row_dual{,_raw}` and `get_col_cost{,_raw}` return
+  /// empty views so dual-dependent outputs skip gracefully (the
+  /// OutputContext emitters already treat an empty span as "not
+  /// available") instead of publishing whatever the backend's dual
+  /// scratch happens to hold for a MIP.  Cleared on the next
+  /// `initial_solve` / `resolve` / successful fix pass.
+  [[nodiscard]] bool duals_unavailable() const noexcept
+  {
+    return m_duals_unavailable_;
   }
 
   /**
@@ -2304,6 +2338,11 @@ public:
    */
   [[nodiscard]] auto get_col_cost_raw() const -> std::span<const double>
   {
+    // Bailed dual recovery: no reduced costs exist for the preserved
+    // MIP primal — empty view (see `duals_unavailable()`).
+    if (m_duals_unavailable_) {
+      return {};
+    }
     // Single source of truth: prefer the LI cache when populated.
     // See `get_col_sol_raw` for the design rationale.
     if (const auto sp = m_cache_.col_cost(); !sp.empty()) {
@@ -2340,6 +2379,11 @@ public:
   // NOLINTNEXTLINE(bugprone-exception-escape)
   [[nodiscard]] ScaledView get_col_cost() const noexcept
   {
+    // Bailed dual recovery: no reduced costs exist for the preserved
+    // MIP primal — empty view (see `duals_unavailable()`).
+    if (m_duals_unavailable_) {
+      return {};
+    }
     const auto n = get_numcols();
     // Single source of truth: prefer the LI cache when populated.
     // See `get_col_sol_raw` for the design rationale.
@@ -2564,6 +2608,12 @@ public:
    */
   [[nodiscard]] auto get_row_dual_raw() -> std::span<const double>
   {
+    // A bailed dual-recovery pass preserved the MIP primal but has NO
+    // duals for it — return empty (the emitters treat an empty span as
+    // "not available") rather than the backend's MIP dual scratch.
+    if (m_duals_unavailable_) {
+      return {};
+    }
     // Single source of truth: prefer the LI cache when populated.
     // The cached duals were already crossed-over at the time of
     // solve so no further crossover is needed.
@@ -2623,6 +2673,11 @@ public:
    */
   [[nodiscard]] ScaledView get_row_dual()
   {
+    // Bailed dual recovery: no duals exist for the preserved MIP
+    // primal — empty view (see `duals_unavailable()`).
+    if (m_duals_unavailable_) {
+      return {};
+    }
     const auto n = get_numrows();
     // Single source of truth: prefer the LI cache when populated.
     if (const auto sp = m_cache_.row_dual(); !sp.empty()) {
@@ -2973,6 +3028,30 @@ private:
   /// (SOS members are continuous, so they need an explicit incumbent
   /// pin when the MIP is relaxed for dual recovery).
   std::vector<int> m_sos2_member_cols_;
+
+  /// Latched by a BAILED `fix_integers_and_resolve` (see
+  /// `FixIntegersOutcome::bailed` / `duals_unavailable()`): the MIP
+  /// primal was preserved but no duals exist for it, so the dual /
+  /// reduced-cost getters must return empty views instead of the
+  /// backend's MIP dual scratch.  Cleared by
+  /// `clear_dual_recovery_bail_state()` at the start of every solve
+  /// entry point.
+  bool m_duals_unavailable_ {false};
+
+  /// Reset the bail latch above before a new solve supersedes it; also
+  /// drops the incumbent primal that the bail republished through the
+  /// LI cache under `LowMemoryMode::off` (I6 says off owns no LI cache
+  /// — the republish is the one deliberate, bail-scoped exception, and
+  /// it must not shadow the next solve's live-backend solution).
+  void clear_dual_recovery_bail_state() noexcept
+  {
+    if (m_duals_unavailable_) {
+      if (m_low_memory_mode_ == LowMemoryMode::off) {
+        m_cache_.drop_solution_caches();
+      }
+      m_duals_unavailable_ = false;
+    }
+  }
 
   /// Ruiz / equilibration scaling state captured after flatten:
   /// column / row scale vectors, the per-column / per-row objective
