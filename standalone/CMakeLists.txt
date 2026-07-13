@@ -55,9 +55,16 @@ target_link_libraries(
 )
 
 # ---- jemalloc (optional) ----
-# Replace glibc malloc with jemalloc to eliminate per-thread-arena
-# fragmentation on multi-threaded SDDP runs.  ~60 % peak-RSS reduction
-# on gtopt_iplp (15 GB → 8 GB) and ~10 % faster iterations than glibc.
+# Replace glibc malloc with jemalloc on multi-threaded SDDP runs.  IMPORTANT:
+# simply *linking* jemalloc is not enough — with its stock defaults
+# (background_thread:false, dirty_decay_ms:10000) peak RSS stays at glibc-like
+# levels (measured 35.6 GB on the 2-year Maule/Laja CPLEX parity case, vs
+# ~31 GB for glibc).  The win comes from `background_thread:true`, which
+# main.cpp bakes into the binary via the `malloc_conf` symbol (guarded by the
+# GTOPT_HAVE_JEMALLOC define set below): a dedicated purge thread returns pages
+# to the OS off the hot path — measured peak RSS 35.6 -> 25.5 GB (-28%) and
+# wall 19:47 -> 16:43 (-15%) on that case.  Narenas/percpu/decay tuning added
+# nothing.  Override at runtime with the MALLOC_CONF env var.
 # Opt-in via -DGTOPT_USE_JEMALLOC=ON (default ON when jemalloc is found).
 option(GTOPT_USE_JEMALLOC "Link jemalloc as the malloc replacement" ON)
 if(GTOPT_USE_JEMALLOC)
@@ -68,7 +75,10 @@ if(GTOPT_USE_JEMALLOC)
   find_library(JEMALLOC_LIB NAMES jemalloc jemalloc.so.2 libjemalloc.so.2)
   if(JEMALLOC_LIB)
     target_link_libraries(${PROJECT_NAME} ${JEMALLOC_LIB})
-    message(STATUS "gtopt: linking jemalloc: ${JEMALLOC_LIB}")
+    # Enables the `malloc_conf = "background_thread:true"` symbol in main.cpp.
+    target_compile_definitions(${PROJECT_NAME} PRIVATE GTOPT_HAVE_JEMALLOC=1)
+    message(STATUS "gtopt: linking jemalloc: ${JEMALLOC_LIB} "
+                   "(malloc_conf=background_thread:true)")
   else()
     message(WARNING
       "gtopt: jemalloc not found (install libjemalloc-dev); "
