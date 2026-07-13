@@ -430,11 +430,14 @@ def make_parser() -> argparse.ArgumentParser:
     # removed the lossp/lossn kappa contributions — ratio 5.77e+05 on
     # jan18 LP-relax — vs the legacy 0.0.)
     add_loss_cost_eps_argument(parser, dialect="plexos", default=1.0)
-    # plexos2gtopt default = 4 secant chords for the tangent_signed_flow
-    # |f|-aux upper bracket, kept honest in the pure LP by the
-    # loss_cost_eps v-pin above; doubles as the SOS2 lambda-form
-    # resolution on lines with loss_use_sos2.
-    add_loss_secant_segments_argument(parser, default=4)
+    # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
+    # single-secant chord).  Extra secants are inert in pure LP (the
+    # chord is inactive at benign optima; the arbitrage ceiling is
+    # S-independent), so a global S>1 would add ~3 dead columns per
+    # (lossy line, block) — ~140k columns on a PCP week.  Use S>1 PER
+    # LINE together with ``loss_use_sos2`` on flagged corridors, where
+    # it sets the SOS2 lambda-form resolution (MIP runs).
+    add_loss_secant_segments_argument(parser, default=None)
     # plexos2gtopt default = "tangent_signed_flow" (Coffrin outer
     # approximation): one signed flow column + K tangents + 1 chord
     # upper bound per (line, block); 56 % fewer LP nonzeros than the

@@ -129,13 +129,18 @@ def test_build_options_emits_default_loss_cost_eps() -> None:
     assert opts["model_options"]["loss_cost_eps"] == 1.0
 
 
-def test_build_options_emits_default_loss_secant_segments() -> None:
-    # The plp2gtopt default ``--loss-secant-segments 2`` is forwarded as
-    # ``options.model_options.loss_secant_segments`` — the 2-chord
-    # L-secant upper bracket for the default tangent_signed_flow mode.
+def test_build_options_omits_loss_secant_segments_by_default() -> None:
+    # ``--loss-secant-segments`` defaults to UNSET: extra secants are
+    # inert in pure LP (chord inactive at benign optima; arbitrage
+    # ceiling S-independent), so the converter emits nothing and gtopt
+    # resolves S=1.  S>1 is a per-line, SOS2-paired opt-in.
     args = _parse()
     opts = build_options(args)
-    assert opts["model_options"]["loss_secant_segments"] == 2
+    assert "loss_secant_segments" not in opts["model_options"]
+
+    args_explicit = _parse("--loss-secant-segments", "4")
+    opts_explicit = build_options(args_explicit)
+    assert opts_explicit["model_options"]["loss_secant_segments"] == 4
 
 
 def test_build_options_emits_explicit_zero_loss_cost_eps() -> None:

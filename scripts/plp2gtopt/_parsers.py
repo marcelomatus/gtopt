@@ -1102,10 +1102,14 @@ def add_model_arguments(parser: argparse.ArgumentParser, conf: dict[str, str]) -
     # aggressive presolve / Ruiz scaling.  Pass ``--loss-cost-eps 0``
     # to disable.
     add_loss_cost_eps_argument(parser, dialect="plp", default=1.0)
-    # ``loss_secant_segments`` defaults to 2 for plp2gtopt: a 2-chord
-    # L-secant upper bracket on the tangent_signed_flow |f|-aux, kept
-    # honest in the pure LP by the loss_cost_eps v-pin above.
-    add_loss_secant_segments_argument(parser, default=2)
+    # ``loss_secant_segments`` default: UNSET (gtopt resolves S=1, the
+    # single-secant chord).  Extra secants are inert in pure LP — the
+    # chord is inactive at benign optima (accuracy is governed by the
+    # K tangents) and the arbitrage ceiling c·env² is S-independent —
+    # so a global S>1 only adds dead columns to the SDDP LPs.  S>1
+    # belongs PER LINE, together with ``loss_use_sos2``, on flagged
+    # corridors where the SOS2 exact bracket is wanted (MIP runs).
+    add_loss_secant_segments_argument(parser, default=None)
     add_lift_line_caps_argument(parser, dialect="plp")
     parser.add_argument(
         "--plp-legacy",
