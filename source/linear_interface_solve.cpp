@@ -362,8 +362,16 @@ LinearInterface::fix_integers_and_resolve(const SolverOptions& opts)
   // fix and read — so this is intentionally NOT routed through the LI
   // replay log; the fixed LP is a throwaway whose sole product is the
   // committed-solution duals.
+  //
+  // `sos2_member_cols()` hands the backend the SOS2 member columns
+  // recorded at `load_flat`: they are CONTINUOUS, so the integer pin
+  // alone leaves them free, and an SOS set is inert in the pure LP
+  // re-solve — the members must be pinned to the incumbent too or the
+  // fixed LP re-optimizes them to SOS-infeasible vertices (λ-form loss
+  // ladders re-inflate to the envelope under negative dual pair-sums).
   const auto t0 = Clock::now();
-  const int fixed = m_backend_->fix_mip_and_resolve_duals(effective);
+  const int fixed =
+      m_backend_->fix_mip_and_resolve_duals(effective, sos2_member_cols());
   m_solver_stats_.total_solve_time_s +=
       std::chrono::duration<double>(Clock::now() - t0).count();
 

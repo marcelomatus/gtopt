@@ -2113,24 +2113,30 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   // A MIP solution carries no LP duals (shadow prices) or reduced costs,
   // so a UC run with binary commitment columns would write empty
   // `balance_dual.parquet` and no bus LMPs.  When the caller requested
-  // duals and/or reduced costs AND the problem actually contains integer
-  // columns, run the standard recovery technique: pin every integer to
-  // its rounded MIP value, relax integrality, and re-solve the resulting
-  // pure LP — whose row duals / reduced costs are the correct marginal
-  // prices given the committed integer solution.  The primal stays the
-  // MIP primal (integers pinned to their optimal values).
+  // duals and/or reduced costs AND the problem actually contains discrete
+  // structure (integer columns and/or SOS2 sets), run the standard
+  // recovery technique: pin every integer to its rounded MIP value, pin
+  // every SOS-member column to its incumbent value (SOS members are
+  // continuous, and the SOS declaration is inert in a pure LP — leaving
+  // them free would let the re-solve replace the SOS-feasible incumbent
+  // with an arbitrage vertex), relax integrality, and re-solve the
+  // resulting pure LP — whose row duals / reduced costs are the correct
+  // marginal prices given the committed discrete solution.  The primal
+  // stays the MIP primal: integers pinned to their optimal values, SOS
+  // supports pinned to the incumbent's segment choice.
   //
   // Gated tightly so pure-LP solves and runs that don't need duals pay
-  // nothing: the `has_integer_cols()` scan only runs when dual/rc output
-  // is requested, and `fix_integers_and_resolve` itself is a no-op when
-  // no integer column exists.  Enable crossover on the follow-up solve so
+  // nothing: the O(1) `sos2_set_count()` check and the
+  // `has_integer_cols()` scan only run when dual/rc output is requested,
+  // and `fix_integers_and_resolve` itself is a no-op when no discrete
+  // structure exists.  Enable crossover on the follow-up solve so
   // a barrier backend produces clean vertex duals — `automatic` lets CPLEX
   // pick the cheaper of primal/dual crossover (the monolithic dual-recovery
   // pass does not need a specific algorithm, only a basic/vertex solution).
   const auto sel = options().write_out();
   const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
       || has_flag(sel.atoms, OutputFlags::reduced_cost);
-  if (wants_duals && li.has_integer_cols()) {
+  if (wants_duals && (li.sos2_set_count() > 0 || li.has_integer_cols())) {
     auto lp_opts = solver_options;
     lp_opts.crossover = CrossoverMode::automatic;
     auto fix = li.fix_integers_and_resolve(lp_opts);

@@ -923,6 +923,12 @@ LinearInterface LinearInterface::clone(CloneKind kind) const
   // ``FlatLinearProblem::sos2_sets`` and therefore does not need this
   // line.
   cloned.m_sos2_set_count_ = m_sos2_set_count_;
+  // The member-column record must follow the counter for the same
+  // reason: the fix-integers dual-recovery pass pins SOS members via
+  // ``sos2_member_cols()`` — a clone with a positive set count but an
+  // empty member record would silently skip the pin and republish the
+  // freed-λ arbitrage vertex this record exists to prevent.
+  cloned.m_sos2_member_cols_ = m_sos2_member_cols_;
   cloned.m_scaling_.equilibration_method = m_scaling_.equilibration_method;
   cloned.m_base_numrows_ = m_base_numrows_;
   cloned.m_base_numrows_set_ = m_base_numrows_set_;
@@ -1277,12 +1283,23 @@ void LinearInterface::load_flat(const FlatLinearProblem& flat_lp)
   // unconditionally for ``sos2_set_count()`` so the issue #504
   // tests can observe the schema → LP-build → backend forward path
   // without invoking a solver-specific SOS2 query API.
+  // The flattened member record mirrors exactly the sets forwarded
+  // below (vacuous size < 2 sets skipped).  It feeds the fix-integers
+  // dual-recovery pass: SOS members are CONTINUOUS columns and the SOS
+  // declaration is inert in a pure LP re-solve, so
+  // `fix_integers_and_resolve` must pin them to the MIP incumbent
+  // explicitly (see `SolverBackend::fix_mip_and_resolve_duals`).
+  // Cleared first so a reconstruct-time reload does not accumulate
+  // duplicates.
   m_sos2_set_count_ = 0;
+  m_sos2_member_cols_.clear();
   for (const auto& set : flat_lp.sos2_sets) {
     if (set.size() < 2) {
       continue;
     }
     m_backend_->add_sos2(std::span<const int> {set.data(), set.size()});
+    m_sos2_member_cols_.insert(
+        m_sos2_member_cols_.end(), set.begin(), set.end());
     ++m_sos2_set_count_;
   }
 

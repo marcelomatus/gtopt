@@ -414,7 +414,11 @@ auto SDDPMethod::forward_pass(SceneIndex scene_index,
       const auto sel = planning_lp().options().write_out();
       const bool wants_duals = has_flag(sel.atoms, OutputFlags::dual)
           || has_flag(sel.atoms, OutputFlags::reduced_cost);
-      if (wants_duals && li.has_integer_cols()) {
+      // SOS2 sets count as discrete structure too: their member columns
+      // are continuous, so the MIP solve carries no duals and the
+      // recovery pass must run (and pin the SOS support) exactly as for
+      // integer columns — see SolverBackend::fix_mip_and_resolve_duals.
+      if (wants_duals && (li.sos2_set_count() > 0 || li.has_integer_cols())) {
         auto fix = li.fix_integers_and_resolve(effective_opts);
         if (!fix) {
           SPDLOG_WARN(

@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <format>
 #include <memory>
@@ -40,7 +41,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 14;
+inline constexpr int k_solver_abi_version = 15;
 
 /// Per-solve effort reported by a backend: wall `seconds` plus deterministic
 /// `ticks` (a load-independent work unit).  Conventions for backends lacking
@@ -399,34 +400,55 @@ public:
     return static_cast<int>(integer_cols.size());
   }
 
-  /// Fix every integer column to its incumbent (MIP-optimal) value and
+  /// Fix every discrete decision to its incumbent (MIP-optimal) value and
   /// re-solve as an LP to recover row duals / reduced costs, warm-started
   /// where the backend supports it.  Called right after a MIP `resolve()`
   /// on the live backend; the fixed LP is a throwaway whose only product
   /// is the committed-solution duals.
   ///
-  /// Output is the COMMITTED-solution duals (integers pinned to the
-  /// incumbent), identical to the portable default path — only wall-clock
-  /// differs.
+  /// "Discrete decision" covers BOTH integer/binary columns AND the
+  /// support of every SOS set: SOS-member columns are CONTINUOUS and an
+  /// SOS declaration is inert in a pure LP re-solve, so leaving the
+  /// members free would let the fixed LP re-optimize them WITHOUT the
+  /// adjacency constraint.  Concretely, for the SOS2 λ-form line-loss
+  /// ladder under a negative bus-dual pair-sum, λ mass migrates to
+  /// NON-ADJACENT breakpoints (SOS2-infeasible) and the loss column
+  /// re-inflates to its envelope ceiling — silently replacing the
+  /// SOS2-feasible MIP incumbent in the published solution.  Pinning the
+  /// SOS members to the incumbent keeps the documented dual semantic:
+  /// duals are conditional on the incumbent's discrete choices — SOS
+  /// segment choices included.
+  ///
+  /// Output is the COMMITTED-solution duals (integers and SOS members
+  /// pinned to the incumbent), identical to the portable default path —
+  /// only wall-clock differs.
   ///
   /// Default (portable) path: gather integer columns via `is_integer`,
   /// read the current column solution (`col_solution`), pin each integer
-  /// column to `std::round(value)` on both bounds, `relax_all_integers`,
+  /// column to `std::round(value)` on both bounds, pin each SOS-member
+  /// column to its (continuous) incumbent value, `relax_all_integers`,
   /// `apply_options(opts)`, then `resolve()`.  This default is already
   /// warm on Clp/OSI (its `resolve()` retains the basis) and correct
   /// everywhere.  CPLEX overrides with the single-call `CPXPROB_FIXEDMILP`
-  /// fast path (fixes integers AND installs the incumbent-node basis, then
-  /// a warm dual-simplex re-solve — no barrier, no crossover).
+  /// fast path (fixes integers AND the SOS support AND installs the
+  /// incumbent-node basis, then a warm dual-simplex re-solve — no
+  /// barrier, no crossover).
   ///
   /// @param opts Solver options for the follow-up LP solve (the caller
   ///             typically enables `crossover` so a barrier backend
   ///             produces clean vertex duals).
-  /// @return Number of fixed integer columns: `0` = pure LP / nothing to
-  ///         do (caller's existing duals already valid); `> 0` = fixed and
-  ///         re-solved (caller must refresh its solution cache from the
-  ///         backend); `< 0` = no incumbent / failure (caller keeps the
-  ///         MIP result untouched).
-  virtual int fix_mip_and_resolve_duals(const SolverOptions& opts)
+  /// @param sos_member_cols Flattened member-column indices of every SOS
+  ///             set previously declared via `add_sos2` (the caller —
+  ///             `LinearInterface` — records them at `load_flat`; the
+  ///             backend does not track SOS membership itself).  Empty
+  ///             for the vast majority of MIPs.
+  /// @return Number of pinned columns (integers + SOS members): `0` =
+  ///         pure LP / nothing to do (caller's existing duals already
+  ///         valid); `> 0` = fixed and re-solved (caller must refresh its
+  ///         solution cache from the backend); `< 0` = no incumbent /
+  ///         failure (caller keeps the MIP result untouched).
+  virtual int fix_mip_and_resolve_duals(const SolverOptions& opts,
+                                        std::span<const int> sos_member_cols)
   {
     const int n = get_num_cols();
     // Read the current (MIP-optimal) primal BEFORE any bound mutation —
@@ -434,6 +456,15 @@ public:
     const double* sol = col_solution();
     if (sol == nullptr) {
       return -1;  // no incumbent solution available
+    }
+
+    // Snapshot the SOS-member incumbent values up-front for the same
+    // reason — their pins land after the integer loop below has already
+    // mutated bounds.
+    std::vector<double> sos_incumbent;
+    sos_incumbent.reserve(sos_member_cols.size());
+    for (const int c : sos_member_cols) {
+      sos_incumbent.push_back((c >= 0 && c < n) ? sol[c] : 0.0);
     }
 
     int fixed = 0;
@@ -447,6 +478,20 @@ public:
         ++fixed;
       }
     }
+
+    // Pin the SOS-member columns to the incumbent (see the contract
+    // above).  Continuous values — no rounding.  A column that is both
+    // integer and SOS member is already pinned by the loop above.
+    for (std::size_t k = 0; k < sos_member_cols.size(); ++k) {
+      const int c = sos_member_cols[k];
+      if (c < 0 || c >= n || is_integer(c)) {
+        continue;
+      }
+      set_col_lower(c, sos_incumbent[k]);
+      set_col_upper(c, sos_incumbent[k]);
+      ++fixed;
+    }
+
     if (fixed == 0) {
       return 0;  // pure LP — caller's duals are already valid
     }

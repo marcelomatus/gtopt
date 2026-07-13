@@ -169,7 +169,8 @@ public:
   [[nodiscard]] bool is_continuous(int index) const override;
   [[nodiscard]] bool is_integer(int index) const override;
   int relax_all_integers() override;
-  int fix_mip_and_resolve_duals(const SolverOptions& opts) override;
+  int fix_mip_and_resolve_duals(const SolverOptions& opts,
+                                std::span<const int> sos_member_cols) override;
 
   // ---- SOS sets ----
   /// Delegates to ``CPXaddsos`` with sostype 2 (CPX_TYPE_SOS2).  See

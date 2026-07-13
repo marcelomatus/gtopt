@@ -9,10 +9,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <format>
 #include <numeric>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -1167,7 +1169,8 @@ int CplexSolverBackend::relax_all_integers()
   return relaxed;
 }
 
-int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
+int CplexSolverBackend::fix_mip_and_resolve_duals(
+    const SolverOptions& opts, const std::span<const int> sos_member_cols)
 {
   auto* env = m_env_lp_.env();
   auto* lp = m_env_lp_.lp();
@@ -1193,6 +1196,37 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   //    every column is continuous, so the counts must be read now.
   const int fixed = CPXgetnumint(env, lp) + CPXgetnumbin(env, lp);
 
+  // 3b. Snapshot the incumbent values of every SOS-member column BEFORE
+  //     the type flip.  `CPXPROB_FIXEDMILP` fixes the incumbent's
+  //     DISCRETE decisions — the integer/binary columns AND the SOS
+  //     support: members at zero in the incumbent are pinned to [0, 0],
+  //     while the (at most two, adjacent for SOS2) nonzero members keep
+  //     their original bounds so movement within the chosen segment
+  //     stays feasible.  That is exactly the committed-solution dual
+  //     semantic (duals conditional on the chosen segment pair) —
+  //     verified empirically on CPLEX 22.1.1.  A direct `CPXchgbds`
+  //     re-pin on the fixed problem is NOT possible: while the
+  //     FIXEDMILP view is active every modification routine fails with
+  //     CPXERR_NOT_ONE_PROBLEM ("Not a single problem").  So instead of
+  //     pinning we VERIFY after the fixed solve that the incumbent's
+  //     SOS support survived, and bail to the MIP result if a CPLEX
+  //     version ever leaves the support free (an unpinned SOS2 λ ladder
+  //     re-inflates line losses to the envelope ceiling under negative
+  //     bus-dual pair-sums — see test_fix_integers_sos2_duals.cpp).
+  const int ncols = CPXgetnumcols(env, lp);
+  std::vector<double> sos_incumbent;
+  if (!sos_member_cols.empty() && ncols > 0) {
+    std::vector<double> x(static_cast<std::size_t>(ncols));
+    if (CPXgetx(env, lp, x.data(), 0, ncols - 1) != 0) {
+      return -1;
+    }
+    sos_incumbent.reserve(sos_member_cols.size());
+    for (const int c : sos_member_cols) {
+      sos_incumbent.push_back(
+          (c >= 0 && c < ncols) ? x[static_cast<std::size_t>(c)] : 0.0);
+    }
+  }
+
   // 4. `CPXPROB_FIXEDMILP` fixes every discrete variable to its incumbent
   //    value AND installs the incumbent node's optimal simplex basis.  A
   //    warm simplex off that basis is a handful of pivots — no barrier, no
@@ -1201,6 +1235,11 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   if (CPXchgprobtype(env, lp, CPXPROB_FIXEDMILP) != 0) {
     return -1;
   }
+
+  // The type flip rewrote column bounds (discrete + zero-SOS-member
+  // columns are now fixed) and ctypes — drop the per-call bound/obj
+  // caches so later readers see the fixed problem, not the MIP.
+  invalidate_problem_data();
 
   // 5. Apply the caller options for the fixed pass, but DO NOT re-read the
   //    bundled barrier `cplex.prm` — that file forces `LPMethod 4` (barrier)
@@ -1255,7 +1294,45 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(const SolverOptions& opts)
   if (CPXgetstat(env, lp) != CPX_STAT_OPTIMAL) {
     return -1;
   }
-  return fixed;
+
+  // 8b. Verify the incumbent's SOS support survived the fixed pass:
+  //     members that were (near) zero in the incumbent must still be
+  //     (near) zero.  Members inside the support may move within their
+  //     segment — that is the documented FIXEDMILP dual semantic, not a
+  //     violation.  On violation the fixed-LP primal is NOT the
+  //     committed solution (SOS-infeasible arbitrage vertex): bail out
+  //     so the caller keeps the MIP result untouched.
+  if (!sos_incumbent.empty()) {
+    std::vector<double> x(static_cast<std::size_t>(ncols));
+    if (CPXgetx(env, lp, x.data(), 0, ncols - 1) != 0) {
+      return -1;
+    }
+    constexpr double support_tol = 1e-6;
+    for (std::size_t k = 0; k < sos_member_cols.size(); ++k) {
+      const int c = sos_member_cols[k];
+      if (c < 0 || c >= ncols) {
+        continue;
+      }
+      if (std::abs(sos_incumbent[k]) <= support_tol
+          && std::abs(x[static_cast<std::size_t>(c)]) > support_tol)
+      {
+        SPDLOG_WARN(
+            "CplexSolverBackend::fix_mip_and_resolve_duals: fixed-LP "
+            "solve moved SOS-member column {} off the incumbent support "
+            "({} -> {}) — FIXEDMILP did not pin the SOS support on this "
+            "CPLEX version; keeping the MIP result (duals unavailable)",
+            c,
+            sos_incumbent[k],
+            x[static_cast<std::size_t>(c)]);
+        return -1;
+      }
+    }
+  }
+
+  // Include the SOS-member columns in the reported count: an SOS-only
+  // MIP (no integer columns) must still report > 0 so the caller
+  // refreshes its solution/dual cache from the fixed-LP solve.
+  return fixed + static_cast<int>(sos_member_cols.size());
 }
 
 void CplexSolverBackend::invalidate_problem_data() const noexcept

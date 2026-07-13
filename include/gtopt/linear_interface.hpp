@@ -1953,6 +1953,14 @@ public:
    * costs, which are the correct marginal prices given the committed
    * integer solution.
    *
+   * SOS2 sets get the same treatment: their member columns (recorded at
+   * `load_flat`, see `sos2_member_cols()`) are pinned to the incumbent
+   * because an SOS declaration is inert in the pure LP re-solve — a
+   * freed λ ladder would re-optimize to SOS-infeasible vertices and the
+   * published primal would no longer be the MIP incumbent.  The
+   * recovered duals are conditional on the incumbent's discrete
+   * choices, SOS segment choices included.
+   *
    * Pre-condition: a successful MIP `resolve()` / `initial_solve()`
    * must have just completed on a live (or reconstructable) backend so
    * `get_col_sol_raw()` returns the MIP-optimal primal vector.  The
@@ -2001,6 +2009,20 @@ public:
   [[nodiscard]] std::size_t sos2_set_count() const noexcept
   {
     return m_sos2_set_count_;
+  }
+
+  /// Flattened member-column indices of every SOS2 set pushed to the
+  /// backend during ``load_flat`` (source of truth:
+  /// ``FlatLinearProblem::sos2_sets``).  SOS members are CONTINUOUS
+  /// columns, so the fix-integers dual-recovery pass must pin them to
+  /// the MIP incumbent explicitly — an SOS declaration is inert in a
+  /// pure LP re-solve and a freed λ ladder re-optimizes to
+  /// SOS-infeasible vertices.  Passed to
+  /// ``SolverBackend::fix_mip_and_resolve_duals`` by
+  /// ``fix_integers_and_resolve``.  Empty for the vast majority of LPs.
+  [[nodiscard]] std::span<const int> sos2_member_cols() const noexcept
+  {
+    return m_sos2_member_cols_;
   }
 
   /**
@@ -2944,6 +2966,13 @@ private:
   /// and exposed read-only via ``sos2_set_count()`` for issue #504
   /// unit tests.  ``0`` for the vast majority of LPs.
   std::size_t m_sos2_set_count_ {0};
+
+  /// Flattened member columns of the SOS2 sets counted above, captured
+  /// at ``load_flat`` from ``FlatLinearProblem::sos2_sets`` and exposed
+  /// via ``sos2_member_cols()`` for the fix-integers dual-recovery pass
+  /// (SOS members are continuous, so they need an explicit incumbent
+  /// pin when the MIP is relaxed for dual recovery).
+  std::vector<int> m_sos2_member_cols_;
 
   /// Ruiz / equilibration scaling state captured after flatten:
   /// column / row scale vectors, the per-column / per-row objective
