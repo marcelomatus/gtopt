@@ -780,7 +780,7 @@ void CplexSolverBackend::set_obj_coeffs(const double* values, int num_cols)
     return;
   }
   std::vector<int> indices(static_cast<size_t>(num_cols));
-  std::iota(indices.begin(), indices.end(), 0);
+  std::ranges::iota(indices, 0);
   CPXchgobj(m_env_lp_.env(), m_env_lp_.lp(), num_cols, indices.data(), values);
 }
 
@@ -1689,7 +1689,7 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
                                        MipStartEffort effort)
 {
   const int ncols = CPXgetnumcols(m_env_lp_.env(), m_env_lp_.lp());
-  if (col_values.empty() || static_cast<int>(col_values.size()) != ncols) {
+  if (col_values.empty() || std::cmp_not_equal(col_values.size(), ncols)) {
     return false;
   }
 
@@ -1713,29 +1713,49 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
       break;
   }
 
-  // SPARSE start over the INTEGER columns only — NOT a dense all-columns
-  // start.  The caller hands us a dense vector whose continuous entries are the
-  // LP-relaxation dispatch, which is inconsistent with the ROUNDED integers; a
-  // dense start makes CHECKFEAS reject on those continuous columns even when
-  // the integer commitment is feasible.  Feeding only the integer (status /
-  // startup / shutdown / …) columns lets CPLEX complete a consistent continuous
-  // dispatch itself — the intended "seed the commitment, let the solver
-  // dispatch" behaviour.  Continuous columns are identified by their ctype
-  // (restored by restore_integers before this call).
-  std::vector<char> ctype(static_cast<std::size_t>(ncols));
-  if (CPXgetctype(m_env_lp_.env(), m_env_lp_.lp(), ctype.data(), 0, ncols - 1)
-      != 0)
-  {
-    return false;  // no ctype info (pure LP / not a MIP) — nothing to seed
-  }
+  // Start shape depends on what the effort level PROMISES CPLEX:
+  //
+  //  - CHECKFEAS / NOCHECK trust the caller's values verbatim, so they get
+  //    the COMPLETE dense start (all columns).  CPLEX cannot check the
+  //    feasibility of a PARTIAL start — a sparse integer-only start under
+  //    CHECKFEAS is discarded at mipopt with "No solution found from N MIP
+  //    starts" even when the integers are the exact optimum (the CEN UC
+  //    round-trip bug).  The caller contract for these efforts is a
+  //    complete, consistent solution (e.g. a `FileMipStart` replay of a
+  //    dumped optimum), which CHECKFEAS verifies and accepts.
+  //
+  //  - SOLVEFIXED / SOLVEMIP / REPAIR recompute the continuous dispatch, so
+  //    they keep the SPARSE start over the INTEGER columns only: the dense
+  //    vector's continuous entries are typically the LP-relaxation dispatch
+  //    (round+rules candidate), inconsistent with the rounded integers, and
+  //    would only mislead the repair.  Feeding only the integer (status /
+  //    startup / shutdown / …) columns lets CPLEX complete a consistent
+  //    continuous dispatch itself — the intended "seed the commitment, let
+  //    the solver dispatch" behaviour.  Continuous columns are identified by
+  //    their ctype (restored by restore_integers before this call).
+  const bool trust_values = effort == MipStartEffort::check_feasibility
+      || effort == MipStartEffort::no_check;
   std::vector<int> indices;
   std::vector<double> values;
   indices.reserve(static_cast<std::size_t>(ncols));
   values.reserve(static_cast<std::size_t>(ncols));
-  for (int j = 0; j < ncols; ++j) {
-    if (ctype[static_cast<std::size_t>(j)] != CPX_CONTINUOUS) {
+  if (trust_values) {
+    for (int j = 0; j < ncols; ++j) {
       indices.push_back(j);
       values.push_back(col_values[static_cast<std::size_t>(j)]);
+    }
+  } else {
+    std::vector<char> ctype(static_cast<std::size_t>(ncols));
+    if (CPXgetctype(m_env_lp_.env(), m_env_lp_.lp(), ctype.data(), 0, ncols - 1)
+        != 0)
+    {
+      return false;  // no ctype info (pure LP / not a MIP) — nothing to seed
+    }
+    for (int j = 0; j < ncols; ++j) {
+      if (ctype[static_cast<std::size_t>(j)] != CPX_CONTINUOUS) {
+        indices.push_back(j);
+        values.push_back(col_values[static_cast<std::size_t>(j)]);
+      }
     }
   }
   if (indices.empty()) {
@@ -1950,8 +1970,7 @@ CplexSolverBackend::diagnose_infeasibility(int max_items)
   std::vector<std::string> conflicts;
   const int cap = (max_items > 0) ? max_items : outrows;
   conflicts.reserve(static_cast<std::size_t>(std::min(outrows, cap)));
-  for (int k = 0; k < outrows && static_cast<int>(conflicts.size()) < cap; ++k)
-  {
+  for (int k = 0; k < outrows && std::cmp_less(conflicts.size(), cap); ++k) {
     if (rowbdstat[static_cast<std::size_t>(k)] == CPX_CONFLICT_MEMBER) {
       conflicts.push_back(row_name(rowind[static_cast<std::size_t>(k)]));
     }
@@ -1965,7 +1984,7 @@ namespace
 // ticks (CPXgetdettime) as a per-solve delta on the env.  The generic
 // SolveEffort accounting (SolveEffortTotals, accumulated in LinearInterface)
 // reads this via last_solve_effort().
-[[nodiscard]] SolveEffort capture_cplex_effort(cpxenv* env,
+[[nodiscard]] SolveEffort capture_cplex_effort(const cpxenv* env,
                                                double t0_ticks,
                                                double t0_secs)
 {
@@ -2110,12 +2129,8 @@ bool CplexSolverBackend::is_proven_optimal() const
   // LinearInterface algorithm-fallback ladder re-solves (and, failing that,
   // the SDDP elastic/fallback path handles it) instead of trusting NaN.
   double obj = 0.0;
-  if (CPXgetobjval(m_env_lp_.env(), m_env_lp_.lp(), &obj) != 0
-      || !std::isfinite(obj))
-  {
-    return false;
-  }
-  return true;
+  return CPXgetobjval(m_env_lp_.env(), m_env_lp_.lp(), &obj) == 0
+      && std::isfinite(obj);
 }
 
 bool CplexSolverBackend::is_abandoned() const

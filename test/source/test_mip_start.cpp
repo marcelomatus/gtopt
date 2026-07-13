@@ -560,7 +560,10 @@ TEST_CASE(
 // real MIP solve, then dump).  Gated on a MIP solver because the dump must
 // read a SOLVED integer primal — `set_integer` before the solve is exactly the
 // production path, and re-reading the cached primal after a post-hoc
-// `set_integer` is invalid on some backends.
+// `set_integer` is invalid on some backends.  The dump is COMPLETE (integer
+// and continuous columns), so the replay reconstructs the source solution
+// verbatim — including the continuous values, which take precedence over the
+// destination's own relaxation primal.
 TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
 {
   SolverRegistry& reg = SolverRegistry::instance();
@@ -639,7 +642,9 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
   REQUIRE(start.has_value());
   CHECK((*start)[0] == doctest::Approx(1.0));  // dumped MIP value
   CHECK((*start)[1] == doctest::Approx(0.0));  // dumped MIP value
-  CHECK((*start)[2] == doctest::Approx(2.0));  // dst continuous, untouched
+  CHECK((*start)[2] == doctest::Approx(3.0));  // dumped continuous value —
+  // the complete dump wins over the dst relaxation (2.0): replaying it must
+  // reconstruct the SOURCE solution, not an integers-over-relaxation mix.
 
   std::filesystem::remove(path);
 }

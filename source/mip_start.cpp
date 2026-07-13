@@ -50,7 +50,9 @@ namespace detail
 /// base the remaining rules repair) and runs the default `DomainRulePipeline`
 /// (min-up/down, commitment-logic v/w, …).  Shared by the round-from-relaxation
 /// generator and the seed-only (no-relaxation) path.
-void apply_seed_and_domain_rules(MipStartContext& ctx,
+namespace
+{
+void apply_seed_and_domain_rules(const MipStartContext& ctx,
                                  std::vector<double>& start,
                                  std::string_view generator_name)
 {
@@ -81,8 +83,24 @@ void apply_seed_and_domain_rules(MipStartContext& ctx,
   }
 }
 
+/// Seed-only start: no LP relaxation.  Builds a zero base of width `ncols`
+/// and lets the seed + commitment-logic domain rules set every integer
+/// commitment column directly.  Continuous columns stay at 0 (a
+/// sparse-injecting backend like CPLEX drops them and completes the dispatch
+/// as its warm root LP).
+[[nodiscard]] std::vector<double> seed_only_start(
+    const MipStartContext& ctx, std::string_view generator_name)
+{
+  const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
+  std::vector<double> start(ncols, 0.0);
+  apply_seed_and_domain_rules(ctx, start, generator_name);
+  return start;
+}
+
+}  // namespace
+
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
-    MipStartContext& ctx, std::string_view generator_name)
+    const MipStartContext& ctx, std::string_view generator_name)
 {
   auto& li = ctx.li;
   const auto sol = li.get_col_sol_raw();
@@ -101,19 +119,6 @@ void apply_seed_and_domain_rules(MipStartContext& ctx,
     start[u] = round_with_threshold(sol[u], threshold, l, h);
   }
   // Stage 2 — domain rules (power-system knowledge: min-up/down, …).
-  apply_seed_and_domain_rules(ctx, start, generator_name);
-  return start;
-}
-
-/// Seed-only start: no LP relaxation.  Builds a zero base of width `ncols` and
-/// lets the seed + commitment-logic domain rules set every integer commitment
-/// column directly.  Continuous columns stay at 0 (a sparse-injecting backend
-/// like CPLEX drops them and completes the dispatch as its warm root LP).
-[[nodiscard]] std::vector<double> seed_only_start(
-    MipStartContext& ctx, std::string_view generator_name)
-{
-  const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
-  std::vector<double> start(ncols, 0.0);
   apply_seed_and_domain_rules(ctx, start, generator_name);
   return start;
 }
@@ -146,17 +151,20 @@ public:
   }
 };
 
-/// File generator: replay an integer solution dumped by a previous solve
+/// File generator: replay a solution dumped by a previous solve
 /// (`dump_integer_solution`).  The dumped `<index> <value>` lines carry the
-/// integer-column raw values found by another solver; this overlays them onto
-/// THIS solver's own LP-relaxation primal (the continuous columns stay at the
-/// relaxation value, exactly like `warmstart`, but the integer columns come
-/// from the file instead of rounding).  Enables a cross-solver hand-off: e.g.
-/// HiGHS (strong MIP heuristics) finds a feasible incumbent and dumps it, then
-/// cuOpt replays it as its start.  Both runs build the identical deterministic
-/// flat LP, so raw column indices match 1:1 — validated by the `ncols` header
-/// and a per-index integer-column membership check (no silent skip on
-/// mismatch).
+/// COMPLETE raw solution (integer AND continuous columns) found by another
+/// run; every dumped column overlays the start, so replaying a complete
+/// optimal dump reconstructs the exact optimum — a CONSISTENT start that a
+/// strict backend feasibility check (CPLEX CHECKFEAS) accepts.  Legacy
+/// integer-only dumps still work: columns absent from the file keep this
+/// solver's own LP-relaxation primal when one is available (the pre-2026-07
+/// behaviour), and a zero base otherwise.  Overlaying optimal integers onto
+/// the RELAXATION continuous produced a mutually inconsistent start that
+/// CPLEX rejected with "No solution found from 1 MIP starts" even when the
+/// integers were the exact optimum — the CEN UC round-trip bug.  Both runs
+/// build the identical deterministic flat LP, so raw column indices match
+/// 1:1 — validated by the `ncols` header (a mismatched dump is refused).
 class FileMipStart final : public MipStartGenerator
 {
 public:
@@ -181,17 +189,34 @@ public:
       return std::nullopt;
     }
 
-    const auto sol = ctx.li.get_col_sol_raw();  // RAW relaxation primal = base
-    if (sol.empty()) {
-      return std::nullopt;
-    }
     const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
     const std::unordered_set<int> int_set(ctx.int_cols.begin(),
                                           ctx.int_cols.end());
 
-    std::vector<double> start(sol.begin(), sol.end());
+    // Base for columns the dump does not cover (legacy integer-only dumps):
+    // the destination's own relaxation primal when available, zeros
+    // otherwise.  MUST NOT bail on an empty primal — the dump itself is the
+    // start; bailing here silently dropped the file replay (and the pipeline
+    // fell back to the round candidate).  A complete dump overlays every
+    // column, so the base then only pads structural gaps.
+    const auto sol = ctx.li.get_col_sol_raw();
+    std::vector<double> start;
+    if (sol.size() == ncols) {
+      start.assign(sol.begin(), sol.end());
+    } else {
+      if (!sol.empty()) {
+        spdlog::warn(
+            "MIP-start[file]: relaxation primal size {} != ncols {}; using a "
+            "zero base under the dumped values",
+            sol.size(),
+            ncols);
+      }
+      start.assign(ncols, 0.0);
+    }
+
     std::size_t file_ncols = 0;
-    std::size_t placed = 0;
+    std::size_t placed_int = 0;
+    std::size_t placed_cont = 0;
     std::size_t skipped = 0;
     std::string token;
     while (in >> token) {
@@ -223,30 +248,37 @@ public:
       } catch (const std::exception&) {
         continue;  // not an index token; skip
       }
-      if (!(in >> value)) {
+      in >> value;
+      if (in.fail()) {
         break;
       }
       const auto u = static_cast<std::size_t>(idx);
-      if (idx < 0 || u >= ncols || !int_set.contains(idx)) {
+      if (idx < 0 || u >= ncols) {
         ++skipped;
         continue;
       }
       start[u] = value;
-      ++placed;
+      if (int_set.contains(idx)) {
+        ++placed_int;
+      } else {
+        ++placed_cont;
+      }
     }
 
-    if (placed == 0) {
+    if (placed_int == 0) {
       spdlog::error(
           "MIP-start[file]: dump '{}' yielded no usable integer values "
-          "(placed=0, skipped={})",
+          "(continuous placed={}, out-of-range skipped={})",
           *path,
+          placed_cont,
           skipped);
       return std::nullopt;
     }
     spdlog::info(
-        "MIP-start[file]: replayed {} integer values from '{}' ({} skipped, "
-        "{} integer cols in this LP)",
-        placed,
+        "MIP-start[file]: replayed {} integer + {} continuous values from "
+        "'{}' ({} skipped, {} integer cols in this LP)",
+        placed_int,
+        placed_cont,
         *path,
         skipped,
         ctx.int_cols.size());
@@ -334,13 +366,13 @@ std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
   }
   const int ncols = static_cast<int>(li.get_numcols());
 
-  // Collect integer columns + their raw values (integrality must still be
-  // intact at the call site — before any dual-recovery relaxation).
-  std::vector<std::pair<int, double>> ints;
-  ints.reserve((static_cast<std::size_t>(ncols) / 8) + 1);
+  // Count the integer columns for the informational `nint` header
+  // (integrality must still be intact at the call site — before any
+  // dual-recovery relaxation).
+  std::size_t nint = 0;
   for (int i = 0; i < ncols; ++i) {
     if (li.is_integer(ColIndex {i})) {
-      ints.emplace_back(i, sol[static_cast<std::size_t>(i)]);
+      ++nint;
     }
   }
 
@@ -352,12 +384,18 @@ std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
             std::format("MIP-start dump: cannot open '{}' for writing", path),
     });
   }
-  out << "# gtopt mip_start integer solution (index value)\n";
+  // The dump carries the COMPLETE solution — every column, integer AND
+  // continuous — so a replay (`FileMipStart`) reconstructs a CONSISTENT
+  // start.  Dumping only the integers forced the replay to complete the
+  // start with the RELAXATION continuous, a mutually inconsistent vector
+  // that strict backend feasibility checks (CPLEX CHECKFEAS) reject even
+  // when the integers are the exact optimum.
+  out << "# gtopt mip_start complete solution (index value)\n";
   out << std::format("ncols {}\n", ncols);
-  out << std::format("nint {}\n", ints.size());
-  for (const auto& [idx, value] : ints) {
+  out << std::format("nint {}\n", nint);
+  for (int i = 0; i < ncols; ++i) {
     // `{}` renders the shortest round-trippable representation of the double.
-    out << std::format("{} {}\n", idx, value);
+    out << std::format("{} {}\n", i, sol[static_cast<std::size_t>(i)]);
   }
   if (!out) {
     return std::unexpected(Error {
@@ -365,8 +403,10 @@ std::expected<void, Error> dump_integer_solution(const LinearInterface& li,
         .message = std::format("MIP-start dump: write to '{}' failed", path),
     });
   }
-  spdlog::info(
-      "MIP-start dump: wrote {} integer columns to '{}'", ints.size(), path);
+  spdlog::info("MIP-start dump: wrote {} columns ({} integer) to '{}'",
+               ncols,
+               nint,
+               path);
   return {};
 }
 
@@ -410,7 +450,8 @@ std::expected<SeedCommitmentMap, Error> load_seed_commitment(
                                maybe_reader.status().ToString()),
     });
   }
-  auto maybe_table = (*maybe_reader)->Read();
+  const auto& table_reader = *maybe_reader;
+  auto maybe_table = table_reader->Read();
   if (!maybe_table.ok()) {
     return std::unexpected(Error {
         .code = ErrorCode::FileIOError,
@@ -420,7 +461,8 @@ std::expected<SeedCommitmentMap, Error> load_seed_commitment(
     });
   }
   // Combine chunks so the three columns are single, row-aligned arrays.
-  auto maybe_combined = (*maybe_table)->CombineChunks();
+  const auto& raw_table = *maybe_table;
+  auto maybe_combined = raw_table->CombineChunks();
   if (!maybe_combined.ok()) {
     return std::unexpected(Error {
         .code = ErrorCode::FileIOError,
@@ -501,17 +543,22 @@ std::expected<MipStartReport, Error> apply_mip_start(
   // global-side-effect crash.
   const auto restore_integrality = [&] { li.restore_integers(int_cols); };
 
-  // ── Fast path: seed-only, no throwaway relaxation ───────────────────────
-  // When `skip_relaxation` is set and a seed CSV fully specifies the integer
-  // commitment, skip Stage 0 entirely: the relaxation's only surviving output
-  // for a sparse-injecting backend (CPLEX) is the rounded integers, which the
-  // seed overrides anyway — so solving it is a throwaway LP the MIP root then
-  // repeats.  Build the seed start directly and inject; the backend completes
-  // the continuous dispatch as its single warm root LP (effort defaults to
-  // `solve_fixed` → dual simplex off the fixed integers, no crossover).
+  // ── Fast path: seed / file replay, no throwaway relaxation ──────────────
+  // When `skip_relaxation` is set and either a seed CSV fully specifies the
+  // integer commitment or a dumped solution is being replayed (`from_file`),
+  // skip Stage 0 entirely: the relaxation's only surviving output is the
+  // rounded integers, which the seed/dump overrides anyway — so solving it
+  // is a throwaway LP the MIP root then repeats.  Build the start directly
+  // and inject; a complete dump already carries a consistent continuous
+  // dispatch, and a seed-only start lets the backend complete it as its
+  // single warm root LP (effort defaults to `solve_fixed` → dual simplex off
+  // the fixed integers, no crossover).
+  const bool has_from_file =
+      opts.from_file.has_value() && !opts.from_file->empty();
+  const bool has_seed_file =
+      opts.seed_solution_file.has_value() && !opts.seed_solution_file->empty();
   if (enabled && opts.skip_relaxation.value_or(false)
-      && opts.seed_solution_file.has_value()
-      && !opts.seed_solution_file->empty())
+      && (has_from_file || has_seed_file))
   {
     MipStartContext ctx {
         .li = li,
@@ -522,14 +569,31 @@ std::expected<MipStartReport, Error> apply_mip_start(
         .injections = injections,
         .flat_lp = flat_lp,
     };
-    auto start = detail::seed_only_start(ctx, "seed");
+    std::optional<std::vector<double>> start;
+    std::string source;
+    if (has_from_file) {
+      auto gen = make_mip_start_generator(opts);  // → FileMipStart
+      start = gen->generate(ctx);
+      source = std::string {gen->name()};
+    } else {
+      start = detail::seed_only_start(ctx, "seed");
+      source = "seed";
+    }
+    if (!start.has_value()) {
+      spdlog::warn(
+          "MIP-start[{}]: produced no start under skip_relaxation; skipping "
+          "injection",
+          source);
+      return report;
+    }
     const auto effort =
         opts.inject.effort.value_or(MipStartEffort::solve_fixed);
-    report.injected = li.set_mip_start(start, effort);
-    report.source = "seed";
+    report.injected = li.set_mip_start(*start, effort);
+    report.source = source;
     spdlog::info(
-        "MIP-start[seed]: {} ({} integer cols, effort={}, skip_relaxation — "
+        "MIP-start[{}]: {} ({} integer cols, effort={}, skip_relaxation — "
         "no relaxation solve)",
+        source,
         report.injected ? "injected" : "backend declined",
         int_cols.size(),
         enum_name(effort));

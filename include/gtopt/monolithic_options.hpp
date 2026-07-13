@@ -204,11 +204,16 @@ struct MipStartOptions
   MipStartInject inject {};
   /** @brief Optional path to an externally-computed start to REPLAY instead of
    * the round+rules candidate: a dump produced by a previous solve's
-   * `dump_file`.  Enables a cross-solver hand-off (e.g. HiGHS dumps a feasible
-   * incumbent, cuOpt replays it as its start). */
+   * `dump_file`.  A complete dump (integers AND continuous) reconstructs a
+   * consistent start — replaying an optimal dump is accepted verbatim under
+   * `inject.effort=check_feasibility`.  Enables a cross-solver hand-off (e.g.
+   * HiGHS dumps a feasible incumbent, cuOpt replays it as its start).  Pair
+   * with `skip_relaxation` to inject without solving the throwaway Stage-0
+   * relaxation. */
   OptName from_file {};
-  /** @brief Optional path to DUMP this solve's integer solution to, after the
-   * MIP solve completes.  A later run replays it via `from_file`. */
+  /** @brief Optional path to DUMP this solve's COMPLETE solution to (every
+   * column, integer and continuous), after the MIP solve completes.  A later
+   * run replays it via `from_file`. */
   OptName dump_file {};
   /** @brief Optional path to an external commitment SEED — a CSV
    * `generator_uid,block_uid,u` consumed by `SeedCommitmentRule` (registered
@@ -219,14 +224,14 @@ struct MipStartOptions
    * gtopt, nearest-historical, ML predictor) simply produces this CSV. */
   OptName seed_solution_file {};
   /** @brief Skip the Stage-0 LP relaxation solve when a `seed_solution_file`
-   * fully specifies the integer commitment.  The relaxation exists only to
-   * fill the rounded candidate; for a backend that injects the seed sparsely
-   * over the integer columns (CPLEX), its continuous output is discarded, so
-   * the relaxation is a throwaway LP solve that the MIP's own root then
-   * repeats.  With this set, the seed is built directly (zero base + domain
-   * rules) and injected; the backend completes the continuous dispatch as the
-   * single warm root LP (effort defaults to `solve_fixed` → dual simplex off
-   * the fixed integers, no crossover). Default false. */
+   * fully specifies the integer commitment or a `from_file` dump is being
+   * replayed.  The relaxation exists only to fill the rounded candidate; a
+   * seed/dump overrides it, so the relaxation is a throwaway LP solve that
+   * the MIP's own root then repeats.  With this set, the start is built
+   * directly (seed: zero base + domain rules; file: the dumped complete
+   * solution) and injected; the backend completes any missing continuous
+   * dispatch as the single warm root LP (effort defaults to `solve_fixed` →
+   * dual simplex off the fixed integers, no crossover). Default false. */
   OptBool skip_relaxation {};
   /** @brief Optional path to a cached ROOT LP basis (Experiment A).
    *

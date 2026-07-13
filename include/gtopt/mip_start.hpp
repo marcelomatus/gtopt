@@ -60,7 +60,7 @@ namespace detail
 /// their relaxation value.  Returns the dense raw candidate start (empty iff
 /// the relaxation has no primal).  Used by the default round+rules generator.
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
-    MipStartContext& ctx, std::string_view generator_name);
+    const MipStartContext& ctx, std::string_view generator_name);
 }  // namespace detail
 
 /// Outcome of the MIP-start pipeline (for logging / tests).
@@ -150,13 +150,17 @@ public:
     std::span<const PeakInjectionInfo> injections = {},
     const FlatLinearProblem* flat_lp = nullptr);
 
-/// Dump the live MIP solution's integer-column RAW values to `path`, one
-/// `<index> <value>` line per integer column, preceded by an `ncols` header
-/// for a structural sanity check on replay.  Call AFTER a successful MIP solve
-/// (integrality intact, before any dual-recovery relaxation).  A later run
-/// replays the dump as a cross-solver MIP start via `mip_start.from_file`
-/// (`FileMipStart`): both runs build the identical deterministic flat LP, so
-/// raw column indices line up 1:1.
+/// Dump the live MIP solution's COMPLETE RAW column values to `path` — one
+/// `<index> <value>` line per column, integer AND continuous — preceded by
+/// `ncols` / `nint` headers (`ncols` is a structural sanity check on replay;
+/// `nint` is informational).  Call AFTER a successful MIP solve (integrality
+/// intact, before any dual-recovery relaxation).  A later run replays the
+/// dump as a MIP start via `mip_start.from_file` (`FileMipStart`): both runs
+/// build the identical deterministic flat LP, so raw column indices line up
+/// 1:1, and the replayed start is the complete, CONSISTENT solution — the
+/// exact optimum round-trips through a strict backend feasibility check
+/// (CPLEX CHECKFEAS) instead of being rejected for carrying relaxation
+/// continuous values under optimal integers.
 ///
 /// @return Empty on success, or a `FileIOError` if the file cannot be written.
 [[nodiscard]] std::expected<void, Error> dump_integer_solution(

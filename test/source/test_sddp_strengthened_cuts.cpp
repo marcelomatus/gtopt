@@ -1074,7 +1074,7 @@ TEST_CASE(  // NOLINT
           for (const auto& [c, v] : ov.coefficients) {
             cols.insert(c);
           }
-          for (const auto col : cols) {
+          for (const auto& col : cols) {
             INFO("col ", static_cast<int>(col));
             CHECK(coeff_of(sc, col)
                   == doctest::Approx(coeff_of(ov, col)).epsilon(1.0e-15));
