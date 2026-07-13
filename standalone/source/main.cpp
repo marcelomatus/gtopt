@@ -42,8 +42,11 @@ using namespace gtopt;
 // extern "C" gives the exact unmangled name jemalloc looks up in the dynamic
 // symbol table; [[gnu::used, gnu::retain]] keeps it under --gc-sections.
 #if defined(GTOPT_HAVE_JEMALLOC)
-extern "C" [[gnu::used, gnu::retain]] const char* malloc_conf =
-    "background_thread:true";
+extern "C"
+{
+extern const char* malloc_conf;
+[[gnu::used, gnu::retain]] const char* malloc_conf = "background_thread:true";
+}
 #endif
 
 int main(int argc, char** argv)

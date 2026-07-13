@@ -1180,7 +1180,7 @@ struct RelaxationSpec
   valid_rows.reserve(rows.size());
   std::vector<SparseCol> z_cols;
   z_cols.reserve(rows.size());
-  for (const auto row : rows) {
+  for (const auto& row : rows) {
     if (row == RowIndex {unknown_index} || row >= numrows) {
       SPDLOG_WARN(
           "apply_fcut_relaxations: fcut row {} outside clone row range "
