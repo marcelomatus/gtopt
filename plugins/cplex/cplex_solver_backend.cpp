@@ -12,9 +12,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <numeric>
+#include <print>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -1980,6 +1982,108 @@ CplexSolverBackend::diagnose_infeasibility(int max_items)
 
 namespace
 {
+// Diagnostic (opt-in via GTOPT_CPLEX_DIAGNOSE_MIPSTART=1): before CPXmipopt,
+// run the CPLEX MIP-start conflict refiner on start #0 and print the minimal
+// infeasible subsystem (row / column-bound names) to stderr.  This names the
+// exact constraints that make an injected start infeasible — the native log
+// only says "No solution found from N MIP starts" with no reason.
+void maybe_diagnose_mipstart(cpxenv* env, cpxlp* lp)
+{
+  if (std::getenv("GTOPT_CPLEX_DIAGNOSE_MIPSTART") == nullptr) {
+    return;
+  }
+  const int nstarts = CPXgetnummipstarts(env, lp);
+  if (nstarts <= 0) {
+    return;
+  }
+  std::println(stderr,
+               "GTOPT_MIPSTART_DIAG refining conflict for MIP start 0 of {} "
+               "(solves auxiliary subproblems; may take minutes)",
+               nstarts);
+  int confnumrows = 0;
+  int confnumcols = 0;
+  if (const int rc =
+          CPXrefinemipstartconflict(env, lp, 0, &confnumrows, &confnumcols);
+      rc != 0)
+  {
+    std::println(stderr, "GTOPT_MIPSTART_DIAG refiner failed rc={}", rc);
+    return;
+  }
+  std::println(stderr,
+               "GTOPT_MIPSTART_DIAG conflict size: {} rows, {} col bounds",
+               confnumrows,
+               confnumcols);
+  const int nrows = CPXgetnumrows(env, lp);
+  const int ncols = CPXgetnumcols(env, lp);
+  int confstat = 0;
+  int outrows = 0;
+  int outcols = 0;
+  std::vector<int> rowind(static_cast<std::size_t>(std::max(nrows, 1)));
+  std::vector<int> rowbdstat(static_cast<std::size_t>(std::max(nrows, 1)));
+  std::vector<int> colind(static_cast<std::size_t>(std::max(ncols, 1)));
+  std::vector<int> colbdstat(static_cast<std::size_t>(std::max(ncols, 1)));
+  if (CPXgetconflict(env,
+                     lp,
+                     &confstat,
+                     rowind.data(),
+                     rowbdstat.data(),
+                     &outrows,
+                     colind.data(),
+                     colbdstat.data(),
+                     &outcols)
+      != 0)
+  {
+    std::println(stderr, "GTOPT_MIPSTART_DIAG getconflict failed");
+    return;
+  }
+  const auto name_of = [&](bool is_row, int i) -> std::string
+  {
+    std::array<char, 256> store {};
+    char* nameptr = nullptr;
+    int surplus = 0;
+    const int rc = is_row
+        ? CPXgetrowname(env, lp, &nameptr, store.data(), 256, &surplus, i, i)
+        : CPXgetcolname(env, lp, &nameptr, store.data(), 256, &surplus, i, i);
+    if (rc == 0 && nameptr != nullptr) {
+      return std::string {nameptr};
+    }
+    return std::format("{}_{}", is_row ? "row" : "col", i);
+  };
+  // Print PROVEN members only (CPX_CONFLICT_MEMBER / _LB / _UB); the
+  // "possible" statuses cover the whole un-refined remainder and are noise.
+  std::println(stderr, "GTOPT_MIPSTART_DIAG confstat={}", confstat);
+  constexpr int kCap = 200;
+  int printed = 0;
+  for (int k = 0; k < outrows && printed < kCap; ++k) {
+    const int st = rowbdstat[static_cast<std::size_t>(k)];
+    if (st == CPX_CONFLICT_MEMBER) {
+      std::println(stderr,
+                   "GTOPT_MIPSTART_DIAG row {}",
+                   name_of(true, rowind[static_cast<std::size_t>(k)]));
+      ++printed;
+    }
+  }
+  printed = 0;
+  for (int k = 0; k < outcols && printed < kCap; ++k) {
+    const int st = colbdstat[static_cast<std::size_t>(k)];
+    if (st == CPX_CONFLICT_MEMBER || st == CPX_CONFLICT_LB
+        || st == CPX_CONFLICT_UB)
+    {
+      const char* which = "both";
+      if (st == CPX_CONFLICT_LB) {
+        which = "lb";
+      } else if (st == CPX_CONFLICT_UB) {
+        which = "ub";
+      }
+      std::println(stderr,
+                   "GTOPT_MIPSTART_DIAG colbound {} ({})",
+                   name_of(false, colind[static_cast<std::size_t>(k)]),
+                   which);
+      ++printed;
+    }
+  }
+}
+
 // Capture a solve's solver-reported wall time (CPXgettime) + deterministic
 // ticks (CPXgetdettime) as a per-solve delta on the env.  The generic
 // SolveEffort accounting (SolveEffortTotals, accumulated in LinearInterface)
@@ -2009,6 +2113,7 @@ void CplexSolverBackend::initial_solve()
   CPXgettime(m_env_lp_.env(), &s0);
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
+    maybe_diagnose_mipstart(m_env_lp_.env(), m_env_lp_.lp());
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
@@ -2024,6 +2129,7 @@ void CplexSolverBackend::resolve()
   CPXgettime(m_env_lp_.env(), &s0);
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
+    maybe_diagnose_mipstart(m_env_lp_.env(), m_env_lp_.lp());
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
   } else {
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().

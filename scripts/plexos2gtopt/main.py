@@ -839,6 +839,22 @@ def make_parser() -> argparse.ArgumentParser:
         ),
     )
     add_lift_line_caps_argument(parser, dialect="plexos")
+    parser.add_argument(
+        "--lift-hard",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Emit the ``--lift-line-caps`` lines as a plain EXPANDED HARD "
+            "cap at the lifted free band (3 × rating) instead of the "
+            "default soft-cap band (free to 3 × rating, penalised via "
+            "``overload_penalty`` up to the 6 × hard cap).  No "
+            "``tmax_normal_*`` and no overload columns are created for "
+            "those lines — the LP just sees a wider ``tmax_*`` — and the "
+            "loss-PWL ``loss_envelope`` tracks the expanded cap.  Regular "
+            "EL=0 soft-cap lines (``--el0-lines extended``) keep the "
+            "penalised band regardless."
+        ),
+    )
     add_no_lift_lines_argument(parser, dialect="plexos")
     parser.add_argument(
         "--el0-lines",
@@ -1161,6 +1177,7 @@ def main(argv: list[str] | None = None) -> None:
         "reservoir_spillway": args.reservoir_spillway,
         "water_value_factor": args.water_value_factor,
         "lift_line_caps": args.lift_line_caps,
+        "lift_hard": args.lift_hard,
         "no_lift_lines": args.no_lift_lines,
         "el0_lines": args.el0_lines,
         "horizon_mode": args.horizon_mode,

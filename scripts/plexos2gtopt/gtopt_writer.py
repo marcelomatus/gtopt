@@ -1224,6 +1224,14 @@ def build_line_array(
     _extend_overload = _os_inner_writer.environ.get(
         "GTOPT_LOSS_EXTEND_OVERLOAD", "0"
     ).strip() in ("1", "true", "yes", "on")
+    # ``--lift-hard``: lifted lines get a plain expanded hard cap (no
+    # penalised overload band).  See the soft-cap block below.
+    _lift_hard = _os_inner_writer.environ.get("GTOPT_LIFT_HARD", "0").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
     out: list[dict[str, Any]] = []
     for i, line in enumerate(lines):
         # Parser (`extract_lines`) already clamps hour-0 units to 1 and
@@ -1358,17 +1366,31 @@ def build_line_array(
                         return float(value)
                     return max((float(x) for row in value for x in row), default=0.0)
 
+                # ``--lift-hard``: the explicitly LIFTED lines get a plain
+                # expanded HARD cap at the ex-free band (normal_f × rating)
+                # — no ``tmax_normal_*`` band, no ``overload_penalty``
+                # column in the LP.  Regular EL=0 soft-cap lines keep the
+                # penalised band (they were never individually vetted; the
+                # penalty is what stops free multi-GW teleports there).
+                hard_lift = _lift_hard and line.soft_cap_lifted
+
                 orig_env = 0.0
                 if "tmax_ab" in entry:
                     rating_ab = entry["tmax_ab"]
                     orig_env = max(orig_env, _scalar_max(rating_ab))
-                    entry["tmax_normal_ab"] = _scale_tmax(rating_ab, normal_f)
-                    entry["tmax_ab"] = _scale_tmax(rating_ab, hard_f)
+                    if hard_lift:
+                        entry["tmax_ab"] = _scale_tmax(rating_ab, normal_f)
+                    else:
+                        entry["tmax_normal_ab"] = _scale_tmax(rating_ab, normal_f)
+                        entry["tmax_ab"] = _scale_tmax(rating_ab, hard_f)
                 if "tmax_ba" in entry:
                     rating_ba = entry["tmax_ba"]
                     orig_env = max(orig_env, _scalar_max(rating_ba))
-                    entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
-                    entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
+                    if hard_lift:
+                        entry["tmax_ba"] = _scale_tmax(rating_ba, normal_f)
+                    else:
+                        entry["tmax_normal_ba"] = _scale_tmax(rating_ba, normal_f)
+                        entry["tmax_ba"] = _scale_tmax(rating_ba, hard_f)
                 if orig_env > 0.0:
                     # ``--loss-extend-overload`` (#44): when ON, extend
                     # the PWL envelope by the hard-cap headroom factor
@@ -1377,10 +1399,16 @@ def build_line_array(
                     # envelope by ``_apply_adaptive_loss_segments`` —
                     # actually have envelope room to cover the soft-cap
                     # overload band.  OFF (default): keep the historical
-                    # pinning to the original rating.
-                    envelope_factor = hard_f if _extend_overload else 1.0
+                    # pinning to the original rating.  Hard-lifted lines
+                    # track their expanded hard cap (normal_f) — the
+                    # envelope must always cover the reachable flow range.
+                    if hard_lift:
+                        envelope_factor = normal_f
+                    else:
+                        envelope_factor = hard_f if _extend_overload else 1.0
                     entry["loss_envelope"] = orig_env * envelope_factor
-                entry["overload_penalty"] = overload_penalty
+                if not hard_lift:
+                    entry["overload_penalty"] = overload_penalty
         if line.reactance > 0.0:
             entry["reactance"] = line.reactance
         # PLEXOS Resistance (pid 1888) → gtopt Line.resistance +
