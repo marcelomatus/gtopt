@@ -2737,6 +2737,18 @@ public:
   [[nodiscard]] bool set_mip_start(std::span<const double> col_values,
                                    MipStartEffort effort);
 
+  /// True when the live backend services a mid-solve incumbent checkpoint
+  /// natively (`SolverBackend::supports_checkpoint`; CPLEX generic
+  /// callback).  `false` on a released backend or an unsupporting one —
+  /// the caller then runs the two-stage checkpoint fallback.
+  [[nodiscard]] bool supports_checkpoint() const noexcept;
+
+  /// Arm (or disarm with `rel_gap <= 0` / empty `file`) the one-shot
+  /// incumbent checkpoint on the backend for the next MIP solve.  See
+  /// `SolverBackend::set_checkpoint` for the full contract (complete dump
+  /// format, atomic write, solve not perturbed).
+  void set_checkpoint(double rel_gap, std::string_view file);
+
   /// Diagnose the current problem's infeasibility, returning conflicting
   /// constraint labels (a minimal infeasible subsystem) or `std::nullopt` when
   /// the backend cannot diagnose.  Delegates to

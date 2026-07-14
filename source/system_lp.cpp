@@ -1914,7 +1914,74 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
     }
   }
 
-  auto result = li.resolve(rb_loaded ? effective_opts : solver_options);
+  // ── Two-gap MIP checkpoint ─────────────────────────────────────────────
+  //
+  // `mip_start.checkpoint_gap` + `mip_start.checkpoint_file`: the first time
+  // the MIP reaches the checkpoint relative gap, the CURRENT incumbent is
+  // saved to disk as a COMPLETE dump (replayable via `from_file` +
+  // `skip_relaxation` + `inject.effort=check_feasibility`), and the solve
+  // continues undisturbed to the final `solver_options.mip_gap`.  Two paths:
+  //   - NATIVE (CPLEX): a mid-solve generic callback services the checkpoint
+  //     at zero extra solve cost — one solve, armed before, disarmed after.
+  //   - FALLBACK (backends without callback support): stage 1 solves to
+  //     `mip_gap = checkpoint_gap`, the incumbent is dumped, and stage 2
+  //     re-solves to the final gap re-seeded with the stage-1 incumbent
+  //     (`set_mip_start`, best-effort) and basis (where one exists).
+  const auto& solve_opts = rb_loaded ? effective_opts : solver_options;
+  const double checkpoint_gap = rb_opts.checkpoint_gap.value_or(0.0);
+  const std::string checkpoint_file = rb_opts.checkpoint_file.value_or("");
+  const bool checkpoint_requested =
+      checkpoint_gap > 0.0 && !checkpoint_file.empty() && li.has_integer_cols();
+  std::expected<int, Error> result;
+  if (!checkpoint_requested) {
+    result = li.resolve(solve_opts);
+  } else if (li.supports_checkpoint()) {
+    li.set_checkpoint(checkpoint_gap, checkpoint_file);
+    result = li.resolve(solve_opts);
+    li.set_checkpoint(0.0, {});  // disarm for later re-solves on this LI
+  } else {
+    spdlog::info(
+        "checkpoint [scene={} phase={}]: backend '{}' has no native mid-solve "
+        "checkpoint — two-stage fallback (stage 1 to gap {:.4g}, dump, stage "
+        "2 to the final gap)",
+        scene().uid(),
+        phase().uid(),
+        li.solver_name(),
+        checkpoint_gap);
+    SolverOptions stage1_opts = solve_opts;
+    stage1_opts.mip_gap = checkpoint_gap;
+    result = li.resolve(stage1_opts);
+    if (result) {
+      if (auto dumped = dump_integer_solution(li, checkpoint_file); !dumped) {
+        spdlog::warn("checkpoint [scene={} phase={}]: {}",
+                     scene().uid(),
+                     phase().uid(),
+                     dumped.error().message);
+      }
+      // Re-seed stage 2 so branch-and-cut resumes from the stage-1 incumbent
+      // instead of rediscovering it: the incumbent is feasible by
+      // construction, so `check_feasibility` is accepted; backends without a
+      // MIP-start path decline benignly (they re-solve cold to the final
+      // gap, still correct).  Same best-effort contract for the basis.
+      if (const auto sol = li.get_col_sol_raw(); !sol.empty()) {
+        const std::vector<double> stage1_start(sol.begin(), sol.end());
+        (void)li.set_mip_start(stage1_start, MipStartEffort::check_feasibility);
+      }
+      if (auto basis = li.get_basis(); basis.has_value()) {
+        (void)li.set_basis(std::move(*basis));
+      }
+      SolverOptions stage2_opts = solve_opts;
+      if (!stage2_opts.mip_gap.has_value()) {
+        // Backend option application is sticky (parameters set on the env
+        // persist across solves), so an unset final gap would silently keep
+        // the loose stage-1 gap and end stage 2 immediately.  Reset to the
+        // common solver default (CPLEX EPGAP / HiGHS mip_rel_gap = 1e-4).
+        constexpr double k_default_final_mip_gap = 1e-4;
+        stage2_opts.mip_gap = k_default_final_mip_gap;
+      }
+      result = li.resolve(stage2_opts);
+    }
+  }
   if (!result) {
     return result;
   }

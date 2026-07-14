@@ -211,9 +211,39 @@ Three optional files extend the pipeline across runs and tools:
 | `dump_file` | write | Dump this solve's integer solution after the MIP completes |
 | `from_file` | read | **Replay** a previous `dump_file` instead of the round+rules candidate (enables cross-solver hand-off, e.g. HiGHS incumbent → cuOpt start) |
 | `seed_solution_file` | read | External commitment **seed** CSV (`generator_uid,block_uid,u`) consumed by `SeedCommitmentRule`, which runs first in the domain pipeline; unmatched elements keep the rounded value. Any producer works: previous-day PLEXOS/gtopt, uninodal cascade, an ML predictor |
+| `checkpoint_file` | write | Destination of the `checkpoint_gap` incumbent dump (same complete format as `dump_file`; atomic tmp+rename) |
 
 MIP starts are supported natively by CPLEX/Gurobi/HiGHS/SCIP/MindOpt;
 cuOpt and CBC buffer the start and replay it at solve time.
+
+#### Two-gap checkpoint (`checkpoint_gap` + `checkpoint_file`)
+
+Set two gaps — e.g. checkpoint 2.5% and final 0.25%: the first time the
+MIP reaches relative gap ≤ `checkpoint_gap`, the CURRENT incumbent is
+saved to `checkpoint_file` as a complete dump WITHOUT stopping or
+perturbing the solve, which continues to the final
+`solver_options.mip_gap`.  A later run replays the checkpoint via
+`from_file` + `skip_relaxation` + `inject.effort = check_feasibility`
+(pair with `root_basis_cache_file` to also skip the cold root LP).
+
+```json
+{
+  "monolithic_options": {
+    "solver_options": { "mip_gap": 0.0025 },
+    "mip_start": {
+      "checkpoint_gap": 0.025,
+      "checkpoint_file": "incumbent_2p5.start"
+    }
+  }
+}
+```
+
+On CPLEX the checkpoint is serviced by a mid-solve generic callback
+(`CPXCALLBACKCONTEXT_GLOBAL_PROGRESS` — dynamic-search compatible,
+registered only when armed, so zero overhead otherwise).  Backends
+without callback support fall back to a two-stage solve: stage 1 to
+`checkpoint_gap` → dump → stage 2 re-solve to the final gap, re-seeded
+with the stage-1 incumbent and basis where supported.
 
 ---
 

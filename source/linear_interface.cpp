@@ -3451,6 +3451,18 @@ bool LinearInterface::set_mip_start(const std::span<const double> col_values,
   return m_backend_->set_mip_start(col_values, effort);
 }
 
+bool LinearInterface::supports_checkpoint() const noexcept
+{
+  return m_backend_ != nullptr && m_backend_->supports_checkpoint();
+}
+
+void LinearInterface::set_checkpoint(const double rel_gap,
+                                     const std::string_view file)
+{
+  ensure_backend();
+  m_backend_->set_checkpoint(rel_gap, std::string {file});
+}
+
 std::optional<Basis> LinearInterface::get_basis() const
 {
   // A basis only exists on a live, simplex/crossover-solved backend.  After

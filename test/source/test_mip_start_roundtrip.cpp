@@ -38,6 +38,7 @@
  * so any integers-over-relaxation overlay is provably inconsistent.
  */
 
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -660,4 +661,183 @@ TEST_CASE(  // NOLINT
   CHECK(obj_skip == doctest::Approx(obj_cold).epsilon(1e-6));
 
   std::filesystem::remove(dump_path);
+}
+
+// ── Two-gap MIP checkpoint (mip_start.checkpoint_gap / checkpoint_file) ────
+
+namespace
+{
+
+/// Whether solver `name` is among the loaded exact MIP plugins.
+[[nodiscard]] bool rt_has_solver(const std::vector<std::string>& solvers,
+                                 std::string_view name)
+{
+  return std::ranges::any_of(
+      solvers, [name](const std::string& s) { return s == name; });
+}
+
+/// The checkpoint dump must be a COMPLETE dump-format solution: comment
+/// header, `ncols` / `nint` lines, and one `<index> <value>` line per column
+/// (when `expected_cols > 0`, exactly that many).
+void check_rt_checkpoint_dump_shape(const std::filesystem::path& path,
+                                    std::size_t expected_cols)
+{
+  const auto text = slurp(path);
+  CAPTURE(text);
+  CHECK(text.contains("# gtopt mip_start complete solution"));
+  CHECK(text.contains("ncols"));
+  CHECK(text.contains("nint"));
+  std::istringstream in(text);
+  std::string line;
+  std::size_t value_lines = 0;
+  while (std::getline(in, line)) {
+    if (!line.empty() && (std::isdigit(line.front()) != 0)) {
+      ++value_lines;
+    }
+  }
+  if (expected_cols > 0) {
+    CHECK(value_lines == expected_cols);
+  } else {
+    CHECK(value_lines > 0);
+  }
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "mip_start checkpoint - cplex native callback dumps a replayable "
+    "incumbent")
+{
+  // Zero-cost native path: CPLEX services the checkpoint via a generic
+  // callback (CPXCALLBACKCONTEXT_GLOBAL_PROGRESS) — one solve, the incumbent
+  // is dumped mid-solve (or at solve exit when the whole solve happens in
+  // presolve) and branch-and-cut continues to the final gap.
+  const auto solvers = gtopt::solver_test::exact_mip_solvers();
+  if (!rt_has_solver(solvers, "cplex")) {
+    MESSAGE("cplex plugin not loaded — skipping");
+    return;
+  }
+  const auto ckpt_path =
+      std::filesystem::temp_directory_path() / "gtopt_mipstart_ckpt_cplex.dump";
+  std::filesystem::remove(ckpt_path);
+
+  LinearInterface lp("cplex");
+  const auto m = build_tiny_uc(lp);
+  REQUIRE(lp.supports_checkpoint());
+  // Gap 0.9 ⇒ the FIRST incumbent within 90% (any incumbent) checkpoints.
+  lp.set_checkpoint(0.9, ckpt_path.string());
+  cold_solve(lp);
+  CHECK(lp.get_obj_value() == doctest::Approx(kOptObj).epsilon(1e-6));
+  check_is_mip_optimum(m, lp.get_col_sol_raw());
+
+  // The checkpoint exists, is complete, and the atomic write left no tmp.
+  REQUIRE(std::filesystem::exists(ckpt_path));
+  check_rt_checkpoint_dump_shape(ckpt_path, kNumCols);
+  auto tmp_path = ckpt_path;
+  tmp_path += ".tmp";
+  CHECK_FALSE(std::filesystem::exists(tmp_path));
+
+  // REPLAY: the checkpoint round-trips through the file generator under the
+  // strictest inject effort (a complete dump is a consistent start) and the
+  // re-solve lands the same optimum.
+  LinearInterface warm("cplex");
+  (void)build_tiny_uc(warm);
+  const NativeLog log(warm, "ckpt_replay_cplex");
+  MipStartOptions ms;
+  ms.enabled = true;
+  ms.from_file = ckpt_path.string();
+  ms.skip_relaxation = true;
+  ms.inject.effort = MipStartEffort::check_feasibility;
+  const auto report = apply_mip_start(warm, SolverOptions {}, ms);
+  REQUIRE(report.has_value());
+  CHECK(report->injected);
+  CHECK(report->source == "file");
+  REQUIRE(warm.resolve(native_log_opts()).has_value());
+  REQUIRE(warm.is_optimal());
+  CHECK(warm.get_obj_value() == doctest::Approx(kOptObj).epsilon(1e-6));
+  check_is_mip_optimum(m, warm.get_col_sol_raw());
+  check_native_log_accepted("cplex", log);
+
+  std::filesystem::remove(ckpt_path);
+}
+
+TEST_CASE(  // NOLINT
+    "mip_start checkpoint - SystemLP native path (cplex)")
+{
+  // The monolithic orchestration (SystemLP::resolve) arms the backend
+  // checkpoint when `mip_start.checkpoint_gap` + `checkpoint_file` are set;
+  // the solve itself is a single, unperturbed CPXmipopt.
+  const auto solvers = gtopt::solver_test::exact_mip_solvers();
+  if (!rt_has_solver(solvers, "cplex")) {
+    MESSAGE("cplex plugin not loaded — skipping");
+    return;
+  }
+  const auto ckpt_path = std::filesystem::temp_directory_path()
+      / "gtopt_mipstart_ckpt_systemlp_cplex.dump";
+  std::filesystem::remove(ckpt_path);
+
+  MipStartOptions ckpt_opts;
+  ckpt_opts.checkpoint_gap = 0.9;
+  ckpt_opts.checkpoint_file = ckpt_path.string();
+  const double obj_ckpt = resolve_rt_commitment_system("cplex", ckpt_opts);
+  REQUIRE(std::filesystem::exists(ckpt_path));
+  check_rt_checkpoint_dump_shape(ckpt_path, 0);
+
+  // Same optimum as a plain cold solve — the checkpoint never perturbs.
+  const double obj_cold =
+      resolve_rt_commitment_system("cplex", MipStartOptions {});
+  CHECK(obj_ckpt == doctest::Approx(obj_cold).epsilon(1e-6));
+
+  // The checkpoint replays as the next run's start (the two-gap workflow's
+  // whole point): from_file + skip_relaxation + check_feasibility.
+  MipStartOptions replay_opts;
+  replay_opts.enabled = true;
+  replay_opts.from_file = ckpt_path.string();
+  replay_opts.skip_relaxation = true;
+  replay_opts.inject.effort = MipStartEffort::check_feasibility;
+  const double obj_replay = resolve_rt_commitment_system("cplex", replay_opts);
+  CHECK(obj_replay == doctest::Approx(obj_cold).epsilon(1e-6));
+
+  std::filesystem::remove(ckpt_path);
+}
+
+TEST_CASE(  // NOLINT
+    "mip_start checkpoint - two-stage fallback on non-callback backends")
+{
+  // Backends without a native mid-solve callback (highs, cbc) take the
+  // two-stage fallback: stage 1 solves to `mip_gap = checkpoint_gap`, the
+  // incumbent is dumped, stage 2 re-solves to the final gap re-seeded with
+  // the stage-1 incumbent.  Restricted to highs/cbc on purpose: they are the
+  // fallback backends named by the feature spec and are license-free, so the
+  // sweep stays deterministic in CI (cplex is the native path, covered
+  // above).
+  const auto solvers = gtopt::solver_test::exact_mip_solvers();
+  bool ran_any = false;
+  for (const std::string name : {"highs", "cbc"}) {
+    if (!rt_has_solver(solvers, name)) {
+      continue;
+    }
+    ran_any = true;
+    CAPTURE(name);
+    const auto ckpt_path = std::filesystem::temp_directory_path()
+        / ("gtopt_mipstart_ckpt_fb_" + name + ".dump");
+    std::filesystem::remove(ckpt_path);
+
+    MipStartOptions ckpt_opts;
+    ckpt_opts.checkpoint_gap = 0.9;
+    ckpt_opts.checkpoint_file = ckpt_path.string();
+    const double obj_ckpt = resolve_rt_commitment_system(name, ckpt_opts);
+    REQUIRE(std::filesystem::exists(ckpt_path));
+    check_rt_checkpoint_dump_shape(ckpt_path, 0);
+
+    // Stage 2 must reach the same optimum as a plain cold solve.
+    const double obj_cold =
+        resolve_rt_commitment_system(name, MipStartOptions {});
+    CHECK(obj_ckpt == doctest::Approx(obj_cold).epsilon(1e-6));
+
+    std::filesystem::remove(ckpt_path);
+  }
+  if (!ran_any) {
+    MESSAGE("neither highs nor cbc MIP plugin loaded — skipping");
+  }
 }

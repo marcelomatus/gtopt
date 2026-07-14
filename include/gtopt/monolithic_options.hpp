@@ -156,6 +156,25 @@ struct MipStartOptions
    * dispatch as the single warm root LP (effort defaults to `solve_fixed` →
    * dual simplex off the fixed integers, no crossover). Default false. */
   OptBool skip_relaxation {};
+  /** @brief Two-gap MIP checkpoint: relative gap at which the CURRENT
+   * incumbent is SAVED to `checkpoint_file` (complete dump format) WITHOUT
+   * stopping or perturbing the solve, which continues to the final
+   * `solver_options.mip_gap`.  E.g. `checkpoint_gap = 0.025` with a final
+   * `mip_gap = 0.0025`: the first incumbent within 2.5% is checkpointed to
+   * disk and branch-and-cut keeps running to 0.25%.  Backends with a native
+   * mid-solve callback (CPLEX generic callback) service this at ZERO extra
+   * solve cost; other backends fall back to a two-stage solve (stage 1 to
+   * `checkpoint_gap` → dump → stage 2 re-solve to the final gap, re-seeded
+   * with the stage-1 incumbent and basis where supported).  The dump is a
+   * COMPLETE solution, so a later run replays it verbatim via `from_file` +
+   * `skip_relaxation` + `inject.effort = check_feasibility` (plus
+   * `root_basis_cache_file` to skip the cold root).  Requires
+   * `checkpoint_file`; unset (default) disables the feature. */
+  OptReal checkpoint_gap {};
+  /** @brief Destination for the `checkpoint_gap` incumbent dump — same
+   * complete `dump_file` format (`ncols` / `nint` header + `<index> <value>`
+   * lines), written atomically (tmp + rename). */
+  OptName checkpoint_file {};
   /** @brief Optional path to a cached ROOT LP basis (Experiment A).
    *
    * The full-model root LP relaxation is IDENTICAL across warm-start runs (the
@@ -185,6 +204,8 @@ struct MipStartOptions
     merge_opt(dump_file, std::move(opts.dump_file));
     merge_opt(seed_solution_file, std::move(opts.seed_solution_file));
     merge_opt(skip_relaxation, opts.skip_relaxation);
+    merge_opt(checkpoint_gap, opts.checkpoint_gap);
+    merge_opt(checkpoint_file, std::move(opts.checkpoint_file));
     merge_opt(root_basis_cache_file, std::move(opts.root_basis_cache_file));
 
     auto _ = std::move(opts);

@@ -15,6 +15,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <mutex>
 #include <numeric>
 #include <print>
 #include <span>
@@ -466,6 +468,23 @@ void CplexEnvLp::reset_lp(cpxlp* new_lp) noexcept
 // ============================================================
 // CplexSolverBackend
 // ============================================================
+
+/// One-shot mid-solve incumbent-checkpoint state (two-gap MIP solve) — see
+/// the "Mid-solve incumbent checkpoint" section further down for the full
+/// contract.  Defined here, before the defaulted backend special members,
+/// because `~CplexSolverBackend() = default` needs the complete type for the
+/// `std::unique_ptr<CplexCheckpointState>` member.  `written` is only
+/// mutated under `mutex`; the callback's unlocked pre-check is a benign
+/// race (re-checked under the lock).
+struct CplexCheckpointState
+{
+  double gap {0.0};
+  std::string file;
+  int ncols {0};
+  int nint {0};
+  std::mutex mutex;
+  bool written {false};
+};
 
 CplexSolverBackend::CplexSolverBackend() = default;
 CplexSolverBackend::~CplexSolverBackend() = default;
@@ -1980,6 +1999,216 @@ CplexSolverBackend::diagnose_infeasibility(int max_items)
   return conflicts;
 }
 
+// ============================================================
+// Mid-solve incumbent checkpoint (two-gap MIP solve)
+// ============================================================
+//
+// Registration is CONDITIONAL on an armed checkpoint (`set_checkpoint` with
+// a positive gap + non-empty file): when unused, no callback is ever
+// installed and CPXmipopt runs exactly as before — zero overhead.
+//
+// CAVEAT (measured nothing; documented per the generic-callback contract):
+// unlike the LEGACY control callbacks — which switch CPLEX to traditional
+// branch-and-cut and disable dynamic search — the GENERIC callback
+// (`CPXcallbacksetfunc`) is documented by IBM as compatible with dynamic
+// search and with both parallel modes.  gtopt runs CPLEX opportunistic
+// (`CPX_PARAM_PARALLELMODE = -1`, see `apply_options_to_env`), under which
+// the callback may fire CONCURRENTLY from several threads — hence the mutex
+// in `CplexCheckpointState` (defined above the backend ctor: the defaulted
+// destructor needs the complete type for the `unique_ptr` member).
+
+namespace
+{
+
+/// Write the COMPLETE solution `x` in the gtopt `dump_integer_solution`
+/// format (see source/mip_start.cpp): comment header + `ncols` + `nint` +
+/// one `<index> <value>` line per column.  A COMPLETE dump (integer AND
+/// continuous columns) is what makes a later `from_file` replay a
+/// consistent start that a strict `check_feasibility` injection accepts —
+/// the same effort contract documented on `set_mip_start` above.  Atomic:
+/// written to `<path>.tmp` and renamed into place, so a reader never sees a
+/// half-written checkpoint.
+[[nodiscard]] bool write_checkpoint_dump(const std::string& path,
+                                         std::span<const double> x,
+                                         int nint)
+{
+  const std::string tmp_path = path + ".tmp";
+  {
+    std::ofstream out(tmp_path, std::ios::trunc);
+    if (!out) {
+      return false;
+    }
+    out << "# gtopt mip_start complete solution (index value)\n";
+    out << std::format("ncols {}\n", x.size());
+    out << std::format("nint {}\n", nint);
+    for (std::size_t i = 0; i < x.size(); ++i) {
+      // `{}` renders the shortest round-trippable representation.
+      out << std::format("{} {}\n", i, x[i]);
+    }
+    if (!out) {
+      return false;
+    }
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp_path, path, ec);
+  return !ec;
+}
+
+/// Generic-callback entry point (CPXCALLBACKFUNC signature).  Fires on
+/// GLOBAL_PROGRESS events; the FIRST time the relative gap reaches the
+/// armed threshold it dumps the current incumbent and never fires again
+/// (one-shot).  Always returns 0 — the solve is never interrupted.
+int cplex_checkpoint_callback(CPXCALLBACKCONTEXTptr context,
+                              CPXLONG contextid,
+                              void* userhandle)
+{
+  if (contextid != CPX_CALLBACKCONTEXT_GLOBAL_PROGRESS) {
+    return 0;
+  }
+  auto* st = static_cast<CplexCheckpointState*>(userhandle);
+  if (st == nullptr || st->written) {
+    return 0;  // benign racy read; re-checked under the lock below
+  }
+  double best_sol = 0.0;
+  double best_bnd = 0.0;
+  if (CPXcallbackgetinfodbl(context, CPXCALLBACKINFO_BEST_SOL, &best_sol) != 0
+      || CPXcallbackgetinfodbl(context, CPXCALLBACKINFO_BEST_BND, &best_bnd)
+          != 0)
+  {
+    return 0;
+  }
+  if (std::abs(best_sol) >= 0.5 * CPX_INFBOUND) {
+    return 0;  // no incumbent yet (BEST_SOL reports ±CPX_INFBOUND)
+  }
+  // CPLEX's own relative-gap definition (EPGAP semantics).
+  const double rel_gap =
+      std::abs(best_sol - best_bnd) / std::max(1e-10, std::abs(best_sol));
+  if (rel_gap > st->gap) {
+    return 0;
+  }
+  const std::scoped_lock lock(st->mutex);
+  if (st->written) {
+    return 0;
+  }
+  std::vector<double> x(static_cast<std::size_t>(st->ncols));
+  double obj = 0.0;
+  if (CPXcallbackgetincumbent(context, x.data(), 0, st->ncols - 1, &obj) != 0) {
+    return 0;  // raced with an incumbent update; retry on the next event
+  }
+  if (write_checkpoint_dump(st->file, x, st->nint)) {
+    spdlog::info(
+        "CPLEX checkpoint: incumbent obj={:.8g} at rel gap {:.4g} <= {:.4g} "
+        "saved to '{}' ({} cols, {} integer); solve continues",
+        obj,
+        rel_gap,
+        st->gap,
+        st->file,
+        st->ncols,
+        st->nint);
+  } else {
+    spdlog::warn("CPLEX checkpoint: failed to write '{}'; will not retry",
+                 st->file);
+  }
+  st->written = true;  // one-shot either way — never retry a failing path
+  return 0;
+}
+
+}  // namespace
+
+bool CplexSolverBackend::supports_checkpoint() const noexcept
+{
+  return true;
+}
+
+void CplexSolverBackend::set_checkpoint(const double rel_gap,
+                                        const std::string& file)
+{
+  if (rel_gap <= 0.0 || file.empty()) {
+    m_checkpoint_.reset();  // disarm
+    return;
+  }
+  m_checkpoint_ = std::make_unique<CplexCheckpointState>();
+  m_checkpoint_->gap = rel_gap;
+  m_checkpoint_->file = file;
+}
+
+bool CplexSolverBackend::arm_checkpoint_for_solve()
+{
+  if (!m_checkpoint_ || m_checkpoint_->written) {
+    return false;
+  }
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  const int ncols = CPXgetnumcols(env, lp);
+  if (ncols <= 0) {
+    return false;
+  }
+  // Snapshot the column counts the callback needs: the generic callback
+  // reports incumbents in the ORIGINAL model space, so `ncols` here matches
+  // what `CPXcallbackgetincumbent` fills.  `nint` is informational (dump
+  // header parity with `dump_integer_solution`).
+  int nint = 0;
+  std::vector<char> ctype(static_cast<std::size_t>(ncols));
+  if (CPXgetctype(env, lp, ctype.data(), 0, ncols - 1) == 0) {
+    nint = static_cast<int>(std::ranges::count_if(
+        ctype, [](const char c) { return c != CPX_CONTINUOUS; }));
+  }
+  m_checkpoint_->ncols = ncols;
+  m_checkpoint_->nint = nint;
+  const int rc = CPXcallbacksetfunc(env,
+                                    lp,
+                                    CPX_CALLBACKCONTEXT_GLOBAL_PROGRESS,
+                                    cplex_checkpoint_callback,
+                                    m_checkpoint_.get());
+  if (rc != 0) {
+    spdlog::warn(
+        "CPLEX checkpoint: CPXcallbacksetfunc failed (rc={}); mid-solve "
+        "checkpoint disabled for this solve",
+        rc);
+    return false;
+  }
+  return true;
+}
+
+void CplexSolverBackend::finish_checkpoint_after_solve()
+{
+  auto* env = m_env_lp_.env();
+  auto* lp = m_env_lp_.lp();
+  // Deregister: contextmask 0 detaches the callback, so later solves on
+  // this problem (fixed-MILP dual recovery, re-solves) run callback-free.
+  CPXcallbacksetfunc(env, lp, 0, nullptr, nullptr);
+  if (!m_checkpoint_ || m_checkpoint_->written) {
+    return;
+  }
+  // Solve-exit guarantee: the callback never fired (e.g. the whole solve
+  // happened inside presolve, or no GLOBAL_PROGRESS event landed within the
+  // gap window).  Dump the FINAL incumbent iff it honours the checkpoint
+  // gap — with `checkpoint_gap >= mip_gap` a successful solve always does.
+  double rel_gap = 0.0;
+  if (CPXgetmiprelgap(env, lp, &rel_gap) != 0 || rel_gap > m_checkpoint_->gap) {
+    return;  // no incumbent, or not within the checkpoint gap
+  }
+  const int ncols = m_checkpoint_->ncols;
+  std::vector<double> x(static_cast<std::size_t>(ncols));
+  if (CPXgetx(env, lp, x.data(), 0, ncols - 1) != 0) {
+    return;
+  }
+  if (write_checkpoint_dump(m_checkpoint_->file, x, m_checkpoint_->nint)) {
+    m_checkpoint_->written = true;
+    spdlog::info(
+        "CPLEX checkpoint: final incumbent (rel gap {:.4g} <= {:.4g}) saved "
+        "to '{}' at solve exit ({} cols, {} integer)",
+        rel_gap,
+        m_checkpoint_->gap,
+        m_checkpoint_->file,
+        ncols,
+        m_checkpoint_->nint);
+  } else {
+    spdlog::warn("CPLEX checkpoint: failed to write '{}' at solve exit",
+                 m_checkpoint_->file);
+  }
+}
+
 namespace
 {
 // Diagnostic (opt-in via GTOPT_CPLEX_DIAGNOSE_MIPSTART=1): before CPXmipopt,
@@ -2114,7 +2343,11 @@ void CplexSolverBackend::initial_solve()
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     maybe_diagnose_mipstart(m_env_lp_.env(), m_env_lp_.lp());
+    const bool ckpt_armed = arm_checkpoint_for_solve();
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
+    if (ckpt_armed) {
+      finish_checkpoint_after_solve();
+    }
   } else {
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());
   }
@@ -2130,7 +2363,11 @@ void CplexSolverBackend::resolve()
   const int cplex_type = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
   if (cplex_type == CPXPROB_MILP || cplex_type == CPXPROB_MIQP) {
     maybe_diagnose_mipstart(m_env_lp_.env(), m_env_lp_.lp());
+    const bool ckpt_armed = arm_checkpoint_for_solve();
     m_solve_status_ = CPXmipopt(m_env_lp_.env(), m_env_lp_.lp());
+    if (ckpt_armed) {
+      finish_checkpoint_after_solve();
+    }
   } else {
     // CPXlpopt respects CPX_PARAM_LPMETHOD set by apply_options().
     m_solve_status_ = CPXlpopt(m_env_lp_.env(), m_env_lp_.lp());

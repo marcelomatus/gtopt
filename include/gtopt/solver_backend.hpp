@@ -41,7 +41,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 15;
+inline constexpr int k_solver_abi_version = 16;
 
 /// Per-solve effort reported by a backend: wall `seconds` plus deterministic
 /// `ticks` (a load-independent work unit).  Conventions for backends lacking
@@ -712,6 +712,42 @@ public:
                              MipStartEffort /*effort*/)
   {
     return false;
+  }
+
+  // ---- mid-solve incumbent checkpoint (two-gap MIP solve) ----
+
+  /// True when this backend can write a mid-solve incumbent CHECKPOINT
+  /// natively — i.e. it hooks the solver's progress callback, watches the
+  /// relative MIP gap, and dumps the current incumbent to disk the first
+  /// time the gap reaches the armed threshold, WITHOUT stopping or
+  /// perturbing the ongoing branch-and-cut.  Callers without native support
+  /// (default `false`) fall back to a two-stage solve (stage 1 to the
+  /// checkpoint gap → dump → stage 2 to the final gap); see
+  /// `SystemLP::resolve`.  CPLEX overrides with `true` (generic callback,
+  /// `CPXCALLBACKCONTEXT_GLOBAL_PROGRESS` — dynamic-search compatible).
+  [[nodiscard]] virtual bool supports_checkpoint() const noexcept
+  {
+    return false;
+  }
+
+  /// Arm (or, with `rel_gap <= 0` / empty `file`, disarm) the one-shot
+  /// incumbent checkpoint for the NEXT MIP solve on this backend: the first
+  /// time the solve's relative gap `|best - bound| / max(1e-10, |best|)`
+  /// drops to `rel_gap`, the COMPLETE incumbent (every column, integer and
+  /// continuous) is written to `file` in the gtopt `dump_integer_solution`
+  /// format, atomically (tmp + rename), exactly once.  The solve itself is
+  /// NOT interrupted — it continues to the configured `mip_gap`.
+  ///
+  /// Contract for supporting backends: after a successful MIP solve with an
+  /// armed checkpoint, `file` exists — if the progress callback never fired
+  /// within the gap (e.g. the whole solve happened in presolve), the final
+  /// incumbent (which is within the checkpoint gap by construction whenever
+  /// `rel_gap >= mip_gap`) is dumped at solve exit.  Registration happens
+  /// only while armed, so an un-armed backend pays ZERO callback overhead.
+  ///
+  /// Default: no-op (pairs with `supports_checkpoint() == false`).
+  virtual void set_checkpoint(double /*rel_gap*/, const std::string& /*file*/)
+  {
   }
 
   // ---- simplex basis (advanced warm start) ----

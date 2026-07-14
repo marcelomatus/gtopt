@@ -70,6 +70,8 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.relax.check = true;
   opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.relax.report_saturated = true;
+  opts.checkpoint_gap = 0.025;
+  opts.checkpoint_file = "ckpt.start";
 
   const auto json_string = daw::json::to_json(opts);
   const auto back = daw::json::from_json<MipStartOptions>(json_string);
@@ -85,6 +87,8 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   CHECK(back.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
   CHECK(back.relax.report_saturated.value_or(false) == true);
+  CHECK(back.checkpoint_gap.value_or(-1.0) == doctest::Approx(0.025));
+  CHECK(back.checkpoint_file.value_or("") == "ckpt.start");
 }
 
 TEST_CASE("MipStartOptions parses from a monolithic_options block")  // NOLINT

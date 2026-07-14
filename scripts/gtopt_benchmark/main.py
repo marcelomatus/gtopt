@@ -90,9 +90,12 @@ def _cplex_kticks_per_s(gtopt: str, case: str) -> float | None:
     if not m:
         return None
     secs, ticks = float(m.group(1)), float(m.group(2))
-    if ticks < 100.0:
-        # A trivial case yields ~1 tick — no resolution for calibration.
-        # Use a mid-size case (thousands of ticks) shared across hosts.
+    if ticks < 2000.0 or secs < 10.0:
+        # Small solves measure CPLEX/setup OVERHEAD, not throughput — the
+        # score is only meaningful when pure solve work dominates.  Use a
+        # mid-size case (thousands of ticks, tens of seconds) shared across
+        # hosts, or compute ticks/solver_time from a real run's
+        # GTOPT_SOLVE_EFFORT log line instead.
         return None
     return ticks / secs / 1e3 if secs > 0 else None
 

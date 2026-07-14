@@ -24,6 +24,13 @@ struct cpxlp;
 namespace gtopt
 {
 
+/// One-shot mid-solve incumbent-checkpoint state (two-gap MIP solve).
+/// Armed by `CplexSolverBackend::set_checkpoint`, consumed by the generic
+/// callback registered for the next `CPXmipopt`.  Defined in the .cpp
+/// (holds a `std::mutex` — callbacks fire concurrently under CPLEX's
+/// opportunistic parallel mode).
+struct CplexCheckpointState;
+
 /// Cached state used to (re)prepare a CPLEX env + lp pair.  The backend
 /// updates this whenever the caller applies options, log settings, or a
 /// problem name; CplexEnvLp's constructor consumes it as the single
@@ -213,6 +220,10 @@ public:
                      MipStartEffort effort) override;
   int restore_integers(std::span<const int> integer_cols) override;
 
+  // ---- mid-solve incumbent checkpoint (two-gap MIP solve) ----
+  [[nodiscard]] bool supports_checkpoint() const noexcept override;
+  void set_checkpoint(double rel_gap, const std::string& file) override;
+
   // ---- simplex basis (advanced warm start) ----
   [[nodiscard]] std::optional<Basis> get_basis() const override;
   bool set_basis(const Basis& basis) override;
@@ -278,8 +289,25 @@ private:
   /// Re-open env+lp from scratch with all cached preparation applied.
   void reset_env_lp();
 
+  /// Register the incumbent-checkpoint generic callback for the imminent
+  /// `CPXmipopt` when one is armed and not yet written.  Returns true iff
+  /// the callback was registered (the caller then pairs it with
+  /// `finish_checkpoint_after_solve`).  Zero cost when no checkpoint is
+  /// armed — no callback is ever installed.
+  [[nodiscard]] bool arm_checkpoint_for_solve();
+
+  /// Deregister the checkpoint callback and, when the callback never fired
+  /// (whole solve in presolve / no GLOBAL_PROGRESS event within the gap),
+  /// dump the final incumbent iff it satisfies the checkpoint gap — the
+  /// solve-exit guarantee of `SolverBackend::set_checkpoint`.
+  void finish_checkpoint_after_solve();
+
   CplexEnvLp m_env_lp_;
   CplexPrep m_prep_;
+
+  /// Armed one-shot checkpoint (null when disarmed).  Never cloned — a
+  /// clone starts with no checkpoint.
+  std::unique_ptr<CplexCheckpointState> m_checkpoint_;
 
   // Per-member problem-data caches.  `m_rowbounds_cached_` covers
   // both `m_rowlb_` and `m_rowub_` — they share the CPXgetsense+
