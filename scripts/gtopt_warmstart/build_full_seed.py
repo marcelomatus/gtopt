@@ -240,6 +240,59 @@ def _status_rows(mip_json: Path, system: dict) -> list:
     return rows
 
 
+def _fuel_offtakes(system: dict) -> list:
+    """Per capped fuel: (fuel_name, weekly_cap, [(generator_uid, burn/h at
+    pmin), ...]).  With u fixed, every ON hour of a unit forces at least
+    ``pmin × heat_rate`` fuel offtake; if the committed total exceeds the
+    HARD ``Fuel.max_offtake`` cap no dispatch can satisfy the row and a
+    strict backend check rejects the whole start (found on CEN 04-12: the
+    transport seed forced Gas_EnelMejillones_E 5% over its weekly cap)."""
+    caps = {
+        f["name"]: _scalar(f.get("max_offtake"))
+        for f in system.get("fuel_array", [])
+        if _scalar(f.get("max_offtake")) > 0.0
+    }
+    if not caps:
+        return []
+    resolve = _generator_uid_resolver(system)
+    pmin = {}
+    for c in system.get("commitment_array", []):
+        guid = resolve(c.get("generator"))
+        if guid is not None:
+            pmin[guid] = _scalar(c.get("pmin"))
+    units: dict[str, list] = {}
+    for g in system.get("generator_array", []):
+        fu = g.get("fuel")
+        hr = g.get("heat_rate")
+        guid = g.get("uid")
+        if fu in caps and hr and pmin.get(guid, 0.0) > 0.0:
+            units.setdefault(fu, []).append((int(guid), pmin[guid] * float(hr)))
+    return [(fu, caps[fu], units[fu]) for fu in units]
+
+
+def _repair_fuel_offtakes(u, blocks, meta, fuels, raw, durations, set_u) -> None:
+    """Demote ON hours of capped-fuel units (least-committed raw fraction
+    first, pins respected) until the forced pmin burn fits the weekly cap."""
+    for _, cap_v, units in fuels:
+        rate = dict(units)
+        cells = [
+            (raw.get((g, b), 0.0), g, i, b)
+            for g, _ in units
+            for i, b in enumerate(blocks)
+            if u.get((g, b), 0) == 1
+        ]
+        forced = sum(rate[g] * durations.get(b, 1.0) for _, g, _, b in cells)
+        if forced <= cap_v + 1e-9:
+            continue
+        for _, g, i, b in sorted(cells):
+            if _pin(meta.get(g), i) is not None:
+                continue
+            set_u(g, i, 0, "fuel")
+            forced -= rate[g] * durations.get(b, 1.0)
+            if forced <= cap_v + 1e-9:
+                break
+
+
 def _pin(meta_g: dict | None, idx: int) -> int | None:
     """Pinned u value at block-index ``idx`` (None = free).
 
@@ -317,9 +370,13 @@ def repair_seed(
     pairs: list,
     srows: list,
     raw: dict[tuple[int, int], float],
+    fuels: list | None = None,
+    durations: dict[int, float] | None = None,
 ) -> dict[str, int]:
     """In-place commitment-feasibility repair; returns per-rule flip counts."""
-    stats = {"pin": 0, "min_down": 0, "min_up": 0, "order": 0, "urow": 0}
+    stats = {"pin": 0, "min_down": 0, "min_up": 0, "order": 0, "urow": 0, "fuel": 0}
+    fuels = fuels or []
+    durations = durations or {}
     nb = len(blocks)
 
     def set_u(g: int, i: int, val: int, rule: str) -> None:
@@ -368,6 +425,8 @@ def repair_seed(
         # 5. generic pure-status pampl rows (exclusivity, config
         # implications, indicator links).
         _repair_status_rows(u, blocks, meta, srows, raw, set_u)
+        # 6. weekly fuel-offtake caps: forced pmin burn must fit.
+        _repair_fuel_offtakes(u, blocks, meta, fuels, raw, durations, set_u)
         if stats == before:
             break
     return stats
@@ -379,6 +438,8 @@ def verify_seed(
     meta: dict[int, dict],
     pairs: list,
     srows: list,
+    fuels: list | None = None,
+    durations: dict[int, float] | None = None,
 ) -> int:
     """Count residual commitment-only violations (0 = strict-feasible)."""
     bad = 0
@@ -405,6 +466,19 @@ def verify_seed(
         for b in blocks:
             if u.get((follow, b), 0) > u.get((lead, b), 0):
                 bad += 1
+    durations = durations or {}
+    for fu_name, cap_v, units in fuels or []:
+        forced = sum(
+            r * durations.get(b, 1.0)
+            for g, r in units
+            for b in blocks
+            if u.get((g, b), 0) == 1
+        )
+        if forced > cap_v + 1e-6:
+            bad += 1
+            _log.warning(
+                "fuel %s forced burn %.1f exceeds cap %.1f", fu_name, forced, cap_v
+            )
     eps = 1e-9
     for _, terms, op, rhs in srows:
         for b in blocks:
@@ -427,6 +501,16 @@ def _blocks_from_case(mip_json: Path) -> list[int]:
     with mip_json.open() as fh:
         case = json.load(fh)
     return [int(b["uid"]) for b in case.get("simulation", {}).get("block_array", [])]
+
+
+def _block_durations(mip_json: Path) -> dict[int, float]:
+    """block uid → duration [h] from ``simulation.block_array`` (default 1)."""
+    with mip_json.open() as fh:
+        case = json.load(fh)
+    return {
+        int(b["uid"]): float(b.get("duration", 1.0))
+        for b in case.get("simulation", {}).get("block_array", [])
+    }
 
 
 def build_full_seed(
@@ -473,8 +557,14 @@ def build_full_seed(
     meta = _commitment_meta(system)
     pairs = _order_pairs(mip_json, system, meta)
     srows = _status_rows(mip_json, system)
-    stats = repair_seed(u, blocks, meta, pairs, srows, raw) if repair else {}
-    residual = verify_seed(u, blocks, meta, pairs, srows)
+    fuels = _fuel_offtakes(system)
+    durations = _block_durations(mip_json)
+    stats = (
+        repair_seed(u, blocks, meta, pairs, srows, raw, fuels, durations)
+        if repair
+        else {}
+    )
+    residual = verify_seed(u, blocks, meta, pairs, srows, fuels, durations)
 
     u1 = 0
     with seed_csv.open("w", newline="") as fh:
@@ -495,6 +585,7 @@ def build_full_seed(
         "blocks": len(blocks),
         "order_pairs": len(pairs),
         "status_rows": len(srows),
+        "capped_fuels": len(fuels),
         "repairs": stats,
         "residual": residual,
     }

@@ -300,3 +300,30 @@ def test_no_repair_flag_skips_repair(case_dir: Path) -> None:
     # BL2 ON without its order leader is a violation the repair would fix.
     assert not summary["repairs"]
     assert summary["residual"] > 0
+
+
+def test_fuel_offtake_cap_repair() -> None:
+    from gtopt_warmstart.build_full_seed import _fuel_offtakes
+
+    system = _system()
+    for g in system["generator_array"]:
+        if g["uid"] in (1, 2):
+            g["fuel"] = "GNL_X"
+            g["heat_rate"] = 1.0
+    system["fuel_array"] = [{"name": "GNL_X", "max_offtake": 12.0}]
+    fuels = _fuel_offtakes(system)
+    assert len(fuels) == 1
+    meta = _commitment_meta(system)
+    durations = {b: 1.0 for b in BLOCKS}
+    # BL1 (pmin 5) ON 3h + BL2 (pmin 0.5) ON 2h → forced 16 > cap 12.
+    u = {(g, b): 0 for g in (1, 2, 3, 4, 5, 6) for b in BLOCKS}
+    for b in (1, 2, 3):
+        u[(1, b)] = 1
+    for b in (1, 2):
+        u[(2, b)] = 1
+    raw = {(1, 1): 0.9, (1, 2): 0.8, (1, 3): 0.2, (2, 1): 0.7, (2, 2): 0.6}
+    stats = repair_seed(u, BLOCKS, meta, [], [], raw, fuels, durations)
+    assert stats["fuel"] >= 1
+    assert verify_seed(u, BLOCKS, meta, [], [], fuels, durations) == 0
+    # the least-committed ON hour (BL1 block 3, raw 0.2) went first
+    assert u[(1, 3)] == 0
