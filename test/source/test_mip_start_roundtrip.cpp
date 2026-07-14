@@ -483,7 +483,6 @@ TEST_CASE(  // NOLINT
           .int_cols = int_cols,
           .opts = ms,
           .commitments = {},
-          .injections = {},
       };
       auto gen = make_mip_start_generator(ms);
       REQUIRE(gen != nullptr);

@@ -18,114 +18,16 @@ namespace daw::json
 {
 using gtopt::BoundaryCutSharingMode;
 using gtopt::BoundaryCutsMode;
-using gtopt::MipStartDomainRules;
 using gtopt::MipStartEffort;
 using gtopt::MipStartInject;
 using gtopt::MipStartOptions;
-using gtopt::MipStartPeakInjection;
 using gtopt::MipStartRelax;
 using gtopt::MipStartRound;
 using gtopt::MipStartScipRepair;
-using gtopt::MipStartWindow;
 using gtopt::MonolithicOptions;
 using gtopt::RelaxInfeasibleAction;
 using gtopt::SolveMode;
 using gtopt::SolverOptions;
-
-// ── MipStartWindow ──────────────────────────────────────────────────────────
-
-struct MipStartWindowConstructor
-{
-  [[nodiscard]] MipStartWindow operator()(OptReal start, OptReal end) const
-  {
-    return MipStartWindow {.start = start, .end = end};
-  }
-};
-
-template<>
-struct json_data_contract<MipStartWindow>
-{
-  using constructor_t = MipStartWindowConstructor;
-
-  using type = json_member_list<json_number_null<"start", OptReal>,
-                                json_number_null<"end", OptReal>>;
-
-  static auto to_json_data(MipStartWindow const& opt)
-  {
-    return std::make_tuple(opt.start, opt.end);
-  }
-};
-
-// ── MipStartPeakInjection ───────────────────────────────────────────────────
-
-struct MipStartPeakInjectionConstructor
-{
-  [[nodiscard]] MipStartPeakInjection operator()(
-      OptBool enabled,
-      std::optional<MipStartWindow> peak_window,
-      std::optional<MipStartWindow> solar_window) const
-  {
-    return MipStartPeakInjection {
-        .enabled = enabled,
-        .peak_window = peak_window.value_or(MipStartWindow {}),
-        .solar_window = solar_window.value_or(MipStartWindow {}),
-    };
-  }
-};
-
-template<>
-struct json_data_contract<MipStartPeakInjection>
-{
-  using constructor_t = MipStartPeakInjectionConstructor;
-
-  using type =
-      json_member_list<json_bool_null<"enabled", OptBool>,
-                       json_class_null<"peak_window", MipStartWindow>,
-                       json_class_null<"solar_window", MipStartWindow>>;
-
-  static auto to_json_data(MipStartPeakInjection const& opt)
-  {
-    return std::make_tuple(opt.enabled,
-                           std::optional<MipStartWindow> {opt.peak_window},
-                           std::optional<MipStartWindow> {opt.solar_window});
-  }
-};
-
-// ── MipStartDomainRules ─────────────────────────────────────────────────────
-
-struct MipStartDomainRulesConstructor
-{
-  [[nodiscard]] MipStartDomainRules operator()(
-      OptBool min_up_down,
-      OptBool commitment_logic,
-      std::optional<MipStartPeakInjection> peak_injection) const
-  {
-    return MipStartDomainRules {
-        .min_up_down = min_up_down,
-        .commitment_logic = commitment_logic,
-        .peak_injection = peak_injection.value_or(MipStartPeakInjection {}),
-    };
-  }
-};
-
-template<>
-struct json_data_contract<MipStartDomainRules>
-{
-  using constructor_t = MipStartDomainRulesConstructor;
-
-  using type = json_member_list<
-      json_bool_null<"min_up_down", OptBool>,
-      json_bool_null<"commitment_logic", OptBool>,
-      json_class_null<"peak_injection", MipStartPeakInjection>>;
-
-  static auto to_json_data(MipStartDomainRules const& opt)
-  {
-    return std::make_tuple(
-        opt.min_up_down,
-        opt.commitment_logic,
-        std::optional<MipStartPeakInjection> {opt.peak_injection});
-  }
-};
 
 // ── MipStartRelax ───────────────────────────────────────────────────────────
 
@@ -250,7 +152,6 @@ struct MipStartOptionsConstructor
       OptBool enabled,
       std::optional<MipStartRelax> relax,
       std::optional<MipStartRound> round,
-      std::optional<MipStartDomainRules> domain_rules,
       std::optional<MipStartScipRepair> scip_repair,
       std::optional<MipStartInject> inject,
       OptName from_file,
@@ -263,7 +164,6 @@ struct MipStartOptionsConstructor
         .enabled = enabled,
         .relax = relax.value_or(MipStartRelax {}),
         .round = round.value_or(MipStartRound {}),
-        .domain_rules = domain_rules.value_or(MipStartDomainRules {}),
         .scip_repair = scip_repair.value_or(MipStartScipRepair {}),
         .inject = inject.value_or(MipStartInject {}),
         .from_file = std::move(from_file),
@@ -284,7 +184,6 @@ struct json_data_contract<MipStartOptions>
       json_member_list<json_bool_null<"enabled", OptBool>,
                        json_class_null<"relax", MipStartRelax>,
                        json_class_null<"round", MipStartRound>,
-                       json_class_null<"domain_rules", MipStartDomainRules>,
                        json_class_null<"scip_repair", MipStartScipRepair>,
                        json_class_null<"inject", MipStartInject>,
                        json_string_null<"from_file", OptName>,
@@ -295,18 +194,16 @@ struct json_data_contract<MipStartOptions>
 
   static auto to_json_data(MipStartOptions const& opt)
   {
-    return std::make_tuple(
-        opt.enabled,
-        std::optional<MipStartRelax> {opt.relax},
-        std::optional<MipStartRound> {opt.round},
-        std::optional<MipStartDomainRules> {opt.domain_rules},
-        std::optional<MipStartScipRepair> {opt.scip_repair},
-        std::optional<MipStartInject> {opt.inject},
-        opt.from_file,
-        opt.dump_file,
-        opt.seed_solution_file,
-        opt.skip_relaxation,
-        opt.root_basis_cache_file);
+    return std::make_tuple(opt.enabled,
+                           std::optional<MipStartRelax> {opt.relax},
+                           std::optional<MipStartRound> {opt.round},
+                           std::optional<MipStartScipRepair> {opt.scip_repair},
+                           std::optional<MipStartInject> {opt.inject},
+                           opt.from_file,
+                           opt.dump_file,
+                           opt.seed_solution_file,
+                           opt.skip_relaxation,
+                           opt.root_basis_cache_file);
   }
 };
 

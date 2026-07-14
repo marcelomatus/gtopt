@@ -54,9 +54,9 @@ namespace detail
                                           double ub) noexcept;
 
 /// Stage 1 + 2 of the MIP-start pipeline: round the relaxation's integer
-/// columns (`round_with_threshold`) and apply the default domain commitment-
-/// repair pipeline (`make_default_domain_rules`, built per-call from
-/// `ctx.opts.domain_rules`) to the result.  Continuous columns are kept at
+/// columns (`round_with_threshold`) and overlay the external commitment seed
+/// (`make_default_domain_rules`, i.e. `SeedCommitmentRule` when a
+/// `seed_solution_file` is set).  Continuous columns are kept at
 /// their relaxation value.  Returns the dense raw candidate start (empty iff
 /// the relaxation has no primal).  Used by the default round+rules generator.
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
@@ -83,11 +83,6 @@ struct MipStartContext
   std::span<const int> int_cols;
   const MipStartOptions& opts;
   std::span<const CommitmentRunInfo> commitments;
-  /// Per storage-injection unit (reservoir-fed hydro / battery discharge) the
-  /// `PeakInjectionRule` reads — status columns + per-block peak flags.  Empty
-  /// unless `mip_start.domain_rules.peak_injection.enabled` is on (the
-  /// `SystemLP::resolve` hook fills it).
-  std::span<const PeakInjectionInfo> injections;
   /// The flattened LP (CSC matrix + bounds + objective + integer markers),
   /// supplied for generators that build a *second* solver model in process
   /// (e.g. `scip_repair`).  Column index j here equals raw LP column j, so the
@@ -147,7 +142,6 @@ public:
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
     std::span<const CommitmentRunInfo> commitments = {},
-    std::span<const PeakInjectionInfo> injections = {},
     const FlatLinearProblem* flat_lp = nullptr);
 
 /// Dump the live MIP solution's COMPLETE RAW column values to `path` — one

@@ -67,13 +67,6 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.from_file = "in.start";
   opts.dump_file = "out.start";
   opts.scip_repair.enabled = true;
-  opts.domain_rules.min_up_down = false;
-  opts.domain_rules.commitment_logic = true;
-  opts.domain_rules.peak_injection.enabled = true;
-  opts.domain_rules.peak_injection.peak_window.start = 19.0;
-  opts.domain_rules.peak_injection.peak_window.end = 22.0;
-  opts.domain_rules.peak_injection.solar_window.start = 10.0;
-  opts.domain_rules.peak_injection.solar_window.end = 16.0;
   opts.relax.check = true;
   opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.relax.report_saturated = true;
@@ -88,17 +81,6 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   CHECK(back.from_file.value_or("") == "in.start");
   CHECK(back.dump_file.value_or("") == "out.start");
   CHECK(back.scip_repair.enabled.value_or(false) == true);
-  CHECK(back.domain_rules.min_up_down.value_or(true) == false);
-  CHECK(back.domain_rules.commitment_logic.value_or(false) == true);
-  CHECK(back.domain_rules.peak_injection.enabled.value_or(false) == true);
-  CHECK(back.domain_rules.peak_injection.peak_window.start.value_or(-1.0)
-        == doctest::Approx(19.0));
-  CHECK(back.domain_rules.peak_injection.peak_window.end.value_or(-1.0)
-        == doctest::Approx(22.0));
-  CHECK(back.domain_rules.peak_injection.solar_window.start.value_or(-1.0)
-        == doctest::Approx(10.0));
-  CHECK(back.domain_rules.peak_injection.solar_window.end.value_or(-1.0)
-        == doctest::Approx(16.0));
   CHECK(back.relax.check.value_or(false) == true);
   CHECK(back.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
@@ -199,8 +181,7 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
                          .opts = opts,
-                         .commitments = {},
-                         .injections = {}};
+                         .commitments = {}};
     const auto start = gen->generate(ctx);
     REQUIRE(start.has_value());
     REQUIRE(start->size() == 3);
@@ -217,8 +198,7 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .relax_opts = relax_opts,
                          .int_cols = int_cols,
                          .opts = opts,
-                         .commitments = {},
-                         .injections = {}};
+                         .commitments = {}};
     const auto start = gen->generate(ctx);
     REQUIRE(start.has_value());
     CHECK((*start)[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
@@ -226,13 +206,12 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
   }
 }
 
-TEST_CASE(
-    "MipStart warmstart repairs min-up/down run-length violations")  // NOLINT
+TEST_CASE("MipStart warmstart rounds without repairing run lengths")  // NOLINT
 {
-  // Four unit-status columns rounding to on,on,off,on with min_down=2h and
-  // 1h blocks: the single 1h OFF period is shorter than min_down, so the
-  // greedy repair suppresses the off→on transition, extending the OFF run —
-  // i.e. the last column is flipped 1→0.
+  // Four unit-status columns rounding to on,on,off,on.  The in-tree
+  // min-up/down repair was removed (2026-07-14) — the seed PRODUCER owns
+  // commitment feasibility — so the generator now returns the pure rounded
+  // pattern verbatim.
   LinearInterface li;
   const auto s0 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
   const auto s1 = li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});
@@ -241,16 +220,13 @@ TEST_CASE(
   pin_col(li, s0, 0.9);  // → 1
   pin_col(li, s1, 0.9);  // → 1
   pin_col(li, s2, 0.1);  // → 0
-  pin_col(li, s3, 0.9);  // → 1 (repaired to 0)
+  pin_col(li, s3, 0.9);  // → 1 (kept: no repair)
   REQUIRE(li.initial_solve(SolverOptions {.log_level = 0}).has_value());
   REQUIRE(li.is_optimal());
 
   const std::array<int, 4> int_cols {0, 1, 2, 3};
   const std::array<CommitmentRunInfo, 1> commitments {CommitmentRunInfo {
-      .min_up_hours = 1.0,
-      .min_down_hours = 2.0,
       .status_cols = {0, 1, 2, 3},
-      .durations = {1.0, 1.0, 1.0, 1.0},
   }};
   MipStartOptions opts;
   opts.round.threshold = 0.5;
@@ -259,8 +235,7 @@ TEST_CASE(
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = commitments,
-                       .injections = {}};
+                       .commitments = commitments};
 
   auto gen = make_mip_start_generator(opts);
   const auto start = gen->generate(ctx);
@@ -268,7 +243,7 @@ TEST_CASE(
   CHECK((*start)[0] == doctest::Approx(1.0));
   CHECK((*start)[1] == doctest::Approx(1.0));
   CHECK((*start)[2] == doctest::Approx(0.0));
-  CHECK((*start)[3] == doctest::Approx(0.0));  // min-down repair flipped 1→0
+  CHECK((*start)[3] == doctest::Approx(1.0));  // rounded verbatim
 }
 
 // ── apply_mip_start orchestrator ──────────────────────────────────────────
@@ -541,8 +516,7 @@ TEST_CASE(
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {},
-                       .injections = {}};
+                       .commitments = {}};
 
   auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
@@ -634,8 +608,7 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {},
-                       .injections = {}};
+                       .commitments = {}};
   auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
@@ -678,8 +651,7 @@ TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
                        .relax_opts = relax_opts,
                        .int_cols = int_cols,
                        .opts = opts,
-                       .commitments = {},
-                       .injections = {}};
+                       .commitments = {}};
 
   auto gen = make_mip_start_generator(opts);
   REQUIRE(gen != nullptr);

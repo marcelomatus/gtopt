@@ -444,21 +444,20 @@ template<typename T>
       ("mip-start",
        po::value<bool>().implicit_value(/*v=*/true),
        "enable the initial-MIP-solution (warm-start) pipeline: relax -> round "
-       "-> domain_rules -> [scip_repair] -> inject.  Solves the LP relaxation, "
-       "rounds the integer columns, repairs the commitment with power-system "
-       "domain rules, and injects the result as a backend MIP start so the "
-       "solver bypasses its costly node-0 heuristic incumbent.  Shorthand for "
+       "-> seed -> [scip_repair] -> inject.  Solves the LP relaxation, rounds "
+       "the integer columns, overlays the external commitment seed "
+       "(seed_solution_file — the producer owns commitment-feasibility "
+       "repair, see scripts/gtopt_warmstart), and injects the result as a "
+       "backend MIP start so the solver bypasses its costly node-0 heuristic "
+       "incumbent.  Shorthand for "
        "--set monolithic_options.mip_start.enabled=true.  Stage controls via "
        "--set monolithic_options.mip_start.<stage>.<field>=<value>: "
        "relax.solver_options.*, relax.check, "
        "relax.on_infeasible=stop|warn|feasopt, relax.report_saturated, "
-       "round.threshold, domain_rules.min_up_down, "
-       "domain_rules.commitment_logic, domain_rules.peak_injection.enabled, "
-       "domain_rules.peak_injection.peak_window.{start,end}, "
-       "domain_rules.peak_injection.solar_window.{start,end}, "
-       "scip_repair.enabled, inject.effort, from_file=<path> to replay a "
-       "dumped start, dump_file=<path> to persist this solve's integers for a "
-       "later cross-solver replay.")
+       "round.threshold, scip_repair.enabled, inject.effort, "
+       "seed_solution_file=<csv>, skip_relaxation, from_file=<path> to replay "
+       "a dumped start, dump_file=<path> to persist this solve's integers for "
+       "a later cross-solver replay.")
       //
       ("root-basis-cache",
        po::value<std::string>(),

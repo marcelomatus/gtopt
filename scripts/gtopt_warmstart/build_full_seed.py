@@ -54,7 +54,28 @@ from pathlib import Path
 
 import pyarrow.dataset as pads
 
-from run_warmstart_experiment import _commitment_to_generator
+
+def _commitment_to_generator(mip_json: Path) -> dict[int, int]:
+    """Map commitment uid → generator uid via ``commitment_array.generator``.
+
+    The seed keys on GENERATOR identity because network reduction never
+    renames generators — the reduced and full models agree on it.
+    """
+    sysd = json.loads(mip_json.read_text())["system"]
+    gname = {int(g["uid"]): g.get("name") for g in sysd["generator_array"]}
+    name2uid = {v: k for k, v in gname.items() if v is not None}
+    out: dict[int, int] = {}
+    for c in sysd.get("commitment_array", []):
+        ref = c.get("generator")
+        guid = None
+        if isinstance(ref, int) and not isinstance(ref, bool):
+            guid = ref if ref in gname else None
+        elif isinstance(ref, str):
+            guid = name2uid.get(ref)
+        if guid is not None:
+            out[int(c["uid"])] = guid
+    return out
+
 
 # PAMPL prints mid-expression signs DETACHED (`... - 1 * commitment(...)`),
 # so the sign is a separate capture group — a `-?` glued to the digits reads

@@ -21,88 +21,13 @@ namespace gtopt
 // The initial-MIP-solution (warm-start) pipeline runs as a sequence of cleanly
 // separated stages immediately before the monolithic MIP solve:
 //
-//   relax → round → domain_rules → [scip_repair] → inject
+//   relax → round → seed → [scip_repair] → inject
 //
 // `enabled` is the master on/off switch (replaces the old `method != none`).
 // Stage 0 (relax) ALSO runs when `relax.check` is true on its own, for a
 // diagnosis-only pass with no injection.  `from_file` swaps the round+rules
 // candidate source for a replayed dump (cross-solver hand-off).  Every field
 // is optional; defaults are applied at the consume site.
-
-/// A peak/solar hour-of-day sub-window `[start, end)` for the peak-injection
-/// domain rule.  Hour-of-day is `(stage.timeinit + intra-stage cumulative
-/// duration) mod 24` (the planning horizon starts at hour 0).
-struct MipStartWindow
-{
-  /** @brief Inclusive start hour-of-day `[0, 24)`. */
-  OptReal start {};
-  /** @brief Exclusive end hour-of-day `[0, 24]`. */
-  OptReal end {};
-
-  void merge(MipStartWindow&& opts)
-  {
-    merge_opt(start, opts.start);
-    merge_opt(end, opts.end);
-    auto _ = std::move(opts);
-  }
-};
-
-/// STAGE 2 add-on: peak-injection domain rule (battery + hydro seeding).
-///
-/// Seeds storage / hydro injection units to be committed ON during the
-/// relevant window in the rounded integer start (the `PeakInjectionRule`).
-/// Two unit classes, distinguished by topology:
-///   - reservoir-fed HYDRO (any turbine-linked generator): commit ON across
-///     the evening `peak_window` so it injects when the system is most
-///     stressed.
-///   - BATTERY discharge (any converter's discharge generator): seed the unit
-///     ACTIVE across BOTH the `solar_window` (charge) and the evening
-///     `peak_window` (discharge), approximating a single daily charge→discharge
-///     cycle.  An `expand_batteries` battery exposes a SINGLE shared activity
-///     binary, so the binary marks "active" in both windows while the
-///     continuous charge/discharge columns (which the MIP optimizes) pick the
-///     direction.
-/// Conservative — only ever flips a status binary toward ON inside a window
-/// (never OFF, never outside), so the MIP still validates and re-optimizes.
-/// `enabled` default TRUE.
-struct MipStartPeakInjection
-{
-  /** @brief Master on/off for the peak-injection rule (default true). */
-  OptBool enabled {};
-  /** @brief Evening peak / discharge window (default 18→23). */
-  MipStartWindow peak_window {};
-  /** @brief Battery solar-charge window (default 9→17). */
-  MipStartWindow solar_window {};
-
-  void merge(MipStartPeakInjection&& opts)
-  {
-    merge_opt(enabled, opts.enabled);
-    peak_window.merge(std::move(opts.peak_window));
-    solar_window.merge(std::move(opts.solar_window));
-    auto _ = std::move(opts);
-  }
-};
-
-/// STAGE 2: domain (power-system) commitment-repair rules applied to the
-/// rounded candidate.  Each toggle gates one rule in the default pipeline.
-struct MipStartDomainRules
-{
-  /** @brief Register the min-up/min-down run-length rule (default true). */
-  OptBool min_up_down {};
-  /** @brief Register the commitment-logic (u/v/w consistency) rule, run LAST
-   * (default true). */
-  OptBool commitment_logic {};
-  /** @brief Peak-injection seeding (battery + hydro). */
-  MipStartPeakInjection peak_injection {};
-
-  void merge(MipStartDomainRules&& opts)
-  {
-    merge_opt(min_up_down, opts.min_up_down);
-    merge_opt(commitment_logic, opts.commitment_logic);
-    peak_injection.merge(std::move(opts.peak_injection));
-    auto _ = std::move(opts);
-  }
-};
 
 /// STAGE 0: LP-relaxation analysis & diagnosis.  Runs whenever the pipeline is
 /// `enabled` (the generator needs the relaxation) or `check` is explicitly true
@@ -196,8 +121,6 @@ struct MipStartOptions
   MipStartRelax relax {};
   /** @brief STAGE 1 — round the relaxation's integer columns. */
   MipStartRound round {};
-  /** @brief STAGE 2 — power-system domain commitment-repair rules. */
-  MipStartDomainRules domain_rules {};
   /** @brief STAGE 4 (optional) — SCIP feasibility repair. */
   MipStartScipRepair scip_repair {};
   /** @brief STAGE 5 — inject the candidate as a backend MIP start. */
@@ -256,7 +179,6 @@ struct MipStartOptions
     merge_opt(enabled, opts.enabled);
     relax.merge(std::move(opts.relax));
     round.merge(std::move(opts.round));
-    domain_rules.merge(std::move(opts.domain_rules));
     scip_repair.merge(std::move(opts.scip_repair));
     inject.merge(std::move(opts.inject));
     merge_opt(from_file, std::move(opts.from_file));
@@ -315,7 +237,7 @@ struct MonolithicOptions
   /** @brief Optional initial-MIP-solution generator configuration.
    *
    * When `mip_start.enabled` is true, the monolithic solver computes a starting
-   * integer solution (relax → round → domain_rules → [scip_repair]) and injects
+   * integer solution (relax → round → seed → [scip_repair]) and injects
    * it into the backend before branch-and-cut (see `MipStartOptions`).
    */
   std::optional<MipStartOptions> mip_start {};

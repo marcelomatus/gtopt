@@ -39,17 +39,13 @@ namespace detail
   return std::clamp(r, lb, ub);
 }
 
-/// Stage 1 (round) + stage 2 (domain rules: commitment repair) shared
-/// by every base generator.  Rounds the relaxation's integer columns and runs
-/// the default `DomainRulePipeline` (min-up/down, … — see
-/// domain_rules.hpp) over the result; continuous columns keep their
-/// relaxation value.  @return the dense raw candidate start (empty iff the
-/// relaxation produced no primal — the caller skips).
-/// Stage 2 — apply the seed + domain-rule pipeline in place on `start`.
-/// Loads the optional external commitment seed (registered FIRST so it is the
-/// base the remaining rules repair) and runs the default `DomainRulePipeline`
-/// (min-up/down, commitment-logic v/w, …).  Shared by the round-from-relaxation
-/// generator and the seed-only (no-relaxation) path.
+/// Stage 2 — overlay the external commitment seed in place on `start`
+/// (`SeedCommitmentRule` via `make_default_domain_rules`; a no-op without a
+/// `seed_solution_file`).  Commitment-feasibility REPAIR is the seed
+/// producer's job (`gtopt_warmstart.build_full_seed`) — the in-tree repair
+/// rules were removed 2026-07-14 (blind to the constraint families that
+/// actually reject a start; see domain_rules.hpp).  Shared by the
+/// round-from-relaxation generator and the seed-only (no-relaxation) path.
 namespace
 {
 void apply_seed_and_domain_rules(const MipStartContext& ctx,
@@ -70,22 +66,20 @@ void apply_seed_and_domain_rules(const MipStartContext& ctx,
     }
   }
   const DomainRulePipeline pipeline =
-      make_default_domain_rules(ctx.opts.domain_rules, std::move(seed));
+      make_default_domain_rules(std::move(seed));
   const int flipped = pipeline.apply(start,
                                      DomainRuleContext {
                                          .commitments = ctx.commitments,
-                                         .injections = ctx.injections,
                                      });
   if (flipped > 0) {
-    spdlog::info("MIP-start[{}]: domain rules flipped {} status values",
-                 generator_name,
-                 flipped);
+    spdlog::info(
+        "MIP-start[{}]: seed set {} status values", generator_name, flipped);
   }
 }
 
 /// Seed-only start: no LP relaxation.  Builds a zero base of width `ncols`
-/// and lets the seed + commitment-logic domain rules set every integer
-/// commitment column directly.  Continuous columns stay at 0 (a
+/// and lets the seed set every integer commitment column directly.
+/// Continuous columns stay at 0 (a
 /// sparse-injecting backend like CPLEX drops them and completes the dispatch
 /// as its warm root LP).
 [[nodiscard]] std::vector<double> seed_only_start(
@@ -118,7 +112,7 @@ void apply_seed_and_domain_rules(const MipStartContext& ctx,
     const double h = (u < ub.size()) ? ub[u] : 1.0;
     start[u] = round_with_threshold(sol[u], threshold, l, h);
   }
-  // Stage 2 — domain rules (power-system knowledge: min-up/down, …).
+  // Stage 2 — overlay the external commitment seed (if any).
   apply_seed_and_domain_rules(ctx, start, generator_name);
   return start;
 }
@@ -142,7 +136,7 @@ public:
   [[nodiscard]] std::optional<std::vector<double>> generate(
       MipStartContext& ctx) override
   {
-    // Stage 1 (round) + stage 2 (domain rules); nothing else.
+    // Stage 1 (round) + stage 2 (seed overlay); nothing else.
     auto start = detail::rounded_start_with_rules(ctx, "warmstart");
     if (start.empty()) {
       return std::nullopt;
@@ -514,7 +508,6 @@ std::expected<MipStartReport, Error> apply_mip_start(
     const SolverOptions& base_opts,
     const MipStartOptions& opts,
     std::span<const CommitmentRunInfo> commitments,
-    std::span<const PeakInjectionInfo> injections,
     const FlatLinearProblem* flat_lp)
 {
   MipStartReport report;
@@ -566,7 +559,6 @@ std::expected<MipStartReport, Error> apply_mip_start(
         .int_cols = int_cols,
         .opts = opts,
         .commitments = commitments,
-        .injections = injections,
         .flat_lp = flat_lp,
     };
     std::optional<std::vector<double>> start;
@@ -674,10 +666,9 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .int_cols = int_cols,
       .opts = opts,
       .commitments = commitments,
-      .injections = injections,
       .flat_lp = flat_lp,
   };
-  auto start = gen->generate(ctx);  // stage 1 (round) + stage 2 (domain rules)
+  auto start = gen->generate(ctx);  // stage 1 (round) + stage 2 (seed)
   std::string source {gen->name()};
 
   // Stage 4 (optional): SCIP repair.  Composable with any base candidate and
