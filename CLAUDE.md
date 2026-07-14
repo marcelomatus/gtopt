@@ -13,6 +13,16 @@ and Python utility scripts.
 
 ## Environment Setup
 
+> **MANDATORY — core dumps ALWAYS on**: prefix/precede EVERY command that
+> runs `gtopt`, `gtoptTests`, `ctest`, or pytest-driven gtopt runs with
+> `ulimit -c unlimited` (first line of every run wrapper too).  This
+> box's `core_pattern` pipes to apport, which only writes a plain `core`
+> (in the process cwd) for unpackaged binaries when RLIMIT_CORE > 0 —
+> with the default `ulimit -c 0` a crash leaves NOTHING to autopsy
+> (a production SIGABRT was lost this way; the root-cause hunt cost a
+> forced-repro cycle instead of a 2-minute
+> `gdb build/standalone/gtopt core -batch -ex bt`).
+
 ### Sandbox / agent sessions
 
 ```bash
