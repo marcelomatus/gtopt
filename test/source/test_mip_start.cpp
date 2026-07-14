@@ -71,6 +71,7 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.relax.report_saturated = true;
   opts.elastic = true;
+  opts.branch_priorities = true;
   opts.checkpoint_gap = 0.025;
   opts.checkpoint_file = "ckpt.start";
 
@@ -89,6 +90,7 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
         == RelaxInfeasibleAction::feasopt);
   CHECK(back.relax.report_saturated.value_or(false) == true);
   CHECK(back.elastic.value_or(false) == true);
+  CHECK(back.branch_priorities.value_or(false) == true);
   CHECK(back.checkpoint_gap.value_or(-1.0) == doctest::Approx(0.025));
   CHECK(back.checkpoint_file.value_or("") == "ckpt.start");
 }
@@ -107,14 +109,13 @@ TEST_CASE("MipStartOptions parses from a monolithic_options block")  // NOLINT
   })";
   const auto mono = daw::json::from_json<MonolithicOptions>(json);
   REQUIRE(mono.mip_start.has_value());
-  CHECK(mono.mip_start->enabled.value_or(false) == true);
-  CHECK(
-      mono.mip_start->inject.effort.value_or(MipStartEffort::check_feasibility)
-      == MipStartEffort::solve_fixed);
-  CHECK(
-      mono.mip_start->relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
-      == RelaxInfeasibleAction::warn);
-  CHECK(mono.mip_start->relax.check.value_or(false) == true);
+  const auto ms = mono.mip_start.value_or(MipStartOptions {});
+  CHECK(ms.enabled.value_or(false) == true);
+  CHECK(ms.inject.effort.value_or(MipStartEffort::check_feasibility)
+        == MipStartEffort::solve_fixed);
+  CHECK(ms.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
+        == RelaxInfeasibleAction::warn);
+  CHECK(ms.relax.check.value_or(false) == true);
 }
 
 TEST_CASE("make_mip_start_generator factory")  // NOLINT
@@ -188,12 +189,11 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .int_cols = int_cols,
                          .opts = opts,
                          .commitments = {}};
-    const auto start = gen->generate(ctx);
-    REQUIRE(start.has_value());
-    REQUIRE(start->size() == 3);
-    CHECK((*start)[0] == doctest::Approx(1.0));  // 0.7 → 1
-    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
-    CHECK((*start)[2] == doctest::Approx(3.0));  // continuous, untouched
+    const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+    REQUIRE(start.size() == 3);
+    CHECK(start[0] == doctest::Approx(1.0));  // 0.7 → 1
+    CHECK(start[1] == doctest::Approx(0.0));  // 0.2 → 0
+    CHECK(start[2] == doctest::Approx(3.0));  // continuous, untouched
   }
 
   SUBCASE("threshold 0.8 — 0.7 now rounds down")
@@ -205,10 +205,10 @@ TEST_CASE("MipStart warmstart rounds integer columns by threshold")  // NOLINT
                          .int_cols = int_cols,
                          .opts = opts,
                          .commitments = {}};
-    const auto start = gen->generate(ctx);
-    REQUIRE(start.has_value());
-    CHECK((*start)[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
-    CHECK((*start)[1] == doctest::Approx(0.0));  // 0.2 → 0
+    const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+    REQUIRE(start.size() == 3);
+    CHECK(start[0] == doctest::Approx(0.0));  // 0.7 < 0.8 → 0
+    CHECK(start[1] == doctest::Approx(0.0));  // 0.2 → 0
   }
 }
 
@@ -244,12 +244,12 @@ TEST_CASE("MipStart warmstart rounds without repairing run lengths")  // NOLINT
                        .commitments = commitments};
 
   auto gen = make_mip_start_generator(opts);
-  const auto start = gen->generate(ctx);
-  REQUIRE(start.has_value());
-  CHECK((*start)[0] == doctest::Approx(1.0));
-  CHECK((*start)[1] == doctest::Approx(1.0));
-  CHECK((*start)[2] == doctest::Approx(0.0));
-  CHECK((*start)[3] == doctest::Approx(1.0));  // rounded verbatim
+  const auto start = gen->generate(ctx).value_or(std::vector<double> {});
+  REQUIRE(start.size() == 4);
+  CHECK(start[0] == doctest::Approx(1.0));
+  CHECK(start[1] == doctest::Approx(1.0));
+  CHECK(start[2] == doctest::Approx(0.0));
+  CHECK(start[3] == doctest::Approx(1.0));  // rounded verbatim
 }
 
 // ── apply_mip_start orchestrator ──────────────────────────────────────────
@@ -307,7 +307,7 @@ TEST_CASE("apply_mip_start: warmstart injects on a feasible MIP relaxation")
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
   CHECK(rep->source == "warmstart");  // a start was produced
   // Integrality is re-established before returning (restore_integers) —
   // also guards the CPLEX restore_integers fix in the orchestrator path.
@@ -408,7 +408,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
   CHECK_FALSE(rep->injected);  // diagnosis-only run
   // Integrality restored after the diagnosis-only run.
   CHECK(li.is_integer(x));
@@ -439,7 +439,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.4));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.4));
   CHECK_FALSE(rep->injected);  // not enabled → nothing injected
   CHECK(li.is_integer(x));  // integrality re-established before return
 }
@@ -475,7 +475,7 @@ TEST_CASE(  // NOLINT
   CHECK(rep->relaxation_solved);
   CHECK(rep->relaxation_feasible);
   REQUIRE(rep->relax_obj.has_value());
-  CHECK(rep->relax_obj.value() == doctest::Approx(0.6));
+  CHECK(rep->relax_obj.value_or(-1.0) == doctest::Approx(0.6));
   CHECK(rep->source == "warmstart");
   CHECK(li.is_integer(x));
 }

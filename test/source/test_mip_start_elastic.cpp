@@ -13,9 +13,12 @@
  * `effort=solve_fixed` requires the u-fixed LP to be feasible WITHOUT slack,
  * and real seeds keep failing constraint families that are NOT derivable
  * offline (hydro water coupling, network evacuation limits).  The elastic
- * completion repairs in-process: u-fix → (on infeasibility) one ±M
- * objective-bias LP → threshold → re-fix for a consistent dispatch → inject
- * the COMPLETE start under `check_feasibility`.
+ * completion repairs in-process with exactly TWO internal LP solves: one ±M
+ * objective-bias LP (a feasible seed comes out unchanged, deviation = 0 —
+ * there is NO dedicated u-fixed probe LP) → threshold → one u-fixed re-fix
+ * for a consistent dispatch → inject the COMPLETE start under
+ * `check_feasibility`.  Every test asserts `elastic_lp_solves == 2` — the
+ * stage-count proof that the former probe-LP stage stays gone.
  *
  * Fixture: the tiny 2-generator / 2-block UC from
  * test_mip_start_roundtrip.cpp PLUS a per-block u-order coupling row
@@ -23,12 +26,12 @@
  * non-derivable-offline families.  The coupling holds at the original
  * optimum, so the MIP optimum is unchanged:
  *   u = (1,0,1,1), p = (50,0,50,40), obj = 3240.
- * A seed with u_B=1, u_A=0 in some block violates the coupling ⇒ the
- * u-fixed LP is INFEASIBLE and phase (b) must engage.  Closed-form phase-b
- * outcome for the violating seed (1,0,0,1): block 2's ±M penalties cancel
- * along the binding coupling (u_A2 = u_B2 = x), leaving the true costs to
- * pick x = 0.9 ⇒ thresholds to (1,1) ⇒ repaired pattern (1,0,1,1) — the
- * exact MIP optimum, with ONE seeded flip (u_A2: 0 → 1).
+ * A seed with u_B=1, u_A=0 in some block violates the coupling ⇒ the seed
+ * pattern is u-fixed infeasible and the bias LP must repair it.  Closed-form
+ * bias outcome for the violating seed (1,0,0,1): block 2's ±M penalties
+ * cancel along the binding coupling (u_A2 = u_B2 = x), leaving the true
+ * costs to pick x = 0.9 ⇒ thresholds to (1,1) ⇒ repaired pattern (1,0,1,1)
+ * — the exact MIP optimum, with ONE seeded flip (u_A2: 0 → 1).
  */
 
 #include <array>
@@ -317,6 +320,9 @@ TEST_CASE(  // NOLINT
           CHECK(report->source == "elastic+seed");
           CHECK(report->elastic_repaired);
           CHECK(report->seed_deviation == 1);  // u_A2: seed 0 → repaired 1
+          // Stage count: ONE bias LP + ONE u-fixed re-fix — the dedicated
+          // u-fixed probe LP is gone.
+          CHECK(report->elastic_lp_solves == 2);
 
           // Bounds / objective / integrality restored exactly.
           check_elastic_restored(lp, m);
@@ -381,6 +387,10 @@ TEST_CASE(  // NOLINT
           CHECK(report->source == "elastic+seed");
           CHECK_FALSE(report->elastic_repaired);  // no repair needed
           CHECK(report->seed_deviation == 0);  // seed survived verbatim
+          // Stage count: a FEASIBLE seed also takes exactly one bias LP +
+          // one re-fix (deviation = 0 is detected from the bias solution;
+          // no separate u-fixed probe LP is solved).
+          CHECK(report->elastic_lp_solves == 2);
 
           check_elastic_restored(lp, m);
 
@@ -444,6 +454,7 @@ TEST_CASE(  // NOLINT
   CHECK(report->source == "elastic+file");
   CHECK(report->elastic_repaired);
   CHECK(report->seed_deviation == 2);  // u_A2 and u_B2: 0 → 1
+  CHECK(report->elastic_lp_solves == 2);  // one bias LP + one re-fix
 
   check_elastic_restored(lp, m);
 
@@ -492,6 +503,7 @@ TEST_CASE(  // NOLINT
   CHECK(report->source == "warmstart");  // the standard fallback candidate
   CHECK_FALSE(report->elastic_repaired);
   CHECK(report->seed_deviation == 0);
+  CHECK(report->elastic_lp_solves == 0);  // elastic never solved anything
 
   // Nothing was left behind by the aborted elastic attempt.
   check_elastic_restored(lp, m);

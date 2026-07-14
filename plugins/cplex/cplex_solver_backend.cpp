@@ -1822,6 +1822,41 @@ bool CplexSolverBackend::set_mip_start(std::span<const double> col_values,
   return true;
 }
 
+bool CplexSolverBackend::set_branch_priorities(std::span<const int> cols,
+                                               std::span<const int> priorities)
+{
+  if (cols.empty() || cols.size() != priorities.size()) {
+    return false;
+  }
+  // CPXcopyorder requires a MIP problem object (call AFTER integrality is
+  // restored).  The direction array is omitted (nullptr) — gtopt only
+  // shapes the ORDER, not the branch direction.
+  const int probtype = CPXgetprobtype(m_env_lp_.env(), m_env_lp_.lp());
+  if (probtype == CPXPROB_LP || probtype == CPXPROB_QP) {
+    return false;  // pure LP/QP — no branching to prioritise
+  }
+  const int rc = CPXcopyorder(m_env_lp_.env(),
+                              m_env_lp_.lp(),
+                              static_cast<int>(cols.size()),
+                              cols.data(),
+                              priorities.data(),
+                              nullptr);  // direction: solver's choice
+  if (rc != 0) {
+    std::array<char, CPXMESSAGEBUFSIZE> err_buf {};
+    CPXgeterrorstring(m_env_lp_.env(), rc, err_buf.data());
+    // Non-fatal: a rejected priority order is a skipped optimisation (the
+    // solve proceeds under dynamic search), unlike a failed MIP start.
+    spdlog::warn(
+        "CplexSolverBackend::set_branch_priorities CPXcopyorder failed "
+        "(rc={}, cnt={}): {}",
+        rc,
+        cols.size(),
+        err_buf.data());
+    return false;
+  }
+  return true;
+}
+
 int CplexSolverBackend::restore_integers(std::span<const int> integer_cols)
 {
   // Inverse of relax_all_integers()'s CPXchgprobtype(LP).  That relaxation

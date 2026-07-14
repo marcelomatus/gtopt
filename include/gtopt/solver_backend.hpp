@@ -41,7 +41,7 @@ namespace gtopt
  * SolverRegistry checks the plugin's reported ABI version at load time
  * and rejects incompatible plugins with a clear error instead of crashing.
  */
-inline constexpr int k_solver_abi_version = 16;
+inline constexpr int k_solver_abi_version = 17;
 
 /// TEST-ONLY hook: true when the environment variable
 /// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
@@ -727,6 +727,31 @@ public:
   /// @return `true` if the backend accepted/installed the start, else `false`.
   virtual bool set_mip_start(std::span<const double> /*col_values*/,
                              MipStartEffort /*effort*/)
+  {
+    return false;
+  }
+
+  /// Install a branching priority order on the given integer columns for the
+  /// next MIP solve.  `cols` are raw column indices; `priorities` are the
+  /// parallel non-negative priorities (HIGHER = branched FIRST).  gtopt's
+  /// only producer is the opt-in `mip_start.branch_priorities` pipeline
+  /// stage, which derives priorities from seed/relaxation decisiveness —
+  /// `round(100 × |2·frac − 1|)`, so priorities land in [0, 100].
+  ///
+  /// Backend support:
+  ///   * CPLEX — `CPXcopyorder`.  IBM documents that supplying ANY priority
+  ///     order switches CPLEX from dynamic search to traditional
+  ///     branch-and-cut, so callers must keep this strictly opt-in.
+  ///
+  /// Default implementation is a benign no-op returning `false` (backends
+  /// without a priority-order API): missing priorities are a skipped
+  /// optimisation, not an error — same contract as `set_mip_start`.
+  ///
+  /// @param cols       Raw indices of the integer columns to prioritise.
+  /// @param priorities Parallel branching priorities (same size as `cols`).
+  /// @return `true` iff the backend installed the order.
+  virtual bool set_branch_priorities(std::span<const int> /*cols*/,
+                                     std::span<const int> /*priorities*/)
   {
     return false;
   }

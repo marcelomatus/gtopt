@@ -218,6 +218,12 @@ public:
   void set_row_price(const double* price) override;
   bool set_mip_start(std::span<const double> col_values,
                      MipStartEffort effort) override;
+  /// Delegates to ``CPXcopyorder`` (direction array omitted).  NOTE (IBM):
+  /// supplying any priority order switches CPLEX from dynamic search to
+  /// traditional branch-and-cut — producers must stay strictly opt-in
+  /// (`mip_start.branch_priorities`).
+  bool set_branch_priorities(std::span<const int> cols,
+                             std::span<const int> priorities) override;
   int restore_integers(std::span<const int> integer_cols) override;
 
   // ---- mid-solve incumbent checkpoint (two-gap MIP solve) ----

@@ -287,26 +287,42 @@ public:
 // relaxation solved OPTIMAL.  Mechanism (documented trade-offs in
 // `MipStartOptions::elastic`):
 //
-//   (a) fix every integer column via bounds — seed value where seeded,
-//       rounded relaxation elsewhere — and solve the u-fixed LP;
-//   (b) if infeasible: unfix and re-solve ONE elastic-bias LP — each seeded
-//       binary's objective coefficient is shifted by ∓M (−M pulls toward
-//       seed=1, +M toward seed=0; M = 1e4 × max|c|, O(1) memory, restored
-//       right after).  The bias LP shares the plain relaxation's feasible
-//       region, so it is feasible whenever Stage A was.  Threshold u* at
-//       0.5 → repaired pattern; re-fix and solve once more for a consistent
-//       dispatch.  BIAS CAVEAT: the repair is soft — it maximises seed
-//       agreement subject to LP feasibility and residual cost trade-offs
-//       below M; and M widens the objective range by ~4 orders of magnitude
-//       for that one LP, which can degrade numerics on badly scaled models.
+//   (a) solve ONE elastic-bias LP directly — each seeded binary's objective
+//       coefficient is shifted by ∓M (−M pulls toward seed=1, +M toward
+//       seed=0; M = 1e4 × max|c|, O(1) memory, restored right after).  The
+//       bias LP shares the plain relaxation's feasible region, so it is
+//       feasible whenever Stage A was.  A FEASIBLE seed just comes out
+//       unchanged (M dominates, so every seeded column lands at its seed
+//       value ⇒ deviation = 0) — the former dedicated u-fixed probe LP was a
+//       full-size throwaway on every infeasible seed and is GONE (measured
+//       5–20 min/LP on CEN-size models).  Threshold u* at 0.5 → the
+//       completed pattern.  The bias LP defaults to barrier with crossover
+//       DISABLED (interior primal is all the thresholding needs; crossover
+//       is pure overhead here) unless the user pinned an algorithm/crossover
+//       via `relax.solver_options`.  BIAS CAVEATS: the repair is soft — it
+//       maximises seed agreement subject to LP feasibility and residual cost
+//       trade-offs below M; deviation = 0 detection is likewise soft (a
+//       cost saving beyond M could in principle flip a feasible seed); and M
+//       widens the objective range by ~4 orders of magnitude for that one
+//       LP, which can degrade numerics on badly scaled models.
+//   (b) fix every integer column at u* via bounds and re-solve for a
+//       consistent dispatch (this final re-fix is KEPT — it guarantees the
+//       injected start is self-consistent).  It runs on the SAME
+//       LinearInterface, so a basis-keeping backend (CPLEX) re-solves warm
+//       from the resident Stage-A state: bound fixing preserves dual
+//       feasibility, making the re-fix a handful of dual-simplex pivots
+//       rather than a cold LP.
 //   (c) the returned start is COMPLETE and self-consistent (integral u* +
 //       the u-fixed LP's continuous dispatch): a genuinely MIP-feasible
 //       point, so the caller injects it under `check_feasibility` — the
 //       accepted-by-contract path (see test_mip_start_roundtrip.cpp).
 //
-// Every exit path restores the original column bounds and objective
-// coefficients EXACTLY (asserted); on failure the plain relaxation is
-// re-solved so the standard Stage-B fallback still sees a valid primal.
+// Net effort: exactly TWO internal LP solves (bias + re-fix), of which only
+// the bias LP is a full solve — ~1 effective LP vs the former worst case of
+// three (u-fixed probe → bias → re-fix).  Every exit path restores the
+// original column bounds and objective coefficients EXACTLY (asserted); on
+// failure the plain relaxation is re-solved so the standard Stage-B fallback
+// still sees a valid primal.
 
 /// A seeded integer column: raw column index + target value (integral).
 struct ElasticSeed
@@ -316,12 +332,14 @@ struct ElasticSeed
 };
 
 /// Outcome of `elastic_seed_completion`: the complete start to inject plus
-/// the report fields (`elastic_repaired`, `seed_deviation`).
+/// the report fields (`elastic_repaired`, `seed_deviation`,
+/// `elastic_lp_solves`).
 struct ElasticOutcome
 {
   std::vector<double> start {};
   bool repaired {false};
   int seed_deviation {0};
+  int lp_solves {0};
 };
 
 /// Collect the (column, value) seed pattern the elastic completion pulls
@@ -337,9 +355,10 @@ struct ElasticOutcome
   if (opts.from_file.has_value() && !opts.from_file->empty()) {
     auto gen = make_mip_start_generator(opts);  // → FileMipStart
     if (const auto start = gen->generate(ctx); start.has_value()) {
+      const auto& vals = *start;
       seed.reserve(ctx.int_cols.size());
       for (const int i : ctx.int_cols) {
-        const double v = (*start)[static_cast<std::size_t>(i)];
+        const double v = vals[static_cast<std::size_t>(i)];
         seed.push_back({.col = i, .value = std::round(v)});
       }
     }
@@ -443,11 +462,25 @@ struct ElasticOutcome
       li.set_col_upp_raw(ColIndex {i}, ub0[u]);
     }
   };
-  const auto solve_ok = [&li, &ctx]
+  int lp_solves = 0;
+  const auto solve_ok = [&li, &lp_solves](const SolverOptions& opts)
   {
-    const auto rr = li.resolve(ctx.relax_opts);
+    ++lp_solves;
+    const auto rr = li.resolve(opts);
     return rr.has_value() && li.is_optimal();
   };
+  // Internal elastic solve options: barrier with crossover DISABLED — the
+  // bias LP's primal is only thresholded, so a vertex/basis is pure
+  // overhead — unless the user pinned an algorithm/crossover through
+  // `relax.solver_options` (the sentinel checks mirror
+  // `SolverOptions::overlay`: `automatic`/`default_algo` mean "not set").
+  SolverOptions elastic_opts = ctx.relax_opts;
+  if (elastic_opts.crossover == CrossoverMode::automatic) {
+    elastic_opts.crossover = CrossoverMode::none;
+  }
+  if (elastic_opts.algorithm == LPAlgo::default_algo) {
+    elastic_opts.algorithm = LPAlgo::barrier;
+  }
   // The complete start: the just-solved u-fixed LP's primal with the integer
   // columns snapped EXACTLY onto the fixed pattern (the LP reports them at
   // the pinned bounds up to tolerance; the backend integrality check wants
@@ -472,26 +505,15 @@ struct ElasticOutcome
     assert(std::ranges::equal(li.get_obj_coeff(), obj0));
   };
 
-  // ── (a) u-fixed LP at the seed pattern ──────────────────────────────────
-  fix_int_cols(u_fix);
-  if (solve_ok()) {
-    const double fixed_obj = li.get_obj_value();
-    ElasticOutcome out {.start = snap_start(u_fix)};
-    unfix_int_cols();
-    assert_restored();
-    spdlog::info(
-        "MIP-start[elastic]: seed pattern is u-fixed feasible "
-        "(obj={:.6g}); no repair needed",
-        fixed_obj);
-    return out;
-  }
-
-  // ── (b) elastic-bias LP: pull u toward the seed, feasibility decides ────
+  // ── (a) elastic-bias LP: pull u toward the seed, feasibility decides ────
+  // Straight to the bias LP — no u-fixed probe first: a feasible seed comes
+  // out of the bias solve unchanged (deviation = 0), so the former probe LP
+  // only ever confirmed what the bias solution already tells us, at the
+  // price of one full-size LP solve.
   spdlog::info(
-      "MIP-start[elastic]: seed pattern is u-fixed INFEASIBLE; solving the "
-      "elastic-bias LP over {} seeded columns",
+      "MIP-start[elastic]: solving the elastic-bias LP over {} seeded "
+      "columns (single-LP completion; no u-fixed probe)",
       seed.size());
-  unfix_int_cols();
   double max_abs_obj = 0.0;
   for (const double c : obj0) {
     max_abs_obj = std::max(max_abs_obj, std::abs(c));
@@ -502,7 +524,7 @@ struct ElasticOutcome
     const double bias = (u_fix[u] >= 0.5) ? -big_m : big_m;
     li.set_obj_coeff_raw(ColIndex {s.col}, obj0[u] + bias);
   }
-  const bool bias_ok = solve_ok();
+  const bool bias_ok = solve_ok(elastic_opts);
   std::vector<double> u_star = u_fix;
   int deviation = 0;
   if (bias_ok) {
@@ -529,28 +551,43 @@ struct ElasticOutcome
         "MIP-start[elastic]: elastic-bias LP failed to solve (M={:.3g}); "
         "falling back",
         big_m);
-    (void)solve_ok();  // best effort: re-establish the plain relaxation
+    (void)solve_ok(ctx.relax_opts);  // best effort: re-establish the plain
+                                     // relaxation
     assert_restored();
     return std::nullopt;
   }
 
-  // ── final u-fixed dispatch LP at the repaired pattern ───────────────────
+  // ── (b) final u-fixed dispatch LP at the completed pattern ──────────────
+  // Same LinearInterface, plain relax opts: a basis-keeping backend (CPLEX)
+  // still holds the Stage-A relaxation basis, and bound fixing keeps it
+  // dual-feasible — so this re-fix is a warm dual-simplex re-solve, not a
+  // second full LP.
   fix_int_cols(u_star);
-  if (solve_ok()) {
+  if (solve_ok(ctx.relax_opts)) {
     const double fixed_obj = li.get_obj_value();
     ElasticOutcome out {
         .start = snap_start(u_star),
-        .repaired = true,
+        .repaired = deviation > 0,
         .seed_deviation = deviation,
+        .lp_solves = lp_solves,
     };
     unfix_int_cols();
     assert_restored();
-    spdlog::info(
-        "MIP-start[elastic]: repaired pattern is u-fixed feasible "
-        "(obj={:.6g}, {} of {} seeded columns flipped)",
-        fixed_obj,
-        deviation,
-        seed.size());
+    if (deviation == 0) {
+      spdlog::info(
+          "MIP-start[elastic]: seed survived the bias LP unchanged and is "
+          "u-fixed feasible (obj={:.6g}, {} LP solves); no repair needed",
+          fixed_obj,
+          lp_solves);
+    } else {
+      spdlog::info(
+          "MIP-start[elastic]: repaired pattern is u-fixed feasible "
+          "(obj={:.6g}, {} of {} seeded columns flipped, {} LP solves)",
+          fixed_obj,
+          deviation,
+          seed.size(),
+          lp_solves);
+    }
     return out;
   }
 
@@ -559,12 +596,13 @@ struct ElasticOutcome
   // relaxation primal, and let the caller fall back — never abort the solve.
   unfix_int_cols();
   spdlog::warn(
-      "MIP-start[elastic]: repaired pattern still u-fixed infeasible "
+      "MIP-start[elastic]: completed pattern is u-fixed infeasible "
       "({} of {} seeded columns flipped); falling back to the un-fixed "
       "relaxation candidate",
       deviation,
       seed.size());
-  (void)solve_ok();  // best effort: re-establish the plain relaxation
+  (void)solve_ok(ctx.relax_opts);  // best effort: re-establish the plain
+                                   // relaxation
   assert_restored();
   return std::nullopt;
 }
@@ -622,6 +660,56 @@ void report_saturated_rows(LinearInterface& li, int max_items)
       spdlog::info("  [{}] row_{} dual={:.6g}", hit.row, hit.row, hit.dual);
     }
   }
+}
+
+/// Opt-in `mip_start.branch_priorities`: derive per-integer-column branching
+/// priorities from DECISIVENESS and hand them to the backend —
+/// `priority = round(100 × |2·frac − 1|)`, with `frac` the column's
+/// fractional part in `frac_source` (the Stage-A relaxation primal when one
+/// was solved; the injected seed/candidate on the `skip_relaxation` path).
+/// A column the source already pins at an integer (frac ≈ 0 ⇒ priority 100)
+/// is DECISIVE and branched first, deferring the genuinely fractional
+/// columns deeper into the tree.  Returns the number of columns the backend
+/// accepted (0 = no priority-order support — a benign skip).
+///
+/// WARN on success by design: per IBM, supplying a priority order
+/// (`CPXcopyorder`) switches CPLEX from dynamic search to traditional
+/// branch-and-cut — the reason `branch_priorities` is strictly opt-in.
+[[nodiscard]] int seed_branch_priorities(LinearInterface& li,
+                                         std::span<const int> int_cols,
+                                         std::span<const double> frac_source)
+{
+  std::vector<int> cols;
+  std::vector<int> prios;
+  cols.reserve(int_cols.size());
+  prios.reserve(int_cols.size());
+  for (const int i : int_cols) {
+    const auto u = static_cast<std::size_t>(i);
+    if (u >= frac_source.size()) {
+      continue;
+    }
+    // Fractional part generalises the binary |2v−1| decisiveness to general
+    // integer columns (an integral value ⇒ frac 0 ⇒ priority 100; the
+    // knife-edge frac 0.5 ⇒ priority 0).
+    const double v = frac_source[u];
+    const double frac = v - std::floor(v);
+    cols.push_back(i);
+    prios.push_back(
+        static_cast<int>(std::lround(100.0 * std::abs((2.0 * frac) - 1.0))));
+  }
+  if (cols.empty() || !li.set_branch_priorities(cols, prios)) {
+    spdlog::info(
+        "MIP-start: branch priorities requested but the backend declined "
+        "(no priority-order support); proceeding without");
+    return 0;
+  }
+  spdlog::info("gtopt branch priorities: {} cols", cols.size());
+  spdlog::warn(
+      "MIP-start: branch priority order installed on {} integer columns — "
+      "on CPLEX this disables dynamic search (traditional branch-and-cut); "
+      "mip_start.branch_priorities is opt-in for exactly this reason",
+      cols.size());
+  return static_cast<int>(cols.size());
 }
 
 }  // namespace
@@ -878,6 +966,12 @@ std::expected<MipStartReport, Error> apply_mip_start(
         opts.inject.effort.value_or(MipStartEffort::solve_fixed);
     report.injected = li.set_mip_start(*start, effort);
     report.source = source;
+    if (opts.branch_priorities.value_or(false)) {
+      // No relaxation on this path: decisiveness comes from the seed/dump
+      // itself (integral values ⇒ every seeded column is fully decisive).
+      report.branch_priorities_cols =
+          seed_branch_priorities(li, int_cols, *start);
+    }
     spdlog::info(
         "MIP-start[{}]: {} ({} integer cols, effort={}, skip_relaxation — "
         "no relaxation solve)",
@@ -949,6 +1043,15 @@ std::expected<MipStartReport, Error> apply_mip_start(
     return report;
   }
 
+  // Snapshot the Stage-A relaxation primal for the opt-in branch-priority
+  // derivation BEFORE any elastic/candidate re-solve overwrites the live
+  // solution (only copied when the option is actually on).
+  std::vector<double> relax_frac;
+  if (opts.branch_priorities.value_or(false)) {
+    const auto s = li.get_col_sol_raw();
+    relax_frac.assign(s.begin(), s.end());
+  }
+
   MipStartContext ctx {
       .li = li,
       .relax_opts = relax_opts,
@@ -959,11 +1062,12 @@ std::expected<MipStartReport, Error> apply_mip_start(
   };
 
   // ── Elastic in-process seed completion (`mip_start.elastic`) ────────────
-  // Repair the seed against the FULL LP (u-fix → elastic-bias → re-fix; see
-  // `elastic_seed_completion`) and inject the resulting COMPLETE, genuinely
-  // MIP-feasible start under `check_feasibility` — the accepted-by-contract
-  // path.  On failure the pipeline WARNS and falls through to the standard
-  // Stage-B candidate below: elastic never aborts the solve.
+  // Repair the seed against the FULL LP (one elastic-bias LP → threshold →
+  // one u-fixed re-fix; see `elastic_seed_completion`) and inject the
+  // resulting COMPLETE, genuinely MIP-feasible start under
+  // `check_feasibility` — the accepted-by-contract path.  On failure the
+  // pipeline WARNS and falls through to the standard Stage-B candidate
+  // below: elastic never aborts the solve.
   if (elastic) {
     if (auto out = elastic_seed_completion(ctx)) {
       restore_integrality();
@@ -973,15 +1077,21 @@ std::expected<MipStartReport, Error> apply_mip_start(
       report.source = has_from_file ? "elastic+file" : "elastic+seed";
       report.elastic_repaired = out->repaired;
       report.seed_deviation = out->seed_deviation;
+      report.elastic_lp_solves = out->lp_solves;
+      if (opts.branch_priorities.value_or(false)) {
+        report.branch_priorities_cols =
+            seed_branch_priorities(li, int_cols, relax_frac);
+      }
       spdlog::info(
           "MIP-start[{}]: {} ({} integer cols, effort={}, repaired={}, "
-          "seed_deviation={}, relax_obj={:.6g})",
+          "seed_deviation={}, lp_solves={}, relax_obj={:.6g})",
           report.source,
           report.injected ? "injected" : "backend declined",
           int_cols.size(),
           enum_name(effort),
           report.elastic_repaired,
           report.seed_deviation,
+          report.elastic_lp_solves,
           report.relax_obj.value_or(0.0));
       return report;
     }
@@ -1033,6 +1143,10 @@ std::expected<MipStartReport, Error> apply_mip_start(
   const auto effort = opts.inject.effort.value_or(MipStartEffort::repair);
   report.injected = li.set_mip_start(*start, effort);
   report.source = source;
+  if (opts.branch_priorities.value_or(false)) {
+    report.branch_priorities_cols =
+        seed_branch_priorities(li, int_cols, relax_frac);
+  }
   spdlog::info(
       "MIP-start[{}]: {} ({} integer cols, effort={}, relax_obj={:.6g})",
       source,

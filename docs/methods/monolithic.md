@@ -222,26 +222,52 @@ Injected seeds are only accepted when the u-fixed LP is feasible without
 slack, and real seeds keep failing constraint families that are not
 derivable offline (hydro water coupling, network evacuation limits).
 With `"elastic": true` and a seed (`seed_solution_file` or `from_file`),
-gtopt repairs the seed in-process, where it has the full LP:
+gtopt repairs the seed in-process, where it has the full LP — in exactly
+TWO internal LP solves (~1 effective LP; the former u-fixed probe LP,
+a full-size throwaway on every infeasible seed, is gone):
 
-1. Fix the integer columns via bounds (seed values where seeded, rounded
-   relaxation elsewhere) and solve the u-fixed LP.
-2. If infeasible, unfix and solve ONE elastic-bias LP: each seeded
-   binary's objective coefficient is shifted by ∓M (−M pulls toward
-   seed=1, +M toward seed=0; M = 1e4 × max|c|, restored afterwards).
-   Threshold u\* at 0.5, re-fix, and solve once more for a consistent
-   dispatch.  If still infeasible, warn and fall back to the standard
-   round+seed candidate — the solve is never aborted.
+1. Solve ONE elastic-bias LP: each seeded binary's objective coefficient
+   is shifted by ∓M (−M pulls toward seed=1, +M toward seed=0;
+   M = 1e4 × max|c|, restored afterwards).  A feasible seed comes out
+   unchanged (deviation = 0); threshold u\* at 0.5.  The bias LP runs
+   barrier with crossover disabled (its primal is only thresholded)
+   unless `relax.solver_options` pins an algorithm/crossover.
+2. Fix the integer columns at u\* via bounds and re-solve once for a
+   consistent dispatch.  Same `LinearInterface`, so a basis-keeping
+   backend (CPLEX) re-solves warm off the resident Stage-0 basis (bound
+   fixing preserves dual feasibility) — a handful of dual-simplex
+   pivots, not a second full LP.  If infeasible, warn and fall back to
+   the standard round+seed candidate — the solve is never aborted.
 3. Inject the complete start (integral u\* + the u-fixed dispatch) under
    `check_feasibility` — the accepted-by-contract path.
 
 The repair is a soft bias: it maximises seed agreement subject to LP
-feasibility (and residual cost trade-offs below M), and M widens the
-objective coefficient range by ~4 orders of magnitude for the one bias
-LP, which can degrade numerics on badly scaled models.  `elastic` takes
-precedence over `skip_relaxation` (the repair needs the relaxed LP).
-The report gains `elastic_repaired` (phase-2 engaged) and
-`seed_deviation` (u flips vs the seed).
+feasibility (and residual cost trade-offs below M) — deviation = 0
+detection is soft the same way — and M widens the objective coefficient
+range by ~4 orders of magnitude for the one bias LP, which can degrade
+numerics on badly scaled models.  `elastic` takes precedence over
+`skip_relaxation` (the repair needs the relaxed LP).  The report gains
+`elastic_repaired` (the bias LP flipped seeded columns),
+`seed_deviation` (u flips vs the seed) and `elastic_lp_solves` (always
+2 on success).
+
+#### Seed-derived branching priorities (`branch_priorities`)
+
+With `"branch_priorities": true` and an injected start candidate, every
+integer column receives a backend branching priority derived from its
+decisiveness: `priority = round(100 × |2·frac − 1|)`, where `frac` is
+the column's fractional part in the Stage-0 LP relaxation (or its
+seed/candidate value on the `skip_relaxation` path).  Columns the
+relaxation already pins at an integer value are branched FIRST, pushing
+the genuinely fractional, combinatorial columns deeper into the tree.
+
+**Strictly opt-in** (default `false`): per IBM, supplying any priority
+order (`CPXcopyorder`) switches CPLEX from dynamic search to
+traditional branch-and-cut, which can cost more than the priorities
+gain — gtopt WARNS in the log whenever an order is installed.  Only the
+CPLEX backend implements the order; every other backend declines it as
+a benign no-op.  The report gains `branch_priorities_cols` (columns the
+backend accepted; 0 = off/declined).
 
 #### Two-gap checkpoint (`checkpoint_gap` + `checkpoint_file`)
 

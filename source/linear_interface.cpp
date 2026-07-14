@@ -3451,6 +3451,16 @@ bool LinearInterface::set_mip_start(const std::span<const double> col_values,
   return m_backend_->set_mip_start(col_values, effort);
 }
 
+bool LinearInterface::set_branch_priorities(
+    const std::span<const int> cols, const std::span<const int> priorities)
+{
+  if (cols.empty() || cols.size() != priorities.size()) {
+    return false;
+  }
+  ensure_backend();
+  return m_backend_->set_branch_priorities(cols, priorities);
+}
+
 bool LinearInterface::supports_checkpoint() const noexcept
 {
   return m_backend_ != nullptr && m_backend_->supports_checkpoint();

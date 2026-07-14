@@ -2737,6 +2737,15 @@ public:
   [[nodiscard]] bool set_mip_start(std::span<const double> col_values,
                                    MipStartEffort effort);
 
+  /// Install a branching priority order (raw column indices + parallel
+  /// non-negative priorities, HIGHER = branched first) for the next MIP
+  /// solve.  Delegates to `SolverBackend::set_branch_priorities`; returns
+  /// `false` on unsupporting backends (a benign skip).  NOTE: on CPLEX any
+  /// priority order disables dynamic search (traditional branch-and-cut) —
+  /// producers must stay strictly opt-in (`mip_start.branch_priorities`).
+  [[nodiscard]] bool set_branch_priorities(std::span<const int> cols,
+                                           std::span<const int> priorities);
+
   /// True when the live backend services a mid-solve incumbent checkpoint
   /// natively (`SolverBackend::supports_checkpoint`; CPLEX generic
   /// callback).  `false` on a released backend or an unsupporting one —

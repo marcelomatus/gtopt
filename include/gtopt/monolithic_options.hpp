@@ -159,26 +159,48 @@ struct MipStartOptions
   /** @brief ELASTIC in-process seed completion — warm-starts never depend on
    * a perfectly feasible seed.  When true and a seed exists
    * (`seed_solution_file` or `from_file`), the pipeline repairs the seed
-   * against the FULL LP after the Stage-0 relaxation solve:
-   *   (a) fix the integer columns via bounds (seed values where seeded,
-   *       rounded relaxation elsewhere) and solve the u-fixed LP;
-   *   (b) if infeasible, unfix and re-solve ONE elastic-bias LP: each seeded
-   *       binary's objective coefficient is shifted by ∓M (−M pulls toward
-   *       seed=1, +M toward seed=0; M = 1e4 × max|c| — O(1) memory, restored
-   *       afterwards), the biased u* is thresholded at 0.5 into a repaired
-   *       pattern, re-fixed, and solved once more for a consistent dispatch;
+   * against the FULL LP after the Stage-0 relaxation solve, in exactly TWO
+   * internal LP solves (~1 effective LP):
+   *   (a) solve ONE elastic-bias LP: each seeded binary's objective
+   *       coefficient is shifted by ∓M (−M pulls toward seed=1, +M toward
+   *       seed=0; M = 1e4 × max|c| — O(1) memory, restored afterwards), and
+   *       the biased u* is thresholded at 0.5 into the completed pattern.  A
+   *       feasible seed comes out UNCHANGED (deviation = 0) — there is no
+   *       dedicated u-fixed probe LP anymore.  The bias LP runs barrier with
+   *       crossover disabled unless the user pinned an algorithm/crossover
+   *       via `relax.solver_options`;
+   *   (b) fix the integer columns at u* via bounds and re-solve once for a
+   *       consistent dispatch — on a basis-keeping backend (CPLEX) this is a
+   *       warm dual-simplex re-solve off the resident Stage-0 basis (bound
+   *       fixing preserves dual feasibility), not a second full LP;
    *   (c) the COMPLETE start (u* + the u-fixed LP's continuous dispatch) is
    *       injected — genuinely MIP-feasible, so the default inject effort
    *       becomes `check_feasibility` (the accepted-by-contract path).
-   * If the repaired pattern is STILL u-fixed infeasible, the pipeline warns
+   * If the completed pattern is u-fixed infeasible, the pipeline warns
    * and falls back to the standard round+seed candidate — it never aborts
-   * the solve.  Caveats: the bias is soft (the repaired pattern maximises
+   * the solve.  Caveats: the bias is soft (the completed pattern maximises
    * seed agreement subject to LP feasibility and residual cost trade-offs
-   * below M), and M widens the objective coefficient range by ~4 orders of
-   * magnitude for the one bias LP, which can degrade LP numerics on badly
-   * scaled models.  Takes precedence over `skip_relaxation` (the repair
-   * needs the relaxed LP).  Default false. */
+   * below M; deviation = 0 detection is soft the same way), and M widens the
+   * objective coefficient range by ~4 orders of magnitude for the one bias
+   * LP, which can degrade LP numerics on badly scaled models.  Takes
+   * precedence over `skip_relaxation` (the repair needs the relaxed LP).
+   * Default false. */
   OptBool elastic {};
+  /** @brief Opt-in SEED-DERIVED BRANCHING PRIORITIES.  When true and the
+   * pipeline injected a start candidate, every integer column is given a
+   * backend branching priority from its DECISIVENESS:
+   * `priority = round(100 × |2·frac − 1|)`, where `frac` is the column's
+   * fractional part in the Stage-0 LP relaxation (or its seed/candidate
+   * value on the `skip_relaxation` path).  Decisive columns (relaxation
+   * already at 0/1) are branched FIRST, pushing the fractional,
+   * genuinely-combinatorial columns deeper into the tree.
+   *
+   * STRICTLY OPT-IN — per IBM, supplying a priority order (`CPXcopyorder`)
+   * forces CPLEX out of dynamic search into traditional branch-and-cut,
+   * which can cost more than the priorities gain; gtopt WARNS in the log
+   * whenever priorities are installed.  Backends without a priority-order
+   * API ignore the option (benign skip).  Default false. */
+  OptBool branch_priorities {};
   /** @brief Two-gap MIP checkpoint: relative gap at which the CURRENT
    * incumbent is SAVED to `checkpoint_file` (complete dump format) WITHOUT
    * stopping or perturbing the solve, which continues to the final
@@ -228,6 +250,7 @@ struct MipStartOptions
     merge_opt(seed_solution_file, std::move(opts.seed_solution_file));
     merge_opt(skip_relaxation, opts.skip_relaxation);
     merge_opt(elastic, opts.elastic);
+    merge_opt(branch_priorities, opts.branch_priorities);
     merge_opt(checkpoint_gap, opts.checkpoint_gap);
     merge_opt(checkpoint_file, std::move(opts.checkpoint_file));
     merge_opt(root_basis_cache_file, std::move(opts.root_basis_cache_file));

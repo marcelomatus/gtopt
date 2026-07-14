@@ -85,15 +85,24 @@ struct MipStartReport
   bool injected {false};
   std::optional<double> relax_obj {};  ///< LP-relaxation objective (if solved)
   std::string source {};  ///< generator name that produced the start
-  /// The elastic completion's phase-b repair ENGAGED: the seeded pattern was
-  /// u-fixed infeasible and the elastic-bias LP produced the injected start
-  /// (`mip_start.elastic`).  False when the seed was u-fixed feasible as-is
-  /// (no repair needed) or the elastic path was not taken.
+  /// The elastic completion's bias LP REPAIRED the seed: at least one seeded
+  /// column came out of the elastic-bias LP flipped (`mip_start.elastic`).
+  /// False when the seed survived the bias LP unchanged (deviation = 0 — no
+  /// repair needed) or the elastic path was not taken.
   bool elastic_repaired {false};
   /// Elastic completion: number of SEEDED integer columns whose injected
   /// start value differs from the seed (u flips).  0 when the seed survived
   /// verbatim (the no-repair case) or the elastic path was not taken.
   int seed_deviation {0};
+  /// Elastic completion: number of internal LP solves it took.  Exactly 2 on
+  /// every success path — ONE elastic-bias LP + ONE u-fixed re-fix for the
+  /// consistent dispatch (the former dedicated u-fixed probe LP is gone).
+  /// 0 when the elastic path was not taken.
+  int elastic_lp_solves {0};
+  /// `mip_start.branch_priorities`: number of integer columns the backend
+  /// accepted branching priorities for (0 = option off, no candidate, or the
+  /// backend does not support a priority order).
+  int branch_priorities_cols {0};
 };
 
 /// Context handed to a generator.  Precondition: `li` holds an OPTIMAL
