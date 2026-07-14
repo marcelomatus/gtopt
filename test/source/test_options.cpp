@@ -583,9 +583,11 @@ TEST_CASE("Options - Solver options merge")  // NOLINT
   };
   base.merge(std::move(overlay));
 
-  // Non-optional fields keep base values (merge only touches optional fields)
-  CHECK(base.solver_options.algorithm == LPAlgo::primal);
-  CHECK(base.solver_options.threads == 0);
+  // Non-optional fields: the incoming (overlay) settings now WIN.  Solver
+  // options are overlaid, not merged, so a per-file threads/algorithm no
+  // longer gets silently dropped (was: base kept — merge ignored them).
+  CHECK(base.solver_options.algorithm == LPAlgo::dual);
+  CHECK(base.solver_options.threads == 4);
   CHECK(base.solver_options.presolve == true);
   // Optional field already set in base: keeps base value
   REQUIRE(base.solver_options.optimal_eps.has_value());

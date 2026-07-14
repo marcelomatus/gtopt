@@ -334,9 +334,12 @@ struct PlanningOptions
     // Merge Cascade-specific options
     cascade_options.merge(std::move(opts.cascade_options));
 
-    // Merge LP solver options (only optional tolerance fields are merged;
-    // non-optional fields in the first file win)
-    solver_options.merge(opts.solver_options);
+    // Overlay LP solver options: the incoming file's settings win, including
+    // the NON-optional fields (threads, algorithm, presolve, log_level,
+    // crossover).  merge() carried only the optional tolerance fields, so a
+    // case that set e.g. `solver_options.threads` in JSON had it silently
+    // dropped (the struct default won).
+    solver_options.overlay(opts.solver_options);
 
     // Merge LP build options
     lp_matrix_options.merge(opts.lp_matrix_options);

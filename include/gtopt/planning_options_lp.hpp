@@ -874,7 +874,9 @@ public:
   {
     auto opts = m_options_.solver_options;
     if (m_options_.sddp_options.forward_solver_options.has_value()) {
-      opts.merge(*m_options_.sddp_options.forward_solver_options);
+      // overlay (not merge): a forward-pass override of a non-optional field
+      // (threads, algorithm, presolve, log_level, crossover) must win too.
+      opts.overlay(*m_options_.sddp_options.forward_solver_options);
     }
     opts.max_fallbacks = m_options_.sddp_options.forward_max_fallbacks.value_or(
         opts.max_fallbacks);
@@ -895,7 +897,9 @@ public:
   {
     auto opts = m_options_.solver_options;
     if (m_options_.sddp_options.backward_solver_options.has_value()) {
-      opts.merge(*m_options_.sddp_options.backward_solver_options);
+      // overlay (not merge): a backward-pass override of a non-optional field
+      // (threads, algorithm, presolve, log_level, crossover) must win too.
+      opts.overlay(*m_options_.sddp_options.backward_solver_options);
     }
     opts.max_fallbacks =
         m_options_.sddp_options.backward_max_fallbacks.value_or(0);
@@ -1076,7 +1080,11 @@ public:
   {
     if (m_options_.monolithic_options.solver_options.has_value()) {
       auto opts = m_options_.solver_options;
-      opts.merge(*m_options_.monolithic_options.solver_options);
+      // overlay (not merge): the per-method override must win for the
+      // NON-optional fields (threads, algorithm, presolve, log_level,
+      // crossover, ...) too — merge() carries only the optional tolerance
+      // fields, silently dropping a monolithic threads/algorithm override.
+      opts.overlay(*m_options_.monolithic_options.solver_options);
       return opts;
     }
     return m_options_.solver_options;

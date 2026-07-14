@@ -85,8 +85,12 @@ TEST_CASE("SolverOptions JSON empty object uses defaults")
 
   const SolverOptions opts = daw::json::from_json<SolverOptions>(json_data);
 
-  CHECK(opts.algorithm == LPAlgo::barrier);
-  CHECK(opts.threads == 2);
+  // An empty JSON object must yield the SolverOptions struct DEFAULTS (the
+  // sentinels), not a tuned solve config — otherwise a bare `solver_options`
+  // block masquerades as user-set barrier/threads/scaling and overrides a
+  // .prm or the per-method policy (see json_solver_options.hpp).
+  CHECK(opts.algorithm == LPAlgo::default_algo);
+  CHECK(opts.threads == 0);
   CHECK(opts.presolve == true);
   CHECK(opts.log_level == 0);
   CHECK_FALSE(opts.optimal_eps.has_value());
@@ -94,9 +98,9 @@ TEST_CASE("SolverOptions JSON empty object uses defaults")
   CHECK_FALSE(opts.barrier_eps.has_value());
   CHECK_FALSE(opts.log_mode.has_value());
   CHECK_FALSE(opts.time_limit.has_value());
-  // scaling defaults to automatic when not specified in JSON
-  REQUIRE(opts.scaling.has_value());
-  CHECK(*opts.scaling == SolverScaling::automatic);
+  // scaling defaults to nullopt (sentinel) — the backend / apply_sddp_pass_
+  // defaults fills the effective value; it is NOT forced to automatic here.
+  CHECK_FALSE(opts.scaling.has_value());
 }
 
 TEST_CASE("SolverOptions JSON scaling field round-trip")
@@ -118,9 +122,9 @@ TEST_CASE("SolverOptions JSON scaling field round-trip")
 
   const auto json2 = daw::json::to_json(no_scale);
   const SolverOptions rt2 = daw::json::from_json<SolverOptions>(json2);
-  // JSON round-trip: nullopt serializes as null → constructor applies default
-  REQUIRE(rt2.scaling.has_value());
-  CHECK(*rt2.scaling == SolverScaling::automatic);
+  // JSON round-trip: nullopt serializes as null → constructor keeps it nullopt
+  // (the JSON default now equals the struct sentinel, not a tuned value).
+  CHECK_FALSE(rt2.scaling.has_value());
 }
 
 TEST_CASE("SolverOptions JSON scaling explicit values")

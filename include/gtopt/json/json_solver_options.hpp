@@ -56,7 +56,15 @@ struct SolverOptionsConstructor
                            const OptName& param_file,
                            OptBool advanced_basis) const
   {
-    LPAlgo algorithm = LPAlgo::barrier;
+    // Defaults MUST equal the SolverOptions struct defaults (default_algo /
+    // threads 0 / scaling unset), NOT a tuned solve config.  These sentinels
+    // are what overlay() and apply_sddp_pass_defaults() key on: an injected
+    // non-sentinel (e.g. barrier / threads 2 / scaling automatic) would
+    // masquerade as a user choice and override a .prm or the per-method
+    // policy.  The "SDDP wants barrier / threads 1 / scaling auto" policy is
+    // owned by apply_sddp_pass_defaults(); the backend / .prm owns it for the
+    // monolithic solve.
+    LPAlgo algorithm = LPAlgo::default_algo;
     if (algorithm_str.has_value()) {
       algorithm = gtopt::require_enum<LPAlgo>("algorithm", *algorithm_str);
     }
@@ -67,7 +75,7 @@ struct SolverOptionsConstructor
     }
     return SolverOptions {
         .algorithm = algorithm,
-        .threads = threads.value_or(2),
+        .threads = threads.value_or(0),
         .presolve = presolve.value_or(true),
         .optimal_eps = optimal_eps,
         .feasible_eps = feasible_eps,
@@ -77,9 +85,7 @@ struct SolverOptionsConstructor
         .log_level = log_level.value_or(0),
         .log_mode = log_mode,
         .time_limit = time_limit,
-        .scaling = scaling.has_value()
-            ? scaling
-            : OptSolverScaling {SolverScaling::automatic},
+        .scaling = scaling,
         .crossover = crossover,
         .advanced_basis = advanced_basis.value_or(false),
         .param_file = param_file,
