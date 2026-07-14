@@ -36,42 +36,55 @@ The repair is monotone toward MORE commitment, which is dispatch-safe under
 Rules iterate to a fixpoint; residual violations (never seen so far) are
 reported, not silently shipped.
 
-The commitment-uid → generator-uid mapping is imported verbatim from
-``run_warmstart_experiment`` so the reduced and full models agree on
-generator identity (reduction never renames generators).
+Seeds key on GENERATOR identity (network reduction never renames
+generators), so the reduced and full models line up by
+``(generator_uid, block_uid)``.
 
 Usage:
-    python build_full_seed.py REDUCED_OUT_DIR MIP_JSON OUT_SEED.csv
+    python -m gtopt_warmstart.build_full_seed REDUCED_OUT_DIR MIP_JSON OUT.csv
+    (installed: ``gtopt_build_seed``; ``--no-repair`` for A/B experiments)
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
+import logging
 import re
-import sys
 from pathlib import Path
 
 import pyarrow.dataset as pads
 
+_log = logging.getLogger(__name__)
 
-def _commitment_to_generator(mip_json: Path) -> dict[int, int]:
+
+def _generator_uid_resolver(system: dict):
+    """Return ``resolve(ref) -> uid | None`` handling BOTH reference styles a
+    ``commitment_array.generator`` field can use: integer uid or name."""
+    gname = {int(g["uid"]): g.get("name") for g in system["generator_array"]}
+    name2uid = {v: k for k, v in gname.items() if v is not None}
+
+    def resolve(ref) -> int | None:
+        if isinstance(ref, int) and not isinstance(ref, bool):
+            return ref if ref in gname else None
+        if isinstance(ref, str):
+            return name2uid.get(ref)
+        return None
+
+    return resolve
+
+
+def _commitment_to_generator(system: dict) -> dict[int, int]:
     """Map commitment uid → generator uid via ``commitment_array.generator``.
 
     The seed keys on GENERATOR identity because network reduction never
     renames generators — the reduced and full models agree on it.
     """
-    sysd = json.loads(mip_json.read_text())["system"]
-    gname = {int(g["uid"]): g.get("name") for g in sysd["generator_array"]}
-    name2uid = {v: k for k, v in gname.items() if v is not None}
+    resolve = _generator_uid_resolver(system)
     out: dict[int, int] = {}
-    for c in sysd.get("commitment_array", []):
-        ref = c.get("generator")
-        guid = None
-        if isinstance(ref, int) and not isinstance(ref, bool):
-            guid = ref if ref in gname else None
-        elif isinstance(ref, str):
-            guid = name2uid.get(ref)
+    for c in system.get("commitment_array", []):
+        guid = resolve(c.get("generator"))
         if guid is not None:
             out[int(c["uid"])] = guid
     return out
@@ -112,11 +125,11 @@ def _profile(v) -> list | None:
 
 def _commitment_meta(system: dict) -> dict[int, dict]:
     """Per generator-uid commitment metadata used by the repair rules."""
-    name2uid = {g["name"]: g["uid"] for g in system.get("generator_array", [])}
+    resolve = _generator_uid_resolver(system)
     gen_pmax = {g["uid"]: g.get("pmax") for g in system.get("generator_array", [])}
     meta: dict[int, dict] = {}
     for c in system.get("commitment_array", []):
-        guid = name2uid.get(c.get("generator"))
+        guid = resolve(c.get("generator"))
         if guid is None:
             continue
         fs = c.get("fixed_status")
@@ -182,7 +195,7 @@ def _order_pairs(mip_json: Path, system: dict, meta: dict[int, dict]) -> list:
 # Sign captured separately: PAMPL prints `... - 1 * commitment(...)` with
 # the minus detached from the digits (see _ORDER_TERM_RE note).
 _STATUS_TERM_RE = re.compile(
-    r'([+-]?)\s*([\d.]+)\s*\*\s*commitment\("([^"]+)"\)\.status'
+    r'([+-]?)\s*([\d.]+(?:[eE][+-]?\d+)?)\s*\*\s*commitment\("([^"]+)"\)\.status'
 )
 
 
@@ -197,10 +210,11 @@ def _status_rows(mip_json: Path, system: dict) -> list:
     CEN 04-12 rejection IISes were pure-status rows — ``LAUTARO_1_Order``
     via pmin coupling and ``SANISIDRO_2_ConfCC_GNL``).
     """
-    c2gname = {
-        c["name"]: c.get("generator") for c in system.get("commitment_array", [])
+    resolve = _generator_uid_resolver(system)
+    c2guid = {
+        c["name"]: resolve(c.get("generator"))
+        for c in system.get("commitment_array", [])
     }
-    name2uid = {g["name"]: g["uid"] for g in system.get("generator_array", [])}
     rows = []
     for pampl in sorted(mip_json.parent.glob("uc_*.pampl")):
         for cname, expr in _CONSTRAINT_RE.findall(pampl.read_text()):
@@ -213,7 +227,7 @@ def _status_rows(mip_json: Path, system: dict) -> list:
             terms = []
             ok = True
             for sign, coef, ucname in sterms:
-                guid = name2uid.get(c2gname.get(ucname, ""))
+                guid = c2guid.get(ucname)
                 if guid is None:
                     ok = False
                     break
@@ -222,7 +236,7 @@ def _status_rows(mip_json: Path, system: dict) -> list:
             if ok:
                 rows.append((cname, terms, rhs_m.group(1), float(rhs_m.group(2))))
             else:
-                print(f"warning: dropped status row {cname} (unmapped unit)")
+                _log.warning("dropped status row %s (unmapped unit)", cname)
     return rows
 
 
@@ -230,7 +244,10 @@ def _pin(meta_g: dict | None, idx: int) -> int | None:
     """Pinned u value at block-index ``idx`` (None = free).
 
     Precedence: data-derived forced-OFF (pmax maintenance window below
-    pmin) > explicit ``fixed_status`` pin > ``must_run``.
+    pmin) > explicit ``fixed_status`` pin > initial-condition window
+    (a unit inside its remaining min-up/min-down window is NOT free —
+    making this a pin stops the order-pair / run-fill rules from
+    oscillating against the window) > ``must_run``.
     """
     if not meta_g:
         return None
@@ -238,11 +255,15 @@ def _pin(meta_g: dict | None, idx: int) -> int | None:
     if fo is not None and idx < len(fo) and fo[idx]:
         return 0
     pins = meta_g.get("pins")
-    if pins is None or idx >= len(pins):
-        return 1 if meta_g.get("must_run") else None
-    v = pins[idx]
-    if 0.0 <= v <= 1.0:
-        return 1 if v >= 0.5 else 0
+    if pins is not None and idx < len(pins):
+        v = pins[idx]
+        if 0.0 <= v <= 1.0:
+            return 1 if v >= 0.5 else 0
+    ini = meta_g.get("ini_status")
+    if ini == 1 and idx < int(meta_g.get("min_up", 0) - meta_g.get("ini_up", 0.0)):
+        return 1
+    if ini == 0 and idx < int(meta_g.get("min_down", 0) - meta_g.get("ini_down", 0.0)):
+        return 0
     return 1 if meta_g.get("must_run") else None
 
 
@@ -298,7 +319,7 @@ def repair_seed(
     raw: dict[tuple[int, int], float],
 ) -> dict[str, int]:
     """In-place commitment-feasibility repair; returns per-rule flip counts."""
-    stats = {"pin": 0, "ini": 0, "min_down": 0, "min_up": 0, "order": 0, "urow": 0}
+    stats = {"pin": 0, "min_down": 0, "min_up": 0, "order": 0, "urow": 0}
     nb = len(blocks)
 
     def set_u(g: int, i: int, val: int, rule: str) -> None:
@@ -315,16 +336,6 @@ def repair_seed(
                 p = _pin(m, i)
                 if p is not None:
                     set_u(g, i, p, "pin")
-            seq = [u.get((g, b), 0) for b in blocks]
-            # 2. initial-condition windows.
-            if m["ini_status"] == 1 and m["min_up"] > m["ini_up"]:
-                for i in range(min(int(m["min_up"] - m["ini_up"]), nb)):
-                    if _pin(m, i) is None:
-                        set_u(g, i, 1, "ini")
-            elif m["ini_status"] == 0 and m["min_down"] > m["ini_down"]:
-                for i in range(min(int(m["min_down"] - m["ini_down"]), nb)):
-                    if _pin(m, i) is None:
-                        set_u(g, i, 0, "ini")
             seq = [u.get((g, b), 0) for b in blocks]
             # 3. interior min-down gaps → fill ON; short ON runs → extend.
             runs: list[list[int]] = []  # [value, start, length]
@@ -378,18 +389,6 @@ def verify_seed(
             p = _pin(m, i)
             if p is not None and seq[i] != p:
                 bad += 1
-        if m["ini_status"] == 1 and m["min_up"] > m["ini_up"]:
-            bad += sum(
-                1
-                for i in range(min(int(m["min_up"] - m["ini_up"]), nb))
-                if seq[i] == 0 and _pin(m, i) is None
-            )
-        if m["ini_status"] == 0 and m["min_down"] > m["ini_down"]:
-            bad += sum(
-                1
-                for i in range(min(int(m["min_down"] - m["ini_down"]), nb))
-                if seq[i] == 1 and _pin(m, i) is None
-            )
         runs: list[list[int]] = []
         for i, v in enumerate(seq):
             if runs and runs[-1][0] == v:
@@ -419,9 +418,28 @@ def verify_seed(
     return bad
 
 
-def build_full_seed(out_dir: Path, mip_json: Path, seed_csv: Path) -> dict:
+def _blocks_from_case(mip_json: Path) -> list[int]:
+    """The model's FULL block-uid list (``simulation.block_array``), so the
+    seed covers blocks where EVERY unit is OFF (the sparse status_sol has no
+    rows there — deriving blocks from the parquet alone would hide min-up/
+    down windows crossing an all-OFF block).  Empty when the case JSON has
+    no block layout (caller falls back to the parquet-derived list)."""
+    with mip_json.open() as fh:
+        case = json.load(fh)
+    return [int(b["uid"]) for b in case.get("simulation", {}).get("block_array", [])]
+
+
+def build_full_seed(
+    out_dir: Path,
+    mip_json: Path,
+    seed_csv: Path,
+    *,
+    repair: bool = True,
+) -> dict:
     """Enumerate every (committable generator, block); absent → u=0; repair.
 
+    ``repair=False`` writes the raw densified seed (A/B experiments: shows
+    whether the un-repaired rounding would be accepted).
     Returns a small summary dict (rows, u1, u0, generators, blocks, repairs).
     """
     status = out_dir / "Commitment" / "status_sol.parquet"
@@ -429,7 +447,8 @@ def build_full_seed(out_dir: Path, mip_json: Path, seed_csv: Path) -> dict:
         raise FileNotFoundError(status)
     df = pads.dataset(status).to_table(columns=["block", "uid", "value"]).to_pandas()
 
-    c2g = _commitment_to_generator(mip_json)
+    system = _load_system(mip_json)
+    c2g = _commitment_to_generator(system)
     df["generator_uid"] = df["uid"].map(c2g)
     df = df[df["generator_uid"].notna()].copy()
 
@@ -438,7 +457,9 @@ def build_full_seed(out_dir: Path, mip_json: Path, seed_csv: Path) -> dict:
     on_pairs = {(int(g), int(b)) for g, b in zip(on["generator_uid"], on["block"])}
 
     generators = sorted({int(g) for g in c2g.values()})
-    blocks = sorted({int(b) for b in df["block"].unique()})
+    blocks = _blocks_from_case(mip_json) or sorted(
+        {int(b) for b in df["block"].unique()}
+    )
 
     u = {(g, b): (1 if (g, b) in on_pairs else 0) for g in generators for b in blocks}
 
@@ -449,11 +470,10 @@ def build_full_seed(out_dir: Path, mip_json: Path, seed_csv: Path) -> dict:
         key = (int(guid), int(b))
         raw[key] = max(raw.get(key, 0.0), float(v))
 
-    system = _load_system(mip_json)
     meta = _commitment_meta(system)
     pairs = _order_pairs(mip_json, system, meta)
     srows = _status_rows(mip_json, system)
-    stats = repair_seed(u, blocks, meta, pairs, srows, raw)
+    stats = repair_seed(u, blocks, meta, pairs, srows, raw) if repair else {}
     residual = verify_seed(u, blocks, meta, pairs, srows)
 
     u1 = 0
@@ -481,13 +501,32 @@ def build_full_seed(out_dir: Path, mip_json: Path, seed_csv: Path) -> dict:
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
-        print(__doc__)
-        return 2
-    out_dir, mip_json, seed_csv = (Path(a) for a in sys.argv[1:4])
-    summary = build_full_seed(out_dir, mip_json, seed_csv)
+    ap = argparse.ArgumentParser(
+        prog="gtopt_build_seed",
+        description=(
+            "Densify a solved reduced case's Commitment/status_sol.parquet "
+            "into a complete, commitment-feasible (generator_uid, block_uid, "
+            "u) seed CSV for monolithic_options.mip_start.seed_solution_file."
+        ),
+        epilog="Exit codes: 0 ok, 1 residual commitment violations remain.",
+    )
+    ap.add_argument("out_dir", type=Path, metavar="REDUCED_OUT_DIR")
+    ap.add_argument("mip_json", type=Path, metavar="MIP_JSON")
+    ap.add_argument("seed_csv", type=Path, metavar="OUT_SEED_CSV")
+    ap.add_argument(
+        "--no-repair",
+        action="store_true",
+        help="write the raw densified seed without commitment repair "
+        "(A/B experiments; residual violations are still counted)",
+    )
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args()
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
+    summary = build_full_seed(
+        args.out_dir, args.mip_json, args.seed_csv, repair=not args.no_repair
+    )
     print(
-        f"seed {seed_csv.name}: rows={summary['rows']} "
+        f"seed {args.seed_csv.name}: rows={summary['rows']} "
         f"u1={summary['u1']} u0={summary['u0']} "
         f"({summary['generators']} generators × {summary['blocks']} blocks) "
         f"order_pairs={summary['order_pairs']} "

@@ -168,5 +168,135 @@ def test_build_full_seed_end_to_end(case_dir: Path) -> None:
 
 
 def test_commitment_to_generator_maps_by_name(case_dir: Path) -> None:
-    c2g = _commitment_to_generator(case_dir / "case.json")
+    c2g = _commitment_to_generator(_system())
     assert c2g[11] == 1 and c2g[16] == 6
+
+
+def test_soft_and_annotated_rows_excluded(tmp_path: Path) -> None:
+    # Soft rows (penalty/rhs/desc annotations between NAME and the colon)
+    # carry LP-side slacks — they must never be hard-repaired.
+    (tmp_path / "case.json").write_text(json.dumps({"system": _system()}))
+    (tmp_path / "uc_soft.pampl").write_text(
+        "constraint SOFT_UC penalty 1000:\n"
+        '  1 * commitment("uc_BL1").status <= 0;\n\n'
+        "constraint HARD_UC:\n"
+        '  1 * commitment("uc_BL1").status <= 1;\n'
+    )
+    srows = _status_rows(tmp_path / "case.json", _system())
+    names = [r[0] for r in srows]
+    assert "HARD_UC" in names
+    assert "SOFT_UC" not in names
+
+
+def test_scientific_notation_coefficient(tmp_path: Path) -> None:
+    (tmp_path / "case.json").write_text(json.dumps({"system": _system()}))
+    (tmp_path / "uc_sci.pampl").write_text(
+        'constraint SCI:\n  0.5e1 * commitment("uc_BL1").status <= 4;\n'
+    )
+    srows = _status_rows(tmp_path / "case.json", _system())
+    sci = next(r for r in srows if r[0] == "SCI")
+    assert sci[1][0][0] == pytest.approx(5.0)
+
+
+def test_non_unit_coefficient_row(case_dir: Path) -> None:
+    (case_dir / "uc_two.pampl").write_text(
+        'constraint TWO:\n  2 * commitment("uc_BL1").status <= 1;\n'
+    )
+    meta, pairs, srows = _parts(case_dir)
+    u = {(g, b): 0 for g in (1, 2, 3, 4, 5, 6) for b in BLOCKS}
+    u[(1, 1)] = 1  # 2*1 = 2 > 1 → violated; only fix is demote BL1
+    repair_seed(u, BLOCKS, meta, pairs, srows, raw={})
+    assert u[(1, 1)] == 0
+    assert verify_seed(u, BLOCKS, meta, pairs, srows) == 0
+
+
+def test_pinned_conflict_leaves_residual(tmp_path: Path) -> None:
+    # must_run pins BL1 ON while a hard row demands it OFF: unrepairable →
+    # nonzero residual (the CSV gate exits 1 on it).
+    system = _system()
+    system["commitment_array"][0]["must_run"] = True
+    (tmp_path / "case.json").write_text(json.dumps({"system": system}))
+    (tmp_path / "uc_conflict.pampl").write_text(
+        'constraint OFF_ALWAYS:\n  1 * commitment("uc_BL1").status <= 0;\n'
+    )
+    meta = _commitment_meta(system)
+    srows = _status_rows(tmp_path / "case.json", system)
+    u = {(g, b): 0 for g in (1, 2, 3, 4, 5, 6) for b in BLOCKS}
+    repair_seed(u, BLOCKS, meta, [], srows, raw={})
+    assert verify_seed(u, BLOCKS, meta, [], srows) == len(BLOCKS)
+
+
+def test_initial_window_is_a_pin() -> None:
+    # ini ON with remaining min-up: the first blocks are PINNED ON, so no
+    # later rule (order demote, run fill) can oscillate against the window.
+    from gtopt_warmstart.build_full_seed import _pin
+
+    m = {
+        "ini_status": 1,
+        "min_up": 3,
+        "ini_up": 1.0,
+        "min_down": 0,
+        "ini_down": 0.0,
+    }
+    assert _pin(m, 0) == 1 and _pin(m, 1) == 1
+    assert _pin(m, 2) is None
+
+
+def test_scalar_and_profile_edges() -> None:
+    from gtopt_warmstart.build_full_seed import _profile, _scalar
+
+    assert _scalar([[1.0, 2.0, 3.0]]) == pytest.approx(3.0)
+    assert _scalar(None) == 0.0
+    assert _scalar(2.5) == pytest.approx(2.5)
+    assert _profile([[1.0, 2.0]]) == [1.0, 2.0]
+    assert _profile(4.2) is None
+
+
+def test_dense_seed_covers_all_model_blocks(case_dir: Path) -> None:
+    # status_sol only mentions blocks 2 and 4, but the case JSON declares an
+    # 8-block layout: the dense seed must cover ALL 8 (all-OFF blocks would
+    # otherwise hide min-up/down windows from the repair).
+    case = json.loads((case_dir / "case.json").read_text())
+    case["simulation"] = {"block_array": [{"uid": b} for b in BLOCKS]}
+    (case_dir / "case.json").write_text(json.dumps(case))
+    out = case_dir / "out" / "Commitment"
+    out.mkdir(parents=True)
+    tbl = pa.table(
+        {
+            "uid": pa.array([12], pa.int64()),
+            "block": pa.array([4], pa.int64()),
+            "value": pa.array([1.0]),
+        }
+    )
+    pq.write_table(tbl, out / "status_sol.parquet")
+    summary = build_full_seed(
+        case_dir / "out", case_dir / "case.json", case_dir / "seed.csv"
+    )
+    assert summary["blocks"] == len(BLOCKS)
+    assert summary["rows"] == 6 * len(BLOCKS)
+
+
+def test_integer_generator_reference() -> None:
+    system = _system()
+    system["commitment_array"][0]["generator"] = 1  # uid ref, not name
+    meta = _commitment_meta(system)
+    assert 1 in meta and meta[1]["pmin"] == pytest.approx(5.0)
+
+
+def test_no_repair_flag_skips_repair(case_dir: Path) -> None:
+    out = case_dir / "out" / "Commitment"
+    out.mkdir(parents=True)
+    tbl = pa.table(
+        {
+            "uid": pa.array([12], pa.int64()),
+            "block": pa.array([4], pa.int64()),
+            "value": pa.array([1.0]),
+        }
+    )
+    pq.write_table(tbl, out / "status_sol.parquet")
+    summary = build_full_seed(
+        case_dir / "out", case_dir / "case.json", case_dir / "s.csv", repair=False
+    )
+    # BL2 ON without its order leader is a violation the repair would fix.
+    assert not summary["repairs"]
+    assert summary["residual"] > 0

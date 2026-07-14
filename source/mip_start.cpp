@@ -48,9 +48,9 @@ namespace detail
 /// round-from-relaxation generator and the seed-only (no-relaxation) path.
 namespace
 {
-void apply_seed_and_domain_rules(const MipStartContext& ctx,
-                                 std::vector<double>& start,
-                                 std::string_view generator_name)
+void apply_seed_overlay_impl(const MipStartContext& ctx,
+                             std::vector<double>& start,
+                             std::string_view generator_name)
 {
   SeedCommitmentMap seed;
   if (const auto& sf = ctx.opts.seed_solution_file;
@@ -77,21 +77,16 @@ void apply_seed_and_domain_rules(const MipStartContext& ctx,
   }
 }
 
-/// Seed-only start: no LP relaxation.  Builds a zero base of width `ncols`
-/// and lets the seed set every integer commitment column directly.
-/// Continuous columns stay at 0 (a
-/// sparse-injecting backend like CPLEX drops them and completes the dispatch
-/// as its warm root LP).
-[[nodiscard]] std::vector<double> seed_only_start(
-    const MipStartContext& ctx, std::string_view generator_name)
+}  // namespace
+
+std::vector<double> seed_only_start(const MipStartContext& ctx,
+                                    std::string_view generator_name)
 {
   const auto ncols = static_cast<std::size_t>(ctx.li.get_numcols());
   std::vector<double> start(ncols, 0.0);
-  apply_seed_and_domain_rules(ctx, start, generator_name);
+  apply_seed_overlay_impl(ctx, start, generator_name);
   return start;
 }
-
-}  // namespace
 
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
     const MipStartContext& ctx, std::string_view generator_name)
@@ -113,7 +108,7 @@ void apply_seed_and_domain_rules(const MipStartContext& ctx,
     start[u] = round_with_threshold(sol[u], threshold, l, h);
   }
   // Stage 2 — overlay the external commitment seed (if any).
-  apply_seed_and_domain_rules(ctx, start, generator_name);
+  apply_seed_overlay_impl(ctx, start, generator_name);
   return start;
 }
 

@@ -61,6 +61,15 @@ namespace detail
 /// the relaxation has no primal).  Used by the default round+rules generator.
 [[nodiscard]] std::vector<double> rounded_start_with_rules(
     const MipStartContext& ctx, std::string_view generator_name);
+
+/// Seed-only start (the `skip_relaxation` path): a zero base of width
+/// `get_numcols()` with the external commitment seed overlaid on the
+/// commitment status columns.  Continuous columns stay at 0 — a
+/// sparse-injecting backend (CPLEX `solve_fixed`) drops them and recomputes
+/// the dispatch.  Pure assembly over `ctx` — needs NO solved relaxation, so
+/// it is unit-testable without a solver.
+[[nodiscard]] std::vector<double> seed_only_start(
+    const MipStartContext& ctx, std::string_view generator_name);
 }  // namespace detail
 
 /// Outcome of the MIP-start pipeline (for logging / tests).
@@ -68,7 +77,12 @@ struct MipStartReport
 {
   bool relaxation_solved {false};  ///< stage A solved the LP relaxation
   bool relaxation_feasible {false};  ///< the relaxation was feasible
-  bool injected {false};  ///< a start was accepted by the backend
+  /// The backend BUFFERED/added the start (set_mip_start returned true).
+  /// NOT proof of acceptance: CPLEX may still discard the start while
+  /// processing mipopt ("No solution found from N MIP starts") — the only
+  /// sharp acceptance signal is the native solver log ("N of N MIP starts
+  /// provided solutions").
+  bool injected {false};
   std::optional<double> relax_obj {};  ///< LP-relaxation objective (if solved)
   std::string source {};  ///< generator name that produced the start
 };
@@ -116,7 +130,7 @@ public:
 [[nodiscard]] std::unique_ptr<MipStartGenerator> make_mip_start_generator(
     const MipStartOptions& opts);
 
-/// Optional SCIP repair STAGE (stage 3 of the pipeline) — composable with any
+/// Optional SCIP repair STAGE (stage 4 of the pipeline) — composable with any
 /// base method and any active solver via `mip_start.scip_repair=true`.  Build a
 /// SCIP backend from `ctx.flat_lp`, hand it the `candidate` commitment through
 /// `set_mip_start(repair)` (→ the SCIP plugin's completesol/repair), and return

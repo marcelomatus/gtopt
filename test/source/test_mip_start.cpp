@@ -661,3 +661,44 @@ TEST_CASE("MipStart file generator rejects an ncols mismatch")  // NOLINT
 }
 
 }  // namespace mip_start_test
+
+TEST_CASE("seed_only_start assembles without a solved relaxation")  // NOLINT
+{
+  // The skip_relaxation path is pure assembly: zero base + seed overlay by
+  // (generator, block) identity — no LP solve involved, no solver needed.
+  const auto path = (std::filesystem::temp_directory_path()
+                     / "gtopt_seed_only_start_test.csv")
+                        .string();
+  {
+    std::ofstream ofs(path);
+    ofs << "generator_uid,block_uid,u\n";
+    ofs << "7,10,1\n";
+    ofs << "7,11,0\n";
+  }
+  LinearInterface li;
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});  // u @ block 10
+  (void)li.add_col(SparseCol {.lowb = 0.0, .uppb = 1.0});  // u @ block 11
+  (void)li.add_col(SparseCol {.lowb = 0.0});  // continuous dispatch
+
+  const std::array<int, 2> int_cols {0, 1};
+  const std::array<CommitmentRunInfo, 1> commitments {CommitmentRunInfo {
+      .uid = Uid {7},
+      .status_cols = {0, 1},
+      .block_uids = {Uid {10}, Uid {11}},
+  }};
+  MipStartOptions opts;
+  opts.seed_solution_file = path;
+  const SolverOptions relax_opts {.log_level = 0};
+  MipStartContext ctx {.li = li,
+                       .relax_opts = relax_opts,
+                       .int_cols = int_cols,
+                       .opts = opts,
+                       .commitments = commitments};
+
+  const auto start = detail::seed_only_start(ctx, "seed");
+  std::filesystem::remove(path);
+  REQUIRE(start.size() == 3);
+  CHECK(start[0] == doctest::Approx(1.0));  // seeded ON
+  CHECK(start[1] == doctest::Approx(0.0));  // seeded OFF
+  CHECK(start[2] == doctest::Approx(0.0));  // continuous zero base
+}
