@@ -182,9 +182,21 @@ include_guard(GLOBAL)
 
 include(ProcessorCount)
 if(NOT DEFINED _GTOPT_PYTEST_PROCESSORS)
-  ProcessorCount(_GTOPT_PYTEST_PROCESSORS)
-  if(_GTOPT_PYTEST_PROCESSORS EQUAL 0)
-    set(_GTOPT_PYTEST_PROCESSORS 4)
+  ProcessorCount(_GTOPT_NPROC)
+  if(_GTOPT_NPROC EQUAL 0)
+    set(_GTOPT_NPROC 4)
+  endif()
+  # Each Python ctest entry runs pytest-xdist with `-n ${_GTOPT_PYTEST_PROCESSORS}`
+  # AND reserves exactly that many CTest processors, so the two agree: no
+  # nproc-vs-reservation oversubscription, and — crucially — a Python entry
+  # claims only HALF the box instead of all of it.  That lets a second Python
+  # entry (or ~nproc/2 of the thousands of 1-core C++ doctest cases) run
+  # CONCURRENTLY under `ctest -j`, instead of every pytest entry monopolising
+  # all cores and serialising ~360 s of Python behind the C++ suite.  Override
+  # by pre-defining `_GTOPT_PYTEST_PROCESSORS`.
+  math(EXPR _GTOPT_PYTEST_PROCESSORS "${_GTOPT_NPROC} / 2")
+  if(_GTOPT_PYTEST_PROCESSORS LESS 2)
+    set(_GTOPT_PYTEST_PROCESSORS 2)
   endif()
 endif()
 
@@ -236,6 +248,7 @@ function(add_pytest_integration_test name)
       "${ARG_FILE}"
       -k "${ARG_KEYWORD}"
       -m integration
+      -n "${_GTOPT_PYTEST_PROCESSORS}"
       -v --tb=short
     WORKING_DIRECTORY "${ARG_WORKING_DIRECTORY}"
   )
@@ -308,6 +321,7 @@ function(add_pytest_unit_test name)
     COMMAND "${PYTHON_EXECUTABLE}" -m pytest
       "${ARG_DIR}"
       -m "not integration"
+      -n "${_GTOPT_PYTEST_PROCESSORS}"
       -v --tb=short
       ${_ignore_args}
     WORKING_DIRECTORY "${ARG_WORKING_DIRECTORY}"

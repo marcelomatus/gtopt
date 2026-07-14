@@ -1453,8 +1453,28 @@ private:
         // window where a dispatch decision could be stale by one task —
         // self-correcting within one tick, but not auditable.
         // `active_mutex_` now protects only the per-task accumulators.
+        //
+        // The GPU token MUST be returned inside this same critical
+        // section, BEFORE the decrements: admission (gate + pop +
+        // try_admit) is atomic under `queue_mutex_`, so releasing the
+        // ticket here makes completion atomic too.  Releasing it later
+        // (outside the lock) opened a window where another worker saw
+        // `active == 0`, took the universal idle-admit (which bypasses
+        // the GPU gate), found the token still held, and started a
+        // GPU task TICKETLESS via the post-pop fallback; when this
+        // thread then returned the token, a THIRD GPU task admitted
+        // against the freed token and ran concurrently with the
+        // ticketless one — two GPU bodies in flight on a 1-token
+        // bucket.  With the release in-lock, `active == 0` under
+        // `queue_mutex_` implies no in-pool token holder, so the
+        // idle-admit's try_admit always succeeds (absent cross-pool
+        // holders) and in-pool GPU concurrency never exceeds the
+        // token count.  Lock order queue_mutex_ → governor mutex_ is
+        // the one already used by the gate's gpu_available() and the
+        // post-pop try_admit; the governor never takes pool locks.
         {
           const std::scoped_lock<std::mutex> qlock(queue_mutex_);
+          resource_ticket = ResourceGovernor::Ticket {};
           active_threads_.fetch_sub(threads_needed, std::memory_order_relaxed);
           tasks_active_.fetch_sub(1, std::memory_order_relaxed);
           tasks_completed_.fetch_add(1, std::memory_order_relaxed);
@@ -1476,10 +1496,9 @@ private:
           maybe_grow_max_threads_unlocked();
         }
 
-        // Return the GPU token (if held) BEFORE waking waiters so a
-        // throttled GPU task can be admitted on the very next gate check
-        // instead of one scheduler tick later.
-        resource_ticket = ResourceGovernor::Ticket {};
+        // (GPU token already returned in the accounting block above —
+        // before this notify, so a throttled GPU task is admitted on
+        // the very next gate check instead of one scheduler tick later.)
 
         // Wake any worker that was throttled by `current + threads_needed
         // > max_threads_`: one of those checks may now pass against the

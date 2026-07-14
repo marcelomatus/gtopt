@@ -3560,39 +3560,22 @@ TEST_CASE(  // NOLINT
   // pick up that ruiz factor too (handled by ``dep_scale_phys =
   // get_col_scale(dep)`` in ``relax_fixed_state_variable``, which
   // captures the ruiz-augmented effective scale).
-  const std::array<ScaleCfg, 8> cfgs = {{
+  // Only the two UNSCALED configs carry strict physical CHECKs (the
+  // ``unscaled = scale_obj==1 && col_scale==1`` gate below); the six
+  // scaled variants were WARN-only reporting probes whose scale
+  // invariance is exercised end-to-end by the plp_2_years / ieee_14b
+  // integration runs.  Keeping one unscaled config per equilibration
+  // method (row_max + ruiz) preserves all strict coverage at ~1/4 the
+  // solve count (was the slowest test in the suite at ~40–56 s).
+  const std::array<ScaleCfg, 2> cfgs = {{
       {.scale_obj = 1.0,
        .col_scale = 1.0,
        .equilibration = LpEquilibrationMethod::row_max,
        .label = "no scale (row_max)"},
-      {.scale_obj = 1000.0,
-       .col_scale = 1.0,
-       .equilibration = LpEquilibrationMethod::row_max,
-       .label = "scale_obj=1000 (row_max)"},
-      {.scale_obj = 1.0,
-       .col_scale = 10.0,
-       .equilibration = LpEquilibrationMethod::row_max,
-       .label = "col_scale=10 (row_max)"},
-      {.scale_obj = 1000.0,
-       .col_scale = 10.0,
-       .equilibration = LpEquilibrationMethod::row_max,
-       .label = "scale_obj=1000, col_scale=10 (row_max)"},
       {.scale_obj = 1.0,
        .col_scale = 1.0,
        .equilibration = LpEquilibrationMethod::ruiz,
        .label = "no scale (ruiz)"},
-      {.scale_obj = 1000.0,
-       .col_scale = 1.0,
-       .equilibration = LpEquilibrationMethod::ruiz,
-       .label = "scale_obj=1000 (ruiz)"},
-      {.scale_obj = 1.0,
-       .col_scale = 10.0,
-       .equilibration = LpEquilibrationMethod::ruiz,
-       .label = "col_scale=10 (ruiz)"},
-      {.scale_obj = 1000.0,
-       .col_scale = 10.0,
-       .equilibration = LpEquilibrationMethod::ruiz,
-       .label = "scale_obj=1000, col_scale=10 (ruiz)"},
   }};
 
   for (const auto& cfg : cfgs) {
@@ -6210,9 +6193,14 @@ struct ExtraSolver
 }
 }  // namespace
 
+// Pure diagnostic sweep (asserts only CHECK(true) — MESSAGE-only probe from
+// the LB-overshoot investigation).  Skipped by default so it does not cost
+// ~29 s in every ctest sweep with zero regression value; run on demand with
+//   gtoptTests --test-case="DIAG: dual±1 — does LB-overshoot*" --no-skip
 TEST_CASE(  // NOLINT
     "DIAG: dual±1 — does LB-overshoot threshold scale with thermal_cost "
-    "or demand_fail_cost?")
+    "or demand_fail_cost?"
+    * doctest::skip())
 {
   using namespace gtopt;
 
@@ -6293,8 +6281,13 @@ TEST_CASE(  // NOLINT
   CHECK(true);
 }
 
+// Pure diagnostic sweep (asserts only CHECK(true) — MESSAGE-only probe from
+// the LB-overshoot investigation).  Skipped by default so it does not cost
+// ~40 s in every ctest sweep with zero regression value; run on demand with
+//   gtoptTests --test-case="DIAG: dual±1 efin_cost=500*" --no-skip
 TEST_CASE(  // NOLINT
-    "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot")
+    "DIAG: dual±1 efin_cost=500 — sweep mitigations for LB overshoot"
+    * doctest::skip())
 {
   using namespace gtopt;
 

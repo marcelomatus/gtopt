@@ -415,25 +415,38 @@ add_pytest_unit_test(
 #                                       is NOT labelled `unit`, so it
 #                                       does NOT double-run by default)
 #
-# Carries ONLY the `aggregate` label so default `ctest` / `ctest -L unit`
-# never picks it up — opt-in only.  This keeps CI from running every
-# Python test twice.
-add_test(
-  NAME scripts-all-unit
-  COMMAND "${PYTHON_EXECUTABLE}" -m pytest
-    "${SCRIPTS_DIR}"
-    -m "not integration"
-    -n auto
-    -q --tb=short
-    --ignore=${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py
-  WORKING_DIRECTORY "${SCRIPTS_DIR}"
-)
-set_tests_properties(scripts-all-unit PROPERTIES
-  COST 60
-  FIXTURES_REQUIRED scripts-deps
-  PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
-  LABELS "aggregate;script"
-)
+# Registration is gated behind an OFF-by-default option: a plain `ctest`
+# (no `-L`/`-LE` filter — what CI in ubuntu.yml and most developers run)
+# executes EVERY registered test regardless of label, so merely giving this
+# the `aggregate` label does NOT stop it double-running the whole Python
+# suite alongside the per-package `scripts-<pkg>-unit` cases (~+80 s wall).
+# The per-package cases already parallelise well (moderate `-n`, so they
+# interleave with the C++ suite under `ctest -j`), so the aggregate's only
+# remaining use is a fast single-process "did I break anything?" triage —
+# opt into it with `-DGTOPT_REGISTER_AGGREGATE_TEST=ON` then `ctest -L
+# aggregate`.  CI's standalone Python coverage is provided by scripts.yml
+# (which runs pytest directly), not by this entry.
+option(GTOPT_REGISTER_AGGREGATE_TEST
+       "Register the single-process scripts-all-unit aggregate pytest CTest entry"
+       OFF)
+if(GTOPT_REGISTER_AGGREGATE_TEST)
+  add_test(
+    NAME scripts-all-unit
+    COMMAND "${PYTHON_EXECUTABLE}" -m pytest
+      "${SCRIPTS_DIR}"
+      -m "not integration"
+      -n auto
+      -q --tb=short
+      --ignore=${SCRIPTS_DIR}/plp2gtopt/tests/test_integration.py
+    WORKING_DIRECTORY "${SCRIPTS_DIR}"
+  )
+  set_tests_properties(scripts-all-unit PROPERTIES
+    COST 60
+    FIXTURES_REQUIRED scripts-deps
+    PROCESSORS "${_GTOPT_PYTEST_PROCESSORS}"
+    LABELS "aggregate;script"
+  )
+endif()
 
 # ---- plp2gtopt integration tests (one CTest test per case group) ----
 # Each test runs the subset of @pytest.mark.integration tests matching the
@@ -618,7 +631,7 @@ if(EXISTS "${_tools_dir}/test_ucjl2gtopt.py")
     NAME scripts-ucjl2gtopt-integration
     COMMAND "${PYTHON_EXECUTABLE}" -m pytest
       "${_tools_dir}/test_ucjl2gtopt.py"
-      -n auto -v --tb=short
+      -n "${_GTOPT_PYTEST_PROCESSORS}" -v --tb=short
     WORKING_DIRECTORY "${_tools_dir}"
   )
   set_tests_properties(scripts-ucjl2gtopt-integration PROPERTIES

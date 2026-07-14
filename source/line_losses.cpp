@@ -70,11 +70,23 @@ namespace
 /// chord row stays anchored to the piecewise secant.  Deliberately NOT
 /// the user ``loss_cost_eps`` (which lands on the loss column only —
 /// the arbitrage guard): pricing ``v`` with the user ε makes ε a
-/// transport toll on all legitimate flow.  1e-6 $/MWh is well below
-/// LP optimality tolerance, so it never moves a dispatch decision.
+/// transport toll on all legitimate flow.
+///
+/// Sizing: the pin must sit ABOVE the solver's dual-feasibility /
+/// optimality tolerance so the degeneracy is broken *reliably*, yet far
+/// below any real cost (dispatch costs are O(10) \$/MWh, load-shed O(1e3))
+/// so it never moves a dispatch decision.  The former value 1e-6 was
+/// described as "below LP optimality tolerance" — which is precisely why
+/// it FAILED to pin under HiGHS (and any solver whose simplex does not
+/// happen to minimise free basic variables): a pin the solver is free to
+/// ignore does not pin.  CPLEX's default pivoting drove ``Σ v_l → |f|``
+/// anyway; HiGHS parked ``v`` at its upper bound (``Σ v_l ≫ |f|``,
+/// phantom loss).  1e-3 \$/MWh is ~4 orders below dispatch cost yet
+/// comfortably above solver tolerances (and survives ``scale_objective``
+/// division), so ``Σ v_l = |f|`` now holds across backends.
 /// Activated only when ``loss_cost_eps > 0`` so unset-ε cases remain
 /// byte-identical to legacy behaviour.
-constexpr double kFlowAbsPinEps = 1e-6;
+constexpr double kFlowAbsPinEps = 1e-3;
 
 /// Map `adaptive` → piecewise/bidirectional; `dynamic` → piecewise;
 /// demote `piecewise_direct` → `piecewise` if expansion is active.

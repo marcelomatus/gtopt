@@ -531,8 +531,11 @@ TEST_CASE(  // NOLINT
 
   const std::array<double, 2> scene_prob = {0.6, 0.4};
   const std::array<double, 2> scene_mu = {kArWetInflow, kArDryInflow};
-  const std::array<double, 5> e_grid = {0.0, 50.0, 100.0, 150.0, 200.0};
-  const std::array<double, 3> q_off = {-3.0, 0.0, 3.0};
+  // Grid trimmed 5×3 → 3×2 (endpoints kept): the audited property is
+  // "affine cut ≤ convex AR tail", which a violation trips at any bracketing
+  // grid point, so {0,100,200}×{−3,+3} preserves detection at ~40% the cost.
+  const std::array<double, 3> e_grid = {0.0, 100.0, 200.0};
+  const std::array<double, 2> q_off = {-3.0, 3.0};
 
   // Tail values cached per (tail length, scene, lag offset, e index).
   std::map<std::tuple<int, std::size_t, std::size_t, std::size_t>, double>

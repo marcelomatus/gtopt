@@ -299,8 +299,16 @@ TEST_CASE(
   }
   pool.shutdown();
 
-  // One token ⇒ at most one GPU task in flight at any instant.  (The
-  // universal idle-admit and the post-pop race fallback can never exceed
-  // the token count within a single pool.)
+  // One token ⇒ at most one GPU task in flight at any instant.  This is
+  // a HARD invariant within a single pool: the worker returns its token
+  // inside the same `queue_mutex_` critical section as the active-count
+  // decrement, so no gate evaluation can observe `active == 0` (the
+  // universal idle-admit) while the token is still held — which is what
+  // used to let a ticketless task overlap a freshly-admitted one under
+  // scheduler preemption (peak == 2 flake under `ctest -j20`).
   CHECK(peak.load() == 1);
+
+  // Every ticket was returned by pool teardown: shutdown() joins all
+  // workers, and each worker releases its token in the completion block.
+  CHECK(ResourceGovernor::instance().gpu_in_use() == 0);
 }

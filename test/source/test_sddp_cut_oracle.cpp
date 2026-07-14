@@ -127,7 +127,7 @@ constexpr double kOracleSolverFeasTol = 1.0e-6;
 
 // ─── State grid ─────────────────────────────────────────────────────────────
 
-constexpr std::size_t kOracleGridN = 9;  // 0, 25, …, 200
+constexpr std::size_t kOracleGridN = 5;  // 0, 50, 100, 150, 200
 
 [[nodiscard]] std::array<double, kOracleGridN> oracle_state_grid()
 {

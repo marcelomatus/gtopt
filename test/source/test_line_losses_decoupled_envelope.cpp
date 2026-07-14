@@ -248,11 +248,12 @@ TEST_CASE(
       {.mode = "piecewise_direct", .pwl_layout = "uniform"},
   };
 
-  // ``enforce_level`` is RETIRED — a no-op.  Sweeping {0, 2} only
-  // confirms the loss model is independent of the (ignored) flag; the
-  // cap binds at ``tmax`` in both cases.  Flow points stay ≤ 0.95·fmax
-  // so the cap never binds ahead of the loss model.
-  const std::vector<int> el_values = {0, 2};
+  // ``enforce_level`` is RETIRED — a no-op.  It was formerly swept over
+  // {0, 2}, but since the flag is ignored that only doubled the solve
+  // count without testing anything (the cap binds at ``tmax`` regardless).
+  // A single value suffices.  Flow points stay ≤ 0.95·fmax so the cap
+  // never binds ahead of the loss model.
+  const std::vector<int> el_values = {0};
 
   for (const auto& spec : models) {
     for (const int K : k_values) {

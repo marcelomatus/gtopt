@@ -226,9 +226,23 @@ def apply_state_to_args(
     # filled + any per-invocation override applied + correct types.
     cli_ns = parser.parse_args(filtered_argv)
 
-    # Build merged namespace: state first, overlay explicit CLI.
-    merged = argparse.Namespace(**state_args)
-    for dest, _ in explicit.items():
+    # Build merged namespace honouring the documented precedence
+    # (defaults < state < explicit CLI):
+    #   1. base layer = every argparse default (from the parsed CLI
+    #      namespace).  This is what lets an OLD snapshot survive the
+    #      addition of new options: a state file written before e.g.
+    #      ``--drop-batteries`` existed has no ``drop_batteries`` key, and
+    #      without this base layer the merged Namespace would lack that
+    #      dest entirely — every downstream ``args.drop_batteries`` then
+    #      raises ``AttributeError``.  Seeding from ``cli_ns`` gives the
+    #      current default for any option the snapshot predates.
+    #   2. overlay the snapshot's stored values (authoritative for
+    #      anything the operator did not re-specify this run);
+    #   3. overlay the dests the operator EXPLICITLY passed this run.
+    merged = argparse.Namespace(**vars(cli_ns))
+    for key, value in state_args.items():
+        setattr(merged, key, value)
+    for dest in explicit:
         if hasattr(cli_ns, dest):
             setattr(merged, dest, getattr(cli_ns, dest))
 

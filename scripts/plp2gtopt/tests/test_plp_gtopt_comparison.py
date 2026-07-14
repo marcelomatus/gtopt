@@ -121,12 +121,22 @@ def fixture_converted(tmp_path_factory):
 
 @pytest.fixture(scope="module", name="converted_legacy")
 def fixture_converted_legacy(tmp_path_factory):
-    """Convert with ``--no-cuts-govern-terminal`` so cut-covered
-    reservoirs retain the boundary-cut ``efin_cost`` (for provenance
-    checks that inspect the emitted value)."""
+    """Convert with ``--no-cuts-govern-terminal --soft-storage-bounds`` so
+    cut-covered reservoirs retain a boundary-cut-priced ``efin_cost`` (for
+    provenance checks that inspect the emitted value).
+
+    ``--soft-storage-bounds`` is required, not incidental: ``efin_cost`` is
+    the *price* of the soft slack on the ``vol_end >= efin`` row, so it is
+    only emitted when that terminal bound is soft.  The default is a HARD
+    ``vol_end >= efin`` bound with no price (see
+    ``junction_writer._relax_storage_bounds``, which returns early unless
+    ``soft_storage_bounds`` is set), which is why the reservoirs otherwise
+    carry ``efin_cost = None``.  ``--no-cuts-govern-terminal`` then keeps the
+    cut-covered reservoirs' ``efin_cost`` instead of dropping it in favour of
+    the loaded FCF cuts as the sole terminal mechanism."""
     return _convert(
         tmp_path_factory.mktemp("plp_compare_legacy"),
-        ("--no-cuts-govern-terminal",),
+        ("--no-cuts-govern-terminal", "--soft-storage-bounds"),
     )
 
 

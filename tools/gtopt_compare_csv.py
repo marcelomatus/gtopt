@@ -29,8 +29,50 @@ import sys
 
 _NUMERIC_RE = re.compile(r"^-?[0-9]+(\.[0-9]+(e[+-]?[0-9]+)?)?$", re.IGNORECASE)
 
-# Columns that are solver-internal metadata and should be skipped.
-_SKIP_COLUMNS = frozenset({"kappa", "max_kappa"})
+# Columns that are solver-internal metadata and must never be golden-compared.
+# ``kappa``/``max_kappa`` are condition numbers that swing with the LP scaling
+# / solver build; ``solve_ticks``/``solve_time_s``/``solve_calls`` are run-local
+# telemetry (wall time, tick and call counts) that vary run-to-run.  Comparing
+# any of these against a checked-in golden is meaningless — a wall-clock time
+# can never match a fixture.  (Older goldens predate the solve_* columns; the
+# name-based column alignment below already ignores actual-only columns, but
+# skipping them here keeps them harmless even once a golden is regenerated with
+# them present.)
+_SKIP_COLUMNS = frozenset(
+    {"kappa", "max_kappa", "solve_ticks", "solve_time_s", "solve_calls"}
+)
+
+
+def _align_columns(
+    actual_header: list[str], expected_header: list[str]
+) -> tuple[list[tuple[int, int]], list[str]]:
+    """Align two flat CSV headers by column NAME.
+
+    Returns ``(col_pairs, missing)`` where ``col_pairs`` is a list of
+    ``(actual_idx, expected_idx)`` for every non-skipped column that the
+    expected (golden) header declares AND the actual header also carries, and
+    ``missing`` lists expected non-skipped column names absent from the actual
+    header.
+
+    Name-based alignment (rather than positional ``zip``) lets the actual file
+    carry EXTRA diagnostic columns the golden never had (e.g. ``solve_time_s``,
+    ``infeasible_count``) without tripping a structural header/field-count
+    mismatch — those actual-only columns are simply ignored.  An expected
+    column that has vanished from the actual output is a genuine regression and
+    surfaces in ``missing``.
+    """
+    a_index = {name: i for i, name in enumerate(actual_header)}
+    col_pairs: list[tuple[int, int]] = []
+    missing: list[str] = []
+    for e_idx, name in enumerate(expected_header):
+        if name in _SKIP_COLUMNS:
+            continue
+        a_idx = a_index.get(name)
+        if a_idx is None:
+            missing.append(name)
+        else:
+            col_pairs.append((a_idx, e_idx))
+    return col_pairs, missing
 
 
 def _is_numeric(value: str) -> bool:
@@ -384,7 +426,7 @@ def compare_csv(
         )
         return errors, warnings
 
-    skip_cols: set[int] = set()
+    col_pairs: list[tuple[int, int]] = []
 
     for i, (actual_line, expected_line) in enumerate(zip(actual_lines, expected_lines)):
         line_num = i + 1
@@ -392,39 +434,42 @@ def compare_csv(
         # Detect header lines: first line, or lines containing quotes
         is_header = i == 0 or '"' in expected_line
         if is_header:
-            if actual_line != expected_line:
+            # Align by column NAME so an actual file that carries extra
+            # diagnostic columns (solve_time_s, infeasible_count, …) the golden
+            # never had does not trip a structural header/field-count mismatch.
+            col_pairs, missing = _align_columns(
+                _parse_header(actual_line), _parse_header(expected_line)
+            )
+            if missing:
                 errors.append(
-                    f"Header mismatch at line {line_num}:\n"
+                    f"Header mismatch at line {line_num}: expected column(s) "
+                    f"{missing} missing from actual output\n"
                     f"  Actual:   {actual_line}\n"
                     f"  Expected: {expected_line}"
                 )
-            # Detect columns to skip (e.g. kappa)
-            headers = _parse_header(expected_line)
-            for col_idx, name in enumerate(headers):
-                if name in _SKIP_COLUMNS:
-                    skip_cols.add(col_idx)
             continue
 
-        # Data lines
+        # Data lines — compare only the name-aligned (non-skipped, shared)
+        # column pairs; actual-only columns are ignored by construction.
         actual_fields = [f.strip() for f in actual_line.split(",")]
         expected_fields = [f.strip() for f in expected_line.split(",")]
 
-        if len(actual_fields) != len(expected_fields):
-            errors.append(
-                f"Field count mismatch at line {line_num}:\n"
-                f"  Actual:   {actual_line}\n"
-                f"  Expected: {expected_line}"
-            )
-            continue
+        for a_idx, e_idx in col_pairs:
+            if a_idx >= len(actual_fields) or e_idx >= len(expected_fields):
+                errors.append(
+                    f"Field count mismatch at line {line_num}:\n"
+                    f"  Actual:   {actual_line}\n"
+                    f"  Expected: {expected_line}"
+                )
+                break
 
-        for j, (av, ev) in enumerate(zip(actual_fields, expected_fields)):
-            if j in skip_cols:
-                continue
+            av = actual_fields[a_idx]
+            ev = expected_fields[e_idx]
 
             if av == ev:
                 continue
 
-            col_num = j + 1
+            col_num = e_idx + 1
 
             # Normalize signed zero
             av_norm = "0" if av == "-0" else av

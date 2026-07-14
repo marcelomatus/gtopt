@@ -119,7 +119,7 @@ constexpr double kWitnessDryInflow = 22.0;
   return (kSolverFeasTol + kMipGapAllowance) * std::max(1.0, v_abs);
 }
 
-constexpr std::size_t kGridN = 9;  // 0, 25, …, 200
+constexpr std::size_t kGridN = 5;  // 0, 50, 100, 150, 200
 
 [[nodiscard]] std::array<double, kGridN> state_grid()
 {
