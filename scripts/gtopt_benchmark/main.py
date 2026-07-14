@@ -39,9 +39,11 @@ def _dgemm_gflops(n: int = 1024, reps: int = 3) -> float:
     b = np.random.default_rng(8).random((n, n))
     _ = a @ b  # warm-up
     t0 = time.perf_counter()
+    acc = 0.0
     for _ in range(reps):
-        a @ b
+        acc += float((a @ b)[0, 0])
     dt = time.perf_counter() - t0
+    assert acc != 0.0  # keep the matmul observable
     return 2.0 * n**3 * reps / dt / 1e9
 
 
