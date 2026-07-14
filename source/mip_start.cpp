@@ -469,17 +469,33 @@ struct ElasticOutcome
     const auto rr = li.resolve(opts);
     return rr.has_value() && li.is_optimal();
   };
-  // Internal elastic solve options: barrier with crossover DISABLED — the
-  // bias LP's primal is only thresholded, so a vertex/basis is pure
-  // overhead — unless the user pinned an algorithm/crossover through
-  // `relax.solver_options` (the sentinel checks mirror
-  // `SolverOptions::overlay`: `automatic`/`default_algo` mean "not set").
+  // Internal elastic solve options.  The bias LP is a COUSIN of the Stage-A
+  // relaxation just solved by the pipeline: same constraints and bounds,
+  // only the objective is shifted.  Stage A therefore left an optimal basis
+  // that is still PRIMAL-feasible for the bias LP, so warm PRIMAL simplex
+  // reoptimises in a handful of pivots — vs a cold barrier that throws that
+  // basis away and restarts from scratch (the measured slow path).  Primal
+  // simplex also natively yields a basis, which the re-fix solve below then
+  // warm-starts from — so crossover is moot.  All overridable through
+  // `relax.solver_options` (sentinels `automatic`/`default_algo` = "unset",
+  // mirroring `SolverOptions::overlay`).
   SolverOptions elastic_opts = ctx.relax_opts;
   if (elastic_opts.crossover == CrossoverMode::automatic) {
     elastic_opts.crossover = CrossoverMode::none;
   }
   if (elastic_opts.algorithm == LPAlgo::default_algo) {
-    elastic_opts.algorithm = LPAlgo::barrier;
+    elastic_opts.algorithm = LPAlgo::primal;  // warm from the Stage-A basis
+  }
+  // The re-fix LP fixes u to the completed pattern — a BOUND change off the
+  // bias basis, which stays DUAL-feasible, so warm DUAL simplex is the right
+  // (and fastest) method.  Never let it inherit a barrier `relax_opts`, which
+  // would discard the basis and solve cold.
+  SolverOptions refix_opts = ctx.relax_opts;
+  if (refix_opts.crossover == CrossoverMode::automatic) {
+    refix_opts.crossover = CrossoverMode::none;
+  }
+  if (refix_opts.algorithm == LPAlgo::default_algo) {
+    refix_opts.algorithm = LPAlgo::dual;  // warm from the bias basis
   }
   // The complete start: the just-solved u-fixed LP's primal with the integer
   // columns snapped EXACTLY onto the fixed pattern (the LP reports them at
@@ -563,7 +579,7 @@ struct ElasticOutcome
   // dual-feasible — so this re-fix is a warm dual-simplex re-solve, not a
   // second full LP.
   fix_int_cols(u_star);
-  if (solve_ok(ctx.relax_opts)) {
+  if (solve_ok(refix_opts)) {
     const double fixed_obj = li.get_obj_value();
     ElasticOutcome out {
         .start = snap_start(u_star),
