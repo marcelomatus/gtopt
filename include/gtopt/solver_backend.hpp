@@ -43,6 +43,19 @@ namespace gtopt
  */
 inline constexpr int k_solver_abi_version = 16;
 
+/// TEST-ONLY hook: true when the environment variable
+/// `GTOPT_TEST_FORCE_SOS_BAIL=1` is set.  Forces the dual-recovery pass
+/// (`fix_mip_and_resolve_duals`) to take its BAIL branch — both the
+/// portable default below and the CPLEX override's SOS-support
+/// verification block check it — so tests can exercise the full
+/// production bail contract (MIP incumbent restored + republished,
+/// `duals_unavailable` latched, dual-dependent outputs skipped at
+/// write-out) without needing a case where CPLEX actually un-pins the
+/// SOS support.  Read fresh on every call (no static latch) so a test
+/// can scope it with setenv/unsetenv around a single fix pass.  Never
+/// set this in production.  Defined in source/solver_backend.cpp.
+[[nodiscard]] bool test_force_fix_duals_bail() noexcept;
+
 /// Per-solve effort reported by a backend: wall `seconds` plus deterministic
 /// `ticks` (a load-independent work unit).  Conventions for backends lacking
 /// one or both (see `SolverBackend::last_solve_effort`):
@@ -519,7 +532,11 @@ public:
     apply_options(opts);
     resolve();
 
-    if (!is_proven_optimal()) {
+    // TEST-ONLY: `GTOPT_TEST_FORCE_SOS_BAIL=1` forces the bail branch
+    // below (as if the fixed-LP solve had failed) so tests can exercise
+    // the full production bail contract end-to-end.  See
+    // `test_force_fix_duals_bail()`.
+    if (test_force_fix_duals_bail() || !is_proven_optimal()) {
       // The fixed LP did not solve — its primal/duals are garbage, and
       // the live problem currently holds them.  Honour the bail
       // contract: un-pin the mutated bounds, restore integrality, and

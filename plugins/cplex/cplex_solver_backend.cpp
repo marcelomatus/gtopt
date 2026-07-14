@@ -1420,6 +1420,20 @@ int CplexSolverBackend::fix_mip_and_resolve_duals(
   //     violation.  On violation the fixed-LP primal is NOT the
   //     committed solution (SOS-infeasible arbitrage vertex): bail out
   //     so the caller keeps the MIP result untouched.
+  //
+  // TEST-ONLY: `GTOPT_TEST_FORCE_SOS_BAIL=1` simulates the verification
+  // firing (the production trigger: FIXEDMILP un-pins the SOS support
+  // on some CPLEX versions) so tests can exercise the full bail
+  // contract — FIXEDMILP → MILP restore, incumbent republish,
+  // `duals_unavailable` latch, dual outputs skipped at write-out —
+  // without a CPLEX version that actually exhibits the defect.
+  if (test_force_fix_duals_bail()) {
+    SPDLOG_WARN(
+        "CplexSolverBackend::fix_mip_and_resolve_duals: forced bail "
+        "(GTOPT_TEST_FORCE_SOS_BAIL=1, test-only) — restoring the MIP "
+        "incumbent; duals unavailable");
+    return bail_restore_mip();
+  }
   if (!sos_incumbent.empty()) {
     std::vector<double> x(static_cast<std::size_t>(ncols));
     if (CPXgetx(env, lp, x.data(), 0, ncols - 1) != 0) {

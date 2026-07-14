@@ -699,6 +699,13 @@ bool LineLP::add_to_output(OutputContext& out) const
   STBIndexHolder<double> flown_extras_sol;
   STBIndexHolder<double> flown_extras_cost;
 
+  // Under the dual-recovery bail the solve publishes the MIP primal
+  // with NO reduced costs (`col_cost_span` empty) — reading
+  // `out.cost()` there is a hardening abort (production SIGABRT,
+  // 2026-07-13).  Build the signed primal streams as usual, feed the
+  // sign-choice logic zeros, and skip the `:cost` emits below.
+  const bool has_rc = out.has_col_costs();
+
   const auto fill_two_column = [&](const STBIndexHolder<ColIndex>& fp_holder,
                                    const STBIndexHolder<ColIndex>& fn_holder)
   {
@@ -717,7 +724,7 @@ bool LineLP::add_to_output(OutputContext& out) const
       auto* dst_fn_c = has_flown_st ? &flown_extras_cost[st_key] : nullptr;
       for (const auto& [buid, pcol] : p_blocks) {
         const double fp = out.primal(pcol);
-        const double rcp = out.cost(pcol);
+        const double rcp = has_rc ? out.cost(pcol) : 0.0;
         double fn = 0.0;
         double rcn = 0.0;
         bool has_flown_cell = false;
@@ -725,7 +732,7 @@ bool LineLP::add_to_output(OutputContext& out) const
           const auto it_b = n_blocks->find(buid);
           if (it_b != n_blocks->end()) {
             fn = out.primal(it_b->second);
-            rcn = out.cost(it_b->second);
+            rcn = has_rc ? out.cost(it_b->second) : 0.0;
             has_flown_cell = true;
           }
         }
@@ -770,7 +777,7 @@ bool LineLP::add_to_output(OutputContext& out) const
     auto& dst_c = flow_signed_cost[st_key];
     for (const auto& [buid, scol] : s_blocks) {
       dst_p[buid] = out.primal(scol);
-      dst_c[buid] = out.cost(scol);
+      dst_c[buid] = has_rc ? out.cost(scol) : 0.0;
     }
   }
 
@@ -802,7 +809,8 @@ bool LineLP::add_to_output(OutputContext& out) const
       }
       for (const auto& col : it_b->second) {
         f += out.primal(col);
-        rc_min_abs = std::min(rc_min_abs, std::abs(out.cost(col)));
+        rc_min_abs =
+            has_rc ? std::min(rc_min_abs, std::abs(out.cost(col))) : 0.0;
       }
       if (!std::isfinite(rc_min_abs)) {
         rc_min_abs = 0.0;
@@ -849,7 +857,13 @@ bool LineLP::add_to_output(OutputContext& out) const
   fill_segments_signed_flow();
 
   out.add_col_sol_values(cname, FlowName, pid, flow_signed_sol);
-  out.add_col_cost_values(cname, FlowName, pid, flow_signed_cost);
+  // No `:cost` stream under the dual-recovery bail — zeros would be
+  // misleading; the stream is simply absent (same contract as the
+  // index-emit path, whose `add_field` returns early on the empty
+  // `col_cost_span`).
+  if (has_rc) {
+    out.add_col_cost_values(cname, FlowName, pid, flow_signed_cost);
+  }
   // Extras (opt-in via ``--write-out extras`` or ``--write-out all``).
   // The unified `Line/flow_sol.parquet` (signed: + = A→B, − = B→A)
   // carries the full direction information; these directional raw
@@ -862,7 +876,9 @@ bool LineLP::add_to_output(OutputContext& out) const
   //                      not ``flown`` so the suffix reads as "excluded",
   //                      not "negative direction".
   out.add_col_sol_values_extras(cname, FlownName, pid, flown_extras_sol);
-  out.add_col_cost_values_extras(cname, FloweName, pid, flown_extras_cost);
+  if (has_rc) {
+    out.add_col_cost_values_extras(cname, FloweName, pid, flown_extras_cost);
+  }
 
   // Consolidated loss output: piecewise / bidirectional only.  none /
   // linear / piecewise_direct don't create loss vars so this is a no-op.
