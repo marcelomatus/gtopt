@@ -48,10 +48,11 @@ namespace gtopt
 
 namespace
 {
-/// The sub-solver used to repair the candidate commitment.  Named (rather than
-/// a bare literal) so a future option could route the repair through any MIP
-/// backend with a strong feasibility heuristic (CBC, Gurobi, …).
-constexpr std::string_view kRepairSolver = "scip";
+/// Default sub-solver for the repair stage.  Overridable per case via
+/// `mip_start.scip_repair.solver`, so the repair can route through any MIP
+/// backend with a strong feasibility heuristic (CBC, Gurobi, …) — the solver
+/// choice is configuration, not baked into this core stage.
+constexpr std::string_view kDefaultRepairSolver = "scip";
 }  // namespace
 
 std::optional<std::vector<double>> scip_repair_candidate(
@@ -67,19 +68,21 @@ std::optional<std::vector<double>> scip_repair_candidate(
         "the flat problem); skipping the SCIP repair stage");
     return std::nullopt;
   }
-  if (!SolverRegistry::instance().has_solver(kRepairSolver)) {
+  const std::string repair_solver =
+      ctx.opts.scip_repair.solver.value_or(std::string {kDefaultRepairSolver});
+  if (!SolverRegistry::instance().has_solver(repair_solver)) {
     spdlog::warn(
-        "MIP-start[scip]: solver '{}' is not available (build the SCIP "
-        "plugin); "
-        "skipping the SCIP repair stage",
-        kRepairSolver);
+        "MIP-start[scip]: solver '{}' is not available (build its plugin); "
+        "skipping the repair stage",
+        repair_solver);
     return std::nullopt;
   }
 
-  // Build a SCIP model from the SAME flat LP (standard load path; SCIP column
-  // j == raw LP column j) and let SCIP repair the candidate commitment via its
-  // completesol/repair heuristic (the plugin's effort=repair).
-  LinearInterface scip_li {kRepairSolver, *ctx.flat_lp};
+  // Build the repair model from the SAME flat LP (standard load path; column
+  // j == raw LP column j) and let the sub-solver repair the candidate
+  // commitment via its completesol/repair heuristic (the plugin's
+  // effort=repair).
+  LinearInterface scip_li {repair_solver, *ctx.flat_lp};
   if (!scip_li.set_mip_start(candidate, MipStartEffort::repair)) {
     spdlog::warn("MIP-start[scip]: SCIP backend declined the start; skipping");
     return std::nullopt;

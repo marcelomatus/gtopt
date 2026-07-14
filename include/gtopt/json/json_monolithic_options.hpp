@@ -98,9 +98,10 @@ struct json_data_contract<MipStartRound>
 
 struct MipStartScipRepairConstructor
 {
-  [[nodiscard]] MipStartScipRepair operator()(OptBool enabled) const
+  [[nodiscard]] MipStartScipRepair operator()(OptBool enabled,
+                                              OptName solver) const
   {
-    return MipStartScipRepair {.enabled = enabled};
+    return MipStartScipRepair {.enabled = enabled, .solver = solver};
   }
 };
 
@@ -109,11 +110,12 @@ struct json_data_contract<MipStartScipRepair>
 {
   using constructor_t = MipStartScipRepairConstructor;
 
-  using type = json_member_list<json_bool_null<"enabled", OptBool>>;
+  using type = json_member_list<json_bool_null<"enabled", OptBool>,
+                                json_string_null<"solver", OptName>>;
 
   static auto to_json_data(MipStartScipRepair const& opt)
   {
-    return std::make_tuple(opt.enabled);
+    return std::make_tuple(opt.enabled, opt.solver);
   }
 };
 

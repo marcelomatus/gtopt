@@ -85,10 +85,16 @@ struct MipStartRound
 struct MipStartScipRepair
 {
   OptBool enabled {};
+  /** @brief Sub-solver that repairs the candidate commitment (default
+   * "scip").  Keeps the solver CHOICE out of the core repair code: any
+   * registered MIP backend with a strong feasibility heuristic (cbc, gurobi,
+   * …) can be routed here via `mip_start.scip_repair.solver`. */
+  OptName solver {};
 
   void merge(MipStartScipRepair&& opts)
   {
     merge_opt(enabled, opts.enabled);
+    merge_opt(solver, std::move(opts.solver));
     auto _ = std::move(opts);
   }
 };

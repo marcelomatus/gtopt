@@ -22,7 +22,6 @@
 #include <cmath>
 #include <filesystem>
 #include <functional>
-#include <mutex>
 #include <ranges>
 #include <thread>
 #include <utility>
@@ -392,34 +391,24 @@ auto solve_apertures_for_phase(
   // Two clone routes coexist, selected by `use_manual_clone`:
   //
   //   * Native route (`use_manual_clone == false`, legacy default).
-  //     Each aperture task calls `phase_li.clone(CloneKind::shallow)`,
-  //     which goes through the backend's native `clone()` (e.g.
-  //     `CPXcloneprob`).  This must be globally serialised under
-  //     `s_global_clone_mutex` because the underlying solver has
-  //     process-wide internal state (environment, allocator mutex,
-  //     licence manager) that is not reentrant across threads during
-  //     `CPXcloneprob`.  On the juan/gtopt_iplp compress run we
-  //     observed 3 threads GPF'ing at the same IP inside the solver's
-  //     shared lib, which is the fingerprint of concurrent cloneprob
-  //     without a process-global lock (commit `1d7a05c1`).  The
-  //     previous per-scene mutex was insufficient: it serialised
-  //     within one scene's apertures but allowed 16 cross-scene
-  //     clones to race.
+  //     Each aperture task calls `phase_li.clone(CloneKind::shallow)`.
+  //     A backend's native `clone()` may touch process-global solver
+  //     state that is not reentrant across threads, so the
+  //     serialisation lives inside `LinearInterface::clone()` itself —
+  //     it guards every native-clone caller (aperture, elastic, …)
+  //     generically, with no solver-specific knowledge or per-callsite
+  //     lock here (the historical `s_global_clone_mutex` on this path
+  //     became redundant once the mutex moved into `clone()`).
   //
-  //   * Manual route (`use_manual_clone == true`).  Each aperture
-  //     task calls `phase_li.clone_from_flat(CloneKind::shallow)`,
-  //     which builds the clone via `CPXcreateprob` + `CPXaddrows`
-  //     into a freshly-opened CPLEX env.  Those calls are env-local
-  //     and have no process-global side effects, so the manual
-  //     route does NOT acquire the global mutex — 80 aperture
-  //     clones can be built in parallel.  Pre-condition: the
-  //     source `phase_li` must hold a decompressed
+  //   * Manual route (`use_manual_clone == true`).  Each aperture task
+  //     calls `phase_li.clone_from_flat(CloneKind::shallow)`, which
+  //     rebuilds the clone on a freshly-opened, env-local backend with
+  //     no process-global side effects — so it runs fully in parallel.
+  //     Pre-condition: the source `phase_li` must hold a decompressed
   //     `FlatLinearProblem` snapshot (satisfied during the aperture
   //     window by the `DecompressionGuard` at
   //     `sddp_aperture_pass.cpp:390, 579`).  See
   //     `LinearInterface::clone_from_flat` for full contract.
-  static std::mutex s_global_clone_mutex;
-  auto* clone_mutex = &s_global_clone_mutex;
 
   // ── Pre-filter: drop apertures with no resolvable source ────────────
   //
@@ -535,8 +524,7 @@ auto solve_apertures_for_phase(
     // the basis to persist for next iteration's seed.
     const bool do_capture = capture_basis && chunk_idx == 0;
     futures.push_back(submit_fn(
-        [&, chunk, clone_mutex, use_manual_clone, do_capture]()
-            -> ApertureChunkResult
+        [&, chunk, use_manual_clone, do_capture]() -> ApertureChunkResult
         {
           const auto chunk_start = std::chrono::steady_clock::now();
           const auto task_tid = std::this_thread::get_id();
@@ -548,15 +536,15 @@ auto solve_apertures_for_phase(
           // then replays `m_replay_.active_cuts()` so cuts on α_p
           // installed by the previous backward iteration (phase p+1)
           // are visible to every aperture in this chunk.
-          // Native route: `CPXcloneprob` copies the live backend
-          // (cuts included) under the process-global clone mutex.
+          // Native route: the backend's native clone copies the live
+          // backend (cuts included); `LinearInterface::clone()` serialises
+          // it internally, so no lock is taken here.
           LinearInterface clone = [&]
           {
             if (use_manual_clone && phase_li.has_snapshot_data()) {
               return phase_li.clone_from_flat(
                   LinearInterface::CloneKind::shallow);
             }
-            const std::scoped_lock lock(*clone_mutex);
             return phase_li.clone(LinearInterface::CloneKind::shallow);
           }();
 
