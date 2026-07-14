@@ -7,6 +7,7 @@
  */
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <format>
 #include <fstream>
@@ -274,6 +275,299 @@ public:
     return start;
   }
 };
+
+// ── Elastic in-process seed completion (`mip_start.elastic`) ────────────────
+//
+// The general fix so warm-starts NEVER depend on a perfectly feasible seed:
+// real seeds keep failing constraint families that are NOT derivable offline
+// (hydro water coupling, network evacuation limits), the backends' own repair
+// effort never engages at scale, and the producer-side repair
+// (scripts/gtopt_warmstart) hit its ceiling.  gtopt repairs in-process, where
+// it has the FULL LP.  Precondition: integers relaxed and the Stage-A
+// relaxation solved OPTIMAL.  Mechanism (documented trade-offs in
+// `MipStartOptions::elastic`):
+//
+//   (a) fix every integer column via bounds — seed value where seeded,
+//       rounded relaxation elsewhere — and solve the u-fixed LP;
+//   (b) if infeasible: unfix and re-solve ONE elastic-bias LP — each seeded
+//       binary's objective coefficient is shifted by ∓M (−M pulls toward
+//       seed=1, +M toward seed=0; M = 1e4 × max|c|, O(1) memory, restored
+//       right after).  The bias LP shares the plain relaxation's feasible
+//       region, so it is feasible whenever Stage A was.  Threshold u* at
+//       0.5 → repaired pattern; re-fix and solve once more for a consistent
+//       dispatch.  BIAS CAVEAT: the repair is soft — it maximises seed
+//       agreement subject to LP feasibility and residual cost trade-offs
+//       below M; and M widens the objective range by ~4 orders of magnitude
+//       for that one LP, which can degrade numerics on badly scaled models.
+//   (c) the returned start is COMPLETE and self-consistent (integral u* +
+//       the u-fixed LP's continuous dispatch): a genuinely MIP-feasible
+//       point, so the caller injects it under `check_feasibility` — the
+//       accepted-by-contract path (see test_mip_start_roundtrip.cpp).
+//
+// Every exit path restores the original column bounds and objective
+// coefficients EXACTLY (asserted); on failure the plain relaxation is
+// re-solved so the standard Stage-B fallback still sees a valid primal.
+
+/// A seeded integer column: raw column index + target value (integral).
+struct ElasticSeed
+{
+  int col {};
+  double value {};
+};
+
+/// Outcome of `elastic_seed_completion`: the complete start to inject plus
+/// the report fields (`elastic_repaired`, `seed_deviation`).
+struct ElasticOutcome
+{
+  std::vector<double> start {};
+  bool repaired {false};
+  int seed_deviation {0};
+};
+
+/// Collect the (column, value) seed pattern the elastic completion pulls
+/// toward.  `from_file` (a complete dump) seeds EVERY integer column with the
+/// dump's value; otherwise `seed_solution_file` seeds the commitment status
+/// columns matched by (generator, block) identity — the same matching as
+/// `SeedCommitmentRule`.  Empty ⇒ nothing to complete (caller falls back).
+[[nodiscard]] std::vector<ElasticSeed> collect_elastic_seed(
+    MipStartContext& ctx)
+{
+  std::vector<ElasticSeed> seed;
+  const auto& opts = ctx.opts;
+  if (opts.from_file.has_value() && !opts.from_file->empty()) {
+    auto gen = make_mip_start_generator(opts);  // → FileMipStart
+    if (const auto start = gen->generate(ctx); start.has_value()) {
+      seed.reserve(ctx.int_cols.size());
+      for (const int i : ctx.int_cols) {
+        const double v = (*start)[static_cast<std::size_t>(i)];
+        seed.push_back({.col = i, .value = std::round(v)});
+      }
+    }
+    return seed;
+  }
+  const auto& sf = opts.seed_solution_file;
+  if (!sf.has_value() || sf->empty()) {
+    return seed;
+  }
+  auto loaded = load_seed_commitment(*sf);
+  if (!loaded) {
+    spdlog::warn("MIP-start[elastic]: seed_solution_file '{}' not loaded: {}",
+                 *sf,
+                 loaded.error().message);
+    return seed;
+  }
+  const auto& map = *loaded;
+  for (const auto& c : ctx.commitments) {
+    if (c.uid == unknown_uid) {
+      continue;  // no generator identity → cannot match a semantic seed
+    }
+    const std::size_t n = std::min(c.status_cols.size(), c.block_uids.size());
+    for (std::size_t t = 0; t < n; ++t) {
+      const auto it = map.find(seed_commitment_key(c.uid, c.block_uids[t]));
+      if (it == map.end()) {
+        continue;
+      }
+      seed.push_back({
+          .col = c.status_cols[t],
+          .value = (it->second >= 0.5) ? 1.0 : 0.0,
+      });
+    }
+  }
+  return seed;
+}
+
+/// Run the elastic completion (see the block comment above).  Returns the
+/// complete start on success, or `std::nullopt` when there is nothing to
+/// complete / the repair could not reach a u-fixed-feasible pattern — the
+/// caller then warns and falls back to the standard Stage-B candidate
+/// (never aborting the solve).
+[[nodiscard]] std::optional<ElasticOutcome> elastic_seed_completion(
+    MipStartContext& ctx)
+{
+  auto& li = ctx.li;
+  const auto seed = collect_elastic_seed(ctx);
+  if (seed.empty()) {
+    spdlog::warn(
+        "MIP-start[elastic]: no seed values matched this LP; skipping the "
+        "elastic completion");
+    return std::nullopt;
+  }
+
+  const auto ncols = static_cast<std::size_t>(li.get_numcols());
+  // COPIES, not spans: these are the restore targets and the assert oracle
+  // (the spans alias live backend memory that the loops below mutate).
+  const auto lb_span = li.get_col_low_raw();
+  const auto ub_span = li.get_col_upp_raw();
+  const auto obj_span = li.get_obj_coeff();
+  const std::vector<double> lb0(lb_span.begin(), lb_span.end());
+  const std::vector<double> ub0(ub_span.begin(), ub_span.end());
+  const std::vector<double> obj0(obj_span.begin(), obj_span.end());
+  const auto relax_span = li.get_col_sol_raw();
+  const std::vector<double> relax_sol(relax_span.begin(), relax_span.end());
+  if (relax_sol.size() != ncols || lb0.size() != ncols || ub0.size() != ncols) {
+    spdlog::warn(
+        "MIP-start[elastic]: relaxation primal/bounds unavailable; skipping "
+        "the elastic completion");
+    return std::nullopt;
+  }
+
+  // Target integer pattern: seed value where seeded (clamped to the column's
+  // own bounds), rounded relaxation elsewhere.
+  const double threshold = ctx.opts.round.threshold.value_or(0.5);
+  std::vector<double> u_fix(ncols, 0.0);
+  std::vector<char> is_seeded(ncols, 0);
+  for (const int i : ctx.int_cols) {
+    const auto u = static_cast<std::size_t>(i);
+    u_fix[u] =
+        detail::round_with_threshold(relax_sol[u], threshold, lb0[u], ub0[u]);
+  }
+  for (const auto& s : seed) {
+    const auto u = static_cast<std::size_t>(s.col);
+    u_fix[u] = std::clamp(s.value, lb0[u], ub0[u]);
+    is_seeded[u] = 1;
+  }
+
+  const auto fix_int_cols = [&li, &ctx](const std::vector<double>& vals)
+  {
+    for (const int i : ctx.int_cols) {
+      const auto u = static_cast<std::size_t>(i);
+      li.set_col_low_raw(ColIndex {i}, vals[u]);
+      li.set_col_upp_raw(ColIndex {i}, vals[u]);
+    }
+  };
+  const auto unfix_int_cols = [&li, &ctx, &lb0, &ub0]
+  {
+    for (const int i : ctx.int_cols) {
+      const auto u = static_cast<std::size_t>(i);
+      li.set_col_low_raw(ColIndex {i}, lb0[u]);
+      li.set_col_upp_raw(ColIndex {i}, ub0[u]);
+    }
+  };
+  const auto solve_ok = [&li, &ctx]
+  {
+    const auto rr = li.resolve(ctx.relax_opts);
+    return rr.has_value() && li.is_optimal();
+  };
+  // The complete start: the just-solved u-fixed LP's primal with the integer
+  // columns snapped EXACTLY onto the fixed pattern (the LP reports them at
+  // the pinned bounds up to tolerance; the backend integrality check wants
+  // them integral).
+  const auto snap_start = [&li, &ctx](const std::vector<double>& vals)
+  {
+    const auto sol = li.get_col_sol_raw();
+    std::vector<double> start(sol.begin(), sol.end());
+    for (const int i : ctx.int_cols) {
+      const auto u = static_cast<std::size_t>(i);
+      start[u] = vals[u];
+    }
+    return start;
+  };
+  // Restoration oracle — bounds and objective must round-trip EXACTLY.
+  // (Default capture: the explicit list would trip -Wunused-lambda-capture
+  // under NDEBUG, where assert() compiles the body away.)
+  const auto assert_restored = [&]() noexcept
+  {
+    assert(std::ranges::equal(li.get_col_low_raw(), lb0));
+    assert(std::ranges::equal(li.get_col_upp_raw(), ub0));
+    assert(std::ranges::equal(li.get_obj_coeff(), obj0));
+  };
+
+  // ── (a) u-fixed LP at the seed pattern ──────────────────────────────────
+  fix_int_cols(u_fix);
+  if (solve_ok()) {
+    const double fixed_obj = li.get_obj_value();
+    ElasticOutcome out {.start = snap_start(u_fix)};
+    unfix_int_cols();
+    assert_restored();
+    spdlog::info(
+        "MIP-start[elastic]: seed pattern is u-fixed feasible "
+        "(obj={:.6g}); no repair needed",
+        fixed_obj);
+    return out;
+  }
+
+  // ── (b) elastic-bias LP: pull u toward the seed, feasibility decides ────
+  spdlog::info(
+      "MIP-start[elastic]: seed pattern is u-fixed INFEASIBLE; solving the "
+      "elastic-bias LP over {} seeded columns",
+      seed.size());
+  unfix_int_cols();
+  double max_abs_obj = 0.0;
+  for (const double c : obj0) {
+    max_abs_obj = std::max(max_abs_obj, std::abs(c));
+  }
+  const double big_m = 1e4 * std::max(1.0, max_abs_obj);
+  for (const auto& s : seed) {
+    const auto u = static_cast<std::size_t>(s.col);
+    const double bias = (u_fix[u] >= 0.5) ? -big_m : big_m;
+    li.set_obj_coeff_raw(ColIndex {s.col}, obj0[u] + bias);
+  }
+  const bool bias_ok = solve_ok();
+  std::vector<double> u_star = u_fix;
+  int deviation = 0;
+  if (bias_ok) {
+    const auto esol = li.get_col_sol_raw();
+    for (const int i : ctx.int_cols) {
+      const auto u = static_cast<std::size_t>(i);
+      u_star[u] = detail::round_with_threshold(esol[u], 0.5, lb0[u], ub0[u]);
+      if (is_seeded[u] != 0 && ((u_star[u] >= 0.5) != (u_fix[u] >= 0.5))) {
+        ++deviation;
+      }
+    }
+  }
+  // Restore the objective BEFORE the final dispatch solve so the completed
+  // start carries the TRUE dispatch (and the MIP solve sees the true costs).
+  for (const auto& s : seed) {
+    li.set_obj_coeff_raw(ColIndex {s.col},
+                         obj0[static_cast<std::size_t>(s.col)]);
+  }
+
+  if (!bias_ok) {
+    // The bias LP shares Stage A's feasible region, so this is a numerical
+    // failure (M too large for this model's scaling) — restore + fall back.
+    spdlog::warn(
+        "MIP-start[elastic]: elastic-bias LP failed to solve (M={:.3g}); "
+        "falling back",
+        big_m);
+    (void)solve_ok();  // best effort: re-establish the plain relaxation
+    assert_restored();
+    return std::nullopt;
+  }
+
+  // ── final u-fixed dispatch LP at the repaired pattern ───────────────────
+  fix_int_cols(u_star);
+  if (solve_ok()) {
+    const double fixed_obj = li.get_obj_value();
+    ElasticOutcome out {
+        .start = snap_start(u_star),
+        .repaired = true,
+        .seed_deviation = deviation,
+    };
+    unfix_int_cols();
+    assert_restored();
+    spdlog::info(
+        "MIP-start[elastic]: repaired pattern is u-fixed feasible "
+        "(obj={:.6g}, {} of {} seeded columns flipped)",
+        fixed_obj,
+        deviation,
+        seed.size());
+    return out;
+  }
+
+  // STILL infeasible: the 0.5 threshold landed on a knife edge the bias LP
+  // could not disambiguate.  Restore everything, re-establish the plain
+  // relaxation primal, and let the caller fall back — never abort the solve.
+  unfix_int_cols();
+  spdlog::warn(
+      "MIP-start[elastic]: repaired pattern still u-fixed infeasible "
+      "({} of {} seeded columns flipped); falling back to the un-fixed "
+      "relaxation candidate",
+      deviation,
+      seed.size());
+  (void)solve_ok();  // best effort: re-establish the plain relaxation
+  assert_restored();
+  return std::nullopt;
+}
 
 /// Report the saturated / binding constraints (nonzero dual) of the solved LP
 /// relaxation — solver-agnostic, read from the row duals.
@@ -545,7 +839,14 @@ std::expected<MipStartReport, Error> apply_mip_start(
       opts.from_file.has_value() && !opts.from_file->empty();
   const bool has_seed_file =
       opts.seed_solution_file.has_value() && !opts.seed_solution_file->empty();
-  if (enabled && opts.skip_relaxation.value_or(false)
+  const bool elastic =
+      opts.elastic.value_or(false) && (has_from_file || has_seed_file);
+  if (elastic && opts.skip_relaxation.value_or(false)) {
+    spdlog::info(
+        "MIP-start[elastic]: elastic completion needs the relaxed LP — "
+        "skip_relaxation is overridden");
+  }
+  if (enabled && !elastic && opts.skip_relaxation.value_or(false)
       && (has_from_file || has_seed_file))
   {
     MipStartContext ctx {
@@ -648,13 +949,6 @@ std::expected<MipStartReport, Error> apply_mip_start(
     return report;
   }
 
-  auto gen = make_mip_start_generator(opts);
-  if (!gen) {
-    spdlog::warn("MIP-start: no generator available; skipping injection");
-    restore_integrality();
-    return report;
-  }
-
   MipStartContext ctx {
       .li = li,
       .relax_opts = relax_opts,
@@ -663,6 +957,45 @@ std::expected<MipStartReport, Error> apply_mip_start(
       .commitments = commitments,
       .flat_lp = flat_lp,
   };
+
+  // ── Elastic in-process seed completion (`mip_start.elastic`) ────────────
+  // Repair the seed against the FULL LP (u-fix → elastic-bias → re-fix; see
+  // `elastic_seed_completion`) and inject the resulting COMPLETE, genuinely
+  // MIP-feasible start under `check_feasibility` — the accepted-by-contract
+  // path.  On failure the pipeline WARNS and falls through to the standard
+  // Stage-B candidate below: elastic never aborts the solve.
+  if (elastic) {
+    if (auto out = elastic_seed_completion(ctx)) {
+      restore_integrality();
+      const auto effort =
+          opts.inject.effort.value_or(MipStartEffort::check_feasibility);
+      report.injected = li.set_mip_start(out->start, effort);
+      report.source = has_from_file ? "elastic+file" : "elastic+seed";
+      report.elastic_repaired = out->repaired;
+      report.seed_deviation = out->seed_deviation;
+      spdlog::info(
+          "MIP-start[{}]: {} ({} integer cols, effort={}, repaired={}, "
+          "seed_deviation={}, relax_obj={:.6g})",
+          report.source,
+          report.injected ? "injected" : "backend declined",
+          int_cols.size(),
+          enum_name(effort),
+          report.elastic_repaired,
+          report.seed_deviation,
+          report.relax_obj.value_or(0.0));
+      return report;
+    }
+    spdlog::warn(
+        "MIP-start[elastic]: completion produced no start; falling back to "
+        "the standard round+seed candidate");
+  }
+
+  auto gen = make_mip_start_generator(opts);
+  if (!gen) {
+    spdlog::warn("MIP-start: no generator available; skipping injection");
+    restore_integrality();
+    return report;
+  }
   auto start = gen->generate(ctx);  // stage 1 (round) + stage 2 (seed)
   std::string source {gen->name()};
 

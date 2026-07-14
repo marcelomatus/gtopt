@@ -158,6 +158,7 @@ struct MipStartOptionsConstructor
       OptName dump_file,
       OptName seed_solution_file,
       OptBool skip_relaxation,
+      OptBool elastic,
       OptReal checkpoint_gap,
       OptName checkpoint_file,
       OptName root_basis_cache_file) const
@@ -172,6 +173,7 @@ struct MipStartOptionsConstructor
         .dump_file = std::move(dump_file),
         .seed_solution_file = std::move(seed_solution_file),
         .skip_relaxation = skip_relaxation,
+        .elastic = elastic,
         .checkpoint_gap = checkpoint_gap,
         .checkpoint_file = std::move(checkpoint_file),
         .root_basis_cache_file = std::move(root_basis_cache_file),
@@ -194,6 +196,7 @@ struct json_data_contract<MipStartOptions>
                        json_string_null<"dump_file", OptName>,
                        json_string_null<"seed_solution_file", OptName>,
                        json_bool_null<"skip_relaxation", OptBool>,
+                       json_bool_null<"elastic", OptBool>,
                        json_number_null<"checkpoint_gap", OptReal>,
                        json_string_null<"checkpoint_file", OptName>,
                        json_string_null<"root_basis_cache_file", OptName>>;
@@ -209,6 +212,7 @@ struct json_data_contract<MipStartOptions>
                            opt.dump_file,
                            opt.seed_solution_file,
                            opt.skip_relaxation,
+                           opt.elastic,
                            opt.checkpoint_gap,
                            opt.checkpoint_file,
                            opt.root_basis_cache_file);

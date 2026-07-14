@@ -70,6 +70,7 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   opts.relax.check = true;
   opts.relax.on_infeasible = RelaxInfeasibleAction::feasopt;
   opts.relax.report_saturated = true;
+  opts.elastic = true;
   opts.checkpoint_gap = 0.025;
   opts.checkpoint_file = "ckpt.start";
 
@@ -87,6 +88,7 @@ TEST_CASE("MipStartOptions JSON round-trip")  // NOLINT
   CHECK(back.relax.on_infeasible.value_or(RelaxInfeasibleAction::stop)
         == RelaxInfeasibleAction::feasopt);
   CHECK(back.relax.report_saturated.value_or(false) == true);
+  CHECK(back.elastic.value_or(false) == true);
   CHECK(back.checkpoint_gap.value_or(-1.0) == doctest::Approx(0.025));
   CHECK(back.checkpoint_file.value_or("") == "ckpt.start");
 }
@@ -526,10 +528,11 @@ TEST_CASE(
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
   REQUIRE(start.has_value());
-  REQUIRE(start->size() == 3);
-  CHECK((*start)[0] == doctest::Approx(1.0));  // from the dump
-  CHECK((*start)[1] == doctest::Approx(0.0));  // from the dump
-  CHECK((*start)[2] == doctest::Approx(2.0));  // dst continuous, untouched
+  const std::vector<double> sv = start.value_or(std::vector<double> {});
+  REQUIRE(sv.size() == 3);
+  CHECK(sv[0] == doctest::Approx(1.0));  // from the dump
+  CHECK(sv[1] == doctest::Approx(0.0));  // from the dump
+  CHECK(sv[2] == doctest::Approx(2.0));  // dst continuous, untouched
 
   std::filesystem::remove(path);
 }
@@ -617,9 +620,11 @@ TEST_CASE("MipStart dump → file round-trips a solved MIP")  // NOLINT
   REQUIRE(gen != nullptr);
   const auto start = gen->generate(ctx);
   REQUIRE(start.has_value());
-  CHECK((*start)[0] == doctest::Approx(1.0));  // dumped MIP value
-  CHECK((*start)[1] == doctest::Approx(0.0));  // dumped MIP value
-  CHECK((*start)[2] == doctest::Approx(3.0));  // dumped continuous value —
+  const std::vector<double> sv = start.value_or(std::vector<double> {});
+  REQUIRE(sv.size() == 3);
+  CHECK(sv[0] == doctest::Approx(1.0));  // dumped MIP value
+  CHECK(sv[1] == doctest::Approx(0.0));  // dumped MIP value
+  CHECK(sv[2] == doctest::Approx(3.0));  // dumped continuous value —
   // the complete dump wins over the dst relaxation (2.0): replaying it must
   // reconstruct the SOURCE solution, not an integers-over-relaxation mix.
 

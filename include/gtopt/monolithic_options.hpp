@@ -156,6 +156,29 @@ struct MipStartOptions
    * dispatch as the single warm root LP (effort defaults to `solve_fixed` →
    * dual simplex off the fixed integers, no crossover). Default false. */
   OptBool skip_relaxation {};
+  /** @brief ELASTIC in-process seed completion — warm-starts never depend on
+   * a perfectly feasible seed.  When true and a seed exists
+   * (`seed_solution_file` or `from_file`), the pipeline repairs the seed
+   * against the FULL LP after the Stage-0 relaxation solve:
+   *   (a) fix the integer columns via bounds (seed values where seeded,
+   *       rounded relaxation elsewhere) and solve the u-fixed LP;
+   *   (b) if infeasible, unfix and re-solve ONE elastic-bias LP: each seeded
+   *       binary's objective coefficient is shifted by ∓M (−M pulls toward
+   *       seed=1, +M toward seed=0; M = 1e4 × max|c| — O(1) memory, restored
+   *       afterwards), the biased u* is thresholded at 0.5 into a repaired
+   *       pattern, re-fixed, and solved once more for a consistent dispatch;
+   *   (c) the COMPLETE start (u* + the u-fixed LP's continuous dispatch) is
+   *       injected — genuinely MIP-feasible, so the default inject effort
+   *       becomes `check_feasibility` (the accepted-by-contract path).
+   * If the repaired pattern is STILL u-fixed infeasible, the pipeline warns
+   * and falls back to the standard round+seed candidate — it never aborts
+   * the solve.  Caveats: the bias is soft (the repaired pattern maximises
+   * seed agreement subject to LP feasibility and residual cost trade-offs
+   * below M), and M widens the objective coefficient range by ~4 orders of
+   * magnitude for the one bias LP, which can degrade LP numerics on badly
+   * scaled models.  Takes precedence over `skip_relaxation` (the repair
+   * needs the relaxed LP).  Default false. */
+  OptBool elastic {};
   /** @brief Two-gap MIP checkpoint: relative gap at which the CURRENT
    * incumbent is SAVED to `checkpoint_file` (complete dump format) WITHOUT
    * stopping or perturbing the solve, which continues to the final
@@ -204,6 +227,7 @@ struct MipStartOptions
     merge_opt(dump_file, std::move(opts.dump_file));
     merge_opt(seed_solution_file, std::move(opts.seed_solution_file));
     merge_opt(skip_relaxation, opts.skip_relaxation);
+    merge_opt(elastic, opts.elastic);
     merge_opt(checkpoint_gap, opts.checkpoint_gap);
     merge_opt(checkpoint_file, std::move(opts.checkpoint_file));
     merge_opt(root_basis_cache_file, std::move(opts.root_basis_cache_file));

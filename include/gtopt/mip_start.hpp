@@ -85,6 +85,15 @@ struct MipStartReport
   bool injected {false};
   std::optional<double> relax_obj {};  ///< LP-relaxation objective (if solved)
   std::string source {};  ///< generator name that produced the start
+  /// The elastic completion's phase-b repair ENGAGED: the seeded pattern was
+  /// u-fixed infeasible and the elastic-bias LP produced the injected start
+  /// (`mip_start.elastic`).  False when the seed was u-fixed feasible as-is
+  /// (no repair needed) or the elastic path was not taken.
+  bool elastic_repaired {false};
+  /// Elastic completion: number of SEEDED integer columns whose injected
+  /// start value differs from the seed (u flips).  0 when the seed survived
+  /// verbatim (the no-repair case) or the elastic path was not taken.
+  int seed_deviation {0};
 };
 
 /// Context handed to a generator.  Precondition: `li` holds an OPTIMAL

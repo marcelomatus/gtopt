@@ -216,6 +216,33 @@ Three optional files extend the pipeline across runs and tools:
 MIP starts are supported natively by CPLEX/Gurobi/HiGHS/SCIP/MindOpt;
 cuOpt and CBC buffer the start and replay it at solve time.
 
+#### Elastic in-process seed completion (`elastic`)
+
+Injected seeds are only accepted when the u-fixed LP is feasible without
+slack, and real seeds keep failing constraint families that are not
+derivable offline (hydro water coupling, network evacuation limits).
+With `"elastic": true` and a seed (`seed_solution_file` or `from_file`),
+gtopt repairs the seed in-process, where it has the full LP:
+
+1. Fix the integer columns via bounds (seed values where seeded, rounded
+   relaxation elsewhere) and solve the u-fixed LP.
+2. If infeasible, unfix and solve ONE elastic-bias LP: each seeded
+   binary's objective coefficient is shifted by ∓M (−M pulls toward
+   seed=1, +M toward seed=0; M = 1e4 × max|c|, restored afterwards).
+   Threshold u\* at 0.5, re-fix, and solve once more for a consistent
+   dispatch.  If still infeasible, warn and fall back to the standard
+   round+seed candidate — the solve is never aborted.
+3. Inject the complete start (integral u\* + the u-fixed dispatch) under
+   `check_feasibility` — the accepted-by-contract path.
+
+The repair is a soft bias: it maximises seed agreement subject to LP
+feasibility (and residual cost trade-offs below M), and M widens the
+objective coefficient range by ~4 orders of magnitude for the one bias
+LP, which can degrade numerics on badly scaled models.  `elastic` takes
+precedence over `skip_relaxation` (the repair needs the relaxed LP).
+The report gains `elastic_repaired` (phase-2 engaged) and
+`seed_deviation` (u flips vs the seed).
+
 #### Two-gap checkpoint (`checkpoint_gap` + `checkpoint_file`)
 
 Set two gaps — e.g. checkpoint 2.5% and final 0.25%: the first time the

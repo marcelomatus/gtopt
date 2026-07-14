@@ -455,7 +455,9 @@ template<typename T>
        "relax.solver_options.*, relax.check, "
        "relax.on_infeasible=stop|warn|feasopt, relax.report_saturated, "
        "round.threshold, scip_repair.enabled, inject.effort, "
-       "seed_solution_file=<csv>, skip_relaxation, from_file=<path> to replay "
+       "seed_solution_file=<csv>, skip_relaxation, elastic (in-process seed "
+       "completion: repair an imperfect seed against the full LP and inject "
+       "a complete, feasible start), from_file=<path> to replay "
        "a dumped start, dump_file=<path> to persist this solve's integers for "
        "a later cross-solver replay.")
       //
