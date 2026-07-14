@@ -37,6 +37,7 @@ dependencies = [
 
 [project.scripts]
 gtopt_build_seed = "gtopt_warmstart.build_full_seed:main"
+gtopt_machine_bench = "gtopt_benchmark.main:main"
 gtopt_compare         = "gtopt_compare.main:main"
 cvs2parquet           = "cvs2parquet.cvs2parquet:main"
 gtopt_diagram         = "gtopt_diagram:main"
@@ -115,7 +116,8 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
-    "gtopt_warmstart*","gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "nrel118_to_gtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "rts_gmlc_to_gtopt*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*", "sddp2gtopt*", "psse2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_reduce_network*", "gtopt2pbi*", "sienna_to_gtopt*"]
+    "gtopt_warmstart*",
+    "gtopt_benchmark*","gtopt_compare*", "cvs2parquet*", "gtopt_diagram*", "gtopt_field_extractor*", "gtopt_check_lp*", "gtopt_check_output*", "gtopt_check_pampl*", "gtopt_compress_lp*", "gtopt_check_json*", "gtopt_check_solvers*", "gtopt_check_topology*", "gtopt_config*", "gtopt_check_fingerprint*", "gtopt_expand*", "gtopt_shared*", "igtopt*", "nrel118_to_gtopt*", "plp2gtopt*", "plp_compress_case*", "plexos_compress_case*", "plexos2gtopt*", "pp2gtopt*", "gtopt2pp*", "rts_gmlc_to_gtopt*", "run_gtopt*", "gtopt_monitor*", "ts2gtopt*", "cen_demanda*", "gtopt_results_summary*", "gtopt_timeseries_export*", "sddp2gtopt*", "psse2gtopt*", "gtopt_canonical_feed*", "gtopt_marginal_units*", "cen2gtopt*", "gtopt_reduce_network*", "gtopt2pbi*", "sienna_to_gtopt*"]
 
 [tool.setuptools.package-data]
 # Non-Python assets that must ship in wheels (pip install ./scripts).
@@ -135,6 +137,7 @@ include = [
 python_files = "test_*.py"
 testpaths = [
     "gtopt_warmstart/tests",
+    "gtopt_benchmark/tests",
     "gtopt_compare/tests",
     "cvs2parquet/tests",
     "gtopt_diagram/tests",
@@ -179,7 +182,8 @@ markers = [
 
 [tool.coverage.run]
 source = [
-    "gtopt_warmstart","gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt2pbi", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "pp2gtopt", "plexos2gtopt", "sddp2gtopt", "psse2gtopt", "gtopt_monitor", "ts2gtopt", "gtopt_canonical_feed", "gtopt_marginal_units", "cen2gtopt", "gtopt_reduce_network"]
+    "gtopt_warmstart",
+    "gtopt_benchmark","gtopt_compare", "cvs2parquet", "gtopt_diagram", "gtopt_field_extractor", "gtopt2pp", "gtopt2pbi", "gtopt_expand", "gtopt_results_summary", "gtopt_timeseries_export", "igtopt", "plp2gtopt", "pp2gtopt", "plexos2gtopt", "sddp2gtopt", "psse2gtopt", "gtopt_monitor", "ts2gtopt", "gtopt_canonical_feed", "gtopt_marginal_units", "cen2gtopt", "gtopt_reduce_network"]
 omit = ["*/test*", "*/tests/*", "*/__pycache__/*", "*/venv/*"]
 
 [tool.coverage.report]
