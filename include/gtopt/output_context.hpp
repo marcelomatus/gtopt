@@ -184,6 +184,23 @@ public:
     return col_cost_span[col];
   }
 
+  /// True when the solve published reduced costs.  False under the
+  /// dual-recovery bail (MIP primal preserved, duals unavailable —
+  /// see `fix_mip_and_resolve_duals`): reconstruction sites that read
+  /// `cost()` per column MUST check this and skip their `:cost`
+  /// streams instead of indexing the empty span (production SIGABRT,
+  /// 2026-07-13, span:302 hardening assert).
+  [[nodiscard]] constexpr bool has_col_costs() const noexcept
+  {
+    return !col_cost_span.empty();
+  }
+
+  /// Row-dual counterpart of `has_col_costs()`.
+  [[nodiscard]] constexpr bool has_row_duals() const noexcept
+  {
+    return !row_dual_span.empty();
+  }
+
   // ── Value-emit overloads (precomputed `(s,t,b) → double`) ────────
   //
   // Counterpart to the index-emit overloads below.  These take a

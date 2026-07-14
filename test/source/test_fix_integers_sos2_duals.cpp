@@ -40,6 +40,9 @@
 #include <charconv>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -48,7 +51,9 @@
 #include <tuple>
 #include <vector>
 
+#include <arrow/api.h>
 #include <doctest/doctest.h>
+#include <gtopt/array_index_traits.hpp>
 #include <gtopt/commitment.hpp>
 #include <gtopt/line.hpp>
 #include <gtopt/line_losses.hpp>
@@ -61,6 +66,8 @@
 #include <gtopt/simulation_lp.hpp>
 #include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
+
+#include "log_capture.hpp"
 
 using namespace gtopt;
 
@@ -105,7 +112,8 @@ struct RingSos2DualsFixture
   SimulationLP sim_lp;
   SystemLP sys_lp;
 
-  explicit RingSos2DualsFixture(bool with_commitment)
+  explicit RingSos2DualsFixture(bool with_commitment,
+                                std::string output_dir = {})
       : system {
             .name = "FixIntSos2Ring",
             .bus_array =
@@ -154,7 +162,7 @@ struct RingSos2DualsFixture
             .scenario_array = {{.uid = Uid {0},},},
         }
       , opts {}
-      , options(make_options())
+      , options(make_options(std::move(output_dir)))
       , sim_lp(simulation, options)
       , sys_lp(system, sim_lp, build_matrix_opts())
   {
@@ -203,7 +211,7 @@ private:
     };
   }
 
-  PlanningOptionsLP make_options()
+  PlanningOptionsLP make_options(std::string output_dir = {})
   {
     opts.model_options.use_single_bus = false;
     opts.model_options.use_kirchhoff = true;
@@ -211,13 +219,21 @@ private:
     opts.model_options.scale_objective = 1000.0;
     opts.model_options.demand_fail_cost = 1000.0;
     // Request duals so `SystemLP::resolve` gates the fix-integers
-    // dual-recovery pass ON — the production trigger.
-    opts.write_out =
-        OutputSelection {OutputFlags::solution | OutputFlags::dual};
+    // dual-recovery pass ON — the production trigger.  `reduced_cost`
+    // matches the production default (`sol,dual,rc`) and lets the
+    // forced-bail write-out test assert the rc stems are SKIPPED
+    // (not merely never requested).
+    opts.write_out = OutputSelection {OutputFlags::solution | OutputFlags::dual
+                                      | OutputFlags::reduced_cost};
     opts.lp_matrix_options.col_with_names = true;
     opts.lp_matrix_options.row_with_names = true;
     opts.lp_matrix_options.col_with_name_map = true;
     opts.lp_matrix_options.row_with_name_map = true;
+    if (!output_dir.empty()) {
+      opts.output_directory = std::move(output_dir);
+      opts.output_format = DataFormat::parquet;
+      opts.output_round_decimals = 5;
+    }
     return PlanningOptionsLP(opts);
   }
 
@@ -807,4 +823,315 @@ TEST_CASE(
         == doctest::Approx(0.0));
   CHECK(li.get_col_upp_raw()[static_cast<std::size_t>(value_of(f.u))]
         == doctest::Approx(1.0));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. Forced bail through the FULL production write-out path
+//    (GTOPT_TEST_FORCE_SOS_BAIL test-only hook)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Production crash (SOS2 run #3, fb7617c2): after the CPLEX SOS-support
+// verification bailed the dual-recovery pass, `SystemLP::write_out`
+// still read per-column reduced costs through `OutputContext::cost()`
+// (LineLP's signed `flow_cost` construction) — indexing the EMPTY
+// `col_cost_span` published under the `duals_unavailable` latch →
+// hardened `std::span::operator[]` assert → SIGABRT.  These cases pin
+// the full contract end-to-end: resolve + bail + write_out must not
+// crash, primal outputs are written and equal the MIP incumbent, every
+// dual/rc stem is skipped, and the WARN is emitted.
+
+namespace test_fix_integers_sos2_duals_ns
+{
+namespace
+{
+
+/// RAII scope for the TEST-ONLY forced-bail hook (see
+/// `test_force_fix_duals_bail()` in solver_backend.hpp): sets
+/// `GTOPT_TEST_FORCE_SOS_BAIL=1` on construction, unsets on
+/// destruction so no other test observes it.
+struct ForcedBailEnv
+{
+  ForcedBailEnv() { ::setenv("GTOPT_TEST_FORCE_SOS_BAIL", "1", 1); }
+  ~ForcedBailEnv() { ::unsetenv("GTOPT_TEST_FORCE_SOS_BAIL"); }
+  ForcedBailEnv(const ForcedBailEnv&) = delete;
+  ForcedBailEnv& operator=(const ForcedBailEnv&) = delete;
+  ForcedBailEnv(ForcedBailEnv&&) = delete;
+  ForcedBailEnv& operator=(ForcedBailEnv&&) = delete;
+};
+
+/// Long-form leaf value for element `uid` in a hive-partitioned output
+/// stem (`<dir>/scene=0/phase=0/part.parquet`); `std::nullopt` when the
+/// stem, the leaf, or the uid row is missing.  Schema is
+/// `(scenario, stage, block, uid, value)` with float32 values under
+/// `output_round_decimals = 5`.
+[[nodiscard]] auto leaf_value_for_uid(const std::filesystem::path& dataset_dir,
+                                      uint16_t uid) -> std::optional<double>
+{
+  auto table_res =
+      parquet_read_table(dataset_dir / "scene=0" / "phase=0" / "part");
+  if (!table_res.has_value() || *table_res == nullptr) {
+    return std::nullopt;
+  }
+  const auto& table = *table_res;
+  if (table->num_rows() < 1 || table->num_columns() < 5) {
+    return std::nullopt;
+  }
+  const auto uid_col =
+      std::static_pointer_cast<arrow::UInt16Array>(table->column(3)->chunk(0));
+  const auto val_col =
+      std::static_pointer_cast<arrow::FloatArray>(table->column(4)->chunk(0));
+  if (uid_col == nullptr || val_col == nullptr) {
+    return std::nullopt;
+  }
+  for (int64_t i = 0; i < uid_col->length(); ++i) {
+    if (uid_col->Value(i) == uid) {
+      return static_cast<double>(val_col->Value(i));
+    }
+  }
+  return std::nullopt;
+}
+
+/// Minimal production-shaped MIP for the PORTABLE bail path: 2 buses,
+/// one (lossless) line b1→b2, a UC binary on g1, demand at b2, duals +
+/// reduced costs requested — `SystemLP::resolve` runs the fix-integers
+/// pass, the forced bail latches `duals_unavailable`, and `write_out`
+/// exercises LineLP's flow_cost construction (the production crash
+/// site).  Solver is pinned (cbc) so the portable
+/// `fix_mip_and_resolve_duals` default runs, not the CPLEX override.
+struct BailWriteOutFixture
+{
+  System system;
+  Simulation simulation;
+  PlanningOptions opts;
+  PlanningOptionsLP options;
+  SimulationLP sim_lp;
+  SystemLP sys_lp;
+
+  BailWriteOutFixture(std::string solver, std::string output_dir)
+      : system {
+            .name = "ForcedBailWriteOut",
+            .bus_array =
+                {
+                    {.uid = Uid {1}, .name = "b1",},
+                    {.uid = Uid {2}, .name = "b2",},
+                },
+            .demand_array =
+                {
+                    {.uid = Uid {1},
+                     .name = "d2",
+                     .bus = Uid {2},
+                     .capacity = 100.0,},
+                },
+            .generator_array =
+                {
+                    {.uid = Uid {1},
+                     .name = "g1",
+                     .bus = Uid {1},
+                     .gcost = 50.0,
+                     .capacity = 300.0,},
+                },
+            .line_array =
+                {
+                    {.uid = Uid {1},
+                     .name = "l12",
+                     .bus_a = Uid {1},
+                     .bus_b = Uid {2},
+                     .tmax_ba = 500.0,
+                     .tmax_ab = 500.0,
+                     .capacity = 500.0,},
+                },
+            .commitment_array =
+                {
+                    {.uid = Uid {1},
+                     .name = "cmt_g1",
+                     .generator = Uid {1},
+                     .startup_cost = 100.0,
+                     .shutdown_cost = 50.0,
+                     .pmin = 30.0,
+                     .initial_status = 0.0,},
+                },
+        }
+      , simulation {
+            .block_array = {{.uid = Uid {1}, .duration = 1,},},
+            .stage_array =
+                {{.uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+                  .chronological = true,},},
+            .scenario_array = {{.uid = Uid {0},},},
+        }
+      , opts {}
+      , options(make_options(std::move(output_dir)))
+      , sim_lp(simulation, options)
+      , sys_lp(system, sim_lp, matrix_opts(std::move(solver)))
+  {
+  }
+
+  [[nodiscard]] auto& lp() { return sys_lp.linear_interface(); }
+
+private:
+  PlanningOptionsLP make_options(std::string output_dir)
+  {
+    opts.model_options.use_single_bus = false;
+    opts.model_options.use_kirchhoff = false;  // transport-only 2-bus
+    opts.model_options.scale_objective = 1000.0;
+    opts.model_options.demand_fail_cost = 1000.0;
+    // Production default `sol,dual,rc`: duals gate the fix pass ON;
+    // rc makes "the rc stems are SKIPPED" a real assertion.
+    opts.write_out = OutputSelection {OutputFlags::solution | OutputFlags::dual
+                                      | OutputFlags::reduced_cost};
+    opts.lp_matrix_options.col_with_names = true;
+    opts.lp_matrix_options.row_with_names = true;
+    opts.lp_matrix_options.col_with_name_map = true;
+    opts.lp_matrix_options.row_with_name_map = true;
+    opts.output_directory = std::move(output_dir);
+    opts.output_format = DataFormat::parquet;
+    opts.output_round_decimals = 5;
+    return PlanningOptionsLP(opts);
+  }
+
+  static LpMatrixOptions matrix_opts(std::string solver)
+  {
+    LpMatrixOptions bo;
+    bo.col_with_names = true;
+    bo.col_with_name_map = true;
+    bo.row_with_names = true;
+    bo.row_with_name_map = true;
+    bo.solver_name = std::move(solver);
+    return bo;
+  }
+};
+
+}  // namespace
+}  // namespace test_fix_integers_sos2_duals_ns
+
+using test_fix_integers_sos2_duals_ns::BailWriteOutFixture;
+using test_fix_integers_sos2_duals_ns::ForcedBailEnv;
+using test_fix_integers_sos2_duals_ns::leaf_value_for_uid;
+
+TEST_CASE(
+    "forced bail (portable path): resolve + write_out publishes the MIP "
+    "primal, skips every dual/rc stem, and warns — no crash")  // NOLINT
+{
+  auto& reg = SolverRegistry::instance();
+  reg.load_all_plugins();
+  if (!reg.has_solver("cbc") || !reg.supports_mip("cbc")) {
+    MESSAGE("cbc plugin not available — skipping portable forced-bail test");
+    return;
+  }
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_forced_bail_portable";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  BailWriteOutFixture f("cbc", tmpdir.string());
+  auto& li = f.lp();
+  REQUIRE(li.has_integer_cols());  // the UC binary gates the fix pass
+
+  gtopt::test::LogCapture logs;
+  const ForcedBailEnv forced;
+
+  // The production path: MIP solve, then the fix-integers pass —
+  // FORCED to bail — inside SystemLP::resolve.
+  const auto result = f.sys_lp.resolve();
+  REQUIRE(result.has_value());
+
+  // Bail contract on the LinearInterface: latch set, empty dual views.
+  CHECK(li.duals_unavailable());
+  CHECK(li.get_row_dual_raw().empty());
+  CHECK(li.get_col_cost_raw().empty());
+
+  // The WARN (the "once" breadcrumb for the degraded cell).
+  CHECK(logs.contains("fix-integers dual recovery bailed"));
+
+  // Incumbent snapshot for the write-back comparison: d2 = 100 MW must
+  // be served through l12 by g1.
+  const auto sol = li.get_col_sol_raw();
+  const double flow_inc =
+      sol[static_cast<std::size_t>(value_of(find_col(li, "line_flowp_1_")))];
+  const double gen_inc = sol[static_cast<std::size_t>(
+      value_of(find_col(li, "generator_generation_1_")))];
+  CHECK(flow_inc == doctest::Approx(100.0).epsilon(1e-6));
+  CHECK(gen_inc == doctest::Approx(100.0).epsilon(1e-6));
+
+  // The production crash site: write-out after the bail.  Must not
+  // abort; primal stems written, dual/rc stems skipped.
+  f.sys_lp.write_out();
+
+  const auto flow_out =
+      leaf_value_for_uid(tmpdir / "Line" / "flow_sol.parquet", 1);
+  REQUIRE(flow_out.has_value());
+  CHECK(*flow_out == doctest::Approx(flow_inc).epsilon(1e-4));
+
+  const auto gen_out =
+      leaf_value_for_uid(tmpdir / "Generator" / "generation_sol.parquet", 1);
+  REQUIRE(gen_out.has_value());
+  CHECK(*gen_out == doctest::Approx(gen_inc).epsilon(1e-4));
+
+  // Dual-dependent stems are ABSENT — skipped, not zero-filled.
+  CHECK(!std::filesystem::exists(tmpdir / "Line" / "flow_cost.parquet"));
+  CHECK(!std::filesystem::exists(tmpdir / "Bus" / "balance_dual.parquet"));
+  CHECK(!std::filesystem::exists(tmpdir / "Generator"
+                                 / "generation_cost.parquet"));
+
+  std::filesystem::remove_all(tmpdir);
+}
+
+TEST_CASE(
+    "forced bail (CPLEX SOS2 verification): ring production path — "
+    "write_out publishes the SOS2-feasible MIP incumbent, skips dual "
+    "outputs — no crash")  // NOLINT
+{
+  if (!sos2_available()) {
+    MESSAGE("Skipping CPLEX forced-bail test — no SOS2-capable backend");
+    return;
+  }
+
+  const auto tmpdir =
+      std::filesystem::temp_directory_path() / "gtopt_forced_bail_cplex";
+  std::filesystem::remove_all(tmpdir);
+  std::filesystem::create_directories(tmpdir);
+
+  RingSos2DualsFixture fix(/*with_commitment=*/true, tmpdir.string());
+  auto& li = fix.lp();
+  REQUIRE(li.sos2_set_count() == 4);
+  REQUIRE(li.has_integer_cols());
+
+  gtopt::test::LogCapture logs;
+  const ForcedBailEnv forced;
+
+  const auto result = fix.sys_lp.resolve();
+  REQUIRE(result.has_value());
+
+  // Bail contract: latch set, empty dual views, WARN emitted, and the
+  // CPLEX FIXEDMILP → MILP restore left the discrete structure intact
+  // (a successful pass relaxes it — see case 2's `!has_integer_cols`).
+  CHECK(li.duals_unavailable());
+  CHECK(li.get_row_dual_raw().empty());
+  CHECK(li.get_col_cost_raw().empty());
+  CHECK(logs.contains("fix-integers dual recovery bailed"));
+  CHECK(li.has_integer_cols());
+
+  // Published primal is the SOS2-feasible MIP incumbent.
+  const auto sol = li.get_col_sol_raw();
+  const auto lam = lambda_ladder(li, sol, /*uid=*/4);
+  check_sos2_adjacency(lam);
+  const double f14 =
+      sol[static_cast<std::size_t>(value_of(find_col(li, "line_flows_4_")))];
+  CHECK(std::abs(f14) > 10.0);
+
+  // Write-out after the bail (the production abort site): no crash,
+  // primal flow written and equal to the incumbent, dual stems absent.
+  fix.sys_lp.write_out();
+
+  const auto flow14_out =
+      leaf_value_for_uid(tmpdir / "Line" / "flow_sol.parquet", 4);
+  REQUIRE(flow14_out.has_value());
+  CHECK(*flow14_out == doctest::Approx(f14).epsilon(1e-4));
+
+  CHECK(!std::filesystem::exists(tmpdir / "Line" / "flow_cost.parquet"));
+  CHECK(!std::filesystem::exists(tmpdir / "Bus" / "balance_dual.parquet"));
+
+  std::filesystem::remove_all(tmpdir);
 }
