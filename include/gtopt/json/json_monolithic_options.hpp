@@ -235,7 +235,9 @@ struct MonolithicOptionsConstructor
       OptName boundary_cut_sharing_mode_str,
       OptInt boundary_max_iterations,
       std::optional<SolverOptions> solver_options,
-      std::optional<MipStartOptions> mip_start) const
+      std::optional<MipStartOptions> mip_start,
+      OptInt relax_and_fix_window,
+      OptInt relax_and_fix_overlap) const
   {
     MonolithicOptions opts;
     if (solve_mode_str) {
@@ -255,6 +257,8 @@ struct MonolithicOptionsConstructor
     opts.boundary_max_iterations = boundary_max_iterations;
     opts.solver_options = std::move(solver_options);
     opts.mip_start = std::move(mip_start);
+    opts.relax_and_fix_window = relax_and_fix_window;
+    opts.relax_and_fix_overlap = relax_and_fix_overlap;
     return opts;
   }
 };
@@ -271,7 +275,9 @@ struct json_data_contract<MonolithicOptions>
                        json_string_null<"boundary_cut_sharing_mode", OptName>,
                        json_number_null<"boundary_max_iterations", OptInt>,
                        json_class_null<"solver_options", SolverOptions>,
-                       json_class_null<"mip_start", MipStartOptions>>;
+                       json_class_null<"mip_start", MipStartOptions>,
+                       json_number_null<"relax_and_fix_window", OptInt>,
+                       json_number_null<"relax_and_fix_overlap", OptInt>>;
 
   static auto to_json_data(MonolithicOptions const& opt)
   {
@@ -282,7 +288,9 @@ struct json_data_contract<MonolithicOptions>
         detail::enum_to_opt_name(opt.boundary_cut_sharing_mode),
         opt.boundary_max_iterations,
         opt.solver_options,
-        opt.mip_start);
+        opt.mip_start,
+        opt.relax_and_fix_window,
+        opt.relax_and_fix_overlap);
   }
 };
 

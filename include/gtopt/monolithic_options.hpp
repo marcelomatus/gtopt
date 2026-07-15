@@ -316,6 +316,30 @@ struct MonolithicOptions
    */
   std::optional<MipStartOptions> mip_start {};
 
+  // ── Relax-and-fix rolling-window integrality ───────────────────────────────
+  /** @brief Hours per relax-and-fix window (0 / unset = off).
+   *
+   * Rolling-window integrality for monolithic UC MIPs: the model stays WHOLE
+   * (every row — reservoir/storage coupling included — is always in the LP),
+   * but commitment binaries are integer only inside a rolling window of this
+   * many hours.  Binaries of PAST windows are FIXED via bounds to their solved
+   * 0/1 values; binaries of FUTURE windows are LP-relaxed.  Each window is one
+   * (much smaller) MIP; the final window's solve — all past windows fixed, the
+   * last window integer — is the returned MIP solution.  A weekly model with
+   * a 24 h window solves ~7 MIPs with ~7× fewer free binaries each.  The
+   * result is a feasible integer solution whose objective is an UPPER bound
+   * on the true MIP optimum (relax-and-fix is a heuristic).  If any window
+   * MIP fails, the solver falls back to the plain full MIP. */
+  OptInt relax_and_fix_window {};
+  /** @brief Hours re-optimized from the PREVIOUS window (default 0).
+   *
+   * With overlap H, the trailing H hours of window k−1 are NOT fixed after
+   * window k−1's solve; they are re-optimized as integer together with window
+   * k.  Softens end-of-window myopia (e.g. a unit kept on at a window edge
+   * only because the fix boundary hid the shutdown that follows).  Only
+   * meaningful with `relax_and_fix_window > 0`. */
+  OptInt relax_and_fix_overlap {};
+
   void merge(MonolithicOptions&& opts)
   {
     merge_opt(solve_mode, opts.solve_mode);
@@ -323,6 +347,8 @@ struct MonolithicOptions
     merge_opt(boundary_cuts_mode, opts.boundary_cuts_mode);
     merge_opt(boundary_cut_sharing_mode, opts.boundary_cut_sharing_mode);
     merge_opt(boundary_max_iterations, opts.boundary_max_iterations);
+    merge_opt(relax_and_fix_window, opts.relax_and_fix_window);
+    merge_opt(relax_and_fix_overlap, opts.relax_and_fix_overlap);
     if (opts.mip_start.has_value()) {
       if (mip_start.has_value()) {
         mip_start->merge(std::move(*opts.mip_start));

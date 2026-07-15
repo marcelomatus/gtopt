@@ -38,6 +38,7 @@
 #include <gtopt/memory_compress.hpp>
 #include <gtopt/mip_start.hpp>
 #include <gtopt/output_context.hpp>
+#include <gtopt/relax_and_fix.hpp>
 #include <gtopt/system_lp.hpp>
 #include <gtopt/utils.hpp>
 #include <spdlog/spdlog.h>
@@ -1810,15 +1811,18 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   // bypasses its costly node-0 heuristic incumbent (the "incumbent cliff").
   // Gated so pure-LP solves and runs that don't enable the feature pay
   // nothing; `apply_mip_start` itself no-ops when there are no integer cols.
-  if (const auto mip_start_opts = options().mip_start_options();
-      mip_start_opts.enabled.value_or(false)
-      || mip_start_opts.relax.check.value_or(false))
-  {
-    // Build per-(scenario, commitment) the seed-matching info: the unit's
-    // generator identity plus its status columns and block uids in
-    // chronological order — what `SeedCommitmentRule` needs to overlay an
-    // external commitment seed by (generator, block) identity.
-    std::vector<CommitmentRunInfo> commitments;
+  const auto mip_start_opts = options().mip_start_options();
+  const bool mip_start_active = mip_start_opts.enabled.value_or(false)
+      || mip_start_opts.relax.check.value_or(false);
+  const int raf_window = options().relax_and_fix_window();
+
+  // Build per-(scenario, commitment) the seed-matching info: the unit's
+  // generator identity plus its status columns and block uids in
+  // chronological order — what `SeedCommitmentRule` needs to overlay an
+  // external commitment seed by (generator, block) identity, and what the
+  // relax-and-fix orchestration partitions into rolling windows.
+  std::vector<CommitmentRunInfo> commitments;
+  if (mip_start_active || raf_window > 0) {
     for (const auto& scenario : scene().scenarios()) {
       for (const auto& comm : elements<CommitmentLP>()) {
         CommitmentRunInfo info {
@@ -1843,7 +1847,9 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
         }
       }
     }
+  }
 
+  if (mip_start_active) {
     // `scip_repair` builds a second backend from the flattened LP; pass the
     // retained snapshot when present (nullptr otherwise → that method
     // self-skips).  Other methods ignore it.
@@ -1932,8 +1938,59 @@ std::expected<int, Error> SystemLP::resolve(const SolverOptions& solver_options)
   const std::string checkpoint_file = rb_opts.checkpoint_file.value_or("");
   const bool checkpoint_requested =
       checkpoint_gap > 0.0 && !checkpoint_file.empty() && li.has_integer_cols();
+
+  // ── Relax-and-fix rolling-window integrality ──────────────────────────
+  //
+  // `monolithic_options.relax_and_fix_window` (hours) partitions the
+  // commitment binaries into rolling windows over the phase's chronological
+  // blocks; each window is a much smaller MIP (past windows pinned via
+  // bounds, future windows LP-relaxed) and the final window's solve is the
+  // returned MIP solution — see relax_and_fix.hpp.  The window key is the
+  // block start hour: cumulative block durations across this phase's stages
+  // in chronological order, matching the `CommitmentRunInfo` build above.
+  const bool raf_active = raf_window > 0 && !commitments.empty();
+  if (raf_window > 0 && commitments.empty()) {
+    SPDLOG_DEBUG(
+        "SystemLP::resolve [scene={} phase={}]: relax_and_fix_window={} but "
+        "no commitment run infos — plain solve",
+        scene().uid(),
+        phase().uid(),
+        raf_window);
+  }
   std::expected<int, Error> result;
-  if (!checkpoint_requested) {
+  if (raf_active) {
+    if (checkpoint_requested) {
+      spdlog::warn(
+          "SystemLP::resolve [scene={} phase={}]: mip_start.checkpoint_gap "
+          "is not supported together with relax_and_fix_window — the "
+          "checkpoint is disabled for this solve",
+          scene().uid(),
+          phase().uid());
+    }
+    std::unordered_map<Uid, double> block_start_hours;
+    double hour = 0.0;
+    for (const auto& stage : phase().stages()) {
+      for (const auto& blk : stage.blocks()) {
+        block_start_hours.try_emplace(value_of(blk.uid()), hour);
+        hour += blk.duration();
+      }
+    }
+    const auto raf_cols =
+        make_relax_and_fix_cols(commitments, block_start_hours);
+    auto raf = solve_relax_and_fix(
+        li,
+        solve_opts,
+        raf_cols,
+        {
+            .window_hours = static_cast<double>(raf_window),
+            .overlap_hours =
+                static_cast<double>(options().relax_and_fix_overlap()),
+        });
+    if (!raf) {
+      return std::unexpected(std::move(raf.error()));
+    }
+    result = raf->status;
+  } else if (!checkpoint_requested) {
     result = li.resolve(solve_opts);
   } else if (li.supports_checkpoint()) {
     li.set_checkpoint(checkpoint_gap, checkpoint_file);

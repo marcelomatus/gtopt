@@ -1112,6 +1112,20 @@ public:
     return m_options_.monolithic_options.mip_start.value_or(MipStartOptions {});
   }
 
+  /// Relax-and-fix rolling-window integrality: hours per window (0 = off).
+  [[nodiscard]] auto relax_and_fix_window() const -> int
+  {
+    return static_cast<int>(
+        m_options_.monolithic_options.relax_and_fix_window.value_or(0));
+  }
+
+  /// Relax-and-fix: hours re-optimized from the previous window (default 0).
+  [[nodiscard]] auto relax_and_fix_overlap() const -> int
+  {
+    return static_cast<int>(
+        m_options_.monolithic_options.relax_and_fix_overlap.value_or(0));
+  }
+
   // Default values for SDDP solver settings
   /** @brief Default solver type */
   static constexpr MethodType default_method_type = MethodType::monolithic;
