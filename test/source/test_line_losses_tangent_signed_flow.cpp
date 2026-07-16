@@ -28,9 +28,12 @@
 //      (within 1e-3 relative slack — different PWL polarity).
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include <doctest/doctest.h>
@@ -42,6 +45,7 @@
 #include <gtopt/planning_lp.hpp>
 #include <gtopt/planning_options_lp.hpp>
 #include <gtopt/simulation_lp.hpp>
+#include <gtopt/solver_registry.hpp>
 #include <gtopt/system_lp.hpp>
 
 using namespace gtopt;
@@ -1156,6 +1160,232 @@ TEST_CASE("tangent_signed_flow: chord UB never exceeds loose constant bound")
   // formulation never relaxes this safety ceiling.
   const double constant_ub = k_loss * tmax * tmax;
   CHECK(loss <= constant_ub + 1e-6);
+}
+
+// ── Regression: SOS2 λ-form vs the constant ceiling under negative LMP ──
+//
+// Production defect (pcp_2026-01-18, line uid 262 Tamaya110->Salar110_4B):
+// the `tangent_signed_flow` + `loss_use_sos2` "surgical cure" was expected
+// to STRUCTURALLY cap ``ℓ`` to the per-segment secant of ``|f|`` for any
+// price signs (see source/line_losses.cpp:1711-1716), so that under a
+// negative bus-dual pair-sum the loss cannot inflate to the loose ceiling
+// ``c·env²``.  It DID NOT: the published solution booked ``ℓ = c·env²``
+// (10.485 MW) at ``|f| ≈ 2`` MW — a λ ladder with NON-ADJACENT mass
+// (weight near ``b = 0`` to satisfy the flow row at small ``|f|`` AND near
+// ``b = ±env`` to lift the chord to ``c·env²``).  That vertex satisfies
+// every LP row yet violates the SOS2 branching constraint; CPLEX presolve
+// (176 k substitutions on the production LP) reconstructs it in original
+// space, and the fix-integers dual-recovery pass preserves it faithfully.
+//
+// This test pins the two-sided contract on a SMALL directly-solved LP
+// (where the backend DOES honour SOS2 adjacency — so it is the positive
+// control the production case lacked):
+//   * the λ ladder is SOS2-adjacent (at most two non-zero, adjacent), and
+//   * ``ℓ`` is capped by the per-segment secant of ``|f|`` — NOT the loose
+//     ``c·env²`` ceiling — even with a subsidised (negative-cost) generator
+//     at the receiver pushing ``ℓ`` up.
+// A regression that flips either invariant (e.g. a formulation change that
+// lets the λ ladder go non-adjacent, or a ceiling that decouples ``ℓ``
+// from the SOS2-active segment) fails here.
+TEST_CASE(
+    "tangent_signed_flow SOS2: λ ladder stays adjacent and caps ℓ "
+    "below the constant ceiling under negative LMP")
+{
+  if (!SolverRegistry::instance().has_solver("cplex")) {
+    MESSAGE("Skipping SOS2 λ-form regression — no SOS2-capable backend");
+    return;
+  }
+
+  constexpr int K = 5;
+  constexpr int L = 4;  // secant segments → 2L+1 = 9 λ breakpoints
+  constexpr double R = 0.01;
+  constexpr double V = 100.0;
+  constexpr double V2 = V * V;
+  constexpr double tmax = 200.0;
+  constexpr double k_loss = R / V2;
+
+  System system = {
+      .name = "TangentSignedFlowSos2NegLmp",
+      .bus_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .name = "b1",
+              },
+              {
+                  .uid = Uid {2},
+                  .name = "b2",
+              },
+          },
+      .demand_array =
+          {
+              // Load ONLY at bus 1 — power must be IMPORTED over the line
+              // from bus 2, so the flow column is genuinely driven off
+              // zero (a load-at-the-receiver fixture leaves the line idle
+              // and the arbitrage untested).
+              {
+                  .uid = Uid {1},
+                  .name = "d1",
+                  .bus = Uid {1},
+                  .capacity = 50.0,
+              },
+          },
+      .generator_array =
+          {
+              // Expensive local gen at bus 1 — the LP prefers importing.
+              {
+                  .uid = Uid {1},
+                  .name = "g1",
+                  .bus = Uid {1},
+                  .gcost = 200.0,
+                  .capacity = 500.0,
+              },
+              // Subsidised gen at bus 2 — every MWh dispatched earns money,
+              // so the LP wants to over-produce and dump the surplus into
+              // the loss sink (the arbitrage lure).
+              {
+                  .uid = Uid {2},
+                  .name = "g2_neg",
+                  .bus = Uid {2},
+                  .gcost = -100.0,
+                  .capacity = 500.0,
+              },
+          },
+      .line_array = {},
+  };
+  {
+    Line ln = {
+        .uid = Uid {1},
+        .name = "l1",
+        .bus_a = Uid {1},
+        .bus_b = Uid {2},
+        .voltage = V,
+        .resistance = R,
+        .line_losses_mode = OptName {"tangent_signed_flow"},
+        .loss_segments = K,
+        .tmax_ba = tmax,
+        .tmax_ab = tmax,
+        .capacity = tmax,
+    };
+    ln.loss_secant_segments = L;
+    ln.loss_use_sos2 = true;
+    system.line_array.push_back(std::move(ln));
+  }
+
+  Simulation simulation = {
+      .block_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .duration = 1,
+              },
+          },
+      .stage_array =
+          {
+              {
+                  .uid = Uid {1},
+                  .first_block = 0,
+                  .count_block = 1,
+              },
+          },
+      .scenario_array =
+          {
+              {
+                  .uid = Uid {0},
+              },
+          },
+  };
+
+  PlanningOptions opts;
+  opts.model_options.use_single_bus = false;
+  opts.model_options.use_kirchhoff = false;
+  opts.model_options.scale_objective = 1000.0;
+  opts.model_options.demand_fail_cost = 1000.0;
+  opts.lp_matrix_options.col_with_names = true;
+  opts.lp_matrix_options.row_with_names = true;
+  opts.lp_matrix_options.col_with_name_map = true;
+  opts.lp_matrix_options.row_with_name_map = true;
+  // Pin the SOLVE to CPLEX (not merely the availability check above):
+  // SOS2 needs a MIP backend with native SOS2 support, and a bare
+  // `resolve()` would otherwise use the ambient default solver
+  // (`GTOPT_SOLVER=clp` in CI throws in `add_sos2`).
+  opts.lp_matrix_options.solver_name = "cplex";
+  const PlanningOptionsLP options(opts);
+  SimulationLP sim_lp(simulation, options);
+  LpMatrixOptions bo;
+  bo.col_with_names = true;
+  bo.col_with_name_map = true;
+  bo.row_with_names = true;
+  bo.row_with_name_map = true;
+  bo.solver_name = "cplex";
+  SystemLP sys_lp(system, sim_lp, bo);
+
+  auto& li = sys_lp.linear_interface();
+  REQUIRE(li.sos2_set_count() == 1);  // one (line, block) SOS2 set
+  auto r = li.resolve();
+  REQUIRE(r.has_value());
+  REQUIRE(r.value() == 0);
+
+  const auto sol = li.get_col_sol_raw();
+  const auto fcol = find_col(li, "line_flows_");
+  const auto loss_col = find_col(li, "line_lossp_");
+  const double f = sol[value_of(fcol)];
+  const double loss = sol[value_of(loss_col)];
+  CAPTURE(f);
+  CAPTURE(loss);
+
+  // Collect the 2L+1 λ breakpoint weights (name suffix _0.._{2L}).
+  constexpr int lambda_count = (2 * L) + 1;
+  std::array<double, lambda_count> lam {};
+  int found = 0;
+  for (const auto& [name, idx] : li.col_name_map()) {
+    if (!name.contains("line_flow_lambda_")) {
+      continue;
+    }
+    const auto last = name.find_last_of('_');
+    if (last == std::string_view::npos) {
+      continue;
+    }
+    int seg = -1;
+    const auto seg_str = name.substr(last + 1);
+    if (std::from_chars(seg_str.data(), seg_str.data() + seg_str.size(), seg).ec
+        != std::errc {})
+    {
+      continue;
+    }
+    if (seg >= 0 && seg < lambda_count) {
+      lam[static_cast<std::size_t>(seg)] =
+          sol[static_cast<std::size_t>(value_of(idx))];
+      ++found;
+    }
+  }
+  REQUIRE(found == lambda_count);
+
+  // (1) SOS2 adjacency — at most two non-zero λ, and if two, ADJACENT.
+  //     This is the invariant the production incumbent violated.
+  std::vector<int> nonzero;
+  for (int l = 0; l < lambda_count; ++l) {
+    if (lam[static_cast<std::size_t>(l)] > 1e-6) {
+      nonzero.push_back(l);
+    }
+  }
+  CHECK(nonzero.size() <= 2);
+  if (nonzero.size() == 2) {
+    CHECK(nonzero[1] == nonzero[0] + 1);
+  }
+
+  // (2) ℓ is capped by the SOS2-active per-segment secant of |f|, well
+  //     below the loose constant ceiling.  With L=4, seg_width = tmax/4,
+  //     the per-segment secant overstates c·f² by at most c·w²/4.
+  const double w = tmax / static_cast<double>(L);
+  const double bracket_slack = k_loss * w * w / 4.0;
+  CHECK(loss <= (k_loss * f * f) + bracket_slack + 1e-6);
+
+  // (3) And STRICTLY below the constant ceiling the non-SOS2 chord admits
+  //     — the whole point of the λ-form is that this gap is real when the
+  //     backend honours SOS2 adjacency.
+  const double constant_ub = k_loss * tmax * tmax;
+  CHECK(loss < constant_ub);
 }
 
 // NOLINTEND(bugprone-unchecked-optional-access)
