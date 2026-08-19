@@ -56,6 +56,14 @@ public:
   {
     return at_sched<Type>(m_sched_, m_arrow_array_uid_, uids...);
   }
+
+  /// Optional block-level lookup: returns std::nullopt when the key is
+  /// absent from the schedule index.  Mirrors OptSchedule::optval so
+  /// callers can skip missing entries without catching out_of_range.
+  [[nodiscard]] constexpr std::optional<Type> optval(Uid... uids) const
+  {
+    return optval_sched<Type>(m_sched_, m_arrow_array_uid_, uids...);
+  }
 };
 
 template<typename Type, typename... Uid>

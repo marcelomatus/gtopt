@@ -137,6 +137,13 @@ void LinearInterface::generate_labels_from_maps(
     view.context = meta.context;
     auto label = writer_labels.make_col_label(view);
     if (label.empty()) {
+      spdlog::error(
+          "LinearInterface::generate_labels_from_maps: col {} metadata: "
+          "class_name='{}' variable_name='{}' variable_uid={}",
+          i,
+          meta.class_name,
+          meta.variable_name,
+          meta.variable_uid);
       throw std::logic_error(
           std::format("LinearInterface::generate_labels_from_maps: col {} has "
                       "metadata without a class_name (unlabelable).",

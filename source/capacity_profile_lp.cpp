@@ -56,6 +56,14 @@ bool CapacityProfileLP::add_to_lp(const SystemContext& sc,
         }
 
         auto&& element_cols = Traits::cols_at(owner, scenario, stage);
+        // When the owner element has no columns for this (scenario, stage)
+        // — e.g. a generator whose pmax is zero for every block because of
+        // maintenance or because it enters service later — there is nothing
+        // for the capacity profile to constrain.  Skip quietly instead of
+        // failing with a flat_map::at lookup in add_profile_to_lp.
+        if (element_cols.empty()) {
+          return true;
+        }
 
         const auto [opt_capacity, capacity_col] =
             owner.capacity_and_col(stage, lp);

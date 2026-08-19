@@ -59,7 +59,11 @@ struct CapacityProfileTraits<GeneratorLP>
                                                 const ScenarioLP& scenario,
                                                 const StageLP& stage)
   {
-    return owner.generation_cols_at(scenario, stage);
+    // Use the tolerant lookup so that capacity profiles for generators
+    // whose every block was skipped by the P1 zero-pmax optimization
+    // (e.g. maintenance or not-yet-commissioned units) produce an empty
+    // column map instead of throwing flat_map::at.
+    return owner.lookup_generation_cols(scenario, stage);
   }
 
   [[nodiscard]] static constexpr bool has_capacity(
@@ -89,7 +93,11 @@ struct CapacityProfileTraits<DemandLP>
                                                 const ScenarioLP& scenario,
                                                 const StageLP& stage)
   {
-    return owner.load_cols_at(scenario, stage);
+    // Use the tolerant lookup so that capacity profiles for demands
+    // whose every block was skipped by the P1 zero-lmax optimization
+    // (e.g. zero demand or not-yet-energized load) produce an empty
+    // column map instead of throwing flat_map::at.
+    return owner.lookup_load_cols(scenario, stage);
   }
 
   [[nodiscard]] static constexpr bool has_capacity(

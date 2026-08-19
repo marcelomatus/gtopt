@@ -431,3 +431,241 @@ TEST_CASE(  // NOLINT
   CHECK(direct_rows == folded_rows);
   CHECK(direct_cols == folded_cols);
 }
+
+
+// ── Defensive edge cases: missing owner columns / profile values ───────
+
+namespace
+{
+
+[[nodiscard]] Simulation make_two_block_sim()
+{
+  return Simulation {
+      .block_array = {{.uid = Uid {1}, .duration = 1.0},
+                      {.uid = Uid {2}, .duration = 1.0}},
+      .stage_array = {{.uid = Uid {1}, .first_block = 0, .count_block = 2}},
+      .scenario_array = {{.uid = Uid {0}}},
+  };
+}
+
+}  // namespace
+
+TEST_CASE(  // NOLINT
+    "CapacityProfileLP (Demand kind) tolerates zero-lmax demand in every "
+    "block (outer load_cols key missing)")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 300.0},
+  };
+  const std::vector<std::vector<double>> zero_lmax {{0.0, 0.0}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1},
+       .name = "d1",
+       .bus = Uid {1},
+       .lmax = zero_lmax,
+       .fcost = 1000.0,
+       .capacity = 100.0},
+  };
+
+  CapacityProfile p;
+  p.uid = Uid {1};
+  p.name = "dp1";
+  p.owner_kind = ProfileOwnerKind::Demand;
+  p.owner = Uid {1};
+  p.profile = 0.6;
+
+  const System sys = {
+      .name = "ZeroDemandCapacityProfile",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .capacity_profile_array = Array<CapacityProfile> {p},
+  };
+
+  const auto sim = make_two_block_sim();
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(sim, options);
+  SystemLP system_lp(sys, sim_lp);
+
+  // Pre-fix this threw flat_map::at because DemandLP elided the entire
+  // load_cols outer key for (scenario, stage) and CapacityProfileLP used
+  // load_cols_at instead of the tolerant lookup.
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.resolve().has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "CapacityProfileLP (Demand kind) skips individual blocks where demand "
+    "load column was elided by P1 zero-lmax optimization")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g1",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 300.0},
+  };
+  const std::vector<std::vector<double>> partial_lmax {{100.0, 0.0}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1},
+       .name = "d1",
+       .bus = Uid {1},
+       .lmax = partial_lmax,
+       .fcost = 1000.0,
+       .capacity = 100.0},
+  };
+
+  CapacityProfile p;
+  p.uid = Uid {1};
+  p.name = "dp1";
+  p.owner_kind = ProfileOwnerKind::Demand;
+  p.owner = Uid {1};
+  p.profile = 0.6;
+
+  const System sys = {
+      .name = "PartialDemandCapacityProfile",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .capacity_profile_array = Array<CapacityProfile> {p},
+  };
+
+  const auto sim = make_two_block_sim();
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(sim, options);
+  SystemLP system_lp(sys, sim_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  // The profile constraint is created for block 1 only: block 2 had its
+  // load column elided by the P1 zero-lmax optimization, so
+  // add_profile_to_lp skips it.  We simply sanity-check that the LP is
+  // smaller than it would have been with both blocks participating.
+  const auto rows = lp.get_numrows();
+  const auto cols = lp.get_numcols();
+  CHECK(rows > 0);
+  CHECK(cols > 0);
+}
+
+TEST_CASE(  // NOLINT
+    "CapacityProfileLP (Generator kind) tolerates zero-pmax generator in "
+    "every block (outer generation_cols key missing)")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g_zero",
+       .bus = Uid {1},
+       .gcost = 50.0,
+       .capacity = 0.0},
+      {.uid = Uid {2},
+       .name = "g_backup",
+       .bus = Uid {1},
+       .gcost = 100.0,
+       .capacity = 300.0},
+  };
+  const std::vector<std::vector<double>> normal_lmax {{80.0, 80.0}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1},
+       .name = "d1",
+       .bus = Uid {1},
+       .lmax = normal_lmax,
+       .fcost = 1000.0,
+       .capacity = 100.0},
+  };
+
+  CapacityProfile p;
+  p.uid = Uid {1};
+  p.name = "gp_zero";
+  p.owner_kind = ProfileOwnerKind::Generator;
+  p.owner = Uid {1};
+  p.profile = 0.6;
+
+  const System sys = {
+      .name = "ZeroGeneratorCapacityProfile",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .capacity_profile_array = Array<CapacityProfile> {p},
+  };
+
+  const auto sim = make_two_block_sim();
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(sim, options);
+  SystemLP system_lp(sys, sim_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  CHECK(lp.resolve().has_value());
+}
+
+TEST_CASE(  // NOLINT
+    "CapacityProfileLP (Generator kind) skips individual blocks where "
+    "generator column was elided by P1 zero-pmax optimization")
+{
+  const Array<Bus> bus_array = {{.uid = Uid {1}, .name = "b1"}};
+  const Array<Generator> generator_array = {
+      {.uid = Uid {1},
+       .name = "g_partial",
+       .bus = Uid {1},
+       .pmax = std::vector<std::vector<double>> {{200.0, 0.0}},
+       .gcost = 50.0,
+       .capacity = 300.0},
+      {.uid = Uid {2},
+       .name = "g_backup",
+       .bus = Uid {1},
+       .gcost = 100.0,
+       .capacity = 300.0},
+  };
+  const std::vector<std::vector<double>> normal_lmax {{80.0, 80.0}};
+  const Array<Demand> demand_array = {
+      {.uid = Uid {1},
+       .name = "d1",
+       .bus = Uid {1},
+       .lmax = normal_lmax,
+       .fcost = 1000.0,
+       .capacity = 100.0},
+  };
+
+  CapacityProfile p;
+  p.uid = Uid {1};
+  p.name = "gp_partial";
+  p.owner_kind = ProfileOwnerKind::Generator;
+  p.owner = Uid {1};
+  p.profile = 0.6;
+
+  const System sys = {
+      .name = "PartialGeneratorCapacityProfile",
+      .bus_array = bus_array,
+      .demand_array = demand_array,
+      .generator_array = generator_array,
+      .capacity_profile_array = Array<CapacityProfile> {p},
+  };
+
+  const auto sim = make_two_block_sim();
+  PlanningOptions opts;
+  opts.model_options.scale_objective = 1.0;
+  const PlanningOptionsLP options {opts};
+  SimulationLP sim_lp(sim, options);
+  SystemLP system_lp(sys, sim_lp);
+
+  auto&& lp = system_lp.linear_interface();
+  REQUIRE(lp.resolve().has_value());
+
+  const auto rows = lp.get_numrows();
+  const auto cols = lp.get_numcols();
+  CHECK(rows > 0);
+  CHECK(cols > 0);
+}

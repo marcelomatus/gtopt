@@ -93,7 +93,35 @@ public:
 
     for (const auto& block : blocks) {
       const auto buid = block.uid();
-      const auto block_profile = profile.at(scenario.uid(), stage.uid(), buid);
+
+      const auto block_profile =
+          profile.optval(scenario.uid(), stage.uid(), buid);
+      if (!block_profile.has_value()) {
+        SPDLOG_WARN(
+            "{} uid={}: missing profile value for scenario={} stage={} "
+            "block={}; skipping block",
+            full_class_name,
+            uid(),
+            scenario.uid(),
+            stage.uid(),
+            buid);
+        continue;
+      }
+
+      const auto ecol_it = element_cols.find(buid);
+      if (ecol_it == element_cols.end()) {
+        SPDLOG_WARN(
+            "{} uid={}: owner has no element column for scenario={} stage={} "
+            "block={}; skipping block",
+            full_class_name,
+            uid(),
+            scenario.uid(),
+            stage.uid(),
+            buid);
+        continue;
+      }
+      const auto ecol = ecol_it->second;
+
       const auto block_scost =
           CostHelper::block_ecost(scenario, stage, block, stage_scost);
 
@@ -108,7 +136,6 @@ public:
       });
       scols[buid] = scol;
 
-      const auto ecol = element_cols.at(buid);
       auto srow = SparseRow {
           .class_name = full_class_name,
           .constraint_name = profile_name,
@@ -119,10 +146,10 @@ public:
       srow[ecol] = 1;
 
       if (capacity_col) {
-        srow[*capacity_col] = -block_profile;
+        srow[*capacity_col] = -*block_profile;
         srows[buid] = lp.add_row(std::move(srow.equal(0)));
       } else {
-        const auto cprofile = stage_capacity * block_profile;
+        const auto cprofile = stage_capacity * *block_profile;
         srows[buid] = lp.add_row(std::move(srow.equal(cprofile)));
       }
     }

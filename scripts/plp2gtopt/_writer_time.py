@@ -299,6 +299,14 @@ class TimeMixin:
         if not options:
             return
 
+        # ``-a 0`` / ``--apertures 0`` explicitly disables apertures:
+        # skip all expensive aperture parsing, wetness ranking, and
+        # aperture Parquet writes.  Treat integer 0 and the string "0"
+        # equivalently (tests use both forms).
+        num_apertures = options.get("num_apertures", "all")
+        if num_apertures in (0, "0", "0-0"):
+            return
+
         idap2_parser = self.parser.parsed_data.get("idap2_parser", None)
         idape_parser = self.parser.parsed_data.get("idape_parser", None)
 

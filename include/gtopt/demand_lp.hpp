@@ -5,6 +5,7 @@
 #include <gtopt/bus_lp.hpp>
 #include <gtopt/capacity_object_lp.hpp>
 #include <gtopt/demand.hpp>
+#include <gtopt/index_holder.hpp>
 #include <gtopt/linear_interface.hpp>  // ScaledView
 
 namespace gtopt
@@ -54,6 +55,18 @@ public:
                                      const StageLP& stage) const
   {
     return load_cols.at({scenario.uid(), stage.uid()});
+  }
+
+  /// Tolerant inner-map lookup over `load_cols`.  When every block of
+  /// `(scenario, stage)` is skipped by the P1 zero-lmax optimization,
+  /// the outer key is absent and `load_cols_at` would throw.  Returns a
+  /// reference to an empty block holder instead, so callers such as
+  /// `CapacityProfileLP` can skip the stage safely.
+  [[nodiscard]]
+  const auto& lookup_load_cols(const ScenarioLP& scenario,
+                               const StageLP& stage) const noexcept
+  {
+    return find_or_empty_inner(load_cols, scenario, stage);
   }
 
   /// Reconstructed failure quantity at (scenario, stage, block).
