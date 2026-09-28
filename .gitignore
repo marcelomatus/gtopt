@@ -108,3 +108,7 @@ cases/*/out*/
 # (comparison inputs, regenerable via unrar — not source, keep out of git).
 support/luis/**/psr_ref/
 support/luis/**/PDD_DIARIO/
+
+# Salidas de plp2gtopt sobre los casos CEN de largo plazo: se regeneran con el
+# plp2gtopt_state.json de cada carpeta (7-19 MB cada una, 168 MB en total).
+cases/cen_long_term_*/
