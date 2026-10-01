@@ -432,7 +432,6 @@ TEST_CASE(  // NOLINT
   CHECK(direct_cols == folded_cols);
 }
 
-
 // ── Defensive edge cases: missing owner columns / profile values ───────
 
 namespace
